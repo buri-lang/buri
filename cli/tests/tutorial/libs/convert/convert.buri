@@ -4,14 +4,14 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 from "//libs/units" import { ParseError, parseQuantity, parseUnit, Quantity, Unit };
 
-derive Eq, Show for Request;
+derive Equal, Show for Request;
 /// One conversion to perform.
 export struct Request {
     export quantity: Quantity,
     export target: Unit,
 }
 
-derive Eq, Show for ConvertError;
+derive Equal, Show for ConvertError;
 /// Everything that can go wrong between the command line and the answer.
 export enum ConvertError {
     Usage,

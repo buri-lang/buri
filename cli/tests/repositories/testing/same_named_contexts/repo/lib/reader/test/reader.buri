@@ -15,5 +15,5 @@ context Fixture {
 test "a read list holds what was put in it" {
     let ctx = Fixture();
 
-    assert.eq(read(ctx, 2), 1);
+    assert.equal(read(ctx, 2), 1);
 }

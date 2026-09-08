@@ -26,7 +26,7 @@
 //!   x.toT()      where it might not      -> Result<T, RangeError>
 //!   x.wrapToT()  modular                 -> T
 //!
-//! The compiler also declares, per primitive: `abs`, `signum`, `compare`, `eq`,
+//! The compiler also declares, per primitive: `abs`, `signum`, `compare`, `equal`,
 //! `show`, `hash`, the operator-trait methods, and the `Checked`, `Wrapping` and
 //! `Saturating` method sets.
 
@@ -34,10 +34,10 @@ from "core/bits" import * as bits;
 from "core/character" import * as character;
 from "core/effect" import { Allocator };
 from "core/list" import * as list;
-from "core/order" import { Eq, Ord, Order, Show };
+from "core/order" import { Equal, Ordered, Order, Show };
 from "core/str" import * as str;
 
-derive Eq, Show for RangeError;
+derive Equal, Show for RangeError;
 /// The error a narrowing conversion returns. A conversion's return type says
 /// whether it can fail; the choice of operator does not.
 export struct RangeError {
@@ -55,24 +55,24 @@ export trait Add {
     fn add(self, other: Self): Self;
 }
 
-export trait Sub {
-    fn sub(self, other: Self): Self;
+export trait Subtract {
+    fn subtract(self, other: Self): Self;
 }
 
-export trait Mul {
-    fn mul(self, other: Self): Self;
+export trait Multiply {
+    fn multiply(self, other: Self): Self;
 }
 
-export trait Div {
-    fn div(self, other: Self): Self;
+export trait Divide {
+    fn divide(self, other: Self): Self;
 }
 
-export trait Rem {
-    fn rem(self, other: Self): Self;
+export trait Remainder {
+    fn remainder(self, other: Self): Self;
 }
 
-export trait Neg {
-    fn neg(self): Self;
+export trait Negate {
+    fn negate(self): Self;
 }
 
 // --- Integer-specific interfaces ------------------------------------------------
@@ -91,9 +91,9 @@ export trait Bounded {
 /// promises that `v` is the answer (SPEC 6.2.2).
 export trait Checked {
     fn checkedAdd(self, rhs: Self): Option<Self>;
-    fn checkedSub(self, rhs: Self): Option<Self>;
-    fn checkedMul(self, rhs: Self): Option<Self>;
-    fn checkedDiv(self, rhs: Self): Option<Self>;
+    fn checkedSubtract(self, rhs: Self): Option<Self>;
+    fn checkedMultiply(self, rhs: Self): Option<Self>;
+    fn checkedDivide(self, rhs: Self): Option<Self>;
     /// `.None` on a zero divisor, and on nothing else: a remainder is always
     /// smaller than what it came from, so it cannot leave the type's range.
     /// `minValue.checkedRemainder(-1)` is `.Some(0)`, where the matching
@@ -112,8 +112,8 @@ export trait Checked {
 
 export trait Wrapping {
     fn wrappingAdd(self, rhs: Self): Self;
-    fn wrappingSub(self, rhs: Self): Self;
-    fn wrappingMul(self, rhs: Self): Self;
+    fn wrappingSubtract(self, rhs: Self): Self;
+    fn wrappingMultiply(self, rhs: Self): Self;
 }
 
 /// Clamps to the type's own bounds, which at 64 bits and above are themselves
@@ -121,8 +121,8 @@ export trait Wrapping {
 /// maximum. Use `Checked` where the difference matters.
 export trait Saturating {
     fn saturatingAdd(self, rhs: Self): Self;
-    fn saturatingSub(self, rhs: Self): Self;
-    fn saturatingMul(self, rhs: Self): Self;
+    fn saturatingSubtract(self, rhs: Self): Self;
+    fn saturatingMultiply(self, rhs: Self): Self;
 }
 
 // --- Free functions -------------------------------------------------------------
@@ -130,15 +130,15 @@ export trait Saturating {
 // These are generic over a bound rather than declared per type, so there is
 // one of each and no overloading.
 
-export fn min<T: Ord>(a: T, b: T): T {
+export fn min<T: Ordered>(a: T, b: T): T {
     if (a.compare(b) == Order.Greater) { b } else { a }
 }
 
-export fn max<T: Ord>(a: T, b: T): T {
+export fn max<T: Ordered>(a: T, b: T): T {
     if (a.compare(b) == Order.Less) { b } else { a }
 }
 
-export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
+export fn clamp<T: Ordered>(lo: T, hi: T, x: T): T {
     min(hi, max(lo, x))
 }
 
@@ -268,7 +268,7 @@ fn significantNibbles(x: Int, upper: Int): Int {
 /// none. `power(0, 0)` is `.Some(1)`, the empty product.
 ///
 /// Exponentiation by squaring, so it costs about `log2(exponent)`
-/// multiplications, and every one of them is `checkedMul` rather than `*`.
+/// multiplications, and every one of them is `checkedMultiply` rather than `*`.
 export fn power(base: Int, exponent: Int): Option<Int> {
     if (exponent < 0) { .None } else { squaring(base, exponent, 1) }
 }
@@ -283,7 +283,7 @@ fn squaring(base: Int, exponent: Int, acc: Int): Option<Int> {
         .Some(acc)
     } else {
         let folded = if (exponent % 2 == 1) {
-            acc.checkedMul(base)
+            acc.checkedMultiply(base)
         } else {
             .Some(acc)
         };
@@ -292,7 +292,7 @@ fn squaring(base: Int, exponent: Int, acc: Int): Option<Int> {
             if (half == 0) {
                 .Some(a)
             } else {
-                base.checkedMul(base).andThen(fn(b) => squaring(b, half, a))
+                base.checkedMultiply(base).andThen(fn(b) => squaring(b, half, a))
             }
         })
     }
@@ -354,7 +354,7 @@ export fn leastCommonMultiple(a: Int, b: Int): Option<Int> {
         // answer rather than `a * b`, which leaves the range far sooner.
         let scaled = a / greatestCommonDivisor(a, b);
         scaled
-            .checkedMul(b)
+            .checkedMultiply(b)
             .andThen(fn(p) => {
                 if (p == minValue<Int>()) { .None } else { .Some(magnitude(p)) }
             })

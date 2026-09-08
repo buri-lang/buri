@@ -1,10 +1,10 @@
 FAIL //lib/twice  test/twice.buri  "the same title"
-  assert.eq failed
+  assert.equal failed
     actual:   1
     expected: 2
   --> lib/twice/test/twice.buri:9:1
 FAIL //lib/twice  test/twice.buri  "a title of its own"
-  assert.eq failed
+  assert.equal failed
     actual:   3
     expected: 4
   --> lib/twice/test/twice.buri:17:1

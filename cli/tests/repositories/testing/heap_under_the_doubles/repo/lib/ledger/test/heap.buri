@@ -24,7 +24,7 @@ test "a read whose answer the test throws away" {
         FileSystemRead: disk,
     };
     let _ = assert.ok(fs.readText(ctx, path.of(ctx, "a")));
-    assert.eq(assert.ok(disk.read("a")), "A");
+    assert.equal(assert.ok(disk.read("a")), "A");
 }
 
 // A `?` that leaves `core/fs`'s `writeAtomic` with the temporary path it built
@@ -38,8 +38,8 @@ test "an atomic write whose rename the plan fails" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])), .CrossDevice);
-    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
+    assert.equal(assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])), .CrossDevice);
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
 }
 
 // The argument strings a double answered with, folded through a `..acc` update
@@ -50,6 +50,6 @@ test "the arguments folded into an accumulator" {
         Environment: env().withArguments(["one", "two", "three"]),
     };
     let end = folded(ctx, environment.arguments(ctx), 0, empty());
-    assert.eq(end.words.len(), 3);
-    assert.eq(end.last, "three");
+    assert.equal(end.words.len(), 3);
+    assert.equal(end.last, "three");
 }

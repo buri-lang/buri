@@ -87,7 +87,7 @@ fn afterTheScriptTag(document: Str): Str {
 }
 
 test "a tree renders to HTML" {
-    assert.eq(web.render(tree()), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(web.render(tree()), "<main><h1>Titles</h1>and text</main>");
 }
 
 test "what a worker renders is what the page would have built" {
@@ -96,14 +96,14 @@ test "what a worker renders is what the page would have built" {
     };
     // The same tree, through the two renderers. They are one renderer, and
     // this is what says so.
-    assert.eq(web.render(tree()), render(ctx, tree()).markup());
+    assert.equal(web.render(tree()), render(ctx, tree()).markup());
 }
 
 test "an empty tree renders to nothing at all" {
-    assert.eq(web.render(ui.nothing()), "");
+    assert.equal(web.render(ui.nothing()), "");
     // A region with no children is an element that holds nothing, which is not
     // the same as no element.
-    assert.eq(web.render(ui.column([], [])), "<div class=\"lay-col\"></div>");
+    assert.equal(web.render(ui.column([], [])), "<div class=\"lay-col\"></div>");
 }
 
 test "an element that holds nothing still writes its closing tag" {
@@ -111,17 +111,17 @@ test "an element that holds nothing still writes its closing tag" {
     // everything after it inside, so an empty region written that way swallows
     // the rest of the page — and a page resuming on it sees a tree it does not
     // match. Every element that is not one of HTML's own empty ones closes.
-    assert.eq(web.render(ui.region(.Main, [], [])), "<main></main>");
-    assert.eq(
+    assert.equal(web.render(ui.region(.Main, [], [])), "<main></main>");
+    assert.equal(
         web.render(ui.button(.Const(""), fn(_c, _e) => ())),
         "<button type=\"button\"></button>",
     );
-    assert.eq(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
-    assert.eq(web.render(ui.spacer()), "<div class=\"grow-1\"></div>");
+    assert.equal(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
+    assert.equal(web.render(ui.spacer()), "<div class=\"grow-1\"></div>");
     // And the ones HTML says hold nothing close themselves, because a closing
     // tag for one of those is markup a browser refuses to nest.
-    assert.eq(web.render(ui.region(.Separator, [], [])), "<hr />");
-    assert.eq(
+    assert.equal(web.render(ui.region(.Separator, [], [])), "<hr />");
+    assert.equal(
         web.render(ui.image(.Const("/cat.png"), .Const(""))),
         "<img src=\"/cat.png\" alt=\"\" />",
     );
@@ -133,46 +133,46 @@ test "every kind of node renders" {
     };
     let typed = signal(ctx, "ada");
     let ticked = signal(ctx, true);
-    assert.eq(web.render(ui.text(.Const("plain"))), "plain");
-    assert.eq(web.render(ui.stack([], [ui.text(.Const("in"))])), "<div>in</div>");
-    assert.eq(web.render(ui.row([], [])), "<div class=\"lay-row\"></div>");
-    assert.eq(web.render(ui.heading(2, .Const("two"))), "<h2>two</h2>");
-    assert.eq(
+    assert.equal(web.render(ui.text(.Const("plain"))), "plain");
+    assert.equal(web.render(ui.stack([], [ui.text(.Const("in"))])), "<div>in</div>");
+    assert.equal(web.render(ui.row([], [])), "<div class=\"lay-row\"></div>");
+    assert.equal(web.render(ui.heading(2, .Const("two"))), "<h2>two</h2>");
+    assert.equal(
         web.render(ui.link(.Const("/there"), [ui.text(.Const("go"))])),
         "<a href=\"/there\">go</a>",
     );
-    assert.eq(
+    assert.equal(
         web.render(ui.field(.Const("name"), .Text, typed)),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     // What is typed into a `textarea` is its text rather than an attribute.
-    assert.eq(
+    assert.equal(
         web.render(ui.field(.Const("story"), .Multiline, typed)),
         "<label><span>story</span><textarea>ada</textarea></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
-    assert.eq(
+    assert.equal(
         web.render(ui.toggle(.Const("done"), ticked)),
         "<label><input type=\"checkbox\" checked /><span>done</span></label>",
     );
     // The three that decide what to render resolve rather than register: a
     // condition is read once, a computation is run once, and a list renders the
     // rows it has.
-    assert.eq(
+    assert.equal(
         web.render(
             ui.choose(.Const(true), ui.text(.Const("yes")), ui.text(.Const("no"))),
         ),
         "yes",
     );
-    assert.eq(
+    assert.equal(
         web.render(
             ui.choose(.Const(false), ui.text(.Const("yes")), ui.text(.Const("no"))),
         ),
         "no",
     );
-    assert.eq(web.render(ui.computed(fn(_scope) => ui.text(.Const("built")))), "built");
-    assert.eq(
+    assert.equal(web.render(ui.computed(fn(_scope) => ui.text(.Const("built")))), "built");
+    assert.equal(
         web.render(
             ui.each(.Const(["a", "b"]), fn(item) => item, fn(_c, item, _i) => {
                 ui.text(.Const(item))
@@ -183,7 +183,7 @@ test "every kind of node renders" {
     // A list with no rows renders nothing, and the markers that hold its place
     // are the runtime's own bookkeeping rather than something a reader sees.
     let none: [Str] = [];
-    assert.eq(
+    assert.equal(
         web.render(
             ui.each(.Const(none), fn(item) => item, fn(_c, item, _i) => {
                 ui.text(.Const(item))
@@ -194,33 +194,33 @@ test "every kind of node renders" {
 }
 
 test "a heading's level clamps to the range a document has" {
-    assert.eq(web.render(ui.heading(0, .Const("low"))), "<h1>low</h1>");
-    assert.eq(web.render(ui.heading(-4, .Const("lower"))), "<h1>lower</h1>");
-    assert.eq(web.render(ui.heading(7, .Const("high"))), "<h6>high</h6>");
+    assert.equal(web.render(ui.heading(0, .Const("low"))), "<h1>low</h1>");
+    assert.equal(web.render(ui.heading(-4, .Const("lower"))), "<h1>lower</h1>");
+    assert.equal(web.render(ui.heading(7, .Const("high"))), "<h6>high</h6>");
 }
 
 test "text is escaped, so a title cannot write markup" {
-    assert.eq(
+    assert.equal(
         web.render(ui.text(.Const("<b>& later</b>"))),
         "&lt;b&gt;&amp; later&lt;/b&gt;",
     );
     // The three that end a run of text, and the two that do not: a quote and an
     // apostrophe mean nothing between tags, so they are written as they were.
-    assert.eq(
+    assert.equal(
         web.render(ui.text(.Const("a & b < c > d \" e ' f"))),
         "a &amp; b &lt; c &gt; d \" e ' f",
     );
     // An ampersand already spelled as an entity is escaped again, because what
     // a page shows is the characters the state holds.
-    assert.eq(web.render(ui.text(.Const("&amp;"))), "&amp;amp;");
+    assert.equal(web.render(ui.text(.Const("&amp;"))), "&amp;amp;");
 }
 
 test "an attribute is escaped too, quotes included" {
-    assert.eq(
+    assert.equal(
         web.render(ui.image(.Const("/a&b.png"), .Const("\"q\" <x>"))),
         "<img src=\"/a&amp;b.png\" alt=\"&quot;q&quot; &lt;x&gt;\" />",
     );
-    assert.eq(
+    assert.equal(
         web.render(ui.link(.Const("/a?x=1&y=2"), [])),
         "<a href=\"/a?x=1&amp;y=2\"></a>",
     );
@@ -233,8 +233,8 @@ test "the document carries the body and the state beside it" {
     let state = Reading { title: "Titles", note: "plain" };
     let document = web.shell(ctx, "/", web.render(tree()), state.toJson(ctx));
     assert.isTrue(document.startsWith("<!doctype html>"));
-    assert.eq(body(document), "<main><h1>Titles</h1>and text</main>");
-    assert.eq(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
+    assert.equal(body(document), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
 }
 
 test "a state that ends the script it sits in closes nothing" {
@@ -249,7 +249,7 @@ test "a state that ends the script it sits in closes nothing" {
         ctx,
         json.parse(ctx, embedded(document)).withDefault(.Null),
     );
-    assert.eq(read.withDefault(Reading { title: "", note: "" }).note, "</script><b>");
+    assert.equal(read.withDefault(Reading { title: "", note: "" }).note, "</script><b>");
 }
 
 test "the state crosses as every shape JSON has" {
@@ -269,21 +269,21 @@ test "the state crosses as every shape JSON has" {
         ("items", .Array([.Num(1.0), .Str("two"), .Object([("deep", .Bool(true))])])),
     ]);
     let document = web.shell(ctx, "/", "", shapes);
-    assert.eq(
+    assert.equal(
         embedded(document),
         "{\"nothing\":null,\"yes\":true,\"no\":false,\"whole\":7,\"fraction\":0.5,\"negative\":-2,\"text\":\"héllo ✓ 𝄞\",\"no fields\":{},\"no items\":[],\"items\":[1,\"two\",{\"deep\":true}]}",
     );
     // And it reads back as the same document, which is what the page does with
     // it.
-    assert.eq(json.parse(ctx, embedded(document)).withDefault(.Null), shapes);
+    assert.equal(json.parse(ctx, embedded(document)).withDefault(.Null), shapes);
 }
 
 test "a state with no fields at all still crosses" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(embedded(web.shell(ctx, "/", "", .Object([]))), "{}");
-    assert.eq(embedded(web.shell(ctx, "/", "", .Null)), "null");
+    assert.equal(embedded(web.shell(ctx, "/", "", .Object([]))), "{}");
+    assert.equal(embedded(web.shell(ctx, "/", "", .Null)), "null");
 }
 
 test "an empty body is still a whole document" {
@@ -292,7 +292,7 @@ test "an empty body is still a whole document" {
     };
     let document = web.shell(ctx, "/", "", .Object([]));
     assert.isTrue(document.startsWith("<!doctype html>"));
-    assert.eq(body(document), "");
+    assert.equal(body(document), "");
     assert.isTrue(document.endsWith("</body>\n</html>\n"));
 }
 
@@ -307,11 +307,11 @@ test "the document says which address it was rendered for" {
         web.render(tree()),
         state.toJson(ctx),
     );
-    assert.eq(renderedAt(document), "/guide/routing");
+    assert.equal(renderedAt(document), "/guide/routing");
     // The body and the state are where they were: the path rides on the script
     // rather than displacing anything.
-    assert.eq(body(document), "<main><h1>Titles</h1>and text</main>");
-    assert.eq(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
+    assert.equal(body(document), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
 }
 
 test "a path that could end the attribute it sits in ends nothing" {
@@ -319,9 +319,9 @@ test "a path that could end the attribute it sits in ends nothing" {
         Allocator: alloc(),
     };
     let document = web.shell(ctx, "/a\"><b>&x", "", .Object([]));
-    assert.eq(renderedAt(document), "/a&quot;&gt;&lt;b&gt;&amp;x");
+    assert.equal(renderedAt(document), "/a&quot;&gt;&lt;b&gt;&amp;x");
     // And the state after it is still the state, so the tag was not cut short.
-    assert.eq(embedded(document), "{}");
+    assert.equal(embedded(document), "{}");
 }
 
 test "a document is answered as HTML" {
@@ -329,10 +329,10 @@ test "a document is answered as HTML" {
         Allocator: alloc(),
     };
     let answer = http.html(ctx, "<p>hello</p>");
-    assert.eq(answer.status, 200);
-    assert.eq(
+    assert.equal(answer.status, 200);
+    assert.equal(
         answer.header("content-type").withDefault("none"),
         "text/html; charset=utf-8",
     );
-    assert.eq(http.bodyText(ctx, answer.body).withDefault(""), "<p>hello</p>");
+    assert.equal(http.bodyText(ctx, answer.body).withDefault(""), "<p>hello</p>");
 }

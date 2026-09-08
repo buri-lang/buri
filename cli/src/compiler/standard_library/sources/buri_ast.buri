@@ -81,14 +81,14 @@ from "core/str" import * as str;
 // Where a node came from
 // -----------------------------------------------------------------------------
 
-derive Eq, Show for Span;
+derive Equal, Show for Span;
 /// A half-open byte range.
 export struct Span {
     export start: Int,
     export end: Int,
 }
 
-derive Eq, Show for Origin;
+derive Equal, Show for Origin;
 /// The input a node came from. An empty `file` means the generator invented
 /// the node, and [`print`] records no anchor for it.
 export struct Origin {
@@ -287,7 +287,7 @@ export struct ImplDecl {
     export docs: [Str],
 }
 
-/// `derive Eq, Show for Point;`
+/// `derive Equal, Show for Point;`
 export struct DeriveDecl {
     export traits: [Type],
     export selfTy: Type,
@@ -547,7 +547,7 @@ export enum UnOp {
 // Printing
 // -----------------------------------------------------------------------------
 
-derive Eq, Show for Anchor;
+derive Equal, Show for Anchor;
 /// Where one node landed in the printed text, and where it came from.
 export struct Anchor {
     export start: Int,
@@ -555,7 +555,7 @@ export struct Anchor {
     export origin: Origin,
 }
 
-derive Eq, Show for Printed;
+derive Equal, Show for Printed;
 /// The printed module, and the map back to the input.
 ///
 /// `anchors` holds one entry per printed node whose origin names a file,
@@ -2170,7 +2170,7 @@ fn quoteChar<C: Allocator>(ctx: C, ch: Char): Str {
 // Reading source back in
 // -----------------------------------------------------------------------------
 
-derive Eq, Show for TokenKind;
+derive Equal, Show for TokenKind;
 /// What one token is. A `Keyword` and a `Punctuation` are told apart from each
 /// other by their [`Token.text`], which is short and exact — there are
 /// twenty-five of the first and thirty-two of the second, and a variant apiece
@@ -2196,7 +2196,7 @@ export enum TokenKind {
     Unknown,
 }
 
-derive Eq, Show for Token;
+derive Equal, Show for Token;
 /// One token: what it is, the source under it, and where that source was.
 ///
 /// `text` is the *raw* slice — a string literal keeps its quotes and its
@@ -2737,7 +2737,7 @@ fn isPunctuation(c: Char): Bool {
 // Reading a module back in
 // -----------------------------------------------------------------------------
 
-derive Eq, Show for ParseError;
+derive Equal, Show for ParseError;
 /// Why a source did not parse, and where.
 ///
 /// `message` reads the way the compiler's own `unexpected-token` reads —

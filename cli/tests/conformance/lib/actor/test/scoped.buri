@@ -69,7 +69,7 @@ enum Keep {
     Get,
 }
 
-derive Eq, Show for Kept;
+derive Equal, Show for Kept;
 enum Kept {
     Stored,
     Held(Str),
@@ -128,8 +128,8 @@ test "an actor started inside a scope still has the state it started with" {
         Escaped { scope: c, address: actor.start(c, keeper(big(c, "s"))) }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "s"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "s"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// The message a scope posts is stepped inside that scope, and what the step
@@ -146,8 +146,8 @@ test "a message sent inside a scope is stepped correctly" {
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "m"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "m"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// `drive` puts the state back when the mailbox runs dry. A step that ran
@@ -164,8 +164,8 @@ test "a state a step built inside a scope survives the scope" {
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// An actor that outlived its scope is an ordinary actor: the messages it gets
@@ -180,8 +180,8 @@ test "an actor started inside a scope steps messages sent to it later" {
     });
     let _ = churn(ctx);
     let _ = out.address.sendMessage(out.scope, .Grow).ignore();
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// `stop` closes a mailbox the runtime has been holding since the scope that
@@ -198,8 +198,8 @@ test "an actor started inside a scope is stopped correctly afterwards" {
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.stop(out.scope), .Ok(()));
-    assert.eq(out.address.sendMessage(out.scope, .Put("late")), .Err(.Stopped));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Put("late")), .Err(.Stopped));
 }
 
 // -----------------------------------------------------------------------------
@@ -224,5 +224,5 @@ test "a scope answers what it asked an actor inside it" {
         answered
     });
     let _ = churn(ctx);
-    assert.eq(out, .Ok(.Held(big(ctx, "a"))));
+    assert.equal(out, .Ok(.Held(big(ctx, "a"))));
 }

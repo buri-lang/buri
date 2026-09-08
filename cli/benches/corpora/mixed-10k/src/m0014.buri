@@ -11,7 +11,7 @@ from "//bench/m0006.buri" import { blend6, Node6, reach6, seed6 };
 from "//bench/m0010.buri" import { blend10, Node10, reach10, seed10 };
 from "//bench/m0013.buri" import { blend13, Node13, reach13, seed13 };
 
-derive Eq, Show for Node14;
+derive Equal, Show for Node14;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node14 {
@@ -148,7 +148,7 @@ export fn probe14_4<C: Allocator>(ctx: C): Int {
     useGeneric14_4([1, 2], ["a"]) + describeAll14_4(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for Rec14_5;
+derive Equal, Show for Rec14_5;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec14_5 {
     export f0: Int,
@@ -195,7 +195,7 @@ export fn probe14_6<C: Allocator>(ctx: C): Int {
     label14_6(ctx, a, e).len() + b
 }
 
-derive Eq, Show for State14_7;
+derive Equal, Show for State14_7;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State14_7 {
     Idle,
@@ -264,7 +264,7 @@ export fn probe14_8<C: Allocator>(ctx: C): Int {
     choose14_8(.Some(3), .None) + extra
 }
 
-derive Eq, Show for State14_9;
+derive Equal, Show for State14_9;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State14_9 {
     Idle,

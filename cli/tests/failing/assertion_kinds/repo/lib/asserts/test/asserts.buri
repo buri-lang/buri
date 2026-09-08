@@ -1,5 +1,5 @@
 // Every entry point `core/testing/assert` exports, failing, in the order the
-// module declares them. Twenty-two functions, twenty-two reports: `eq`,
+// module declares them. Twenty-two functions, twenty-two reports: `equal`,
 // `eqWith`, `notEq`, `isTrue`, `isFalse`, `contains`, `containsText`,
 // `startsWith`, `isEmpty`, `len`, `unordered`, `gt`, `ge`, `lt`, `le`,
 // `approxEq` and `approxEqRelative` go through `report`, `notEmpty` through
@@ -13,7 +13,7 @@ from "core/map" import * as map;
 from "core/testing/assert" import * as assert;
 
 test "eq" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "eqWith" {
@@ -109,9 +109,9 @@ test "none" {
 }
 
 test "eq on an Option" {
-    assert.eq(Option.Some(1), Option.None);
+    assert.equal(Option.Some(1), Option.None);
 }
 
 test "eq on a Result" {
-    assert.eq(Result.Ok(1), Result.Err("no"));
+    assert.equal(Result.Ok(1), Result.Err("no"));
 }

@@ -80,7 +80,7 @@ from "core/testing/assert" import * as assert;
 test "a suite that allocates" {
     let ctx = context { Allocator: alloc() };
     let letters = [1, 2, 3].mapCtx(ctx, fn(c, n) => "buri".repeat(c, n));
-    assert.eq(letters.len(), 3);
+    assert.equal(letters.len(), 3);
 }
 "#;
 

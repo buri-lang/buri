@@ -9,7 +9,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 
-derive Eq, Show for Node30;
+derive Equal, Show for Node30;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node30 {
@@ -58,7 +58,7 @@ export fn probe30_0<C: Allocator>(ctx: C): Int {
     useGeneric30_0([1, 2], ["a"]) + describeAll30_0(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for Rec30_1;
+derive Equal, Show for Rec30_1;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec30_1 {
     export f0: Int,
@@ -128,7 +128,7 @@ export fn probe30_3<C: Allocator>(ctx: C): Int {
     useGeneric30_3([1, 2], ["a"]) + describeAll30_3(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for Rec30_4;
+derive Equal, Show for Rec30_4;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec30_4 {
     export f0: Int,
@@ -154,7 +154,7 @@ export fn probe30_4<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for Rec30_5;
+derive Equal, Show for Rec30_5;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec30_5 {
     export f0: Int,
@@ -195,7 +195,7 @@ export fn probe30_6<C: Allocator>(ctx: C): Int {
     compute30_6(7)
 }
 
-derive Eq, Show for State30_7;
+derive Equal, Show for State30_7;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State30_7 {
     Idle,
@@ -274,7 +274,7 @@ export fn probe30_9<C: Allocator>(ctx: C): Int {
     label30_9(ctx, a, e).len() + b
 }
 
-derive Eq, Show for State30_10;
+derive Equal, Show for State30_10;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State30_10 {
     Idle,

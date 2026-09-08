@@ -62,7 +62,7 @@ equivalence relation**. It compares numerically, so `-0.0 == 0.0` is true and
 `0.1 + 0.2 != 0.3`, and it is reflexive, so **`NaN == NaN` is true** — every
 `NaN` equals every other `NaN` regardless of sign or payload. IEEE-754 says the
 opposite, and the trade is deliberate: everything built on `==` — a `Map` key, a
-`Set` member, `list.contains`, `derive Eq` — quietly requires an equivalence
+`Set` member, `list.contains`, `derive Equal` — quietly requires an equivalence
 relation.
 
 The **ordering** operators are unchanged and remain IEEE-754's: `NaN < x`,
@@ -123,21 +123,21 @@ you spell them out where you use them:
 ```buri
 trait Checked {
     fn checkedAdd(self, rhs: Self): Option<Self>;
-    fn checkedSub(self, rhs: Self): Option<Self>;
-    fn checkedMul(self, rhs: Self): Option<Self>;
-    fn checkedDiv(self, rhs: Self): Option<Self>;
+    fn checkedSubtract(self, rhs: Self): Option<Self>;
+    fn checkedMultiply(self, rhs: Self): Option<Self>;
+    fn checkedDivide(self, rhs: Self): Option<Self>;
 }
 
 trait Wrapping {
     fn wrappingAdd(self, rhs: Self): Self;
-    fn wrappingSub(self, rhs: Self): Self;
-    fn wrappingMul(self, rhs: Self): Self;
+    fn wrappingSubtract(self, rhs: Self): Self;
+    fn wrappingMultiply(self, rhs: Self): Self;
 }
 
 trait Saturating {
     fn saturatingAdd(self, rhs: Self): Self;
-    fn saturatingSub(self, rhs: Self): Self;
-    fn saturatingMul(self, rhs: Self): Self;
+    fn saturatingSubtract(self, rhs: Self): Self;
+    fn saturatingMultiply(self, rhs: Self): Self;
 }
 
 trait Bounded {
@@ -148,7 +148,7 @@ trait Bounded {
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let safe = a.checkedAdd(b).withDefault(0);
-let hash = seed.wrappingMul(31).wrappingAdd(byte);
+let hash = seed.wrappingMultiply(31).wrappingAdd(byte);
 let ceiling = number.maxValue<U8>();
 ```
 
@@ -360,7 +360,7 @@ candidate set, no autoref, no autoderef, and no coherence check. Resolution does
 need the receiver's type, so name resolution consults inference.
 
 Where two bounds declare the same method name, the call is ambiguous.
-Disambiguate it by calling the trait method as a function: `Ord.compare(x, y)`.
+Disambiguate it by calling the trait method as a function: `Ordered.compare(x, y)`.
 
 Defining modules:
 

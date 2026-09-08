@@ -61,8 +61,8 @@ the greppable `result.ignore`. `Option` is not must-use.
 
 ```buri
 fn identity<T>(x: T): T { x }
-fn largest<T: Ord>(xs: [T]): Option<T> { ... }
-fn report<T: Ord + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
+fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
+fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
 
 let f = identity<Int>;                  // type arguments go on the expression
 let e: [Int] = list.empty<Int>();
@@ -71,14 +71,14 @@ let e: [Int] = list.empty<Int>();
 Inside such a function you may call **only the bound's methods** on the
 parameter. Generic code that needs an operation no trait provides takes it as a
 function argument: `sortBy(xs, cmp)`. There is one constraint mechanism:
-`<T: Ord + Show>` and `<C: Allocator + FileSystemRead>` are the same feature.
+`<T: Ordered + Show>` and `<C: Allocator + FileSystemRead>` are the same feature.
 
 ## Traits
 
 A trait is an interface: a named set of method signatures.
 
 ```buri
-trait Ord {
+trait Ordered {
     fn compare(self, other: Self): Order;
 }
 trait Show {
@@ -97,31 +97,31 @@ trait Show {
 ### `derive`
 
 ```buri
-derive Eq, Ord, Show for Version;
+derive Equal, Ordered, Show for Version;
 ```
 
 `derive` writes the methods structurally: fields and variants in declaration
 order, recursing into field types. It fails to compile when a field type does
-not satisfy the trait itself. You can derive `Eq`, `Ord`, `Show`, `Hash`,
+not satisfy the trait itself. You can derive `Equal`, `Ordered`, `Show`, `Hash`,
 `ToJson`, `FromJson` and the operator traits. `ToJson` and `FromJson` are
 **derive-only**, and the compiler rejects a hand-written `impl` of either.
 
-`assert.eq(a, b)` needs `Eq` for the comparison and `Show` for the failure
-message, so `derive Eq, Show for YourType;` is usually what an
+`assert.equal(a, b)` needs `Equal` for the comparison and `Show` for the failure
+message, so `derive Equal, Show for YourType;` is usually what an
 `unsatisfied-bound` on a test is asking for.
 
 ### Operators are trait methods
 
 | Operator | Method |
 |---|---|
-| `a + b` `a - b` `-a` | `Add.add` `Sub.sub` `Neg.neg` |
-| `a * b` `a / b` `a % b` | `Mul.mul` `Div.div` `Rem.rem` |
-| `a == b` `a != b` | `Eq.eq` |
-| `a < b` `a <= b` `a > b` `a >= b` | `Ord.compare` |
+| `a + b` `a - b` `-a` | `Add.add` `Subtract.subtract` `Negate.negate` |
+| `a * b` `a / b` `a % b` | `Multiply.multiply` `Divide.divide` `Remainder.remainder` |
+| `a == b` `a != b` | `Equal.equal` |
+| `a < b` `a <= b` `a > b` `a >= b` | `Ordered.compare` |
 
 ```buri
 struct Meters(F64);
-derive Add, Sub, Ord, Show for Meters;
+derive Add, Subtract, Ordered, Show for Meters;
 
 let total = Meters(1.5) + Meters(2.0);     // Meters
 // let bad = Meters(1.5) + 2.0;            // ERROR: F64 is not Meters
@@ -163,7 +163,7 @@ supertraits, no trait objects, no dynamic dispatch.
 error, so write a free function. **Methods are not values**: `sq.area` is not
 one, so wrap the call in a lambda. **The receiver's type must be known.** Where
 two bounds declare the same method name, call the trait method as a function to
-disambiguate: `Ord.compare(x, y)`.
+disambiguate: `Ordered.compare(x, y)`.
 
 ## Effects
 
@@ -182,7 +182,7 @@ An effect is a trait in every other respect but three:
 - an effect's implementors are **effect-carrying**, so you may pass one only as
   `self` or `ctx`;
 - **no type may implement both an effect and a trait**, so an effect-carrying
-  type satisfies no ordinary bound, which keeps `T: Ord` from being a context;
+  type satisfies no ordinary bound, which keeps `T: Ordered` from being a context;
 - **you perform an effect by handing the context to a function.**
   `ctx.println("hi")` is `io.println(ctx, "hi")`, and `ctx.readFile(p)` is
   `fs.readText(ctx, p)`. The doors are `core/alloc`, `core/io`, `core/fs`,

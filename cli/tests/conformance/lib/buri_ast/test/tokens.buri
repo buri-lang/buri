@@ -24,8 +24,8 @@ test "a declaration is its keyword, its name and its punctuation" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "let x = 1;"), ["let", "x", "=", "1", ";"]);
-    assert.eq(kinds(ctx, "let x = 1;"), [
+    assert.equal(texts(ctx, "let x = 1;"), ["let", "x", "=", "1", ";"]);
+    assert.equal(kinds(ctx, "let x = 1;"), [
         TokenKind.Keyword,
         TokenKind.Identifier,
         TokenKind.Punctuation,
@@ -49,9 +49,9 @@ test "a span is the byte range the token covers" {
         Allocator: alloc(),
     };
     let tokens = ast.tokenize(ctx, "let x = 1;");
-    assert.eq(assert.some(tokens.get(0)).span, Span { start: 0, end: 3 });
-    assert.eq(assert.some(tokens.get(1)).span, Span { start: 4, end: 5 });
-    assert.eq(assert.some(tokens.get(4)).span, Span { start: 9, end: 10 });
+    assert.equal(assert.some(tokens.get(0)).span, Span { start: 0, end: 3 });
+    assert.equal(assert.some(tokens.get(1)).span, Span { start: 4, end: 5 });
+    assert.equal(assert.some(tokens.get(4)).span, Span { start: 9, end: 10 });
 }
 
 test "a span counts bytes where the text counts scalars" {
@@ -59,17 +59,17 @@ test "a span counts bytes where the text counts scalars" {
         Allocator: alloc(),
     };
     let tokens = ast.tokenize(ctx, "\"😀\" x");
-    assert.eq(assert.some(tokens.get(0)).span, Span { start: 0, end: 6 });
-    assert.eq(assert.some(tokens.get(0)).text.len(), 3);
-    assert.eq(assert.some(tokens.get(1)).span, Span { start: 7, end: 8 });
-    assert.eq(assert.some(tokens.get(1)).text, "x");
+    assert.equal(assert.some(tokens.get(0)).span, Span { start: 0, end: 6 });
+    assert.equal(assert.some(tokens.get(0)).text.len(), 3);
+    assert.equal(assert.some(tokens.get(1)).span, Span { start: 7, end: 8 });
+    assert.equal(assert.some(tokens.get(1)).text, "x");
 }
 
 test "every span is non-empty and they run in order" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let source = "export fn f<T: Eq>(self, ctx: C): [T] { \"a\${1}b\" }";
+    let source = "export fn f<T: Equal>(self, ctx: C): [T] { \"a\${1}b\" }";
     let tokens = ast.tokenize(ctx, source);
     assert.gt(tokens.len(), 15);
     assert.isTrue(tokens.all(fn(t) => t.span.end > t.span.start));
@@ -89,7 +89,7 @@ test "the marker decides which comment a comment is" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "//! module\n/// doc\n// plain\n//// plain\n/* block */"), [
+    assert.equal(kinds(ctx, "//! module\n/// doc\n// plain\n//// plain\n/* block */"), [
         TokenKind.ModuleDoc,
         TokenKind.DocComment,
         TokenKind.LineComment,
@@ -102,7 +102,7 @@ test "block comments nest" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "/* a /* b */ c */x"), ["/* a /* b */ c */", "x"]);
+    assert.equal(texts(ctx, "/* a /* b */ c */x"), ["/* a /* b */ c */", "x"]);
 }
 
 // --- numbers -------------------------------------------------------------------------
@@ -111,21 +111,21 @@ test "an integer is decimal or one of three radices, underscores and all" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "0 1_000 0xff 0o17 0b1010"), [
+    assert.equal(texts(ctx, "0 1_000 0xff 0o17 0b1010"), [
         "0",
         "1_000",
         "0xff",
         "0o17",
         "0b1010",
     ]);
-    assert.eq(kinds(ctx, "0 0xff"), [TokenKind.Int, TokenKind.Int]);
+    assert.equal(kinds(ctx, "0 0xff"), [TokenKind.Int, TokenKind.Int]);
 }
 
 test "a float carries a point or an exponent" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "1 1.5 1e5 1.5e-3 1E+2"), [
+    assert.equal(kinds(ctx, "1 1.5 1e5 1.5e-3 1E+2"), [
         TokenKind.Int,
         TokenKind.Float,
         TokenKind.Float,
@@ -138,14 +138,14 @@ test "a tuple index is a dot and an integer, never a float" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "pair.0"), ["pair", ".", "0"]);
-    assert.eq(kinds(ctx, "pair.0"), [
+    assert.equal(texts(ctx, "pair.0"), ["pair", ".", "0"]);
+    assert.equal(kinds(ctx, "pair.0"), [
         TokenKind.Identifier,
         TokenKind.Punctuation,
         TokenKind.Int,
     ]);
     // The documented wart: `t.0.1` lexes as `t` `.` `0.1`.
-    assert.eq(texts(ctx, "t.0.1"), ["t", ".", "0.1"]);
+    assert.equal(texts(ctx, "t.0.1"), ["t", ".", "0.1"]);
 }
 
 // --- text ------------------------------------------------------------------------------
@@ -154,44 +154,44 @@ test "a string keeps its quotes and its escapes" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "\"hi\" 'a' '\\n'"), ["\"hi\"", "'a'", "'\\n'"]);
-    assert.eq(texts(ctx, "\"a\\\"b\""), ["\"a\\\"b\""]);
-    assert.eq(texts(ctx, "'\\''"), ["'\\''"]);
-    assert.eq(texts(ctx, "'\\u{1F600}'"), ["'\\u{1F600}'"]);
+    assert.equal(texts(ctx, "\"hi\" 'a' '\\n'"), ["\"hi\"", "'a'", "'\\n'"]);
+    assert.equal(texts(ctx, "\"a\\\"b\""), ["\"a\\\"b\""]);
+    assert.equal(texts(ctx, "'\\''"), ["'\\''"]);
+    assert.equal(texts(ctx, "'\\u{1F600}'"), ["'\\u{1F600}'"]);
 }
 
 test "a template is a head, its holes and a tail" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "\"a\${x}b\${y}c\""), [
+    assert.equal(kinds(ctx, "\"a\${x}b\${y}c\""), [
         TokenKind.TemplateHead,
         TokenKind.Identifier,
         TokenKind.TemplateSpan,
         TokenKind.Identifier,
         TokenKind.TemplateTail,
     ]);
-    assert.eq(texts(ctx, "\"a\${x}b\""), ["\"a\${", "x", "}b\""]);
+    assert.equal(texts(ctx, "\"a\${x}b\""), ["\"a\${", "x", "}b\""]);
 }
 
 test "a brace inside a hole closes its block and not the template" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "\"\${ { } }\""), [
+    assert.equal(kinds(ctx, "\"\${ { } }\""), [
         TokenKind.TemplateHead,
         TokenKind.Punctuation,
         TokenKind.Punctuation,
         TokenKind.TemplateTail,
     ]);
-    assert.eq(texts(ctx, "\"\${ { } }\""), ["\"\${", "{", "}", "}\""]);
+    assert.equal(texts(ctx, "\"\${ { } }\""), ["\"\${", "{", "}", "}\""]);
 }
 
 test "a template nested in a template keeps its own holes" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "\"a\${\"b\${c}d\"}e\""), [
+    assert.equal(kinds(ctx, "\"a\${\"b\${c}d\"}e\""), [
         TokenKind.TemplateHead,
         TokenKind.TemplateHead,
         TokenKind.Identifier,
@@ -206,7 +206,7 @@ test "longest match, and the pairs the grammar deliberately leaves out" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, ":: .. => == != <= >= && || = . : < > & |"), [
+    assert.equal(texts(ctx, ":: .. => == != <= >= && || = . : < > & |"), [
         "::",
         "..",
         "=>",
@@ -225,7 +225,7 @@ test "longest match, and the pairs the grammar deliberately leaves out" {
         "|",
     ]);
     // No `>>`, so a nested generic never mis-lexes; no `?.`, so `x?.f` is three.
-    assert.eq(texts(ctx, "Map<Str, [Int]>>"), [
+    assert.equal(texts(ctx, "Map<Str, [Int]>>"), [
         "Map",
         "<",
         "Str",
@@ -236,14 +236,14 @@ test "longest match, and the pairs the grammar deliberately leaves out" {
         ">",
         ">",
     ]);
-    assert.eq(texts(ctx, "x?.f"), ["x", "?", ".", "f"]);
+    assert.equal(texts(ctx, "x?.f"), ["x", "?", ".", "f"]);
 }
 
 test "an underscore is punctuation and a word that starts with one is a name" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "_ _x"), [TokenKind.Punctuation, TokenKind.Identifier]);
+    assert.equal(kinds(ctx, "_ _x"), [TokenKind.Punctuation, TokenKind.Identifier]);
 }
 
 // --- what is neither a name nor a keyword ---------------------------------------------------
@@ -252,9 +252,9 @@ test "a reserved word is Unknown, and a word that merely starts with one is not"
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "await"), [TokenKind.Unknown]);
-    assert.eq(kinds(ctx, "awaits"), [TokenKind.Identifier]);
-    assert.eq(kinds(ctx, "while"), [TokenKind.Unknown]);
+    assert.equal(kinds(ctx, "await"), [TokenKind.Unknown]);
+    assert.equal(kinds(ctx, "awaits"), [TokenKind.Identifier]);
+    assert.equal(kinds(ctx, "while"), [TokenKind.Unknown]);
 }
 
 test "every keyword of the lexical grammar lexes as one" {
@@ -266,7 +266,7 @@ test "every keyword of the lexical grammar lexes as one" {
         "from if impl import let match self Self struct test trait true type",
     );
     let tokens = ast.tokenize(ctx, all);
-    assert.eq(tokens.len(), 25);
+    assert.equal(tokens.len(), 25);
     assert.isTrue(tokens.all(fn(t) => t.kind == TokenKind.Keyword));
 }
 
@@ -274,8 +274,8 @@ test "a character no production names is Unknown" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "#"), [TokenKind.Unknown]);
-    assert.eq(kinds(ctx, "$"), [TokenKind.Unknown]);
+    assert.equal(kinds(ctx, "#"), [TokenKind.Unknown]);
+    assert.equal(kinds(ctx, "$"), [TokenKind.Unknown]);
 }
 
 // --- what does not end ------------------------------------------------------------------------
@@ -284,9 +284,9 @@ test "an unterminated string or comment runs to the end of the source" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "\"abc"), ["\"abc"]);
-    assert.eq(texts(ctx, "/* abc"), ["/* abc"]);
-    assert.eq(texts(ctx, "\"a\${b"), ["\"a\${", "b"]);
+    assert.equal(texts(ctx, "\"abc"), ["\"abc"]);
+    assert.equal(texts(ctx, "/* abc"), ["/* abc"]);
+    assert.equal(texts(ctx, "\"a\${b"), ["\"a\${", "b"]);
 }
 
 // --- every class the enum has -----------------------------------------------------
@@ -297,7 +297,7 @@ test "one source produces every kind of token there is" {
     };
     let source =
         "//! m\n/// d\n// l\n/* b */\nlet x = 1 1.5 \"s\" 'c' \"a\${x}b\${x}c\" #";
-    assert.eq(kinds(ctx, source), [
+    assert.equal(kinds(ctx, source), [
         TokenKind.ModuleDoc,
         TokenKind.DocComment,
         TokenKind.LineComment,
@@ -324,26 +324,26 @@ test "a file of only comments is its comments" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "// one\n// two\n"), [
+    assert.equal(kinds(ctx, "// one\n// two\n"), [
         TokenKind.LineComment,
         TokenKind.LineComment,
     ]);
-    assert.eq(texts(ctx, "// one\n// two\n"), ["// one", "// two"]);
-    assert.eq(kinds(ctx, "//! only a module doc"), [TokenKind.ModuleDoc]);
-    assert.eq(kinds(ctx, "/* a */ /* b */"), [
+    assert.equal(texts(ctx, "// one\n// two\n"), ["// one", "// two"]);
+    assert.equal(kinds(ctx, "//! only a module doc"), [TokenKind.ModuleDoc]);
+    assert.equal(kinds(ctx, "/* a */ /* b */"), [
         TokenKind.BlockComment,
         TokenKind.BlockComment,
     ]);
     // A comment runs to the end of its line and no further.
-    assert.eq(texts(ctx, "// one\nx"), ["// one", "x"]);
+    assert.equal(texts(ctx, "// one\nx"), ["// one", "x"]);
 }
 
 test "a comment on the last line with no newline after it" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "// one"), [TokenKind.LineComment]);
-    assert.eq(kinds(ctx, "/// one"), [TokenKind.DocComment]);
+    assert.equal(kinds(ctx, "// one"), [TokenKind.LineComment]);
+    assert.equal(kinds(ctx, "/// one"), [TokenKind.DocComment]);
 }
 
 // --- what does not end, once more ----------------------------------------------------
@@ -352,25 +352,25 @@ test "a character literal that never closes" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(kinds(ctx, "'a"), [TokenKind.Char]);
-    assert.eq(texts(ctx, "'a"), ["'a"]);
-    assert.eq(texts(ctx, "'"), ["'"]);
-    assert.eq(texts(ctx, "'\\"), ["'\\"]);
+    assert.equal(kinds(ctx, "'a"), [TokenKind.Char]);
+    assert.equal(texts(ctx, "'a"), ["'a"]);
+    assert.equal(texts(ctx, "'"), ["'"]);
+    assert.equal(texts(ctx, "'\\"), ["'\\"]);
 }
 
 test "a block comment that never closes takes the nesting with it" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "/* a /* b */"), ["/* a /* b */"]);
-    assert.eq(kinds(ctx, "/*"), [TokenKind.BlockComment]);
+    assert.equal(texts(ctx, "/* a /* b */"), ["/* a /* b */"]);
+    assert.equal(kinds(ctx, "/*"), [TokenKind.BlockComment]);
 }
 
 test "a string whose last character is an escape" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(texts(ctx, "\"a\\"), ["\"a\\"]);
+    assert.equal(texts(ctx, "\"a\\"), ["\"a\\"]);
 }
 
 test "an unterminated token still carries a span inside the source" {
@@ -378,6 +378,6 @@ test "an unterminated token still carries a span inside the source" {
         Allocator: alloc(),
     };
     let tokens = ast.tokenize(ctx, "x \"abc");
-    assert.eq(tokens.len(), 2);
-    assert.eq(assert.some(tokens.get(1)).span, Span { start: 2, end: 6 });
+    assert.equal(tokens.len(), 2);
+    assert.equal(assert.some(tokens.get(1)).span, Span { start: 2, end: 6 });
 }

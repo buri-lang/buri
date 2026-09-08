@@ -110,7 +110,7 @@ test "an empty basket says so, and puts no list on the page" {
     assert.isTrue(seen.text().contains("Nothing in the basket"));
     // `choose` builds one subtree or the other. The list is not hidden; it is
     // not there.
-    assert.eq(seen.count("li"), 0);
+    assert.equal(seen.count("li"), 0);
 }
 
 test "typing a line and submitting the form adds it" {
@@ -129,7 +129,7 @@ test "typing a line and submitting the form adds it" {
     // Pressing Enter in a field is what a browser turns into this.
     let _ = seen.submit(0);
 
-    assert.eq(seen.count("li"), 1);
+    assert.equal(seen.count("li"), 1);
     assert.isTrue(seen.text().contains("coffee"));
     assert.isTrue(seen.text().contains("$4.50"));
     // The fields are cleared, so the next line starts from nothing.
@@ -147,7 +147,7 @@ test "the Add button does what submitting the form does" {
     let _ = seen.fill("Item", "books");
     let _ = seen.fill("Amount in dollars", "32.00");
     let _ = seen.press("Add");
-    assert.eq(seen.count("li"), 1);
+    assert.equal(seen.count("li"), 1);
     assert.isTrue(seen.text().contains("books"));
 }
 
@@ -163,7 +163,7 @@ test "an amount nobody can read is quoted back, and nothing is added" {
     let _ = seen.fill("Amount in dollars", "free");
     let _ = seen.press("Add");
 
-    assert.eq(seen.count("li"), 0);
+    assert.equal(seen.count("li"), 0);
     assert.isTrue(seen.text().contains("\"free\" is not an amount"));
     // An alert interrupts; a status waits. A wrong amount is worth interrupting.
     assert.isTrue(seen.markup().contains("role=\"alert\""));
@@ -192,7 +192,7 @@ test "settling a line moves the row rather than rebuilding it" {
     let state = newState(ctx);
     let seen = render(ctx, page(ctx, state));
     let _ = seen.press("Load the ledger");
-    assert.eq(seen.count("li"), 3);
+    assert.equal(seen.count("li"), 3);
 
     // The identity the runtime gave each row when it created it. A rebuild
     // changes it; a move does not, and a move is what keeps focus and scroll
@@ -202,9 +202,9 @@ test "settling a line moves the row rather than rebuilding it" {
 
     let _ = seen.press("settle coffee");
 
-    assert.eq(seen.identity("li", 0), first);
-    assert.eq(seen.identity("li", 1), second);
-    assert.eq(seen.count("li"), 3);
+    assert.equal(seen.identity("li", 0), first);
+    assert.equal(seen.identity("li", 1), second);
+    assert.equal(seen.count("li"), 3);
 }
 
 test "what changes about a settled row is its class and nothing else" {
@@ -230,7 +230,7 @@ test "what changes about a settled row is its class and nothing else" {
 
     // And pressing it again puts it back exactly.
     let _ = seen.press("settle coffee");
-    assert.eq(seen.markup(), before);
+    assert.equal(seen.markup(), before);
 }
 
 test "the running total is the sum of the lines, announced politely" {
@@ -279,7 +279,7 @@ test "a refused request says why, and leaves the basket alone" {
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
     assert.isTrue(seen.text().contains("the server refused the connection"));
-    assert.eq(seen.count("li"), 0);
+    assert.equal(seen.count("li"), 0);
 }
 
 test "a response that is not a 200 is reported as the number it was" {
@@ -292,7 +292,7 @@ test "a response that is not a 200 is reported as the number it was" {
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
     assert.isTrue(seen.text().contains("the server answered 503"));
-    assert.eq(seen.count("li"), 0);
+    assert.equal(seen.count("li"), 0);
 }
 
 // --- the theme -----------------------------------------------------------------------
@@ -326,7 +326,7 @@ test "dark mode rewrites the values and changes no class" {
     // The one thing in the document that did change is the box the reader
     // ticked. Take that back out and the page is character for character what it
     // was: no class was recomputed, no rule was written, and no element moved.
-    assert.eq(seen.markup().replace(ctx, " checked", ""), light);
+    assert.equal(seen.markup().replace(ctx, " checked", ""), light);
 }
 
 test "a library's token follows the app's theme without knowing it exists" {
@@ -369,12 +369,12 @@ test "a memo recomputes once per change, however many things read it" {
 
     let _ = watch(ctx, fn(scope) => log.note(reading(share.read(scope))));
     let _ = watch(ctx, fn(scope) => log.note(reading(share.read(scope))));
-    assert.eq(log.recorded(), ["computed"]);
+    assert.equal(log.recorded(), ["computed"]);
 
     // One write, one recomputation, two watchers told.
     let _ = ticked.set(ctx, []);
-    assert.eq(log.recorded(), ["computed", "computed"]);
-    assert.eq(log.noted().len(), 4);
+    assert.equal(log.recorded(), ["computed", "computed"]);
+    assert.equal(log.noted().len(), 4);
 }
 
 /// One line, built without an allocator so the test above needs no context to

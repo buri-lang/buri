@@ -176,7 +176,7 @@ fn crumb(one: Str): Option<(Str, Str)> {
     }
 }
 
-derive Eq, Show for SameSite;
+derive Equal, Show for SameSite;
 /// What a cookie says about cross-site requests.
 export enum SameSite {
     Strict,
@@ -184,7 +184,7 @@ export enum SameSite {
     None,
 }
 
-derive Eq, Show for Cookie;
+derive Equal, Show for Cookie;
 /// A cookie a server sets. Everything optional is `.None`, which is what leaving
 /// the attribute off the field means.
 ///

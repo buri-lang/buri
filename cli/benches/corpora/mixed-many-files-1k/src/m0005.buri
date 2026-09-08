@@ -11,7 +11,7 @@ from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
 from "//bench/m0003.buri" import { blend3, Node3, reach3, seed3 };
 from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
 
-derive Eq, Show for Node5;
+derive Equal, Show for Node5;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node5 {
@@ -38,7 +38,7 @@ export fn lift5(n: Node2): Node5 {
     Node5 { label: n.label, value: n.value + seed5(), weight: n.weight }
 }
 
-derive Eq, Show for Rec5_0;
+derive Equal, Show for Rec5_0;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec5_0 {
     export f0: Int,

@@ -1716,7 +1716,7 @@ impl Jit<'_> {
         st.place(ok, self.region.code_addr());
     }
 
-    /// `deriveArrayEq` — a derived `Eq` where the field is a `[T]`.
+    /// `deriveArrayEq` — a derived `Equal` where the field is a `[T]`.
     ///
     /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
     /// Bool) -> Bool`, where the third argument is a code pointer to the
@@ -1785,7 +1785,7 @@ impl Jit<'_> {
         true
     }
 
-    /// `deriveArrayCompare` — a derived `Ord` where the field is a `[T]`.
+    /// `deriveArrayCompare` — a derived `Ordered` where the field is a `[T]`.
     ///
     /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
     /// Order) -> Order`, the same code pointer [`Jit::derive_array_eq`] takes

@@ -808,7 +808,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let mut note = None;
             let mut fix = None;
             // The one failure that is about the *kind* of type rather than a
-            // missing implementation. Saying "add `derive Eq`" here would be
+            // missing implementation. Saying "add `derive Equal`" here would be
             // advice that cannot be taken.
             if !self.c.tables.trait_(tr).is_effect
                 && self.c.tables.is_effect_carrying(&ty, &self.generics)
@@ -901,8 +901,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         //
         // It is what lets the capture rule exempt a bounded type parameter.
         // Without it, `struct Holder<C> { inner: C }` with a hand-written
-        // `impl<C> Eq for Holder<C>` would let `Holder<Ctx>` through a
-        // `T: Eq` bound, and a lambda in that function could capture the
+        // `impl<C> Equal for Holder<C>` would let `Holder<Ctx>` through a
+        // `T: Equal` bound, and a lambda in that function could capture the
         // capability inside it (SPEC 10.6).
         if !matches!(ty, Ty::Error | Ty::Var(_))
             && !self.c.tables.trait_(tr).is_effect
@@ -977,7 +977,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn structural_trait(&self, tr: TraitId) -> bool {
         matches!(
             self.c.tables.trait_(tr).name.as_str(),
-            "Eq" | "Ord" | "Show" | "Hash" | "ToJson" | "FromJson"
+            "Equal" | "Ordered" | "Show" | "Hash" | "ToJson" | "FromJson"
         )
     }
 

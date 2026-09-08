@@ -37,8 +37,8 @@ run {
 # failure mode is real rather than asserted.
 edit {
   file: "lib/room/test/counter.buri"
-  replace: "assert.eq(counted.sendMessage(ctx, .Increment), .Err(.Stopped));"
-  with: "assert.eq(counted.sendMessage(ctx, .Increment), .Ok(.Done));"
+  replace: "assert.equal(counted.sendMessage(ctx, .Increment), .Err(.Stopped));"
+  with: "assert.equal(counted.sendMessage(ctx, .Increment), .Ok(.Done));"
 }
 
 run {

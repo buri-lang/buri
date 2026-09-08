@@ -52,7 +52,7 @@ fn lineEntry(line: Str): Option<Entry> {
     }
 }
 
-derive Eq, Show for Draft;
+derive Equal, Show for Draft;
 /// What the composer's two fields currently amount to.
 ///
 /// An enum rather than a `Result<Entry, Str>` because "you have not typed a

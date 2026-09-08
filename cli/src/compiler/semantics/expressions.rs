@@ -2376,7 +2376,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         span,
                     )
                 } else {
-                    self.operator_trait_call("Neg", "neg", e, None, span)
+                    self.operator_trait_call("Negate", "negate", e, None, span)
                 }
             }
             tree::UnOp::BitNot => {
@@ -2443,7 +2443,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let prim = self.as_prim(&ty);
         let _ = expected;
 
-        // `Eq` is not defined for function types, `Template`, or opaque
+        // `Equal` is not defined for function types, `Template`, or opaque
         // types, so comparing those is a compile error rather than a
         // representation accident.
         if matches!(prim, Some(Prim::Template))
@@ -2451,7 +2451,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         {
             self.templated("missing-conformance", op_span)
                 .bind("type", "Template")
-                .bind("trait", "Eq")
+                .bind("trait", "Equal")
                 .fix("render both sides first: `str.format(ctx, a) == str.format(ctx, b)`")
                 .note("a Template is a fixed-size view of literal fragments and evaluated holes, not the text it would produce");
             return self.error_expr(span);
@@ -2511,7 +2511,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         span,
                     );
                 }
-                let call = self.operator_trait_call("Eq", "eq", l, Some(r), span);
+                let call = self.operator_trait_call("Equal", "equal", l, Some(r), span);
                 if op == B::Eq {
                     call
                 } else {
@@ -2541,7 +2541,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     );
                 }
                 // `a < b` is `a.compare(b)` tested against an `Order`.
-                let cmp = self.operator_trait_call("Ord", "compare", l, Some(r), span);
+                let cmp = self.operator_trait_call("Ordered", "compare", l, Some(r), span);
                 self.order_test(cmp, op, span)
             }
             // `&&`, `||` and the arithmetic and bitwise operators all

@@ -79,7 +79,7 @@ test "pads the cents place" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(fromCents(1905).format(ctx), "$19.05");
+    assert.equal(fromCents(1905).format(ctx), "$19.05");
 }
 ```
 
@@ -137,13 +137,13 @@ from "core/testing/assert" import * as assert;
 
 | Function | Meaning |
 |---|---|
-| `assert.eq(a, b)` | Fails unless `a == b`. Requires `Eq`, and `Show` for the message. |
+| `assert.equal(a, b)` | Fails unless `a == b`. Requires `Equal`, and `Show` for the message. |
 | `assert.notEq(a, b)` | The negation. |
 | `assert.isTrue(b)` / `assert.isFalse(b)` | On a `Bool`. |
 | `assert.contains(xs, x)` | Fails unless `x` is an element of `xs`. |
 | `assert.isEmpty(xs)` / `assert.notEmpty(xs)` | On a list. |
 | `assert.len(xs, n)` | Fails unless `xs` holds exactly `n` elements. |
-| `assert.gt(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ord`. |
+| `assert.gt(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ordered`. |
 | `assert.approxEq(a, b, tolerance)` | On `Float`, within an absolute tolerance. |
 | `assert.ok(r)` | Fails unless `r` is `.Ok`; **returns the wrapped value**. |
 | `assert.err(r)` | Fails unless `r` is `.Err`; returns the error. |
@@ -168,7 +168,7 @@ test "reads the config it wrote" {
     let cfg = path.of(ctx, "cfg");
     assert.ok(fs.writeText(ctx, cfg, "port=8080")); // returns (), so a statement
     let text = assert.ok(fs.readText(ctx, cfg)); // returns Str, so a binding
-    assert.eq(text, "port=8080");
+    assert.equal(text, "port=8080");
 }
 ```
 
@@ -187,10 +187,10 @@ the common case; a `match`, an `if` or a block whose every branch produces `()`
 counts too.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-assert.eq(total, 42);              // statement: type is ()
+assert.equal(total, 42);              // statement: type is ()
 match (parsed) {                   // statement: every arm is ()
-  .Some(n) => assert.eq(n, 42),
-  .None => assert.eq(parsed, .Some(42)),
+  .Some(n) => assert.equal(n, 42),
+  .None => assert.equal(parsed, .Some(42)),
 };                                 // ← the `;` is what makes it a statement
 // assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
                                    // it explicitly with `let _ =`
@@ -266,7 +266,7 @@ test "rejects a port above 65535" {
         FileSystemRead: fs().files([("config.toml", "port=99999")]),
     };
     let e = assert.err(loadConfig(ctx, "config.toml"));
-    assert.eq(e, ConfigError.PortOutOfRange);
+    assert.equal(e, ConfigError.PortOutOfRange);
 }
 ```
 

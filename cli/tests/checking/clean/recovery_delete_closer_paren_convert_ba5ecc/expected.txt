@@ -1,12 +1,12 @@
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:29:47
    |
-29 |     assert.eq(got.lane(1), number.maxValue<I64>();
+29 |     assert.equal(got.lane(1), number.maxValue<I64>();
    |                                               ^
    |
   --> main.buri:29:14
    |
-29 |     assert.eq(got.lane(1), number.maxValue<I64>();
+29 |     assert.equal(got.lane(1), number.maxValue<I64>();
    |              ^ opened here
    |
    = fix: write `)` here

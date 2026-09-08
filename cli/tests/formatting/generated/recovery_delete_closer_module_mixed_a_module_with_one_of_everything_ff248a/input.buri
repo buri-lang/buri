@@ -10,7 +10,7 @@ export struct Working { export a: U32, export b: U32, export h: U32 }
 export enum Shape { Circle(Float), Rect { width: Float, height: Float }, Empty }
 export trait Weigh { fn grams<C: Allocator + Stdout>(self, ctx: C, scale: Str): Float; }
 impl Weigh for Working { fn grams<C: Allocator + Stdout>(self, ctx: C, scale: Str): Float { let heavy = self.a > 0 && self.b > 0 && self.h > 0 && scale.len() > 0; if (heavy) { 1.0 } else { 0.0 } } }
-derive Eq, Ord for Working;
+derive Equal, Ordered for Working;
 export context Everything { Clock: Fixed(0), Allocator: System() }
 export fn everything<C: Allocator>(ctx: C, b: [U8], o: Option<Int>): Str { let hexed = b.mapCtx(ctx, fn(c, x) => { let n = x.toI64(); str.fromChars(c, [HEX.charAt(n)]) }).join(ctx, ""); let matched = match (o) { .None => 0, .Some(n) => n }; str.format(ctx, "${hexed} ${matched}") 
-test "everything" { assert.eq(everything(Everything(), [1, 2, 3], .Some(6)), "a string long enough that the call around it cannot stay on one line"); }
+test "everything" { assert.equal(everything(Everything(), [1, 2, 3], .Some(6)), "a string long enough that the call around it cannot stay on one line"); }

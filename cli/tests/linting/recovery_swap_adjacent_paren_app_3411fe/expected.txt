@@ -38,7 +38,7 @@ error: there is nothing named `c` in scope [unresolved-name]
 51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
    |                                        ^
    |
-   = did you mean `Eq`?
+   = did you mean `Equal`?
    = fix: correct the spelling, or declare it
 error: there is nothing named `l` in scope [unresolved-name]
   --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:43
@@ -46,7 +46,7 @@ error: there is nothing named `l` in scope [unresolved-name]
 51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
    |                                           ^
    |
-   = did you mean `Eq`?
+   = did you mean `Equal`?
    = fix: correct the spelling, or declare it
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:46

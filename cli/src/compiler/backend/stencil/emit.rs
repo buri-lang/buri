@@ -75,6 +75,26 @@ pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     })
 }
 
+/// The stencil table's name for an arithmetic operation, given the method's.
+///
+/// The two spellings are deliberately different. A stencil is named after the
+/// **C operator** it wraps — `bin/sub/i64/ff/f` is `a - b` — and `core/number`
+/// names its methods after the word: `subtract`, `multiply`, `divide`,
+/// `remainder`, `negate`, `equal`. An `op` read out of an intrinsic key is the
+/// method's spelling, so it is translated here rather than at the place that
+/// builds a stencil key from one.
+fn stencil_op(op: &str) -> &str {
+    match op {
+        "subtract" => "sub",
+        "multiply" => "mul",
+        "divide" => "div",
+        "remainder" => "rem",
+        "negate" => "neg",
+        "equal" => "eq",
+        other => other,
+    }
+}
+
 pub fn binop_name(op: BinOp) -> &'static str {
     match op {
         BinOp::Add => "add",
@@ -497,7 +517,7 @@ impl<'a> Jit<'a> {
     ///
     /// `llvm/emit.rs::structural` is the twin, and it is narrower than the name
     /// suggests: **only `Show` reaches a backend**, only at a *primitive*
-    /// type, and only from a template hole — every structural `Eq`, `Cmp`,
+    /// type, and only from a template hole — every structural `Equal`, `Cmp`,
     /// `Hash` and `ToJson` on a compound type has already become an
     /// `Inst::Call` to a generated function by the time lowering runs. So this
     /// is `show_prim(quoted = false)`, and "unquoted" is the whole of the
@@ -2653,7 +2673,7 @@ impl<'a> Jit<'a> {
                     self.emit("ret", &[]);
                     return;
                 }
-                // `Ord::compare` answers an `Order`, which is an enum and not a
+                // `Ordered::compare` answers an `Order`, which is an enum and not a
                 // register, so it is taken before the binary-operator table
                 // below could refuse it for having no `bin/compare` stencil.
                 if op == "compare" {
@@ -2667,7 +2687,7 @@ impl<'a> Jit<'a> {
                     return;
                 }
                 if let Some((tag, _, _)) = prim_tag(prim) {
-                    let binkey = format!("bin/{}/{tag}/ff/f", op);
+                    let binkey = format!("bin/{}/{tag}/ff/f", stencil_op(op));
                     if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
                         self.emit(
                             &binkey,
@@ -2682,7 +2702,7 @@ impl<'a> Jit<'a> {
                         self.emit("ret", &[]);
                         return;
                     }
-                    if op == "neg" && fs.params.len() == 1 {
+                    if op == "negate" && fs.params.len() == 1 {
                         self.emit(
                             &format!("un/neg/{tag}/f/f"),
                             &[
@@ -2737,9 +2757,9 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if key == "str.eq" || key == "str.compare" {
+        if key == "str.equal" || key == "str.compare" {
             let symbol =
-                if key == "str.eq" { "buri_rt_str_eq" } else { "buri_rt_str_compare" };
+                if key == "str.equal" { "buri_rt_str_eq" } else { "buri_rt_str_compare" };
             match self.str_compare(st, symbol, p(0), p(1), ret0) {
                 Ok(()) => self.emit("ret", &[]),
                 Err(why) => self.unsupported(why),
@@ -2804,7 +2824,7 @@ impl<'a> Jit<'a> {
         // reached here because the same key arrives two ways: spelled inline it
         // is an `Inst::CallIntrinsic`, and spelled as a method it is a call to
         // the `Body::Runtime` function whose body this is. Answering only the
-        // first left `character.eq`, `bits.shl` and `str.concat` refused in
+        // first left `character.equal`, `bits.shl` and `str.concat` refused in
         // exactly the files that write them as methods.
         let ret_tag = self.ret_tag(prog, fi);
         if self.prim_trait_at(st, &key, ret0, p(0), p(1), Some(ret_tag)) {
@@ -2948,7 +2968,7 @@ fn prim_of_name(s: &str) -> Option<Prim> {
 }
 
 impl Jit<'_> {
-    /// The `Eq`/`Ord`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
+    /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
     /// `Char::toU32`. Answers whether it handled the key.
     ///
     /// `llvm/emit.rs` emits the same arms for the same keys — these are four
@@ -3006,7 +3026,7 @@ impl Jit<'_> {
             // A frame slot holds a `Bool` and a `Char` zero-extended, so both
             // compare at sixty-four bits whatever their own width is, and
             // `false` sorting before `true` is what an unsigned compare says.
-            "eq" if prim != Prim::Str => {
+            "equal" if prim != Prim::Str => {
                 self.emit(
                     "bin/eq/u64/ff/f",
                     &[
@@ -3105,9 +3125,9 @@ impl Jit<'_> {
         }
         let name = match kind {
             "Add" => "add",
-            "Sub" => "sub",
-            "Mul" => "mul",
-            "Div" => "div",
+            "Subtract" => "sub",
+            "Multiply" => "mul",
+            "Divide" => "div",
             "Remainder" => "rem",
             "Negate" => "neg",
             "Power" => "pow",
@@ -3132,9 +3152,9 @@ impl Jit<'_> {
         true
     }
 
-    /// `checkedAdd`, `checkedSub`, `checkedMul`, `checkedDiv` — an `Option<T>`.
+    /// `checkedAdd`, `checkedSubtract`, `checkedMultiply`, `checkedDivide` — an `Option<T>`.
     ///
-    /// `Div` is where "the type's own range" is not the same statement as "the
+    /// `Divide` is where "the type's own range" is not the same statement as "the
     /// machine did not wrap": `MIN / -1` is `2^63`, which the width cannot
     /// hold, so the stencil reports it alongside a zero divisor.
     #[allow(
@@ -3293,7 +3313,7 @@ impl Jit<'_> {
         Ok(())
     }
 
-    /// `saturatingAdd`, `saturatingSub`, `saturatingMul`.
+    /// `saturatingAdd`, `saturatingSubtract`, `saturatingMultiply`.
     ///
     /// The overflow is detected and the **end** it ran off is chosen, which is
     /// the same answer a wider type would give without there being one. Which
@@ -3311,7 +3331,7 @@ impl Jit<'_> {
         let Some((tag, _, signed)) = prim_tag(prim) else { return false };
         // Division cannot saturate: its only failures are a zero divisor and
         // `MIN / -1`, and neither has an end to run off.
-        if kind == "Div" || !self.overflowing(st, prim, kind, a, b) {
+        if kind == "Divide" || !self.overflowing(st, prim, kind, a, b) {
             return false;
         }
         let (res, flag) = Self::overflow_slots(st);
@@ -3333,18 +3353,18 @@ impl Jit<'_> {
         if !signed {
             // Unsigned: an addition or a multiplication can only run off the
             // top, and a subtraction only off the bottom.
-            self.imm_num(dest, prim, if kind == "Sub" { lo } else { hi });
+            self.imm_num(dest, prim, if kind == "Subtract" { lo } else { hi });
         } else {
             // The sum of two operands that overflowed is negative exactly when
             // they were both positive, so the sign of `x` decides — and for
-            // `Sub` the same test is right for the same reason, because the
+            // `Subtract` the same test is right for the same reason, because the
             // only way to underflow is a negative `x` against a positive `y`.
             // A product runs off the bottom when the signs differ.
             // Past `overflow_slots`' two words, which hold the result and the
             // flag this branch was reached on.
             let scr = st.scratch + (super::rtcall::RAW_WORD + 1) * 8;
             self.lt_zero(scr, a, tag);
-            if kind == "Mul" {
+            if kind == "Multiply" {
                 let other = scr + 8;
                 self.lt_zero(other, b, tag);
                 self.emit(
@@ -3415,7 +3435,7 @@ impl Jit<'_> {
         self.imm_to(dest, v as u64);
     }
 
-    /// `wrappingAdd`, `wrappingSub`, `wrappingMul` — the machine operation at
+    /// `wrappingAdd`, `wrappingSubtract`, `wrappingMultiply` — the machine operation at
     /// the operand's own width, which is what the ordinary stencil already is.
     fn wrapping(
         &mut self,
@@ -3429,8 +3449,8 @@ impl Jit<'_> {
         let Some((tag, _, _)) = prim_tag(prim) else { return false };
         let name = match kind {
             "Add" => "add",
-            "Sub" => "sub",
-            "Mul" => "mul",
+            "Subtract" => "sub",
+            "Multiply" => "mul",
             _ => return false,
         };
         let key = format!("bin/{name}/{tag}/ff/f");
@@ -3556,7 +3576,7 @@ impl Jit<'_> {
         true
     }
 
-    /// `Ord::compare` at a primitive: `Less`, `Equal`, `Greater` in
+    /// `Ordered::compare` at a primitive: `Less`, `Equal`, `Greater` in
     /// declaration order, which is what `middle::layout` gives `core/order`'s
     /// three-variant enum as a bare tag.
     ///
@@ -3566,7 +3586,7 @@ impl Jit<'_> {
     /// `fcmp`.
     fn compare_prim(&mut self, st: &mut Fn2, prim: Prim, a: u32, b: u32, dest: u32, w: u32) {
         let Some((tag, _, _)) = prim_tag(prim) else {
-            return self.unsupported(format!("Ord::compare at `{}`", prim.name()));
+            return self.unsupported(format!("Ordered::compare at `{}`", prim.name()));
         };
         let raw = st.scratch + super::rtcall::RAW_WORD * 8;
         self.imm_to(raw, EQUAL);
@@ -4049,7 +4069,7 @@ fn open_coded_key(key: &str) -> bool {
             | "host_testing.TestAllocator.allocate"
             | "str.len"
             | "str.format"
-            | "str.eq"
+            | "str.equal"
             | "str.compare"
             | "str.show"
             | "testing_assert.report"
@@ -4143,14 +4163,14 @@ fn numeric_key(key: &str) -> bool {
     matches!(
         op,
         "add"
-            | "sub"
-            | "mul"
-            | "div"
-            | "rem"
-            | "neg"
+            | "subtract"
+            | "multiply"
+            | "divide"
+            | "remainder"
+            | "negate"
             | "min"
             | "max"
-            | "eq"
+            | "equal"
             | "compare"
             | "show"
             | "minValue"
@@ -4163,7 +4183,7 @@ fn numeric_key(key: &str) -> bool {
     ) || conversion_target(op).is_some()
         || ["checked", "saturating", "wrapping"]
             .iter()
-            .any(|p| op.strip_prefix(p).is_some_and(|k| matches!(k, "Add" | "Sub" | "Mul" | "Div")))
+            .any(|p| op.strip_prefix(p).is_some_and(|k| matches!(k, "Add" | "Subtract" | "Multiply" | "Divide")))
         // `Checked`'s other three, which no other family has: a remainder, a
         // negation and a power (`sources.rs::checks`).
         || op

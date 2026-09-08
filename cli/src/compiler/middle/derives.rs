@@ -1,4 +1,4 @@
-//! A generated `Show`, `Eq`, `Ord`, `Hash` and `ToJson` per type.
+//! A generated `Show`, `Equal`, `Ordered`, `Hash` and `ToJson` per type.
 //!
 //! JavaScript walks a type descriptor at run time — `$D0`, `$D1`, and the
 //! generic `$eq`/`$show`/`$json_of` that read them — because a megamorphic walk
@@ -105,7 +105,7 @@
 //! # Sharing
 //!
 //! One function per **shape**, not per type: `struct Meters(I64)` and
-//! `struct Seconds(I64)` share `eq`, `cmp` and `hash`, because a derived
+//! `struct Seconds(I64)` share `equal`, `cmp` and `hash`, because a derived
 //! comparison reads offsets and the two layouts are identical — VALUE-MODEL.md
 //! §5 fixes layout as declaration order with natural alignment and no
 //! reordering, so "same field types in the same order" *is* "same layout".
@@ -365,7 +365,7 @@ fn descriptor_arg(args: &[Expr]) -> Option<usize> {
 ///
 /// The one thing a *call site* cannot answer is a primitive a generated body
 /// needs and the program never mentions — a `Bool` in a program that derives
-/// `Ord` and no `Eq` — and `Program::shapes` closes it, because it is every
+/// `Ordered` and no `Equal` — and `Program::shapes` closes it, because it is every
 /// declared type rather than the reached ones. [`Environment::discover`] reads it last,
 /// so it fills gaps and overrides nothing.
 struct Env {
@@ -468,7 +468,7 @@ impl Env {
         }
         // Whatever is still missing, off `Program::shapes` — which is *every*
         // declared type rather than the reached ones, so it answers where the
-        // readings above cannot: a program that derives `Ord` and never asks
+        // readings above cannot: a program that derives `Ordered` and never asks
         // for `==`, never writes a `Bool` literal and never spells a comparison
         // of its own has no `structuralEq` call site and no literal to read
         // one from, and its generated `compare` was then built with conditions
@@ -890,10 +890,10 @@ impl Generator {
     }
 
     /// `Bool`, which a generated `compare` needs for its `if` even in a
-    /// program that derives no `Eq`.
+    /// program that derives no `Equal`.
     ///
     /// It read `result(Op::Eq)` alone, which is the type of a `structuralEq`
-    /// **call site** — so a program that derives `Ord` and never asks for `==`
+    /// **call site** — so a program that derives `Ordered` and never asks for `==`
     /// had no `Bool` at all, and every `if (a < b)` in a generated `compare`
     /// was built with a condition of type `Ty::Error`. The verifier caught it
     /// as "branches on a value that is not a Bool" rather than as a missing
@@ -1378,7 +1378,7 @@ impl Generator {
     }
 
     /// Tag first, then payload — declaration order is the order, which is what
-    /// makes `derive Ord` on an enum mean what a reader of the declaration
+    /// makes `derive Ordered` on an enum mean what a reader of the declaration
     /// expects.
     fn compare_enum(
         &mut self,
@@ -2225,7 +2225,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct P { x: Int, y: Str }
-derive Eq, Ord, Show, Hash for P;
+derive Equal, Ordered, Show, Hash for P;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -2420,7 +2420,7 @@ export fn main(): Result<(), Str> {
         assert_eq!(
             printed(&program, &out, Op::Eq),
             vec![
-                "$derive$eq$P(l0, l1) = (Eq<I64>(l0.0, l1.0) && Eq<Str>(l0.1, l1.1))",
+                "$derive$eq$P(l0, l1) = (Equal<I64>(l0.0, l1.0) && Equal<Str>(l0.1, l1.1))",
                 // `o == .Less` asks for one at `Order` too, and a payloadless
                 // enum is a match on both tags.
                 "$derive$eq$Order(l0, l1) = match l0 { .v0 => match l1 { .v0 => true, _ => false }, \
@@ -2538,7 +2538,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum Shape { Dot, Line(Int, Int) }
-derive Eq, Show for Shape;
+derive Equal, Show for Shape;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -2555,7 +2555,7 @@ export fn main(): Result<(), Str> {
             vec![
                 "$derive$eq$Shape(l0, l1) = match l0 { .v0 => match l1 { .v0 => true, _ => false }, \
                  .v1(l2, l4) => match l1 { .v1(l3, l5) => \
-                 (Eq<I64>(l2, l3) && Eq<I64>(l4, l5)), _ => false } }"
+                 (Equal<I64>(l2, l3) && Equal<I64>(l4, l5)), _ => false } }"
             ]
         );
         let joiner = joiner_of(&program, 5).expect("an arity-5 joiner");
@@ -2578,7 +2578,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct P { x: Int }
-derive Eq, Show for P;
+derive Equal, Show for P;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -2607,8 +2607,8 @@ from "core/io" import * as io;
 
 struct Meters { v: Int }
 struct Seconds { v: Int }
-derive Eq, Show for Meters;
-derive Eq, Show for Seconds;
+derive Equal, Show for Meters;
+derive Equal, Show for Seconds;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -2643,7 +2643,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum Rose { Leaf(Int), Node([Rose]) }
-derive Eq for Rose;
+derive Equal for Rose;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -2684,7 +2684,7 @@ from "core/json" import { DecodeError, ToJson, FromJson };
 from "core/json" import * as json;
 
 struct P { x: Int }
-derive Eq, ToJson, FromJson for P;
+derive Equal, ToJson, FromJson for P;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -2718,7 +2718,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct P { x: Int }
-derive Eq, Show for P;
+derive Equal, Show for P;
 
 export fn seek(n: Int, needle: P): Int {
   if (n <= 0) {

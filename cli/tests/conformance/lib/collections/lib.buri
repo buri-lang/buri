@@ -7,7 +7,7 @@
 // needs somewhere to live, Buri has no mutation, and a lambda may not capture a
 // context (SPEC 10.6) — so the only counter-outside-the-value in the language
 // is `core/alloc`'s handle. Hanging one on a key and charging it from
-// `Ord.compare` does compile, and it does not work: `compare` and `hash` take
+// `Ordered.compare` does compile, and it does not work: `compare` and `hash` take
 // no context, so they are pure by signature and the compiler is free to drop a
 // redundant call, which it does — differently in different shapes of the same
 // program. A test built on that would report a number that moved when the

@@ -1,7 +1,7 @@
 error: expected `;`, found `,` [unexpected-token]
   --> main.buri:12:31
    |
-12 | derive Eq, Ord, Show for Cents, ;
+12 | derive Equal, Ordered, Show for Cents, ;
    |                               ^
    |
    = expected: `;`

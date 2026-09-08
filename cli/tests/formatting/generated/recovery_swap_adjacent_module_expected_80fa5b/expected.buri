@@ -1,5 +1,5 @@
 derive
-    Eq, Ord, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display, Sendable
+    Equal, Ordered, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display, Sendable
 for Meters;
 
 struct

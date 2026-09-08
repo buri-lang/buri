@@ -1,8 +1,8 @@
 export type Pairing<T> = (T, T);
 
-Eq
+Equal
 
-derive, Ord, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display for Meters;
+derive, Ordered, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display for Meters;
 
 export struct Meters(export Float);
 

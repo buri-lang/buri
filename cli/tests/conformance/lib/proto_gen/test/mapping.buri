@@ -21,7 +21,7 @@ test "the page's own example is the module the page says it is" {
         "}\n",
     ].join(ctx, "");
     let out = lines(ctx, source);
-    assert.eq(block(ctx, out, "export struct Person {", 6), [
+    assert.equal(block(ctx, out, "export struct Person {", 6), [
         "export struct Person {",
         "    export name: Option<Str>,",
         "    export age: Int,",
@@ -31,7 +31,7 @@ test "the page's own example is the module the page says it is" {
     ]);
     // The formatter puts a `derive` above the declaration it is about, so the
     // line sits just before the block.
-    assert.contains(out, "derive Eq, Show for Person;");
+    assert.contains(out, "derive Equal, Show for Person;");
 }
 
 test "a singular message field is an Option whatever the feature says" {
@@ -48,7 +48,7 @@ test "a singular message field is an Option whatever the feature says" {
         "  Inner one = 3;\n",
         "}\n",
     ].join(ctx, "");
-    assert.eq(block(ctx, lines(ctx, source), "export struct M {", 5), [
+    assert.equal(block(ctx, lines(ctx, source), "export struct M {", 5), [
         "export struct M {",
         "    export bare: Int,",
         "    export tracked: Option<Int>,",
@@ -72,13 +72,13 @@ test "a oneof becomes an enum held as an Option" {
         "}\n",
     ].join(ctx, "");
     let out = lines(ctx, source);
-    assert.eq(block(ctx, out, "export enum Everything_Contact {", 4), [
+    assert.equal(block(ctx, out, "export enum Everything_Contact {", 4), [
         "export enum Everything_Contact {",
         "    Phone(Str),",
         "    Office(Address),",
         "}",
     ]);
-    assert.eq(block(ctx, out, "export struct Everything {", 3), [
+    assert.equal(block(ctx, out, "export struct Everything {", 3), [
         "export struct Everything {",
         "    export contact: Option<Everything_Contact>,",
         "}",
@@ -95,7 +95,7 @@ test "an open enum keeps a number it does not name" {
         "enum Shade { SHADE_UNSPECIFIED = 0; LIGHT = 1; DARK = 2; }\n",
     ].join(ctx, "");
     let out = lines(ctx, source);
-    assert.eq(block(ctx, out, "export enum Shade {", 4), [
+    assert.equal(block(ctx, out, "export enum Shade {", 4), [
         "export enum Shade {",
         "    SHADE_UNSPECIFIED,",
         "    LIGHT,",
@@ -152,7 +152,7 @@ test "nested types flatten with an underscore" {
     let out = lines(ctx, source);
     assert.contains(out, "export struct Outer_Inner {");
     assert.contains(out, "export enum Outer_Note {");
-    assert.eq(block(ctx, out, "export struct Outer {", 4), [
+    assert.equal(block(ctx, out, "export struct Outer {", 4), [
         "export struct Outer {",
         "    export in_: Option<Outer_Inner>,",
         "    export note: Option<Outer_Note>,",
@@ -174,7 +174,7 @@ test "a field's Buri name is protoc's json_name, and a keyword gets an underscor
         "}\n",
     ].join(ctx, "");
     let out = lines(ctx, source);
-    assert.eq(block(ctx, out, "export struct M {", 6), [
+    assert.equal(block(ctx, out, "export struct M {", 6), [
         "export struct M {",
         "    export userName: Option<Str>,",
         "    export type_: Option<Str>,",

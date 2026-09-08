@@ -53,7 +53,7 @@ from "core/time" import { Duration, Instant };
 // `from "core/date" import { Duration }` resolving, to that same type.
 from "core/time" export { Duration };
 
-derive Eq, Ord, Show, Hash for Date;
+derive Equal, Ordered, Show, Hash for Date;
 /// A civil date. Any year, including negative ones: the calendar is proleptic
 /// Gregorian, so it extends backwards past its own adoption.
 export struct Date {
@@ -64,7 +64,7 @@ export struct Date {
     export day: Int,
 }
 
-derive Eq, Ord, Show, Hash for Time;
+derive Equal, Ordered, Show, Hash for Time;
 /// A time of day, to the millisecond.
 export struct Time {
     export hour: Int,
@@ -73,13 +73,13 @@ export struct Time {
     export milli: Int,
 }
 
-derive Eq, Ord, Show, Hash for DateTime;
+derive Equal, Ordered, Show, Hash for DateTime;
 export struct DateTime {
     export date: Date,
     export time: Time,
 }
 
-derive Eq, Show for Zoned;
+derive Equal, Show for Zoned;
 /// A civil date-time and the fixed offset it is expressed in.
 export struct Zoned {
     export at: DateTime,
@@ -87,7 +87,7 @@ export struct Zoned {
     export offsetMinutes: Int,
 }
 
-derive Eq, Show, Hash for Weekday;
+derive Equal, Show, Hash for Weekday;
 export enum Weekday {
     Monday,
     Tuesday,

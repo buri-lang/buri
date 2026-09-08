@@ -1,4 +1,4 @@
-// EXPECT: `T` does not satisfy `Eq`
+// EXPECT: `T` does not satisfy `Equal`
 //
 // design/ui-reactivity.md rule 5: a generic component that captures a
 // `Prop<T>` bounds `T` with an ordinary trait, because an unbounded type

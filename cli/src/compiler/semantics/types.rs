@@ -2,7 +2,7 @@
 //!
 //! The type system is nominal throughout: every type has a declaration, and
 //! trait conformance is declared rather than inferred from shape. That is what
-//! makes checking `T: Ord` one lookup in one table keyed by `(trait, type)`
+//! makes checking `T: Ordered` one lookup in one table keyed by `(trait, type)`
 //! rather than a search (SPEC 5.12.1), and it is why nothing in this module
 //! needs a fixpoint (guides/compile-speed.md).
 
@@ -375,7 +375,7 @@ pub struct FnInfo {
 /// `module == u32::MAX` meant "no syntax at all" and `sub == u32::MAX` meant
 /// "not a method". They were decoded by hand at every use, `item: 0` on the
 /// `NONE` value was indistinguishable from a genuine first item, and a
-/// declaration with no syntax but a real `sub` was representable.
+/// declaration with no syntax but a real `subtract` was representable.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AstRef {
     /// Declared by the toolchain rather than by any source: the primitives,
@@ -1109,7 +1109,7 @@ impl Tables {
     /// bound. A type is either part of the world or part of your data
     /// (SPEC 10.1), and `Infer::satisfies_seen` enforces that at every
     /// instantiation — an effect-carrying type satisfies no ordinary bound —
-    /// so `T: Eq` cannot be a context and `xs.any(fn(x) => x == needle)` stays
+    /// so `T: Equal` cannot be a context and `xs.any(fn(x) => x == needle)` stays
     /// legal. A parameter bounded only by effects has no such guarantee, and
     /// `is_effect_carrying` has already answered `true` for it anyway.
     ///

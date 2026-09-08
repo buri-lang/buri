@@ -10,7 +10,7 @@
 //! after (SPEC 10.7).
 
 from "core/effect" import { Allocator };
-from "core/order" import { Ord, Order };
+from "core/order" import { Ordered, Order };
 
 // --- Pure: no context parameter at all --------------------------------------
 
@@ -67,7 +67,7 @@ impl<T> [T] {
     export fn findIndex(self, pred: fn(T) => Bool): Option<Int>;
 }
 
-impl<T: Eq> [T] {
+impl<T: Equal> [T] {
     export fn contains(self, needle: T): Bool {
         self.any(fn(x) => x == needle)
     }
@@ -86,8 +86,8 @@ impl<T> [T] {
     /// The greatest element by `cmp`, or `.None` for an empty list. Ties go to
     /// the earlier element, which is `maximum`'s answer too.
     ///
-    /// `maximum` is this with the type's own `Ord`. This form takes the order as
-    /// a value, so "the row with the largest score" needs no `Ord` on the row.
+    /// `maximum` is this with the type's own `Ordered`. This form takes the order as
+    /// a value, so "the row with the largest score" needs no `Ordered` on the row.
     export fn maxBy(self, cmp: fn(T, T) => Order): Option<T> {
         self.fold(
             fn(best, x) => {
@@ -127,7 +127,7 @@ impl<T> [T] {
     /// Lexicographic comparison, element by element with `cmp`, the shorter
     /// list first when one is a prefix of the other.
     ///
-    /// `[T]` satisfies `Ord` structurally whenever `T` does (SPEC 5.11), so `<`
+    /// `[T]` satisfies `Ordered` structurally whenever `T` does (SPEC 5.11), so `<`
     /// on two lists already answers this order. This adds the comparator form: a
     /// list compared by an order that is not the element type's own.
     export fn compareBy(self, other: [T], cmp: fn(T, T) => Order): Order {
@@ -165,11 +165,11 @@ fn sortedFrom<T>(xs: [T], cmp: fn(T, T) => Order, at: Int): Bool {
     }
 }
 
-impl<T: Ord> [T] {
+impl<T: Ordered> [T] {
     /// The type's own order, lexicographically over the list — `compareBy`
     /// with `T`'s `compare`.
     ///
-    /// The compiler owns `[T]`'s structural `Ord` conformance (SPEC 5.11), since
+    /// The compiler owns `[T]`'s structural `Ordered` conformance (SPEC 5.11), since
     /// an `impl` registers against a type *constructor* and `[T]` is not one.
     /// This is that same order, callable by name.
     export fn compare(self, other: [T]): Order {
@@ -352,8 +352,8 @@ impl<T> [T] {
     export fn sortBy<C: Allocator>(self, ctx: C, order: fn(T, T) => Order): [T];
 }
 
-impl<T: Ord> [T] {
-    /// `sortBy` with the type's own `Ord`, and stable like it.
+impl<T: Ordered> [T] {
+    /// `sortBy` with the type's own `Ordered`, and stable like it.
     ///
     /// For `[Str]` that is `core/str`'s `compare`: lexicographic by Unicode
     /// scalar value, which for a valid string is UTF-8 byte order, on both
@@ -485,7 +485,7 @@ impl [Float] {
     }
 }
 
-impl<T: Ord> [T] {
+impl<T: Ordered> [T] {
     export fn maximum(self): Option<T> {
         self.fold(
             fn(best, x) => {
@@ -879,7 +879,7 @@ fn lastFrom<T>(xs: [T], keep: fn(T) => Bool, at: Int): Option<Int> {
     }
 }
 
-impl<T: Ord> [T] {
+impl<T: Ordered> [T] {
     /// `binarySearchBy` with the type's own order. The list has to be sorted by
     /// it, which is what `sort` leaves behind.
     export fn binarySearch(self, needle: T): Result<Int, Int> {
@@ -887,7 +887,7 @@ impl<T: Ord> [T] {
     }
 }
 
-fn searchOrd<T: Ord>(xs: [T], needle: T, lo: Int, hi: Int): Result<Int, Int> {
+fn searchOrd<T: Ordered>(xs: [T], needle: T, lo: Int, hi: Int): Result<Int, Int> {
     if (lo >= hi) {
         .Err(lo)
     } else {
@@ -905,7 +905,7 @@ fn searchOrd<T: Ord>(xs: [T], needle: T, lo: Int, hi: Int): Result<Int, Int> {
     }
 }
 
-impl<T: Eq> [T] {
+impl<T: Equal> [T] {
     /// The index of the first element equal to `needle`. O(n), where
     /// `binarySearch` is O(log n) on a list that is already in order.
     export fn indexOf(self, needle: T): Option<Int> {
@@ -931,7 +931,7 @@ impl<T: Eq> [T] {
 
 /// Whether `part` occurs in `xs` starting at `at`. A negative `at` means a
 /// `part` longer than `xs`, which never matches.
-fn matchesAt<T: Eq>(xs: [T], part: [T], at: Int, seen: Int): Bool {
+fn matchesAt<T: Equal>(xs: [T], part: [T], at: Int, seen: Int): Bool {
     if (at < 0) {
         false
     } else {

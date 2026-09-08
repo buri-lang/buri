@@ -4,9 +4,9 @@
 from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-from "core/number" import { Neg, Wrapping };
+from "core/number" import { Negate, Wrapping };
 
-fn negate<T: Neg>(x: T): T {
+fn negate<T: Negate>(x: T): T {
     -x
 }
 
@@ -15,8 +15,8 @@ export fn main(): Result<(), Str> {
         Allocator: host.alloc,
         Stdout: host.stdout,
     };
-    // Only constraint on this literal is `T: Neg`. Defaulting picks I64, which
-    // has Neg -- so this should work.
+    // Only constraint on this literal is `T: Negate`. Defaulting picks I64, which
+    // has Negate -- so this should work.
     let a = negate(5);
     let _ = io.println(ctx, "negate(5) = ${a}").ignore();
     .Ok(())

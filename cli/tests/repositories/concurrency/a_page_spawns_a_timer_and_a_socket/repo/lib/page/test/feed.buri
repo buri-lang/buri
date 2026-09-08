@@ -22,7 +22,7 @@ test "a scope waits for the socket loop and the timer it was given" {
         let _ = io.println(c, "mounted").ignore();
         ()
     });
-    assert.eq(
+    assert.equal(
         out.captured(),
         "mounted\nframe a\nframe b\nsocket closed\nsessions expired at 300000\n",
     );
@@ -44,10 +44,10 @@ test "a handler spawns into the scope the page handed it" {
             ()
         }
     });
-    assert.eq(out.captured(), "");
+    assert.equal(out.captured(), "");
     let fire = onClick;
     let _ = fire(ctx);
-    assert.eq(out.captured(), "frame late\nsocket closed\n");
+    assert.equal(out.captured(), "frame late\nsocket closed\n");
 }
 
 test "the double chooses the order two spawned tasks run in" {
@@ -65,7 +65,7 @@ test "the double chooses the order two spawned tasks run in" {
     });
     // Seed one of two orders is the swap, and the scope answers the same way
     // either way: everything spawned has finished.
-    assert.eq(out.captured(), "frame b\nsocket closed\nframe a\nsocket closed\n");
+    assert.equal(out.captured(), "frame b\nsocket closed\nframe a\nsocket closed\n");
 }
 
 test "a task spawned by a task is inside the same scope" {
@@ -83,5 +83,5 @@ test "a task spawned by a task is inside the same scope" {
         });
         ()
     });
-    assert.eq(out.captured(), "socket closed\nframe nested\nsocket closed\n");
+    assert.equal(out.captured(), "socket closed\nframe nested\nsocket closed\n");
 }

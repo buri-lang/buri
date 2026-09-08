@@ -1,7 +1,7 @@
 error: expected an expression, found `,` [unexpected-token]
   --> main.buri:75:44
    |
-75 |     assert.eq(io.readAllBytes(ctx), [0255 ,, 10, 65]);
+75 |     assert.equal(io.readAllBytes(ctx), [0255 ,, 10, 65]);
    |                                            ^
    |
    = expected: an expression

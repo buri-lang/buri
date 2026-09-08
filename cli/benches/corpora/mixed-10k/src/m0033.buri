@@ -9,7 +9,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0011.buri" import { blend11, Node11, reach11, seed11 };
 
-derive Eq, Show for Node33;
+derive Equal, Show for Node33;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node33 {
@@ -34,7 +34,7 @@ export fn lift33(n: Node11): Node33 {
     Node33 { label: n.label, value: n.value + seed33(), weight: n.weight }
 }
 
-derive Eq, Show for Rec33_0;
+derive Equal, Show for Rec33_0;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec33_0 {
     export f0: Int,
@@ -59,7 +59,7 @@ export fn probe33_0<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for State33_1;
+derive Equal, Show for State33_1;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State33_1 {
     Idle,
@@ -119,7 +119,7 @@ export fn probe33_2<C: Allocator>(ctx: C): Int {
     useGeneric33_2([1, 2], ["a"]) + describeAll33_2(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for State33_3;
+derive Equal, Show for State33_3;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State33_3 {
     Idle,

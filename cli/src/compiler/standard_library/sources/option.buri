@@ -9,8 +9,8 @@
 from "core/effect" import { Allocator };
 
 // Structural, so `Option<T>` compares and renders whenever `T` does. Without
-// this no struct with an `Option` field could derive `Eq` either.
-derive Eq, Ord, Show, Hash for Option;
+// this no struct with an `Option` field could derive `Equal` either.
+derive Equal, Ordered, Show, Hash for Option;
 export enum Option<T> {
     Some(T),
     None,

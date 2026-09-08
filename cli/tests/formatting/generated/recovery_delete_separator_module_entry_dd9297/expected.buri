@@ -3,12 +3,12 @@
 // drift apart.
 from "//lib/money" import { Cents, fromCents }
 
-// `Eq` because a list of entries is rendered by `ui.each`, which bounds its
+// `Equal` because a list of entries is rendered by `ui.each`, which bounds its
 // element type with it (SPEC rule 5: an unbounded type parameter could be a
 // context, and the closures a keyed list holds capture one of these). `Show`
 // because a suite that asserts on an entry has to be able to print the one it
 // got. Both are the derives; neither is a decision this type makes for itself.
-derive Eq, Show for Entry;
+derive Equal, Show for Entry;
 export struct Entry {
     export memo: Str,
     export amount: Cents,

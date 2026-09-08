@@ -10,7 +10,7 @@
 //!     `self` or `ctx`;
 //!   - no type may implement both an effect and a trait.
 
-derive Eq, Show for Region;
+derive Equal, Show for Region;
 /// A region of memory. `Allocator` is a *resource* effect: it can fail and it costs
 /// something, but nobody can observe it. That is what keeps a function bounded
 /// only by `Allocator` deterministic (SPEC 10.5).
@@ -159,10 +159,10 @@ export effect Entropy {
 /// The process's environment: its variables and the arguments it was started
 /// with.
 ///
-/// `args` and not `arguments`: `core/env` exports `args(ctx)` and is the only
-/// caller of this method. A type's methods are one map keyed by name, so the
-/// name `arguments` is left for `core/host/testing`'s `TestEnvironment` builder, where
-/// `env().withArguments([...])` is how a test says what the arguments are.
+/// `arguments` and not `args`: `core/env` exports `arguments(ctx)` and is the
+/// only caller of this method. A type's methods are one map keyed by name, so
+/// `core/host/testing`'s builder takes the other name — `env().withArguments`
+/// is how a test says what the arguments are.
 export effect Environment {
     fn variable(self, name: Str): Option<Str>;
     fn arguments(self): [Str];
@@ -582,7 +582,7 @@ export effect Tcp {
     fn tcpClose(self, handle: Int): ();
 }
 
-derive Eq, Show for IoError;
+derive Equal, Show for IoError;
 /// Declared here rather than in `core/fs` because the three stream effects above
 /// answer it too. `core/fs` re-exports it, so a program that only reads files
 /// names one module.
@@ -599,7 +599,7 @@ export enum IoError {
     Other(Str),
 }
 
-derive Eq, Show for NetError;
+derive Equal, Show for NetError;
 export enum NetError {
     Timeout,
     Refused,
@@ -612,7 +612,7 @@ export enum NetError {
     Aborted,
 }
 
-derive Eq, Show for Protocol;
+derive Equal, Show for Protocol;
 /// An HTTP version a server may be asked to speak.
 ///
 /// The **declaration order is the ABI**: the variant index is what crosses to
@@ -630,7 +630,7 @@ export enum Protocol {
     Http3,
 }
 
-derive Eq, Show for Serve;
+derive Equal, Show for Serve;
 /// One thing a listener is being asked for — **the bind's whole plan, one
 /// element at a time.**
 ///
@@ -677,7 +677,7 @@ export enum Serve {
     SocketBuffer(Int),
 }
 
-derive Eq, Show for ServeFailure;
+derive Equal, Show for ServeFailure;
 /// Why a server stopped, as a closed set.
 ///
 /// Separate from `NetError` because being a server fails in different ways from
@@ -705,7 +705,7 @@ export enum ServeFailure {
     Transport,
 }
 
-derive Eq, Show for ServeError;
+derive Equal, Show for ServeError;
 /// Why a server stopped, and what the platform said about it.
 ///
 /// A **struct** rather than an enum with payloads: `cause` is what a program
@@ -717,7 +717,7 @@ export struct ServeError {
     export detail: Str,
 }
 
-derive Eq, Show for Listener;
+derive Equal, Show for Listener;
 /// An open port. Inert data: three integers the acceptor understands and nobody
 /// else does.
 ///
@@ -740,7 +740,7 @@ export struct Listener {
     export handlers: Int,
 }
 
-derive Eq, Show for Frame;
+derive Equal, Show for Frame;
 /// Which of the three things `listenReceive` answered with.
 ///
 /// **Three and not five**: a ping and a pong are the transport keeping a
@@ -758,7 +758,7 @@ export enum Frame {
     Closed,
 }
 
-derive Eq, Show for Received;
+derive Equal, Show for Received;
 /// One thing that arrived on a socket.
 ///
 /// **A struct with a kind beside it, rather than an enum with payloads**, on
@@ -791,7 +791,7 @@ export struct Received {
     export code: Int,
 }
 
-derive Eq, Show for Connected;
+derive Equal, Show for Connected;
 /// A WebSocket client's opening handshake, answered.
 ///
 /// **Flat, and a struct rather than a pair**, on `Received`'s terms: it crosses
@@ -822,7 +822,7 @@ export struct Connected {
     export body: [U8],
 }
 
-derive Eq, Show for Method;
+derive Equal, Show for Method;
 /// The request method.
 ///
 /// Its **wire spelling never appears in Buri code**: `GET` is written `.Get`,
@@ -841,7 +841,7 @@ export enum Method {
     Options,
 }
 
-derive Eq, Show for Header;
+derive Equal, Show for Header;
 /// One header field.
 ///
 /// **Names are lowercase.** HTTP/2 and HTTP/3 require it on the wire, every
@@ -854,7 +854,7 @@ export struct Header {
     export value: Str,
 }
 
-derive Eq, Show for Request;
+derive Equal, Show for Request;
 /// An HTTP request: what `Network.fetch` takes, and what a server's handler is given.
 ///
 /// The body is octets rather than text: a decoded `Str` would have to be lossy or
@@ -876,7 +876,7 @@ export struct Request {
     export timeoutMillis: Int,
 }
 
-derive Eq, Show for Response;
+derive Equal, Show for Response;
 /// An HTTP response: what `Network.fetch` answers, and what a server's handler
 /// returns. The body is octets, for `Request`'s reason.
 export struct Response {

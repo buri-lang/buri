@@ -10,7 +10,7 @@ from "core/str" import * as str;
 from "//bench/m0012.buri" import { blend12, Node12, reach12, seed12 };
 from "//bench/m0013.buri" import { blend13, Node13, reach13, seed13 };
 
-derive Eq, Show for Node18;
+derive Equal, Show for Node18;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node18 {
@@ -109,7 +109,7 @@ export fn probe18_2<C: Allocator>(ctx: C): Int {
     label18_2(ctx, a, e).len() + b
 }
 
-derive Eq, Show for Rec18_3;
+derive Equal, Show for Rec18_3;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec18_3 {
     export f0: Int,
@@ -238,7 +238,7 @@ export fn probe18_7<C: Allocator>(ctx: C): Int {
     digest18_7(ctx) + drain18_7()
 }
 
-derive Eq, Show for State18_8;
+derive Equal, Show for State18_8;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State18_8 {
     Idle,
@@ -274,7 +274,7 @@ export fn probe18_8<C: Allocator>(ctx: C): Int {
     rank18_8(s) + s.show(ctx).len()
 }
 
-derive Eq, Show for Rec18_9;
+derive Equal, Show for Rec18_9;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec18_9 {
     export f0: Int,

@@ -42,7 +42,7 @@ fn negInf(): F64 {
 }
 
 test "INFINITY is the infinity division produces, and is positive" {
-    assert.eq(math.INFINITY, inf());
+    assert.equal(math.INFINITY, inf());
     assert.isTrue(math.isInfinite(math.INFINITY));
     assert.isFalse(math.isFinite(math.INFINITY));
     assert.isFalse(math.isNan(math.INFINITY));
@@ -50,42 +50,42 @@ test "INFINITY is the infinity division produces, and is positive" {
     // with the sign `signum` reports.
     assert.isTrue(math.INFINITY > 1.0e308);
     assert.isTrue(math.INFINITY > 0.0);
-    assert.eq(math.INFINITY.signum(), 1.0);
+    assert.equal(math.INFINITY.signum(), 1.0);
 }
 
 test "NEG_INFINITY is the other one, and is negative" {
-    assert.eq(math.NEG_INFINITY, negInf());
+    assert.equal(math.NEG_INFINITY, negInf());
     assert.isTrue(math.isInfinite(math.NEG_INFINITY));
     assert.isFalse(math.isFinite(math.NEG_INFINITY));
     assert.isFalse(math.isNan(math.NEG_INFINITY));
     assert.isTrue(math.NEG_INFINITY < -1.0e308);
     assert.isTrue(math.NEG_INFINITY < 0.0);
-    assert.eq(math.NEG_INFINITY.signum(), -1.0);
+    assert.equal(math.NEG_INFINITY.signum(), -1.0);
 }
 
 test "the two infinities are each other's negation" {
-    assert.eq(-math.INFINITY, math.NEG_INFINITY);
-    assert.eq(-math.NEG_INFINITY, math.INFINITY);
+    assert.equal(-math.INFINITY, math.NEG_INFINITY);
+    assert.equal(-math.NEG_INFINITY, math.INFINITY);
     assert.isTrue(math.NEG_INFINITY < math.INFINITY);
     assert.isFalse(math.INFINITY == math.NEG_INFINITY);
-    assert.eq(math.absFloat(math.NEG_INFINITY), math.INFINITY);
+    assert.equal(math.absFloat(math.NEG_INFINITY), math.INFINITY);
 }
 
 test "NAN is a NaN" {
     assert.isTrue(math.isNan(math.NAN));
     assert.isFalse(math.isFinite(math.NAN));
     assert.isFalse(math.isInfinite(math.NAN));
-    assert.eq(math.NAN, nan());
+    assert.equal(math.NAN, nan());
 }
 
 test "NAN equals itself, because equality in Buri is an equivalence relation" {
     // SPEC 6.2: `==` is reflexive at every value, so `NAN != NAN` is **false**
     // here where IEEE-754 makes it true. The documented departure, and the
     // reason a `NaN` can be a key: this is what a `Map`, a `Set` and every
-    // `derive Eq` are built on.
+    // `derive Equal` are built on.
     assert.isTrue(math.NAN == math.NAN);
     assert.isFalse(math.NAN != math.NAN);
-    assert.eq(math.NAN, math.NAN);
+    assert.equal(math.NAN, math.NAN);
     // A different bit pattern for the same value: negation flips the sign bit
     // and nothing else, so an equality that compared bits would fail here.
     assert.isTrue(math.NAN == -math.NAN);
@@ -103,12 +103,12 @@ test "NAN is unordered, because the ordering operators are still IEEE's" {
 }
 
 test "arithmetic on the three lands where IEEE-754 says" {
-    assert.eq(math.INFINITY + 1.0, math.INFINITY);
-    assert.eq(math.INFINITY * 2.0, math.INFINITY);
-    assert.eq(math.INFINITY * -1.0, math.NEG_INFINITY);
-    assert.eq(math.NEG_INFINITY - 1.0, math.NEG_INFINITY);
-    assert.eq(1.0 / math.INFINITY, 0.0);
-    assert.eq(1.0 / math.NEG_INFINITY, 0.0);
+    assert.equal(math.INFINITY + 1.0, math.INFINITY);
+    assert.equal(math.INFINITY * 2.0, math.INFINITY);
+    assert.equal(math.INFINITY * -1.0, math.NEG_INFINITY);
+    assert.equal(math.NEG_INFINITY - 1.0, math.NEG_INFINITY);
+    assert.equal(1.0 / math.INFINITY, 0.0);
+    assert.equal(1.0 / math.NEG_INFINITY, 0.0);
     // The four ways to make a NaN out of infinities, and two out of a NaN.
     assert.isTrue(math.isNan(math.INFINITY + math.NEG_INFINITY));
     assert.isTrue(math.isNan(math.INFINITY - math.INFINITY));
@@ -119,18 +119,18 @@ test "arithmetic on the three lands where IEEE-754 says" {
 }
 
 test "the exactly-specified half of core/math agrees with the three" {
-    assert.eq(math.sqrt(math.INFINITY), math.INFINITY);
+    assert.equal(math.sqrt(math.INFINITY), math.INFINITY);
     assert.isTrue(math.isNan(math.sqrt(math.NAN)));
-    assert.eq(math.floor(math.INFINITY), math.INFINITY);
-    assert.eq(math.ceil(math.NEG_INFINITY), math.NEG_INFINITY);
-    assert.eq(math.absFloat(math.INFINITY), math.INFINITY);
+    assert.equal(math.floor(math.INFINITY), math.INFINITY);
+    assert.equal(math.ceil(math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.equal(math.absFloat(math.INFINITY), math.INFINITY);
 }
 
 test "number's free functions order the three the way the operators do" {
-    assert.eq(number.min(1.0, math.NEG_INFINITY), math.NEG_INFINITY);
-    assert.eq(number.max(1.0, math.INFINITY), math.INFINITY);
-    assert.eq(number.clamp(0.0, 1.0, math.INFINITY), 1.0);
-    assert.eq(number.clamp(0.0, 1.0, math.NEG_INFINITY), 0.0);
+    assert.equal(number.min(1.0, math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.equal(number.max(1.0, math.INFINITY), math.INFINITY);
+    assert.equal(number.clamp(0.0, 1.0, math.INFINITY), 1.0);
+    assert.equal(number.clamp(0.0, 1.0, math.NEG_INFINITY), 0.0);
 }
 
 test "the three render the same text on every backend" {
@@ -141,12 +141,12 @@ test "the three render the same text on every backend" {
     // float is the shortest decimal that round-trips, and none of these three
     // has one. A constant that was a different value on one backend would show
     // it here as different text.
-    assert.eq(str.fromFloat(ctx, math.INFINITY), "inf");
-    assert.eq(str.fromFloat(ctx, math.NEG_INFINITY), "-inf");
-    assert.eq(str.fromFloat(ctx, math.NAN), "NaN");
-    assert.eq(math.INFINITY.show(ctx), "inf");
-    assert.eq(math.NEG_INFINITY.show(ctx), "-inf");
-    assert.eq(math.NAN.show(ctx), "NaN");
+    assert.equal(str.fromFloat(ctx, math.INFINITY), "inf");
+    assert.equal(str.fromFloat(ctx, math.NEG_INFINITY), "-inf");
+    assert.equal(str.fromFloat(ctx, math.NAN), "NaN");
+    assert.equal(math.INFINITY.show(ctx), "inf");
+    assert.equal(math.NEG_INFINITY.show(ctx), "-inf");
+    assert.equal(math.NAN.show(ctx), "NaN");
 }
 
 test "the three render the same in a hole as they do through show" {
@@ -156,10 +156,10 @@ test "the three render the same in a hole as they do through show" {
     // SPEC 3.6: a `Float` hole renders exactly as `show` renders it. This is
     // where the two rendering paths a backend has — the interpolation one and
     // `str.fromFloat` — have to meet, at the three values that are not digits.
-    assert.eq(str.format(ctx, "${math.INFINITY}"), "inf");
-    assert.eq(str.format(ctx, "${math.NEG_INFINITY}"), "-inf");
-    assert.eq(str.format(ctx, "${math.NAN}"), "NaN");
-    assert.eq(
+    assert.equal(str.format(ctx, "${math.INFINITY}"), "inf");
+    assert.equal(str.format(ctx, "${math.NEG_INFINITY}"), "-inf");
+    assert.equal(str.format(ctx, "${math.NAN}"), "NaN");
+    assert.equal(
         str.format(ctx, "${math.INFINITY} ${math.NEG_INFINITY} ${math.NAN}"),
         "inf -inf NaN",
     );
@@ -172,111 +172,111 @@ test "the three render the same in a hole as they do through show" {
 // each belongs here rather than in `floats.buri` with the transcendentals.
 
 test "EPSILON is the gap above one" {
-    assert.eq(1.0 + math.EPSILON > 1.0, true);
-    assert.eq(1.0 + math.EPSILON / 2.0 == 1.0, true);
-    assert.eq(math.EPSILON, 2.220446049250313e-16);
+    assert.equal(1.0 + math.EPSILON > 1.0, true);
+    assert.equal(1.0 + math.EPSILON / 2.0 == 1.0, true);
+    assert.equal(math.EPSILON, 2.220446049250313e-16);
 }
 
 test "MIN_POSITIVE is the smallest float with a full mantissa" {
-    assert.eq(math.MIN_POSITIVE > 0.0, true);
-    assert.eq(math.MIN_POSITIVE, 2.2250738585072014e-308);
+    assert.equal(math.MIN_POSITIVE > 0.0, true);
+    assert.equal(math.MIN_POSITIVE, 2.2250738585072014e-308);
     // Halving it leaves the normals and keeps a value, which is what makes it
     // the *normal* minimum rather than the smallest float.
-    assert.eq(math.MIN_POSITIVE / 2.0 > 0.0, true);
+    assert.equal(math.MIN_POSITIVE / 2.0 > 0.0, true);
 }
 
 test "TAU is two PI" {
-    assert.eq(math.TAU, 2.0 * math.PI);
-    assert.eq(math.TAU / 4.0, math.PI / 2.0);
+    assert.equal(math.TAU, 2.0 * math.PI);
+    assert.equal(math.TAU / 4.0, math.PI / 2.0);
 }
 
 test "hypotenuse is the length of the third side" {
-    assert.eq(math.hypotenuse(3.0, 4.0), 5.0);
-    assert.eq(math.hypotenuse(0.0, 0.0), 0.0);
-    assert.eq(math.hypotenuse(0.0, 7.0), 7.0);
-    assert.eq(math.hypotenuse(-3.0, -4.0), 5.0);
-    assert.eq(math.hypotenuse(5.0, 12.0), 13.0);
+    assert.equal(math.hypotenuse(3.0, 4.0), 5.0);
+    assert.equal(math.hypotenuse(0.0, 0.0), 0.0);
+    assert.equal(math.hypotenuse(0.0, 7.0), 7.0);
+    assert.equal(math.hypotenuse(-3.0, -4.0), 5.0);
+    assert.equal(math.hypotenuse(5.0, 12.0), 13.0);
 }
 
 test "hypotenuse survives a side whose square would overflow" {
     // `x * x` is infinite here; the answer is not.
     let big = 1.0e200;
-    assert.eq(math.hypotenuse(big, 0.0), big);
-    assert.eq(math.isFinite(math.hypotenuse(big, big)), true);
-    assert.eq(math.isInfinite(big * big), true);
+    assert.equal(math.hypotenuse(big, 0.0), big);
+    assert.equal(math.isFinite(math.hypotenuse(big, big)), true);
+    assert.equal(math.isInfinite(big * big), true);
 }
 
 test "hypotenuse answers infinity for an infinite side, NaN or not" {
-    assert.eq(math.hypotenuse(math.INFINITY, 1.0), math.INFINITY);
-    assert.eq(math.hypotenuse(1.0, math.NEG_INFINITY), math.INFINITY);
-    assert.eq(math.hypotenuse(math.INFINITY, nan()), math.INFINITY);
+    assert.equal(math.hypotenuse(math.INFINITY, 1.0), math.INFINITY);
+    assert.equal(math.hypotenuse(1.0, math.NEG_INFINITY), math.INFINITY);
+    assert.equal(math.hypotenuse(math.INFINITY, nan()), math.INFINITY);
     assert.isTrue(math.isNan(math.hypotenuse(nan(), 1.0)));
 }
 
 test "copySign takes the magnitude from one side and the sign from the other" {
-    assert.eq(math.copySign(3.0, 1.0), 3.0);
-    assert.eq(math.copySign(3.0, -1.0), -3.0);
-    assert.eq(math.copySign(-3.0, 1.0), 3.0);
-    assert.eq(math.copySign(-3.0, -1.0), -3.0);
-    assert.eq(math.copySign(math.INFINITY, -1.0), math.NEG_INFINITY);
+    assert.equal(math.copySign(3.0, 1.0), 3.0);
+    assert.equal(math.copySign(3.0, -1.0), -3.0);
+    assert.equal(math.copySign(-3.0, 1.0), 3.0);
+    assert.equal(math.copySign(-3.0, -1.0), -3.0);
+    assert.equal(math.copySign(math.INFINITY, -1.0), math.NEG_INFINITY);
 }
 
 test "copySign reads a negative zero's sign" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(str.fromFloat(ctx, math.copySign(1.0, -0.0)), "-1.0");
-    assert.eq(str.fromFloat(ctx, math.copySign(1.0, 0.0)), "1.0");
-    assert.eq(str.fromFloat(ctx, math.copySign(0.0, -1.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.copySign(1.0, -0.0)), "-1.0");
+    assert.equal(str.fromFloat(ctx, math.copySign(1.0, 0.0)), "1.0");
+    assert.equal(str.fromFloat(ctx, math.copySign(0.0, -1.0)), "-0.0");
     // A `NaN` carries no sign in this language, so it counts as positive.
-    assert.eq(str.fromFloat(ctx, math.copySign(1.0, nan())), "1.0");
+    assert.equal(str.fromFloat(ctx, math.copySign(1.0, nan())), "1.0");
 }
 
 test "toRadians and toDegrees are inverses at the usual angles" {
-    assert.eq(math.toRadians(180.0), math.PI);
-    assert.eq(math.toRadians(0.0), 0.0);
-    assert.eq(math.toDegrees(math.PI), 180.0);
-    assert.eq(math.toDegrees(0.0), 0.0);
-    assert.eq(math.toDegrees(math.toRadians(90.0)), 90.0);
-    assert.eq(math.toDegrees(math.toRadians(45.0)), 45.0);
+    assert.equal(math.toRadians(180.0), math.PI);
+    assert.equal(math.toRadians(0.0), 0.0);
+    assert.equal(math.toDegrees(math.PI), 180.0);
+    assert.equal(math.toDegrees(0.0), 0.0);
+    assert.equal(math.toDegrees(math.toRadians(90.0)), 90.0);
+    assert.equal(math.toDegrees(math.toRadians(45.0)), 45.0);
 }
 
 test "roundEven sends a tie to the even neighbour" {
-    assert.eq(math.roundEven(0.5), 0.0);
-    assert.eq(math.roundEven(1.5), 2.0);
-    assert.eq(math.roundEven(2.5), 2.0);
-    assert.eq(math.roundEven(3.5), 4.0);
-    assert.eq(math.roundEven(-0.5), 0.0);
-    assert.eq(math.roundEven(-1.5), -2.0);
-    assert.eq(math.roundEven(-2.5), -2.0);
+    assert.equal(math.roundEven(0.5), 0.0);
+    assert.equal(math.roundEven(1.5), 2.0);
+    assert.equal(math.roundEven(2.5), 2.0);
+    assert.equal(math.roundEven(3.5), 4.0);
+    assert.equal(math.roundEven(-0.5), 0.0);
+    assert.equal(math.roundEven(-1.5), -2.0);
+    assert.equal(math.roundEven(-2.5), -2.0);
 }
 
 test "roundEven rounds to the nearer number where there is one" {
-    assert.eq(math.roundEven(0.4), 0.0);
-    assert.eq(math.roundEven(0.6), 1.0);
-    assert.eq(math.roundEven(-0.6), -1.0);
-    assert.eq(math.roundEven(2.4), 2.0);
-    assert.eq(math.roundEven(2.6), 3.0);
-    assert.eq(math.roundEven(7.0), 7.0);
+    assert.equal(math.roundEven(0.4), 0.0);
+    assert.equal(math.roundEven(0.6), 1.0);
+    assert.equal(math.roundEven(-0.6), -1.0);
+    assert.equal(math.roundEven(2.4), 2.0);
+    assert.equal(math.roundEven(2.6), 3.0);
+    assert.equal(math.roundEven(7.0), 7.0);
 }
 
 test "roundEven keeps the sign of a zero and passes the rest through" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(str.fromFloat(ctx, math.roundEven(-0.4)), "-0.0");
-    assert.eq(str.fromFloat(ctx, math.roundEven(-0.0)), "-0.0");
-    assert.eq(math.roundEven(math.INFINITY), math.INFINITY);
+    assert.equal(str.fromFloat(ctx, math.roundEven(-0.4)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.roundEven(-0.0)), "-0.0");
+    assert.equal(math.roundEven(math.INFINITY), math.INFINITY);
     assert.isTrue(math.isNan(math.roundEven(nan())));
     // Above 2^52 every double is already whole.
-    assert.eq(math.roundEven(9007199254740993.0), 9007199254740993.0);
+    assert.equal(math.roundEven(9007199254740993.0), 9007199254740993.0);
 }
 
 test "round and roundEven part company at a tie" {
     // `round` sends every tie the same way and drifts; `roundEven` splits them.
-    assert.eq(math.round(2.5), 3.0);
-    assert.eq(math.roundEven(2.5), 2.0);
-    assert.eq(
+    assert.equal(math.round(2.5), 3.0);
+    assert.equal(math.roundEven(2.5), 2.0);
+    assert.equal(
         math.round(0.5) + math.round(1.5) + math.round(2.5) + math.round(3.5),
         10.0,
     );
@@ -284,31 +284,31 @@ test "round and roundEven part company at a tie" {
         + math.roundEven(1.5)
         + math.roundEven(2.5)
         + math.roundEven(3.5);
-    assert.eq(even, 8.0);
+    assert.equal(even, 8.0);
 }
 
 test "roundTo keeps the digits it is asked for" {
-    assert.eq(math.roundTo(1.25, 1), 1.2);
-    assert.eq(math.roundTo(1.35, 1), 1.4);
-    assert.eq(math.roundTo(3.14159, 2), 3.14);
-    assert.eq(math.roundTo(2.5, 0), 2.0);
-    assert.eq(math.roundTo(7.0, 3), 7.0);
-    assert.eq(math.roundTo(-1.25, 1), -1.2);
+    assert.equal(math.roundTo(1.25, 1), 1.2);
+    assert.equal(math.roundTo(1.35, 1), 1.4);
+    assert.equal(math.roundTo(3.14159, 2), 3.14);
+    assert.equal(math.roundTo(2.5, 0), 2.0);
+    assert.equal(math.roundTo(7.0, 3), 7.0);
+    assert.equal(math.roundTo(-1.25, 1), -1.2);
 }
 
 test "roundTo with a negative scale rounds above the point" {
-    assert.eq(math.roundTo(1234.0, -2), 1200.0);
-    assert.eq(math.roundTo(1250.0, -2), 1200.0);
-    assert.eq(math.roundTo(1350.0, -2), 1400.0);
-    assert.eq(math.roundTo(-1234.0, -2), -1200.0);
+    assert.equal(math.roundTo(1234.0, -2), 1200.0);
+    assert.equal(math.roundTo(1250.0, -2), 1200.0);
+    assert.equal(math.roundTo(1350.0, -2), 1400.0);
+    assert.equal(math.roundTo(-1234.0, -2), -1200.0);
 }
 
 test "roundTo leaves what it cannot round" {
-    assert.eq(math.roundTo(math.INFINITY, 2), math.INFINITY);
+    assert.equal(math.roundTo(math.INFINITY, 2), math.INFINITY);
     assert.isTrue(math.isNan(math.roundTo(nan(), 2)));
     // A scale so large that the scaling itself would overflow.
-    assert.eq(math.roundTo(1.5, 400), 1.5);
-    assert.eq(math.roundTo(1.5, -400), 1.5);
+    assert.equal(math.roundTo(1.5, 400), 1.5);
+    assert.equal(math.roundTo(1.5, -400), 1.5);
 }
 
 test "isCloseAbsolute measures a plain difference" {
@@ -376,7 +376,7 @@ test "the two ends of the format are the values they are named for" {
     assert.isTrue(math.MIN_POSITIVE / 2.0 > 0.0);
     assert.isTrue(math.MIN_POSITIVE / 2.0 < math.MIN_POSITIVE);
     // And nothing between it and zero, so halving it lands on zero.
-    assert.eq(smallest() / 2.0, 0.0);
+    assert.equal(smallest() / 2.0, 0.0);
 }
 
 test "roundEven and roundTo at the subnormals and at the largest value" {
@@ -384,48 +384,48 @@ test "roundEven and roundTo at the subnormals and at the largest value" {
         Allocator: alloc(),
     };
     // A subnormal is far below a half, so it rounds to a zero of its own sign.
-    assert.eq(math.roundEven(smallest()), 0.0);
-    assert.eq(str.fromFloat(ctx, math.roundEven(0.0 - smallest())), "-0.0");
-    assert.eq(math.roundEven(math.MIN_POSITIVE / 2.0), 0.0);
-    assert.eq(math.roundTo(smallest(), 2), 0.0);
-    assert.eq(math.roundTo(math.MIN_POSITIVE, 300), 0.0);
+    assert.equal(math.roundEven(smallest()), 0.0);
+    assert.equal(str.fromFloat(ctx, math.roundEven(0.0 - smallest())), "-0.0");
+    assert.equal(math.roundEven(math.MIN_POSITIVE / 2.0), 0.0);
+    assert.equal(math.roundTo(smallest(), 2), 0.0);
+    assert.equal(math.roundTo(math.MIN_POSITIVE, 300), 0.0);
     // Above 2^52 every double is whole already, and the largest one is far
     // above it — so both leave it exactly alone.
-    assert.eq(math.roundEven(largest()), largest());
-    assert.eq(math.roundTo(largest(), 0), largest());
-    assert.eq(math.roundTo(largest(), 2), largest());
+    assert.equal(math.roundEven(largest()), largest());
+    assert.equal(math.roundTo(largest(), 0), largest());
+    assert.equal(math.roundTo(largest(), 2), largest());
     // A negative zero survives the scaling.
-    assert.eq(str.fromFloat(ctx, math.roundTo(-0.0, 2)), "-0.0");
-    assert.eq(math.roundTo(math.NEG_INFINITY, 2), math.NEG_INFINITY);
+    assert.equal(str.fromFloat(ctx, math.roundTo(-0.0, 2)), "-0.0");
+    assert.equal(math.roundTo(math.NEG_INFINITY, 2), math.NEG_INFINITY);
 }
 
 test "roundTo sends its own ties to the even digit" {
     // The tie is taken after the scaling, so these are `roundEven`'s rule one
     // decimal place down.
-    assert.eq(math.roundTo(0.125, 2), 0.12);
-    assert.eq(math.roundTo(0.375, 2), 0.38);
-    assert.eq(math.roundTo(0.625, 2), 0.62);
-    assert.eq(math.roundTo(0.875, 2), 0.88);
-    assert.eq(math.roundTo(2.5, 0), 2.0);
-    assert.eq(math.roundTo(3.5, 0), 4.0);
-    assert.eq(math.roundTo(-2.5, 0), -2.0);
-    assert.eq(math.roundTo(-3.5, 0), -4.0);
+    assert.equal(math.roundTo(0.125, 2), 0.12);
+    assert.equal(math.roundTo(0.375, 2), 0.38);
+    assert.equal(math.roundTo(0.625, 2), 0.62);
+    assert.equal(math.roundTo(0.875, 2), 0.88);
+    assert.equal(math.roundTo(2.5, 0), 2.0);
+    assert.equal(math.roundTo(3.5, 0), 4.0);
+    assert.equal(math.roundTo(-2.5, 0), -2.0);
+    assert.equal(math.roundTo(-3.5, 0), -4.0);
     // A column of ties does not drift, which is the whole reason for the rule.
     let column = math.roundTo(0.125, 2)
         + math.roundTo(0.375, 2)
         + math.roundTo(0.625, 2)
         + math.roundTo(0.875, 2);
-    assert.eq(column, 2.0);
+    assert.equal(column, 2.0);
 }
 
 test "roundTo rounds the double and not the decimal that was typed" {
     // `1.005` is really `1.00499999999999989...`, so scaling it by a hundred
     // gives something below a half and the answer is `1.0` rather than `1.01`.
-    assert.eq(math.roundTo(1.005, 2), 1.0);
-    assert.eq(math.roundTo(0.145, 2), 0.14);
+    assert.equal(math.roundTo(1.005, 2), 1.0);
+    assert.equal(math.roundTo(0.145, 2), 0.14);
     // And the other way: `2.675` is below its own numeral too, but the scaling
     // rounds *up* to exactly `267.5`, so the tie rule lifts it to `2.68`.
-    assert.eq(math.roundTo(2.675, 2), 2.68);
+    assert.equal(math.roundTo(2.675, 2), 2.68);
     // `core/decimal` is where the digits themselves are the value.
 }
 
@@ -434,23 +434,23 @@ test "the exact functions at the largest value and at a subnormal" {
         Allocator: alloc(),
     };
     // `copySign` is sign bit work, so it reaches both ends unchanged.
-    assert.eq(math.copySign(largest(), -1.0), 0.0 - largest());
-    assert.eq(math.copySign(0.0 - largest(), 1.0), largest());
+    assert.equal(math.copySign(largest(), -1.0), 0.0 - largest());
+    assert.equal(math.copySign(0.0 - largest(), 1.0), largest());
     assert.isTrue(math.copySign(smallest(), -1.0) < 0.0);
-    assert.eq(math.copySign(smallest(), 1.0), smallest());
+    assert.equal(math.copySign(smallest(), 1.0), smallest());
     // `hypotenuse` scales by the larger side, which is what stops the largest
     // value squaring itself on the way.
-    assert.eq(math.hypotenuse(largest(), 0.0), largest());
-    assert.eq(math.hypotenuse(0.0, largest()), largest());
+    assert.equal(math.hypotenuse(largest(), 0.0), largest());
+    assert.equal(math.hypotenuse(0.0, largest()), largest());
     assert.isTrue(math.isInfinite(math.hypotenuse(largest(), largest())));
-    assert.eq(math.hypotenuse(math.MIN_POSITIVE, 0.0), math.MIN_POSITIVE);
+    assert.equal(math.hypotenuse(math.MIN_POSITIVE, 0.0), math.MIN_POSITIVE);
     assert.isTrue(math.hypotenuse(smallest(), smallest()) > 0.0);
     // The degree conversions are a multiply and a divide, so they overflow at
     // the top and flush to a subnormal at the bottom.
     assert.isTrue(math.isInfinite(math.toRadians(largest())));
     assert.isTrue(math.toDegrees(smallest()) > 0.0);
-    assert.eq(str.fromFloat(ctx, math.toRadians(-0.0)), "-0.0");
-    assert.eq(str.fromFloat(ctx, math.toDegrees(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.toRadians(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.toDegrees(-0.0)), "-0.0");
 }
 
 test "the two closeness tests at the ends of the format" {

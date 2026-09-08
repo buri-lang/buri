@@ -1,24 +1,24 @@
-// EXPECT: carries an effect, so it does not satisfy `Eq`
+// EXPECT: carries an effect, so it does not satisfy `Equal`
 // The bounded-parameter escape in the capture rule rests on this: a type is
 // either part of the world or part of your data (SPEC 10.1). `Holder<C>`
-// implements `Eq` and stores a `C`, so `Holder<ctx>` is effect-carrying and
-// must not reach a `T: Eq` — otherwise `hide` could launder a context again.
+// implements `Equal` and stores a `C`, so `Holder<ctx>` is effect-carrying and
+// must not reach a `T: Equal` — otherwise `hide` could launder a context again.
 from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 
 struct Holder<C> { export inner: C }
 
-impl<C> Eq for Holder<C> {
-  fn eq(self, other: Holder<C>): Bool { true }
+impl<C> Equal for Holder<C> {
+  fn equal(self, other: Holder<C>): Bool { true }
 }
 
-fn hide<T: Eq>(x: T): fn() => T {
+fn hide<T: Equal>(x: T): fn() => T {
   fn() => x
 }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let smuggler = hide(Holder { inner: ctx });
-  let _ = smuggler().inner.println("laundered through Eq");
+  let _ = smuggler().inner.println("laundered through Equal");
   .Ok(())
 }

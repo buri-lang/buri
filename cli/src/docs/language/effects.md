@@ -127,7 +127,7 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
   effect-carrying type — one that merely *mentions* an effect, such as a
   `Holder<C>` storing a context — satisfies no ordinary bound either, whatever
   `impl`s its head constructor carries. That is what lets Section 10.6 conclude a
-  `T: Ord` is never a context.
+  `T: Ordered` is never a context.
 
 A function names the effects it needs as **bounds** on its context parameter:
 
@@ -141,7 +141,7 @@ fn loadConfig<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Config, C
 }
 ```
 
-There is one constraint mechanism in the language. `<T: Ord + Show>` and
+There is one constraint mechanism in the language. `<T: Ordered + Show>` and
 `<C: Allocator + FileSystemRead>` are the same feature: a list of interfaces a type parameter
 must satisfy.
 
@@ -322,7 +322,7 @@ is spending, or refuses to spend more than a budget.
 Each of those three qualifiers is load-bearing, and each is there because the
 sentence without it is false:
 
-- **Identical, not equal.** Function types have no `Eq` (Section 5.11), so
+- **Identical, not equal.** Function types have no `Equal` (Section 5.11), so
   "equal arguments" has no referent at one. The theorem quantifies over the
   *same* values, which means something at every type.
 - **Terminating without aborting.** A pure function may abort — `100 / x` at
@@ -404,8 +404,8 @@ type and returns a `fn() => ()` holding an effect. So the rule treats a type
 parameter as though it *were* a context, unless one of two things says otherwise:
 
 - **An ordinary trait bound.** An effect-carrying type satisfies no ordinary
-  bound (Section 10.1), so a `T: Eq` is never a context and
-  `xs.any(fn(x) => x == needle)` inside `impl<T: Eq> [T]` is fine. A `T` with no
+  bound (Section 10.1), so a `T: Equal` is never a context and
+  `xs.any(fn(x) => x == needle)` inside `impl<T: Equal> [T]` is fine. A `T` with no
   bounds, or one bounded only by effects, has no such guarantee.
 - **A function type.** A closure holds exactly what this rule let it capture, so
   capturing one is safe whatever its type parameters are: `fn compose<A, B, C>(f:

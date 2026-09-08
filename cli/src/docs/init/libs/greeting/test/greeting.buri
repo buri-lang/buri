@@ -5,5 +5,5 @@ from "core/testing/assert" import * as assert;
 from "//libs/greeting" import { greeting };
 
 test "the greeting" {
-    assert.eq(greeting(), "hello world");
+    assert.equal(greeting(), "hello world");
 }

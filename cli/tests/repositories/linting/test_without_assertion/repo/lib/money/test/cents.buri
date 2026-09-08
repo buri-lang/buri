@@ -9,7 +9,7 @@ from "//lib/money" import { Cents, fromCents };
 
 // The helper. Nothing in `roundTrips` mentions `assert`; this does.
 fn isSame(a: Cents, b: Cents): () {
-    assert.eq(a, b)
+    assert.equal(a, b)
 }
 
 test "constructing a Cents does nothing observable" {

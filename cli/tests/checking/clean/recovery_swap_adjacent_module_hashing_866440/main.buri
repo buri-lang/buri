@@ -18,9 +18,9 @@ from "core/testing/assert" import * as assert;
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
-    assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash());
-    assert.eq(
+    assert.equal(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
+    assert.equal(bigint.zero().hash(), bigint.of(5).subtract(ctx, bigint.of(5)).hash());
+    assert.equal(
         bigint.of(2).power(ctx, 100).hash(),
         assert.some(bigint.parse(ctx, "1267650600228229401496703205376")).hash(),
     );

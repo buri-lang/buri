@@ -161,7 +161,7 @@ impl Meters {
     export fn doubled(self): Meters { Meters(self.0 * 2.0) }
 }
 
-derive Eq, Ord, Show for Meters;
+derive Equal, Ordered, Show for Meters;
 ```
 
 - Every top-level `fn` **must** write its return type, and its parameter

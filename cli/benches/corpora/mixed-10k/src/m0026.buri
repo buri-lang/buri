@@ -11,7 +11,7 @@ from "//bench/m0005.buri" import { blend5, Node5, reach5, seed5 };
 from "//bench/m0012.buri" import { blend12, Node12, reach12, seed12 };
 from "//bench/m0025.buri" import { blend25, Node25, reach25, seed25 };
 
-derive Eq, Show for Node26;
+derive Equal, Show for Node26;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node26 {
@@ -88,7 +88,7 @@ export fn probe26_1<C: Allocator>(ctx: C): Int {
     choose26_1(.Some(3), .None) + extra
 }
 
-derive Eq, Show for Rec26_2;
+derive Equal, Show for Rec26_2;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec26_2 {
     export f0: Int,
@@ -138,7 +138,7 @@ export fn probe26_3<C: Allocator>(ctx: C): Int {
     useGeneric26_3([1, 2], ["a"]) + describeAll26_3(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for Rec26_4;
+derive Equal, Show for Rec26_4;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec26_4 {
     export f0: Int,
@@ -165,7 +165,7 @@ export fn probe26_4<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for State26_5;
+derive Equal, Show for State26_5;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State26_5 {
     Idle,
@@ -228,7 +228,7 @@ export fn probe26_6<C: Allocator>(ctx: C): Int {
     digest26_6(ctx) + drain26_6()
 }
 
-derive Eq, Show for Rec26_7;
+derive Equal, Show for Rec26_7;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec26_7 {
     export f0: Int,

@@ -2405,8 +2405,8 @@ mod tests {
         let record = format!(
             "[{},{},{}]",
             passing_record("a title", "//lib/x/test/x"),
-            failing_record("say \"hi\"", "//lib/x/test/x", "assert.eq failed", Some(&diff), None),
-            failing_record("scheduled", "//lib/x/test/x", "assert.eq failed", None, Some(note))
+            failing_record("say \"hi\"", "//lib/x/test/x", "assert.equal failed", Some(&diff), None),
+            failing_record("scheduled", "//lib/x/test/x", "assert.equal failed", None, Some(note))
         );
         let cases = parse_results(&record);
         assert_eq!(cases.len(), 3);
@@ -2420,7 +2420,7 @@ mod tests {
         let Verdict::Failed { message, diff: Some(d), order } = &cases[1].verdict else {
             panic!("the failing record did not read back as a failure");
         };
-        assert_eq!(message, "assert.eq failed");
+        assert_eq!(message, "assert.equal failed");
         assert_eq!(d.actual, "\"a\\tb\"");
         assert_eq!(d.expected, "2");
         // A failure that scheduled nothing carries no order, and that is a
@@ -2444,10 +2444,10 @@ mod tests {
     /// and nothing but this test compares them.
     #[test]
     fn a_native_binary_says_which_block_aborted() {
-        let noted = noted_failure("{\"i\":3,\"message\":\"assert.eq failed\",\"actual\":\"1\",\"expected\":\"2\"}\n")
+        let noted = noted_failure("{\"i\":3,\"message\":\"assert.equal failed\",\"actual\":\"1\",\"expected\":\"2\"}\n")
             .expect("a record with an index is a record");
         assert_eq!(noted.at, 3);
-        assert_eq!(noted.message, "assert.eq failed");
+        assert_eq!(noted.message, "assert.equal failed");
         let diff = noted.diff.expect("both sides were there");
         assert_eq!((diff.actual.as_str(), diff.expected.as_str()), ("1", "2"));
         // A block that scheduled nothing says nothing about an order, which is
@@ -2459,12 +2459,12 @@ mod tests {
         let plain = noted_failure("{\"i\":0,\"message\":\"division by zero\"}\n").unwrap();
         assert!(plain.diff.is_none());
         assert!(noted_failure("").is_none());
-        assert!(noted_failure("assert.eq failed\n").is_none());
+        assert!(noted_failure("assert.equal failed\n").is_none());
         // The order sentence, in the position `note_failure` writes it: after
         // the pair where there is one, and beside the message where there is
         // not. Both literals are the contract with the other crate.
         let scheduled = noted_failure(
-            "{\"i\":1,\"message\":\"assert.eq failed\",\"actual\":\"1\",\"expected\":\"2\",\
+            "{\"i\":1,\"message\":\"assert.equal failed\",\"actual\":\"1\",\"expected\":\"2\",\
              \"order\":\"the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`\"}\n",
         )
         .unwrap();

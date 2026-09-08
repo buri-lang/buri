@@ -22,7 +22,7 @@ test "renders the statement" {
         ]),
     };
     let want = assert.ok(fs.readText(ctx, path.of(ctx, "test/golden/statement.txt")));
-    assert.eq(render(), want);
+    assert.equal(render(), want);
 }
 
 // A filesystem holds what it was given and nothing else — not the file next to
@@ -39,6 +39,6 @@ test "a file the suite did not name is not there" {
 // out of a filesystem and a literal written in the assertion are now the same
 // kind of thing, and this file should show both.
 test "the trailer and the footer are written where they are asserted" {
-    assert.eq(trailer(), "3 entries");
-    assert.eq(footer(), "settled");
+    assert.equal(trailer(), "3 entries");
+    assert.equal(footer(), "settled");
 }

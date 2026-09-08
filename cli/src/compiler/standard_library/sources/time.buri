@@ -52,22 +52,22 @@
 //! ```
 
 from "core/effect" import { Allocator, Clock };
-from "core/order" import { Eq, Ord, Show };
+from "core/order" import { Equal, Ordered, Show };
 from "core/str" import * as str;
 
-derive Eq, Ord, Show for Instant;
+derive Equal, Ordered, Show for Instant;
 /// A point in time, in milliseconds. A distinct type rather than an `I64`, so
 /// an instant cannot be added to a count by accident.
 export struct Instant(export I64);
 
-derive Eq, Ord, Hash for Duration;
+derive Equal, Ordered, Hash for Duration;
 /// A length of time, in nanoseconds, positive or negative.
 ///
 /// The field is exported, so `Duration(2_500)` is 2500 nanoseconds. The
 /// constructors below name their unit instead.
 export struct Duration(export I64);
 
-derive Eq, Ord, Show for Monotonic;
+derive Equal, Ordered, Show for Monotonic;
 /// A reading off a clock that only goes forward, in nanoseconds.
 ///
 /// **The number means nothing on its own.** Its zero is wherever the platform
@@ -112,23 +112,23 @@ export fn nanos(n: Int): Duration {
 }
 
 export fn micros(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_MICROSECOND))
+    Duration(n.saturatingMultiply(NANOS_PER_MICROSECOND))
 }
 
 export fn millis(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_MILLISECOND))
+    Duration(n.saturatingMultiply(NANOS_PER_MILLISECOND))
 }
 
 export fn seconds(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_SECOND))
+    Duration(n.saturatingMultiply(NANOS_PER_SECOND))
 }
 
 export fn minutes(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_MINUTE))
+    Duration(n.saturatingMultiply(NANOS_PER_MINUTE))
 }
 
 export fn hours(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_HOUR))
+    Duration(n.saturatingMultiply(NANOS_PER_HOUR))
 }
 
 /// A length from a fractional count of seconds: `secondsFloat(0.25)` is 250
@@ -204,17 +204,17 @@ impl Duration {
         Duration(self.0.saturatingAdd(other.0))
     }
 
-    export fn sub(self, other: Duration): Duration {
-        Duration(self.0.saturatingSub(other.0))
+    export fn subtract(self, other: Duration): Duration {
+        Duration(self.0.saturatingSubtract(other.0))
     }
 
     /// Scales a length by a count. `factor` is an `Int` and not a `Duration`,
     /// because a length times a length is not a length.
-    export fn mul(self, factor: Int): Duration {
-        Duration(self.0.saturatingMul(factor))
+    export fn multiply(self, factor: Int): Duration {
+        Duration(self.0.saturatingMultiply(factor))
     }
 
-    /// `mul`'s inverse: the length split into `divisor` equal parts, truncated
+    /// `multiply`'s inverse: the length split into `divisor` equal parts, truncated
     /// toward zero. A zero divisor aborts, exactly as `/` does (SPEC 6.2).
     export fn divide(self, divisor: Int): Duration {
         Duration(self.0 / divisor)
@@ -242,7 +242,7 @@ impl Duration {
     /// place saturating and wrapping differ by more than a bound.
     export fn negate(self): Duration {
         let zero: Int = 0;
-        Duration(zero.saturatingSub(self.0))
+        Duration(zero.saturatingSubtract(self.0))
     }
 
     export fn abs(self): Duration {
@@ -320,7 +320,7 @@ impl Instant {
     /// How long since `earlier`, negative if `earlier` is later. Pure: the
     /// difference between two points needs no clock.
     export fn duration(self, earlier: Instant): Duration {
-        Duration(self.0.saturatingSub(earlier.0).saturatingMul(NANOS_PER_MILLISECOND))
+        Duration(self.0.saturatingSubtract(earlier.0).saturatingMultiply(NANOS_PER_MILLISECOND))
     }
 
     /// This point moved forward by a length. `d.millis()` is what moves it, so
@@ -330,7 +330,7 @@ impl Instant {
     }
 
     export fn minus(self, d: Duration): Instant {
-        Instant(self.0.saturatingSub(d.millis()))
+        Instant(self.0.saturatingSubtract(d.millis()))
     }
 
     /// Whether this point is at or past `deadline`. Both ends saturate, so the
@@ -375,7 +375,7 @@ impl Monotonic {
     /// How long since `earlier`, negative if `earlier` is the later reading.
     /// Pure: the difference between two readings needs no clock.
     export fn duration(self, earlier: Monotonic): Duration {
-        Duration(self.0.saturatingSub(earlier.0))
+        Duration(self.0.saturatingSubtract(earlier.0))
     }
 }
 

@@ -54,7 +54,7 @@
 //! for the assertions an outcome cannot make: that a cache was consulted once and
 //! not twice, that nothing was written at all, that a retry went to the same URL.
 //! One `Call` record per double, built by a constructor named after the method it
-//! records, compared by `Eq` and printed by `Show`.
+//! records, compared by `Equal` and printed by `Show`.
 //!
 //! `TestProcess` has nothing to read back. `exitWith` absorbs the call so that a
 //! test which exits keeps running, and what a test asserts is what it does
@@ -65,7 +65,7 @@
 //! `fs().faults([...])` and `net().faults([...])` say what breaks. A fault is one
 //! of those same `Call` constructors and an error: `readFile(p).fails(e)` for
 //! every matching call, `readFile(p).failsOnCall(n, e)` for the `n`th. Matching
-//! is the `Eq` the `Call` records already derive, so a fault is spelled exactly
+//! is the `Equal` the `Call` records already derive, so a fault is spelled exactly
 //! as `calls()` reports the call it names. **Success comes from the
 //! environment and failure comes from the plan**: `files` and `respond` say what
 //! a call finds, and nothing else in the module says what a call answers.
@@ -244,7 +244,7 @@ impl TestStdin {
 /// `handle` names the runner-side state — the files, the attenuation, the log,
 /// and the plan's own bookkeeping — and `plan` is the fault plan, which stays in
 /// the program because `cli/runtime/lib.rs` §2.1 cannot hand an error variant
-/// with a field back across a row. So the match is the `Eq` the `FsCall` records
+/// with a field back across a row. So the match is the `Equal` the `FsCall` records
 /// derive, and every method here asks the plan before it calls its row.
 export struct TestFileSystem {
     handle: I64,
@@ -430,7 +430,7 @@ impl TestFileSystem {
     ///
     /// A fault is a call and an error: `readFile(p).fails(e)` fails every matching
     /// call, and `readFile(p).failsOnCall(n, e)` fails the `n`th, counted from one
-    /// over the matching calls made through this handle. Matching is the `Eq` the
+    /// over the matching calls made through this handle. Matching is the `Equal` the
     /// `FsCall` records derive, so a fault names a call exactly as `calls()`
     /// reports it — same constructor, same arguments.
     ///
@@ -755,7 +755,7 @@ fn netWithPlan(handle: I64): I64;
 
 /// The call half of one fault of a network's plan. The URL and not the whole
 /// request, because a message that named every header would be a paragraph;
-/// matching still reads every field, through `NetCall`'s `Eq`. `faultFails` is
+/// matching still reads every field, through `NetCall`'s `Equal`. `faultFails` is
 /// the other half, shared with the filesystem.
 fn addNetFault(handle: I64, url: Str): ();
 
@@ -833,7 +833,7 @@ impl TestNetwork {
     /// every one of them is made.
     ///
     /// `TestFileSystem::faults` states the whole rule, and it is the same rule here.
-    /// Matching is `NetCall`'s derived `Eq`, so two requests differing in a header
+    /// Matching is `NetCall`'s derived `Equal`, so two requests differing in a header
     /// are two calls and a fault names one of them. `fails` fails every matching
     /// request and `failsOnCall(n, e)` the `n`th. A failed request never reaches
     /// the responder and is still in `calls()`. A fault whose request is never
@@ -1120,7 +1120,7 @@ fn recordSpawn(handle: I64, plan: [Str]): ();
 
 fn spawnCalls(handle: I64): [SpawnCall];
 
-derive Eq, Show for SpawnCall;
+derive Equal, Show for SpawnCall;
 /// One command run through a `TestSpawn`.
 ///
 /// The program and its arguments, which is what an assertion is about. The
@@ -1303,7 +1303,7 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 ///         onMessage: fn(_c, _socket, seen, _message) => seen + 1,
 ///         onClose: fn(_c, _socket, _seen, _reason) => (),
 ///     });
-///     assert.eq(closed, .Ok(.Normal));
+///     assert.equal(closed, .Ok(.Normal));
 /// }
 /// ```
 ///
@@ -1340,7 +1340,7 @@ impl WebSocketClient for TestWebSocketClient {
 /// it, and the number that names the client.
 fn socketsDialling(handle: I64, messages: [Message]): I64;
 
-derive Eq, Show for FsCall;
+derive Equal, Show for FsCall;
 // --- The call log -------------------------------------------------------------
 //
 // One record per double, and one constructor per method. A `Call` is what was
@@ -1350,7 +1350,7 @@ derive Eq, Show for FsCall;
 /// One call to a `TestFileSystem`, as `calls()` reports it and as a test writes it down.
 ///
 /// A record with private fields, so the constructors below are the only way to
-/// build one. `derive Eq` is what an assertion compares — two calls differ as
+/// build one. `derive Equal` is what an assertion compares — two calls differ as
 /// soon as an argument does — and `derive Show` is what a failing one prints.
 ///
 /// One record rather than an enum of eleven variants. Every method of `FileSystem` takes
@@ -1458,7 +1458,7 @@ export fn copyFile(source: Str, destination: Str): FsCall {
 /// rather than `core/bytes`', because a constructor takes no context.
 fn spelled(body: [U8]): Str;
 
-derive Eq, Show for NetCall;
+derive Equal, Show for NetCall;
 /// One request made through a `TestNetwork`.
 ///
 /// The whole request, because `Network` has one method and it takes one value: two
@@ -1571,7 +1571,7 @@ fn recordTcpClose(handle: I64, stream: Int): ();
 /// Every call through a handle's log.
 fn tcpCalls(handle: I64): [TcpCall];
 
-derive Eq, Show for TcpCall;
+derive Equal, Show for TcpCall;
 /// One call made through a `TestTcp`.
 ///
 /// One record for four operations, so a log reads as one list rather than four:
@@ -1615,7 +1615,7 @@ export fn tcpClose(stream: Int): TcpCall {
     TcpCall { name: "close", host: "", port: 0, stream: stream, limit: 0, body: [] }
 }
 
-derive Eq, Show for StdinCall;
+derive Equal, Show for StdinCall;
 /// One read made through a `TestStdin`.
 ///
 /// `count` is the number of octets `readBytes` asked for, and zero for
@@ -1846,13 +1846,13 @@ fn describeTaskPlan(ctx: TestTasks, plan: [TaskFault], i: Int): () {
     }
 }
 
-derive Eq, Show for TaskCall;
+derive Equal, Show for TaskCall;
 /// One task of one `parallel`, named by its index — as `calls()` reports it and
 /// as a plan names it.
 ///
 /// The index and not the item: a task is identified by where it is in the fan-out,
 /// which is the only thing the effect's signature promises about it. An item would
-/// have to be `Show`n to be recorded and `Eq` to be matched, and `parallel` bounds
+/// have to be `Show`n to be recorded and `Equal` to be matched, and `parallel` bounds
 /// neither.
 export struct TaskCall {
     index: Int,

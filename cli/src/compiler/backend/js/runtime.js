@@ -87,7 +87,7 @@ function $wrapTo(v, bits, signed) {
 // `$wrapTo` takes the low bits of a value it is *handed*, and the caller used
 // to hand it a double it had already computed. Above 2^53 that double is
 // rounded, and the low bits of a rounded value are not the low bits of the
-// answer — `U32.wrappingMul(0xffffffff, 0xffffffff)` is 1, its exact product
+// answer — `U32.wrappingMultiply(0xffffffff, 0xffffffff)` is 1, its exact product
 // 18446744065119617025 rounds to an even double, and the wrap of that is 0. So
 // the arithmetic itself happens in BigInt and only the wrapped result, which
 // is inside the type's range by construction, comes back as a `number`.
@@ -992,7 +992,7 @@ function $str_splitOnce(s, sep) {
   return i < 0 ? undefined : $some([s.slice(0, i), s.slice(i + sep.length)]);
 }
 
-// `Str.compare`, and through `Ord` every `<`, `sort` and `OrderedMap` key order.
+// `Str.compare`, and through `Ordered` every `<`, `sort` and `OrderedMap` key order.
 //
 // **Unicode scalar value order**, which for a valid string is byte-for-byte
 // UTF-8 order — the same answer `str::cmp` gives in Rust, `<` gives in Go and
@@ -4935,7 +4935,7 @@ function $host_testing_spelled(b) {
 //
 // The plan itself never reaches this file. It is a list of Buri values holding
 // an `IoError`, and `cli/runtime/lib.rs` §2.1 cannot name an error variant that
-// carries a field, so matching is the `Eq` the `Call` records derive and happens
+// carries a field, so matching is the `Equal` the `Call` records derive and happens
 // in `host_testing.buri` — on both backends, from one implementation. What is
 // here is the half a program cannot keep: which entries have fired, and what
 // each of them would read like in a failure message.
@@ -4988,7 +4988,7 @@ function $host_testing_addFsFault(h, name, path, body) {
   );
 }
 
-// The URL and not the whole request: matching is `NetCall`'s derived `Eq` and
+// The URL and not the whole request: matching is `NetCall`'s derived `Equal` and
 // reads every field of it, and a message naming every header would be a
 // paragraph where a reader wants a line.
 function $host_testing_addNetFault(h, url) {

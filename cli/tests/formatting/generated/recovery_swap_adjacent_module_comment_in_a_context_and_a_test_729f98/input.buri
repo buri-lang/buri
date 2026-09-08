@@ -6,5 +6,5 @@ export context C {
 
 "a test" test {
   // about an assertion
-  assert.eq(1, 1);
+  assert.equal(1, 1);
 }

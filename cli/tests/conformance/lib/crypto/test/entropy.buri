@@ -28,7 +28,7 @@ test "the unseeded generator draws the same octets on every backend" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    assert.eq(
+    assert.equal(
         bytes.toHex(ctx, crypto.randomBytes(ctx, 16)),
         "2101c54fd1d01ab22574cb378aaef5b1",
     );
@@ -43,13 +43,13 @@ test "a seed picks a different sequence, and picks the same one twice" {
         Allocator: alloc(),
         Entropy: entropy().seed(7),
     };
-    assert.eq(
+    assert.equal(
         bytes.toHex(one, crypto.randomBytes(one, 16)),
         "e7074345ff94ba57af0afde4a8fe4535",
     );
     // A second handle at the same seed starts from the start of the sequence:
     // `seed` answers a **new** generator rather than reseeding this one.
-    assert.eq(
+    assert.equal(
         bytes.toHex(two, crypto.randomBytes(two, 16)),
         "e7074345ff94ba57af0afde4a8fe4535",
     );
@@ -62,8 +62,8 @@ test "one generator is drawn down rather than restarted" {
     };
     let first = crypto.randomBytes(ctx, 8);
     let second = crypto.randomBytes(ctx, 8);
-    assert.eq(bytes.toHex(ctx, first), "2101c54fd1d01ab2");
-    assert.eq(bytes.toHex(ctx, second), "2574cb378aaef5b1");
+    assert.equal(bytes.toHex(ctx, first), "2101c54fd1d01ab2");
+    assert.equal(bytes.toHex(ctx, second), "2574cb378aaef5b1");
 }
 
 // --- what a caller gets ---------------------------------------------------------
@@ -73,12 +73,12 @@ test "the count is the number of octets, and zero is the empty list" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    assert.eq(crypto.randomBytes(ctx, 0).len(), 0);
-    assert.eq(crypto.randomBytes(ctx, 1).len(), 1);
-    assert.eq(crypto.randomBytes(ctx, 32).len(), 32);
+    assert.equal(crypto.randomBytes(ctx, 0).len(), 0);
+    assert.equal(crypto.randomBytes(ctx, 1).len(), 1);
+    assert.equal(crypto.randomBytes(ctx, 32).len(), 32);
     // 65536 is WebCrypto's per-call quota, so this is the length that crosses
     // it. The window is the runtime's business and not the caller's.
-    assert.eq(crypto.randomBytes(ctx, 65537).len(), 65537);
+    assert.equal(crypto.randomBytes(ctx, 65537).len(), 65537);
 }
 
 test "a token is hex, twice as long as the entropy it carries" {
@@ -87,10 +87,10 @@ test "a token is hex, twice as long as the entropy it carries" {
         Entropy: entropy().seed(7),
     };
     let t = crypto.token(ctx, 16);
-    assert.eq(t.len(), 32);
-    assert.eq(t, "e7074345ff94ba57af0afde4a8fe4535");
+    assert.equal(t.len(), 32);
+    assert.equal(t, "e7074345ff94ba57af0afde4a8fe4535");
     // Written down as hex and read back as the octets it was made of.
-    assert.eq(bytes.fromHex(ctx, t).withDefault([]).len(), 16);
+    assert.equal(bytes.fromHex(ctx, t).withDefault([]).len(), 16);
 }
 
 test "a token of no octets is the empty string" {
@@ -98,7 +98,7 @@ test "a token of no octets is the empty string" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    assert.eq(crypto.token(ctx, 0), "");
+    assert.equal(crypto.token(ctx, 0), "");
 }
 
 // --- the two generators are one generator ---------------------------------------
@@ -115,7 +115,7 @@ test "the seeded Entropy and the seeded Random draw the same octets" {
     // `random.bytes` takes the low byte of each step, which is what
     // `nextInt(0, 256)` is, and `crypto.randomBytes` takes the same one. The
     // two modules differ in what they *promise*, not in what the double does.
-    assert.eq(
+    assert.equal(
         bytes.toHex(secret, crypto.randomBytes(secret, 24)),
         bytes.toHex(uniform, random.bytes(uniform, 24)),
     );
@@ -126,7 +126,7 @@ test "core/random answers octets of its own, and a negative count is empty" {
         Allocator: alloc(),
         Random: rand(),
     };
-    assert.eq(random.bytes(ctx, 4).len(), 4);
-    assert.eq(random.bytes(ctx, 0).len(), 0);
-    assert.eq(random.bytes(ctx, -1).len(), 0);
+    assert.equal(random.bytes(ctx, 4).len(), 4);
+    assert.equal(random.bytes(ctx, 0).len(), 0);
+    assert.equal(random.bytes(ctx, -1).len(), 0);
 }

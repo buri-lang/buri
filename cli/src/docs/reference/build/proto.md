@@ -103,12 +103,12 @@ export struct Person {
   export home: Option<Address>,
 }
 
-derive Eq, Show for Person;
+derive Equal, Show for Person;
 ```
 
 | editions | Buri |
 |---|---|
-| `message` | `struct` with named fields, `derive Eq, Show` |
+| `message` | `struct` with named fields, `derive Equal, Show` |
 | singular `T` (the default, EXPLICIT presence) | `Option<T>` |
 | singular `T` with `features.field_presence = IMPLICIT` | `T` |
 | singular message field | `Option<T>`, whatever the feature says |

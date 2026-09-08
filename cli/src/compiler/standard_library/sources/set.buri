@@ -50,11 +50,11 @@ export fn empty<T>(): Set<T> {
 }
 
 /// A set holding the given items, duplicates collapsed.
-export fn of<T: Hash + Eq, C: Allocator>(ctx: C, items: [T]): Set<T> {
+export fn of<T: Hash + Equal, C: Allocator>(ctx: C, items: [T]): Set<T> {
     items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty<T>())
 }
 
-impl<T: Hash + Eq> Set<T> {
+impl<T: Hash + Equal> Set<T> {
     export fn len(self): Int {
         self.entries.len()
     }
@@ -146,7 +146,7 @@ impl<T: Hash + Eq> Set<T> {
 /// **O(n).** It carries a set of what it has seen, so each element costs one
 /// expected-constant membership test — where `core/list`'s `uniqueBy` asks
 /// about everything already kept and costs O(n²) comparisons. That one takes a
-/// comparison function and works on anything; this one needs `Hash + Eq`.
+/// comparison function and works on anything; this one needs `Hash + Equal`.
 ///
 /// A free function rather than a method on `[T]`, for `map.groupBy`'s reason:
 /// `core/list` is the bottom of the dependency order and cannot name a `Set`.
@@ -172,7 +172,7 @@ impl<T: Hash + Eq> Set<T> {
 /// ```stdout
 /// ana bo cy
 /// ```
-export fn distinct<T: Hash + Eq, C: Allocator>(ctx: C, xs: [T]): [T] {
+export fn distinct<T: Hash + Equal, C: Allocator>(ctx: C, xs: [T]): [T] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([T], Set<T>), x) => {
@@ -186,7 +186,7 @@ export fn distinct<T: Hash + Eq, C: Allocator>(ctx: C, xs: [T]): [T] {
 
 /// [`distinct`] over a key: the first element answering each key is kept, and
 /// the rest go. O(n), and one `key` call per element.
-export fn distinctBy<A, K: Hash + Eq, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): [A] {
+export fn distinctBy<A, K: Hash + Equal, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): [A] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([A], Set<K>), x) => {

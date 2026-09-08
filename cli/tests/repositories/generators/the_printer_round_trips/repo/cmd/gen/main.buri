@@ -140,7 +140,7 @@ fn moduleOf<C: Allocator>(ctx: C): ast.Module {
             ),
             item(
                 .Derive(ast.DeriveDecl {
-                    traits: [ty("Eq"), ty("Show")],
+                    traits: [ty("Equal"), ty("Show")],
                     selfTy: ty("Point"),
                 }),
             ),

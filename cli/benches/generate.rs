@@ -770,9 +770,9 @@ pub fn program(params: &Params) -> Program {
 
 /// The traits a generated type can derive, in the order `derives` takes them.
 ///
-/// The first two are `Eq, Show`, which is what every generated type derived
+/// The first two are `Equal, Show`, which is what every generated type derived
 /// before `derives` was a dimension — so `derives = 2` emits the same bytes.
-const DERIVABLE: &[&str] = &["Eq", "Show", "Ord", "Hash", "ToJson", "FromJson"];
+const DERIVABLE: &[&str] = &["Equal", "Show", "Ordered", "Hash", "ToJson", "FromJson"];
 
 /// How many of [`DERIVABLE`] need no import. Past this the module has to pull
 /// in `core/json`, which is a line of source and so a thing the default corpus
@@ -799,7 +799,7 @@ fn derive_clause(n: u32, target: &str) -> String {
 /// Whether `derives` reaches `name`.
 ///
 /// What is generated has to agree with what is derived: a probe that calls
-/// `show` on a type deriving only `Eq` is a program that does not compile, and
+/// `show` on a type deriving only `Equal` is a program that does not compile, and
 /// this file's contract is that every program it emits does.
 fn derives_trait(n: u32, name: &str) -> bool {
     DERIVABLE.iter().take(n as usize).any(|t| *t == name)
@@ -909,7 +909,7 @@ fn mixed_module(
     s.push_str("from \"core/str\" import * as str;\n");
     s.push_str("from \"core/list\" import * as list;\n");
     s.push_str("from \"core/effect\" import { Allocator };\n");
-    // `Eq`, `Show`, `Ord` and `Hash` are in scope everywhere; the JSON pair is
+    // `Equal`, `Show`, `Ordered` and `Hash` are in scope everywhere; the JSON pair is
     // not. The import appears only when `derives` reaches them, so the default
     // corpus is unchanged.
     if p.derives as usize > DERIVABLE_IN_SCOPE {

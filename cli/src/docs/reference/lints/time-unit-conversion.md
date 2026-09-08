@@ -20,7 +20,7 @@ if (now.hasPassed(deadline)) { … }
 ```
 
 `seconds`, `millis`, `micros`, `nanos`, `minutes` and `hours` are the
-constructors; `add`, `sub`, `mul`, `negate` and `abs` are the arithmetic;
+constructors; `add`, `subtract`, `multiply`, `negate` and `abs` are the arithmetic;
 `nanos()`, `millis()` and the rest read a length back out in whatever unit the
 caller wants. The conversion factors are exported too — `NANOS_PER_MILLISECOND`
 and its siblings — for the one case that really is arithmetic on a raw count.

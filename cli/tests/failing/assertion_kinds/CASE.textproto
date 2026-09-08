@@ -2,12 +2,12 @@
 # message each produces is recorded rather than assumed. The twenty-two of them
 # take three shapes:
 #
-#   * `eq`, `eqWith`, `notEq`, `contains`, `containsText`, `startsWith`,
+#   * `equal`, `eqWith`, `notEq`, `contains`, `containsText`, `startsWith`,
 #     `isEmpty`, `len`, `unordered`, `gt`, `ge`, `lt`, `le`, `approxEq` and
 #     `approxEqRelative` render both sides — which is what the widened set is
 #     *for*: `isTrue(xs.contains(x))` printed "expected true, got false" and
 #     named neither the list nor the element. `eqWith` is the one whose values
-#     have no `Eq` between them at all, and `unordered` the one that reports the
+#     have no `Equal` between them at all, and `unordered` the one that reports the
 #     sorted pair rather than the pair it was handed;
 #   * `isTrue`, `isFalse`, `ok`, `err`, `some` and `none` render the value they
 #     got against a constant — `true`, `.Ok`, `.Some`;
@@ -20,7 +20,7 @@
 # a dummy one to type-check; a test that has to fail now says which assertion
 # failed.
 #
-# The last two runs are `eq` on an `Option` and on a `Result`, which is the
+# The last two runs are `equal` on an `Option` and on a `Result`, which is the
 # *value* rendering of the same two types the four unwrapping assertions name
 # — the pair is here so a change to one and not the other shows up.
 #

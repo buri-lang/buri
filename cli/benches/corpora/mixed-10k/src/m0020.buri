@@ -11,7 +11,7 @@ from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 from "//bench/m0003.buri" import { blend3, Node3, reach3, seed3 };
 from "//bench/m0008.buri" import { blend8, Node8, reach8, seed8 };
 
-derive Eq, Show for Node20;
+derive Equal, Show for Node20;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node20 {
@@ -168,7 +168,7 @@ export fn probe20_5<C: Allocator>(ctx: C): Int {
     label20_5(ctx, a, e).len() + b
 }
 
-derive Eq, Show for Rec20_6;
+derive Equal, Show for Rec20_6;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec20_6 {
     export f0: Int,
@@ -271,7 +271,7 @@ export fn probe20_9<C: Allocator>(ctx: C): Int {
     compute20_9(7)
 }
 
-derive Eq, Show for Rec20_10;
+derive Equal, Show for Rec20_10;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec20_10 {
     export f0: Int,

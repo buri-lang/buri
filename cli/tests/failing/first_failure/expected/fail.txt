@@ -1,20 +1,20 @@
 FAIL //lib/several  test/several.buri  "three failing assertions, one report"
-  assert.eq failed
+  assert.equal failed
     actual:   1
     expected: 2
   --> lib/several/test/several.buri:8:1
 FAIL //lib/several  test/several.buri  "a passing assertion before a failing one"
-  assert.eq failed
+  assert.equal failed
     actual:   "second"
     expected: "wrong"
   --> lib/several/test/several.buri:14:1
 FAIL //lib/several  test/several.buri  "an abort after a failed assertion never happens"
-  assert.eq failed
+  assert.equal failed
     actual:   "the assertion"
     expected: "fails first"
   --> lib/several/test/several.buri:20:1
 FAIL //lib/several  test/several.buri  "the next test is unaffected"
-  assert.eq failed
+  assert.equal failed
     actual:   7
     expected: 8
   --> lib/several/test/several.buri:25:1

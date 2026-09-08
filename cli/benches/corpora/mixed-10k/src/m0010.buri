@@ -10,7 +10,7 @@ from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 from "//bench/m0006.buri" import { blend6, Node6, reach6, seed6 };
 
-derive Eq, Show for Node10;
+derive Equal, Show for Node10;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node10 {
@@ -36,7 +36,7 @@ export fn lift10(n: Node6): Node10 {
     Node10 { label: n.label, value: n.value + seed10(), weight: n.weight }
 }
 
-derive Eq, Show for State10_0;
+derive Equal, Show for State10_0;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State10_0 {
     Idle,
@@ -72,7 +72,7 @@ export fn probe10_0<C: Allocator>(ctx: C): Int {
     rank10_0(s) + s.show(ctx).len()
 }
 
-derive Eq, Show for Rec10_1;
+derive Equal, Show for Rec10_1;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec10_1 {
     export f0: Int,
@@ -97,7 +97,7 @@ export fn probe10_1<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for State10_2;
+derive Equal, Show for State10_2;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State10_2 {
     Idle,
@@ -139,7 +139,7 @@ export fn probe10_2<C: Allocator>(ctx: C): Int {
     rank10_2(s) + s.show(ctx).len()
 }
 
-derive Eq, Show for Rec10_3;
+derive Equal, Show for Rec10_3;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec10_3 {
     export f0: Int,

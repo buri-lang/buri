@@ -9,7 +9,7 @@
 from "core/effect" import { Allocator };
 from "core/str" import * as str;
 
-derive Eq Ord, Show for Cents;
+derive Equal Ordered, Show for Cents;
 /// Money is never a raw integer. The field is not exported, so there is no way
 /// to add a Cents to an I64 anywhere — including inside this library, outside
 /// this module.

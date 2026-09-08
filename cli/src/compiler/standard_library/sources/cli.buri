@@ -168,7 +168,7 @@
 //!         Stderr: stderr(),
 //!     };
 //!     assert.ok(cli.run(ctx, tool()));
-//!     assert.eq(out.captured(), "hello, buri\n");
+//!     assert.equal(out.captured(), "hello, buri\n");
 //! }
 //!
 //! test "a missing argument is a message on stderr and exit 1" {
@@ -179,8 +179,8 @@
 //!         Stdout: stdout(),
 //!         Stderr: err,
 //!     };
-//!     assert.eq(assert.err(cli.run(ctx, tool())), "missing argument <name>");
-//!     assert.eq(err.captured().lines(ctx).first(), .Some("hi: missing argument <name>"));
+//!     assert.equal(assert.err(cli.run(ctx, tool())), "missing argument <name>");
+//!     assert.equal(err.captured().lines(ctx).first(), .Some("hi: missing argument <name>"));
 //! }
 //! ```
 //!

@@ -22,7 +22,7 @@ from "core/testing/assert" import * as assert;
 test "a seed replays its own draw" {
     let (a, _) = random.seeded(7).nextGaussian();
     let (b, _) = random.seeded(7).nextGaussian();
-    assert.eq(a, b);
+    assert.equal(a, b);
     assert.isTrue(math.isFinite(a));
 }
 
@@ -64,7 +64,7 @@ test "the draws land on both sides and reach past one deviation" {
     assert.isTrue(draws.any(fn(x) => x > 1.0));
     assert.isTrue(draws.any(fn(x) => x < -1.0));
     // And almost never past four, which is what "standard normal" means.
-    assert.eq(draws.count(fn(x) => math.absFloat(x) > 4.0), 0);
+    assert.equal(draws.count(fn(x) => math.absFloat(x) > 4.0), 0);
 }
 
 test "a scaled draw moves the mean and the spread with it" {
@@ -102,7 +102,7 @@ test "two thousand draws have the mean and the deviation of a standard normal" {
         Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(20260907), 2000, []);
-    assert.eq(draws.len(), 2000);
+    assert.equal(draws.len(), 2000);
     let mean = draws.sumFloat() / 2000.0;
     // The standard error of a mean of two thousand unit draws is 0.022, so this
     // band is four and a half of them.
@@ -112,7 +112,7 @@ test "two thousand draws have the mean and the deviation of a standard normal" {
     assert.isTrue(math.isCloseAbsolute(math.sqrt(spread), 1.0, 0.06));
     // Every draw is a number: the polar method rejects rather than dividing by
     // a radius of zero, and nothing here is allowed to come back infinite.
-    assert.eq(draws.count(fn(x) => !math.isFinite(x)), 0);
+    assert.equal(draws.count(fn(x) => !math.isFinite(x)), 0);
 }
 
 test "two thousand draws fall inside one and two deviations at the normal rate" {

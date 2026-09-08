@@ -1,1 +1,1 @@
-derive Ord,Show,ToJson,FromJson,Hash,Clone,Default,Dconstebug,Display for Meters;
+derive Ordered,Show,ToJson,FromJson,Hash,Clone,Default,Dconstebug,Display for Meters;

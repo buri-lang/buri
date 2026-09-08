@@ -1,28 +1,28 @@
-error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
   --> main.buri:52:5
    |
-52 |     assert.eq(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
+52 |     assert.equal(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 2
    = actual: 1
    = fix: pass exactly 2
-error: `Response` does not satisfy `Eq` [unsatisfied-bound]
+error: `Response` does not satisfy `Equal` [unsatisfied-bound]
   --> main.buri:52:5
    |
-52 |     assert.eq(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
+52 |     assert.equal(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = fix: add `derive Eq for Response;` in that type's own module, or write `impl Eq for Response { ... }` there
+   = fix: add `derive Equal for Response;` in that type's own module, or write `impl Equal for Response { ... }` there
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:52:18
    |
-52 |     assert.eq(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
+52 |     assert.equal(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
    |                  ^
    |
   --> main.buri:52:14
    |
-52 |     assert.eq(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
+52 |     assert.equal(out@ .diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
    |              ^ opened here
    |
    = fix: write `)` here

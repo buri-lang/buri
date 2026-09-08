@@ -25,50 +25,50 @@ from "//lib/semantics" import {
 
 test "a `let` annotation names the type" {
     let w: World = { hi: "hi", hello: .Some("there") };
-    assert.eq(w, World { hi: "hi", hello: .Some("there") });
+    assert.equal(w, World { hi: "hi", hello: .Some("there") });
 }
 
 test "a parameter names the type of an argument" {
-    assert.eq(takesWorld({ hi: "arg" }), "arg");
+    assert.equal(takesWorld({ hi: "arg" }), "arg");
 }
 
 test "a field's declared type names the type of its value" {
-    assert.eq(Wrap { inner: { hi: "deep" } }, Wrap { inner: World { hi: "deep" } });
+    assert.equal(Wrap { inner: { hi: "deep" } }, Wrap { inner: World { hi: "deep" } });
 }
 
 test "an anonymous literal nests inside an anonymous literal" {
     let w: Wrap = { inner: { hi: "deep" } };
-    assert.eq(w.inner.hi, "deep");
+    assert.equal(w.inner.hi, "deep");
 }
 
 test "a function's result names the type" {
-    assert.eq(anonHere(), World { hi: "hi" });
+    assert.equal(anonHere(), World { hi: "hi" });
 }
 
 test "a match arm's value is checked against the arm type" {
-    assert.eq(anonMatch(true), World { hi: "yes" });
-    assert.eq(anonMatch(false), World { hi: "no" });
+    assert.equal(anonMatch(true), World { hi: "yes" });
+    assert.equal(anonMatch(false), World { hi: "no" });
 }
 
 test "an `if` branch is checked against the type the `if` produces" {
     let w: World = if (true) { { hi: "then" } } else { { hi: "else" } };
-    assert.eq(w, World { hi: "then" });
+    assert.equal(w, World { hi: "then" });
 }
 
 test "an array element is checked against the element type" {
     let xs: [World] = [{ hi: "a" }, { hi: "b" }];
-    assert.eq(xs.get(1).withDefault(World { hi: "z" }), World { hi: "b" });
+    assert.equal(xs.get(1).withDefault(World { hi: "z" }), World { hi: "b" });
 }
 
 test "a tuple element is checked against its own position" {
     let t: (World, Int) = ({ hi: "a" }, 7);
-    assert.eq(t.0, World { hi: "a" });
-    assert.eq(t.1, 7);
+    assert.equal(t.0, World { hi: "a" });
+    assert.equal(t.1, 7);
 }
 
 test "a lambda's declared result names the type" {
     let make: fn() => World = fn() => { hi: "made" };
-    assert.eq(make(), World { hi: "made" });
+    assert.equal(make(), World { hi: "made" });
 }
 
 // -----------------------------------------------------------------------------
@@ -77,7 +77,7 @@ test "a lambda's declared result names the type" {
 
 test "an anonymous literal equals the headed literal it stands for" {
     let anon: World = { hi: "hi", hello: .Some("there") };
-    assert.eq(anon, World { hi: "hi", hello: .Some("there") });
+    assert.equal(anon, World { hi: "hi", hello: .Some("there") });
 }
 
 test "derived `Show` cannot tell the two spellings apart" {
@@ -85,12 +85,12 @@ test "derived `Show` cannot tell the two spellings apart" {
         Allocator: alloc(),
     };
     let anon: World = { hi: "hi" };
-    assert.eq(anon.show(ctx), World { hi: "hi" }.show(ctx));
+    assert.equal(anon.show(ctx), World { hi: "hi" }.show(ctx));
 }
 
-test "derived `Hash` agrees with derived `Eq` across the two spellings" {
+test "derived `Hash` agrees with derived `Equal` across the two spellings" {
     let anon: World = { hi: "hi" };
-    assert.eq(anon.hash(), World { hi: "hi" }.hash());
+    assert.equal(anon.hash(), World { hi: "hi" }.hash());
 }
 
 test "a difference in a field is still a difference" {
@@ -112,35 +112,35 @@ test "an `Option` field may be left out of an anonymous literal" {
 test "shorthand fields work after the first keyed one" {
     let hello: Option<Str> = .Some("hand");
     let w: World = { hi: "short", hello };
-    assert.eq(w, World { hi: "short", hello: .Some("hand") });
+    assert.equal(w, World { hi: "short", hello: .Some("hand") });
 }
 
 test "a spread settles the braces, so what follows may be shorthand" {
     let hello: Option<Str> = .Some("hand");
     let base = World { hi: "base" };
     let w: World = { ..base, hello };
-    assert.eq(w, World { hi: "base", hello: .Some("hand") });
+    assert.equal(w, World { hi: "base", hello: .Some("hand") });
 }
 
 test "a spread opens an anonymous literal" {
     let base = World { hi: "base", hello: .Some("kept") };
     let updated: World = { ..base, hi: "new" };
-    assert.eq(updated, World { hi: "new", hello: .Some("kept") });
+    assert.equal(updated, World { hi: "new", hello: .Some("kept") });
 }
 
 test "a spread alone is an anonymous literal, and copies" {
     let base = World { hi: "base", hello: .Some("kept") };
     let copy: World = { ..base };
-    assert.eq(copy, base);
+    assert.equal(copy, base);
 }
 
 test "a trailing comma is allowed, as in a headed literal" {
     let w: World = { hi: "hi", hello: .None };
-    assert.eq(w, World { hi: "hi" });
+    assert.equal(w, World { hi: "hi" });
 }
 
 test "a private field is elided by the module that declares it" {
-    assert.eq(anonHidden(3), hidden(3));
+    assert.equal(anonHidden(3), hidden(3));
     assert.isTrue(hiddenPrivate(anonHidden(3)).isNone());
 }
 
@@ -150,17 +150,17 @@ test "a private field is elided by the module that declares it" {
 
 test "a generic struct with a concrete expected type" {
     let h: Holder<Int> = { only: 1, slot: .Some(2) };
-    assert.eq(h, Holder<Int> { only: 1, slot: .Some(2) });
+    assert.equal(h, Holder<Int> { only: 1, slot: .Some(2) });
 }
 
 test "the same declaration at a second instantiation" {
     let h: Holder<Str> = { only: "one" };
-    assert.eq(h, Holder<Str> { only: "one", slot: .None });
+    assert.equal(h, Holder<Str> { only: "one", slot: .None });
 }
 
 test "a field declared `T` is still required without the type name" {
     let h: Holder<Int> = { only: 9 };
-    assert.eq(h.only, 9);
+    assert.equal(h.only, 9);
     assert.isTrue(h.slot.isNone());
 }
 
@@ -171,13 +171,13 @@ test "a field declared `T` is still required without the type name" {
 test "`{ name }` is still a block whose result is that name" {
     let hi = "still a block";
     let s: Str = { hi };
-    assert.eq(s, "still a block");
+    assert.equal(s, "still a block");
 }
 
 test "a leading shorthand field keeps its type name" {
     let hi = "headed";
     let hello: Option<Str> = .None;
-    assert.eq(World { hi, hello }, World { hi: "headed" });
+    assert.equal(World { hi, hello }, World { hi: "headed" });
 }
 
 test "a block with a `let` in it is still a block" {
@@ -185,12 +185,12 @@ test "a block with a `let` in it is still a block" {
         let a = 2;
         a + 3
     };
-    assert.eq(n, 5);
+    assert.equal(n, 5);
 }
 
 test "a block is still an operand of a binary operator" {
     let n: Int = { 2 } + 3;
-    assert.eq(n, 5);
+    assert.equal(n, 5);
 }
 
 // -----------------------------------------------------------------------------
@@ -200,6 +200,6 @@ test "a block is still an operand of a binary operator" {
 test "an anonymous literal is a value, and can be bound and passed" {
     let w: World = { hi: "value" };
     let both = [w, { hi: "value" }];
-    assert.eq(takesWorld(both.get(0).withDefault(World { hi: "z" })), "value");
-    assert.eq(both.get(1).withDefault(World { hi: "z" }), w);
+    assert.equal(takesWorld(both.get(0).withDefault(World { hi: "z" })), "value");
+    assert.equal(both.get(1).withDefault(World { hi: "z" }), w);
 }

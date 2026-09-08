@@ -9,7 +9,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0016.buri" import { blend16, Node16, reach16, seed16 };
 
-derive Eq, Show for Node17;
+derive Equal, Show for Node17;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node17 {
@@ -34,7 +34,7 @@ export fn lift17(n: Node16): Node17 {
     Node17 { label: n.label, value: n.value + seed17(), weight: n.weight }
 }
 
-derive Eq, Show for State17_0;
+derive Equal, Show for State17_0;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State17_0 {
     Idle,
@@ -97,7 +97,7 @@ export fn probe17_1<C: Allocator>(ctx: C): Int {
     digest17_1(ctx) + drain17_1()
 }
 
-derive Eq, Show for State17_2;
+derive Equal, Show for State17_2;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State17_2 {
     Idle,
@@ -207,7 +207,7 @@ export fn probe17_5<C: Allocator>(ctx: C): Int {
     label17_5(ctx, a, e).len() + b
 }
 
-derive Eq, Show for Rec17_6;
+derive Equal, Show for Rec17_6;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec17_6 {
     export f0: Int,
@@ -257,7 +257,7 @@ export fn probe17_7<C: Allocator>(ctx: C): Int {
     useGeneric17_7([1, 2], ["a"]) + describeAll17_7(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for Rec17_8;
+derive Equal, Show for Rec17_8;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec17_8 {
     export f0: Int,
@@ -285,7 +285,7 @@ export fn probe17_8<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for State17_9;
+derive Equal, Show for State17_9;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State17_9 {
     Idle,

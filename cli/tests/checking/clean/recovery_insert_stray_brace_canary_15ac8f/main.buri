@@ -9,7 +9,7 @@
 from "core/testing/assert" import * as assert;
 
 test "the canary holds" {
-    assert.eq(6 * 7, 42); // CANARY_42
+    assert.equal(6 * 7, 42); // CANARY_42
 }
 
 test "the canary holds under a context" {

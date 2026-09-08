@@ -23,5 +23,5 @@ error: there is nothing named `s` in scope [unresolved-name]
 52 |         .Ok(s) => s,
    |                   ^
    |
-   = did you mean `Eq`?
+   = did you mean `Equal`?
    = fix: correct the spelling, or declare it

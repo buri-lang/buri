@@ -14,5 +14,5 @@ test "the fake answers a Cents" {
         Stdout: stdout(),
     };
     let made: Cents = fakeCents(ctx);
-    assert.eq(made, made);
+    assert.equal(made, made);
 }

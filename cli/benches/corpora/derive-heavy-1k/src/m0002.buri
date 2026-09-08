@@ -11,7 +11,7 @@ from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Node2;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Node2;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node2 {
@@ -61,7 +61,7 @@ export fn probe2_0<C: Allocator>(ctx: C): Int {
     useGeneric2_0([1, 2], ["a"]) + describeAll2_0(ctx, [1, 2]).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec2_1;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec2_1;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec2_1 {
     export f0: Int,
@@ -132,7 +132,7 @@ export fn probe2_3<C: Allocator>(ctx: C): Int {
     useGeneric2_3([1, 2], ["a"]) + describeAll2_3(ctx, [1, 2]).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State2_4;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State2_4;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State2_4 {
     Idle,
@@ -170,7 +170,7 @@ export fn probe2_4<C: Allocator>(ctx: C): Int {
     rank2_4(s) + s.show(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State2_5;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State2_5;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State2_5 {
     Idle,
@@ -241,7 +241,7 @@ export fn probe2_6<C: Allocator>(ctx: C): Int {
     choose2_6(.Some(3), .None) + extra
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec2_7;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec2_7;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec2_7 {
     export f0: Int,
@@ -267,7 +267,7 @@ export fn probe2_7<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State2_8;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State2_8;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State2_8 {
     Idle,

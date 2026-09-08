@@ -8,7 +8,7 @@ from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show for Node0;
+derive Equal, Show for Node0;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node0 {
@@ -26,7 +26,7 @@ export fn blend0(base: Int): Int {
     base + seed0()
 }
 
-derive Eq, Show for State0_0;
+derive Equal, Show for State0_0;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State0_0 {
     Idle,
@@ -113,7 +113,7 @@ export fn probe0_2<C: Allocator>(ctx: C): Int {
     digest0_2(ctx) + drain0_2()
 }
 
-derive Eq, Show for State0_3;
+derive Equal, Show for State0_3;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State0_3 {
     Idle,
@@ -227,7 +227,7 @@ export fn probe0_6<C: Allocator>(ctx: C): Int {
     digest0_6(ctx) + drain0_6()
 }
 
-derive Eq, Show for Rec0_7;
+derive Equal, Show for Rec0_7;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec0_7 {
     export f0: Int,
@@ -253,7 +253,7 @@ export fn probe0_7<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for State0_8;
+derive Equal, Show for State0_8;
 /// An enum of 3 variants, matched exhaustively below.
 export enum State0_8 {
     Idle,
@@ -352,7 +352,7 @@ export fn probe0_11<C: Allocator>(ctx: C): Int {
     useGeneric0_11([1, 2], ["a"]) + describeAll0_11(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for Rec0_12;
+derive Equal, Show for Rec0_12;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec0_12 {
     export f0: Int,
@@ -509,7 +509,7 @@ export fn probe0_17<C: Allocator>(ctx: C): Int {
     useGeneric0_17([1, 2], ["a"]) + describeAll0_17(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for Rec0_18;
+derive Equal, Show for Rec0_18;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec0_18 {
     export f0: Int,
@@ -535,7 +535,7 @@ export fn probe0_18<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for Rec0_19;
+derive Equal, Show for Rec0_19;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec0_19 {
     export f0: Int,
@@ -561,7 +561,7 @@ export fn probe0_19<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for State0_20;
+derive Equal, Show for State0_20;
 /// An enum of 3 variants, matched exhaustively below.
 export enum State0_20 {
     Idle,
@@ -687,7 +687,7 @@ export fn probe0_24<C: Allocator>(ctx: C): Int {
     digest0_24(ctx) + drain0_24()
 }
 
-derive Eq, Show for Rec0_25;
+derive Equal, Show for Rec0_25;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec0_25 {
     export f0: Int,
@@ -810,7 +810,7 @@ export fn probe0_29<C: Allocator>(ctx: C): Int {
     digest0_29(ctx) + drain0_29()
 }
 
-derive Eq, Show for Rec0_30;
+derive Equal, Show for Rec0_30;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec0_30 {
     export f0: Int,
@@ -860,7 +860,7 @@ export fn probe0_31<C: Allocator>(ctx: C): Int {
     useGeneric0_31([1, 2], ["a"]) + describeAll0_31(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for State0_32;
+derive Equal, Show for State0_32;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State0_32 {
     Idle,
@@ -916,7 +916,7 @@ export fn probe0_33<C: Allocator>(ctx: C): Int {
     label0_33(ctx, a, e).len() + b
 }
 
-derive Eq, Show for Rec0_34;
+derive Equal, Show for Rec0_34;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec0_34 {
     export f0: Int,
@@ -1073,7 +1073,7 @@ export fn probe0_40<C: Allocator>(ctx: C): Int {
     label0_40(ctx, a, e).len() + b
 }
 
-derive Eq, Show for State0_41;
+derive Equal, Show for State0_41;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State0_41 {
     Idle,
@@ -1111,7 +1111,7 @@ export fn probe0_41<C: Allocator>(ctx: C): Int {
     rank0_41(s) + s.show(ctx).len()
 }
 
-derive Eq, Show for Rec0_42;
+derive Equal, Show for Rec0_42;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec0_42 {
     export f0: Int,
@@ -1160,7 +1160,7 @@ export fn probe0_43<C: Allocator>(ctx: C): Int {
     compute0_43(7)
 }
 
-derive Eq, Show for State0_44;
+derive Equal, Show for State0_44;
 /// An enum of 3 variants, matched exhaustively below.
 export enum State0_44 {
     Idle,

@@ -41,7 +41,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 
 /// The head constructor of a pattern.
 ///
-/// `Hash` as well as `Eq` because the matrix below is indexed by it and the
+/// `Hash` as well as `Equal` because the matrix below is indexed by it and the
 /// set of constructors a column mentions is a set: with `Vec::contains` in
 /// their place, a `match` over N variants spent N²/2 comparisons deciding
 /// whether the column was complete.

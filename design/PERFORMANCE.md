@@ -1115,7 +1115,7 @@ size*, and that is the signature of this shape.
 
 **Derived `Show` costs a constant per rendered field, not per variant, and the
 cost is in the backend rather than in the expansion.** On a wide-enum corpus,
-derived `Show` costs 4.7× the entire native lowering row while `Eq`, `Ord`,
+derived `Show` costs 4.7× the entire native lowering row while `Equal`, `Ordered`,
 `Hash`, `ToJson` and `FromJson` together cost nothing measurable. Three
 measurements say what it is not. Generating the expansion costs 29 ms and
 lowering it to IR 32 ms more, while *emitting* it costs 1,221 ms more — forty

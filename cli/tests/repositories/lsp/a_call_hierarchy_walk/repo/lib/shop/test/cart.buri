@@ -3,5 +3,5 @@ from "//lib/shop" import { defaultPrice, listing, subtotal };
 
 test "a shelf holds nothing until it is stocked" {
     let plain = listing("plain", defaultPrice);
-    assert.eq(subtotal([plain]), 0);
+    assert.equal(subtotal([plain]), 0);
 }

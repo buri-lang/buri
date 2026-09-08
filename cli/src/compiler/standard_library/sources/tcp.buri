@@ -61,7 +61,7 @@ from "core/effect" import { Allocator, IoError, Tcp };
 
 from "core/effect" export { IoError };
 
-derive Eq, Show for Stream;
+derive Equal, Show for Stream;
 /// One open connection. The handle is exported because it is inert — a number
 /// the runtime knows and nothing else — so a `Stream` can go to an actor and be
 /// written from there.

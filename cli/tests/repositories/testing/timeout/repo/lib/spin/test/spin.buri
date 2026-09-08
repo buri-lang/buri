@@ -2,5 +2,5 @@ from "core/testing/assert" import * as assert;
 from "//lib/spin" import { spin };
 
 test "returns eventually" {
-    assert.eq(spin(0), 0);
+    assert.equal(spin(0), 0);
 }

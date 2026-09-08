@@ -92,7 +92,7 @@ let MIX_TWO: U64 = 10723151780598845931;
 /// be.
 let TWO_TO_53: Float = 9007199254740992.0;
 
-derive Eq, Show for Gen;
+derive Equal, Show for Gen;
 /// A pure, seeded, splittable generator.
 ///
 /// splitmix64: one 64-bit counter, advanced by an odd constant, run through
@@ -139,8 +139,8 @@ export fn gen<C: Random>(ctx: C): Gen {
 /// a full 2^64.
 fn step(g: Gen): (U64, Gen) {
     let state = g.0.wrappingAdd(GOLDEN);
-    let a = (state ^ bits.shrU64(state, 30)).wrappingMul(MIX_ONE);
-    let b = (a ^ bits.shrU64(a, 27)).wrappingMul(MIX_TWO);
+    let a = (state ^ bits.shrU64(state, 30)).wrappingMultiply(MIX_ONE);
+    let b = (a ^ bits.shrU64(a, 27)).wrappingMultiply(MIX_TWO);
     (b ^ bits.shrU64(b, 31), Gen(state))
 }
 
@@ -167,11 +167,11 @@ impl Gen {
         if (hi <= lo) {
             (lo, self)
         } else {
-            let span = hi.wrappingSub(lo).wrapToU64();
+            let span = hi.wrappingSubtract(lo).wrapToU64();
             let zero: U64 = 0;
             // `2^64 % span`, computed inside sixty-four bits: `2^64 - span` is
             // congruent to `2^64` and is a number that fits.
-            let (draw, next) = rejecting(self, zero.wrappingSub(span) % span);
+            let (draw, next) = rejecting(self, zero.wrappingSubtract(span) % span);
             (lo.wrappingAdd((draw % span).wrapToI64()), next)
         }
     }

@@ -8,7 +8,7 @@
 //! `cli/src/docs/reference/build/proto.md`. In summary:
 //!
 //! ```text
-//! message Person                  -> struct Person, derive Eq, Show
+//! message Person                  -> struct Person, derive Equal, Show
 //! string name = 1                 -> Option<Str>, because presence is tracked
 //! int32 age = 2 [.. = IMPLICIT]   -> Int
 //! repeated string emails = 3      -> [Str]
@@ -894,7 +894,7 @@ fn ctxParam(): ast.Param {
 fn deriveEqShow(name: Str): ast.Item {
     ast.Item {
         kind: .Derive(ast.DeriveDecl {
-            traits: [tyNamed("Eq"), tyNamed("Show")],
+            traits: [tyNamed("Equal"), tyNamed("Show")],
             selfTy: tyNamed(name),
         }),
         origin: ast.nowhere(),

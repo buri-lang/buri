@@ -11,7 +11,7 @@
 //! It was not a check, and four of the rows were wrong. Each is a test below
 //! rather than a paragraph:
 //!
-//!  * **Row 3 was false.** `wrappingMul` was not exact on JavaScript at any
+//!  * **Row 3 was false.** `wrappingMultiply` was not exact on JavaScript at any
 //!    width where the product leaves 2^53 — the `BigInt` in `$wrapTo` wraps a
 //!    double that has *already* been rounded, so `U32.wrappingMul(0xffffffff,
 //!    0xffffffff)` answered 0 where the answer is 1. Not a precision ceiling: a
@@ -775,7 +775,7 @@ export fn main(): Result<(), Str> {
   let b = tell(top.checkedAdd(0));
   let small: Int = 100;
   let c = tell(small.checkedAdd(20));
-  let d = tell(small.checkedDiv(0));
+  let d = tell(small.checkedDivide(0));
   let e = tell(top.checkedAdd(1));
   let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
   .Ok(())
@@ -811,9 +811,9 @@ export fn main(): Result<(), Str> {
   let c: I8 = 100;
   let d: I32 = 46341;
   let e: I32 = 0 - 2147483647;
-  let _ = io.println(stdout, "${a.saturatingAdd(1000)} ${b.saturatingAdd(10)} ${b.saturatingSub(255)}").ignore();
-  let _ = io.println(stdout, "${c.saturatingMul(2)} ${c.saturatingMul(0 - 2)} ${d.saturatingMul(d)}").ignore();
-  let _ = io.println(stdout, "${e.saturatingSub(1000)}").ignore();
+  let _ = io.println(stdout, "${a.saturatingAdd(1000)} ${b.saturatingAdd(10)} ${b.saturatingSubtract(255)}").ignore();
+  let _ = io.println(stdout, "${c.saturatingMultiply(2)} ${c.saturatingMultiply(0 - 2)} ${d.saturatingMultiply(d)}").ignore();
+  let _ = io.println(stdout, "${e.saturatingSubtract(1000)}").ignore();
   .Ok(())
 }
 "#,
@@ -833,7 +833,7 @@ export fn main(): Result<(), Str> {
 /// literal rather than the operation.
 ///
 /// Even so, agreement at 64 bits is narrower than the row claims, and this
-/// is the honest boundary. `(2^62 + 1024).wrappingMul(4)` is 4096 natively
+/// is the honest boundary. `(2^62 + 1024).wrappingMultiply(4)` is 4096 natively
 /// and 0 on JavaScript, with both operands exact and the answer exact,
 /// because the *intermediate* 2^64 + 4096 rounds before the wrap — and the
 /// repair, computing in `BigInt`, is not available here: it changes
@@ -855,17 +855,17 @@ from "core/number" import * as number;
 export fn main(): Result<(), Str> {
   // 2^32 * 2^32 = 2^64, which wraps to zero at 64 bits.
   let p: I64 = 4294967296;
-  let a = p.wrappingMul(p);
+  let a = p.wrappingMultiply(p);
   let c = number.minValue<I64>().wrappingAdd(number.minValue<I64>());
-  let d = number.minValue<I64>().wrappingMul(2);
+  let d = number.minValue<I64>().wrappingMultiply(2);
   let e: I64 = 3;
-  let f = e.wrappingMul(5);
+  let f = e.wrappingMultiply(5);
   let u: U64 = 9223372036854775808;
-  let g = u.wrappingMul(2);
+  let g = u.wrappingMultiply(2);
   let w: U64 = 18446744073709549568;
   let i = w.wrappingAdd(2048);
   let x: I64 = 0 - 7;
-  let y = x.wrappingSub(9);
+  let y = x.wrappingSubtract(9);
   let _ = io.println(stdout, "${a} ${c} ${d} ${f} ${g} ${i} ${y}").ignore();
   .Ok(())
 }
@@ -897,7 +897,7 @@ export fn main(): Result<(), Str> {
   let c: U64 = 0;
   // Printed as a verdict rather than as a number: the value is `maxValue<U64>`,
   // which is row 1's ceiling and renders differently on the two backends.
-  let d = c.wrappingSub(1) == a;
+  let d = c.wrappingSubtract(1) == a;
   let e: U128 = 340282366920938463463374607431768211455;
   let f = e.wrappingAdd(1);
   let g: I64 = 9223372036854775807;
@@ -928,15 +928,15 @@ from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let a: U32 = 4294967295;
-  let b = a.wrappingMul(a);
+  let b = a.wrappingMultiply(a);
   let c: U32 = 65536;
-  let d = c.wrappingMul(c);
+  let d = c.wrappingMultiply(c);
   let e = number.minValue<I32>();
-  let f = e.wrappingMul(e);
+  let f = e.wrappingMultiply(e);
   let g: U16 = 65535;
-  let h = g.wrappingMul(g);
+  let h = g.wrappingMultiply(g);
   let i: U8 = 255;
-  let j = i.wrappingMul(i);
+  let j = i.wrappingMultiply(i);
   let k: I8 = 127;
   let l = k.wrappingAdd(1);
   let _ = io.println(stdout, "${b} ${d} ${f} ${h} ${j} ${l}").ignore();
@@ -1010,7 +1010,7 @@ export fn main(): Result<(), Str> {
 ///
 /// So this is a second stale divergence, and the row is an agreement row.
 /// Three levels deep, through a `match`, through a derived `Show` and
-/// through a derived `Eq` — because the collision the row is about is in
+/// through a derived `Equal` — because the collision the row is about is in
 /// the *representation*, and each of those three reads it differently.
 #[test]
 fn row_05_nested_option_is_distinct() {
@@ -1023,7 +1023,7 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export struct Box3 { v: Option<Option<Option<Int>>> }
-derive Show, Eq for Box3;
+derive Show, Equal for Box3;
 
 fn tell(x: Option<Option<Int>>): Str {
   match (x) {
@@ -1097,7 +1097,7 @@ export fn main(): Result<(), Str> {
 ///
 /// Every input here straddles the boundary the two orders disagree on. `sort`
 /// and `Char` are in the same program because they are the same conformance:
-/// `[Str].sort` is `Ord`, `<` is `Ord`, and a `Char` is a one-character string
+/// `[Str].sort` is `Ordered`, `<` is `Ordered`, and a `Char` is a one-character string
 /// on JavaScript, so all three used to come out of `<`.
 #[test]
 fn row_17_text_orders_by_scalar_value() {
@@ -1415,7 +1415,7 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// Derived `Eq` and `Ord`: the *verdicts*, over a struct compared
+/// Derived `Equal` and `Ordered`: the *verdicts*, over a struct compared
 /// field-by-field and an enum compared by variant order and then payload.
 #[test]
 fn row_09_derived_eq_and_ord_verdicts() {
@@ -1429,8 +1429,8 @@ from "core/order" import { Order };
 
 export struct P { a: Int, b: Str }
 export enum E { A, B(Int), C { x: Int } }
-derive Eq, Ord for P;
-derive Eq, Ord for E;
+derive Equal, Ordered for P;
+derive Equal, Ordered for E;
 
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 
@@ -1453,11 +1453,11 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// Derived `Eq` over an `F64` field: the float facts SPEC 6.2 and 7.2 pin, on
+/// Derived `Equal` over an `F64` field: the float facts SPEC 6.2 and 7.2 pin, on
 /// every backend.
 ///
 /// SPEC 6.2: "`==` on floats is an equivalence relation … `-0.0` equals `0.0`
-/// and `NaN` equals `NaN`." SPEC 7.2: a derived `Eq` inherits that, so it is
+/// and `NaN` equals `NaN`." SPEC 7.2: a derived `Equal` inherits that, so it is
 /// reflexive at every value. The same rule is read here at four depths — the
 /// bare primitive, two separately built aggregates, one aggregate against
 /// itself, and the sign of zero the comparison must ignore — and the ordering
@@ -1480,7 +1480,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export struct F { x: Float }
-derive Eq for F;
+derive Equal for F;
 
 fn mk(x: Float): F { F { x: x } }
 fn zeroF(): Float { 0.0 }
@@ -1649,7 +1649,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export struct Bag { xs: [Int] }
-derive Eq, Hash, Show for Bag;
+derive Equal, Hash, Show for Bag;
 
 export fn main(): Result<(), Str> {
   let a = Bag { xs: [1, 2] };
@@ -1659,9 +1659,9 @@ export fn main(): Result<(), Str> {
 }
 "#;
 
-/// A `[T]` inside a derived `Ord`, which used to be a named gap of its own.
+/// A `[T]` inside a derived `Ordered`, which used to be a named gap of its own.
 ///
-/// `derive Ord` on a type holding an array was a program the front end accepted
+/// `derive Ordered` on a type holding an array was a program the front end accepted
 /// and the stencil backend refused by name — "cannot compile CallIntrinsic
 /// deriveArrayCompare" — so a `Value` enum with a `Bytes([U8])` arm could not be
 /// built for a native target at all (buri-lang/buri#27).
@@ -1685,13 +1685,13 @@ from "core/io" import * as io;
 from "core/order" import { Order };
 
 export struct Bag { xs: [U8] }
-derive Eq, Ord for Bag;
+derive Equal, Ordered for Bag;
 
 export struct Leaf { a: Int, b: Str }
-derive Eq, Ord for Leaf;
+derive Equal, Ordered for Leaf;
 
 export struct Deep { xs: [Leaf], ss: [Str] }
-derive Eq, Ord for Deep;
+derive Equal, Ordered for Deep;
 
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 fn bag(xs: [U8]): Bag { Bag { xs: xs } }
@@ -1711,7 +1711,7 @@ export fn main(): Result<(), Str> {
 }
 "#;
 
-/// A hand-written `impl Ord` on a field's type, and the derived `Ord` above it.
+/// A hand-written `impl Ordered` on a field's type, and the derived `Ordered` above it.
 ///
 /// **The two backends agree, and the answer they agree on is the structural
 /// one.** SPEC 5.12.3 says a `derive` "generates the trait's methods
@@ -1720,7 +1720,7 @@ export fn main(): Result<(), Str> {
 /// resolve", and the same section is where the language reasons that a
 /// hand-written implementation "would be obeyed where the type is encoded on
 /// its own and ignored where a type holding it is". `ToJson` and `FromJson` are
-/// the two it settles by *rejecting* the `impl`; `Ord` is left half-obeyed, and
+/// the two it settles by *rejecting* the `impl`; `Ordered` is left half-obeyed, and
 /// this row is where that shows.
 ///
 /// So `direct` is the hand-written verdict and `derived` is the structural one,
@@ -1745,18 +1745,18 @@ from "core/io" import * as io;
 from "core/order" import { Order };
 
 export struct Holder { octets: [U8] }
-derive Eq, Ord for Holder;
+derive Equal, Ordered for Holder;
 
 export struct Wrapper(Holder);
 
-impl Ord for Wrapper {
+impl Ordered for Wrapper {
   fn compare(self, other: Wrapper): Order {
     if ((self.0).octets.len() < (other.0).octets.len()) { .Less } else { .Greater }
   }
 }
 
 export struct Pair { wrapped: Wrapper }
-derive Ord for Pair;
+derive Ordered for Pair;
 
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 fn wrap(octets: [U8]): Wrapper { Wrapper(Holder { octets: octets }) }
@@ -2297,7 +2297,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export struct F { x: Float }
-derive Eq for F;
+derive Equal for F;
 
 fn mk(x: Float): F { F { x: x } }
 fn zeroF(): Float { 0.0 }

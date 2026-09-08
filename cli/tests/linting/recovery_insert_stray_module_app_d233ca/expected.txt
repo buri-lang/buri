@@ -29,5 +29,5 @@ error: there is nothing named `io` in scope [unresolved-name]
 34 |     io
    |     ^^
    |
-   = did you mean `Div`?
+   = did you mean `Divide`?
    = fix: correct the spelling, or declare it

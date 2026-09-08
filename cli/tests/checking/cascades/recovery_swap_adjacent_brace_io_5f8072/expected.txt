@@ -10,7 +10,7 @@ error: expected `=`, found `context` [unexpected-token]
 error: there is nothing named `ctx` in scope [unresolved-name]
   --> main.buri:75:31
    |
-75 |     assert.eq(io.readAllBytes(ctx), [0, 255, 10, 65]);
+75 |     assert.equal(io.readAllBytes(ctx), [0, 255, 10, 65]);
    |                               ^^^
    |
    = fix: declare `ctx` as a parameter of this function

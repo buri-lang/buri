@@ -57,10 +57,10 @@ test "a schema reads as the declarations it makes" {
     let parsed = read(ctx, everything(ctx));
     assert.isEmpty(parsed.errors);
     let s = parsed.schema;
-    assert.eq(s.package.withDefault("?"), "example.v1");
+    assert.equal(s.package.withDefault("?"), "example.v1");
     assert.len(s.imports, 2);
-    assert.eq(assert.some(s.imports.get(0)).path, "proto/address.proto");
-    assert.eq(assert.some(s.imports.get(1)).path, "proto/other.proto");
+    assert.equal(assert.some(s.imports.get(0)).path, "proto/address.proto");
+    assert.equal(assert.some(s.imports.get(1)).path, "proto/other.proto");
     assert.len(s.enums, 1);
     assert.len(s.messages, 1);
 }
@@ -70,12 +70,12 @@ test "an enum keeps its values, in order, with their numbers" {
         Allocator: alloc(),
     };
     let colour = assert.some(read(ctx, everything(ctx)).schema.enums.get(0));
-    assert.eq(colour.name, "Colour");
+    assert.equal(colour.name, "Colour");
     assert.len(colour.values, 2);
-    assert.eq(assert.some(colour.values.get(0)).name, "COLOUR_UNSPECIFIED");
-    assert.eq(assert.some(colour.values.get(0)).number, 0);
-    assert.eq(assert.some(colour.values.get(1)).name, "RED");
-    assert.eq(assert.some(colour.values.get(1)).number, 1);
+    assert.equal(assert.some(colour.values.get(0)).name, "COLOUR_UNSPECIFIED");
+    assert.equal(assert.some(colour.values.get(0)).number, 0);
+    assert.equal(assert.some(colour.values.get(1)).name, "RED");
+    assert.equal(assert.some(colour.values.get(1)).number, 1);
 }
 
 test "a message keeps the fields that are not in a oneof, in order" {
@@ -83,28 +83,28 @@ test "a message keeps the fields that are not in a oneof, in order" {
         Allocator: alloc(),
     };
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
-    assert.eq(person.name, "Person");
+    assert.equal(person.name, "Person");
     assert.len(person.fields, 5);
 
     let name = assert.some(person.fields.get(0));
-    assert.eq(name.name, "name");
-    assert.eq(name.number, 1);
-    assert.eq(name.label, Label.Single);
-    assert.eq(name.ty, TypeRef.Scalar(Scalar.Str));
+    assert.equal(name.name, "name");
+    assert.equal(name.number, 1);
+    assert.equal(name.label, Label.Single);
+    assert.equal(name.ty, TypeRef.Scalar(Scalar.Str));
     assert.none(name.features.fieldPresence);
 
     let age = assert.some(person.fields.get(1));
-    assert.eq(age.ty, TypeRef.Scalar(Scalar.Int32));
-    assert.eq(assert.some(age.features.fieldPresence), Presence.Explicit);
+    assert.equal(age.ty, TypeRef.Scalar(Scalar.Int32));
+    assert.equal(assert.some(age.features.fieldPresence), Presence.Explicit);
 
     let emails = assert.some(person.fields.get(2));
-    assert.eq(emails.label, Label.Repeated);
-    assert.eq(emails.ty, TypeRef.Scalar(Scalar.Str));
+    assert.equal(emails.label, Label.Repeated);
+    assert.equal(emails.ty, TypeRef.Scalar(Scalar.Str));
 
-    assert.eq(assert.some(person.fields.get(3)).ty, TypeRef.Named("Address"));
+    assert.equal(assert.some(person.fields.get(3)).ty, TypeRef.Named("Address"));
     // `google.protobuf.Any` is a two-field message and reads as one. Nothing
     // here knows the name is special.
-    assert.eq(
+    assert.equal(
         assert.some(person.fields.get(4)).ty,
         TypeRef.Named("google.protobuf.Any"),
     );
@@ -117,12 +117,12 @@ test "a oneof keeps its cases, and a case carries no label" {
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
     assert.len(person.oneofs, 1);
     let contact = assert.some(person.oneofs.get(0));
-    assert.eq(contact.name, "contact");
+    assert.equal(contact.name, "contact");
     assert.len(contact.cases, 2);
-    assert.eq(assert.some(contact.cases.get(0)).name, "phone");
-    assert.eq(assert.some(contact.cases.get(0)).number, 6);
-    assert.eq(assert.some(contact.cases.get(0)).ty, TypeRef.Scalar(Scalar.Str));
-    assert.eq(assert.some(contact.cases.get(1)).ty, TypeRef.Named("Address"));
+    assert.equal(assert.some(contact.cases.get(0)).name, "phone");
+    assert.equal(assert.some(contact.cases.get(0)).number, 6);
+    assert.equal(assert.some(contact.cases.get(0)).ty, TypeRef.Scalar(Scalar.Str));
+    assert.equal(assert.some(contact.cases.get(1)).ty, TypeRef.Named("Address"));
 }
 
 test "a nested message and a nested enum sit inside the message that declared them" {
@@ -132,10 +132,10 @@ test "a nested message and a nested enum sit inside the message that declared th
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
     assert.len(person.messages, 1);
     let nickname = assert.some(person.messages.get(0));
-    assert.eq(nickname.name, "Nickname");
+    assert.equal(nickname.name, "Nickname");
     assert.len(nickname.fields, 1);
     assert.len(person.enums, 1);
-    assert.eq(assert.some(person.enums.get(0)).name, "Kind");
+    assert.equal(assert.some(person.enums.get(0)).name, "Kind");
 }
 
 test "a feature resolves from the field outwards, and the edition is the floor" {
@@ -143,21 +143,21 @@ test "a feature resolves from the field outwards, and the edition is the floor" 
         Allocator: alloc(),
     };
     let s = read(ctx, everything(ctx)).schema;
-    assert.eq(assert.some(s.features.fieldPresence), Presence.Implicit);
+    assert.equal(assert.some(s.features.fieldPresence), Presence.Implicit);
     let person = assert.some(s.messages.get(0));
-    assert.eq(
+    assert.equal(
         assert.some(person.features.repeatedFieldEncoding),
         RepeatedEncoding.Expanded,
     );
 
     let scopes = person.features.over(s.features).over(schema.editionDefaults());
     // The file's value reaches a field that says nothing...
-    assert.eq(
+    assert.equal(
         assert.some(person.fields.get(0)).features.over(scopes).presence(),
         Presence.Implicit,
     );
     // ...and the field's own wins where it does.
-    assert.eq(
+    assert.equal(
         assert.some(person.fields.get(1)).features.over(scopes).presence(),
         Presence.Explicit,
     );
@@ -167,10 +167,10 @@ test "a feature resolves from the field outwards, and the edition is the floor" 
 
 test "the edition's own defaults are the ones protobuf resolves" {
     let defaults = schema.editionDefaults();
-    assert.eq(defaults.presence(), Presence.Explicit);
+    assert.equal(defaults.presence(), Presence.Explicit);
     assert.isTrue(defaults.packed());
     // A scope that says nothing changes nothing.
-    assert.eq(schema.inherited().over(defaults), defaults);
+    assert.equal(schema.inherited().over(defaults), defaults);
 }
 
 test "every declaration carries the span of the text that produced it" {
@@ -180,18 +180,18 @@ test "every declaration carries the span of the text that produced it" {
     let text = everything(ctx);
     let s = read(ctx, text).schema;
     let person = assert.some(s.messages.get(0));
-    assert.eq(at(ctx, text, person.origin), "Person");
-    assert.eq(
+    assert.equal(at(ctx, text, person.origin), "Person");
+    assert.equal(
         at(ctx, text, assert.some(person.fields.get(0)).origin),
         "string name = 1;",
     );
-    assert.eq(
+    assert.equal(
         at(ctx, text, assert.some(s.imports.get(0)).origin),
         "\"proto/address.proto\"",
     );
     let colour = assert.some(s.enums.get(0));
-    assert.eq(at(ctx, text, colour.origin), "Colour");
-    assert.eq(at(ctx, text, assert.some(colour.values.get(1)).origin), "RED");
+    assert.equal(at(ctx, text, colour.origin), "Colour");
+    assert.equal(at(ctx, text, assert.some(colour.values.get(1)).origin), "RED");
 }
 
 test "comments of both kinds are trivia, wherever they fall" {
@@ -232,7 +232,7 @@ test "option and reserved are skipped rather than refused" {
     assert.isEmpty(parsed.errors);
     let m = assert.some(parsed.schema.messages.get(0));
     assert.len(m.fields, 1);
-    assert.eq(assert.some(m.fields.get(0)).name, "x");
+    assert.equal(assert.some(m.fields.get(0)).name, "x");
 }
 
 test "reserved is skipped in all three scopes it may be written in" {
@@ -262,10 +262,10 @@ test "reserved is skipped in all three scopes it may be written in" {
     let parsed = read(ctx, text);
     assert.isEmpty(parsed.errors);
     let e = assert.some(parsed.schema.enums.get(0));
-    assert.eq(e.name, "Colour");
+    assert.equal(e.name, "Colour");
     assert.len(e.values, 2);
     let m = assert.some(parsed.schema.messages.get(0));
-    assert.eq(m.name, "M");
+    assert.equal(m.name, "M");
     assert.len(m.fields, 1);
 }
 
@@ -295,7 +295,7 @@ test "a malformed field does not swallow the rest of the file" {
     assert.notEmpty(parsed.errors);
     let m = assert.some(parsed.schema.messages.get(0));
     assert.len(m.fields, 1);
-    assert.eq(assert.some(m.fields.get(0)).name, "ok");
+    assert.equal(assert.some(m.fields.get(0)).name, "ok");
 }
 
 /// The shapes `cli/tests/proto/`'s vendored schema is made of, kept verbatim:
@@ -357,17 +357,17 @@ test "the shapes the vendored conformance schema is made of read clean" {
     let parsed = read(ctx, vendored(ctx));
     assert.isEmpty(parsed.errors);
     let m = assert.some(parsed.schema.messages.get(0));
-    assert.eq(m.name, "TestAllTypesProto3");
+    assert.equal(m.name, "TestAllTypesProto3");
     assert.len(m.fields, 5);
     // A message field of the enclosing message's own type.
     let nested = assert.some(m.messages.get(0));
-    assert.eq(
+    assert.equal(
         assert.some(nested.fields.get(1)).ty,
         TypeRef.Named("TestAllTypesProto3"),
     );
     // A negative enum value is a value like any other.
     let e = assert.some(m.enums.get(0));
-    assert.eq(assert.some(e.values.get(2)).number, -1);
+    assert.equal(assert.some(e.values.get(2)).number, -1);
     // `option allow_alias` inside an enum is skipped, and an alias is not the
     // reader's business.
     assert.len(assert.some(m.enums.get(1)).values, 3);

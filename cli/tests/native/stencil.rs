@@ -985,7 +985,7 @@ fn the_identity_moves_with_the_library() {
     assert!(id.starts_with("stencil "), "{id}");
 }
 
-/// `str.compare`, and the derived `Ord` that reaches it.
+/// `str.compare`, and the derived `Ordered` that reaches it.
 ///
 /// Two strings compared is a **call**, and every stencil that calls uses the
 /// zero-register prototype — so nothing may be live in the CPS register file
@@ -1003,7 +1003,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/order" import { Order };
 export struct P { a: Int, b: Str }
-derive Eq, Ord for P;
+derive Equal, Ordered for P;
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 export fn main(): Result<(), Str> {
   let p = P { a: 1, b: "m" };
@@ -1119,11 +1119,11 @@ test "a memo is lazy, caches, and recomputes when its source changes" {
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
-    assert.eq(log.noted().len(), 0);
+    assert.equal(log.noted().len(), 0);
     let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
-    assert.eq(log.noted(), [4]);
+    assert.equal(log.noted(), [4]);
     let _ = n.set(ctx, 5);
-    assert.eq(log.noted(), [4, 10]);
+    assert.equal(log.noted(), [4, 10]);
 }
 
 test "a watcher runs when it is registered and again on every change" {
@@ -1135,9 +1135,9 @@ test "a watcher runs when it is registered and again on every change" {
     let log = recorder();
     let n = signal(ctx, 1);
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
-    assert.eq(log.noted(), [1]);
+    assert.equal(log.noted(), [1]);
     let _ = n.set(ctx, 7);
-    assert.eq(log.noted(), [1, 7]);
+    assert.equal(log.noted(), [1, 7]);
 }
 
 fn ignore(value: Int): () {
@@ -1210,7 +1210,7 @@ test "a memo reading a memo, which is what leaves the word behind" {
     let inner = memo(ctx, fn(s) => n.get(s) + 10);
     let outer = memo(ctx, fn(s) => log.note(inner.read(s) + 1));
     let _ = watch(ctx, fn(s) => ignore(outer.read(s)));
-    assert.eq(log.noted(), [12]);
+    assert.equal(log.noted(), [12]);
 }
 
 test "a Bool signal read inside a memo" {
@@ -1223,9 +1223,9 @@ test "a Bool signal read inside a memo" {
     let flag = signal(ctx, true);
     let label = memo(ctx, fn(s) => yesNo(flag.get(s)));
     let _ = watch(ctx, fn(s) => noteStr(log, label.read(s)));
-    assert.eq(log.recorded(), ["yes"]);
+    assert.equal(log.recorded(), ["yes"]);
     let _ = flag.set(ctx, false);
-    assert.eq(log.recorded(), ["yes", "no"]);
+    assert.equal(log.recorded(), ["yes", "no"]);
 }
 "#;
     let binary = build_tests("narrow-cell", source);
@@ -1289,7 +1289,7 @@ test "a cell written many times" {{
         Watch: observer(),
     }};
     let s = signal(ctx, str.format(ctx, "value ${{0}}"));
-{body}    assert.eq(s.get(ctx), str.format(ctx, "value ${{{last}}}"));
+{body}    assert.equal(s.get(ctx), str.format(ctx, "value ${{{last}}}"));
 }}
 "#,
             body = body,
@@ -1487,11 +1487,11 @@ export fn main(): Result<(), Str> {
   let e: U128 = 340282366920938463463374607431768211455;
   let f: I64 = -5;
   let _ = io.println(stdout, "${a.checkedAdd(100).withDefault(7)} ${a.saturatingAdd(100)} ${a.wrappingAdd(100)}").ignore();
-  let _ = io.println(stdout, "${b.checkedSub(1).withDefault(7)} ${b.saturatingSub(1)} ${b.wrappingSub(1)}").ignore();
-  let _ = io.println(stdout, "${c.checkedMul(2).withDefault(7)} ${c.saturatingMul(2)} ${c.wrappingMul(2)}").ignore();
+  let _ = io.println(stdout, "${b.checkedSubtract(1).withDefault(7)} ${b.saturatingSubtract(1)} ${b.wrappingSubtract(1)}").ignore();
+  let _ = io.println(stdout, "${c.checkedMultiply(2).withDefault(7)} ${c.saturatingMultiply(2)} ${c.wrappingMultiply(2)}").ignore();
   let _ = io.println(stdout, "${d.checkedAdd(1).withDefault(7)} ${d.saturatingAdd(1)} ${d.wrappingAdd(1)}").ignore();
   let _ = io.println(stdout, "${e} ${e.checkedAdd(1).withDefault(7)} ${f.abs()} ${f.signum()}").ignore();
-  let _ = io.println(stdout, "${c.checkedDiv(0).withDefault(7)} ${number.minValue<I8>().checkedDiv(-1).withDefault(7)}").ignore();
+  let _ = io.println(stdout, "${c.checkedDivide(0).withDefault(7)} ${number.minValue<I8>().checkedDivide(-1).withDefault(7)}").ignore();
   .Ok(())
 }
 "#,
@@ -2720,9 +2720,9 @@ fn the_test_binary_resumes_where_the_runner_asks() {
     }
     let source = r#"
 from "core/testing/assert" import * as assert;
-test "first" { assert.eq(1, 1); }
-test "second" { assert.eq(1, 2); }
-test "third" { assert.eq(3, 3); }
+test "first" { assert.equal(1, 1); }
+test "second" { assert.equal(1, 2); }
+test "third" { assert.equal(3, 3); }
 "#;
     let binary = build_tests("resume", source);
 
@@ -2730,7 +2730,7 @@ test "third" { assert.eq(3, 3); }
     let whole = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
     assert_ne!(whole.status.code(), Some(0), "a failing block must end the process");
     let report = String::from_utf8_lossy(&whole.stderr).to_string();
-    assert!(report.contains("assert.eq failed"), "the abort is the assertion's: {report}");
+    assert!(report.contains("assert.equal failed"), "the abort is the assertion's: {report}");
 
     // Started *after* the failure but before the last block: the runner's
     // resume, and the proof that `buri_rt_test_enter` is consulted per block
@@ -4188,7 +4188,7 @@ from "core/host" import {{ stdout, alloc }};
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-derive Eq, Show for Tag;
+derive Equal, Show for Tag;
 struct Tag {{
   id: Int,
   name: Str,

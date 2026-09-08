@@ -146,7 +146,7 @@ export fn closureBytes(size: Int): Int {
     HEADER_BYTES + size
 }
 
-derive Eq, Show for Stats;
+derive Equal, Show for Stats;
 // --- What an allocator has been asked for -------------------------------------
 
 /// What `GeneralPurpose.stats`, `Arena.stats` and `FixedBuffer.stats`

@@ -32,11 +32,11 @@ impl Environment for FixedArgs {
 }
 
 test "too few words is a usage error" {
-    assert.eq(assert.err(parseRequest(["1", "km"])), ConvertError.Usage);
+    assert.equal(assert.err(parseRequest(["1", "km"])), ConvertError.Usage);
 }
 
 test "an unknown unit has a line for the user" {
-    assert.eq(
+    assert.equal(
         assert.err(parseRequest(["1", "mi", "furlong"])).message(),
         "the units are m, km, mi and ft",
     );
@@ -50,5 +50,5 @@ test "run reads its arguments and prints one line" {
         Stdout: out,
     };
     assert.ok(run(ctx));
-    assert.eq(out.captured(), "10.0 km = 6.21 mi\n");
+    assert.equal(out.captured(), "10.0 km = 6.21 mi\n");
 }

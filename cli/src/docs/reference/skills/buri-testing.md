@@ -50,11 +50,11 @@ from "core/effect" import { Allocator };
 
 test "pads the cents place" {
     let ctx = context { Allocator: alloc() };
-    assert.eq(fromCents(1905).format(ctx), "\$19.05");
+    assert.equal(fromCents(1905).format(ctx), "\$19.05");
 }
 
 test "addition composes" {
-    assert.eq(fromDollars(19).add(fromCents(499)), fromCents(2399));
+    assert.equal(fromDollars(19).add(fromCents(499)), fromCents(2399));
 }
 ```
 
@@ -69,10 +69,10 @@ test "addition composes" {
 
 | Function | Meaning |
 |---|---|
-| `assert.eq(a, b)` / `notEq` | fails unless `a == b`; needs `Eq`, and `Show` for the message |
+| `assert.equal(a, b)` / `notEq` | fails unless `a == b`; needs `Equal`, and `Show` for the message |
 | `assert.isTrue(b)` / `isFalse` | on a `Bool` |
 | `assert.contains(xs, x)`, `isEmpty(xs)` / `notEmpty`, `len(xs, n)` | on a list |
-| `assert.gt(a, b)` / `ge` / `lt` / `le`, `approxEq(a, b, tolerance)` | on an `Ord`, and on `Float` within an absolute tolerance |
+| `assert.gt(a, b)` / `ge` / `lt` / `le`, `approxEq(a, b, tolerance)` | on an `Ordered`, and on `Float` within an absolute tolerance |
 | `assert.ok(r)` | fails unless `r` is `.Ok`; **returns the wrapped value** |
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
 | `assert.some(o)` | fails unless `o` is `.Some`; returns the wrapped value |
@@ -91,12 +91,12 @@ test "reads the config it wrote" {
     let cfg = path.of(ctx, "cfg");                  // core/fs takes a Path
     assert.ok(fs.writeText(ctx, cfg, "port=8080")); // returns (), so a statement
     let text = assert.ok(fs.readText(ctx, cfg));    // returns Str, so a binding
-    assert.eq(text, "port=8080");
+    assert.equal(text, "port=8080");
 }
 ```
 
-If `assert.eq` reports `unsatisfied-bound`, the type under test needs
-`derive Eq, Show for ThatType;` in **its own** module.
+If `assert.equal` reports `unsatisfied-bound`, the type under test needs
+`derive Equal, Show for ThatType;` in **its own** module.
 
 ## The runner's context
 
@@ -134,12 +134,12 @@ context Fixture {
 
 test "reads the log path from the environment" {
     let ctx = Fixture();
-    assert.eq(logPath(ctx), "custom.log");
+    assert.equal(logPath(ctx), "custom.log");
 }
 
 test "falls back when the variable is unset" {
     let ctx = context { ..Fixture(), Environment: env() };
-    assert.eq(logPath(ctx), "ledger.log");
+    assert.equal(logPath(ctx), "ledger.log");
 }
 ```
 
@@ -170,7 +170,7 @@ impl Network for StubNet {
 
 test "a timeout reaches the caller as an error" {
     let ctx = context { Allocator: alloc(), Network: StubNet { failing: "https://example.test/slow" } };
-    assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
+    assert.equal(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
 }
 ```
 
@@ -232,7 +232,7 @@ from "core/host/testing" import { alloc, fs as memory };
 test "renders the statement" {
     let ctx = context { Allocator: alloc(), FileSystemRead: memory().files([("statement.txt", "coffee")]) };
     let want = assert.ok(fs.readText(ctx, path.of(ctx, "statement.txt")));
-    assert.eq(render(ctx, sample()), want);
+    assert.equal(render(ctx, sample()), want);
 }
 ```
 
@@ -258,7 +258,7 @@ can use it directly as a gate.
 
 ```
 FAIL //lib/money  test/cents.buri  "pads the cents place"
-  assert.eq failed
+  assert.equal failed
     actual:   "$19.5"
     expected: "$19.05"
   --> lib/money/test/cents.buri:8:3

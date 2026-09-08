@@ -19,7 +19,7 @@ test "a namespace import prints" {
     let m = one(
         .Import(ast.Import { path: "core/list", clause: .Namespace(n("list")) }),
     );
-    assert.eq(ast.print(ctx, m).text, "from \"core/list\" import * as list;\n");
+    assert.equal(ast.print(ctx, m).text, "from \"core/list\" import * as list;\n");
 }
 
 test "a named import sorts its clause" {
@@ -31,7 +31,7 @@ test "a named import sorts its clause" {
         ast.ImportSpec { name: n("Allocator"), alias: [] },
     ];
     let m = one(.Import(ast.Import { path: "core/effect", clause: .Named(specs) }));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "from \"core/effect\" import { Allocator, Stdout };\n",
     );
@@ -43,7 +43,7 @@ test "an aliased name keeps its alias" {
     };
     let specs = [ast.ImportSpec { name: n("map"), alias: [n("mapping")] }];
     let m = one(.Import(ast.Import { path: "core/list", clause: .Named(specs) }));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "from \"core/list\" import { map as mapping };\n",
     );
@@ -59,7 +59,7 @@ test "the leading import run is sorted, the library ahead of the repository" {
         importOf("core/list", "list"),
     ];
     let m = ast.Module { items: items, docs: [] };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "from \"core/list\" import * as list;\nfrom \"core/str\" import * as str;\n".concat(
             ctx,
@@ -84,7 +84,7 @@ test "a re-export prints" {
         ast.ImportSpec { name: n("beta"), alias: [] },
     ];
     let m = one(.ReExport(ast.ReExport { path: "//lib/shapes", specs: specs }));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "from \"//lib/shapes\" export { Alpha, beta };\n",
     );
@@ -110,7 +110,7 @@ test "a function with a body prints" {
             docs: ["Their sum."],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "/// Their sum.\nexport fn add(a: Int, b: Int): Int {\n    a + b\n}\n",
     );
@@ -131,7 +131,7 @@ test "a body with nothing in it closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export fn nothing(): () {}\n");
+    assert.equal(ast.print(ctx, m).text, "export fn nothing(): () {}\n");
 }
 
 test "a function with no body is a signature" {
@@ -149,7 +149,7 @@ test "a function with no body is a signature" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "fn probe(): ();\n");
+    assert.equal(ast.print(ctx, m).text, "fn probe(): ();\n");
 }
 
 test "a bounded type parameter prints its bounds" {
@@ -169,7 +169,7 @@ test "a bounded type parameter prints its bounds" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "fn go<C: Allocator + Stdout>(ctx: C): () {\n    ()\n}\n",
     );
@@ -190,7 +190,7 @@ test "a record struct gives every field a line" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export struct Point {\n    /// Across.\n    export x: Int,\n    y: Int,\n}\n",
     );
@@ -221,7 +221,7 @@ test "a tuple struct stays on its line" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export struct Meters(export F64);\n");
+    assert.equal(ast.print(ctx, m).text, "export struct Meters(export F64);\n");
 }
 
 test "a struct with no fields closes up" {
@@ -237,7 +237,7 @@ test "a struct with no fields closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export struct Empty {}\n");
+    assert.equal(ast.print(ctx, m).text, "export struct Empty {}\n");
 }
 
 test "an enum gives every variant a line" {
@@ -260,7 +260,7 @@ test "an enum gives every variant a line" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export enum Shape {\n    Dot,\n    Circle(Int),\n".concat(
             ctx,
@@ -286,7 +286,7 @@ test "an enum with no variants closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export enum Nothing {}\n");
+    assert.equal(ast.print(ctx, m).text, "export enum Nothing {}\n");
 }
 
 test "a type alias prints" {
@@ -302,7 +302,7 @@ test "a type alias prints" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export type Pairs<T> = Option<List<T>>;\n");
+    assert.equal(ast.print(ctx, m).text, "export type Pairs<T> = Option<List<T>>;\n");
 }
 
 test "a module-level let prints" {
@@ -318,7 +318,7 @@ test "a module-level let prints" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "let LIMIT: Int = 7;\n");
+    assert.equal(ast.print(ctx, m).text, "let LIMIT: Int = 7;\n");
 }
 
 // --- traits, impls and derives ---------------------------------------------------
@@ -337,7 +337,7 @@ test "a trait prints its methods as signatures" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export trait Named {\n    /// What to call it.\n    fn label(self): Str;\n}\n",
     );
@@ -369,7 +369,7 @@ test "an effect prints with its own keyword" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export effect Beep {\n    fn beep(self): Str;\n}\n",
     );
@@ -388,7 +388,7 @@ test "an inherent impl puts a blank line between its methods" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "impl Point {\n    export fn first(self): Int {\n        self.x\n    }\n\n".concat(
             ctx,
@@ -422,7 +422,7 @@ test "a trait impl names the trait and the type" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "impl<T> Named for Wrapper<T> {}\n");
+    assert.equal(ast.print(ctx, m).text, "impl<T> Named for Wrapper<T> {}\n");
 }
 
 test "a derive prints its trait list" {
@@ -431,11 +431,11 @@ test "a derive prints its trait list" {
     };
     let m = one(
         .Derive(ast.DeriveDecl {
-            traits: [ty("Eq"), ty("Show")],
+            traits: [ty("Equal"), ty("Show")],
             selfTy: ty("Meters"),
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "derive Eq, Show for Meters;\n");
+    assert.equal(ast.print(ctx, m).text, "derive Equal, Show for Meters;\n");
 }
 
 test "a derive sits on the declaration it is about" {
@@ -453,15 +453,15 @@ test "a derive sits on the declaration it is about" {
         origin: ast.nowhere(),
     };
     let derived = ast.Item {
-        kind: .Derive(ast.DeriveDecl { traits: [ty("Eq")], selfTy: ty("Id") }),
+        kind: .Derive(ast.DeriveDecl { traits: [ty("Equal")], selfTy: ty("Id") }),
         origin: ast.nowhere(),
     };
     // Written below the declaration, and printed above it — which is where the
     // formatter moves it.
     let m = ast.Module { items: [decl, derived], docs: [] };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
-        "derive Eq for Id;\n/// A key.\nexport type Id = Int;\n",
+        "derive Equal for Id;\n/// A key.\nexport type Id = Int;\n",
     );
 }
 
@@ -486,7 +486,7 @@ test "module documentation leads, with a blank line under it" {
         ],
         docs: ["What this is.", "", "And why."],
     };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "//! What this is.\n//!\n//! And why.\n\nexport type Id = Int;\n",
     );
@@ -496,7 +496,7 @@ test "a module of nothing prints nothing" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(ast.print(ctx, ast.Module { items: [], docs: [] }).text, "");
+    assert.equal(ast.print(ctx, ast.Module { items: [], docs: [] }).text, "");
 }
 
 // --- what only a test source may write ---------------------------------------------
@@ -512,7 +512,7 @@ test "a test declaration prints its name and its body" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "test \"it holds\" {\n    ()\n}\n");
+    assert.equal(ast.print(ctx, m).text, "test \"it holds\" {\n    ()\n}\n");
 }
 
 test "a test declaration with an empty body closes up" {
@@ -520,7 +520,7 @@ test "a test declaration with an empty body closes up" {
         Allocator: alloc(),
     };
     let m = one(.Test(ast.TestDecl { name: "nothing", body: block([], []), docs: [] }));
-    assert.eq(ast.print(ctx, m).text, "test \"nothing\" {}\n");
+    assert.equal(ast.print(ctx, m).text, "test \"nothing\" {}\n");
 }
 
 test "a context declaration prints its name and its bindings" {
@@ -541,7 +541,7 @@ test "a context declaration prints its name and its bindings" {
             docs: ["The world a test runs in."],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "/// The world a test runs in.\nexport context Fixture {\n    Allocator: alloc(),\n}\n",
     );
@@ -560,5 +560,5 @@ test "a context declaration with nothing in it closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "context Empty {\n}\n");
+    assert.equal(ast.print(ctx, m).text, "context Empty {\n}\n");
 }

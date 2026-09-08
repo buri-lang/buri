@@ -12,7 +12,7 @@ export enum CounterMessage {
     Get,
 }
 
-derive Eq, Show for CounterAnswer;
+derive Equal, Show for CounterAnswer;
 export enum CounterAnswer {
     Done,
     Count(Int),

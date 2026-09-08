@@ -14,11 +14,11 @@ test "no input at all is an error, and nothing is written" {
         Stdout: out,
     };
     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
-    assert.eq(
+    assert.equal(
         assert.err(codegen.run(ctx, silent)),
         "codegen: standard input held no request",
     );
-    assert.eq(out.captured(), "");
+    assert.equal(out.captured(), "");
 }
 
 test "a line that is not JSON is an error" {
@@ -29,11 +29,11 @@ test "a line that is not JSON is an error" {
         Stdout: out,
     };
     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
-    assert.eq(
+    assert.equal(
         assert.err(codegen.run(ctx, silent)),
         "codegen: the request is not JSON: .Unexpected(0)",
     );
-    assert.eq(out.captured(), "");
+    assert.equal(out.captured(), "");
 }
 
 test "a JSON document that is not an object is an error" {
@@ -44,11 +44,11 @@ test "a JSON document that is not an object is an error" {
         Stdout: out,
     };
     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
-    assert.eq(
+    assert.equal(
         assert.err(codegen.run(ctx, silent)),
         "codegen: the request is not an object"@ ,
     );
-    assert.eq(out.captured(), "");
+    assert.equal(out.captured(), "");
 }
 
 test "an inputs that is not a list is an error" {
@@ -59,8 +59,8 @@ test "an inputs that is not a list is an error" {
         Stdout: out,
     };
     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
-    assert.eq(assert.err(codegen.run(ctx, silent)), "codegen: `inputs` is not a list");
-    assert.eq(out.captured(), "");
+    assert.equal(assert.err(codegen.run(ctx, silent)), "codegen: `inputs` is not a list");
+    assert.equal(out.captured(), "");
 }
 
 test "an input that is not a (path, text) pair is an error" {
@@ -71,11 +71,11 @@ test "an input that is not a (path, text) pair is an error" {
         Stdout: out,
     };
     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
-    assert.eq(
+    assert.equal(
         assert.err(codegen.run(ctx, silent)),
         "codegen: `inputs` holds something that is not a (path, text) pair",
     );
-    assert.eq(out.captured(), "");
+    assert.equal(out.captured(), "");
 }
 
 test "a dependency that is not a pair of strings is an error" {
@@ -86,9 +86,9 @@ test "a dependency that is not a pair of strings is an error" {
         Stdout: out,
     };
     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
-    assert.eq(
+    assert.equal(
         assert.err(codegen.run(ctx, silent)),
         "codegen: `dependencies` holds something that is not a (path, text) pair",
     );
-    assert.eq(out.captured(), "");
+    assert.equal(out.captured(), "");
 }

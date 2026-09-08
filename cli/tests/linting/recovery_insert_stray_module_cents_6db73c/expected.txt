@@ -1,7 +1,7 @@
 error: expected an identifier, found `?` [unexpected-token]
  --> lib/recovery_insert_stray_module_cents_6db73c/lib.buri:1:8
   |
-1 | derive ? Eq, Show for Cents;
+1 | derive ? Equal, Show for Cents;
   |        ^
   |
   = expected: an identifier

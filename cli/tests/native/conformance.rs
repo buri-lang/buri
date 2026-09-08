@@ -543,7 +543,7 @@ const PACKAGES: &[Case] = &[
     // never a statement about the backend — see [`repository`].
     included("codegen/equality.buri"),
     // The other half of what a derived conformance means, and the file that
-    // `deriveArrayCompare` landing made runnable: `derive Ord` where the field
+    // `deriveArrayCompare` landing made runnable: `derive Ordered` where the field
     // is a `[T]` used to be a program the front end accepted and this backend
     // refused by name (buri-lang/buri#27). Its element types are the three that
     // reach different leaves — a scalar, a `Str` and a struct — so it is also
@@ -593,7 +593,7 @@ const PACKAGES: &[Case] = &[
     // The ninth: `Request` and `Response`, the two types `Network.fetch` speaks in.
     // No `Network` call in it reaches the network — a fresh `net()` refuses and the rest
     // is construction — so what this proves natively is the *shape*: a struct
-    // holding a `[Header]` and a `[U8]`, its derived `Eq` and `Show`, and the
+    // holding a `[Header]` and a `[U8]`, its derived `Equal` and `Show`, and the
     // `core/bytes` pair underneath the text constructors.
     included("semantics/http.buri"),
     // `core/cli`, driven end to end through `run` — which means the
@@ -754,7 +754,7 @@ const PACKAGES: &[Case] = &[
     included("tcp/stream.buri"),
     // `core/net/url` is the same: percent-encoding over `[Char]`, RFC 3986's
     // reference resolution over string views, and a six-field struct that
-    // derives `Eq` and `Show`. No effect, and nothing on either backend to
+    // derives `Equal` and `Show`. No effect, and nothing on either backend to
     // disagree about but the answers.
     included("url/url.buri"),
     // The four packages the filesystem, the environment, a child process and
@@ -1427,7 +1427,7 @@ test "captured reads back what a function printed" {
   let sink = stdout();
   let ctx = context { Allocator: alloc(), Stdout: sink };
   speak(ctx, "hello");
-  assert.eq(sink.captured(), "[hello]\n");
+  assert.equal(sink.captured(), "[hello]\n");
 }
 
 test "a fresh sink is empty and stays independent" {
@@ -1435,8 +1435,8 @@ test "a fresh sink is empty and stays independent" {
   let second = stdout();
   let ctx = context { Allocator: alloc(), Stdout: first };
   speak(ctx, "one");
-  assert.eq(second.captured(), "");
-  assert.eq(first.captured(), "[one]\n");
+  assert.equal(second.captured(), "");
+  assert.equal(first.captured(), "[one]\n");
 }
 
 test "captured accumulates in the order things were printed" {
@@ -1445,14 +1445,14 @@ test "captured accumulates in the order things were printed" {
   let _ = io.print(ctx, "a").ignore();
   let _ = io.println(ctx, "b").ignore();
   let _ = io.print(ctx, "c").ignore();
-  assert.eq(sink.captured(), "ab\nc");
+  assert.equal(sink.captured(), "ab\nc");
 }
 
 test "writeBytes is captured as the text the octets spell" {
   let sink = stdout();
   let ctx = context { Allocator: alloc(), Stdout: sink };
   let _ = io.writeBytes(ctx, [104, 105]).ignore();
-  assert.eq(sink.captured(), "hi");
+  assert.equal(sink.captured(), "hi");
 }
 
 test "standard error is its own transcript" {
@@ -1460,34 +1460,34 @@ test "standard error is its own transcript" {
   let err = stderr();
   let ctx = context { Allocator: alloc(), Stdout: out, Stderr: err };
   shout(ctx, "bad");
-  assert.eq(err.captured(), "<bad\n");
-  assert.eq(out.captured(), "");
+  assert.equal(err.captured(), "<bad\n");
+  assert.equal(out.captured(), "");
 }
 
 test "a test clock starts where it was put and moves only when moved" {
   let dial = clock().at(1000);
   let ctx = context { Allocator: alloc(), Clock: dial };
-  assert.eq(time.now(ctx).0, 1000);
-  assert.eq(time.now(ctx).0, 1000);
+  assert.equal(time.now(ctx).0, 1000);
+  assert.equal(time.now(ctx).0, 1000);
   let _ = time.sleepMs(ctx, 5);
-  assert.eq(time.now(ctx).0, 1005);
+  assert.equal(time.now(ctx).0, 1005);
   let _ = time.sleepMs(dial, 10);
-  assert.eq(time.now(ctx).0, 1015);
+  assert.equal(time.now(ctx).0, 1015);
 }
 
 test "a seeded generator is the same sequence on every backend" {
   let ctx = context { Allocator: alloc(), Random: rand().seed(0) };
-  assert.eq(random.int(ctx, 0, 100), 69);
-  assert.eq(random.int(ctx, 0, 100), 89);
-  assert.eq(random.int(ctx, 10, 11), 10);
+  assert.equal(random.int(ctx, 0, 100), 69);
+  assert.equal(random.int(ctx, 0, 100), 89);
+  assert.equal(random.int(ctx, 10, 11), 10);
   let ctx2 = context { Allocator: alloc(), Random: rand().seed(7) };
-  assert.eq(random.int(ctx2, 0, 1000), 583);
+  assert.equal(random.int(ctx2, 0, 1000), 583);
 }
 
 test "two generators with the same seed agree with each other" {
   let a = context { Allocator: alloc(), Random: rand().seed(42) };
   let b = context { Allocator: alloc(), Random: rand().seed(42) };
-  assert.eq(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
+  assert.equal(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
 }
 
 test "an environment holds what it was given and nothing else" {
@@ -1495,36 +1495,36 @@ test "an environment holds what it was given and nothing else" {
     Allocator: alloc(),
     Environment: env().variables([("HOME", "/tmp"), ("LANG", "C")]).withArguments(["--verbose", "x"]),
   };
-  assert.eq(assert.some(env.get(ctx, "HOME")), "/tmp");
-  assert.eq(assert.some(env.get(ctx, "LANG")), "C");
+  assert.equal(assert.some(env.get(ctx, "HOME")), "/tmp");
+  assert.equal(assert.some(env.get(ctx, "LANG")), "C");
   assert.isTrue(env.get(ctx, "PATH").isNone());
   let args = env.withArguments(ctx);
-  assert.eq(args.len(), 2);
-  assert.eq(args.join(ctx, " "), "--verbose x");
+  assert.equal(args.len(), 2);
+  assert.equal(args.join(ctx, " "), "--verbose x");
 }
 
 test "an empty environment has no variables and no arguments" {
   let ctx = context { Allocator: alloc(), Environment: env() };
   assert.isTrue(env.get(ctx, "HOME").isNone());
-  assert.eq(env.withArguments(ctx).len(), 0);
+  assert.equal(env.withArguments(ctx).len(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
   let ctx = context { Allocator: alloc(), Stdin: stdin().lines(["one", "two"]) };
-  assert.eq(assert.some(io.readLine(ctx)), "one");
-  assert.eq(assert.some(io.readLine(ctx)), "two");
+  assert.equal(assert.some(io.readLine(ctx)), "one");
+  assert.equal(assert.some(io.readLine(ctx)), "two");
   assert.isTrue(io.readLine(ctx).isNone());
 }
 
 test "a stdin of octets reads them, and readLine finds nothing there" {
   let ctx = context { Allocator: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
   let first = assert.some(io.readBytes(ctx, 3));
-  assert.eq(first.len(), 3);
-  assert.eq(assert.some(first.get(0)), 1);
-  assert.eq(assert.some(first.get(2)), 3);
+  assert.equal(first.len(), 3);
+  assert.equal(assert.some(first.get(0)), 1);
+  assert.equal(assert.some(first.get(2)), 3);
   let rest = assert.some(io.readBytes(ctx, 3));
-  assert.eq(rest.len(), 1);
-  assert.eq(assert.some(rest.get(0)), 4);
+  assert.equal(rest.len(), 1);
+  assert.equal(assert.some(rest.get(0)), 4);
   assert.isTrue(io.readBytes(ctx, 1).isNone());
   assert.isTrue(io.readLine(ctx).isNone());
 }
@@ -1612,7 +1612,7 @@ test "the handler is handed the caller's context" {
       Response { status: 42, headers: [], body: [] }
     },
   }));
-  assert.eq(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
+  assert.equal(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
 }
 
 test "and a task is handed the context" {
@@ -1622,7 +1622,7 @@ test "and a task is handed the context" {
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
   let out = tasks.parallel(ctx, [1], fn(c, i, item) => time.now(c).0 + item);
-  assert.eq(out[0].withDefault(0), 6);
+  assert.equal(out[0].withDefault(0), 6);
 }
 
 test "and through a bound the call still lands" {
@@ -1633,9 +1633,9 @@ test "and through a bound the call still lands" {
     Sockets: QuietSockets {},
     Tasks: SerialTasks { label: "serial", bias: 0 },
   };
-  assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
-  assert.eq(runInOrder(ctx, [3, 4]), 107);
-  assert.eq(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
+  assert.equal(serveOnce(ctx, "http://example.com/ping"), 418);
+  assert.equal(runInOrder(ctx, [3, 4]), 107);
+  assert.equal(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
 }
 "#;
     let Some((status, out, err, blocks)) = run("semantics/self-through-a-context.buri", SOURCE)
@@ -1671,18 +1671,18 @@ fn the_native_set_can_fail() {
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `assert!` on the marker means a corpus that
     // stopped containing it fails here rather than passing vacuously.
-    const MARKER: &str = "assert.eq(bits.shl(1, 10), 1024);"; 
+    const MARKER: &str = "assert.equal(bits.shl(1, 10), 1024);"; 
     assert!(
         source.contains(MARKER),
         "`numbers/bits.buri` no longer contains the assertion this test edits"
     );
-    let broken = source.replace(MARKER, "assert.eq(bits.shl(1, 10), 1025);");
+    let broken = source.replace(MARKER, "assert.equal(bits.shl(1, 10), 1025);");
     let Some((status, out, err, _)) = run("bits-broken", &broken) else {
         return;
     };
     assert_ne!(status, 0, "a broken assertion still passed:\n{out}\n{err}");
     assert!(
-        err.contains("assert.eq failed"),
+        err.contains("assert.equal failed"),
         "the failure did not name the assertion:\nstdout:\n{out}\nstderr:\n{err}"
     );
 }

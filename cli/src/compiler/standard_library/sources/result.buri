@@ -6,7 +6,7 @@
 //! has no holes. The legal ways to consume one are `?`, `match`, `withDefault`
 //! and `ignore`.
 
-derive Eq, Ord, Show, Hash for Result;
+derive Equal, Ordered, Show, Hash for Result;
 export enum Result<T, E> {
     Ok(T),
     Err(E),

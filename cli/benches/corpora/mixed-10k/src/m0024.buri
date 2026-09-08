@@ -10,7 +10,7 @@ from "core/str" import * as str;
 from "//bench/m0018.buri" import { blend18, Node18, reach18, seed18 };
 from "//bench/m0020.buri" import { blend20, Node20, reach20, seed20 };
 
-derive Eq, Show for Node24;
+derive Equal, Show for Node24;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node24 {
@@ -83,7 +83,7 @@ export fn probe24_1<C: Allocator>(ctx: C): Int {
     compute24_1(7)
 }
 
-derive Eq, Show for State24_2;
+derive Equal, Show for State24_2;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State24_2 {
     Idle,
@@ -119,7 +119,7 @@ export fn probe24_2<C: Allocator>(ctx: C): Int {
     rank24_2(s) + s.show(ctx).len()
 }
 
-derive Eq, Show for State24_3;
+derive Equal, Show for State24_3;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State24_3 {
     Idle,
@@ -155,7 +155,7 @@ export fn probe24_3<C: Allocator>(ctx: C): Int {
     rank24_3(s) + s.show(ctx).len()
 }
 
-derive Eq, Show for State24_4;
+derive Equal, Show for State24_4;
 /// An enum of 3 variants, matched exhaustively below.
 export enum State24_4 {
     Idle,
@@ -263,7 +263,7 @@ export fn probe24_7<C: Allocator>(ctx: C): Int {
     choose24_7(.Some(3), .None) + extra
 }
 
-derive Eq, Show for State24_8;
+derive Equal, Show for State24_8;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State24_8 {
     Idle,

@@ -503,7 +503,7 @@ pub unsafe extern "C" fn buri_rt_str_compare(
     }
 }
 
-/// `Eq` on `Str`, as bytes. Identical strings have identical UTF-8, so this
+/// `Equal` on `Str`, as bytes. Identical strings have identical UTF-8, so this
 /// needs no decoding.
 ///
 /// # Safety

@@ -25,12 +25,12 @@ test "each iteration's closure captures that iteration's parameter" {
         Allocator: alloc(),
     };
     let fs = adders(ctx, 0, []);
-    assert.eq(fs.len(), 4);
+    assert.equal(fs.len(), 4);
     // Not `100 100 100 100`, which is what capturing the loop's slot gives.
-    assert.eq(fs.get(0).map(fn(f) => f(100)).withDefault(-1), 100);
-    assert.eq(fs.get(1).map(fn(f) => f(100)).withDefault(-1), 101);
-    assert.eq(fs.get(2).map(fn(f) => f(100)).withDefault(-1), 102);
-    assert.eq(fs.get(3).map(fn(f) => f(100)).withDefault(-1), 103);
+    assert.equal(fs.get(0).map(fn(f) => f(100)).withDefault(-1), 100);
+    assert.equal(fs.get(1).map(fn(f) => f(100)).withDefault(-1), 101);
+    assert.equal(fs.get(2).map(fn(f) => f(100)).withDefault(-1), 102);
+    assert.equal(fs.get(3).map(fn(f) => f(100)).withDefault(-1), 103);
 }
 
 test "the same holds across a merged mutually recursive loop" {
@@ -38,12 +38,12 @@ test "the same holds across a merged mutually recursive loop" {
         Allocator: alloc(),
     };
     let fs = addersEven(ctx, 0, []);
-    assert.eq(fs.len(), 4);
+    assert.equal(fs.len(), 4);
     // `+0`, `*1`, `+2`, `*3` — alternating, because the two members alternate.
-    assert.eq(fs.get(0).map(fn(f) => f(100)).withDefault(-1), 100);
-    assert.eq(fs.get(1).map(fn(f) => f(100)).withDefault(-1), 100);
-    assert.eq(fs.get(2).map(fn(f) => f(100)).withDefault(-1), 102);
-    assert.eq(fs.get(3).map(fn(f) => f(100)).withDefault(-1), 300);
+    assert.equal(fs.get(0).map(fn(f) => f(100)).withDefault(-1), 100);
+    assert.equal(fs.get(1).map(fn(f) => f(100)).withDefault(-1), 100);
+    assert.equal(fs.get(2).map(fn(f) => f(100)).withDefault(-1), 102);
+    assert.equal(fs.get(3).map(fn(f) => f(100)).withDefault(-1), 300);
 }
 
 test "a parameter the loop never rebinds is captured unchanged" {
@@ -51,10 +51,10 @@ test "a parameter the loop never rebinds is captured unchanged" {
         Allocator: alloc(),
     };
     let fs = scalers(ctx, 7, 0, []);
-    assert.eq(fs.len(), 3);
-    assert.eq(fs.get(0).map(fn(f) => f(2)).withDefault(-1), 14);
-    assert.eq(fs.get(1).map(fn(f) => f(2)).withDefault(-1), 14);
-    assert.eq(fs.get(2).map(fn(f) => f(2)).withDefault(-1), 14);
+    assert.equal(fs.len(), 3);
+    assert.equal(fs.get(0).map(fn(f) => f(2)).withDefault(-1), 14);
+    assert.equal(fs.get(1).map(fn(f) => f(2)).withDefault(-1), 14);
+    assert.equal(fs.get(2).map(fn(f) => f(2)).withDefault(-1), 14);
 }
 
 test "two closures made in one iteration agree about it" {
@@ -62,14 +62,14 @@ test "two closures made in one iteration agree about it" {
         Allocator: alloc(),
     };
     let fs = pairs(ctx, 0 []);
-    assert.eq(fs.len(), 6);
+    assert.equal(fs.len(), 6);
     // `+0 -0 +1 -1 +2 -2` applied to 10.
-    assert.eq(fs.get(0).map(fn(f) => f(10)).withDefault(-1), 10);
-    assert.eq(fs.get(1).map(fn(f) => f(10)).withDefault(-1), 10);
-    assert.eq(fs.get(2).map(fn(f) => f(10)).withDefault(-1), 11);
-    assert.eq(fs.get(3).map(fn(f) => f(10)).withDefault(-1), 9);
-    assert.eq(fs.get(4).map(fn(f) => f(10)).withDefault(-1), 12);
-    assert.eq(fs.get(5).map(fn(f) => f(10)).withDefault(-1), 8);
+    assert.equal(fs.get(0).map(fn(f) => f(10)).withDefault(-1), 10);
+    assert.equal(fs.get(1).map(fn(f) => f(10)).withDefault(-1), 10);
+    assert.equal(fs.get(2).map(fn(f) => f(10)).withDefault(-1), 11);
+    assert.equal(fs.get(3).map(fn(f) => f(10)).withDefault(-1), 9);
+    assert.equal(fs.get(4).map(fn(f) => f(10)).withDefault(-1), 12);
+    assert.equal(fs.get(5).map(fn(f) => f(10)).withDefault(-1), 8);
 }
 
 // -----------------------------------------------------------------------------

@@ -132,21 +132,21 @@ test "the suite is held to every rule the library is" {
     drop(ctx, "one");
     byHand(ctx, "two");
     let _ = announce(ctx, "three").ignore();
-    assert.eq(ledger.entries, 2);
-    assert.eq(compareInts(1, 2), .Less);
-    assert.eq(width(ctx, "abc"), 3);
-    assert.eq(depth(5), "small");
-    assert.eq(spell(7), "seven");
-    assert.eq(HEX_DIGITS.len(), 16);
-    assert.eq(NANOS_PER_MILLISECOND, 1_000_000);
-    assert.eq(fromCents(1), Cents(1));
+    assert.equal(ledger.entries, 2);
+    assert.equal(compareInts(1, 2), .Less);
+    assert.equal(width(ctx, "abc"), 3);
+    assert.equal(depth(5), "small");
+    assert.equal(spell(7), "seven");
+    assert.equal(HEX_DIGITS.len(), 16);
+    assert.equal(NANOS_PER_MILLISECOND, 1_000_000);
+    assert.equal(fromCents(1), Cents(1));
     match (shade) {
         _ => (),
     }
 }
 
 test "a title that\nwraps" {
-    assert.eq(spell(2), "two");
+    assert.equal(spell(2), "two");
 }
 
 test "a test that asserts nothing is still a test" {

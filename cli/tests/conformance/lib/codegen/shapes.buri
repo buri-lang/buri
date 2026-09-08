@@ -104,12 +104,12 @@ export fn oddAnd(i: Int): Bool {
     if (i <= 0) { true } else { i > -1 && evenAnd(i - 1) }
 }
 
-derive Eq, Show for Pair;
+derive Equal, Show for Pair;
 // -----------------------------------------------------------------------------
 // Derived structural equality
 // -----------------------------------------------------------------------------
 //
-// `derive Eq` can be answered two ways: by a runtime walker that rediscovers
+// `derive Equal` can be answered two ways: by a runtime walker that rediscovers
 // the shape of the value as it goes, or by code compiled at the type. The two
 // have to agree on every value, and the interesting cases are the ones where
 // "structural" and "identical" come apart — `NaN`, `-0.0`, an `Option` whose
@@ -125,43 +125,43 @@ export struct Pair {
     b: Str,
 }
 
-derive Eq for Floaty;
+derive Equal for Floaty;
 export struct Floaty {
     x: Float,
 }
 
-derive Eq for Nest;
+derive Equal for Nest;
 export struct Nest {
     p: Pair,
     q: Floaty,
 }
 
-derive Eq for Holder;
+derive Equal for Holder;
 export struct Holder {
     o: Option<Int>,
 }
 
-derive Eq for Deep;
+derive Equal for Deep;
 export struct Deep {
     o: Option<Option<Int>>,
 }
 
-derive Eq for Listy;
+derive Equal for Listy;
 export struct Listy {
     xs: [Int],
 }
 
-derive Eq for Hollow;
+derive Equal for Hollow;
 export struct Hollow {}
 
-derive Eq for Flat;
+derive Equal for Flat;
 export enum Flat {
     A,
     B,
     C,
 }
 
-derive Eq for Wide;
+derive Equal for Wide;
 /// Three variants with three different arities, so a comparison that assumed
 /// one shape per enum would be caught.
 export enum Wide {
@@ -275,7 +275,7 @@ export fn floatLeAsCondition(a: Float, b: Float): Bool {
 // Derived ordering over a `[T]`
 // -----------------------------------------------------------------------------
 //
-// `derive Ord` bottoms out at one helper per container, and the array one —
+// `derive Ordered` bottoms out at one helper per container, and the array one —
 // `deriveArrayCompare`, `([T], [T], fn(T, T) -> Order) -> Order` — had no body
 // on the stencil backend, so a type holding an array could not be built for a
 // native target at all (buri-lang/buri#27). The order it answers is
@@ -286,17 +286,17 @@ export fn floatLeAsCondition(a: Float, b: Float): Bool {
 // a `Str` (a runtime call), and a struct (a generated function) — and the enum
 // is the shape whose payloads are arrays rather than whose fields are.
 
-derive Eq, Ord, Show for Octets;
+derive Equal, Ordered, Show for Octets;
 export struct Octets {
     xs: [U8],
 }
 
-derive Eq, Ord, Show for Words;
+derive Equal, Ordered, Show for Words;
 export struct Words {
     ss: [Str],
 }
 
-derive Eq, Ord, Show for Leaf;
+derive Equal, Ordered, Show for Leaf;
 /// Two fields, so an element comparison that stopped at the first would show up
 /// as `Leaf { a: 1, b: "y" }` and `Leaf { a: 1, b: "x" }` comparing equal.
 export struct Leaf {
@@ -304,12 +304,12 @@ export struct Leaf {
     b: Str,
 }
 
-derive Eq, Ord, Show for Leaves;
+derive Equal, Ordered, Show for Leaves;
 export struct Leaves {
     xs: [Leaf],
 }
 
-derive Eq, Ord, Show for Tagged;
+derive Equal, Ordered, Show for Tagged;
 /// An enum whose payloads are arrays: the variant decides first, and only
 /// within one variant does the array.
 export enum Tagged {

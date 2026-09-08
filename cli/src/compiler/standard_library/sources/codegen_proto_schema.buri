@@ -77,7 +77,7 @@ from "core/str" import * as str;
 // The tree
 // -----------------------------------------------------------------------------
 
-derive Eq, Show for Scalar;
+derive Equal, Show for Scalar;
 /// A built-in field type.
 export enum Scalar {
     Int32,
@@ -97,7 +97,7 @@ export enum Scalar {
     Float,
 }
 
-derive Eq, Show for TypeRef;
+derive Equal, Show for TypeRef;
 /// What a field's type word named.
 export enum TypeRef {
     Scalar(Scalar),
@@ -106,7 +106,7 @@ export enum TypeRef {
     Named(Str),
 }
 
-derive Eq, Show for Label;
+derive Equal, Show for Label;
 /// Whether a field holds one value or many.
 export enum Label {
     /// A singular field. Whether its presence is tracked is
@@ -122,7 +122,7 @@ export enum Label {
 /// fixtures, and nothing in the mapping.
 export let REQUIRED_EDITION: Str = "2026";
 
-derive Eq, Show for Presence;
+derive Equal, Show for Presence;
 /// `features.field_presence`.
 export enum Presence {
     /// The editions default: the field is on the wire only if it was set, and a
@@ -133,14 +133,14 @@ export enum Presence {
     Implicit,
 }
 
-derive Eq, Show for RepeatedEncoding;
+derive Equal, Show for RepeatedEncoding;
 /// `features.repeated_field_encoding`.
 export enum RepeatedEncoding {
     Packed,
     Expanded,
 }
 
-derive Eq, Show for Features;
+derive Equal, Show for Features;
 /// The subset of `FeatureSet` this reader models, unresolved: `.None` is
 /// "inherited from the enclosing scope, or from the edition".
 ///
@@ -182,7 +182,7 @@ impl Features {
     }
 }
 
-derive Eq, Show for Field;
+derive Equal, Show for Field;
 /// One field of a message. `origin` is the whole declaration, `;` included.
 export struct Field {
     export name: Str,
@@ -195,7 +195,7 @@ export struct Field {
     export features: Features,
 }
 
-derive Eq, Show for OneofCase;
+derive Equal, Show for OneofCase;
 /// One case of a `oneof`.
 ///
 /// **It has no label.** A `repeated` case is not a thing protobuf has — a oneof
@@ -209,7 +209,7 @@ export struct OneofCase {
     export features: Features,
 }
 
-derive Eq, Show for Oneof;
+derive Equal, Show for Oneof;
 /// A `oneof` and its cases, in declaration order.
 export struct Oneof {
     export name: Str,
@@ -217,7 +217,7 @@ export struct Oneof {
     export cases: [OneofCase],
 }
 
-derive Eq, Show for EnumValue;
+derive Equal, Show for EnumValue;
 /// One value of an enum. `origin` is its name.
 export struct EnumValue {
     export name: Str,
@@ -225,7 +225,7 @@ export struct EnumValue {
     export origin: ast.Origin,
 }
 
-derive Eq, Show for Enum;
+derive Equal, Show for Enum;
 /// An enum and its values. `origin` is its name.
 export struct Enum {
     export name: Str,
@@ -233,7 +233,7 @@ export struct Enum {
     export values: [EnumValue],
 }
 
-derive Eq, Show for Message;
+derive Equal, Show for Message;
 /// A message and everything it declares. `origin` is its name.
 export struct Message {
     export name: Str,
@@ -249,14 +249,14 @@ export struct Message {
     export features: Features,
 }
 
-derive Eq, Show for Import;
+derive Equal, Show for Import;
 /// One `import "…";`, with the span of the quoted path.
 export struct Import {
     export path: Str,
     export origin: ast.Origin,
 }
 
-derive Eq, Show for Schema;
+derive Equal, Show for Schema;
 /// Everything one `.proto` file declares.
 export struct Schema {
     export package: Option<Str>,
@@ -268,7 +268,7 @@ export struct Schema {
     export features: Features,
 }
 
-derive Eq, Show for Parsed;
+derive Equal, Show for Parsed;
 /// What [`parse`] answers. A schema always comes back, however broken the text
 /// was, so one bad declaration does not hide what the rest of the file says.
 export struct Parsed {
@@ -319,7 +319,7 @@ struct P {
     depth: Int,
 }
 
-derive Eq for Token;
+derive Equal for Token;
 /// One token. A `.proto` schema needs no more vocabulary than this.
 enum Token {
     Word(Str),

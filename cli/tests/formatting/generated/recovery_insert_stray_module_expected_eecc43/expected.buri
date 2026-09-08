@@ -1,4 +1,4 @@
-derive Eq, Ord for Meters;
+derive Equal, Ordered for Meters;
 export struct Meters(export Float);
 
 /// What this one is for.
@@ -11,4 +11,4 @@ export enum Shape {
     Empty,
 }
 
-derive Eq for SomethingElsewhere;
+derive Equal for SomethingElsewhere;

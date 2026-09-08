@@ -1,5 +1,5 @@
 FAIL //lib/asserts  test/asserts.buri  "eq"
-  assert.eq failed
+  assert.equal failed
     actual:   1
     expected: 2
   --> lib/asserts/test/asserts.buri:15:1
@@ -107,12 +107,12 @@ FAIL //lib/asserts  test/asserts.buri  "none"
     expected: .None
   --> lib/asserts/test/asserts.buri:107:1
 FAIL //lib/asserts  test/asserts.buri  "eq on an Option"
-  assert.eq failed
+  assert.equal failed
     actual:   .Some(1)
     expected: .None
   --> lib/asserts/test/asserts.buri:111:1
 FAIL //lib/asserts  test/asserts.buri  "eq on a Result"
-  assert.eq failed
+  assert.equal failed
     actual:   .Ok(1)
     expected: .Err("no")
   --> lib/asserts/test/asserts.buri:115:1

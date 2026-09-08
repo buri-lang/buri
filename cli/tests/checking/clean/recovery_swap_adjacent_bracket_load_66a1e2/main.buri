@@ -66,9 +66,9 @@ fn doubled(n: Int): Int {
 
 test "load answers a function that computes what the original computes" {
     let f = lazy.load(double);
-    assert.eq(f(21), 42);
-    assert.eq(f(0), 0);
-    assert.eq(f(-3), -6);
+    assert.equal(f(21), 42);
+    assert.equal(f(0), 0);
+    assert.equal(f(-3), -6);
 }
 
 test "a loaded function takes a context like any other" {
@@ -76,19 +76,19 @@ test "a loaded function takes a context like any other" {
         Allocator: alloc(),
     };
     let f = lazy.load(describe);
-    assert.eq(f(ctx, 7), "n is 7");
+    assert.equal(f(ctx, 7), "n is 7");
 }
 
 test "what the loaded function calls comes with it" {
     let f = lazy.load(deep);
-    assert.eq(f(10), 12);
+    assert.equal(f(10), 12);
 }
 
 test "loading the same function twice answers the same behaviour twice" {
     let a = lazy.load(double);
     let b = lazy.load(double);
-    assert.eq(a(4), b(4));
-    assert.eq(a(4), 8);
+    assert.equal(a(4), b(4));
+    assert.equal(a(4), 8);
 }
 
 test "a loaded function is a value, so it can be passed on" {
@@ -96,33 +96,33 @@ test "a loaded function is a value, so it can be passed on" {
         Allocator: alloc(),
     };
     let f = lazy.load(double);
-    assert.eq([1, 2, 3].map(ctx, f), [24 ,, 6]);
+    assert.equal([1, 2, 3].map(ctx, f), [24 ,, 6]);
 }
 
 test "a loaded function may load another" {
     let f = lazy.load(outer);
-    assert.eq(f(5), 16);
+    assert.equal(f(5), 16);
     // And the inner one on its own answers what it always did.
-    assert.eq(lazy.load(inner)(5), 15);
+    assert.equal(lazy.load(inner)(5), 15);
 }
 
 test "two loads that reach one helper both answer through it" {
     let a = lazy.load(left);
     let b = lazy.load(right);
-    assert.eq(a(3), 20);
-    assert.eq(b(3), 200);
+    assert.equal(a(3), 20);
+    assert.equal(b(3), 200);
 }
 
 test "a load written inside a body runs every time that body runs" {
     // The module's own sentence: a `load` at the top of a body fetches the
     // chunk every time that body runs, and answers the same function each time.
-    assert.eq(doubled(1) + doubled(2) + doubled(3), 12);
+    assert.equal(doubled(1) + doubled(2) + doubled(3), 12);
 }
 
 test "loading something the program already calls answers it unchanged" {
     // `double` is called directly above, so there is nothing to move out of the
     // artifact and the split is a no-op. The answer must not depend on that.
-    assert.eq(double(5), 10);
+    assert.equal(double(5), 10);
     let f = lazy.load(double);
-    assert.eq(f(5), 10);
+    assert.equal(f(5), 10);
 }

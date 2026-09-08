@@ -14,8 +14,8 @@ test "a broadcast reaches every socket in the room, in push order" {
     };
     let first = room.open();
     let second = room.open();
-    assert.eq(broadcast(ctx, [first, second], .Text("hello")), 2);
-    assert.eq(room.sent(), [(first, .Text("hello")), (second, .Text("hello"))]);
+    assert.equal(broadcast(ctx, [first, second], .Text("hello")), 2);
+    assert.equal(room.sent(), [(first, .Text("hello")), (second, .Text("hello"))]);
 }
 
 test "a message to a socket the room closed is dropped, and the close is not" {
@@ -29,12 +29,12 @@ test "a message to a socket the room closed is dropped, and the close is not" {
     let _closed = second.close(ctx, .Normal);
     // `isOpen` is the double's own reader and not `effect Sockets`': a program
     // cannot ask, and a test can.
-    assert.eq(room.isOpen(first), true);
-    assert.eq(room.isOpen(second), false);
+    assert.equal(room.isOpen(first), true);
+    assert.equal(room.isOpen(second), false);
     // The room pushes at both and hears about neither — `send` never waits and
     // never reports. Only the open socket keeps what it was handed.
-    assert.eq(broadcast(ctx, [first, second], .Text("after")), 2);
-    assert.eq(room.sent(), [(first, .Text("after"))]);
+    assert.equal(broadcast(ctx, [first, second], .Text("after")), 2);
+    assert.equal(room.sent(), [(first, .Text("after"))]);
 }
 
 test "two doubles are two worlds, and neither writes on the other's socket" {
@@ -46,9 +46,9 @@ test "two doubles are two worlds, and neither writes on the other's socket" {
     };
     let mine = here.open();
     let theirs = there.open();
-    assert.eq(broadcast(ours, [mine, theirs], .Text("ours")), 2);
-    assert.eq(here.sent(), [(mine, .Text("ours"))]);
-    assert.eq(there.sent(), []);
+    assert.equal(broadcast(ours, [mine, theirs], .Text("ours")), 2);
+    assert.equal(here.sent(), [(mine, .Text("ours"))]);
+    assert.equal(there.sent(), []);
 }
 
 test "a handle no double minted is one that has already gone" {
@@ -58,7 +58,7 @@ test "a handle no double minted is one that has already gone" {
         Sockets: room,
     };
     let forged = Socket(-1);
-    assert.eq(room.isOpen(forged), false);
-    assert.eq(broadcast(ctx, [forged], .Text("nobody")), 1);
-    assert.eq(room.sent(), []);
+    assert.equal(room.isOpen(forged), false);
+    assert.equal(broadcast(ctx, [forged], .Text("nobody")), 1);
+    assert.equal(room.sent(), []);
 }

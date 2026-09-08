@@ -1934,7 +1934,7 @@ mod tests {
             test_entry(X86_64, &[String::from("t0")], Marking::None).bytes,
         ] {
             assert_eq!(bytes.first(), Some(&0x55), "the shim does not open with `push %rbp`");
-            // `48 81 ec` and `48 81 c4` are `sub`/`add` on `rsp`; neither may
+            // `48 81 ec` and `48 81 c4` are `subtract`/`add` on `rsp`; neither may
             // appear, because either would put the alignment back where the
             // entry found it.
             for w in bytes.windows(3) {

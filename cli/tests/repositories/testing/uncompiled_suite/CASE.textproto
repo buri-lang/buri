@@ -31,8 +31,8 @@ run {
 # the clause is gone — elided at zero, the way the cached note is.
 edit {
   file: "lib/greeting/test/greeting.buri"
-  replace: "assert.eq(greeting(), 1);"
-  with: "assert.eq(greeting(), \"hello\");"
+  replace: "assert.equal(greeting(), 1);"
+  with: "assert.equal(greeting(), \"hello\");"
 }
 
 run {

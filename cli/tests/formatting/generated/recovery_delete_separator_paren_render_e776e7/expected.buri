@@ -15,7 +15,7 @@ test "the terse report is one line" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(render(ctx oneOff(), false), "\ntotal $4.50");
+    assert.equal(render(ctx oneOff(), false), "\ntotal $4.50");
 }
 
 test "verbose lists every entry" {

@@ -13,7 +13,7 @@ test "a file that is there" {
         Allocator: alloc(),
         FileSystemRead: fs().files([("/notes.txt", "hello")]),
     };
-    assert.eq(readOrEmpty(ctx, path.of(ctx, "/notes.txt")), "hello");
+    assert.equal(readOrEmpty(ctx, path.of(ctx, "/notes.txt")), "hello");
 }
 
 test "a file that is not" {
@@ -21,5 +21,5 @@ test "a file that is not" {
         Allocator: alloc(),
         FileSystemRead: fs(),
     };
-    assert.eq(readOrEmpty(ctx, path.of(ctx, "/missing.txt")), "");
+    assert.equal(readOrEmpty(ctx, path.of(ctx, "/missing.txt")), "");
 }

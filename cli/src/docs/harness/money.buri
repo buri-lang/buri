@@ -1,4 +1,4 @@
-derive Eq, Ord, Show for Cents;
+derive Equal, Ordered, Show for Cents;
 // Money as minor units, for the sections that explain structs, derives, and
 // operator traits. A newtype over `Int` is the example every one of them
 // reaches for.

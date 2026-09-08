@@ -14,7 +14,7 @@ from "core/testing/assert" import * as assert;
 
 test "an empty queue has no elements" {
     let q = queue.empty<Int>();
-    assert.eq(q.len(), 0);
+    assert.equal(q.len(), 0);
     assert.isTrue(q.isEmpty());
 }
 
@@ -23,8 +23,8 @@ test "of builds a queue from a list" {
         Allocator: alloc(),
     };
     let q = queue.of([1, 2, 3]);
-    assert.eq(q.len(), 3);
-    assert.eq(q.toList(ctx), [1, 2, 3]);
+    assert.equal(q.len(), 3);
+    assert.equal(q.toList(ctx), [1, 2, 3]);
 }
 
 // --- push / peek -------------------------------------------------------------
@@ -34,7 +34,7 @@ test "push adds to the back" {
         Allocator: alloc(),
     };
     let q = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
-    assert.eq(q.toList(ctx), [1, 2]);
+    assert.equal(q.toList(ctx), [1, 2]);
 }
 
 test "pushFront adds to the front" {
@@ -42,22 +42,22 @@ test "pushFront adds to the front" {
         Allocator: alloc(),
     };
     let q = queue.empty<Int>().push(ctx, 1).pushFront(ctx, 0);
-    assert.eq(q.toList(ctx), [0, 1]);
+    assert.equal(q.toList(ctx), [0, 1]);
 }
 
 test "peek is the first element and does not remove it" {
     let ctx = context {
     };
     let q = queue.of([7, 8]);
-    assert.eq(assert.some(q.peek()), 7);
-    assert.eq(q.len(), 2);
+    assert.equal(assert.some(q.peek()), 7);
+    assert.equal(q.len(), 2);
 }
 
 test "peekBack is the last element" {
     let ctx = context {
     };
     let q = queue.of([7, 8]);
-    assert.eq(assert.some(q.peekBack()), 8);
+    assert.equal(assert.some(q.peekBack()), 8);
 }
 
 test "peek of an empty queue is None" {
@@ -72,8 +72,8 @@ test "pop takes from the front and returns the rest" {
         Allocator: alloc(),
     };
     let (v, rest) = assert.some(queue.of([1, 2, 3]).pop(ctx));
-    assert.eq(v, 1);
-    assert.eq(rest.toList(ctx), [2, 3]);
+    assert.equal(v, 1);
+    assert.equal(rest.toList(ctx), [2, 3]);
 }
 
 test "popBack takes from the back" {
@@ -81,8 +81,8 @@ test "popBack takes from the back" {
         Allocator: alloc(),
     };
     let (v, rest) = assert.some(queue.of([1, 2, 3]).popBack(ctx));
-    assert.eq(v, 3);
-    assert.eq(rest.toList(ctx), [1, 2]);
+    assert.equal(v, 3);
+    assert.equal(rest.toList(ctx), [1, 2]);
 }
 
 test "pop of an empty queue is None" {
@@ -104,9 +104,9 @@ test "pop reverses the back when the front is spent" {
     let (a, q1) = assert.some(q.pop(ctx));
     let (b, q2) = assert.some(q1.pop(ctx));
     let (c, q3) = assert.some(q2.pop(ctx));
-    assert.eq(a, 1);
-    assert.eq(b, 2);
-    assert.eq(c, 3);
+    assert.equal(a, 1);
+    assert.equal(b, 2);
+    assert.equal(c, 3);
     assert.isTrue(q3.isEmpty());
 }
 
@@ -117,8 +117,8 @@ test "popBack reverses the front when the back is spent" {
     let q = queue.empty<Int>().pushFront(ctx, 1).pushFront(ctx, 2);
     let (a, q1) = assert.some(q.popBack(ctx));
     let (b, q2) = assert.some(q1.popBack(ctx));
-    assert.eq(a, 1);
-    assert.eq(b, 2);
+    assert.equal(a, 1);
+    assert.equal(b, 2);
     assert.isTrue(q2.isEmpty());
 }
 
@@ -133,7 +133,7 @@ test "equals ignores how the elements are split" {
     let a = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
     let b = queue.empty<Int>().pushFront(ctx, 2).pushFront(ctx, 1);
     assert.isTrue(a.equals(ctx, b));
-    assert.eq(a.toList(ctx), b.toList(ctx));
+    assert.equal(a.toList(ctx), b.toList(ctx));
 }
 
 test "equals is false for different contents" {
@@ -159,12 +159,12 @@ test "pushing and popping at both ends keeps the order" {
         Allocator: alloc(),
     };
     let q = queue.empty<Int>().push(ctx, 2).pushFront(ctx, 1).push(ctx, 3);
-    assert.eq(q.toList(ctx), [1, 2, 3]);
+    assert.equal(q.toList(ctx), [1, 2, 3]);
     let (front, rest) = assert.some(q.pop(ctx));
-    assert.eq(front, 1);
+    assert.equal(front, 1);
     let (back, rest2) = assert.some(rest.popBack(ctx));
-    assert.eq(back, 3);
-    assert.eq(rest2.toList(ctx), [2]);
+    assert.equal(back, 3);
+    assert.equal(rest2.toList(ctx), [2]);
 }
 
 test "a queue of one is both ends at once" {
@@ -172,10 +172,10 @@ test "a queue of one is both ends at once" {
         Allocator: alloc(),
     };
     let q = queue.empty<Str>().push(ctx, "only");
-    assert.eq(assert.some(q.peek()), "only");
-    assert.eq(assert.some(q.peekBack()), "only");
+    assert.equal(assert.some(q.peek()), "only");
+    assert.equal(assert.some(q.peekBack()), "only");
     let (v, rest) = assert.some(q.pop(ctx));
-    assert.eq(v, "only");
+    assert.equal(v, "only");
     assert.isTrue(rest.isEmpty());
 }
 
@@ -183,5 +183,5 @@ test "toList of an empty queue is empty" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(queue.empty<Int>().toList(ctx), list.empty<Int>());
+    assert.equal(queue.empty<Int>().toList(ctx), list.empty<Int>());
 }

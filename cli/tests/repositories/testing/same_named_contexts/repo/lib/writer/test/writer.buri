@@ -18,11 +18,11 @@ context Fixture {
 test "a written list holds what was put in it" {
     let ctx = Fixture();
 
-    assert.eq(written(ctx, 1), 1);
+    assert.equal(written(ctx, 1), 1);
 }
 
 test "a second written list holds what was put in it" {
     let ctx = Fixture();
 
-    assert.eq(written(ctx, 2), 1);
+    assert.equal(written(ctx, 2), 1);
 }

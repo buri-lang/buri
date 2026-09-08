@@ -24,27 +24,27 @@
 //! verdict rendered as a `Str`, or the `Option` itself.
 
 from "core/effect" import { Allocator };
-from "core/order" import { Eq };
+from "core/order" import { Equal };
 
-/// Fails unless `a == b`. Requires `Eq`, and nothing else.
+/// Fails unless `a == b`. Requires `Equal`, and nothing else.
 ///
-/// The comparison goes through `Eq`, so a hand-written implementation decides
+/// The comparison goes through `Equal`, so a hand-written implementation decides
 /// what equal means. The runner renders a failure structurally rather than
 /// calling `Show`, so a type is assertable as soon as it is comparable.
-export fn eq<T: Eq>(actual: T, expected: T): () {
-    report(actual == expected, "eq", actual, expected)
+export fn equal<T: Equal>(actual: T, expected: T): () {
+    report(actual == expected, "equal", actual, expected)
 }
 
-export fn notEq<T: Eq>(actual: T, expected: T): () {
+export fn notEq<T: Equal>(actual: T, expected: T): () {
     report(actual != expected, "notEq", actual, expected)
 }
 
-/// `eq` for a type with no `Eq`: you pass the comparison, and a failure still
+/// `equal` for a type with no `Equal`: you pass the comparison, and a failure still
 /// reports both values.
 ///
 /// `Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
-/// `equals(ctx, other)` rather than deriving `Eq` — two of them holding the
-/// same entries need not hold them in the same shape — so `assert.eq` cannot
+/// `equals(ctx, other)` rather than deriving `Equal` — two of them holding the
+/// same entries need not hold them in the same shape — so `assert.equal` cannot
 /// take one, and the test had to fall back to `isTrue(a.equals(ctx, b))`, which
 /// names neither map.
 ///
@@ -91,7 +91,7 @@ export fn isFalse(actual: Bool): () {
 /// Fails unless `needle` is one of `haystack`'s elements. The whole list goes on
 /// the `actual` line, and the missing element goes on the `expected` line as a
 /// one-element list.
-export fn contains<T: Eq>(haystack: [T], needle: T): () {
+export fn contains<T: Equal>(haystack: [T], needle: T): () {
     report(haystack.contains(needle), "contains", haystack, [needle])
 }
 
@@ -167,7 +167,7 @@ export fn len<T>(xs: [T], expected: Int): () {
 /// ```
 ///
 /// Sorting costs O(n log n) and two lists.
-export fn unordered<T: Ord, C: Allocator>(ctx: C, actual: [T], expected: [T]): () {
+export fn unordered<T: Ordered, C: Allocator>(ctx: C, actual: [T], expected: [T]): () {
     let sortedActual = actual.sort(ctx);
     let sortedExpected = expected.sort(ctx);
     report(
@@ -180,22 +180,22 @@ export fn unordered<T: Ord, C: Allocator>(ctx: C, actual: [T], expected: [T]): (
 
 /// Fails unless `actual > bound`. The report names the bound on its
 /// `expected` line: `gt(3, 5)` reads `actual: 3`, `expected: 5`.
-export fn gt<T: Ord>(actual: T, bound: T): () {
+export fn gt<T: Ordered>(actual: T, bound: T): () {
     report(actual > bound, "gt", actual, bound)
 }
 
 /// Fails unless `actual >= bound`.
-export fn ge<T: Ord>(actual: T, bound: T): () {
+export fn ge<T: Ordered>(actual: T, bound: T): () {
     report(actual >= bound, "ge", actual, bound)
 }
 
 /// Fails unless `actual < bound`.
-export fn lt<T: Ord>(actual: T, bound: T): () {
+export fn lt<T: Ordered>(actual: T, bound: T): () {
     report(actual < bound, "lt", actual, bound)
 }
 
 /// Fails unless `actual <= bound`.
-export fn le<T: Ord>(actual: T, bound: T): () {
+export fn le<T: Ordered>(actual: T, bound: T): () {
     report(actual <= bound, "le", actual, bound)
 }
 

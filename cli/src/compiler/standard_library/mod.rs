@@ -63,7 +63,7 @@ pub struct StdModule {
     pub platform: bool,
     /// Names this module puts into every module's scope without an import.
     /// `Option`, `Result` and `Order` are the prelude of SPEC 5.7; the operator
-    /// and comparison traits are here because `derive Eq for Point;` appears in
+    /// and comparison traits are here because `derive Equal for Point;` appears in
     /// programs that import nothing from `core/order`, and because `a + b`
     /// means `Add.add` whether or not anyone wrote the name down.
     ///
@@ -92,18 +92,18 @@ pub const MODULES: &[StdModule] = &[
         ..m("core/result", include_str!("sources/result.buri"))
     },
     StdModule {
-        prelude: &["Order", "Eq", "Ord", "Show", "Hash"],
+        prelude: &["Order", "Equal", "Ordered", "Show", "Hash"],
         eager: true,
         ..m("core/order", include_str!("sources/order.buri"))
     },
     StdModule {
         prelude: &[
             "Add",
-            "Sub",
-            "Mul",
-            "Div",
-            "Rem",
-            "Neg",
+            "Subtract",
+            "Multiply",
+            "Divide",
+            "Remainder",
+            "Negate",
             "Bounded",
             "Checked",
             "Wrapping",

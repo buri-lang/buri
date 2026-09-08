@@ -161,7 +161,7 @@ export struct Actor<C, S, M, R> {
     export onStop: Option<fn(C, S) => ()>,
 }
 
-derive Eq, Show for Stepped;
+derive Equal, Show for Stepped;
 /// What one step produced: the state to carry forward, and the answer to the
 /// message.
 export struct Stepped<S, R> {
@@ -199,7 +199,7 @@ export struct Address<C, S, M, R> {
 /// at.
 struct Reply<R>(Int);
 
-derive Eq, Show for Stopped;
+derive Equal, Show for Stopped;
 /// The one way an actor operation fails: there is no actor any more.
 export enum Stopped {
     /// The mailbox is closed. `stop` did it, and nothing reopens it.

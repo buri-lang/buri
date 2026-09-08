@@ -48,11 +48,11 @@ from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
 from "core/effect" import { Allocator, Clock, Entropy };
-from "core/order" import { Eq, Hash, Ord, Show };
+from "core/order" import { Equal, Hash, Ordered, Show };
 from "core/str" import * as str;
 from "core/time" import * as time;
 
-derive Eq, Ord, Hash for Uuid;
+derive Equal, Ordered, Hash for Uuid;
 /// Sixteen octets, in the order they are written down.
 ///
 /// The field is exported so a wire format can take the octets straight, and

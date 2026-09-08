@@ -97,7 +97,7 @@ Prop.read(self, ctx: Scope): T
 signal<C: Ui, T>(ctx: C, initial: T): Signal<T>          // ui/signal
 watch<C: Ui>(ctx: C, run: fn(Scope) => ()): ()           // ui/signal
 memo<C: Ui, T>(ctx: C, compute: fn(Scope) => T): Prop<T> // ui/prop
-each<C, T: Eq>(items: Prop<[T]>, key: fn(T) => Str,      // ui/node
+each<C, T: Equal>(items: Prop<[T]>, key: fn(T) => Str,      // ui/node
                row: fn(C, T, Int) => Node<C>): Node<C>
 mount<C: Ui>(ctx: C, root: Node<C>, themes: [Theme]): Result<(), Str>
 ```
@@ -225,7 +225,7 @@ export enum Screen { Small, Medium, Large, ExtraLarge }
                           // 40 / 48 / 64 / 80 rem, which follow the reader's
                           // text size rather than the device's pixels
 
-export enum Length { Px(Int), Rem(Float), Percent(Float), Auto, Full }
+export enum Length { Px(Int), Remainder(Float), Percent(Float), Auto, Full }
 export enum Color  { Rgb(Int, Int, Int), Rgba(Int, Int, Int, Float),
                      Token(TokenReference), Transparent, Inherit }
 ```
@@ -358,7 +358,7 @@ already had. That is the whole reason dark mode is not a second stylesheet.
 4. **Tree and style construction need no `Allocator`.** Struct, enum, array and
    closure literals are fixed-size construction (§10.5).
 5. **A captured generic must be bound where the type is actually stored.**
-   `Prop<T>` holds its `T`, so capturing one needs `T: Eq` or another ordinary
+   `Prop<T>` holds its `T`, so capturing one needs `T: Equal` or another ordinary
    trait — an unbounded `T` answers `true` to `may_carry_effect`. `Signal<T>` is
    phantom in `T` and needs nothing, which is what makes an event handler that
    closes over a signal expressible without a bound the caller has to invent.

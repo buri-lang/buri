@@ -8,13 +8,13 @@ from "core/io" import * as io;
 from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, ToJson };
 
-derive Eq, ToJson, FromJson for Point;
+derive Equal, ToJson, FromJson for Point;
 struct Point {
     x: Int,
     y: Int,
 }
 
-derive Eq, ToJson, FromJson for Shape;
+derive Equal, ToJson, FromJson for Shape;
 enum Shape {
     Empty,
     Rect { width: Int, height: Int },

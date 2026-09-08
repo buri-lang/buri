@@ -1,7 +1,7 @@
 error: expected an expression, found `,` [unexpected-token]
   --> main.buri:33:51
    |
-33 |     assert.eq(out.modules.map(ctx, fn(m) => m.0)[ ,"address.proto", "point.proto"]);
+33 |     assert.equal(out.modules.map(ctx, fn(m) => m.0)[ ,"address.proto", "point.proto"]);
    |                                                   ^
    |
    = expected: an expression

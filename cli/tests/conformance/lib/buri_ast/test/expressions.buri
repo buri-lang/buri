@@ -24,7 +24,7 @@ test "a sum under a product keeps its parentheses" {
         Allocator: alloc(),
     };
     let e = bin(.Mul, bin(.Add, id("a"), id("b")), id("c"));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (a + b) * c;\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = (a + b) * c;\n");
 }
 
 test "a product under a sum needs none" {
@@ -32,7 +32,7 @@ test "a product under a sum needs none" {
         Allocator: alloc(),
     };
     let e = bin(.Add, id("a"), bin(.Mul, id("b"), id("c")));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = a + b * c;\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = a + b * c;\n");
 }
 
 test "the ladder associates left, so only the right operand is parenthesised" {
@@ -41,8 +41,8 @@ test "the ladder associates left, so only the right operand is parenthesised" {
     };
     let left = bin(.Sub, bin(.Sub, id("a"), id("b")), id("c"));
     let right = bin(.Sub, id("a"), bin(.Sub, id("b"), id("c")));
-    assert.eq(ast.print(ctx, letOf(left)).text, "let X: Int = a - b - c;\n");
-    assert.eq(ast.print(ctx, letOf(right)).text, "let X: Int = a - (b - c);\n");
+    assert.equal(ast.print(ctx, letOf(left)).text, "let X: Int = a - b - c;\n");
+    assert.equal(ast.print(ctx, letOf(right)).text, "let X: Int = a - (b - c);\n");
 }
 
 test "a comparison does not associate, so both operands are parenthesised" {
@@ -50,7 +50,7 @@ test "a comparison does not associate, so both operands are parenthesised" {
         Allocator: alloc(),
     };
     let e = bin(.Ne, bin(.Lt, id("a"), id("b")), bin(.Lt, id("c"), id("d")));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (a < b) != (c < d);\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = (a < b) != (c < d);\n");
 }
 
 test "a unary operand binds tighter than any operator" {
@@ -58,7 +58,7 @@ test "a unary operand binds tighter than any operator" {
         Allocator: alloc(),
     };
     let e = ex(.Unary(.Neg, [bin(.Add, id("a"), id("b"))]));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = -(a + b);\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = -(a + b);\n");
 }
 
 test "a lambda cannot head a chain without parentheses" {
@@ -66,7 +66,7 @@ test "a lambda cannot head a chain without parentheses" {
         Allocator: alloc(),
     };
     let f = ex(.Lambda([ast.LambdaParam { name: n("x"), ty: [] }], [], [id("x")]));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(call(f, [ex(.Int(1))]))).text,
         "let X: Int = (fn(x) => x)(1);\n",
     );
@@ -79,7 +79,7 @@ test "a block-like expression heading a chain takes parentheses" {
     let branch = ex(
         .If([id("a")], [block([], [id("b")])], [ex(.Block(block([], [id("c")])))]),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(call(field(branch, "len"), []))).text,
         "let X: Int = (if (a) { b } else { c }).len();\n",
     );
@@ -90,7 +90,7 @@ test "a nested tuple index takes parentheses" {
         Allocator: alloc(),
     };
     let e = ex(.TupleIndex([ex(.TupleIndex([id("t")], 0))], 1));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (t.0).1;\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = (t.0).1;\n");
 }
 
 test "the postfix operators print in order" {
@@ -99,9 +99,9 @@ test "the postfix operators print in order" {
     };
     let indexed = ex(.Index([id("xs")], [ex(.Int(0))]));
     let e = ex(.Try([indexed]));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = xs[0]?;\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = xs[0]?;\n");
     let generic = ex(.Generic([id("parse")], [ty("Int")]));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(call(generic, [id("text")]))).text,
         "let X: Int = parse<Int>(text);\n",
     );
@@ -126,15 +126,15 @@ test "a string literal comes back spelled the way it was written" {
         Allocator: alloc(),
     };
     let e = ex(.Str("a\"b\\c\nd\te"));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = \"a\\\"b\\\\c\\nd\\te\";\n");
-    assert.eq(strLine(ctx, "a\r\nb"), "let X: Int = \"a\\r\\nb\";\n");
-    assert.eq(strLine(ctx, "a\0b"), "let X: Int = \"a\\0b\";\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = \"a\\\"b\\\\c\\nd\\te\";\n");
+    assert.equal(strLine(ctx, "a\r\nb"), "let X: Int = \"a\\r\\nb\";\n");
+    assert.equal(strLine(ctx, "a\0b"), "let X: Int = \"a\\0b\";\n");
     // The controls with no name of their own, and `DEL` at the far end of them.
-    assert.eq(strLine(ctx, "a\u{1}b"), "let X: Int = \"a\\u{1}b\";\n");
-    assert.eq(strLine(ctx, "a\u{1b}b"), "let X: Int = \"a\\u{1b}b\";\n");
-    assert.eq(strLine(ctx, "a\u{7f}b"), "let X: Int = \"a\\u{7f}b\";\n");
+    assert.equal(strLine(ctx, "a\u{1}b"), "let X: Int = \"a\\u{1}b\";\n");
+    assert.equal(strLine(ctx, "a\u{1b}b"), "let X: Int = \"a\\u{1b}b\";\n");
+    assert.equal(strLine(ctx, "a\u{7f}b"), "let X: Int = \"a\\u{7f}b\";\n");
     // `${` is escaped: on the way back in the pair opens a hole.
-    assert.eq(strLine(ctx, "a\${b"), "let X: Int = \"a\\\${b\";\n");
+    assert.equal(strLine(ctx, "a\${b"), "let X: Int = \"a\\\${b\";\n");
 }
 
 test "a template escapes the dollar its own text carries" {
@@ -145,52 +145,52 @@ test "a template escapes the dollar its own text carries" {
     let want = "let X: Int = \"cost \\$"
         .concat(ctx, hole(ctx, "count"))
         .concat(ctx, " each\";\n");
-    assert.eq(ast.print(ctx, letOf(e)).text, want);
+    assert.equal(ast.print(ctx, letOf(e)).text, want);
     // A control in a template's text is escaped the way a string's is.
     let lines = ex(.Template([.Text("a\r\n"), .Hole(id("count"))]));
     let wanted = "let X: Int = \"a\\r\\n"
         .concat(ctx, hole(ctx, "count"))
         .concat(ctx, "\";\n");
-    assert.eq(ast.print(ctx, letOf(lines)).text, wanted);
+    assert.equal(ast.print(ctx, letOf(lines)).text, wanted);
 }
 
 test "a character literal escapes what it has to" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(charLine(ctx, '\n'), "let X: Int = '\\n';\n");
-    assert.eq(charLine(ctx, '\''), "let X: Int = '\\'';\n");
-    assert.eq(charLine(ctx, 'a'), "let X: Int = 'a';\n");
-    assert.eq(charLine(ctx, '\r'), "let X: Int = '\\r';\n");
-    assert.eq(charLine(ctx, '\t'), "let X: Int = '\\t';\n");
-    assert.eq(charLine(ctx, '\0'), "let X: Int = '\\0';\n");
-    assert.eq(charLine(ctx, '\\'), "let X: Int = '\\\\';\n");
-    assert.eq(charLine(ctx, '\u{1}'), "let X: Int = '\\u{1}';\n");
-    assert.eq(charLine(ctx, '\u{7f}'), "let X: Int = '\\u{7f}';\n");
+    assert.equal(charLine(ctx, '\n'), "let X: Int = '\\n';\n");
+    assert.equal(charLine(ctx, '\''), "let X: Int = '\\'';\n");
+    assert.equal(charLine(ctx, 'a'), "let X: Int = 'a';\n");
+    assert.equal(charLine(ctx, '\r'), "let X: Int = '\\r';\n");
+    assert.equal(charLine(ctx, '\t'), "let X: Int = '\\t';\n");
+    assert.equal(charLine(ctx, '\0'), "let X: Int = '\\0';\n");
+    assert.equal(charLine(ctx, '\\'), "let X: Int = '\\\\';\n");
+    assert.equal(charLine(ctx, '\u{1}'), "let X: Int = '\\u{1}';\n");
+    assert.equal(charLine(ctx, '\u{7f}'), "let X: Int = '\\u{7f}';\n");
 }
 
 test "a float always carries a point" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(ast.print(ctx, letOf(ex(.Float(2.0)))).text, "let X: Int = 2.0;\n");
-    assert.eq(ast.print(ctx, letOf(ex(.Float(2.5)))).text, "let X: Int = 2.5;\n");
+    assert.equal(ast.print(ctx, letOf(ex(.Float(2.0)))).text, "let X: Int = 2.0;\n");
+    assert.equal(ast.print(ctx, letOf(ex(.Float(2.5)))).text, "let X: Int = 2.5;\n");
 }
 
 test "the small expressions print" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(ast.print(ctx, letOf(ex(.Unit))).text, "let X: Int = ();\n");
-    assert.eq(ast.print(ctx, letOf(ex(.Bool(true)))).text, "let X: Int = true;\n");
-    assert.eq(ast.print(ctx, letOf(ex(.SelfValue))).text, "let X: Int = self;\n");
-    assert.eq(ast.print(ctx, letOf(ex(.Ctx))).text, "let X: Int = ctx;\n");
-    assert.eq(
+    assert.equal(ast.print(ctx, letOf(ex(.Unit))).text, "let X: Int = ();\n");
+    assert.equal(ast.print(ctx, letOf(ex(.Bool(true)))).text, "let X: Int = true;\n");
+    assert.equal(ast.print(ctx, letOf(ex(.SelfValue))).text, "let X: Int = self;\n");
+    assert.equal(ast.print(ctx, letOf(ex(.Ctx))).text, "let X: Int = ctx;\n");
+    assert.equal(
         ast.print(ctx, letOf(ex(.DotVariant(n("Ok"))))).text,
         "let X: Int = .Ok;\n",
     );
-    assert.eq(ast.print(ctx, letOf(ex(.Array([])))).text, "let X: Int = [];\n");
-    assert.eq(
+    assert.equal(ast.print(ctx, letOf(ex(.Array([])))).text, "let X: Int = [];\n");
+    assert.equal(
         ast.print(ctx, letOf(ex(.Tuple([id("a"), id("b")])))).text,
         "let X: Int = (a, b);\n",
     );
@@ -207,7 +207,7 @@ test "a trailing lambda hugs the call that carries it" {
     );
     let f = ex(.Lambda([ast.LambdaParam { name: n("s"), ty: [] }], [], [body]));
     let e = call(field(id("xs"), "map"), [ex(.Ctx), f]);
-    assert.eq(
+    assert.equal(
         ast.print(ctx, fnOf([], [e])).text,
         "export fn go(): Int {\n    xs.map(ctx, fn(s) => {\n        let t = s;\n".concat(
             ctx,
@@ -224,7 +224,7 @@ test "a block-like trailing argument hugs too" {
         ast.Arm { pattern: pat(.Path(n("A"), true, [])), guard: [], body: ex(.Int(1)) },
     ];
     let e = call(id("f"), [ex(.Match([id("x")], arms))]);
-    assert.eq(
+    assert.equal(
         ast.print(ctx, fnOf([], [e])).text,
         "export fn go(): Int {\n    f(match (x) {\n        .A => 1,\n    })\n}\n",
     );
@@ -242,7 +242,7 @@ test "a match arm with a guard, and a body that has to break" {
     let arms = [
         ast.Arm { pattern: pat(.Bind(n("v"), [])), guard: [id("ok")], body: inner },
     ];
-    assert.eq(
+    assert.equal(
         ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
         "export fn go(): Int {\n    match (x) {\n        v if ok => {\n"
             .concat(
@@ -261,7 +261,7 @@ test "a context expression is always on lines of its own" {
         ast.Binding { effectTy: ty("Allocator"), value: call(id("alloc"), []) },
     ];
     let stmt = st(.LetCtx(ex(.Context([], bindings))));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, fnOf([stmt], [id("n")])).text,
         "export fn go(): Int {\n    let ctx = context {\n        Allocator: alloc(),\n".concat(
             ctx,
@@ -302,7 +302,7 @@ test "the pattern shapes print on one line" {
             body: ex(.Int(4)),
         },
     ];
-    assert.eq(
+    assert.equal(
         ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
         "export fn go(): Int {\n    match (x) {\n        User { id, .. } => 1,\n"
             .concat(ctx, "        [1, ..tail] => 2,\n        \"a\" | true => 3,\n")
@@ -320,7 +320,7 @@ test "a float and a character pattern print the literal's own spelling" {
         ast.Arm { pattern: pat(.LitChar('q')), guard: [], body: ex(.Int(3)) },
         ast.Arm { pattern: pat(.LitChar('\n')), guard: [], body: ex(.Int(4)) },
     ];
-    assert.eq(
+    assert.equal(
         ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
         "export fn go(): Int {\n    match (x) {\n        1.5 => 1,\n"
             .concat(ctx, "        2.0 => 2,\n        'q' => 3,\n        '\\n' => 4,\n")
@@ -344,7 +344,7 @@ test "an array pattern closed by a bare rest prints the two dots alone" {
             body: ex(.Int(2)),
         },
     ];
-    assert.eq(
+    assert.equal(
         ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
         "export fn go(): Int {\n    match (x) {\n        [1, ..] => 1,\n".concat(
             ctx,
@@ -363,7 +363,7 @@ test "a tree that leans right needs no parentheses on any rung" {
     let sum = bin(.Add, id("g"), product);
     let bits = bin(.BitOr, id("d"), bin(.BitXor, id("e"), bin(.BitAnd, id("f"), sum)));
     let e = bin(.Or, id("a"), bin(.And, id("b"), bin(.Eq, id("c"), bits)));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(e)).text,
         "let X: Int = a || b && c == d | e ^ f & g + h * i / j % k;\n",
     );
@@ -373,41 +373,41 @@ test "a lower rung under a higher one is parenthesised on every rung" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(bin(.And, bin(.Or, id("a"), id("b")), id("c")))).text,
         "let X: Int = (a || b) && c;\n",
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(bin(.Eq, bin(.And, id("a"), id("b")), id("c")))).text,
         "let X: Int = (a && b) == c;\n",
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(bin(.BitOr, bin(.Eq, id("a"), id("b")), id("c")))).text,
         "let X: Int = (a == b) | c;\n",
     );
-    assert.eq(
+    assert.equal(
         ast
             .print(ctx, letOf(bin(.BitXor, bin(.BitOr, id("a"), id("b")), id("c"))))
             .text,
         "let X: Int = (a | b) ^ c;\n",
     );
-    assert.eq(
+    assert.equal(
         ast
             .print(ctx, letOf(bin(.BitAnd, bin(.BitXor, id("a"), id("b")), id("c"))))
             .text,
         "let X: Int = (a ^ b) & c;\n",
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(bin(.Add, bin(.BitAnd, id("a"), id("b")), id("c")))).text,
         "let X: Int = (a & b) + c;\n",
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(bin(.Div, bin(.Add, id("a"), id("b")), id("c")))).text,
         "let X: Int = (a + b) / c;\n",
     );
     // The right operand of a rung it shares is the other half: `%` and `/` are
     // one rung, and the ladder associates left.
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(bin(.Rem, id("a"), bin(.Div, id("b"), id("c"))))).text,
         "let X: Int = a % (b / c);\n",
     );
@@ -417,14 +417,14 @@ test "the unary operators print in front of their operand" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(ex(.Unary(.Not, [id("ok")])))).text,
         "let X: Int = !ok;\n",
     );
     // A unary under a unary takes parentheses: an operand binds tighter than a
     // prefix operator can reach.
     let flipped = ex(.Unary(.BitNot, [ex(.Unary(.Neg, [id("n")]))]));
-    assert.eq(ast.print(ctx, letOf(flipped)).text, "let X: Int = ~(-n);\n");
+    assert.equal(ast.print(ctx, letOf(flipped)).text, "let X: Int = ~(-n);\n");
 }
 
 // --- what an `else` may hold ----------------------------------------------------
@@ -436,7 +436,7 @@ test "an else that is neither a block nor an if is wrapped in braces" {
     // `If`'s third position is an expression, and `else c` is not Buri. A tree
     // holds no parse error, so the printer may not write one.
     let e = ex(.If([id("a")], [block([], [id("b")])], [id("c")]));
-    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = if (a) { b } else { c };\n");
+    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = if (a) { b } else { c };\n");
 }
 
 test "an else that is an if is the chain, unwrapped" {
@@ -446,7 +446,7 @@ test "an else that is an if is the chain, unwrapped" {
     let last = ex(.Block(block([], [ex(.Int(3))])));
     let inner = ex(.If([id("b")], [block([], [ex(.Int(2))])], [last]));
     let e = ex(.If([id("a")], [block([], [ex(.Int(1))])], [inner]));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(e)).text,
         "let X: Int = if (a) { 1 } else if (b) { 2 } else { 3 };\n",
     );
@@ -458,12 +458,12 @@ test "a wide integer prints the digits it was given" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, letOf(ex(.WideInt("18446744073709551615")))).text,
         "let X: Int = 18446744073709551615;\n",
     );
-    assert.eq(ast.print(ctx, letOf(ex(.WideInt("0xff")))).text, "let X: Int = 0xff;\n");
-    assert.eq(
+    assert.equal(ast.print(ctx, letOf(ex(.WideInt("0xff")))).text, "let X: Int = 0xff;\n");
+    assert.equal(
         ast.print(ctx, letOf(ex(.WideInt("1_000")))).text,
         "let X: Int = 1_000;\n",
     );

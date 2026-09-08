@@ -362,10 +362,10 @@ test "a charge inside a scope reaches the scope and not the wrapped allocator" {
 
     // The scope answered the same `Region` an unscoped allocator would have:
     // `allocate(n)` is `n` under every implementation of the model.
-    assert.eq(inside, 164);
+    assert.equal(inside, 164);
 
     // And the wrapped allocator saw only the one charge that was not scoped.
-    assert.eq(gp.stats(), Stats { allocations: 1, bytes: 10 });
+    assert.equal(gp.stats(), Stats { allocations: 1, bytes: 10 });
 }
 
 test "a scope's own totals are the charges it took" {
@@ -377,7 +377,7 @@ test "a scope's own totals are the charges it took" {
         let _ = charge(c, 0);
         c.stats()
     });
-    assert.eq(inside, Stats { allocations: 2, bytes: 64 });
+    assert.equal(inside, Stats { allocations: 2, bytes: 64 });
 }
 
 test "two scopes over one context count separately" {
@@ -393,9 +393,9 @@ test "two scopes over one context count separately" {
         let _ = charge(c, 40);
         c.stats().bytes
     });
-    assert.eq(first, 8);
-    assert.eq(second, 40);
-    assert.eq(gp.stats(), Stats { allocations: 0, bytes: 0 });
+    assert.equal(first, 8);
+    assert.equal(second, 40);
+    assert.equal(gp.stats(), Stats { allocations: 0, bytes: 0 });
 }
 
 test "a scope inside a scope is a scope of its own" {
@@ -413,8 +413,8 @@ test "a scope inside a scope is a scope of its own" {
     });
     // The inner scope's charge is the inner scope's: the outer one kept its own
     // five bytes and never saw the nine hundred.
-    assert.eq(both, (5, 900));
-    assert.eq(gp.stats().allocations, 0);
+    assert.equal(both, (5, 900));
+    assert.equal(gp.stats().allocations, 0);
 }
 
 test "a scope that outlives its body charges nothing" {
@@ -427,8 +427,8 @@ test "a scope that outlives its body charges nothing" {
     };
     let escaped = alloc.scoped(ctx, fn(c) => c);
     let after = charge(escaped, 512);
-    assert.eq(after, 512);
-    assert.eq(escaped.stats(), Stats { allocations: 0, bytes: 0 });
+    assert.equal(after, 512);
+    assert.equal(escaped.stats(), Stats { allocations: 0, bytes: 0 });
 }
 
 // -----------------------------------------------------------------------------
@@ -442,7 +442,7 @@ test "a scope forwards standard output" {
         Stdout: out,
     };
     let _ = alloc.scoped(ctx, fn(c) => printed(c));
-    assert.eq(out.captured(), "ab\nc");
+    assert.equal(out.captured(), "ab\nc");
 }
 
 test "a scope forwards standard error" {
@@ -452,7 +452,7 @@ test "a scope forwards standard error" {
         Stderr: err,
     };
     let _ = alloc.scoped(ctx, fn(c) => warned(c));
-    assert.eq(err.captured(), "xy\n");
+    assert.equal(err.captured(), "xy\n");
 }
 
 test "a scope forwards standard input" {
@@ -460,7 +460,7 @@ test "a scope forwards standard input" {
         Allocator: alloc.generalPurpose(),
         Stdin: testing.stdin().lines(["one", "two"]),
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => firstLine(c)), "one");
+    assert.equal(alloc.scoped(ctx, fn(c) => firstLine(c)), "one");
 }
 
 test "a scope forwards the filesystem" {
@@ -468,8 +468,8 @@ test "a scope forwards the filesystem" {
         Allocator: alloc.generalPurpose(),
         FileSystemRead: testing.fs().files([("a", "A")]),
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => readBack(c, "a")), "A");
-    assert.eq(alloc.scoped(ctx, fn(c) => readBack(c, "nope")), "missing");
+    assert.equal(alloc.scoped(ctx, fn(c) => readBack(c, "a")), "A");
+    assert.equal(alloc.scoped(ctx, fn(c) => readBack(c, "nope")), "missing");
 }
 
 test "a scope forwards every method of the filesystem" {
@@ -490,7 +490,7 @@ test "a scope forwards every method of the filesystem" {
         FileSystemRead: wrappedDisk,
         FileSystemWrite: wrappedDisk,
     };
-    assert.eq(
+    assert.equal(
         alloc.scoped(wrapped, fn(c) => touchedEveryFile(c)),
         touchedEveryFile(bare),
     );
@@ -506,7 +506,7 @@ test "a scope forwards the network" {
         Allocator: alloc.generalPurpose(),
         Network: teapot,
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => status(c)), 418);
+    assert.equal(alloc.scoped(ctx, fn(c) => status(c)), 418);
 }
 
 test "a scope forwards the clock" {
@@ -514,7 +514,7 @@ test "a scope forwards the clock" {
         Allocator: alloc.generalPurpose(),
         Clock: testing.clock().at(1234),
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => ticked(c)), 1234);
+    assert.equal(alloc.scoped(ctx, fn(c) => ticked(c)), 1234);
 }
 
 test "a scope forwards randomness" {
@@ -528,7 +528,7 @@ test "a scope forwards randomness" {
         Allocator: alloc.generalPurpose(),
         Random: testing.rand().seed(7),
     };
-    assert.eq(alloc.scoped(wrapped, fn(c) => rolled(c)), rolled(bare));
+    assert.equal(alloc.scoped(wrapped, fn(c) => rolled(c)), rolled(bare));
 }
 
 test "a scope forwards the environment" {
@@ -536,9 +536,9 @@ test "a scope forwards the environment" {
         Allocator: alloc.generalPurpose(),
         Environment: testing.env().variables([("HOME", "/h")]).withArguments(["first", "second"]),
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => variable(c, "HOME")), "/h");
-    assert.eq(alloc.scoped(ctx, fn(c) => variable(c, "NOPE")), "unset");
-    assert.eq(alloc.scoped(ctx, fn(c) => firstArgument(c)), "first");
+    assert.equal(alloc.scoped(ctx, fn(c) => variable(c, "HOME")), "/h");
+    assert.equal(alloc.scoped(ctx, fn(c) => variable(c, "NOPE")), "unset");
+    assert.equal(alloc.scoped(ctx, fn(c) => firstArgument(c)), "first");
 }
 
 test "a scope forwards the process" {
@@ -549,7 +549,7 @@ test "a scope forwards the process" {
         Allocator: alloc.generalPurpose(),
         Process: testing.proc(),
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => exited(c)), 1);
+    assert.equal(alloc.scoped(ctx, fn(c) => exited(c)), 1);
 }
 
 test "a scope forwards tasks" {
@@ -560,7 +560,7 @@ test "a scope forwards tasks" {
         Allocator: alloc.generalPurpose(),
         Tasks: testing.tasks(),
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => indexed(c, [7, 9])), 116);
+    assert.equal(alloc.scoped(ctx, fn(c) => indexed(c, [7, 9])), 116);
 }
 
 test "a scope forwards sockets" {
@@ -568,7 +568,7 @@ test "a scope forwards sockets" {
         Allocator: alloc.generalPurpose(),
         Sockets: Quiet { },
     };
-    assert.eq(alloc.scoped(ctx, fn(c) => pushed(c)), 1);
+    assert.equal(alloc.scoped(ctx, fn(c) => pushed(c)), 1);
 }
 
 // `Listen` is five ordinary forwards, and it is worth saying why that sentence
@@ -614,8 +614,8 @@ test "a scope forwards listening onto a handler the loop calls" {
         Tasks: testing.tasks(),
     };
     assert.isTrue(alloc.scoped(ctx, fn(c) => servedUsing(c)));
-    assert.eq(out.captured(), "handled 127.0.0.1\n");
-    assert.eq(gp.stats(), Stats { allocations: 0, bytes: 0 });
+    assert.equal(out.captured(), "handled 127.0.0.1\n");
+    assert.equal(gp.stats(), Stats { allocations: 0, bytes: 0 });
 }
 
 test "a server answers the handler it is given" {
@@ -691,10 +691,10 @@ test "a request handler wrapped in a scope is an ordinary call" {
         timeoutMillis: 0,
     });
 
-    assert.eq(found.status, 200);
-    assert.eq(absent.status, 404);
+    assert.equal(found.status, 200);
+    assert.equal(absent.status, 404);
     // The handler printed through the scope, on the caller's own stdout.
-    assert.eq(out.captured(), "serving\nserving\n");
+    assert.equal(out.captured(), "serving\nserving\n");
     // And nothing it charged reached the caller's allocator.
-    assert.eq(gp.stats().allocations, 0);
+    assert.equal(gp.stats().allocations, 0);
 }

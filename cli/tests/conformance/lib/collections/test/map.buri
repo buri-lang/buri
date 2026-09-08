@@ -10,7 +10,7 @@ from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
 from "core/map" import { Map };
-from "core/order" import { Eq, Hash };
+from "core/order" import { Equal, Hash };
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
 
@@ -20,7 +20,7 @@ test "an empty map holds nothing" {
     let ctx = context {
     };
     let m = map.empty<Str, Int>();
-    assert.eq(m.len(), 0);
+    assert.equal(m.len(), 0);
     assert.isTrue(m.isEmpty());
     assert.isTrue(m.get("nothing").isNone());
     assert.isFalse(m.has("nothing"));
@@ -33,9 +33,9 @@ test "insert then get" {
         Allocator: alloc(),
     };
     let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
-    assert.eq(assert.some(m.get("a")), 1);
-    assert.eq(assert.some(m.get("b")), 2);
-    assert.eq(m.len(), 2);
+    assert.equal(assert.some(m.get("a")), 1);
+    assert.equal(assert.some(m.get("b")), 2);
+    assert.equal(m.len(), 2);
     assert.isTrue(m.get("c").isNone());
 }
 
@@ -44,8 +44,8 @@ test "inserting the same key replaces the value and does not change the size" {
         Allocator: alloc(),
     };
     let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "a", 99);
-    assert.eq(assert.some(m.get("a")), 99);
-    assert.eq(m.len(), 1);
+    assert.equal(assert.some(m.get("a")), 99);
+    assert.equal(m.len(), 1);
 }
 
 test "a map is a value: inserting produces a new one" {
@@ -54,8 +54,8 @@ test "a map is a value: inserting produces a new one" {
     };
     let before = map.empty<Str, Int>().insert(ctx, "a", 1);
     let after = before.insert(ctx, "b", 2);
-    assert.eq(before.len(), 1);
-    assert.eq(after.len(), 2);
+    assert.equal(before.len(), 1);
+    assert.equal(after.len(), 2);
     assert.isTrue(before.get("b").isNone());
 }
 
@@ -67,8 +67,8 @@ test "remove takes a key out" {
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
     assert.isTrue(m.get("a").isNone());
-    assert.eq(assert.some(m.get("b")), 2);
-    assert.eq(m.len(), 1);
+    assert.equal(assert.some(m.get("b")), 2);
+    assert.equal(m.len(), 1);
 }
 
 test "removing a key that is not there changes nothing" {
@@ -76,7 +76,7 @@ test "removing a key that is not there changes nothing" {
         Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]);
-    assert.eq(m.remove(ctx, "zzz").len(), 1);
+    assert.equal(m.remove(ctx, "zzz").len(), 1);
 }
 
 // --- of / entries / keys / values -------------------------------------------------
@@ -86,8 +86,8 @@ test "of holds every entry, later ones winning" {
         Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
-    assert.eq(m.len(), 2);
-    assert.eq(assert.some(m.get("a")), 3);
+    assert.equal(m.len(), 2);
+    assert.equal(assert.some(m.get("a")), 3);
 }
 
 test "keys and values are as many as there are entries" {
@@ -95,9 +95,9 @@ test "keys and values are as many as there are entries" {
         Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
-    assert.eq(m.entries(ctx).len(), 3);
-    assert.eq(m.keys(ctx).sort(ctx), ["a", "b", "c"]);
-    assert.eq(m.values(ctx).sort(ctx), [1, 2, 3]);
+    assert.equal(m.entries(ctx).len(), 3);
+    assert.equal(m.keys(ctx).sort(ctx), ["a", "b", "c"]);
+    assert.equal(m.values(ctx).sort(ctx), [1, 2, 3]);
 }
 
 // The structure's own behaviour: past the load factor the map doubles its
@@ -117,7 +117,7 @@ test "a map that outgrows its buckets keeps every entry" {
         );
     // The accumulator is annotated because inference runs left to right: the
     // lambda is checked before the seed that would otherwise pin its type.
-    assert.eq(m.len(), n);
+    assert.equal(m.len(), n);
     assert.isTrue(list.range(ctx, 0, n).all(fn(i) => m.get(i) == .Some(i * 10)));
     assert.isTrue(m.get(n).isNone());
 }
@@ -133,7 +133,7 @@ test "growth does not duplicate entries" {
             fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i),
             map.empty<Int, Int>(),
         );
-    assert.eq(m.entries(ctx).len(), 100);
+    assert.equal(m.entries(ctx).len(), 100);
 }
 
 test "equals compares entries rather than layout" {
@@ -158,13 +158,13 @@ test "NaN is an ordinary key" {
     };
     let nan = 0.0 / 0.0;
     let m = map.empty<F64, Str>().insert(ctx, nan, "n").insert(ctx, 1.5, "a");
-    assert.eq(assert.some(m.get(nan)), "n");
-    assert.eq(m.len(), 2);
+    assert.equal(assert.some(m.get(nan)), "n");
+    assert.equal(m.len(), 2);
     // Inserting it again replaces rather than duplicating, which only holds
     // because the two NaNs compare equal.
     let again = m.insert(ctx, 0.0 / 0.0, "m");
-    assert.eq(assert.some(again.get(0.0 / 0.0)), "m");
-    assert.eq(again.len(), 2);
+    assert.equal(assert.some(again.get(0.0 / 0.0)), "m");
+    assert.equal(again.len(), 2);
 }
 
 // --- groupBy / indexBy ---------------------------------------------------------------
@@ -175,9 +175,9 @@ test "groupBy collects the elements that answer the same key" {
     };
     let words = ["ant", "bee", "ape", "bat"];
     let m = map.groupBy(ctx, words, fn(w: Str) => w.slice(0, 1));
-    assert.eq(m.len(), 2);
-    assert.eq(assert.some(m.get("a")), ["ant", "ape"]);
-    assert.eq(assert.some(m.get("b")), ["bee", "bat"]);
+    assert.equal(m.len(), 2);
+    assert.equal(assert.some(m.get("a")), ["ant", "ape"]);
+    assert.equal(assert.some(m.get("b")), ["bee", "bat"]);
     assert.isTrue(m.get("c").isNone());
 }
 
@@ -188,8 +188,8 @@ test "a group keeps the order of the list" {
         Allocator: alloc(),
     };
     let m = map.groupBy(ctx, [3, 1, 4, 1, 5], fn(n: Int) => n % 2);
-    assert.eq(assert.some(m.get(1)), [3, 1, 1, 5]);
-    assert.eq(assert.some(m.get(0)), [4]);
+    assert.equal(assert.some(m.get(1)), [3, 1, 1, 5]);
+    assert.equal(assert.some(m.get(0)), [4]);
 }
 
 test "groupBy of the empty list is the empty map" {
@@ -206,9 +206,9 @@ test "indexBy keeps one element per key, the last one winning" {
     };
     let words = ["ant", "bee", "ape"];
     let m = map.indexBy(ctx, words, fn(w: Str) => w.slice(0, 1));
-    assert.eq(m.len(), 2);
-    assert.eq(assert.some(m.get("a")), "ape");
-    assert.eq(assert.some(m.get("b")), "bee");
+    assert.equal(m.len(), 2);
+    assert.equal(assert.some(m.get("a")), "ape");
+    assert.equal(assert.some(m.get("b")), "bee");
 }
 
 test "indexBy of the empty list is the empty map" {
@@ -226,8 +226,8 @@ test "a set collapses duplicates" {
         Allocator: alloc(),
     };
     let s = set.of(ctx, [1, 2, 2, 3, 1]);
-    assert.eq(s.len(), 3);
-    assert.eq(s.toList(ctx).sort(ctx), [1, 2, 3]);
+    assert.equal(s.len(), 3);
+    assert.equal(s.toList(ctx).sort(ctx), [1, 2, 3]);
 }
 
 test "insert, has, and remove" {
@@ -247,10 +247,10 @@ test "union, intersect and difference" {
     };
     let a = set.of(ctx, [1, 2, 3]);
     let b = set.of(ctx, [3, 4]);
-    assert.eq(a.union(ctx, b).toList(ctx).sort(ctx), [1, 2, 3, 4]);
-    assert.eq(a.intersect(ctx, b).toList(ctx).sort(ctx), [3]);
-    assert.eq(a.difference(ctx, b).toList(ctx).sort(ctx), [1, 2]);
-    assert.eq(b.difference(ctx, a).toList(ctx).sort(ctx), [4]);
+    assert.equal(a.union(ctx, b).toList(ctx).sort(ctx), [1, 2, 3, 4]);
+    assert.equal(a.intersect(ctx, b).toList(ctx).sort(ctx), [3]);
+    assert.equal(a.difference(ctx, b).toList(ctx).sort(ctx), [1, 2]);
+    assert.equal(b.difference(ctx, a).toList(ctx).sort(ctx), [4]);
 }
 
 test "isSubsetOf and equals" {
@@ -271,7 +271,7 @@ test "a set of many members survives growth too" {
         Allocator: alloc(),
     };
     let s = set.of(ctx, list.range(ctx, 0, 150));
-    assert.eq(s.len(), 150);
+    assert.equal(s.len(), 150);
     assert.isTrue(list.range(ctx, 0, 150).all(fn(i) => s.has(i)));
     assert.isFalse(s.has(150));
 }
@@ -285,13 +285,13 @@ test "alter inserts, replaces and removes" {
     let counts = map.of(ctx, [("a", 1)]);
     let bump = fn(n: Option<Int>): Option<Int> => .Some(n.withDefault(0) + 1);
     let bumped = counts.alter(ctx, "a", bump).alter(ctx, "b", bump);
-    assert.eq(assert.some(bumped.get("a")), 2);
-    assert.eq(assert.some(bumped.get("b")), 1);
+    assert.equal(assert.some(bumped.get("a")), 2);
+    assert.equal(assert.some(bumped.get("b")), 1);
     // `.None` prunes, which is what keeps a map of maps from filling with
     // empty ones.
     let pruned = bumped.alter(ctx, "a", fn(_n) => .None);
     assert.isTrue(pruned.get("a").isNone());
-    assert.eq(pruned.len(), 1);
+    assert.equal(pruned.len(), 1);
 }
 
 test "altering a missing key to nothing changes nothing" {
@@ -299,7 +299,7 @@ test "altering a missing key to nothing changes nothing" {
         Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]).alter(ctx, "zzz", fn(_n) => .None);
-    assert.eq(m.len(), 1);
+    assert.equal(m.len(), 1);
 }
 
 test "alter sees exactly what is stored" {
@@ -310,9 +310,9 @@ test "alter sees exactly what is stored" {
     // was handed.
     let m = map.of(ctx, [("a", 7)]);
     let seen = m.alter(ctx, "a", fn(n) => .Some(n.withDefault(-1)));
-    assert.eq(assert.some(seen.get("a")), 7);
+    assert.equal(assert.some(seen.get("a")), 7);
     let absent = m.alter(ctx, "b", fn(n) => .Some(n.withDefault(-1)));
-    assert.eq(assert.some(absent.get("b")), -1);
+    assert.equal(assert.some(absent.get("b")), -1);
 }
 
 // --- mapValues / filterMapValues ---------------------------------------------------
@@ -322,9 +322,9 @@ test "mapValues keeps every key" {
         Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]).mapValues(ctx, fn(v) => v * 10);
-    assert.eq(m.len(), 2);
-    assert.eq(assert.some(m.get("a")), 10);
-    assert.eq(assert.some(m.get("b")), 20);
+    assert.equal(m.len(), 2);
+    assert.equal(assert.some(m.get("a")), 10);
+    assert.equal(assert.some(m.get("b")), 20);
 }
 
 test "mapValues may change the value type" {
@@ -332,7 +332,7 @@ test "mapValues may change the value type" {
         Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]).mapValues(ctx, fn(v) => [v, v]);
-    assert.eq(assert.some(m.get("a")), [1, 1]);
+    assert.equal(assert.some(m.get("a")), [1, 1]);
 }
 
 test "mapValues of the empty map is the empty map" {
@@ -349,9 +349,9 @@ test "filterMapValues drops what it answers nothing for" {
     let m = map
         .of(ctx, [("a", 1), ("b", 2), ("c", 3)])
         .filterMapValues(ctx, fn(v) => if (v % 2 == 1) { .Some(v * 2) } else { .None });
-    assert.eq(m.len(), 2);
-    assert.eq(assert.some(m.get("a")), 2);
-    assert.eq(assert.some(m.get("c")), 6);
+    assert.equal(m.len(), 2);
+    assert.equal(assert.some(m.get("a")), 2);
+    assert.equal(assert.some(m.get("c")), 6);
     assert.isTrue(m.get("b").isNone());
 }
 
@@ -361,7 +361,7 @@ test "filterMapValues that keeps nothing is empty" {
     };
     let m = map.of(ctx, [("a", 1)]).filterMapValues(ctx, fn(_v) => .None);
     assert.isTrue(m.isEmpty());
-    assert.eq(m.len(), 0);
+    assert.equal(m.len(), 0);
 }
 
 // --- merge / mergeWith --------------------------------------------------------------
@@ -373,12 +373,12 @@ test "merge is right-biased" {
     let defaults = map.of(ctx, [("host", "localhost"), ("port", "80")]);
     let overrides = map.of(ctx, [("port", "8080")]);
     let both = defaults.merge(ctx, overrides);
-    assert.eq(both.len(), 2);
-    assert.eq(assert.some(both.get("host")), "localhost");
-    assert.eq(assert.some(both.get("port")), "8080");
+    assert.equal(both.len(), 2);
+    assert.equal(assert.some(both.get("host")), "localhost");
+    assert.equal(assert.some(both.get("port")), "8080");
     // Neither side moved.
-    assert.eq(assert.some(defaults.get("port")), "80");
-    assert.eq(overrides.len(), 1);
+    assert.equal(assert.some(defaults.get("port")), "80");
+    assert.equal(overrides.len(), 1);
 }
 
 test "merging with the empty map answers the same entries" {
@@ -399,10 +399,10 @@ test "mergeWith combines only the keys in both" {
     // The combiner is `mine * 100 + theirs`, so a value it never touched is
     // visibly untouched and the argument order is visible too.
     let total = monday.mergeWith(ctx, tuesday, fn(a, b) => a * 100 + b);
-    assert.eq(total.len(), 3);
-    assert.eq(assert.some(total.get("ana")), 203);
-    assert.eq(assert.some(total.get("bo")), 1);
-    assert.eq(assert.some(total.get("cy")), 5);
+    assert.equal(total.len(), 3);
+    assert.equal(assert.some(total.get("ana")), 203);
+    assert.equal(assert.some(total.get("bo")), 1);
+    assert.equal(assert.some(total.get("cy")), 5);
 }
 
 test "mergeWith over two hundred keys keeps every one" {
@@ -414,7 +414,7 @@ test "mergeWith over two hundred keys keeps every one" {
     let a = map.of(ctx, evens.map(ctx, fn(i) => (i, i)));
     let b = map.of(ctx, odds.map(ctx, fn(i) => (i, i)));
     let both = a.mergeWith(ctx, b, fn(x, y) => x + y);
-    assert.eq(both.len(), 200);
+    assert.equal(both.len(), 200);
     assert.isTrue(list.range(ctx, 0, 200).all(fn(i) => both.get(i) == .Some(i)));
 }
 
@@ -426,10 +426,10 @@ test "filter keeps what the predicate keeps" {
     };
     let m = map.of(ctx, [("a", 1), ("bb", 2), ("c", 3)]);
     let short = m.filter(ctx, fn(k, _v) => k.len() == 1);
-    assert.eq(short.len(), 2);
+    assert.equal(short.len(), 2);
     assert.isTrue(short.get("bb").isNone());
     let odd = m.filter(ctx, fn(_k, v) => v % 2 == 1);
-    assert.eq(odd.keys(ctx).sort(ctx), ["a", "c"]);
+    assert.equal(odd.keys(ctx).sort(ctx), ["a", "c"]);
 }
 
 test "filter that keeps nothing, and filter that keeps everything" {
@@ -450,11 +450,11 @@ test "pop answers the value and the map without it" {
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
     let (v, rest) = assert.some(m.pop(ctx, "a"));
-    assert.eq(v, 1);
-    assert.eq(rest.len(), 1);
+    assert.equal(v, 1);
+    assert.equal(rest.len(), 1);
     assert.isTrue(rest.get("a").isNone());
     // The map it came from is untouched.
-    assert.eq(m.len(), 2);
+    assert.equal(m.len(), 2);
 }
 
 test "popping what is not there is nothing" {
@@ -473,9 +473,9 @@ test "takeKeys keeps the keys it names and skips the ones it does not have" {
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
     let kept = m.takeKeys(ctx, ["a", "c", "zzz"]);
-    assert.eq(kept.len(), 2);
-    assert.eq(kept.keys(ctx).sort(ctx), ["a", "c"]);
-    assert.eq(assert.some(kept.get("c")), 3);
+    assert.equal(kept.len(), 2);
+    assert.equal(kept.keys(ctx).sort(ctx), ["a", "c"]);
+    assert.equal(assert.some(kept.get("c")), 3);
 }
 
 test "dropKeys is takeKeys' complement" {
@@ -484,8 +484,8 @@ test "dropKeys is takeKeys' complement" {
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
     let left = m.dropKeys(ctx, ["a", "c", "zzz"]);
-    assert.eq(left.keys(ctx), ["b"]);
-    assert.eq(m.takeKeys(ctx, []).len(), 0);
+    assert.equal(left.keys(ctx), ["b"]);
+    assert.equal(m.takeKeys(ctx, []).len(), 0);
     assert.isTrue(m.dropKeys(ctx, []).equals(ctx, m));
 }
 
@@ -494,8 +494,8 @@ test "a repeated key is not counted twice" {
         Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
-    assert.eq(m.takeKeys(ctx, ["a", "a", "a"]).len(), 1);
-    assert.eq(m.dropKeys(ctx, ["a", "a"]).len(), 1);
+    assert.equal(m.takeKeys(ctx, ["a", "a", "a"]).len(), 1);
+    assert.equal(m.dropKeys(ctx, ["a", "a"]).len(), 1);
 }
 
 // --- countBy / frequencies -----------------------------------------------------------
@@ -506,10 +506,10 @@ test "countBy counts the elements under each key" {
     };
     let words = ["ant", "bee", "ape", "bat", "cow"];
     let counts = map.countBy(ctx, words, fn(w: Str) => w.slice(0, 1));
-    assert.eq(counts.len(), 3);
-    assert.eq(assert.some(counts.get("a")), 2);
-    assert.eq(assert.some(counts.get("b")), 2);
-    assert.eq(assert.some(counts.get("c")), 1);
+    assert.equal(counts.len(), 3);
+    assert.equal(assert.some(counts.get("a")), 2);
+    assert.equal(assert.some(counts.get("b")), 2);
+    assert.equal(assert.some(counts.get("c")), 1);
     assert.isTrue(counts.get("z").isNone());
 }
 
@@ -528,7 +528,7 @@ test "countBy agrees with groupBy's sizes" {
     let key = fn(n: Int) => n % 7;
     let counts = map.countBy(ctx, ns, key);
     let groups = map.groupBy(ctx, ns, key);
-    assert.eq(counts.len(), 7);
+    assert.equal(counts.len(), 7);
     assert.isTrue(
         list
             .range(ctx, 0, 7)
@@ -541,10 +541,10 @@ test "frequencies is a histogram of the list" {
         Allocator: alloc(),
     };
     let f = map.frequencies(ctx, [1, 2, 2, 3, 3, 3]);
-    assert.eq(assert.some(f.get(1)), 1);
-    assert.eq(assert.some(f.get(2)), 2);
-    assert.eq(assert.some(f.get(3)), 3);
-    assert.eq(f.len(), 3);
+    assert.equal(assert.some(f.get(1)), 1);
+    assert.equal(assert.some(f.get(2)), 2);
+    assert.equal(assert.some(f.get(3)), 3);
+    assert.equal(f.len(), 3);
     assert.isTrue(map.frequencies(ctx, list.empty<Str>()).isEmpty());
 }
 
@@ -564,9 +564,9 @@ test "mergeWith over disjoint keys never combines anything" {
     let a = map.of(ctx, [("a", 1), ("b", 2)]);
     let b = map.of(ctx, [("c", 3), ("d", 4)]);
     let both = a.mergeWith(ctx, b, neverCombined);
-    assert.eq(both.len(), 4);
-    assert.eq(assert.some(both.get("a")), 1);
-    assert.eq(assert.some(both.get("d")), 4);
+    assert.equal(both.len(), 4);
+    assert.equal(assert.some(both.get("a")), 1);
+    assert.equal(assert.some(both.get("d")), 4);
 }
 
 test "mergeWith with the empty map on either side never combines anything" {
@@ -586,9 +586,9 @@ test "mergeWith over the same map combines every key" {
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
     let doubled = m.mergeWith(ctx, m, fn(x, y) => x + y);
-    assert.eq(doubled.len(), 2);
-    assert.eq(assert.some(doubled.get("a")), 2);
-    assert.eq(assert.some(doubled.get("b")), 4);
+    assert.equal(doubled.len(), 2);
+    assert.equal(assert.some(doubled.get("a")), 2);
+    assert.equal(assert.some(doubled.get("b")), 4);
 }
 
 // --- alter, over the four things it can do ----------------------------------------
@@ -603,7 +603,7 @@ test "alter leaves the map alone when it hands back what it was given" {
     let absent = m.alter(ctx, "z", fn(v) => v);
     assert.isTrue(absent.equals(ctx, m));
     // And the map it was called on is untouched either way.
-    assert.eq(m.len(), 2);
+    assert.equal(m.len(), 2);
 }
 
 // The counter idiom the method exists for, run until the map has to grow.
@@ -620,7 +620,7 @@ test "alter counts three hundred keys from nothing" {
             },
             map.empty<Int, Int>(),
         );
-    assert.eq(counted.len(), 300);
+    assert.equal(counted.len(), 300);
     assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => counted.get(k) == .Some(3)));
     // Removing every key with `alter` empties it again.
     let drained = list
@@ -641,11 +641,11 @@ test "popping the only entry leaves the empty map" {
     };
     let one = map.of(ctx, [("a", 1)]);
     let (value, rest) = assert.some(one.pop(ctx, "a"));
-    assert.eq(value, 1);
+    assert.equal(value, 1);
     assert.isTrue(rest.isEmpty());
     assert.isTrue(map.empty<Str, Int>().pop(ctx, "a").isNone());
     // The map it came from still has the entry: a map is a value.
-    assert.eq(one.len(), 1);
+    assert.equal(one.len(), 1);
 }
 
 test "takeKeys and dropKeys given nothing, everything, and a repeated key" {
@@ -658,8 +658,8 @@ test "takeKeys and dropKeys given nothing, everything, and a repeated key" {
     assert.isTrue(m.takeKeys(ctx, ["a", "b", "c"]).equals(ctx, m));
     assert.isTrue(m.dropKeys(ctx, ["a", "b", "c"]).isEmpty());
     // A key named twice is one entry, and one named that is not there is none.
-    assert.eq(m.takeKeys(ctx, ["a", "a", "z"]).len(), 1);
-    assert.eq(m.dropKeys(ctx, ["a", "a", "z"]).len(), 2);
+    assert.equal(m.takeKeys(ctx, ["a", "a", "z"]).len(), 1);
+    assert.equal(m.dropKeys(ctx, ["a", "a", "z"]).len(), 2);
     // On the empty map both answer the empty map.
     let none = map.empty<Str, Int>();
     assert.isTrue(none.takeKeys(ctx, ["a"]).isEmpty());
@@ -673,12 +673,12 @@ test "mapValues and filterMapValues on a map of one, and on a large one" {
         Allocator: alloc(),
     };
     let one = map.of(ctx, [("a", 1)]);
-    assert.eq(assert.some(one.mapValues(ctx, fn(v) => v * 10).get("a")), 10);
-    assert.eq(one.filterMapValues(ctx, fn(_v) => .None).len(), 0);
-    assert.eq(assert.some(one.filterMapValues(ctx, fn(v) => .Some(v)).get("a")), 1);
+    assert.equal(assert.some(one.mapValues(ctx, fn(v) => v * 10).get("a")), 10);
+    assert.equal(one.filterMapValues(ctx, fn(_v) => .None).len(), 0);
+    assert.equal(assert.some(one.filterMapValues(ctx, fn(v) => .Some(v)).get("a")), 1);
     let big = map.of(ctx, list.range(ctx, 0, 300).map(ctx, fn(i) => (i, i)));
-    assert.eq(big.mapValues(ctx, fn(v) => v + 1).len(), 300);
-    assert.eq(
+    assert.equal(big.mapValues(ctx, fn(v) => v + 1).len(), 300);
+    assert.equal(
         big
             .filterMapValues(ctx, fn(v) => if (v % 2 == 0) { .Some(v) } else { .None })
             .len(),
@@ -695,15 +695,15 @@ test "countBy and frequencies over one element and over three hundred" {
         Allocator: alloc(),
     };
     let one = map.countBy(ctx, ["ant"], fn(w: Str) => w.len());
-    assert.eq(one.len(), 1);
-    assert.eq(assert.some(one.get(3)), 1);
+    assert.equal(one.len(), 1);
+    assert.equal(assert.some(one.get(3)), 1);
     assert.isTrue(map.frequencies(ctx, list.empty<Int>()).isEmpty());
-    assert.eq(assert.some(map.frequencies(ctx, [7]).get(7)), 1);
+    assert.equal(assert.some(map.frequencies(ctx, [7]).get(7)), 1);
     let many = map.frequencies(ctx, list.range(ctx, 0, 900).map(ctx, fn(i) => i % 300));
-    assert.eq(many.len(), 300);
+    assert.equal(many.len(), 300);
     assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => many.get(k) == .Some(3)));
     // Every count adds up to the list it counted.
-    assert.eq(many.values(ctx).sum(), 900);
+    assert.equal(many.values(ctx).sum(), 900);
 }
 
 // --- a list built inside the call that folds it -------------------------------
@@ -718,7 +718,7 @@ test "countBy and frequencies over one element and over three hundred" {
 
 /// A fold onto a persistent map, written by hand rather than taken from
 /// `core/map`, so the rule holds for a program that writes its own.
-fn keyedBy<K: Hash + Eq, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K, V> {
+fn keyedBy<K: Hash + Equal, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K, V> {
     entries.foldCtx(ctx, fn(c, acc, e) => acc.insert(c, e.0, e.1), map.empty<K, V>())
 }
 
@@ -726,24 +726,24 @@ test "map.of over a list mapped inside the call keeps every entry" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
-    assert.eq(
+    assert.equal(map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    assert.equal(
         map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).keys(ctx).len(),
         40,
     );
     let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
-    assert.eq(map.of(ctx, named).len(), 40);
+    assert.equal(map.of(ctx, named).len(), 40);
 }
 
 test "the same for mapCtx and filterMap" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         map.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
         40,
     );
-    assert.eq(
+    assert.equal(
         map
             .of(ctx, list.range(ctx, 0, 40).filterMap(ctx, fn(i) => .Some((i, i))))
             .len(),
@@ -755,15 +755,15 @@ test "a hand-written fold onto a map answers the same" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(keyedBy(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    assert.equal(keyedBy(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
     let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
-    assert.eq(keyedBy(ctx, named).len(), 40);
+    assert.equal(keyedBy(ctx, named).len(), 40);
 }
 
 test "set.of over a list mapped inside the call keeps every item" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
-    assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => i)).len(), 40);
+    assert.equal(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    assert.equal(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => i)).len(), 40);
 }

@@ -3,5 +3,5 @@ from "core/testing/assert" import * as assert;
 from "//lib/reader" import { label };
 
 test "the page names its library" {
-    assert.eq(label(), "reader");
+    assert.equal(label(), "reader");
 }

@@ -20,29 +20,29 @@ from "core/testing/assert" import * as assert;
 // --- The model, as arithmetic ------------------------------------------------------
 
 test "the header is sixteen bytes and a view is free" {
-    assert.eq(alloc.HEADER_BYTES, 16);
-    assert.eq(alloc.VIEW_BYTES, 0);
+    assert.equal(alloc.HEADER_BYTES, 16);
+    assert.equal(alloc.VIEW_BYTES, 0);
 }
 
 test "a string charges its UTF-8 bytes plus the header" {
-    assert.eq(alloc.strBytes(0), 16);
-    assert.eq(alloc.strBytes(7), 23);
-    assert.eq(alloc.strBytes(5), 21);
+    assert.equal(alloc.strBytes(0), 16);
+    assert.equal(alloc.strBytes(7), 23);
+    assert.equal(alloc.strBytes(5), 21);
 }
 
 test "a list charges its stride times its length plus the header" {
     // `[I64]` of ten, `[Str]` of three, `[(I32, I32)]` of four, `[()]` of a
     // thousand — `middle::layout`'s strides, and its numbers.
-    assert.eq(alloc.listBytes(10, 8), 96);
-    assert.eq(alloc.listBytes(3, 24), 88);
-    assert.eq(alloc.listBytes(4, 16), 80);
-    assert.eq(alloc.listBytes(1000, 0), 16);
+    assert.equal(alloc.listBytes(10, 8), 96);
+    assert.equal(alloc.listBytes(3, 24), 88);
+    assert.equal(alloc.listBytes(4, 16), 80);
+    assert.equal(alloc.listBytes(1000, 0), 16);
 }
 
 test "a closure environment charges its record" {
-    assert.eq(alloc.closureBytes(0), 16);
-    assert.eq(alloc.closureBytes(16), 32);
-    assert.eq(alloc.closureBytes(24), 40);
+    assert.equal(alloc.closureBytes(0), 16);
+    assert.equal(alloc.closureBytes(16), 32);
+    assert.equal(alloc.closureBytes(24), 40);
 }
 
 // --- GeneralPurpose ----------------------------------------------------------------
@@ -54,8 +54,8 @@ test "a general-purpose allocator counts every request" {
     };
     let _ = alloc.allocate(ctx, 64);
     let _ = alloc.allocate(ctx, alloc.strBytes(5));
-    assert.eq(gp.stats().allocations, 2);
-    assert.eq(gp.stats().bytes, 85);
+    assert.equal(gp.stats().allocations, 2);
+    assert.equal(gp.stats().bytes, 85);
 }
 
 test "a request for nothing is still a request" {
@@ -64,14 +64,14 @@ test "a request for nothing is still a request" {
         Allocator: gp,
     };
     let _ = alloc.allocate(ctx, 0);
-    assert.eq(gp.stats().allocations, 1);
-    assert.eq(gp.stats().bytes, 0);
+    assert.equal(gp.stats().allocations, 1);
+    assert.equal(gp.stats().bytes, 0);
 }
 
 test "a fresh allocator starts at zero" {
     let gp = alloc.generalPurpose();
-    assert.eq(gp.stats().allocations, 0);
-    assert.eq(gp.stats().bytes, 0);
+    assert.equal(gp.stats().allocations, 0);
+    assert.equal(gp.stats().bytes, 0);
 }
 
 test "two general-purpose allocators count separately" {
@@ -86,10 +86,10 @@ test "two general-purpose allocators count separately" {
     let _ = alloc.allocate(first, 10);
     let _ = alloc.allocate(second, 20);
     let _ = alloc.allocate(second, 2);
-    assert.eq(a.stats().allocations, 1);
-    assert.eq(a.stats().bytes, 10);
-    assert.eq(b.stats().allocations, 2);
-    assert.eq(b.stats().bytes, 22);
+    assert.equal(a.stats().allocations, 1);
+    assert.equal(a.stats().bytes, 10);
+    assert.equal(b.stats().allocations, 2);
+    assert.equal(b.stats().bytes, 22);
 }
 
 test "stats are a value, and compare as one" {
@@ -98,7 +98,7 @@ test "stats are a value, and compare as one" {
         Allocator: gp,
     };
     let _ = alloc.allocate(ctx, 16);
-    assert.eq(gp.stats(), Stats { allocations: 1, bytes: 16 });
+    assert.equal(gp.stats(), Stats { allocations: 1, bytes: 16 });
     assert.notEq(gp.stats(), Stats { allocations: 1, bytes: 17 });
 }
 
@@ -111,7 +111,7 @@ test "stats render" {
         Allocator: gp,
     };
     let _ = alloc.allocate(ctx, 16);
-    assert.eq(gp.stats().show(ctx), "Stats { allocations: 1, bytes: 16 }");
+    assert.equal(gp.stats().show(ctx), "Stats { allocations: 1, bytes: 16 }");
 }
 
 // --- Arena -------------------------------------------------------------------------
@@ -123,8 +123,8 @@ test "an arena counts what was charged since it was made" {
     };
     let _ = alloc.allocate(ctx, alloc.listBytes(4, 8));
     let _ = alloc.allocate(ctx, alloc.strBytes(3));
-    assert.eq(a.stats().allocations, 2);
-    assert.eq(a.stats().bytes, 67);
+    assert.equal(a.stats().allocations, 2);
+    assert.equal(a.stats().bytes, 67);
 }
 
 test "an arena per phase attributes without subtracting" {
@@ -139,8 +139,8 @@ test "an arena per phase attributes without subtracting" {
     let _ = alloc.allocate(parsing, 100);
     let _ = alloc.allocate(checking, 7);
     let _ = alloc.allocate(parsing, 1);
-    assert.eq(parse.stats().bytes, 101);
-    assert.eq(check.stats().bytes, 7);
+    assert.equal(parse.stats().bytes, 101);
+    assert.equal(check.stats().bytes, 7);
 }
 
 // --- FixedBuffer -------------------------------------------------------------------
@@ -150,12 +150,12 @@ test "a fixed buffer reports its budget and what is left of it" {
     let ctx = context {
         Allocator: buffer,
     };
-    assert.eq(buffer.budget, 64);
-    assert.eq(buffer.remaining(), 64);
+    assert.equal(buffer.budget, 64);
+    assert.equal(buffer.remaining(), 64);
     let _ = alloc.allocate(ctx, 24);
-    assert.eq(buffer.remaining(), 40);
-    assert.eq(buffer.stats().allocations, 1);
-    assert.eq(buffer.stats().bytes, 24);
+    assert.equal(buffer.remaining(), 40);
+    assert.equal(buffer.stats().allocations, 1);
+    assert.equal(buffer.stats().bytes, 24);
 }
 
 test "a request that exactly fills the budget is not an overrun" {
@@ -165,8 +165,8 @@ test "a request that exactly fills the budget is not an overrun" {
     };
     let _ = alloc.allocate(ctx, 16);
     let _ = alloc.allocate(ctx, 32);
-    assert.eq(buffer.remaining(), 0);
-    assert.eq(buffer.stats().bytes, 48);
+    assert.equal(buffer.remaining(), 0);
+    assert.equal(buffer.stats().bytes, 48);
 }
 
 test "a negative budget is a budget of nothing, not an unbounded one" {
@@ -175,8 +175,8 @@ test "a negative budget is a budget of nothing, not an unbounded one" {
     // meaning unbounded. The request that proves it is a crash, not an
     // assertion; what is assertable is the budget it reports.
     let buffer = alloc.fixedBuffer(0 - 1);
-    assert.eq(buffer.budget, 0);
-    assert.eq(buffer.remaining(), 0);
+    assert.equal(buffer.budget, 0);
+    assert.equal(buffer.remaining(), 0);
 }
 
 // The overrun itself is `cli/tests/crash/alloc_budget_exhausted.buri`: it ends
@@ -190,5 +190,5 @@ test "a copy of an allocator shares its counter" {
         Allocator: buffer,
     };
     let _ = alloc.allocate(ctx, 30);
-    assert.eq(buffer.remaining(), 70);
+    assert.equal(buffer.remaining(), 70);
 }
