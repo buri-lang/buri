@@ -119,6 +119,10 @@ pub struct Checked {
     /// needs it to tell which interactive elements a program builds, which is
     /// what decides the reset the stylesheet opens with.
     pub node_con: Option<TyConId>,
+    /// `ui/node`'s `Role`, when this compilation loaded it. `region` takes its
+    /// role as a parameter, so a list is named by a literal at the call site
+    /// rather than by a `NodeKind` one inside the constructor.
+    pub role_con: Option<TyConId>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `dead-code` needs it to
     /// ask the opposite question — what is exported and reaches nobody.
@@ -368,6 +372,7 @@ impl<'a> Checker<'a> {
         // obstacle: this is the module's own scope, which is what a name is
         // declared into before anything is exported.
         let node_con = self.own_type("ui/node", "NodeKind");
+        let role_con = self.own_type("ui/node", "Role");
         Checked {
             tables: self.tables,
             scopes: self.scopes,
@@ -380,6 +385,7 @@ impl<'a> Checker<'a> {
             style_con,
             theme_con,
             node_con,
+            role_con,
             surfaces: self.surfaces,
             ctx_rebindings: self.ctx_rebindings,
         }

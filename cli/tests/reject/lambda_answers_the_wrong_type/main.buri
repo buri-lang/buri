@@ -1,0 +1,41 @@
+// EXPECT: expected `Str`, found `Int`
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+// An annotated binding says what the lambda answers, and the body has to
+// answer it. Without the check `f(1).length()` called a `Str` method on a number
+// and the program linked clean.
+fn viaBinding(): Int {
+  let f: fn(Int) => Str = fn(_x) => 5;
+  f(1).length()
+}
+
+// A struct field is the same expectation one layer in. This is the shape a
+// hook record has — `core/net/websocket`'s `Client` is written this way — and
+// it is where the hole did its damage.
+struct Hooks {
+  onDone: fn(Int) => Str,
+}
+
+fn viaField(): Int {
+  let hooks = Hooks { onDone: fn(_x) => 5 };
+  (hooks.onDone)(1).length()
+}
+
+// A callback parameter is the third way the expectation arrives, and the type
+// it names is not an integer either.
+fn apply(f: fn(Int) => Str): Int {
+  f(1).length()
+}
+
+fn viaCallback(): Int {
+  apply(fn(_x) => 5)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let total = viaBinding() + viaField() + viaCallback();
+  let _ = io.println(ctx, "${total}").ignore();
+  .Ok(())
+}

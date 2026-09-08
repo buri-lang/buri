@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:31:27
+   |
+31 |     let _ = hook(times + 1;
+   |                           ^
+   |
+  --> main.buri:31:17
+   |
+31 |     let _ = hook(times + 1;
+   |                 ^ opened here
+   |
+   = fix: write `)` here

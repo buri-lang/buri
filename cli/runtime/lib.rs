@@ -517,7 +517,10 @@
 //! **buffered**, exactly as `$host` buffers them on JavaScript
 //! (`runtime.js:1224-1234`), so that the write ordering a program observes is
 //! the same on both backends. [`buri_rt_host_process_exit_with`] and every abort
-//! path flush for themselves; a normal return does not.
+//! path flush for themselves; a normal return does not. What the buffer
+//! batches is a run of consecutive prints and nothing longer: the runtime
+//! flushes for itself before the program waits on anything outside it, which
+//! `host::about_to_block` states and `rt::park_on` is the door for.
 //!
 //! ## 7. Platforms
 //!

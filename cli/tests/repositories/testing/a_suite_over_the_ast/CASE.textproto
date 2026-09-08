@@ -1,0 +1,36 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite that parses and prints with core/buri/ast runs under a plain `buri test`, which is the native backend on a host that has one"
+
+# buri-lang/buri#48. A module is a `[ast.Item]`, an `ast.Item` is 448 bytes, and
+# the stencil backend staged a `[T]` element in a fixed 320 — so every suite
+# that reached `core/buri/ast` was reported as a suite that did not compile,
+# and `core/codegen`'s whole job is `ast.parse` and `ast.print`. The unescaper
+# under it reaches `number.U32.toChar`, which was the second refusal.
+#
+# `test` and not `test --output=js`: a suite that names no platform runs
+# natively, and rerouting it would report a pass about a backend nobody chose
+# ([`buri docs build tags`](../../../src/docs/reference/build/tags.md)). That
+# rule is what makes this case worth having — with it, the only way for the
+# suite to pass is for the native backend to compile it.
+run {
+  args: ["test", "//lib/astbug", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
+
+# The failure this case owes a reader. The printer is asked for text it does not
+# write, so the same suite fails — which is what says the pass above is a suite
+# that ran rather than one that was skipped.
+edit {
+  file: "lib/astbug/test/print.buri"
+  replace: "\"export type Id = Int;\\n\");"
+  with: "\"export type Id = Str;\\n\");"
+}
+
+run {
+  args: ["test", "//lib/astbug", "--force"]
+  exit: 1
+  golden: "wrong.txt"
+}

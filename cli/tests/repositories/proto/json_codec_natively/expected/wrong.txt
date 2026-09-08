@@ -1,0 +1,7 @@
+FAIL //libs/wire  test/point.buri  "a point round-trips through JSON"
+  assert.equal failed
+    actual:   Point { x: .Some(3) }
+    expected: Point { x: .None }
+  --> libs/wire/test/point.buri:17:1
+
+1 passed, 1 failed, 0 skipped (0.0s)

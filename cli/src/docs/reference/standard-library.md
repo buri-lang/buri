@@ -670,8 +670,9 @@ second reserved root. They have a page of their own:
 `button`, `link`, `field` and `toggle` take a `[Style]` like every container
 does, and it lands on the control itself — so a hover, focus or disabled rule
 fires on the thing that is hovered, focused or disabled. The stylesheet opens by
-dropping the chrome a browser paints on one of those, so what is left is what
-the styles say.
+dropping the chrome a browser paints on one of those — and the marker and indent
+it paints on a list — so what is left is what the styles say. `ListMarker` puts
+a list's marks back.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
@@ -819,7 +820,10 @@ are what a filter wants: everything left on standard input, in one call rather
 than a `readLine` recursion. `readAll` answers the lines joined by a single
 `\n`, so a trailing newline does not survive; `readAllBytes` changes nothing at
 all. A stream is lines or octets and never both, so a program uses one of them.
-Both return at end of input and not before.
+Both return at end of input and not before. Prints are buffered — a run of them
+becomes one write — but everything printed lands before the program blocks on a
+sleep, an accept, a full mailbox or a read, so a server's "listening" line
+reaches a redirected log while the server is still listening.
 
 `core/cli` is the opinionated half. A `Cli<C>` carries the name, the version,
 the global `Flag`s and a list of `Command<C>`s. A command carries its own flags,

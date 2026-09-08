@@ -1,0 +1,10 @@
+// EXPECT: "core/order" has no member `Ordering`
+// A namespace qualifies an enum's variants — `order.Order.Less` is how you name
+// one — so `order.Ordering.Less` is a missing member like any other, and the
+// caret belongs on the enum name rather than on the namespace in front of it.
+from "core/order" import * as order;
+
+export fn main(): Result<(), Str> {
+  let first = order.Ordering.Less;
+  .Ok(())
+}

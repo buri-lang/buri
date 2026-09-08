@@ -208,9 +208,15 @@ toolchain cannot build a binary for the host, or where the suite's program
 reaches something the backend has no body for yet, the runner **refuses**:
 `native-run-not-available` for the first, and a message naming the intrinsic and
 the backend for the second. It reroutes nothing, because a suite that ran on a
-backend nobody chose would report a pass about the other backend. Both refusals
-name the two ways to ask for JavaScript: `test { platforms: [JS] }` in the build
-file, and `buri test --output=js` for a whole invocation.
+backend nobody chose would report a pass about the other backend.
+
+The two refusals say different things, because the two are different problems.
+`native-run-not-available` is about your toolchain, so it names the two ways to
+ask for JavaScript: `test { platforms: [JS] }` in the build file, and `buri test
+--output=js` for a whole invocation. A missing body is about the *toolchain's*
+gap rather than yours, so it says to report it — a program the front end
+accepted is one the backend should compile. `--output=js` gets you moving in the
+meantime, and it is a workaround rather than the answer.
 
 ### One binary for several suites
 

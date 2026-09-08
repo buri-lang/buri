@@ -9,9 +9,11 @@ library {
             "test/evaluation.buri",
             "test/variance.buri",
             "test/elision.buri",
+            "test/lambdas.buri",
             "test/anonymous.buri",
             "test/host_testing.buri",
             "test/http.buri",
+            "test/namespaces.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

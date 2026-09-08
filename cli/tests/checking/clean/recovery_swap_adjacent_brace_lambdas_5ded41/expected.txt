@@ -1,0 +1,9 @@
+error: expected an expression, found `_` [unexpected-token]
+  --> main.buri:30:5
+   |
+30 |     _ let = hook(times);
+   |     ^
+   |
+   = expected: an expression
+   = actual: `_`
+   = fix: write a value here

@@ -1,0 +1,34 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a generated JSON codec for an integer field compiles and runs under a plain `buri test`, which is the native backend on a host that has one"
+
+# buri-lang/buri#43. The JSON number path of a generated decoder reaches
+# `number.F64.toI64` — an inexact conversion, so a `Result<Int, RangeError>` — and
+# the stencil backend had no body for it, or for the `F64` conversion behind it.
+# A suite naming no platform runs natively, so the repository the issue wrote
+# reported `1 failed to compile` where it had asserted a round trip.
+#
+# `test` and not `test --output=js`: the whole of what the issue was about is
+# that the two backends have to agree, and the JavaScript run is the one that
+# always worked.
+run {
+  args: ["test", "//libs/wire", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
+
+# The failure this case owes a reader. With the round trip's assertion changed
+# to a value the decoder does not answer, the same suite fails — so the pass
+# above is a suite that ran rather than a suite that was skipped.
+edit {
+  file: "libs/wire/test/point.buri"
+  replace: "assert.equal(back, p);"
+  with: "assert.equal(back, defaultPoint());"
+}
+
+run {
+  args: ["test", "//libs/wire", "--force"]
+  exit: 1
+  golden: "wrong.txt"
+}

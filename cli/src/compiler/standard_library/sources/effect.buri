@@ -58,6 +58,12 @@ export effect Allocator {
 ///
 /// A program that does care answers instead, and `mapErr` carries the `IoError`
 /// into whatever error type it uses.
+///
+/// **Prints are buffered, and delivered before the program waits.** A run of
+/// prints becomes one write, but everything printed is on the descriptor before
+/// the program blocks — a sleep, an accept, a full mailbox, a read of standard
+/// input — terminal or pipe. So a server's "listening" line reaches a
+/// redirected log while the server is still listening.
 export effect Stdout {
     fn print(self, text: Template): Result<(), IoError>;
     fn println(self, text: Template): Result<(), IoError>;

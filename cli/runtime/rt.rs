@@ -263,6 +263,15 @@ pub fn handle() -> &'static tokio::runtime::Handle {
 /// `Handle::block_on` refuses. No carrier is one, and nothing in `host.rs`
 /// runs inside a tokio task.
 pub fn park_on<T>(future: impl Future<Output = T>) -> T {
+    // **What was printed goes out before the wait**, which is
+    // `host::about_to_block`'s rule and this is the door it is kept at: an
+    // `accept` between requests, a sleep, a mailbox with no room, a fan-out
+    // being joined and a `fetch` all wait here, and every one of them is a
+    // moment an operator reading a redirected log is entitled to what the
+    // program has already said. It is before the first poll rather than around
+    // the park, because a body that blocks synchronously (`net.rs`'s `park`)
+    // does its waiting *inside* that poll and answers `Ready`.
+    crate::host::about_to_block();
     let here = running();
     if here.is_null() {
         return handle().block_on(future);

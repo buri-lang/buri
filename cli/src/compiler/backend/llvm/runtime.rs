@@ -962,7 +962,7 @@ pub const ENTRIES: &[Entry] = &[
     },
     // Not declared in `core/str`: this is the `Str` arm of an `Inst::Binary`
     // at `Prim::Str`, which is what `middle::derives` emits for a derived `Equal`
-    // over a type with a `Str` in it (`derives.rs`'s `fn eq`).
+    // over a type with a `Str` in it (`derives.rs`'s `fn equal`).
     Entry {
         key: "str.equal",
         symbol: "buri_rt_str_equal",

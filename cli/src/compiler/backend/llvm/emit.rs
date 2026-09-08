@@ -938,7 +938,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // A `Str` is three words and not an integer, so there is no comparison
         // instruction for one. `middle::derives` emits exactly this — a derived
         // `Equal` or `Ordered` over a type with a `Str` in it becomes
-        // `ExprKind::Prim { op: Equal, prim: Str }` (`derives.rs`'s `fn eq`), which
+        // `ExprKind::Prim { op: Equal, prim: Str }` (`derives.rs`'s `fn equal`), which
         // lowers to an `Inst::Binary` at `Prim::Str` — so falling through to the
         // integer path would compare a struct against a struct and answer with
         // whatever the first operand happened to be.

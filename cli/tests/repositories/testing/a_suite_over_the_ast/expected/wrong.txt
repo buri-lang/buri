@@ -1,0 +1,7 @@
+FAIL //lib/astbug  test/print.buri  "an alias round trips"
+  assert.equal failed
+    actual:   "export type Id = Int;\n"
+    expected: "export type Id = Str;\n"
+  --> lib/astbug/test/print.buri:6:1
+
+0 passed, 1 failed, 0 skipped (0.0s)
