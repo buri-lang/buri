@@ -390,7 +390,7 @@ test "~ agrees with the 64-bit answer at every boundary" {
 test "the bitwise identities hold above 32 bits" {
     let big: Int = 1099511627776;
     let huge: Int = 9007199254740991;
-    let neg: Int = -9007199254740991;
+    let negative: Int = -9007199254740991;
     assert.equal(big | 0, big);
     assert.equal(big ^ 0, big);
     assert.equal(big & 0, 0);
@@ -400,10 +400,10 @@ test "the bitwise identities hold above 32 bits" {
     assert.equal(huge | 0, huge);
     assert.equal(huge & huge, huge);
     assert.equal(huge ^ huge, 0);
-    assert.equal(neg | 0, neg);
-    assert.equal(neg & neg, neg);
-    assert.equal(neg ^ neg, 0);
-    assert.equal(neg & 0, 0);
+    assert.equal(negative | 0, negative);
+    assert.equal(negative & negative, negative);
+    assert.equal(negative ^ negative, 0);
+    assert.equal(negative & 0, 0);
 }
 
 test "the bitwise identities hold with zero on the left" {

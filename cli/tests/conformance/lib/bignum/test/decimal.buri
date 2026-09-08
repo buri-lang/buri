@@ -117,7 +117,7 @@ test "parse and text round-trip" {
     assert.isEmpty(broken);
 }
 
-// --- add, sub and mul ------------------------------------------------------------
+// --- add, subtract and multiply ------------------------------------------------------------
 
 test "add raises both sides to the larger scale" {
     let ctx = context {
@@ -149,7 +149,7 @@ test "the sum a Float gets wrong" {
     assert.equal(sum, decimal.of(3, 1));
 }
 
-test "sub is add with the other sign" {
+test "subtract is add with the other sign" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -171,7 +171,7 @@ test "sub is add with the other sign" {
     );
 }
 
-test "mul adds the scales and keeps every digit" {
+test "multiply adds the scales and keeps every digit" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -204,7 +204,7 @@ test "every arithmetic method answers .None where the units would not fit" {
     assert.isTrue(decimal.of(1, 0).add(decimal.of(1, 18)).isSome());
 }
 
-test "add and sub undo each other" {
+test "add and subtract undo each other" {
     let a = decimal.of(1999, 2);
     let b = decimal.of(7, 3);
     assert.equal(a.add(b).andThen(fn(v) => v.subtract(b)), .Some(a));
@@ -458,7 +458,7 @@ test "the largest scale a value can be written at" {
 
 // --- Every path that answers .None -------------------------------------------------------
 
-test "add and sub answer .None at each of the three places they can" {
+test "add and subtract answer .None at each of the three places they can" {
     let top = decimal.of(number.maxValue<I64>(), 0);
     let bottom = decimal.of(number.minValue<I64>(), 0);
     // The sum itself does not fit.
@@ -484,7 +484,7 @@ test "add and sub answer .None at each of the three places they can" {
     );
 }
 
-test "mul answers .None from the units and from the scales alike" {
+test "multiply answers .None from the units and from the scales alike" {
     let top = decimal.of(number.maxValue<I64>(), 0);
     // The product of the units does not fit.
     assert.equal(top.multiply(top), .None);

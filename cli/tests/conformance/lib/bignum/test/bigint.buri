@@ -90,9 +90,9 @@ test "parse is strict" {
     assert.equal(bigint.parse(ctx, "12-3"), .None);
 }
 
-// --- add and sub ------------------------------------------------------------------
+// --- add and subtract ------------------------------------------------------------------
 
-test "add and sub carry and borrow across limbs" {
+test "add and subtract carry and borrow across limbs" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -140,9 +140,9 @@ test "adding and subtracting the same value gets back where it started" {
     assert.equal(a.negate().negate(), a);
 }
 
-// --- mul ---------------------------------------------------------------------------
+// --- multiply ---------------------------------------------------------------------------
 
-test "mul matches the factorials it was checked against" {
+test "multiply matches the factorials it was checked against" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -157,7 +157,7 @@ test "mul matches the factorials it was checked against" {
     );
 }
 
-test "mul carries the sign and answers zero for a zero side" {
+test "multiply carries the sign and answers zero for a zero side" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -169,7 +169,7 @@ test "mul carries the sign and answers zero for a zero side" {
     assert.equal(bigint.of(-7).multiply(ctx, bigint.zero()), bigint.zero());
 }
 
-test "mul is what an Int cannot do" {
+test "multiply is what an Int cannot do" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -185,7 +185,7 @@ test "mul is what an Int cannot do" {
     );
 }
 
-test "mul is commutative and distributes over add" {
+test "multiply is commutative and distributes over add" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -480,7 +480,7 @@ test "of and text cross the limb boundary in both directions" {
     assert.equal(bigint.of(-281474976710656).text(ctx), "-281474976710656");
 }
 
-test "add and sub carry and borrow exactly at the limb boundary" {
+test "add and subtract carry and borrow exactly at the limb boundary" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -500,7 +500,7 @@ test "add and sub carry and borrow exactly at the limb boundary" {
     assert.equal(rounded.subtract(ctx, one), full);
 }
 
-test "mul lands exactly on a limb boundary and on the one above it" {
+test "multiply lands exactly on a limb boundary and on the one above it" {
     let ctx = context {
         Allocator: alloc(),
     };
@@ -590,7 +590,7 @@ test "one and minus one at every operation" {
     assert.equal(bigint.of(2).power(ctx, -1), bigint.zero());
 }
 
-test "the four sign pairs of add, sub and mul" {
+test "the four sign pairs of add, subtract and multiply" {
     let ctx = context {
         Allocator: alloc(),
     };
