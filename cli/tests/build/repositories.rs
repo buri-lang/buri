@@ -72,9 +72,15 @@ fn graph_queries() {
 /// `JS`, a `WEB` and a `CLOUDFLARE_WORKER` output, because a generated module
 /// is compiled once per platform and each of those is a compile that can fail
 /// on its own.
+///
+/// The eighth is the generated *JSON* codec under a plain `buri test`, which is
+/// the native backend on a host that has one. A JSON number reaches a decoder
+/// as an `F64`, so every integer field converts through `num.F64.toI64`, and
+/// the suite reported `1 failed to compile` until `emit.rs` grew the inexact
+/// conversions (buri-lang/buri#43).
 #[test]
 fn proto_schemas() {
-    run_corpus(&tests_dir().join("repositories/proto"), "proto", 7);
+    run_corpus(&tests_dir().join("repositories/proto"), "proto", 8);
 }
 
 /// BUILD-FILES.md's `generators`: a program the build runs, whose output
@@ -117,8 +123,7 @@ fn generators() {
 ///
 /// The `repo_lint_*` cases are the other half: what `REPO.buri`'s `lint` block
 /// does to the same finding — when the catalogue runs, how hard a finding
-/// lands, what a misspelled field in the block costs, and which single
-/// declaration `allow` takes a rule off, leaving the one beside it reported.
+/// lands, and what a misspelled field in the block costs.
 ///
 /// Eleven of them are about a file the front end had something to say about,
 /// and together they draw the line the rules stay behind. Six are about the
@@ -173,16 +178,22 @@ fn generators() {
 /// `buri build` compiles only one of them.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 61);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 60);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
 /// runner does with a suite — the flags, the timeout, the golden-file update
 /// mode, the exact shape of a failure report, and the verdict a suite that
 /// never compiled gets.
+///
+/// `a_suite_over_the_ast` is where "a suite that names no platform runs
+/// natively" is a claim about a real program rather than about the runner: a
+/// module is a `[ast.Item]`, an `ast.Item` is 448 bytes, and the stencil
+/// backend staged a `[T]` element in a fixed 320 — so every suite that reached
+/// `core/buri/ast` was a suite that did not compile (buri-lang/buri#48).
 #[test]
 fn test_suites() {
-    run_corpus(&tests_dir().join("repositories/testing"), "testing", 12);
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 13);
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a
@@ -239,13 +250,20 @@ fn the_host_on_node() {
 /// can ask this question is the one that links a real binary and runs it.
 ///
 /// Five cases, and each is one axis of the feature: the whole lifecycle over
-/// one picture; the range of every axis a snapshot has over fourteen; every way
-/// a comparison cannot be made; the invocation — `buri test` with no target at
-/// all — that puts two packages' suites in one binary; and the platform, where
+/// one picture; the range of every axis a snapshot has over twenty-one; every
+/// way a comparison cannot be made; the invocation — `buri test` with no target
+/// at all — that puts two packages' suites in one binary; and the platform, where
 /// a `platforms: [JS]` suite runs the graph and is refused the picture.
+///
+/// A sixth is a tree rather than a picture: `describe` under both backends,
+/// with JavaScript as the oracle, over a tree that exists only inside the
+/// closure `ui.computed` captured. It is here because it is the same corpus's
+/// subject — a `ui/node` tree, through `buri test` — and because the tier
+/// below it cannot ask the question: `conformance/lib/ui` is `platforms: [JS]`,
+/// so a divergence between the two backends is invisible there.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 5);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 6);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

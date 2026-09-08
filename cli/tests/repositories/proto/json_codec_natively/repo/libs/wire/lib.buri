@@ -1,0 +1,3 @@
+from "//libs/wire/point.proto" export {
+    decodePointJson, defaultPoint, encodePointJson, Point,
+};

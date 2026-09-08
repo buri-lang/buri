@@ -95,7 +95,6 @@ lint {
 | `check_during_build` | `buri build` and `buri test` run the catalogue too, and report what it finds. Default false: they do not. |
 | `fail_on_finding` | A finding is an error, and fails whichever command reported it. Default false: the command prints the finding and returns its usual exit code. |
 | `rules` | Which of the catalogue's rules run. Absent, or empty: all of them. |
-| `allow` | Declarations a rule is not asked about. Absent, or empty: none. |
 
 Turn `check_during_build` on because those are the commands you actually run,
 and a finding about shape is cheap to fix while you are making the shape and
@@ -160,50 +159,6 @@ file answers "is this rule on here" for the whole repository, and turning a rule
 off takes a diff somebody reviews rather than a line somebody adds to the file
 they were already editing.
 
-### `allow`
-
-Sometimes the shape a rule objects to is not yours. A wire format, a protocol, an
-API somebody else specified: the signature is fixed outside the repository, and
-the fix the finding names would break every caller. Turning the rule off for the
-whole repository to say that is too big a hammer, so name the declaration
-instead:
-
-```textproto schema=repo
-lint {
-    allow {
-        # The frame header is the protocol's, field for field. Grouping it
-        # would not change what a caller assembles.
-        too_many_parameters: ["//lib/wire:encode"]
-    }
-}
-```
-
-The rule stays on everywhere else, including on the function beside that one. An
-entry is a package label, a colon, and the name the finding prints. Two
-declarations of one name in one package share an exemption.
-
-One rule has a field: [`too-many-parameters`](../lints/too-many-parameters.md).
-Two things earn one, and both are demanding. The finding is reported on a
-declaration's own name, so a label says exactly what the exemption is about — a
-rule reported inside a body has nothing for a label to name, and a field for one
-would be an exemption that could never match. And what the rule objects to can
-be decided outside the repository, which a signature can be and a body's length
-cannot. Writing any other rule's name here gets the
-[`unknown-field`](../errors/unknown-field.md) diagnostic.
-
-Every report names its exemptions, one by one, for the reason it names the rules
-that did not run:
-
-```
-REPO.buri exempts 1 declaration: too-many-parameters on //lib/wire:encode
-```
-
-A label that is not a label is a file that does not read
-([`allow-not-a-declaration`](../errors/allow-not-a-declaration.md)). A label that
-reads and names nothing — a declaration since renamed — is not an error, because
-the finding it stopped exempting comes back, which is the safe direction to fail
-in.
-
 ## What is not here
 
 - **No toolchain pin.** There was one: `toolchain { version, sha256 }`. A pin
@@ -222,14 +177,11 @@ in.
   is no repository-wide test timeout either. A suite that needs longer writes
   `timeout_seconds` where the person reading that suite will see it.
 - **No per-file or per-directory lint suppression.** [`rules`](#rules) turns a
-  rule off for the *repository*, by name, in this file, and [`allow`](#allow)
-  takes one off a single named declaration. Neither is a comment beside the code
-  or a line covering a directory. There is no `severity` field either. One
-  catalogue, one severity: every finding is a warning
+  rule off for the *repository*, by name, in this file. There is no `severity`
+  field either. One catalogue, one severity: every finding is a warning
   ([`buri lint`](../cli/lint.md)), and only `fail_on_finding` moves it, for
   every rule at once. So the code plus one short file still answers "does this
-  code pass lint", and a report says which rules it ran and what it did not ask
-  them about.
+  code pass lint", and a report says which rules it ran.
 - **No compiler flags.** A flag list is a dialect.
 - **No dependency versions or lockfile.** There are no external repositories
   yet. Your only sources are this repository and the `core/*` that ships with

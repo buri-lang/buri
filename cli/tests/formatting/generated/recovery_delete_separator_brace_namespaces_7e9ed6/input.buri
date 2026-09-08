@@ -1,0 +1,83 @@
+// SPEC 4.1, 5.7, 7.1 — a namespace import qualifies an enum's variants the way
+// it qualifies everything else the module exports.
+//
+// `from "//lib/semantics" import * as semantics` is the whole point of this
+// file: every name below is reached through the alias and none of them is in
+// scope on its own. The enum lives in `shapes.buri` and the alias is written
+// here, so each case crosses a module boundary rather than qualifying a name
+// the file already has.
+//
+// `semantics.Shape` as a *type* always worked. `semantics.Shape.Circle(1.0)` as
+// a value did not, which made a namespace import unusable for any module whose
+// enums you had to construct. So all three payload forms are built through the
+// alias and matched through it, each against the same value written the short
+// way — that is what makes the long spelling a spelling rather than a second
+// construct.
+
+from "core/testing/assert" import * as assert;
+from "//lib/semantics" import * as semantics;
+
+// -----------------------------------------------------------------------------
+// 1. Constructing a variant through the namespace
+// -----------------------------------------------------------------------------
+
+test "a nullary variant is reached through the namespace" {
+    let s: semantics.Shape = semantics.Shape.Empty;
+    assert.eq(s, .Empty);
+}
+
+test "a tuple payload is reached through the namespace" {
+    let s: semantics.Shape = semantics.Shape.Circle(2.0);
+    assert.eq(s, .Circle(2.0));
+}
+
+test "a record payload is reached through the namespace" {
+    let s: semantics.Shape = semantics.Shape.Rect { width: 3.0 height: 4.0 };
+    assert.eq(s, .Rect { width: 3.0, height: 4.0 });
+}
+
+test "a generic enum's variant is reached through the namespace" {
+    let filled: semantics.Slot<Int> = semantics.Slot.Filled(7);
+    let vacant: semantics.Slot<Int> = semantics.Slot.Vacant;
+    assert.eq(filled.slotOr(0), 7);
+    assert.eq(vacant.slotOr(0), 0);
+}
+
+test "the value built through the namespace carries its methods" {
+    assert.eq(semantics.Shape.Rect { width: 3.0, height: 4.0 }.area(), 12.0);
+}
+
+// -----------------------------------------------------------------------------
+// 2. Matching a variant through the namespace
+// -----------------------------------------------------------------------------
+
+fn measure(s: semantics.Shape): Float {
+    match (s) {
+        semantics.Shape.Circle(r) => r,
+        semantics.Shape.Rect { width, height } => width * height,
+        semantics.Shape.Empty => 0.0,
+    }
+}
+
+test "every payload form matches through the namespace" {
+    assert.eq(measure(semantics.Shape.Circle(2.0)), 2.0);
+    assert.eq(measure(semantics.Shape.Rect { width: 3.0, height: 4.0 }), 12.0);
+    assert.eq(measure(semantics.Shape.Empty), 0.0);
+}
+
+test "a namespaced pattern sits beside a dotted one and an alternation" {
+    let round = match (semantics.Shape.Circle(1.0)) {
+        semantics.Shape.Circle(_) => true,
+        .Rect { width: _, height: _ } | .Empty => false,
+    };
+    assert.isTrue(round);
+}
+
+// -----------------------------------------------------------------------------
+// 3. The enum keeps everything else it had
+// -----------------------------------------------------------------------------
+
+test "a derived `Ord` ranks the variants the same through the alias" {
+    assert.isTrue(semantics.Level.Low < semantics.Level.High);
+    assert.eq(semantics.Level.Medium, .Medium);
+}

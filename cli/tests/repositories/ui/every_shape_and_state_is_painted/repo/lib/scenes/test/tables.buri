@@ -1,0 +1,71 @@
+// A table, painted twice.
+//
+// The four table roles are an arrangement as well as a meaning: a row divides
+// into one column per cell, so the second row's cells line up under the first's.
+// Without that every cell is on a line of its own and a column that stopped
+// aligning could not fail a golden.
+//
+// Twice, because the rows carry an `On(.Hover)` background: the hovered picture
+// and the resting one are two pictures of one tree.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/testing" import { headless, snapshot };
+
+/// Three columns and three rows, the second and third of which have to line up
+/// under the first.
+fn invoices<C>(): Node<C> {
+    ui.region(
+        .Table,
+        [.Width(.Px(480)), .BorderWidth(.Px(1)), .BorderColor(.Rgb(180, 180, 190))],
+        [
+            ui.region(
+                .TableRow,
+                [
+                    .Background(.Rgb(235, 235, 242)),
+                    .On(.Hover, [.Background(.Rgb(250, 210, 120))]),
+                ],
+                [
+                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
+                        ui.text(.Const("Invoice")),
+                    ]),
+                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
+                        ui.text(.Const("Amount")),
+                    ]),
+                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
+                        ui.text(.Const("Status")),
+                    ]),
+                ],
+            ),
+            ui.region(.TableRow, [.On(.Hover, [.Background(.Rgb(250, 240, 205))])], [
+                ui.region(.RowHeader, [.Padding(.Px(8))], [ui.text(.Const("INV-001"))]),
+                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("$250.00"))]),
+                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("Paid"))]),
+            ]),
+            ui.region(.TableRow, [.On(.Hover, [.Background(.Rgb(250, 240, 205))])], [
+                ui.region(.RowHeader, [.Padding(.Px(8))], [ui.text(.Const("INV-002"))]),
+                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("$1,020.00"))]),
+                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("Due"))]),
+            ]),
+        ],
+    )
+}
+
+test "a table paints as a table" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "table", invoices(), .Checked);
+}
+
+test "a hovered table paints hovered" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "table-hovered", invoices(), .Hover);
+}

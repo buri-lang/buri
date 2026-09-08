@@ -308,6 +308,12 @@ On top of that, three local rules:
   no counts. This is the one place `alloca` is emitted, and it is emitted for
   a value that is never reloaded through a pointer, so CODEGEN-LLVM.md §0's
   second instruction is not violated — see CODEGEN-LLVM.md §2.3.
+- **A matched value outlives every arm that reads it.** A payload binding is
+  words copied out of the scrutinee's block, so its drop goes after the arms —
+  and where an arm ends in a tail call, after that call's *arguments*, never at
+  the arm's entry. `ui/node`'s `.Computed(build) => nodeLines(ctx, state,
+  build(scope), depth)` is why: `build` is a closure living inside the node the
+  jump is about to replace.
 
 ### 5.3 Reuse, which is where the copying goes
 

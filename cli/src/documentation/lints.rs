@@ -139,37 +139,6 @@ const UNNECESSARY: &[&str] = &[
     "unused-variant",
 ];
 
-/// The rules a `REPO.buri` may exempt one declaration from, in catalogue
-/// order.
-///
-/// Two things put a rule here, and it is a short list because both are
-/// demanding. The finding is reported on a **declaration's own name**, so a
-/// label — the package, a colon, and the name the finding prints — says exactly
-/// what the exemption is about; a rule reported inside a body has nothing for a
-/// label to name, and a field for one would be an exemption that could never
-/// match. And the shape it objects to can be **fixed from outside the
-/// repository**: a signature a wire format or somebody else's API decided is
-/// one nobody here can take the rule's advice about. A body's length is not,
-/// which is why `oversized-function` is not here.
-const EXEMPTABLE: &[&str] = &["too-many-parameters"];
-
-/// Whether a rule can be exempted for one declaration.
-pub fn is_exemptable(code: &str) -> bool {
-    EXEMPTABLE.contains(&code)
-}
-
-/// Every field a `lint { allow { … } }` block accepts: one per exemptable
-/// code, in catalogue order, spelled the way [`rule_field`] spells it.
-///
-/// Generated from [`EXEMPTABLE`] for [`rule_fields`]'s reason — a rule a
-/// repository can name is a rule this catalogue has.
-pub fn allow_fields() -> &'static [&'static str] {
-    static FIELDS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
-    FIELDS.get_or_init(|| {
-        EXEMPTABLE.iter().map(|code| &*String::leak(rule_field(code))).collect()
-    })
-}
-
 /// Whether a finding says "this is not needed", as opposed to "this is wrong".
 pub fn is_unnecessary(code: &str) -> bool {
     UNNECESSARY.contains(&code)
@@ -243,21 +212,6 @@ mod tests {
         }
         assert_eq!(code_of_rule_field("default"), None);
         assert_eq!(code_of_rule_field("unused-import"), None, "a code is not a field name");
-    }
-
-    /// Every rule an `allow` block can name is a rule the catalogue has, and
-    /// the field set is exactly those rules. A code here the catalogue dropped
-    /// would be a field a `REPO.buri` could write and nothing would ever read.
-    #[test]
-    fn every_exemptable_rule_is_a_lint_with_a_field() {
-        assert_eq!(allow_fields().len(), EXEMPTABLE.len());
-        for code in EXEMPTABLE {
-            assert!(find(code).is_some(), "`{code}` is not a lint");
-            assert!(is_exemptable(code));
-            assert!(allow_fields().contains(&rule_field(code).as_str()));
-        }
-        assert!(!is_exemptable("unused-variable"), "a rule reported inside a body");
-        assert!(!is_exemptable("oversized-function"), "a shape nothing outside can fix");
     }
 
     #[test]

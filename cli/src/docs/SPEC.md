@@ -270,6 +270,22 @@ scope unless the importing file writes that identifier, or the namespace holding
 it, and adding an export to a library can never shadow a name in code that
 imports it.
 
+An alias stands for the module everywhere the module's own names go: a type, a
+bound, an `impl` head, and an enum's variants — in an expression and in a
+pattern alike.
+
+```buri
+from "core/order" import * as order;
+
+export fn flip(o: order.Order): order.Order {
+    match (o) {
+        order.Order.Less => order.Order.Greater,
+        order.Order.Greater => order.Order.Less,
+        order.Order.Equal => order.Order.Equal,
+    }
+}
+```
+
 Import declarations are terminated with `;`. Circular imports are an error.
 
 #### 4.1.1 Module paths
@@ -1104,6 +1120,10 @@ only in import specifiers (`design/grammar-rationale.md` 12.5).
 `Char` and `U32` convert the same way: `c.toU32()` is exact, `n.toChar()` yields
 `Result<Char, RangeError>`.
 
+A float into an integer fails unless the value is already whole and in range, so
+`2.5.toI64()`, `NaN` and the infinities are all `.Err`. Reach for `wrapToT` where
+you want the truncation.
+
 #### 6.2.2 Checked and wrapping arithmetic
 
 The default `+` leaves overflow undefined. The alternatives are trait methods, so
@@ -1220,7 +1240,10 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ```
 
 Lambdas begin with `fn` so that `(x)` is never ambiguous with a parameter list.
-You may omit parameter types and the return type where they are inferable.
+You may omit parameter types and the return type where they are inferable. An
+omitted return type is not an unchecked one — the body has to answer whatever the
+position wants, so `let f: fn(Int) => Str = fn(_x) => 5` is a `type-mismatch` at
+the `5`.
 
 A lambda body extends as far right as possible, so a lambda cannot appear as a
 bare operand of a binary operator (`design/grammar-rationale.md` 12.11). `2 * fn(x) => x` is a parse

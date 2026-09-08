@@ -33,9 +33,9 @@ traits: 2501 bytes artifact, 563 generated
 ui_counter: 18087 bytes artifact, 2039 generated
 ui_signals: 5590 bytes artifact, 1578 generated
 ui_styles: 18042 bytes artifact, 2104 generated
-ui_styles_dynamic: 22718 bytes artifact, 1399 generated
+ui_styles_dynamic: 22841 bytes artifact, 1399 generated
 ui_theme: 21038 bytes artifact, 4352 generated
-ui_theme_and_computed: 24250 bytes artifact, 1110 generated
+ui_theme_and_computed: 24373 bytes artifact, 1110 generated
 
-total: 218127 bytes artifact, 64286 generated
-largest function: 3507 bytes, ui_styles_dynamic/$tree_declare
+total: 218373 bytes artifact, 64286 generated
+largest function: 3579 bytes, ui_styles_dynamic/$tree_declare

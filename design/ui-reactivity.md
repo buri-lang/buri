@@ -189,7 +189,7 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 45 properties. The arithmetic, because the cut line is the design:
+  // 46 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
   //    7  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge
@@ -199,6 +199,7 @@ export enum Style {
   //   11  type:       FontFamily, FontSize, FontWeight, Italic, LineHeight,
   //       LetterSpacing, TextAlign, TextCase, TextLine, TextWrap, Truncate
   //    1  Cursor
+  //    1  ListMarker
   Layout(Layout),                       // on the container
   AlignMain(Align), AlignCross(Align),  // main/cross axis: survives direction flips
   Grow(Int), Shrink(Int), Span(Int),    // on a child
