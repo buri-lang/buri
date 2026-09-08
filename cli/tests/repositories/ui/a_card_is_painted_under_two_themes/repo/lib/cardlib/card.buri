@@ -1,7 +1,7 @@
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/style" import { Color, token };
-from "ui/theme" import { themed, Theme };
+from "ui/theme" import { Theme, themed };
 
 /// This package's closed token vocabulary. What each one is worth is the app's
 /// to say, and a theme is how it says it.
