@@ -1,0 +1,22 @@
+// EXPECT: `Colour` has no variant `Purple`
+// One mistake, two positions. Naming a variant an enum does not declare is the
+// same mistake in a pattern and in an expression, so it reads as one sentence
+// with one note — and the note quotes the names it lists. The two positions
+// once had two spellings of that note, one quoted and one not, and nothing
+// here asserted either of them.
+enum Colour {
+  Red,
+  Green,
+}
+
+fn describe(colour: Colour): Str {
+  match (colour) {
+    .Purple => "purple",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let colour: Colour = .Purple;
+  let described = describe(colour);
+  .Ok(())
+}
