@@ -1929,7 +1929,9 @@ test "bind answers the port the acceptor chose, and run is the rest of serve" {
     // `run` takes the whole `Server` and not its `onRequest`, because it needs
     // two of the fields now: what to answer with, and how many handlers to ask
     // the acceptor for. `port` and the bind knobs were spent above.
-    assert.ok(server.run(ctx, listener, plan));
+    // And nothing to answer with beyond the ordinary end: this server has no
+    // `websocket`, so no socket ever closed on it.
+    assert.none(assert.ok(server.run(ctx, listener, plan)));
 }
 
 test "run starts one worker per handler the listener says it will host" {
@@ -2459,7 +2461,7 @@ test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
             onMessage: fn(_c, _socket, state, _message) => state,
             onClose: fn(c, _socket, state, reason) => {
                 let _closed = io.println(c, "close ${state} ${reason.show(c)}");
-                ()
+                state
             },
         }),
     });
@@ -2467,6 +2469,66 @@ test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
     // The order is the claim as much as the contents: a socket opens once,
     // closes once, and the state the open answered is what the close is handed.
     assert.equal(sink.captured(), "open /socket\nclose /socket .Normal\n");
+}
+
+test "what a socket's onClose answered is what run answers" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Listen: Scripted { sink: sink, socket: 9, code: 1000 },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+        websocket: .Some(server.WebSocket {
+            path: "/socket",
+            onOpen: fn(c, _socket, request) => {
+                let _opened = io.println(c, "open ${request.url}");
+                request.url
+            },
+            onMessage: fn(_c, _socket, state, _message) => state,
+            onClose: fn(c, _socket, state, _reason) => str.format(c, "${state} closed"),
+        }),
+    };
+    let listener = assert.ok(server.bind(ctx, plan));
+    // The state a socket ended holding leaves the server the way it leaves a
+    // client: `.None` until a socket has closed, and what its `onClose` answered
+    // after one has. `onClose` answers a *different* string from the one it was
+    // handed, which is what tells "the last hook's answer is the call's" apart
+    // from "the state the close was given".
+    assert.equal(assert.ok(server.run(ctx, listener, plan)), .Some("/socket closed"));
+}
+
+test "a server that never upgraded a socket has no state to answer with" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Listen: Scripted { sink: sink, socket: 0, code: 1000 },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    // `Scripted` with a socket of zero refuses every upgrade, so the request is
+    // an ordinary one and no `onClose` ever ran. `.None` is the absence of a
+    // socket and never a socket that ended holding nothing.
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(c, request) => {
+            let _handled = io.println(c, "handled ${request.url}");
+            Response { status: 200, headers: [], body: [] }
+        },
+        websocket: .Some(server.WebSocket {
+            path: "/socket",
+            onOpen: fn(_c, _socket, _request) => "opened",
+            onMessage: fn(_c, _socket, state, _message) => state,
+            onClose: fn(_c, _socket, state, _reason) => state,
+        }),
+    };
+    let listener = assert.ok(server.bind(ctx, plan));
+    assert.none(assert.ok(server.run(ctx, listener, plan)));
 }
 
 /// One socket's close, as the reason `core/net/server` named for its code.
@@ -2490,9 +2552,9 @@ fn closedWith(code: Int): Str {
             path: "/socket",
             onOpen: fn(_c, _socket, _request) => 0,
             onMessage: fn(_c, _socket, state, _message) => state,
-            onClose: fn(c, _socket, _state, reason) => {
+            onClose: fn(c, _socket, state, reason) => {
                 let _wrote = io.print(c, reason.show(c));
-                ()
+                state
             },
         }),
     });
@@ -2544,7 +2606,7 @@ test "a request that is not an upgrade reaches onRequest on a socket server" {
                 0
             },
             onMessage: fn(_c, _socket, state, _message) => state,
-            onClose: fn(_c, _socket, _state, _reason) => (),
+            onClose: fn(_c, _socket, state, _reason) => state,
         }),
     });
     assert.equal(sink.captured(), "handled /socket\n");
@@ -2578,7 +2640,7 @@ test "an upgrade to a path the hooks do not name is an ordinary request" {
                 0
             },
             onMessage: fn(_c, _socket, state, _message) => state,
-            onClose: fn(_c, _socket, _state, _reason) => (),
+            onClose: fn(_c, _socket, state, _reason) => state,
         }),
     });
     assert.equal(sink.captured(), "handled /socket\n");
@@ -2605,7 +2667,7 @@ test "the path a WebSocket names is matched exactly, with no trailing-slash forg
             path: "/socket/",
             onOpen: fn(_c, _socket, _request) => 0,
             onMessage: fn(_c, _socket, state, _message) => state,
-            onClose: fn(_c, _socket, _state, _reason) => (),
+            onClose: fn(_c, _socket, state, _reason) => state,
         }),
     });
     assert.equal(sink.captured(), "handled /socket\n");

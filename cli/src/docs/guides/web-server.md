@@ -176,10 +176,12 @@ model.
 
 A `Server` with a `websocket` field speaks WebSockets, and the upgrade is
 invisible. `onOpen` answers what the socket carries, every later hook is handed
-it, and `onMessage` answers the next, so per-socket state is a value rather than
-a table keyed by socket. A `Socket` is inert — one integer, sendable to an actor
-that can push on it long after the request that opened it returned. The hooks are
-in [the standard library](../reference/standard-library.md).
+it and answers the next, so per-socket state is a value rather than a table keyed
+by socket. `onClose` answers too, and `run` reports the last socket's answer — so
+a socket can hand something back to the program that opened the port. `serve` is
+`bind` and `run` with that dropped. A `Socket` is inert — one integer, sendable
+to an actor that can push on it long after the request that opened it returned.
+The hooks are in [the standard library](../reference/standard-library.md).
 
 The hooks name the path they are served at, and naming it is not optional:
 `WebSocket { path: "/socket", onOpen: …, onMessage: …, onClose: … }`. The match
@@ -190,8 +192,8 @@ path reaches `onRequest`, upgrade headers and all.
 ### Dial one instead
 
 The other end of the same socket is `core/net/websocket`, and it is the same
-three hooks. `connect` dials, runs them, and answers the `CloseReason` the
-socket ended with.
+three hooks. `connect` dials, runs them, and answers the `CloseReason` the socket
+ended with beside the state `onClose` answered.
 
 ```buri
 # from "core/effect" import { ServeError, Sockets, WebSocketClient };
@@ -200,7 +202,9 @@ socket ended with.
 # from "core/net/websocket" import { Client };
 
 /// Subscribes once, then counts every frame the server pushes back.
-fn following<C: Sockets + WebSocketClient>(ctx: C): Result<CloseReason, ServeError> {
+fn following<C: Sockets + WebSocketClient>(
+    ctx: C,
+): Result<(CloseReason, Int), ServeError> {
     websocket.connect(ctx, Client {
         url: "ws://127.0.0.1:3000/socket",
         onOpen: fn(c, socket, _response) => {
@@ -208,15 +212,16 @@ fn following<C: Sockets + WebSocketClient>(ctx: C): Result<CloseReason, ServeErr
             0
         },
         onMessage: fn(_c, _socket, seen, _message) => seen + 1,
-        onClose: fn(_c, _socket, _seen, _reason) => (),
+        onClose: fn(_c, _socket, seen, _reason) => seen,
     })
 }
 ```
 
 The context grants `WebSocketClient` for the dialling and `Sockets` for the
 pushing, and every platform grants both — a page or a worker can dial even
-though neither can listen. An `.Err` is a socket that never opened; a socket
-that opened and then ended is an `.Ok` carrying the reason.
+though neither can listen. An `.Err` is a socket that never opened, and has no
+state in it because no hook ran; a socket that opened and then ended is an `.Ok`
+carrying the reason and what it ended holding.
 
 `onOpen` is handed the `Response` that opened the socket, where the server's is
 handed the `Request` that asked. That is where a negotiated subprotocol arrives,
@@ -225,33 +230,56 @@ and it is the only shape difference between the two ends.
 ### Reconnecting is a loop
 
 There is no reconnect field, no backoff setting and no retry count, because
-`connect` returns when the socket closes. Call it again:
+`connect` returns when the socket closes. Call it again — and because the state
+comes back out, the next socket starts from what the last one learned. Here that
+is a session-resume token: it arrives in a frame, lands in the state, and goes
+back on the wire in the next `onOpen`.
 
 ```buri
-# from "core/effect" import { Clock, ServeError, Sockets, WebSocketClient };
-# from "core/net/server" import { CloseReason };
+# from "core/effect" import { Allocator, Clock, Sockets, WebSocketClient };
 # from "core/net/websocket" import * as websocket;
 # from "core/net/websocket" import { Client };
+# from "core/str" import * as str;
 # from "core/time" import * as time;
 
-/// Dials again every time the socket ends, waiting longer after each try.
-fn staying<C: Clock + Sockets + WebSocketClient>(
+fn resuming<C: Allocator + Sockets + WebSocketClient>(token: Str): Client<C, Str> {
+    Client {
+        url: "ws://127.0.0.1:3000/socket",
+        onOpen: fn(c, socket, _response) => {
+            let _sent = socket.send(c, .Text(str.format(c, "resume ${token}")));
+            token
+        },
+        onMessage: fn(_c, _socket, sofar, message) => {
+            match (message) {
+                .Text(text) => text,
+                .Binary(_data) => sofar,
+            }
+        },
+        onClose: fn(_c, _socket, sofar, _reason) => sofar,
+    }
+}
+
+/// Dials again every time the socket ends, waiting longer after each try, and
+/// resuming on the token the last one was given.
+fn staying<C: Allocator + Clock + Sockets + WebSocketClient>(
     ctx: C,
-    client: Client<C, Int>,
+    token: Str,
     waitMs: Int,
-): Result<CloseReason, ServeError> {
-    match (websocket.connect(ctx, client)) {
-        .Err(never) => .Err(never),
-        .Ok(_ended) => {
+): Str {
+    match (websocket.connect(ctx, resuming(token))) {
+        .Err(_never) => token,
+        .Ok(ended) => {
             let _slept = time.sleep(ctx, time.milliseconds(waitMs));
-            staying(ctx, client, waitMs * 2)
+            staying(ctx, ended.1, waitMs * 2)
         },
     }
 }
 ```
 
 That is an ordinary tail call, so a client that reconnects a million times costs
-one stack frame. Give it a try count if you want it to stop.
+one stack frame. Give it a try count if you want it to stop. Without the state in
+`connect`'s answer the second socket could only re-dial with what the first one
+started from — resuming would need a file or a signal to carry the token out.
 
 ### Testing one needs no network
 

@@ -284,7 +284,7 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// answers one request and stops.
 ///
 /// `requestLimit: 1` is what makes the server *finish*: the listener says
-/// `.Closed` once the answer is written, `run` turns that into `.Ok(())`, and
+/// `.Closed` once the answer is written, `run` turns that into an `.Ok`, and
 /// the process falls off the end of `main` — which is the shape `effect Listen`
 /// promises, and the thing a test could not assert if a server could only ever
 /// be killed.
@@ -1283,7 +1283,7 @@ export fn main(): Result<(), Str> {
       onClose: fn(c, _socket, counted, reason) => {
         let _stopped = counted.stop(c);
         let _said = io.println(c, "closed ${reason.show(c)}").ignore();
-        ()
+        counted
       },
     }),
   };
@@ -1397,7 +1397,7 @@ export fn main(): Result<(), Str> {{
       }},
       onClose: fn(c, _socket, mine, _reason) => {{
         let _left = members.sendMessage(c, .Left(mine));
-        ()
+        mine
       }},
     }}),
   }};

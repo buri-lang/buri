@@ -902,8 +902,11 @@ normalised, so `"/socket"` and `"/socket/"` are two different paths. An upgrade
 request to any other path is an ordinary request.
 
 `onOpen` answers the socket's first state, every later hook takes the current
-one, and `onMessage` answers the next. So per-socket state is a value rather
-than a table keyed by socket. A `Socket` is inert: one integer, comparable, and
+one and answers the next, `onClose` included. So per-socket state is a value
+rather than a table keyed by socket, and what a socket ended holding leaves the
+server: `run` answers `.Ok(.Some(state))` with the last socket's, or `.Ok(.None)`
+where none opened. `serve` is `bind` and `run` with that dropped, so a server
+that wants it calls the two halves — the same pair `port: 0` needs. A `Socket` is inert: one integer, comparable, and
 sendable to an actor. That actor can push on it long after the request that
 opened it returned, because `socket.send` and `socket.close` need `C: Sockets`
 and nothing else. `send` never waits. It hands the message to the socket's
@@ -948,12 +951,16 @@ and `WebSocketClient` is granted everywhere for it.
 
 A `Client<C, S>` carries a `url` and the hooks. `connect(ctx, client)` dials,
 runs `onOpen`, runs `onMessage` for every frame, runs `onClose`, and answers the
-`CloseReason` the socket ended with. It returns *when the socket closes*, so
-reconnecting is a loop around it with `time.sleep` in the retry, and backoff
-is your own arithmetic rather than a knob. An `.Err` is a socket that never
-opened — a URL this platform cannot dial, a machine that refused, a server that
-did not answer `101`. Everything after that is an `.Ok`, because a socket
-closing is the ordinary end of one.
+`CloseReason` the socket ended with **beside the state `onClose` answered**. It
+returns *when the socket closes*, so reconnecting is a loop around it with
+`time.sleep` in the retry, and backoff is your own arithmetic rather than a knob.
+Because the state comes back out, the next dial starts from what the last socket
+learned — a resume token that arrived in a frame goes back on the wire in the
+next `onOpen`, with no file and no signal in the middle. An `.Err` is a socket
+that never opened — a URL this platform cannot dial, a machine that refused, a
+server that did not answer `101` — and carries no state, because no hook ran.
+Everything after that is an `.Ok`, because a socket closing is the ordinary end
+of one.
 
 `onOpen` is handed the `Response` that opened the socket where a server's is
 handed the `Request` that asked, and that is the whole difference. It is where a
