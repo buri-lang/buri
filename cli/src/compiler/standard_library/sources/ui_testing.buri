@@ -231,10 +231,10 @@ impl Recorder {
 
     /// Appends `value` to the value log, and answers it.
     ///
-    /// A second channel rather than `record("${value}")`, because a computation
-    /// holds only a `Scope`: it cannot allocate, so it cannot render a number
-    /// into a string. It answers its argument, so you can wrap it around the
-    /// expression being watched.
+    /// A second channel rather than `record("${value}")`, so that a test
+    /// asserting on numbers asserts on `[Int]` and not on rendered text. It
+    /// answers its argument, so you can wrap it around the expression being
+    /// watched.
     export fn note(self, value: Int): Int;
 
     /// Every value noted so far, oldest first.
