@@ -109,6 +109,121 @@ fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
     assert!(files_checked > 150, "only {files_checked} files were compared");
 }
 
+/// **A program analysis answers what a whole-closure one answers**, for every
+/// file the repository wrote, and checks none of the standard library's bodies.
+///
+/// `driver::analyze_program` is what the language server and `buri lint` run:
+/// the whole closure loaded and every signature elaborated, but step 5 done
+/// only for the files a person can open. The standard library's own thousand
+/// bodies are left alone, because the only thing checking them can report is
+/// that the toolchain is broken — which `buri version --self-check` asks once
+/// rather than every time a build file is opened.
+///
+/// Two claims, and the second is the one the speed rests on:
+///
+///   * every body and every module-level `let` the repository wrote is
+///     present and renders identically to the whole-closure run's, and the
+///     diagnostics carrying a span in one of its files are the same
+///     diagnostics in the same order — the same comparison the scoped test
+///     above makes, over every file at once;
+///   * the count of standard library bodies checked is **zero** — or, for a
+///     target with a `ui/style` in its closure, the handful the style
+///     extractor has to fold and no more than a twentieth of the whole — where
+///     a whole-closure run checks hundreds. A counter and not a clock: a
+///     change that quietly puts them back is this number moving, on any
+///     machine, before it is a millisecond anywhere.
+///
+/// The exception is `inference::check_bodies_the_extractor_folds`, which is
+/// the one cross-body dependency in the front end: a static `Style` inlines
+/// the pure functions under it, and some of those are `ui/theme`'s. Those
+/// bodies are checked and reported on by nobody, exactly as they are for the
+/// scoped analysis above — which is why the two claims can both hold.
+///
+/// ```text
+/// cargo test -p buri --test language scoped_bodies::a_program_analysis
+/// ```
+#[test]
+fn a_program_analysis_checks_the_repository_and_not_the_standard_library() {
+    let mut repositories_checked = 0usize;
+    let mut files_checked = 0usize;
+    // The largest number of standard library bodies any one target's
+    // whole-closure run checked, so the zero below is measured against
+    // something rather than asserted into an empty room.
+    let mut most_std_bodies = 0usize;
+    for root in repositories() {
+        let Ok(mut open) = session::open_at(&root, &Flags::default()) else { continue };
+        if open.diagnostics.has_errors() {
+            continue;
+        }
+        repositories_checked = repositories_checked.saturating_add(1);
+        for target in open.workspace.targets() {
+            let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
+            let full =
+                driver::analyze(Some(&open.workspace), &mut open.map, &mut open.parsed, &unit);
+            let program = driver::analyze_program(
+                Some(&open.workspace),
+                &mut open.map,
+                &mut open.parsed,
+                &unit,
+            );
+
+            let (whole, program_std) = (std_bodies(&full), std_bodies(&program));
+            most_std_bodies = most_std_bodies.max(whole);
+            let allowed = match full.loaded.find("ui/style") {
+                // Nothing to fold, so nothing outside the repository is
+                // touched at all.
+                None => 0,
+                Some(_) => whole / 20,
+            };
+            assert!(
+                program_std <= allowed,
+                "{}: a program analysis type-checked {program_std} of the {whole} standard \
+                 library bodies a whole-closure one does, and at most {allowed} of them are \
+                 the style extractor's to fold",
+                root.display(),
+            );
+
+            for m in &full.loaded.modules {
+                if !m.disk.as_ref().is_some_and(|d| d.starts_with(&root)) {
+                    continue;
+                }
+                let name = open.map.name(m.file).to_string();
+                let label = format!("{} ({name})", root.display());
+                compare(&label, m.file, &full, &program);
+                files_checked = files_checked.saturating_add(1);
+            }
+        }
+    }
+    assert!(
+        repositories_checked > 60,
+        "expected the lsp corpus and the worked monorepo, analysed {repositories_checked}"
+    );
+    assert!(files_checked > 150, "only {files_checked} files were compared");
+    assert!(
+        most_std_bodies > 300,
+        "a whole-closure run checked only {most_std_bodies} standard library bodies, so the \
+         zero above is not evidence of anything"
+    );
+}
+
+/// How many of an analysis's checked bodies were written in a module the
+/// standard library supplied.
+fn std_bodies(analysis: &Analysis) -> usize {
+    let std: Vec<FileId> = analysis
+        .loaded
+        .modules
+        .iter()
+        .filter(|m| buri::compiler::standard_library::find(&m.path).is_some())
+        .map(|m| m.file)
+        .collect();
+    analysis
+        .checked
+        .bodies
+        .keys()
+        .filter(|id| std.contains(&analysis.checked.tables.fn_info(**id).span.file))
+        .count()
+}
+
 /// What the two analyses must agree on for one file.
 fn compare(label: &str, file: FileId, full: &Analysis, scoped: &Analysis) {
     let want = bodies_in(full, file);
