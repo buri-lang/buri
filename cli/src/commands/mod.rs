@@ -35,6 +35,7 @@ pub mod lint;
 pub mod lint_cache;
 pub mod query;
 pub mod run;
+pub mod serve;
 pub mod test;
 pub mod version;
 pub mod watch;
@@ -215,6 +216,20 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
+        name: "port",
+        value: Value::Required("<port>"),
+        choices: &[],
+        blurb: "where the page `buri run` serves listens; 0 takes whatever is free",
+        global: false,
+        set: |f, v| {
+            let text = v.unwrap_or_default();
+            f.port = Some(text.parse::<u16>().map_err(|_| {
+                format!("`--port` takes a number from 0 to 65535, not `{text}`")
+            })?);
+            Ok(())
+        },
+    },
+    Flag {
         name: "update",
         value: Value::None,
         choices: &[],
@@ -374,7 +389,7 @@ pub const COMMANDS: &[Command] = &[
         args: "<target> [-- args]",
         blurb: "build one binary and execute it",
         doc: include_str!("../docs/reference/cli/run.md"),
-        flags: &["release", "debug", "output", "force", "explain", "dense"],
+        flags: &["release", "debug", "output", "force", "explain", "dense", "port", "watch"],
         run: run::command_run,
         subcommands: &[],
         hidden: false,

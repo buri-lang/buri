@@ -28,6 +28,8 @@ cli/tests/
     incrementality.rs     what the cache may and may not do
     hermeticity.rs        spawn determinism, concurrency, reproducibility
     watch.rs              the input set, and what an edit re-runs
+    serving.rs            `buri run` on a page: a real process, a real socket,
+                          the shell for every route, and a rebuild served
   native/    main.rs    THE NATIVE BACKENDS, and the runtime they link
     link.rs               bytes in, an executable out
     runtime.rs            the buri_rt_* C ABI, driven from C
@@ -76,6 +78,9 @@ cli/tests/
     platform/             …and the host a program is handed on node: the
                           filesystem, the environment and a child process,
                           through `buri run`
+    serving/              …and the page `buri run` serves: the build, the two
+                          refusals, and the repository `build::serving` starts
+                          a real server over
   golden_javascript/    one construct per case, with the code it emits
   formatting/           an `input.buri` and the one `expected.buri` allowed
     generated/          the same, a thousand of them, written by the mutator
@@ -105,7 +110,7 @@ sets of assertions disagreeing.
 |---|---|
 | Unit tests (`cli/src/**`, `#[cfg(test)]`) | The lexer, parser, textproto reader, type unifier, JS printer, minifier, SHA-256, and SCC finder do what they claim in isolation. |
 | `language` | That a program means what SPEC says. The conformance repository through the real `buri test`, the reject corpus with its diagnostics recorded exactly, `core/*` typechecking against itself, every source in the repository parsing and formatting to a fixed point, and what the JavaScript backend compiles each construct to. |
-| `build` | What the build system does. One repository per rule with a manifest of what the CLI does in it, the worked monorepo, what the cache may and may not do read off `--explain`, that an action's spawn is deterministic and a perturbed environment changes neither bytes nor verdicts, and what `buri watch` declares and re-runs. |
+| `build` | What the build system does. One repository per rule with a manifest of what the CLI does in it, the worked monorepo, what the cache may and may not do read off `--explain`, that an action's spawn is deterministic and a perturbed environment changes neither bytes nor verdicts, what `buri watch` declares and re-runs, and the page `buri run` serves — read back over a socket from a real process. |
 | `native` | That the native backends agree with the reference one, and that the runtime under them holds. Bytes in and an executable out, the `buri_rt_*` C ABI driven from C, 3.8 million doubles of float rendering, whole programs through the copy-and-patch backend and LLVM, and VALUE-MODEL.md §12 row by row under both. `e2e` sits at the top of the trust ordering below. |
 | `docs` | That every fence is scannable and tagged, every link resolves, the assembled `SPEC.md` is not stale, and every example in every topic — and in the root `README.md` — compiles. |
 | `vectors` | That the Lean formalisation and protobuf's own conformance runner still agree with this toolchain. It replays checked-in vectors, so the suite needs neither tool installed. |
@@ -227,6 +232,16 @@ backend through `buri test`, and a test source may not import `core/host` (SPEC
 4.1.1). So a repository case asserts the *graph* refusal —
 `build-files/server_on_a_page` — and anything that runs a listener sits at tier
 1, in a process of its own.
+
+`build::serving` is the one listener outside that rule, and it is the toolchain's
+rather than a program's: `buri run` on a page binds the port itself, and a page
+is a JavaScript artifact, so no backend and no runtime archive is involved. It
+sits with the build-system suites because that is what it drives, and it holds
+to every tier-1 rule about sockets — `--port=0` and the port read back off the
+command's own output, a deadline on every wait, replies read to the peer's
+close, and the child killed on the way out however the row leaves.
+`repositories/serving/` is the fixture it shares with the manifest case that
+pins the halves a command which *finishes* can pin.
 
 **`networking-not-available` has no whole-process row.**
 `runtime_native::net()` reads a file `cli/build.rs` writes beside the archive

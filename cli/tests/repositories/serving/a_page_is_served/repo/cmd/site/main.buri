@@ -1,0 +1,42 @@
+// A page and nothing else: one WEB output, and a router that reads the address
+// bar rather than a route table. `buri run` builds this and serves it, and the
+// shell it answers for every path is what lets the match below see the address
+// the reader typed.
+from "core/effect" import { Allocator };
+from "core/host" import * as host;
+from "ui/effect" import { Location, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/web" import * as web;
+
+/// Routing is a match on the path, so a deep link is a page rather than a file.
+fn at<C>(path: Str): Node<C> {
+    match (path) {
+        "/" => {
+            ui.region(.Main, [.Padding(.Rem(1.0))], [ui.text(.Const("the front page"))])
+        },
+        "/components/button" => {
+            ui.region(.Main, [.Padding(.Rem(1.0))], [
+                ui.text(.Const("the button page")),
+            ])
+        },
+        _other => {
+            ui.region(.Main, [.Padding(.Rem(1.0))], [ui.text(.Const("no page here"))])
+        },
+    }
+}
+
+fn page<C>(path: Prop<Str>): Node<C> {
+    ui.computed(fn(scope) => at(path.read(scope)))
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+        Location: host.location,
+    };
+    ui.mount(ctx, page(web.route(ctx)), [])
+}
