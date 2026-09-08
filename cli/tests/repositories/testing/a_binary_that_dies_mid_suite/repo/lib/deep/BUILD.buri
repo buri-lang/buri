@@ -1,0 +1,10 @@
+# No `platforms`, and that is the case: a process the runner cannot get a
+# verdict out of is a native binary's way of ending, so this suite has to be the
+# linked binary rather than a JavaScript module.
+library {
+    sources: ["deep.buri"]
+
+    test {
+        sources: ["test/deep.buri"]
+    }
+}

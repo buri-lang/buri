@@ -671,6 +671,14 @@ The diagnostic saying why goes to stderr and the summary to stdout. The runner
 flushes stderr before writing the summary, so a log with a broken suite in it
 never opens with a line that looks like a clean run.
 
+A native binary that dies without reporting — killed by a signal rather than
+stopped by an assertion — is blamed on the test it was in, which is the first
+one that did not finish. The tests around it keep their verdicts, and a binary
+that finished every test and died anyway is reported against the suite, because
+no test in it failed.
+The run after one of those relinks from scratch rather than rewriting the binary
+it left, so a crash costs the next run a fraction of a second and nothing else.
+
 Tests are ordinary build actions. A suite whose sources, target, dependencies
 and toolchain are unchanged does not re-run, and reports as cached. Buri has no
 mutable global state, no ambient I/O and no observable ordering, so the runner

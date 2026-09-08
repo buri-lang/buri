@@ -1822,6 +1822,44 @@ pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
     Ok(len)
 }
 
+/// Whether a signal ended this process, which is what spends the file it ran
+/// from ([`spend_identity`]).
+///
+/// `ExitStatus::code` is `None` for exactly those, and for nothing else.
+pub fn killed_by_signal(status: &std::process::ExitStatus) -> bool {
+    status.code().is_none()
+}
+
+/// **Give up a placed artifact's identity**, so the next [`place_from`] makes a
+/// new file instead of rewriting this one.
+///
+/// The identity [`place_from`] keeps is worth a second of first execution, and
+/// after a signal it is worth rather less than nothing. Once a process exec'd
+/// from an inode has been ended by a signal, macOS **kills the next execution
+/// of that inode with `SIGKILL`** if the file was rewritten in place in between
+/// — before a byte of the program runs. The bytes are not the problem: the same
+/// bytes at a fresh path run and exit 0. Reduced to two three-line C programs
+/// and one file rewritten in place between executions, `exec`,
+/// `rewrite-to-a-null-dereference, exec`, `rewrite-back, exec` gives
+/// `0, SIGSEGV, SIGKILL`; without the crash in the middle a file can be
+/// rewritten in place all day. It clears itself after one killed execution, and
+/// whether it happens at all varies with what the kernel still has cached —
+/// measured here at one run in six, which is the worst rate a defect can have.
+///
+/// So a suite whose binary segfaulted poisoned the shared runner file
+/// (`actions::claim_runner`) for the *next* `buri test` in that repository:
+/// every block of it came back killed before the first one ran, and `--force`
+/// did not help, because `--force` re-links and this was never about the link.
+/// `rm -rf .buri` was the only way out, which is what a person ends up doing
+/// with a build directory nobody has told them is spent.
+///
+/// Unconditional rather than `cfg(target_os = "macos")`: what it costs is one
+/// first execution, the run that pays it is a run that has already failed, and
+/// one rule on both platforms is worth more than the milliseconds.
+pub fn spend_identity(path: &Path) {
+    let _ = std::fs::remove_file(path);
+}
+
 /// The command as a person would type it, for a failure to quote back.
 fn command_line(command: &Command) -> String {
     let mut out = command.get_program().to_string_lossy().into_owned();

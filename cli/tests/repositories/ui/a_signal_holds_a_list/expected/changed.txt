@@ -1,0 +1,7 @@
+FAIL //lib/store  test/store.buri  "a cell holds the whole list it was given"
+  assert.length failed
+    actual:   2
+    expected: 9
+  --> lib/store/test/store.buri:25:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

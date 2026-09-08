@@ -50,7 +50,7 @@
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Fn2, Jit, V};
-use super::runtime::{Entry, Extra, OptRepr, Ret, BURI_OK};
+use super::runtime::{Carrier, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
@@ -231,10 +231,18 @@ impl Jit<'_> {
         }
 
         if matches!(entry.extra, Extra::Element | Extra::Owned) {
-            // The pair, from the `[T]` this walks — or, where the row names no
-            // list at all, from the bare `T` it names instead
-            // ([`Self::bare_carrier`]).
-            let (stride, carried) = match self.element_ty(prog, dest.map(|d| d.1), args) {
+            // The pair, from the `[T]` this walks — or, where the row carries
+            // one whole value, from that value's own type
+            // ([`Self::bare_carrier`]). **Which of the two it is is the row's
+            // to say** ([`Carrier`]): a `Signal<[Account]>` hands `signal` an
+            // array-typed argument exactly as `list.push` hands its receiver
+            // one, so a search for the first list in sight would give the cell
+            // an `Account`'s width and an `Account`'s glue.
+            let found = match entry.carrier {
+                Carrier::Element => self.element_ty(prog, dest.map(|d| d.1), args),
+                Carrier::Value => None,
+            };
+            let (stride, carried) = match found {
                 Some(elem) => {
                     let stride = u64::from(self.layouts_of(elem.clone()).stride.max(1));
                     (stride, Some(elem))
@@ -1010,16 +1018,20 @@ impl Jit<'_> {
         dest.and_then(of).or_else(|| args.iter().find_map(|(_, t)| of(*t)))
     }
 
-    /// The stride and glue of a row whose `T` is a **bare type** rather than a
-    /// `[T]`'s element.
+    /// The stride and glue of a row that carries **one whole value** rather
+    /// than a `[T]`'s element ([`Carrier::Value`]).
     ///
     /// `ui/effect`'s graph is where this shape arrives: `signal(initial: T)`
     /// names its type in a `by_ref` argument and `read(id): T` names it only in
-    /// the result, and neither has a list anywhere for [`Self::element_ty`] to
-    /// find. What the runtime needs is the same pair either way — how many
-    /// bytes one value is, and how to take a reference on what it holds — so
-    /// this answers the width and the type behind it, and the two glue
+    /// the result. What the runtime needs is the same pair either way — how
+    /// many bytes one value is, and how to take a reference on what it holds —
+    /// so this answers the width and the type behind it, and the two glue
     /// functions are read off that type.
+    ///
+    /// **Reached from the row and not from a failed search.** `T` may be a
+    /// list, and a `Signal<[Account]>` then puts an array-typed argument where
+    /// [`Self::element_ty`] would find one and answer `Account`: the wrong
+    /// width to store and the wrong walk to retain it with.
     ///
     /// A scalar has no `Ty` to ask, because the IR keeps one only for an
     /// aggregate. It needs none: its width is its `ir::Type`, and a scalar
