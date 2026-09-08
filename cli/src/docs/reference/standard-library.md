@@ -7,7 +7,9 @@ reserved module roots. `core/*` is a deliberately small set of essentials.
 
 **The reference for a module is the module.** `buri docs core/list` renders it
 from the source the compiler checked, so a signature on the page is a signature
-that exists. `buri docs core/list.map` renders one item of it. `buri docs` lists
+that exists. Every conformance is on it too, `derive Eq, Ord, Show for Instant;`
+reading as `Instant.eq — via Eq` beside the methods somebody wrote by hand.
+`buri docs core/list.map` renders one item of it. `buri docs` lists
 [every module](../../compiler/standard_library/sources/). This page maps over
 the top of that: which modules there are, what each one costs, and what is
 deliberately absent.
