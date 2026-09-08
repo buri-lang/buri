@@ -2,11 +2,11 @@
 //
 //   - `navigate` writes the address, so `path` reads it back and every prop
 //     built out of `route` answers the new one;
-//   - what read the route re-runs, once per navigation, which is what makes a
-//     navigation re-render the smallest thing that read the path;
+//   - what read the route re-runs, which is what makes a navigation re-render
+//     the smallest thing that read the path;
 //   - `replace` writes the same address. What it does not do is add a history
 //     entry, and only a browser has one:
-//     `language::a_resumed_page_takes_the_markup_a_browser_would_have_handed_it`
+//     `language::a_website_is_rendered_by_its_worker_and_resumed_by_its_page`
 //     is where that half is asserted;
 //   - a signal made before a navigation still holds its value after one. An
 //     in-memory store surviving the address changing is the whole reason to
