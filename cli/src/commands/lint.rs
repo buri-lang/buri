@@ -282,16 +282,42 @@ fn keep_what_the_repository_runs(session: &Session, diagnostics: &mut Diagnostic
     });
 }
 
-/// The line a command prints when this repository is not running the whole
-/// catalogue, and `None` when it is.
+/// What this repository's `lint` block did to the report, and `None` when it
+/// did nothing.
 ///
 /// Printed by every command that reports findings, because the alternative is
-/// a clean report that is clean for a reason nothing on the screen gives. The
-/// smaller side is the one listed: with the default `ENABLED` that is the
+/// a clean report that is clean for a reason nothing on the screen gives. One
+/// line for the rules that did not run, one for the declarations a rule was
+/// not asked about.
+pub fn policy_note(session: &Session) -> Option<String> {
+    let lines: Vec<String> =
+        [rules_line(session), allow_line(session)].into_iter().flatten().collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// The exemptions `allow` wrote, named one by one.
+///
+/// Every one of them, however many: an exemption is a declaration somebody
+/// argued for, so there is no smaller side to print, and a count on its own
+/// would hide the name that matters.
+fn allow_line(session: &Session) -> Option<String> {
+    let exemptions = session.workspace.repo.lint.allow.each();
+    if exemptions.is_empty() {
+        return None;
+    }
+    let named: Vec<String> =
+        exemptions.iter().map(|(code, label)| format!("{code} on {label}")).collect();
+    let plural = if exemptions.len() == 1 { "declaration" } else { "declarations" };
+    Some(format!("REPO.buri exempts {} {plural}: {}", exemptions.len(), named.join(", ")))
+}
+
+/// The rules that did not run.
+///
+/// The smaller side is the one listed: with the default `ENABLED` that is the
 /// rules that were turned off, and under `default: DISABLED` it is the ones
 /// left running, because listing twenty-three names to say "two rules ran" is
 /// a line nobody reads.
-pub fn rules_note(session: &Session) -> Option<String> {
+fn rules_line(session: &Session) -> Option<String> {
     let rules = &session.workspace.repo.lint.rules;
     if rules.everything_runs() {
         return None;
@@ -351,7 +377,7 @@ fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
     // that turned rules off is a sentence about a smaller catalogue, and the
     // line that says which one has to be read first for the count to mean
     // anything.
-    if let Some(note) = rules_note(session) {
+    if let Some(note) = policy_note(session) {
         println!("{note}");
     }
     if diagnostics.items.is_empty() {
@@ -1000,15 +1026,26 @@ const MAXIMUM_NESTING: usize = 4;
 /// A `test` block is not a function for either rule. A suite is a list of
 /// assertions, and its length is the number of cases rather than the number of
 /// things it does.
+///
+/// `too-many-parameters` is also the one rule a `REPO.buri` can exempt a
+/// declaration from, and this is where that happens: an exemption names a
+/// declaration, and this is the check with one in hand. The `rules` block is
+/// applied on the way out instead ([`keep_what_the_repository_runs`]) because
+/// it is about a code, and a code reaches the report from twenty-odd sites.
+/// Both are safe with respect to the lint cache for the same reason:
+/// `REPO.buri` is a graph file, so editing it re-analyses every target.
 fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
     use crate::parsing::tree::{Item, ParamKind};
     let file = session.map.get(m.file);
+    let package = m.pkg.map(|p| session.workspace.package(p).label()).unwrap_or_default();
+    let allow = &session.workspace.repo.lint.allow;
+    let exempt = |code: &str, name: &str| allow.exempt(code, &format!("{package}:{name}"));
     let mut check = |d: &crate::parsing::tree::FnDecl| {
         let name = m.ast.tree.name(d.name);
         // `self` is the receiver and `ctx` is the effect budget. Neither is
         // data a caller assembled, so neither is counted.
         let parameters = d.params.iter().filter(|p| p.kind == ParamKind::Normal).count();
-        if parameters > MAXIMUM_PARAMETERS {
+        if parameters > MAXIMUM_PARAMETERS && !exempt("too-many-parameters", name) {
             diagnostics.push(
                 Diagnostic::templated("too-many-parameters", d.name.span)
                     .with_bind("name", name)

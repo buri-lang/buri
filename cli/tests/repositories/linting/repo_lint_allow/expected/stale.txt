@@ -1,8 +1,9 @@
-warning: `total` takes 6 parameters [too-many-parameters]
- --> cmd/app/main.buri:9:4
+REPO.buri exempts 1 declaration: too-many-parameters on //lib/wire:enkode
+warning: `encode` takes 6 parameters [too-many-parameters]
+ --> lib/wire/frame.buri:4:11
   |
-9 | fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
-  |    ^^^^^
+4 | export fn encode(
+  |           ^^^^^^
   |
   = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
   = fix: group the parameters that always travel together into a struct, and take that instead
@@ -34,3 +35,11 @@ warning: `total` takes 6 parameters [too-many-parameters]
     block. The rule stays on everywhere else, and every report says which
     declaration it was not asked about.
 
+warning: `describe` takes 6 parameters [too-many-parameters]
+  --> lib/wire/frame.buri:16:11
+   |
+16 | export fn describe(
+   |           ^^^^^^^^
+   |
+   = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
+   = fix: group the parameters that always travel together into a struct, and take that instead
