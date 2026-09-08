@@ -47,9 +47,15 @@ fn tag_policy() {
 /// files it did not write: the scaffold into a directory that has none, the
 /// three shapes an existing `.gitignore` comes in, and the refusal every other
 /// collision still gets.
+///
+/// `dense_diagnostics` is the flag half of what a diagnostic reads like: every
+/// error carries its explanation page under it, and `--dense` is the way to
+/// ask for the heading and the fix without the prose. Two runs over one
+/// unchanged source, so the diff between the recorded reports is the flag and
+/// nothing else.
 #[test]
 fn cli_contract() {
-    run_corpus(&tests_dir().join("repositories/cli"), "cli", 18);
+    run_corpus(&tests_dir().join("repositories/cli"), "cli", 19);
 }
 
 /// CLI.md's `query`: what the graph says, asked without building anything.
