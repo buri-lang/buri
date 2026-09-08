@@ -119,7 +119,7 @@ test "a timer of no time at all is still a task" {
     };
     let _ = tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 0);
+            let _ = time.sleep(c2, time.milliseconds(0));
             say(c2, "fired at once")
         });
         say(c, "mounted")
@@ -144,8 +144,8 @@ test "a timer may be as long as a month" {
     // with. Two of them in a row, so the clock has to carry rather than clamp.
     let _ = tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 2592000000);
-            let _ = time.sleepMs(c2, 2592000000);
+            let _ = time.sleep(c2, time.milliseconds(2592000000));
+            let _ = time.sleep(c2, time.milliseconds(2592000000));
             say(c2, "the month is up")
         });
         ()

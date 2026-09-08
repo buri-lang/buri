@@ -189,7 +189,7 @@ test "two made at different times sort in the order they were made" {
         Entropy: entropy(),
     };
     let after = uuid.version7(later);
-    assert.gt(after, first);
+    assert.greaterThan(after, first);
     // And the text sorts the same way the octets do, which is the whole point.
     assert.isTrue(first.text(ctx) < after.text(later));
 }
@@ -216,7 +216,7 @@ test "a minted identifier reads back" {
     let seven = uuid.version7(ctx);
     assert.equal(assert.some(uuid.parse(four.text(ctx))), four);
     assert.equal(assert.some(uuid.parse(seven.text(ctx))), seven);
-    assert.notEq(four, seven);
+    assert.notEqual(four, seven);
 }
 
 // --- the traits ----------------------------------------------------------------------
@@ -239,9 +239,9 @@ test "two identifiers compare and order" {
     let small = uuid.zero();
     let big = assert.some(uuid.parse(CANONICAL));
     assert.equal(small, uuid.zero());
-    assert.notEq(small, big);
-    assert.lt(small, big);
-    assert.gt(big, small);
+    assert.notEqual(small, big);
+    assert.lessThan(small, big);
+    assert.greaterThan(big, small);
     // Order is octet order, so the octets and the text agree about it.
     assert.isTrue(small.0.compare(big.0) == Order.Less);
 }
@@ -326,7 +326,7 @@ test "identifiers made in different milliseconds come out in order" {
     let ids = list
         .range(ctx, 0, 10)
         .mapCtx(ctx, fn(c, _i) => {
-            let _ = time.sleep(c, time.millis(1));
+            let _ = time.sleep(c, time.milliseconds(1));
             uuid.version7(c)
         });
     assert.isTrue(ids.isSortedBy(fn(a, b) => a.compare(b)));
@@ -356,8 +356,8 @@ test "an identifier made a long way apart in time still orders" {
     let last = uuid.version7(late);
     assert.equal(first.0.take(early, 6), [0, 0, 0, 0, 0, 0]);
     assert.equal(last.0.take(late, 6), [255, 255, 255, 255, 255, 255]);
-    assert.lt(first, last);
-    assert.gt(last, first);
+    assert.lessThan(first, last);
+    assert.greaterThan(last, first);
 }
 
 // --- more spellings that are not the one --------------------------------------------

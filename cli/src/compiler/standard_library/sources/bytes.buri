@@ -674,54 +674,54 @@ export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
 // big-endian and a length prefix in a file usually is not.
 //
 // **Writing is pure.** An array literal of a fixed size allocates nothing a
-// context has to grant, so `fromU64Be(x)` is a pure function; only the readers
+// context has to grant, so `fromU64BigEndian(x)` is a pure function; only the readers
 // that produce a *slice* name `Allocator`.
 
 /// Eight octets, most significant first.
-export fn fromU64Be(x: U64): [U8] {
+export fn fromU64BigEndian(x: U64): [U8] {
     [
-        bits.shrU64(x, 56).wrapToU8(),
-        bits.shrU64(x, 48).wrapToU8(),
-        bits.shrU64(x, 40).wrapToU8(),
-        bits.shrU64(x, 32).wrapToU8(),
-        bits.shrU64(x, 24).wrapToU8(),
-        bits.shrU64(x, 16).wrapToU8(),
-        bits.shrU64(x, 8).wrapToU8(),
+        bits.shiftRightU64(x, 56).wrapToU8(),
+        bits.shiftRightU64(x, 48).wrapToU8(),
+        bits.shiftRightU64(x, 40).wrapToU8(),
+        bits.shiftRightU64(x, 32).wrapToU8(),
+        bits.shiftRightU64(x, 24).wrapToU8(),
+        bits.shiftRightU64(x, 16).wrapToU8(),
+        bits.shiftRightU64(x, 8).wrapToU8(),
         x.wrapToU8(),
     ]
 }
 
 /// Eight octets, least significant first.
-export fn fromU64Le(x: U64): [U8] {
+export fn fromU64LittleEndian(x: U64): [U8] {
     [
         x.wrapToU8(),
-        bits.shrU64(x, 8).wrapToU8(),
-        bits.shrU64(x, 16).wrapToU8(),
-        bits.shrU64(x, 24).wrapToU8(),
-        bits.shrU64(x, 32).wrapToU8(),
-        bits.shrU64(x, 40).wrapToU8(),
-        bits.shrU64(x, 48).wrapToU8(),
-        bits.shrU64(x, 56).wrapToU8(),
+        bits.shiftRightU64(x, 8).wrapToU8(),
+        bits.shiftRightU64(x, 16).wrapToU8(),
+        bits.shiftRightU64(x, 24).wrapToU8(),
+        bits.shiftRightU64(x, 32).wrapToU8(),
+        bits.shiftRightU64(x, 40).wrapToU8(),
+        bits.shiftRightU64(x, 48).wrapToU8(),
+        bits.shiftRightU64(x, 56).wrapToU8(),
     ]
 }
 
 /// Four octets, most significant first.
-export fn fromU32Be(x: U32): [U8] {
+export fn fromU32BigEndian(x: U32): [U8] {
     [
-        bits.shrU32(x, 24).wrapToU8(),
-        bits.shrU32(x, 16).wrapToU8(),
-        bits.shrU32(x, 8).wrapToU8(),
+        bits.shiftRightU32(x, 24).wrapToU8(),
+        bits.shiftRightU32(x, 16).wrapToU8(),
+        bits.shiftRightU32(x, 8).wrapToU8(),
         x.wrapToU8(),
     ]
 }
 
 /// Four octets, least significant first.
-export fn fromU32Le(x: U32): [U8] {
+export fn fromU32LittleEndian(x: U32): [U8] {
     [
         x.wrapToU8(),
-        bits.shrU32(x, 8).wrapToU8(),
-        bits.shrU32(x, 16).wrapToU8(),
-        bits.shrU32(x, 24).wrapToU8(),
+        bits.shiftRightU32(x, 8).wrapToU8(),
+        bits.shiftRightU32(x, 16).wrapToU8(),
+        bits.shiftRightU32(x, 24).wrapToU8(),
     ]
 }
 
@@ -765,65 +765,65 @@ export fn toU16LittleEndian(bytes: [U8], at: Int): Option<U16> {
 
 /// The `U64` the eight octets at `at` spell, most significant first, or `.None`
 /// if there are not eight of them — never a truncated reading.
-export fn toU64Be(b: [U8], at: Int): Option<U64> {
+export fn toU64BigEndian(b: [U8], at: Int): Option<U64> {
     if (at < 0 || at + 8 > b.length()) {
         .None
     } else {
         .Some(
-            bits.shlU64(octet64(b, at), 56)
-                | bits.shlU64(octet64(b, at + 1), 48)
-                | bits.shlU64(octet64(b, at + 2), 40)
-                | bits.shlU64(octet64(b, at + 3), 32)
-                | bits.shlU64(octet64(b, at + 4), 24)
-                | bits.shlU64(octet64(b, at + 5), 16)
-                | bits.shlU64(octet64(b, at + 6), 8)
+            bits.shiftLeftU64(octet64(b, at), 56)
+                | bits.shiftLeftU64(octet64(b, at + 1), 48)
+                | bits.shiftLeftU64(octet64(b, at + 2), 40)
+                | bits.shiftLeftU64(octet64(b, at + 3), 32)
+                | bits.shiftLeftU64(octet64(b, at + 4), 24)
+                | bits.shiftLeftU64(octet64(b, at + 5), 16)
+                | bits.shiftLeftU64(octet64(b, at + 6), 8)
                 | octet64(b, at + 7),
         )
     }
 }
 
 /// The same eight octets read least significant first.
-export fn toU64Le(b: [U8], at: Int): Option<U64> {
+export fn toU64LittleEndian(b: [U8], at: Int): Option<U64> {
     if (at < 0 || at + 8 > b.length()) {
         .None
     } else {
         .Some(
             octet64(b, at)
-                | bits.shlU64(octet64(b, at + 1), 8)
-                | bits.shlU64(octet64(b, at + 2), 16)
-                | bits.shlU64(octet64(b, at + 3), 24)
-                | bits.shlU64(octet64(b, at + 4), 32)
-                | bits.shlU64(octet64(b, at + 5), 40)
-                | bits.shlU64(octet64(b, at + 6), 48)
-                | bits.shlU64(octet64(b, at + 7), 56),
+                | bits.shiftLeftU64(octet64(b, at + 1), 8)
+                | bits.shiftLeftU64(octet64(b, at + 2), 16)
+                | bits.shiftLeftU64(octet64(b, at + 3), 24)
+                | bits.shiftLeftU64(octet64(b, at + 4), 32)
+                | bits.shiftLeftU64(octet64(b, at + 5), 40)
+                | bits.shiftLeftU64(octet64(b, at + 6), 48)
+                | bits.shiftLeftU64(octet64(b, at + 7), 56),
         )
     }
 }
 
 /// Four octets at `at`, most significant first.
-export fn toU32Be(b: [U8], at: Int): Option<U32> {
+export fn toU32BigEndian(b: [U8], at: Int): Option<U32> {
     if (at < 0 || at + 4 > b.length()) {
         .None
     } else {
         .Some(
-            bits.shlU32(octet32(b, at), 24)
-                | bits.shlU32(octet32(b, at + 1), 16)
-                | bits.shlU32(octet32(b, at + 2), 8)
+            bits.shiftLeftU32(octet32(b, at), 24)
+                | bits.shiftLeftU32(octet32(b, at + 1), 16)
+                | bits.shiftLeftU32(octet32(b, at + 2), 8)
                 | octet32(b, at + 3),
         )
     }
 }
 
 /// Four octets at `at`, least significant first.
-export fn toU32Le(b: [U8], at: Int): Option<U32> {
+export fn toU32LittleEndian(b: [U8], at: Int): Option<U32> {
     if (at < 0 || at + 4 > b.length()) {
         .None
     } else {
         .Some(
             octet32(b, at)
-                | bits.shlU32(octet32(b, at + 1), 8)
-                | bits.shlU32(octet32(b, at + 2), 16)
-                | bits.shlU32(octet32(b, at + 3), 24),
+                | bits.shiftLeftU32(octet32(b, at + 1), 8)
+                | bits.shiftLeftU32(octet32(b, at + 2), 16)
+                | bits.shiftLeftU32(octet32(b, at + 3), 24),
         )
     }
 }

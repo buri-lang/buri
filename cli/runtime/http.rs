@@ -2,7 +2,7 @@
 //!
 //! Synchronous, and now alone in it. A request made through this client blocks
 //! the thread it was made on; the JavaScript half no longer does, because
-//! `$host_HostNet_fetch` awaits the platform's own `fetch` (`runtime.js`). What
+//! `$host_HostNetwork_fetch` awaits the platform's own `fetch` (`runtime.js`). What
 //! makes the difference is a runtime that can suspend a call, which the native
 //! backends do not yet have — not the shape of the request, which is the same
 //! `Request` on both sides.

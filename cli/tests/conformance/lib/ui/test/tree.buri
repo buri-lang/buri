@@ -746,7 +746,7 @@ test "a computed subtree is rebuilt, and a leaf prop is not" {
     let coarse = render(ctx, ui.computed(fn(c) => headingFor(n.get(c))));
     let first = coarse.identity("h1", 0);
     let _ = n.set(ctx, 1);
-    assert.notEq(coarse.identity("h1", 0), first);
+    assert.notEqual(coarse.identity("h1", 0), first);
 
     // The fine one: the same element, with one run of text changed.
     let fine = render(ctx, ui.heading(1, .Computed(fn(c) => "${n.get(c)}")));
@@ -800,7 +800,7 @@ test "inserting a row keeps the rows that were already there" {
     let _ = items.set(ctx, ["a", "b", "c"]);
     assert.equal(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
     assert.equal(page.identity("li", 0), a);
-    assert.notEq(page.identity("li", 1), a);
+    assert.notEqual(page.identity("li", 1), a);
     assert.equal(page.identity("li", 2), c);
 }
 

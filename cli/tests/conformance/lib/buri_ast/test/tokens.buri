@@ -71,7 +71,7 @@ test "every span is non-empty and they run in order" {
     };
     let source = "export fn f<T: Equal>(self, ctx: C): [T] { \"a\${1}b\" }";
     let tokens = ast.tokenize(ctx, source);
-    assert.gt(tokens.length(), 15);
+    assert.greaterThan(tokens.length(), 15);
     assert.isTrue(tokens.all(fn(t) => t.span.end > t.span.start));
     assert.isTrue(tokens.windows(ctx, 2).all(fn(pair) => inOrder(pair)));
 }

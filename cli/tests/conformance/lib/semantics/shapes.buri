@@ -764,7 +764,7 @@ export fn stamp<C: Clock>(ctx: C): Instant {
 export fn elapsed<C: Clock>(ctx: C, earlier: Instant): Int {
     // `since` answers a `Duration`, which is nanoseconds; this reports the
     // milliseconds the clock actually moves in.
-    time.since(ctx, earlier).millis()
+    time.since(ctx, earlier).milliseconds()
 }
 
 export fn fetchBody<C: Allocator + Network>(ctx: C, url: Str): Result<Str, NetError> {
@@ -968,7 +968,7 @@ impl Clock for FrozenClock {
         self.at
     }
 
-    fn sleepMilliseconds(self, millis: Int): () {
+    fn sleepMilliseconds(self, milliseconds: Int): () {
         ()
     }
 
@@ -1056,7 +1056,7 @@ impl Listen for OneShotListen {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
         match (self.bindsTo) {
             "" => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
@@ -1162,7 +1162,7 @@ impl Listen for PoolListen {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
         match (self.bindsTo) {
             "" => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
@@ -1252,7 +1252,7 @@ fn planDigit(item: Serve): Int {
         },
         .Certificate(_path) => 4,
         .PrivateKey(_key) => 5,
-        .DrainMillis(_millis) => 6,
+        .DrainMilliseconds(_millis) => 6,
         .SocketBuffer(_messages) => 7,
     }
 }
@@ -1264,7 +1264,7 @@ impl Listen for PlanListen {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
         .Ok(Listener {
             handle: 1,
@@ -1564,8 +1564,8 @@ impl<C: Clock> Clock for Ticking<C> {
         self.inner.nowMilliseconds()
     }
 
-    fn sleepMilliseconds(self, millis: Int): () {
-        self.inner.sleepMilliseconds(millis)
+    fn sleepMilliseconds(self, milliseconds: Int): () {
+        self.inner.sleepMilliseconds(milliseconds)
     }
 
     fn monotonicNanoseconds(self): I64 {

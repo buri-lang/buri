@@ -1141,15 +1141,15 @@ pub const ENTRIES: &[Entry] = &[
     // -- core/math (`cli/runtime/math.rs`) ----------------------------------
     //
     // Nine of the twenty-two. The other thirteen are the transcendentals —
-    // `cbrt`, `pow`, `exp`, `ln`, `log10`, `log2`, the six trigonometric ones
+    // `cubeRoot`, `power`, `exp`, `ln`, `log10`, `log2`, the six trigonometric ones
     // and `atan2` — and they are **deliberately** absent rather than a call to
     // libm. IEEE 754 does not fix their answers, so V8's fdlibm port and a
     // platform libm differ in the last bit, and a rendered `Float` shows all
     // seventeen digits of that difference. A named gap is a diagnostic; a libm
     // call is a conformance failure nobody can attribute.
-    Entry { key: "math.sqrt", symbol: "buri_rt_math_sqrt", args: &[Arg::Scalar], ret: Ret::Scalar },
+    Entry { key: "math.squareRoot", symbol: "buri_rt_math_sqrt", args: &[Arg::Scalar], ret: Ret::Scalar },
     Entry {
-        key: "math.absFloat",
+        key: "math.absoluteFloat",
         symbol: "buri_rt_math_abs_float",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
@@ -1160,9 +1160,9 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
-    Entry { key: "math.ceil", symbol: "buri_rt_math_ceil", args: &[Arg::Scalar], ret: Ret::Scalar },
+    Entry { key: "math.ceiling", symbol: "buri_rt_math_ceil", args: &[Arg::Scalar], ret: Ret::Scalar },
     Entry {
-        key: "math.trunc",
+        key: "math.truncate",
         symbol: "buri_rt_math_trunc",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,

@@ -767,7 +767,7 @@ fn tell(x: Option<Int>): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let big = bits.shl(1, 60);
+  let big = bits.shiftLeft(1, 60);
   // `maxValue<I64>()` as a literal: `number.minValue`/`number.maxValue` have no LLVM
   // body yet, and a row this one is about should not be skipped there.
   let top: Int = 9223372036854775807;
@@ -1969,7 +1969,7 @@ export fn main(): Result<(), Str> {
 ///
 /// The divisor is `"".len()` rather than a literal zero because a division
 /// by a literal is decided at compile time and there is nothing left to
-/// ask; `cli/tests/crash/` reaches for `env.withArguments(ctx).len()` instead, which
+/// ask; `cli/tests/crash/` reaches for `env.arguments(ctx).len()` instead, which
 /// is `host.HostEnvironment.arguments` and has no native body yet.
 #[test]
 fn row_11_division_by_zero() {
@@ -2023,7 +2023,7 @@ from "core/bits" import * as bits;
 from "core/host" import { stdout };
 from "core/io" import * as io;
 
-fn push(x: U8, n: Int): U8 { bits.shlU8(x, n) }
+fn push(x: U8, n: Int): U8 { bits.shiftLeftU8(x, n) }
 
 export fn main(): Result<(), Str> {
   let width = 8 + "".length();
@@ -2612,7 +2612,7 @@ export fn main(): Result<(), Str> {
   // sleep a step finishes before the next is dispatched and gets handed the
   // same carrier back, which is a sequential walk with extra steps.
   let seen = tasks.parallel(ctx, ns, fn(c, i, n) => {
-    let _ = time.sleepMs(c, 20);
+    let _ = time.sleep(c, time.milliseconds(20));
     let each = spin.mapCtx(c, fn(d, k) => shared.join(d, ""));
     str.format(c, "${n}:${each.length()}:${each.join(c, "|").length()}")
   });
@@ -2692,7 +2692,7 @@ export fn main(): Result<(), Str> {
   // its carrier is handed straight back, so a fan-out over trivial work is a
   // sequential walk with extra steps and would prove nothing about sharing.
   let grown = tasks.parallel(ctx, ns, fn(c, i, n) => {
-    let _ = time.sleepMs(c, 40);
+    let _ = time.sleep(c, time.milliseconds(40));
     seed.concat(c, str.fromInt(c, n))
   });
   let _ = io.println(ctx, grown.join(ctx, " ")).ignore();
@@ -2758,7 +2758,7 @@ struct Ticker {
 
 impl Clock for Ticker {
   fn nowMilliseconds(self): I64 { self.at }
-  fn sleepMilliseconds(self, millis: Int): () { () }
+  fn sleepMilliseconds(self, milliseconds: Int): () { () }
   fn monotonicNanoseconds(self): I64 { self.at }
 }
 
@@ -2890,7 +2890,7 @@ impl Listen for OneShot {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
     match (self.binds) {
       0 => .Err(ServeError { cause: .PermissionDenied, detail: "" }),
@@ -2968,9 +2968,9 @@ impl<C: Listen> Listen for Wrap<C> {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
-    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
+    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMilliseconds)
   }
 
   fn listenAccept(self, handle: Int): Result<Int, ServeError> {
@@ -3100,7 +3100,7 @@ impl Listen for Gate {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
     match (self.opens) {
       0 => .Err(ServeError { cause: .AddressInUse, detail: "taken" }),
@@ -3158,9 +3158,9 @@ impl<C: Listen> Listen for Wrap<C> {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
-    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
+    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMilliseconds)
   }
 
   fn listenAccept(self, handle: Int): Result<Int, ServeError> {
@@ -3635,7 +3635,7 @@ export fn main(): Result<(), Str> {
   let started = time.now(ctx).0;
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
-      let _ = time.sleepMs(c2, 50);
+      let _ = time.sleep(c2, time.milliseconds(50));
       let _ = io.println(c2, "the timer fired").ignore();
       ()
     });
@@ -3708,9 +3708,9 @@ export fn main(): Result<(), Str> {
   // milliseconds of elapsed time, measured off this clock rather than the wall
   // one.
   let before = time.monotonic(ctx);
-  let _ = time.sleepMs(ctx, 50);
+  let _ = time.sleep(ctx, time.milliseconds(50));
   let waited = time.elapsed(ctx, before);
-  let _ = io.println(ctx, "moved: ${verdict(waited.millis() >= 50)}").ignore();
+  let _ = io.println(ctx, "moved: ${verdict(waited.milliseconds() >= 50)}").ignore();
   let _ = io.println(ctx, "forward: ${verdict(!waited.isNegative())}").ignore();
   .Ok(())
 }

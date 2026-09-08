@@ -76,7 +76,7 @@ gave it. Two kinds of function live in it:
 
 | | |
 |---|---|
-| `assert.equal`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.length`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | Answer `()`, so they stand alone as statements |
+| `assert.equal`, `assert.notEqual`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.length`, `assert.greaterThan`, `assert.greaterOrEqual`, `assert.lessThan`, `assert.lessOrEqual`, `assert.approximatelyEqual` | Answer `()`, so they stand alone as statements |
 | `assert.ok`, `assert.err`, `assert.some` | Answer the unwrapped value, which is how a test consumes a `Result` or an `Option` |
 
 Reach for the narrowest one: every assertion in the first row names the two

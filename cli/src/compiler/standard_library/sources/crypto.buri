@@ -14,7 +14,7 @@
 //! reproducible on purpose*. `core/random.bytes` is uniform. These are
 //! unpredictable, and a program says which it meant by which it imports.
 //!
-//! **Neither takes a `Gen`.** A token you can replay is a token somebody can
+//! **Neither takes a `Generator`.** A token you can replay is a token somebody can
 //! predict. The seeded path a test needs is `core/host/testing`'s `entropy()`, a
 //! seeded implementation of the same effect that only a test source can reach.
 //!
@@ -188,7 +188,7 @@ fn roundConstants<C: Allocator>(ctx: C): [U32] {
 /// shifts, or-ed. It is correct only because the unsigned bitwise operators
 /// narrow to the type's width.
 fn rotr(x: U32, n: Int): U32 {
-    bits.shrU32(x, n) | bits.shlU32(x, 32 - n)
+    bits.shiftRightU32(x, n) | bits.shiftLeftU32(x, 32 - n)
 }
 
 /// The message, padded: a one bit, then zeros, then the length in bits as a
@@ -200,7 +200,7 @@ fn pad<C: Allocator>(ctx: C, message: [U8]): [U8] {
     let zeros = (55 - n % 64 + 64) % 64;
     let lengthBytes = list
         .range(ctx, 0, 8)
-        .map(ctx, fn(i) => bits.shr(bitLength, (7 - i) * 8).wrapToU8());
+        .map(ctx, fn(i) => bits.shiftRight(bitLength, (7 - i) * 8).wrapToU8());
     message
         .push(ctx, 128)
         .concat(ctx, list.repeat(ctx, 0, zeros))
@@ -229,8 +229,8 @@ fn extend<C: Allocator>(ctx: C, w: [U32], i: Int): [U32] {
     } else {
         let a = w.get(i - 15).withDefault(0);
         let b = w.get(i - 2).withDefault(0);
-        let s0 = rotr(a, 7) ^ rotr(a, 18) ^ bits.shrU32(a, 3);
-        let s1 = rotr(b, 17) ^ rotr(b, 19) ^ bits.shrU32(b, 10);
+        let s0 = rotr(a, 7) ^ rotr(a, 18) ^ bits.shiftRightU32(a, 3);
+        let s1 = rotr(b, 17) ^ rotr(b, 19) ^ bits.shiftRightU32(b, 10);
         let next = w
             .get(i - 16)
             .withDefault(0)
@@ -330,7 +330,7 @@ export fn sha256<C: Allocator>(ctx: C, message: [U8]): Digest {
             .mapCtx(ctx, fn(c, word) => {
                 list
                     .range(c, 0, 4)
-                    .map(c, fn(i) => bits.shrU32(word, (3 - i) * 8).wrapToU8())
+                    .map(c, fn(i) => bits.shiftRightU32(word, (3 - i) * 8).wrapToU8())
             })
             .flatten(ctx),
     )
@@ -454,7 +454,7 @@ fn roundConstants512<C: Allocator>(ctx: C): [U64] {
 
 /// Rotate right, within 64 bits: the two shifts, or-ed, as `rotr` is at 32.
 fn rotr64(x: U64, n: Int): U64 {
-    bits.shrU64(x, n) | bits.shlU64(x, 64 - n)
+    bits.shiftRightU64(x, n) | bits.shiftLeftU64(x, 64 - n)
 }
 
 /// The message padded to a multiple of 128 bytes. The length goes in as a
@@ -466,7 +466,7 @@ fn pad512<C: Allocator>(ctx: C, message: [U8]): [U8] {
     let zeros = (111 - n % 128 + 128) % 128;
     let lengthBytes = list
         .range(ctx, 0, 8)
-        .map(ctx, fn(i) => bits.shr(bitLength, (7 - i) * 8).wrapToU8());
+        .map(ctx, fn(i) => bits.shiftRight(bitLength, (7 - i) * 8).wrapToU8());
     message
         .push(ctx, 128)
         .concat(ctx, list.repeat(ctx, 0, zeros + 8))
@@ -477,7 +477,7 @@ fn pad512<C: Allocator>(ctx: C, message: [U8]): [U8] {
 fn schedule512<C: Allocator>(ctx: C, block: [U8]): [U64] {
     let first = list
         .range(ctx, 0, 16)
-        .map(ctx, fn(i) => bytes.toU64Be(block, i * 8).withDefault(0));
+        .map(ctx, fn(i) => bytes.toU64BigEndian(block, i * 8).withDefault(0));
     extend512(ctx, first, 16)
 }
 
@@ -488,8 +488,8 @@ fn extend512<C: Allocator>(ctx: C, w: [U64], i: Int): [U64] {
     } else {
         let a = w.get(i - 15).withDefault(0);
         let b = w.get(i - 2).withDefault(0);
-        let s0 = rotr64(a, 1) ^ rotr64(a, 8) ^ bits.shrU64(a, 7);
-        let s1 = rotr64(b, 19) ^ rotr64(b, 61) ^ bits.shrU64(b, 6);
+        let s0 = rotr64(a, 1) ^ rotr64(a, 8) ^ bits.shiftRightU64(a, 7);
+        let s1 = rotr64(b, 19) ^ rotr64(b, 61) ^ bits.shiftRightU64(b, 6);
         let next = w
             .get(i - 16)
             .withDefault(0)
@@ -611,7 +611,7 @@ fn blocks512<C: Allocator>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
 /// ```
 export fn sha512<C: Allocator>(ctx: C, message: [U8]): Digest {
     let state = blocks512(ctx, pad512(ctx, message), initialState512(ctx), 0);
-    Digest(state.map(ctx, fn(word) => bytes.fromU64Be(word)).flatten(ctx))
+    Digest(state.map(ctx, fn(word) => bytes.fromU64BigEndian(word)).flatten(ctx))
 }
 
 /// The SHA-512 digest of a string's UTF-8 encoding.
@@ -629,7 +629,7 @@ fn initialState1<C: Allocator>(ctx: C): [U32] {
 
 /// Rotate left, within 32 bits.
 fn rotl32(x: U32, n: Int): U32 {
-    bits.shlU32(x, n) | bits.shrU32(x, 32 - n)
+    bits.shiftLeftU32(x, n) | bits.shiftRightU32(x, 32 - n)
 }
 
 /// The eighty-entry schedule. Every word past the first sixteen is four earlier
@@ -637,7 +637,7 @@ fn rotl32(x: U32, n: Int): U32 {
 fn schedule1<C: Allocator>(ctx: C, block: [U8]): [U32] {
     let first = list
         .range(ctx, 0, 16)
-        .map(ctx, fn(i) => bytes.toU32Be(block, i * 4).withDefault(0));
+        .map(ctx, fn(i) => bytes.toU32BigEndian(block, i * 4).withDefault(0));
     extend1(ctx, first, 16)
 }
 
@@ -736,7 +736,7 @@ fn blocks1<C: Allocator>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
 /// something new. `sha256` is the one to reach for.
 export fn sha1<C: Allocator>(ctx: C, message: [U8]): Digest {
     let state = blocks1(ctx, pad(ctx, message), initialState1(ctx), 0);
-    Digest(state.map(ctx, fn(word) => bytes.fromU32Be(word)).flatten(ctx))
+    Digest(state.map(ctx, fn(word) => bytes.fromU32BigEndian(word)).flatten(ctx))
 }
 
 // --- HMAC ---------------------------------------------------------------------

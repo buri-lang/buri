@@ -69,10 +69,10 @@ test "addition composes" {
 
 | Function | Meaning |
 |---|---|
-| `assert.equal(a, b)` / `notEq` | fails unless `a == b`; needs `Equal`, and `Show` for the message |
+| `assert.equal(a, b)` / `notEqual` | fails unless `a == b`; needs `Equal`, and `Show` for the message |
 | `assert.isTrue(b)` / `isFalse` | on a `Bool` |
 | `assert.contains(xs, x)`, `isEmpty(xs)` / `notEmpty`, `len(xs, n)` | on a list |
-| `assert.gt(a, b)` / `ge` / `lt` / `le`, `approxEq(a, b, tolerance)` | on an `Ordered`, and on `Float` within an absolute tolerance |
+| `assert.greaterThan(a, b)` / `ge` / `lt` / `le`, `approximatelyEqual(a, b, tolerance)` | on an `Ordered`, and on `Float` within an absolute tolerance |
 | `assert.ok(r)` | fails unless `r` is `.Ok`; **returns the wrapped value** |
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
 | `assert.some(o)` | fails unless `o` is `.Some`; returns the wrapped value |

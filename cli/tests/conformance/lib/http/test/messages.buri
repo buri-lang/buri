@@ -76,7 +76,7 @@ test "withTimeout is the field, and a number at or below zero clears it" {
 }
 
 test "a Duration converts to the milliseconds the field counts in" {
-    let bounded = http.request(.Get, "http://x/").withTimeout(time.seconds(5).millis());
+    let bounded = http.request(.Get, "http://x/").withTimeout(time.seconds(5).milliseconds());
     assert.equal(bounded.timeoutMillis, 5000);
 }
 
@@ -387,7 +387,7 @@ test "a Max-Age under a second rounds down, and one of zero is written" {
         name: "a",
         value: "1",
         path: .None,
-        maxAge: .Some(time.millis(500)),
+        maxAge: .Some(time.milliseconds(500)),
         httpOnly: false,
         secure: false,
         sameSite: .None,
@@ -514,7 +514,7 @@ test "the bound crosses to the host with the request" {
     assert.equal(upstream.calls(), [fetch(bounded)]);
     // A request that asked for no bound is a different call, so the field is
     // one the host really was handed rather than one the caller kept.
-    assert.notEq(upstream.calls(), [
+    assert.notEqual(upstream.calls(), [
         fetch(http.request(.Get, "https://example.test/")),
     ]);
 }

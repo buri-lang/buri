@@ -20,8 +20,8 @@ fn day(year: Int, month: Int, dayOfMonth: Int): Date {
     assert.some(date.date(year, month, dayOfMonth))
 }
 
-fn clock(hour: Int, minute: Int, second: Int, milli: Int): Time {
-    assert.some(date.time(hour, minute, second, milli))
+fn clock(hour: Int, minute: Int, second: Int, millisecond: Int): Time {
+    assert.some(date.time(hour, minute, second, millisecond))
 }
 
 // --- times ---------------------------------------------------------------------
@@ -359,14 +359,14 @@ test "a fraction of a second of every length, in a whole timestamp" {
     ];
     let read = fractions.mapCtx(ctx, fn(c, fraction) => {
         let text = str.format(c, "2026-08-15T13:45:00${fraction}Z");
-        date.parseDateTime(c, text).map(fn(dt) => dt.time.milli)
+        date.parseDateTime(c, text).map(fn(dt) => dt.time.millisecond)
     });
     assert.equal(read, expected);
     // The same lengths with an offset on the end, where the fraction is no
     // longer the last thing in the text.
     let offset = fractions.mapCtx(ctx, fn(c, fraction) => {
         let text = str.format(c, "2026-08-15T15:45:00${fraction}+02:00");
-        date.parseZoned(c, text).map(fn(z) => z.at.time.milli)
+        date.parseZoned(c, text).map(fn(z) => z.at.time.millisecond)
     });
     assert.equal(offset, expected);
     // A point with nothing after it is not a fraction.

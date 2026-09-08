@@ -33,7 +33,7 @@ test "two different numbers do not share the canonical shape" {
     // Not a claim about collisions — a hash may collide — but about the *shape*:
     // `42` and `-42` differ in the sign field, so their hashes are drawn from
     // different inputs.
-    assert.notEq(bigint.of(42), bigint.of(-42));
-    assert.notEq(bigint.of(42.hash(), bigint.of(-42).hash());
-    assert.notEq(bigint.of(1).hash(), bigint.of(2).hash());
+    assert.notEqual(bigint.of(42), bigint.of(-42));
+    assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());
+    assert.notEqual(bigint.of(1).hash(), bigint.of(2).hash());
 }

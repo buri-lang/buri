@@ -77,16 +77,16 @@ export fn version4<C: Allocator + Entropy>(ctx: C): Uuid {
 /// The timestamp is readable by anyone holding the identifier. Do not use one
 /// where when it was made is a secret.
 export fn version7<C: Allocator + Clock + Entropy>(ctx: C): Uuid {
-    let millis = time.now(ctx).0;
+    let milliseconds = time.now(ctx).0;
     let raw = crypto.randomBytes(ctx, 16);
     stamped(
         [
-            bits.shr(millis, 40).wrapToU8(),
-            bits.shr(millis, 32).wrapToU8(),
-            bits.shr(millis, 24).wrapToU8(),
-            bits.shr(millis, 16).wrapToU8(),
-            bits.shr(millis, 8).wrapToU8(),
-            millis.wrapToU8(),
+            bits.shiftRight(milliseconds, 40).wrapToU8(),
+            bits.shiftRight(milliseconds, 32).wrapToU8(),
+            bits.shiftRight(milliseconds, 24).wrapToU8(),
+            bits.shiftRight(milliseconds, 16).wrapToU8(),
+            bits.shiftRight(milliseconds, 8).wrapToU8(),
+            milliseconds.wrapToU8(),
             octetOf(raw, 6),
             octetOf(raw, 7),
             octetOf(raw, 8),

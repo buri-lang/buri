@@ -18,7 +18,7 @@ from "core/testing/assert" import * as assert;
 test "toInt truncates each lane toward zero" {
     assert.equal(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5).toInt() simd.i32x4(0, 0, -2, 2));
-    assert.equal(simd.ZERO_F.toInt(), simd.ZERO_I);
+    assert.equal(simd.ZERO_FLOAT.toInt(), simd.ZERO_INT);
 }
 
 test "toInt is total, where a plain conversion is not" {

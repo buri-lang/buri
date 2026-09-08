@@ -68,11 +68,11 @@ export struct I32x4 {
 }
 
 /// The same value in every lane.
-export fn splatF(v: Float): F32x4 {
+export fn splatFloat(v: Float): F32x4 {
     F32x4 { x: v, y: v, z: v, w: v }
 }
 
-export fn splatI(v: Int): I32x4 {
+export fn splatInt(v: Int): I32x4 {
     I32x4 { x: v, y: v, z: v, w: v }
 }
 
@@ -84,9 +84,9 @@ export fn i32x4(x: Int, y: Int, z: Int, w: Int): I32x4 {
     I32x4 { x: x, y: y, z: z, w: w }
 }
 
-export let ZERO_F: F32x4 = F32x4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0 };
+export let ZERO_FLOAT: F32x4 = F32x4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0 };
 
-export let ZERO_I: I32x4 = I32x4 { x: 0, y: 0, z: 0, w: 0 };
+export let ZERO_INT: I32x4 = I32x4 { x: 0, y: 0, z: 0, w: 0 };
 
 impl F32x4 {
     /// Lane 0 to 3. Out of range is lane 0 rather than an error.
@@ -131,7 +131,7 @@ impl F32x4 {
     }
 
     export fn scale(self, k: Float): F32x4 {
-        self.multiply(splatF(k))
+        self.multiply(splatFloat(k))
     }
 
     export fn min(self, o: F32x4): F32x4 {
@@ -154,10 +154,10 @@ impl F32x4 {
 
     export fn abs(self): F32x4 {
         F32x4 {
-            x: math.absFloat(self.x),
-            y: math.absFloat(self.y),
-            z: math.absFloat(self.z),
-            w: math.absFloat(self.w),
+            x: math.absoluteFloat(self.x),
+            y: math.absoluteFloat(self.y),
+            z: math.absoluteFloat(self.z),
+            w: math.absoluteFloat(self.w),
         }
     }
 
@@ -165,12 +165,12 @@ impl F32x4 {
         F32x4 { x: -self.x, y: -self.y, z: -self.z, w: -self.w }
     }
 
-    export fn sqrt(self): F32x4 {
+    export fn squareRoot(self): F32x4 {
         F32x4 {
-            x: math.sqrt(self.x),
-            y: math.sqrt(self.y),
-            z: math.sqrt(self.z),
-            w: math.sqrt(self.w),
+            x: math.squareRoot(self.x),
+            y: math.squareRoot(self.y),
+            z: math.squareRoot(self.z),
+            w: math.squareRoot(self.w),
         }
     }
 
@@ -207,7 +207,7 @@ impl F32x4 {
 
 /// `mask` lane non-zero takes from `a`, zero takes from `b`. Branch-free, which
 /// is why the comparisons produce a mask rather than a `Bool`.
-export fn selectF(mask: I32x4, a: F32x4, b: F32x4): F32x4 {
+export fn selectFloat(mask: I32x4, a: F32x4, b: F32x4): F32x4 {
     F32x4 {
         x: if (mask.x != 0) { a.x } else { b.x },
         y: if (mask.y != 0) { a.y } else { b.y },
@@ -356,7 +356,7 @@ impl F32x4 {
     /// from "core/simd" import * as simd;
     ///
     /// export fn step(position: simd.F32x4, velocity: simd.F32x4, dt: Float): simd.F32x4 {
-    ///     velocity.mulAdd(simd.splatF(dt), position)
+    ///     velocity.mulAdd(simd.splatFloat(dt), position)
     /// }
     /// ```
     ///
@@ -411,7 +411,7 @@ fn larger(a: Float, b: Float): Float {
 /// The two bounds are tested before the conversion rather than after: `2^63` is
 /// not an `Int`, so there is no value to test afterwards.
 fn laneToInt(v: Float): Int {
-    let whole = math.trunc(v);
+    let whole = math.truncate(v);
     if (math.isNan(whole)) {
         0
     } else if (whole >= 9223372036854775808.0) {
@@ -490,18 +490,18 @@ impl I32x4 {
     /// from "core/simd" import * as simd;
     ///
     /// export fn doubled(v: simd.I32x4): simd.I32x4 {
-    ///     v.shl(1)
+    ///     v.shiftLeft(1)
     /// }
     /// ```
     ///
-    /// A lane is an `Int`, so this is `bits.shl` four times and a `count` at or
+    /// A lane is an `Int`, so this is `bits.shiftLeft` four times and a `count` at or
     /// beyond 64 aborts, exactly as that one does.
-    export fn shl(self, count: Int): I32x4 {
+    export fn shiftLeft(self, count: Int): I32x4 {
         I32x4 {
-            x: bits.shl(self.x, count),
-            y: bits.shl(self.y, count),
-            z: bits.shl(self.z, count),
-            w: bits.shl(self.w, count),
+            x: bits.shiftLeft(self.x, count),
+            y: bits.shiftLeft(self.y, count),
+            z: bits.shiftLeft(self.z, count),
+            w: bits.shiftLeft(self.w, count),
         }
     }
 
@@ -512,17 +512,17 @@ impl I32x4 {
     /// from "core/simd" import * as simd;
     ///
     /// export fn halved(v: simd.I32x4): simd.I32x4 {
-    ///     v.shr(1)
+    ///     v.shiftRight(1)
     /// }
     /// ```
     ///
-    /// `bits.shr` four times, so a `count` at or beyond 64 aborts.
-    export fn shr(self, count: Int): I32x4 {
+    /// `bits.shiftRight` four times, so a `count` at or beyond 64 aborts.
+    export fn shiftRight(self, count: Int): I32x4 {
         I32x4 {
-            x: bits.shr(self.x, count),
-            y: bits.shr(self.y, count),
-            z: bits.shr(self.z, count),
-            w: bits.shr(self.w, count),
+            x: bits.shiftRight(self.x, count),
+            y: bits.shiftRight(self.y, count),
+            z: bits.shiftRight(self.z, count),
+            w: bits.shiftRight(self.w, count),
         }
     }
 }
@@ -587,17 +587,17 @@ export fn loadI32x4(items: [Int], at: Int): Option<I32x4> {
         })
 }
 
-/// `selectF` over integers: a `mask` lane that is non-zero takes from
+/// `selectFloat` over integers: a `mask` lane that is non-zero takes from
 /// `whenTrue`, a zero one from `whenFalse`.
 ///
 /// ```buri
 /// from "core/simd" import * as simd;
 ///
 /// export fn clampLow(v: simd.I32x4, floorAt: simd.I32x4): simd.I32x4 {
-///     simd.selectI(v.lessThan(floorAt), floorAt, v)
+///     simd.selectInt(v.lessThan(floorAt), floorAt, v)
 /// }
 /// ```
-export fn selectI(mask: I32x4, whenTrue: I32x4, whenFalse: I32x4): I32x4 {
+export fn selectInt(mask: I32x4, whenTrue: I32x4, whenFalse: I32x4): I32x4 {
     I32x4 {
         x: if (mask.x != 0) { whenTrue.x } else { whenFalse.x },
         y: if (mask.y != 0) { whenTrue.y } else { whenFalse.y },

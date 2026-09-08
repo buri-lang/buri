@@ -1,8 +1,8 @@
 // Every entry point `core/testing/assert` exports, failing, in the order the
 // module declares them. Twenty-two functions, twenty-two reports: `equal`,
-// `eqWith`, `notEq`, `isTrue`, `isFalse`, `contains`, `containsText`,
+// `equalWith`, `notEqual`, `isTrue`, `isFalse`, `contains`, `containsText`,
 // `startsWith`, `isEmpty`, `length`, `unordered`, `gt`, `ge`, `lt`, `le`,
-// `approxEq` and `approxEqRelative` go through `report`, `notEmpty` through
+// `approximatelyEqual` and `approximatelyEqualRelative` go through `report`, `notEmpty` through
 // `failWith`, and `ok`, `err`, `some` and `none` through `failExpected`, which
 // renders the *expected* side as a variant name rather than as a value.
 
@@ -16,17 +16,17 @@ test "eq" {
     assert.equal(1, 2);
 }
 
-test "eqWith" {
+test "equalWith" {
     let ctx = context {
         Allocator: alloc(),
     };
     let one = map.empty<Str, Int>().insert(ctx, "a", 1);
     let two = map.empty<Str, Int>().insert(ctx, "a", 2);
-    assert.eqWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
+    assert.equalWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
 }
 
-test "notEq" {
-    assert.notEq(5, 5);
+test "notEqual" {
+    assert.notEqual(5, 5);
 }
 
 test "isTrue" {
@@ -69,27 +69,27 @@ test "unordered" {
 }
 
 test "gt" {
-    assert.gt(3, 5);
+    assert.greaterThan(3, 5);
 }
 
 test "ge" {
-    assert.ge(3, 5);
+    assert.greaterOrEqual(3, 5);
 }
 
 test "lt" {
-    assert.lt(5, 3);
+    assert.lessThan(5, 3);
 }
 
 test "le" {
-    assert.le(5, 3);
+    assert.lessOrEqual(5, 3);
 }
 
-test "approxEq" {
-    assert.approxEq(1.0, 1.5, 0.25);
+test "approximatelyEqual" {
+    assert.approximatelyEqual(1.0, 1.5, 0.25);
 }
 
-test "approxEqRelative" {
-    assert.approxEqRelative(1000000.0, 1001000.0, 0.0001);
+test "approximatelyEqualRelative" {
+    assert.approximatelyEqualRelative(1000000.0, 1001000.0, 0.0001);
 }
 
 test "ok" {

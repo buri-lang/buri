@@ -1,6 +1,6 @@
 // CRASH: division by zero
 //
-// `number.divFloor` is written in terms of `/`, so a zero divisor aborts with the
+// `number.divideFloor` is written in terms of `/`, so a zero divisor aborts with the
 // message `/` aborts with rather than answering an `Option` nobody asked for
 // (`number.buri`, SPEC 6.2).
 from "core/effect" import { Allocator, Stdout, Environment };
@@ -12,6 +12,6 @@ from "core/number" import * as number;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
   let zero = env.arguments(ctx).length();
-  let _ = io.println(ctx, "${number.divFloor(-7, zero)}").ignore();
+  let _ = io.println(ctx, "${number.divideFloor(-7, zero)}").ignore();
   .Ok(())
 }

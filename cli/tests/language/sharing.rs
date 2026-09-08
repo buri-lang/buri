@@ -148,7 +148,7 @@ from "core/time" import * as time;
 
 struct State { total: Int, items: [Int] }
 
-struct Timing { millis: Int, pushed: Int }
+struct Timing { milliseconds: Int, pushed: Int }
 
 fn build<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
   if (i >= n) { acc } else { build(ctx, i + 1, n, acc.push(ctx, i)) }
@@ -189,13 +189,13 @@ fn timed<C: Allocator + Clock>(ctx: C, runs: Int, n: Int): Timing {
   let started = time.now(ctx);
   let pushed = buildRuns(ctx, 0, runs, n, 0) + foldRuns(ctx, 0, runs, n, 0);
   let took = time.since(ctx, started);
-  Timing { millis: took.millis(), pushed: pushed }
+  Timing { milliseconds: took.milliseconds(), pushed: pushed }
 }
 
 fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
   io.println(
     ctx,
-    "${small.millis} ${large.millis} ${small.pushed} ${large.pushed}",
+    "${small.milliseconds} ${large.milliseconds} ${small.pushed} ${large.pushed}",
   ).ignore()
 }
 
@@ -389,7 +389,7 @@ from "core/time" import * as time;
 
 struct Out { items: [Int], total: Int }
 
-struct Timing { millis: Int, pushed: Int }
+struct Timing { milliseconds: Int, pushed: Int }
 
 fn write<C: Allocator>(ctx: C, i: Int, n: Int, out: Out): Out {
   if (i >= n) {
@@ -418,13 +418,13 @@ fn timed<C: Allocator + Clock>(ctx: C, count: Int, n: Int): Timing {
   let started = time.now(ctx);
   let pushed = writeRuns(ctx, 0, count, n, 0);
   let took = time.since(ctx, started);
-  Timing { millis: took.millis(), pushed: pushed }
+  Timing { milliseconds: took.milliseconds(), pushed: pushed }
 }
 
 fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
   io.println(
     ctx,
-    "${small.millis} ${large.millis} ${small.pushed} ${large.pushed}",
+    "${small.milliseconds} ${large.milliseconds} ${small.pushed} ${large.pushed}",
   ).ignore()
 }
 
@@ -523,7 +523,7 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/time" import * as time;
 
-struct Timing { millis: Int, printed: Int }
+struct Timing { milliseconds: Int, printed: Int }
 
 fn fields<C: Allocator>(ctx: C, i: Int, n: Int, acc: [ast.FieldDecl]): [ast.FieldDecl] {
   if (i >= n) {
@@ -585,13 +585,13 @@ fn timed<C: Allocator + Clock>(ctx: C, count: Int, n: Int): Timing {
   let written = runs(ctx, 0, count, tree, 0);
   let took = time.since(ctx, started);
   let _ = written;
-  Timing { millis: took.millis(), printed: count * n }
+  Timing { milliseconds: took.milliseconds(), printed: count * n }
 }
 
 fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
   io.println(
     ctx,
-    "${small.millis} ${large.millis} ${small.printed} ${large.printed}",
+    "${small.milliseconds} ${large.milliseconds} ${small.printed} ${large.printed}",
   ).ignore()
 }
 

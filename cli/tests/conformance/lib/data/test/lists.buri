@@ -883,25 +883,25 @@ test "two separately built lists with equal contents are equal" {
 }
 
 test "lists of different lengths are not equal" {
-    assert.notEq([1, 2], [1, 2, 3]);
+    assert.notEqual([1, 2], [1, 2, 3]);
 }
 
 test "lists differing in one element are not equal" {
-    assert.notEq([1, 2, 3], [1, 9, 3]);
+    assert.notEqual([1, 2, 3], [1, 9, 3]);
 }
 
 test "list equality is elementwise and ordered" {
-    assert.notEq([1, 2], [2, 1]);
+    assert.notEqual([1, 2], [2, 1]);
 }
 
 test "nested lists compare structurally" {
     assert.equal([[1, 2], [3]], [[1, 2], [3]]);
-    assert.notEq([[1, 2], [3]], [[1], [2, 3]]);
+    assert.notEqual([[1, 2], [3]], [[1], [2, 3]]);
 }
 
 test "lists of tuples compare structurally" {
     assert.equal([(1, "a"), (2, "b")], [(1, "a"), (2, "b")]);
-    assert.notEq([(1, "a")], [(1, "b")]);
+    assert.notEqual([(1, "a")], [(1, "b")]);
 }
 
 // --- foldResultCtx ---------------------------------------------------------------

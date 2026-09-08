@@ -7,7 +7,7 @@ from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-let NANOS_PER_MILLISECOND: I64 1_000_000 =;
+let NANOSECONDS_PER_MILLISECOND: I64 1_000_000 =;
 
 let PPM_DENOMINATOR: Int = 1_000_000;
 
@@ -17,8 +17,8 @@ fn deadlineNanos(startedNanos: I64): I64 {
     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
 }
 
-fn elapsedMillis(nanos: I64): I64 {
-    nanos / NANOS_PER_MILLISECOND
+fn elapsedMillis(nanoseconds: I64): I64 {
+    nanoseconds / NANOSECONDS_PER_MILLISECOND
 }
 
 fn perMillion(count: Int, share: Int): Int {

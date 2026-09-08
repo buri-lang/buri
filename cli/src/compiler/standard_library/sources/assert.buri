@@ -35,8 +35,8 @@ export fn equal<T: Equal>(actual: T, expected: T): () {
     report(actual == expected, "equal", actual, expected)
 }
 
-export fn notEq<T: Equal>(actual: T, expected: T): () {
-    report(actual != expected, "notEq", actual, expected)
+export fn notEqual<T: Equal>(actual: T, expected: T): () {
+    report(actual != expected, "notEqual", actual, expected)
 }
 
 /// `equal` for a type with no `Equal`: you pass the comparison, and a failure still
@@ -60,7 +60,7 @@ export fn notEq<T: Equal>(actual: T, expected: T): () {
 ///     };
 ///     let one = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
 ///     let two = map.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
-///     assert.eqWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
+///     assert.equalWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
 /// }
 /// ```
 ///
@@ -71,13 +71,13 @@ export fn notEq<T: Equal>(actual: T, expected: T): () {
 /// The runner renders both sides *structurally*, so a failure shows a map's
 /// buckets rather than its entries — which is the layout the comparison just
 /// decided not to care about, and is still where the difference is.
-export fn eqWith<T, C: Allocator>(
+export fn equalWith<T, C: Allocator>(
     ctx: C,
     actual: T,
     expected: T,
     same: fn(C, T, T) => Bool,
 ): () {
-    report(same(ctx, actual, expected), "eqWith", actual, expected)
+    report(same(ctx, actual, expected), "equalWith", actual, expected)
 }
 
 export fn isTrue(actual: Bool): () {
@@ -180,23 +180,23 @@ export fn unordered<T: Ordered, C: Allocator>(ctx: C, actual: [T], expected: [T]
 
 /// Fails unless `actual > bound`. The report names the bound on its
 /// `expected` line: `gt(3, 5)` reads `actual: 3`, `expected: 5`.
-export fn gt<T: Ordered>(actual: T, bound: T): () {
-    report(actual > bound, "gt", actual, bound)
+export fn greaterThan<T: Ordered>(actual: T, bound: T): () {
+    report(actual > bound, "greaterThan", actual, bound)
 }
 
 /// Fails unless `actual >= bound`.
-export fn ge<T: Ordered>(actual: T, bound: T): () {
-    report(actual >= bound, "ge", actual, bound)
+export fn greaterOrEqual<T: Ordered>(actual: T, bound: T): () {
+    report(actual >= bound, "greaterOrEqual", actual, bound)
 }
 
 /// Fails unless `actual < bound`.
-export fn lt<T: Ordered>(actual: T, bound: T): () {
-    report(actual < bound, "lt", actual, bound)
+export fn lessThan<T: Ordered>(actual: T, bound: T): () {
+    report(actual < bound, "lessThan", actual, bound)
 }
 
 /// Fails unless `actual <= bound`.
-export fn le<T: Ordered>(actual: T, bound: T): () {
-    report(actual <= bound, "le", actual, bound)
+export fn lessOrEqual<T: Ordered>(actual: T, bound: T): () {
+    report(actual <= bound, "lessOrEqual", actual, bound)
 }
 
 /// Fails unless `actual` and `expected` are within `tolerance` of each other.
@@ -204,13 +204,13 @@ export fn le<T: Ordered>(actual: T, bound: T): () {
 /// The tolerance is absolute, and a parameter rather than a constant: how close
 /// counts as close enough is a fact about the computation. A `NaN` on either side
 /// fails, since it is within nothing.
-export fn approxEq(actual: Float, expected: Float, tolerance: Float): () {
-    // `math.absFloat` would do, but would make every test source that imports
+export fn approximatelyEqual(actual: Float, expected: Float, tolerance: Float): () {
+    // `math.absoluteFloat` would do, but would make every test source that imports
     // this one load `core/math`. A `NaN` on either side makes `>` false, so the
     // subtraction takes the other branch and is a `NaN` too — and a `NaN` is `<=`
     // nothing, because the ordering operators stay IEEE's (SPEC 6.2).
     let apart = if (actual > expected) { actual - expected } else { expected - actual };
-    report(apart <= tolerance, "approxEq", actual, expected)
+    report(apart <= tolerance, "approximatelyEqual", actual, expected)
 }
 
 /// Fails unless the two are within `tolerance` *of the larger of them*, so the
@@ -225,22 +225,22 @@ export fn approxEq(actual: Float, expected: Float, tolerance: Float): () {
 /// from "core/testing/assert" import * as assert;
 ///
 /// test "the sum is right to four significant figures" {
-///     assert.approxEqRelative(1000000.0, 1000050.0, 0.0001);
+///     assert.approximatelyEqualRelative(1000000.0, 1000050.0, 0.0001);
 /// }
 /// ```
 ///
 /// Two zeroes pass. Anything else against zero fails at every finite tolerance,
-/// because the scale is zero too — use `approxEq` where one side may be zero. A
+/// because the scale is zero too — use `approximatelyEqual` where one side may be zero. A
 /// `NaN` on either side fails, as it does there.
-export fn approxEqRelative(actual: Float, expected: Float, tolerance: Float): () {
+export fn approximatelyEqualRelative(actual: Float, expected: Float, tolerance: Float): () {
     let apart = if (actual > expected) { actual - expected } else { expected - actual };
     let left = magnitude(actual);
     let right = magnitude(expected);
     let scale = if (left > right) { left } else { right };
-    report(apart <= tolerance * scale, "approxEqRelative", actual, expected)
+    report(apart <= tolerance * scale, "approximatelyEqualRelative", actual, expected)
 }
 
-/// `math.absFloat`, written out for the reason `approxEq` gives: importing
+/// `math.absoluteFloat`, written out for the reason `approximatelyEqual` gives: importing
 /// `core/math` here makes every test source that imports this one load it.
 fn magnitude(x: Float): Float {
     if (x > 0.0 - x) { x } else { 0.0 - x }

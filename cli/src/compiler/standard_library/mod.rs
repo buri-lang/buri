@@ -799,7 +799,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("FileSystemWrite", "copyFile", "core/fs", "fs.copy(ctx, source, destination)"),
     w("Network", "fetch", "core/net/http", "http.send(ctx, request)"),
     w("Clock", "nowMilliseconds", "core/time", "time.now(ctx)"),
-    w("Clock", "sleepMilliseconds", "core/time", "time.sleepMs(ctx, millis)"),
+    w("Clock", "sleepMilliseconds", "core/time", "time.sleep(ctx, duration)"),
     w("Clock", "monotonicNanoseconds", "core/time", "time.monotonic(ctx)"),
     w("Random", "nextInt", "core/random", "random.int(ctx, lo, hi)"),
     w("Random", "nextFloat", "core/random", "random.float(ctx)"),
@@ -808,7 +808,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     // are different promises and a reader should have to name which they meant.
     w("Entropy", "bytes", "core/crypto", "crypto.randomBytes(ctx, count)"),
     w("Environment", "variable", "core/env", "env.get(ctx, name)"),
-    w("Environment", "args", "core/env", "env.withArguments(ctx)"),
+    w("Environment", "arguments", "core/env", "env.arguments(ctx)"),
     w("Environment", "currentDirectory", "core/env", "env.currentDirectory(ctx)"),
     w("Environment", "allVariables", "core/env", "env.all(ctx)"),
     w("Environment", "operatingSystemName", "core/env", "env.operatingSystem(ctx)"),

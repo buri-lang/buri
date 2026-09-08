@@ -1047,14 +1047,14 @@ test "two separately constructed structs with equal contents are equal" {
 }
 
 test "structs differing in one field are not equal" {
-    assert.notEq(Point { x: 1, y: 2 }, Point { x: 1, y: 3 });
+    assert.notEqual(Point { x: 1, y: 2 }, Point { x: 1, y: 3 });
 }
 
 test "nested structs compare structurally" {
     let a = Wrapper { inner: Point { x: 1, y: 2 }, label: "w" };
     let b = Wrapper { inner: Point { x: 1, y: 2 }, label: "w" };
     assert.equal(a, b);
-    assert.notEq(a, Wrapper { inner: Point { x: 1, y: 9 }, label: "w" });
+    assert.notEqual(a, Wrapper { inner: Point { x: 1, y: 9 }, label: "w" });
 }
 
 test "functional update produces an equal value when nothing changes" {
@@ -1067,7 +1067,7 @@ test "functional update changes exactly the named field" {
     let a = User { id: 1, name: "ada", active: true };
     let b = User { ..a, name: "grace" };
     assert.equal(b, User { id: 1, name: "grace", active: true });
-    assert.notEq(a, b);
+    assert.notEqual(a, b);
 }
 
 test "field shorthand builds the same value as explicit fields" {
@@ -1081,21 +1081,21 @@ test "two separately constructed enum values with equal payloads are equal" {
 }
 
 test "different enum variants are not equal" {
-    assert.notEq(Shape.Circle(3), Shape.Square(3));
+    assert.notEqual(Shape.Circle(3), Shape.Square(3));
 }
 
 test "same variant with different payloads is not equal" {
-    assert.notEq(Shape.Circle(3), Shape.Circle(4));
+    assert.notEqual(Shape.Circle(3), Shape.Circle(4));
 }
 
 test "nullary variants are equal to themselves" {
     assert.equal(Shape.Empty, Shape.Empty);
-    assert.notEq(Colour.Red, Colour.Blue);
+    assert.notEqual(Colour.Red, Colour.Blue);
 }
 
 test "record variants compare fieldwise" {
     assert.equal(Shape.Rect { width: 1, height: 2 }, Shape.Rect { width: 1, height: 2 });
-    assert.notEq(Shape.Rect { width: 1, height: 2 }, Shape.Rect {
+    assert.notEqual(Shape.Rect { width: 1, height: 2 }, Shape.Rect {
         width: 2,
         height: 1,
     });
@@ -1106,7 +1106,7 @@ test "nested enums compare structurally" {
         Tree.Node(Shape.Circle(1), Shape.Empty),
         Tree.Node(Shape.Circle(1), Shape.Empty),
     );
-    assert.notEq(
+    assert.notEqual(
         Tree.Node(Shape.Circle(1), Shape.Empty),
         Tree.Node(Shape.Circle(2), Shape.Empty),
     );
@@ -1114,18 +1114,18 @@ test "nested enums compare structurally" {
 
 test "arrays of structs compare structurally" {
     assert.equal([Point { x: 1, y: 1 }], [Point { x: 1, y: 1 }]);
-    assert.notEq([Point { x: 1, y: 1 }], [Point { x: 1, y: 2 }]);
+    assert.notEqual([Point { x: 1, y: 1 }], [Point { x: 1, y: 2 }]);
 }
 
 test "arrays of enums compare structurally" {
     assert.equal([Shape.Empty, Shape.Circle(1)], [Shape.Empty, Shape.Circle(1)]);
-    assert.notEq([Shape.Empty], [Shape.Circle(1)]);
+    assert.notEqual([Shape.Empty], [Shape.Circle(1)]);
 }
 
 test "tuple structs compare fieldwise" {
     assert.equal(Pair(1, "a"), Pair(1, "a"));
-    assert.notEq(Pair(1, "a"), Pair(1, "b"));
-    assert.notEq(Pair(1, "a"), Pair(2, "a"));
+    assert.notEqual(Pair(1, "a"), Pair(1, "b"));
+    assert.notEqual(Pair(1, "a"), Pair(2, "a"));
 }
 
 test "tuples of structs compare structurally" {
@@ -1278,7 +1278,7 @@ test "derived Show distinguishes unequal values" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.notEq(Point { x: 1, y: 2 }.show(ctx), Point { x: 2, y: 1 }.show(ctx));
+    assert.notEqual(Point { x: 1, y: 2 }.show(ctx), Point { x: 2, y: 1 }.show(ctx));
 }
 
 test "derived Show recurses into a nested enum" {

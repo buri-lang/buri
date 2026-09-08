@@ -1482,7 +1482,7 @@ fn runtime_calls(o: &mut Out) {
             ),
         );
     }
-    // `sar` is `Int`'s alone: it is the arithmetic shift, and every other width
+    // `shiftRightArithmetic` is `Int`'s alone: it is the arithmetic shift, and every other width
     // in `core/bits` is unsigned.
     o.push(
         "bits/sar/64",

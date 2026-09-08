@@ -82,7 +82,7 @@ impl Listen for OneShot {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
         match (self.binds) {
             0 => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
@@ -271,7 +271,7 @@ fn status<C: Network>(ctx: C): Int {
 }
 
 fn ticked<C: Clock>(ctx: C): I64 {
-    let _ = time.sleepMs(ctx, 0);
+    let _ = time.sleep(ctx, time.milliseconds(0));
     time.now(ctx).0
 }
 

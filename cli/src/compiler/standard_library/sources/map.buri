@@ -57,7 +57,7 @@ let LOAD: Int = 4;
 /// The top bit is shifted out first: `wrapToI64` on a `U64` above `I64`'s
 /// maximum produces a negative number, and a negative index is not a bucket.
 fn bucketOf(h: U64, count: Int): Int {
-    if (count <= 0) { 0 } else { bits.shrU64(h, 1).wrapToI64() % count }
+    if (count <= 0) { 0 } else { bits.shiftRightU64(h, 1).wrapToI64() % count }
 }
 
 /// The bucket list with position `at` replaced, by splicing rather than by

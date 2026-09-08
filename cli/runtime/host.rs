@@ -96,7 +96,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Record `argc`/`argv` and install the panic hook. `lib.rs` §6.
 ///
 /// The generated `main` calls this as its first statement. It is not required —
-/// `env.withArguments(ctx)` falls back to `std::env` — but it is preferred, because
+/// `env.arguments(ctx)` falls back to `std::env` — but it is preferred, because
 /// `std::env::args` in a **staticlib** reaches the argument vector through a
 /// platform startup hook (`.init_array` on Linux, `_NSGetArgv` on macOS) whose
 /// survival across a `--gc-sections` link is not something this runtime should

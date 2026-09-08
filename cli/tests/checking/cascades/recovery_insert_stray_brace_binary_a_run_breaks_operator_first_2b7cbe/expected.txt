@@ -1,7 +1,7 @@
 error: an expression statement is legal only in a test source [expression-statement]
  --> main.buri:2:3
   |
-2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || milli < 0 || extra milli > 999
+2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || millisecond < 0 || extra millisecond > 999
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = a block is `let`s followed by a result expression
@@ -9,7 +9,7 @@ error: an expression statement is legal only in a test source [expression-statem
 error: this statement has type `Bool`, not `()` [statement-not-unit]
  --> main.buri:2:3
   |
-2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || milli < 0 || extra milli > 999
+2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || millisecond < 0 || extra millisecond > 999
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = only an expression whose type is `()` may stand alone; bind anything else
@@ -17,14 +17,14 @@ error: this statement has type `Bool`, not `()` [statement-not-unit]
 error: there is nothing named `extra` in scope [unresolved-name]
  --> main.buri:2:99
   |
-2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || milli < 0 || extra milli > 999
+2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || millisecond < 0 || extra millisecond > 999
   |                                                                                                   ^^^^^
   |
   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
 error: a statement ends with `;` [missing-terminator]
  --> main.buri:2:104
   |
-2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || milli < 0 || extra milli > 999
+2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || millisecond < 0 || extra millisecond > 999
   |                                                                                                        ^
   |
   = fix: write `;` here

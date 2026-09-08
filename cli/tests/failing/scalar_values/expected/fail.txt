@@ -64,7 +64,7 @@ FAIL //lib/scalars  test/scalars.buri  "Bool"
     expected: false
   --> lib/scalars/test/scalars.buri:55:1
 FAIL //lib/scalars  test/scalars.buri  "unit"
-  assert.notEq failed
+  assert.notEqual failed
     actual:   ()
     expected: ()
   --> lib/scalars/test/scalars.buri:59:1

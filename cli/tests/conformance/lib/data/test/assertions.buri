@@ -63,81 +63,81 @@ test "length holds at zero and at the length the list has" {
 // --- gt / ge / lt / le --------------------------------------------------------------
 
 test "the comparisons hold where the operators do" {
-    assert.gt(5, 3);
-    assert.ge(5, 3);
-    assert.ge(3, 3);
-    assert.lt(3, 5);
-    assert.le(3, 5);
-    assert.le(3, 3);
+    assert.greaterThan(5, 3);
+    assert.greaterOrEqual(5, 3);
+    assert.greaterOrEqual(3, 3);
+    assert.lessThan(3, 5);
+    assert.lessOrEqual(3, 5);
+    assert.lessOrEqual(3, 3);
     assert.equal(5 > 3, true);
 }
 
 test "the comparisons are the type's own Ordered" {
-    assert.gt("b", "a");
-    assert.lt('a', 'b');
-    assert.gt(true, false);
-    assert.ge(1.5, 1.5);
+    assert.greaterThan("b", "a");
+    assert.lessThan('a', 'b');
+    assert.greaterThan(true, false);
+    assert.greaterOrEqual(1.5, 1.5);
     assert.equal("b" > "a", true);
 }
 
-// --- approxEq ----------------------------------------------------------------------
+// --- approximatelyEqual ----------------------------------------------------------------------
 
-test "approxEq holds within the tolerance, in both directions" {
-    assert.approxEq(0.1 + 0.2, 0.3, 0.000001);
-    assert.approxEq(1.0, 1.25, 0.25);
-    assert.approxEq(1.25, 1.0, 0.25);
-    assert.approxEq(1.0, 1.0, 0.0);
+test "approximatelyEqual holds within the tolerance, in both directions" {
+    assert.approximatelyEqual(0.1 + 0.2, 0.3, 0.000001);
+    assert.approximatelyEqual(1.0, 1.25, 0.25);
+    assert.approximatelyEqual(1.25, 1.0, 0.25);
+    assert.approximatelyEqual(1.0, 1.0, 0.0);
     assert.equal(1.0, 1.0);
 }
 
-// --- approxEqRelative -----------------------------------------------------------------
+// --- approximatelyEqualRelative -----------------------------------------------------------------
 
-test "approxEqRelative scales the tolerance with the larger value" {
+test "approximatelyEqualRelative scales the tolerance with the larger value" {
     // The same four significant figures at either size.
-    assert.approxEqRelative(1000000.0, 1000050.0, 0.0001);
-    assert.approxEqRelative(1.0, 1.00005, 0.0001);
-    assert.approxEqRelative(1.00005, 1.0, 0.0001);
+    assert.approximatelyEqualRelative(1000000.0, 1000050.0, 0.0001);
+    assert.approximatelyEqualRelative(1.0, 1.00005, 0.0001);
+    assert.approximatelyEqualRelative(1.00005, 1.0, 0.0001);
     assert.equal(1.0, 1.0);
 }
 
-test "approxEqRelative holds at zero, at equality and across signs" {
-    assert.approxEqRelative(0.0, 0.0, 0.0);
-    assert.approxEqRelative(2.5, 2.5, 0.0);
-    assert.approxEqRelative(0.0 - 100.0, 0.0 - 100.01, 0.001);
+test "approximatelyEqualRelative holds at zero, at equality and across signs" {
+    assert.approximatelyEqualRelative(0.0, 0.0, 0.0);
+    assert.approximatelyEqualRelative(2.5, 2.5, 0.0);
+    assert.approximatelyEqualRelative(0.0 - 100.0, 0.0 - 100.01, 0.001);
     assert.equal(2.5, 2.5);
 }
 
-// --- eqWith ---------------------------------------------------------------------------
+// --- equalWith ---------------------------------------------------------------------------
 
-test "eqWith compares two maps built in different orders" {
+test "equalWith compares two maps built in different orders" {
     let ctx = context {
         Allocator: alloc(),
     };
     let one = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
     let two = map.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
-    assert.eqWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
+    assert.equalWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
     assert.equal(one.length(), 2);
 }
 
-test "eqWith holds for two empty maps and for two empty sets" {
+test "equalWith holds for two empty maps and for two empty sets" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eqWith(ctx, map.empty<Str, Int>(), map.empty<Str, Int>(), fn(c, a, b) => {
+    assert.equalWith(ctx, map.empty<Str, Int>(), map.empty<Str, Int>(), fn(c, a, b) => {
         a.equals(c, b)
     });
-    assert.eqWith(ctx, set.empty<Int>(), set.empty<Int>(), fn(c, a, b) => {
+    assert.equalWith(ctx, set.empty<Int>(), set.empty<Int>(), fn(c, a, b) => {
         a.equals(c, b)
     });
     assert.equal(map.empty<Str, Int>().length(), 0);
 }
 
-test "eqWith takes any comparison, not only a collection's equals" {
+test "equalWith takes any comparison, not only a collection's equals" {
     let ctx = context {
         Allocator: alloc(),
     };
     // Same last digit, different numbers: the comparison decides what equal is.
-    assert.eqWith(ctx, 13, 33, fn(_c, a, b) => a % 10 == b % 10);
+    assert.equalWith(ctx, 13, 33, fn(_c, a, b) => a % 10 == b % 10);
     assert.equal(13 % 10, 3);
 }
 
@@ -189,29 +189,29 @@ test "unordered counts duplicates and holds for two empty lists" {
     assert.equal([1, 1, 2].length(), 3);
 }
 
-// --- eqWith over the collections that have no Equal of their own -------------------------
+// --- equalWith over the collections that have no Equal of their own -------------------------
 
-test "eqWith takes each collection that answers equals rather than deriving Equal" {
+test "equalWith takes each collection that answers equals rather than deriving Equal" {
     let ctx = context {
         Allocator: alloc(),
     };
     let sortedOne = orderedmap.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
     let sortedTwo = orderedmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
-    assert.eqWith(ctx, sortedOne, sortedTwo, fn(c, a, b) => a.equals(c, b));
+    assert.equalWith(ctx, sortedOne, sortedTwo, fn(c, a, b) => a.equals(c, b));
     let setOne = set.empty<Int>().insert(ctx, 1).insert(ctx, 2);
     let setTwo = set.empty<Int>().insert(ctx, 2).insert(ctx, 1);
-    assert.eqWith(ctx, setOne, setTwo, fn(c, a, b) => a.equals(c, b));
+    assert.equalWith(ctx, setOne, setTwo, fn(c, a, b) => a.equals(c, b));
     let queued = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
-    assert.eqWith(ctx, queued, queued, fn(c, a, b) => a.equals(c, b));
+    assert.equalWith(ctx, queued, queued, fn(c, a, b) => a.equals(c, b));
     assert.equal(sortedOne.length(), 2);
 }
 
-test "eqWith holds for a value against itself whatever the comparison" {
+test "equalWith holds for a value against itself whatever the comparison" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eqWith(ctx, "text", "text", fn(_c, a, b) => a == b);
-    assert.eqWith(ctx, list.empty<Int>(), list.empty<Int>(), fn(_c, a, b) => {
+    assert.equalWith(ctx, "text", "text", fn(_c, a, b) => a == b);
+    assert.equalWith(ctx, list.empty<Int>(), list.empty<Int>(), fn(_c, a, b) => {
         a.length() == b.length()
     });
     assert.equal("text".length(), 4);
@@ -256,18 +256,18 @@ test "unordered is the type's own Ordered, so text and characters sort too" {
     assert.equal(["b", "a", "b"].length(), 3);
 }
 
-// --- approxEqRelative at the tolerance exactly ---------------------------------------------
+// --- approximatelyEqualRelative at the tolerance exactly ---------------------------------------------
 
-test "approxEqRelative holds when the gap is exactly the tolerance times the scale" {
+test "approximatelyEqualRelative holds when the gap is exactly the tolerance times the scale" {
     // 100.0 against 110.0 is a tenth of the larger, so a tolerance of a tenth
     // is the last one that holds.
-    assert.approxEqRelative(100.0, 110.0, 0.1);
-    assert.approxEq(100.0, 110.0, 10.0);
+    assert.approximatelyEqualRelative(100.0, 110.0, 0.1);
+    assert.approximatelyEqual(100.0, 110.0, 10.0);
     assert.equal(110.0 - 100.0, 10.0);
 }
 
-test "approxEqRelative scales off the larger side, whichever side that is" {
-    assert.approxEqRelative(110.0, 100.0, 0.1);
-    assert.approxEqRelative(0.0 - 100.0, 0.0 - 110.0, 0.1);
+test "approximatelyEqualRelative scales off the larger side, whichever side that is" {
+    assert.approximatelyEqualRelative(110.0, 100.0, 0.1);
+    assert.approximatelyEqualRelative(0.0 - 100.0, 0.0 - 110.0, 0.1);
     assert.equal(100.0 < 110.0, true);
 }

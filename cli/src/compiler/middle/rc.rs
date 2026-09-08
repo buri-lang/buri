@@ -5728,7 +5728,7 @@ fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = sleepy(ctx, 2, fn(c) => {
-    let _ = time.sleepMs(c, 1);
+    let _ = time.sleep(c, time.milliseconds(1));
     5
   });
   let fast = quick(ctx, 2, fn(c) => 5);
@@ -5743,7 +5743,7 @@ export fn main(): Result<(), Str> {
     const GOLDEN_FUNCS: usize = 9;
     const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
         "core/host:HostClock.sleepMilliseconds",
-        "core/time:sleepMs",
+        "core/time:sleep",
         "rc_test.buri:main",
         "rc_test.buri:sleepy",
     ];

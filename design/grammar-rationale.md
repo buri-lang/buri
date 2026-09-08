@@ -70,7 +70,7 @@ operator. *Cost:* `core/number` carries one method per source-and-target pair.
 **12.6 There is no `<<` or `>>` token.**
 Longest-match lexing would turn `Map<Str, [Int]>>` into a shift. Dropping the
 operators fixes that at the source, rather than papering over it with a token
-splitter that makes the lexer position-dependent. *Cost:* `bits.shl(x, n)`.
+splitter that makes the lexer position-dependent. *Cost:* `bits.shiftLeft(x, n)`.
 
 **12.7 Enum variants in patterns must be qualified or dot-prefixed.**
 Otherwise `None` is a binding or a variant depending on what is in scope, and the

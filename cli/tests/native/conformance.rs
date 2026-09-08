@@ -365,7 +365,7 @@ const PACKAGES: &[Case] = &[
     included("numbers/integers.buri"),
     // `core/simd` turned out to need no vector intrinsic at all: it is
     // written in Buri over fixed-size tuples, and the only entries it
-    // reaches outside the language are `math.sqrt` and `math.absFloat`.
+    // reaches outside the language are `math.squareRoot` and `math.absoluteFloat`.
     included("vectors/simd.buri"),
     // It used to be the only file that built a testing context and still
     // compiled, because the one it builds is `alloc` and that one reads no
@@ -513,7 +513,7 @@ const PACKAGES: &[Case] = &[
     // `cli/tests/failing/assertion_kinds` on the reference backend.
     included("data/assertions.buri"),
     // `core/testing/check`, whose whole surface is ordinary Buri over a
-    // function value and `core/random`'s `Gen`: a generator is a closure this
+    // function value and `core/random`'s `Generator`: a generator is a closure this
     // backend already returns from a function, and the counterexample it
     // reports goes through `assert.none`, which is `failExpected` — the same
     // door `data/assertions.buri` uses. The draws are the point of running it
@@ -671,7 +671,7 @@ const PACKAGES: &[Case] = &[
     // `cli/runtime/testing.rs`, so the sequence this file writes down is the
     // one both backends draw.
     included("crypto/entropy.buri"),
-    // `Gen`, which is ordinary Buri and reaches no host: U64 wrapping
+    // `Generator`, which is ordinary Buri and reaches no host: U64 wrapping
     // arithmetic, shifts, tail recursion and a tuple returned from every
     // method. It is on the native set from the day it landed for the reason
     // `crypto/sha256.buri` is — a second implementation of an algorithm both
@@ -781,7 +781,7 @@ const PACKAGES: &[Case] = &[
     // the three as IEEE-754 divisions instead of as `1.0e400`, and an argument
     // no run of the reference backend alone can make. Nothing in it reaches a
     // transcendental: it is division by zero, `signum`, the three classifiers,
-    // `sqrt`, `floor`, `ceil`, `absFloat` and rendering, each of them exact.
+    // `squareRoot`, `floor`, `ceiling`, `absoluteFloat` and rendering, each of them exact.
     included("numbers/special_floats.buri"),
     excluded(
         "text/json.buri",
@@ -1469,9 +1469,9 @@ test "a test clock starts where it was put and moves only when moved" {
   let ctx = context { Allocator: alloc(), Clock: dial };
   assert.equal(time.now(ctx).0, 1000);
   assert.equal(time.now(ctx).0, 1000);
-  let _ = time.sleepMs(ctx, 5);
+  let _ = time.sleep(ctx, time.milliseconds(5));
   assert.equal(time.now(ctx).0, 1005);
-  let _ = time.sleepMs(dial, 10);
+  let _ = time.sleep(dial, time.milliseconds(10));
   assert.equal(time.now(ctx).0, 1015);
 }
 
@@ -1498,7 +1498,7 @@ test "an environment holds what it was given and nothing else" {
   assert.equal(assert.some(env.get(ctx, "HOME")), "/tmp");
   assert.equal(assert.some(env.get(ctx, "LANG")), "C");
   assert.isTrue(env.get(ctx, "PATH").isNone());
-  let args = env.withArguments(ctx);
+  let args = env.arguments(ctx);
   assert.equal(args.length(), 2);
   assert.equal(args.join(ctx, " "), "--verbose x");
 }
@@ -1506,7 +1506,7 @@ test "an environment holds what it was given and nothing else" {
 test "an empty environment has no variables and no arguments" {
   let ctx = context { Allocator: alloc(), Environment: env() };
   assert.isTrue(env.get(ctx, "HOME").isNone());
-  assert.equal(env.withArguments(ctx).length(), 0);
+  assert.equal(env.arguments(ctx).length(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
@@ -1671,12 +1671,12 @@ fn the_native_set_can_fail() {
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `assert!` on the marker means a corpus that
     // stopped containing it fails here rather than passing vacuously.
-    const MARKER: &str = "assert.equal(bits.shl(1, 10), 1024);"; 
+    const MARKER: &str = "assert.equal(bits.shiftLeft(1, 10), 1024);"; 
     assert!(
         source.contains(MARKER),
         "`numbers/bits.buri` no longer contains the assertion this test edits"
     );
-    let broken = source.replace(MARKER, "assert.equal(bits.shl(1, 10), 1025);");
+    let broken = source.replace(MARKER, "assert.equal(bits.shiftLeft(1, 10), 1025);");
     let Some((status, out, err, _)) = run("bits-broken", &broken) else {
         return;
     };

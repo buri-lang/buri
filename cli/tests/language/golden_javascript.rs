@@ -420,8 +420,8 @@ from \"core/time\" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
-  let _ = time.sleepMs(ctx, 150);
-  let _ = time.sleepMs(ctx, 150);
+  let _ = time.sleep(ctx, time.milliseconds(150));
+  let _ = time.sleep(ctx, time.milliseconds(150));
   let _ = io.println(ctx, \"slept\").ignore();
   .Ok(())
 }
@@ -674,7 +674,7 @@ fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let n = wrapped(ctx, fn(c) => {
-    let _ = time.sleepMs(c, 20);
+    let _ = time.sleep(c, time.milliseconds(20));
     let _ = io.println(c, \"inside\").ignore();
     7
   });
@@ -787,7 +787,7 @@ fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = sleepy(ctx, 2, fn(c) => {
-    let _ = time.sleepMs(c, 1);
+    let _ = time.sleep(c, time.milliseconds(1));
     5
   });
   let fast = applyN(3, 1, fn(x) => x + 1);
@@ -852,7 +852,7 @@ from \"core/time\" import * as time;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = [1, 2, 3].mapCtx(ctx, fn(c, x) => {
-    let _ = time.sleepMs(c, 1);
+    let _ = time.sleep(c, time.milliseconds(1));
     x * 2
   });
   let fast = [1, 2, 3].mapCtx(ctx, fn(c, x) => str.fromInt(c, x + 1));
@@ -941,7 +941,7 @@ fn wrapped<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = wrapped(ctx, 2, fn(c) => {
-    let _ = time.sleepMs(c, 1);
+    let _ = time.sleep(c, time.milliseconds(1));
     3
   });
   let a = force(.Const(1), 10, 3);

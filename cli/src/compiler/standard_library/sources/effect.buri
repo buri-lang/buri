@@ -100,7 +100,7 @@ export effect Network {
 
 export effect Clock {
     fn nowMilliseconds(self): I64;
-    fn sleepMilliseconds(self, millis: Int): ();
+    fn sleepMilliseconds(self, milliseconds: Int): ();
 
     /// A reading off a clock that only ever goes forward, in nanoseconds.
     ///
@@ -122,7 +122,7 @@ export effect Clock {
 /// observer who has seen enough output of either can predict the rest.
 ///
 /// A program that needs unpredictability names `Entropy` below. A program that
-/// wants a generator it can *replay* uses `core/random`'s `Gen`: a seeded value
+/// wants a generator it can *replay* uses `core/random`'s `Generator`: a seeded value
 /// rather than an effect, with the same distribution and the same numbers
 /// twice.
 export effect Random {
@@ -316,7 +316,7 @@ export effect Listen {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError>;
 
     /// The next connection on this listener with a whole request on it.
@@ -666,7 +666,7 @@ export enum Serve {
     /// **It bounds the waiting and not the handlers.** A handler still running
     /// when this expires still answers the connection it was given; what expires
     /// is the patience of the workers that have nothing to do.
-    DrainMillis(Int),
+    DrainMilliseconds(Int),
     /// How many messages a socket's outbound buffer holds before the socket is
     /// closed.
     ///
@@ -975,7 +975,7 @@ impl Request {
         Request { ..self, body: body }
     }
 
-    /// The same request, bounded. `millis` at or below zero puts the platform's
+    /// The same request, bounded. `milliseconds` at or below zero puts the platform's
     /// own bound back.
     ///
     /// **Every platform honours it.** A native `fetch` bounds the lookup, the
@@ -983,9 +983,9 @@ impl Request {
     /// aborts the request when it runs out. Either way an expired request is
     /// `.Err(.Timeout)`.
     ///
-    /// A `Duration` converts: `request.withTimeout(time.seconds(5).millis())`.
-    export fn withTimeout(self, millis: Int): Request {
-        Request { ..self, timeoutMillis: if (millis > 0) { millis } else { 0 } }
+    /// A `Duration` converts: `request.withTimeout(time.seconds(5).milliseconds())`.
+    export fn withTimeout(self, milliseconds: Int): Request {
+        Request { ..self, timeoutMillis: if (milliseconds > 0) { milliseconds } else { 0 } }
     }
 }
 

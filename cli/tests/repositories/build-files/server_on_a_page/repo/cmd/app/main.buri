@@ -10,6 +10,7 @@ from "core/effect" import { Allocator, Listen, Tasks };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
@@ -27,7 +28,7 @@ export fn main(): Result<(), Str> {
                 }
             },
             requestLimit: .Some(1),
-            idleTimeoutMillis: .Some(20000),
+            idleTimeout: .Some(time.milliseconds(20000)),
         })
         .mapErr(server.errorText)
 }

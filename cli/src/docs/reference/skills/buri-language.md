@@ -182,7 +182,7 @@ and each ends with `;`.
 let hypotenuse = {
     let a2 = a * a;
     let b2 = b * b;
-    math.sqrt(a2 + b2)
+    math.squareRoot(a2 + b2)
 };
 
 let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positive" };
@@ -204,7 +204,7 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
   unreachable arm is a compile error.
 - Comparison is **non-associative**: `a < b < c` is a parse error.
 - Bitwise binds tighter than comparison, so `a & MASK == 0` is `(a & MASK) == 0`.
-- There is no `<<`/`>>`; use `bits.shl(x, n)` and `bits.shr(x, n)`.
+- There is no `<<`/`>>`; use `bits.shiftLeft(x, n)` and `bits.shiftRight(x, n)`.
 - A lambda body extends as far right as possible, so `2 * fn(x) => x` is a
   parse error — parenthesise it.
 - Shadowing is allowed, including twice in one block.

@@ -86,7 +86,7 @@
 //!     };
 //!     let _ = tasks.scope(ctx, fn(c, here) => {
 //!         let _ = tasks.spawn(c, here, fn(c2) => {
-//!             let _ = time.sleepMs(c2, 5);
+//!             let _ = time.sleep(c2, time.milliseconds(5));
 //!             let _ = io.println(c2, "the timer fired").ignore();
 //!             ()
 //!         });

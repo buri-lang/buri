@@ -31,7 +31,7 @@ export fn run<C: Allocator + Stdout>(ctx: C, frames: [Str]): () {
 
 /// What the timer fires. It waits first, which is the whole of what a timer is.
 export fn sweep<C: Clock + Stdout>(ctx: C, after: Int): () {
-    let _ = time.sleepMs(ctx, after);
+    let _ = time.sleep(ctx, time.milliseconds(after));
     let _ = io.println(ctx, "sessions expired at ${time.now(ctx).0}").ignore();
     ()
 }

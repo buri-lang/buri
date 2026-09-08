@@ -202,14 +202,14 @@ test "the sign of a zero is preserved, which the NaN rule does not touch" {
 
 test "eight octets, both ends first" {
     let x: U64 = 0x0123456789abcdef;
-    assert.equal(bytes.fromU64Be(x), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]);
-    assert.equal(bytes.fromU64Le(x), [0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01]);
+    assert.equal(bytes.fromU64BigEndian(x), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]);
+    assert.equal(bytes.fromU64LittleEndian(x), [0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01]);
 }
 
 test "four octets, both ends first" {
     let x: U32 = 0xdeadbeef;
-    assert.equal(bytes.fromU32Be(x), [0xde, 0xad, 0xbe, 0xef]);
-    assert.equal(bytes.fromU32Le(x), [0xef, 0xbe, 0xad, 0xde]);
+    assert.equal(bytes.fromU32BigEndian(x), [0xde, 0xad, 0xbe, 0xef]);
+    assert.equal(bytes.fromU32LittleEndian(x), [0xef, 0xbe, 0xad, 0xde]);
 }
 
 // The top bit set is where a signed reading would go wrong, and where a
@@ -226,9 +226,9 @@ test "the whole width round-trips, including the top bit" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU64Be(bytes.fromU64Be(x), 0));
+    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU64BigEndian(bytes.fromU64BigEndian(x), 0));
     assert.equal(back, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
-    let backLe = values.mapCtx(ctx, fn(_c, x) => bytes.toU64Le(bytes.fromU64Le(x), 0));
+    let backLe = values.mapCtx(ctx, fn(_c, x) => bytes.toU64LittleEndian(bytes.fromU64LittleEndian(x), 0));
     assert.equal(backLe, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
 }
 
@@ -237,21 +237,21 @@ test "thirty-two bits round-trip the same way" {
         Allocator: alloc(),
     };
     let values: [U32] = [0, 1, 0x7fffffff, 0x80000000, 0xffffffff];
-    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU32Le(bytes.fromU32Le(x), 0));
+    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU32LittleEndian(bytes.fromU32LittleEndian(x), 0));
     assert.equal(back, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
 }
 
 test "reading past the end is .None rather than a short number" {
-    assert.none(bytes.toU64Be([1, 2, 3], 0));
-    assert.none(bytes.toU64Le([1, 2, 3, 4, 5, 6, 7], 0));
-    assert.none(bytes.toU32Be([1, 2, 3, 4], 1));
-    assert.none(bytes.toU32Le([1, 2, 3, 4], 0 - 1));
+    assert.none(bytes.toU64BigEndian([1, 2, 3], 0));
+    assert.none(bytes.toU64LittleEndian([1, 2, 3, 4, 5, 6, 7], 0));
+    assert.none(bytes.toU32BigEndian([1, 2, 3, 4], 1));
+    assert.none(bytes.toU32LittleEndian([1, 2, 3, 4], 0 - 1));
 }
 
 test "an offset reads from where it points" {
     let raw: [U8] = [0xff, 0xff, 0x00, 0x00, 0x01, 0x00];
-    assert.equal(assert.some(bytes.toU32Be(raw, 2)), 0x00000100);
-    assert.equal(assert.some(bytes.toU32Le(raw, 2)), 0x00010000);
+    assert.equal(assert.some(bytes.toU32BigEndian(raw, 2)), 0x00000100);
+    assert.equal(assert.some(bytes.toU32LittleEndian(raw, 2)), 0x00010000);
 }
 
 // --- The reader ------------------------------------------------------------------
@@ -340,7 +340,7 @@ test "a truncated read reports the index it began at" {
 
 test "a reader is a value, so two of them compare" {
     assert.equal(bytes.reader([1, 2]), bytes.readerAt([1, 2], 0));
-    assert.notEq(bytes.reader([1, 2]), bytes.readerAt([1, 2], 1));
+    assert.notEqual(bytes.reader([1, 2]), bytes.readerAt([1, 2], 1));
 }
 
 // --- base64url ---------------------------------------------------------------------

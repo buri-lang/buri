@@ -1327,7 +1327,7 @@ export fn main(): Result<(), Str> {
   // Three calls rather than a `mapCtx`: a lambda that suspends is not a thing a
   // list combinator awaits today, and what this row is about is the answer each
   // dial gives.
-  let ports = env.withArguments(ctx);
+  let ports = env.arguments(ctx);
   let _nobody = dialling(ctx, ports.get(0).withDefault("0"));
   let _not101 = dialling(ctx, ports.get(1).withDefault("0"));
   .Ok(())
@@ -1519,7 +1519,7 @@ export fn main(): Result<(), Str> {
     Stdout: host.stdout,
     WebSocketClient: host.websocketClient,
   };
-  let args = env.withArguments(ctx);
+  let args = env.arguments(ctx);
   let port = args.get(0).withDefault("0");
   let large = args.get(1).withDefault("0").toInt().withDefault(0);
   let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
@@ -2761,7 +2761,7 @@ fn page<C: Allocator + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<S
     ui.column([], [
         ui.button(.Const("open"), fn(c, event) => {
             let _ = tasks.spawn(c, here, fn(c2) => {
-                let _ = time.sleepMs(c2, 20);
+                let _ = time.sleep(c2, time.milliseconds(20));
                 let _ = status.set(c2, "the socket opened");
                 ()
             });
@@ -2802,7 +2802,7 @@ export fn fetch(request: Request): Response {
     };
     let _ = tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 20);
+            let _ = time.sleep(c2, time.milliseconds(20));
             let _ = io.writeBytes(c2, bytes.toUtf8(c2, "the worker's task ran\n")).ignore();
             ()
         });

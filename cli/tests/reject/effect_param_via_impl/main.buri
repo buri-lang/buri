@@ -20,7 +20,7 @@ impl Clock for Ticker {
         0
     }
 
-    fn sleepMilliseconds(self, millis: Int): () {
+    fn sleepMilliseconds(self, milliseconds: Int): () {
         ()
     }
 

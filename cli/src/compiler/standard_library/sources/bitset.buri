@@ -44,7 +44,7 @@ let WORD: Int = 32;
 
 /// Every bit of one word. `Int` is 64 bits wide, so 2^32 - 1 is an ordinary
 /// positive number here and none of the shifts below can go negative.
-let FULL: Int = bits.shl(1, WORD) - 1;
+let FULL: Int = bits.shiftLeft(1, WORD) - 1;
 
 /// The words, low bits first, and how many bits the set was created to hold.
 ///
@@ -80,7 +80,7 @@ fn hasIn(words: [Int], capacity: Int, index: Int): Bool {
     if (index < 0 || index >= capacity) {
         false
     } else {
-        bits.shr(words.get(index / WORD).withDefault(0), index % WORD) & 1 == 1
+        bits.shiftRight(words.get(index / WORD).withDefault(0), index % WORD) & 1 == 1
     }
 }
 
@@ -95,7 +95,7 @@ fn scanFrom(words: [Int], capacity: Int, start: Int): Option<Int> {
         scanFrom(words, capacity, 0)
     } else {
         let at = start / WORD;
-        let rest = bits.shr(words.get(at).withDefault(0), start % WORD);
+        let rest = bits.shiftRight(words.get(at).withDefault(0), start % WORD);
         if (rest == 0) {
             scanFrom(words, capacity, (at + 1) * WORD)
         } else {
@@ -110,7 +110,7 @@ fn scanFrom(words: [Int], capacity: Int, start: Int): Option<Int> {
 /// the capacity must stay clear however the words are combined.
 fn liveMask(capacity: Int, at: Int): Int {
     let rest = capacity - at * WORD;
-    if (rest >= WORD) { FULL } else if (rest <= 0) { 0 } else { bits.shl(1, rest) - 1 }
+    if (rest >= WORD) { FULL } else if (rest <= 0) { 0 } else { bits.shiftLeft(1, rest) - 1 }
 }
 
 /// The bits of word `at` that lie in the half-open range `[low, high)`.
@@ -118,7 +118,7 @@ fn rangeMask(low: Int, high: Int, at: Int): Int {
     let base = at * WORD;
     let lower = if (low - base < 0) { 0 } else { low - base };
     let upper = if (high - base > WORD) { WORD } else { high - base };
-    if (lower >= upper) { 0 } else { bits.shl(1, upper) - bits.shl(1, lower) }
+    if (lower >= upper) { 0 } else { bits.shiftLeft(1, upper) - bits.shiftLeft(1, lower) }
 }
 
 impl BitSet {
@@ -175,7 +175,7 @@ impl BitSet {
             self
         } else {
             let target = index / WORD;
-            let mask = bits.shl(1, index % WORD);
+            let mask = bits.shiftLeft(1, index % WORD);
             let next = list
                 .range(ctx, 0, words.length())
                 .map(ctx, fn(j) => {
@@ -193,7 +193,7 @@ impl BitSet {
             self
         } else {
             let target = index / WORD;
-            let mask = bits.shl(1, index % WORD);
+            let mask = bits.shiftLeft(1, index % WORD);
             let next = list
                 .range(ctx, 0, words.length())
                 .map(ctx, fn(j) => {
@@ -213,7 +213,7 @@ impl BitSet {
             self
         } else {
             let target = index / WORD;
-            let mask = bits.shl(1, index % WORD);
+            let mask = bits.shiftLeft(1, index % WORD);
             let next = list
                 .range(ctx, 0, words.length())
                 .map(ctx, fn(j) => {

@@ -124,8 +124,8 @@ export fn gzip<C: Allocator>(ctx: C, raw: [U8]): [U8] {
     let head: [U8] = [31, 139, 8, 0, 0, 0, 0, 0, 0, 255];
     head
         .concat(ctx, deflate(ctx, raw))
-        .concat(ctx, bytes.fromU32Le(crc32(raw)))
-        .concat(ctx, bytes.fromU32Le(raw.length().wrapToU32()))
+        .concat(ctx, bytes.fromU32LittleEndian(crc32(raw)))
+        .concat(ctx, bytes.fromU32LittleEndian(raw.length().wrapToU32()))
 }
 
 /// The bytes a gzip member stands for, with its checksum and its length
@@ -221,7 +221,7 @@ fn checked(body: [U8], end: Int, out: [U8]): Result<[U8], DecodeError> {
     if (end > trailer) {
         .Err(DecodeError(end))
     } else {
-        match ((bytes.toU32Le(body, trailer), bytes.toU32Le(body, trailer + 4))) {
+        match ((bytes.toU32LittleEndian(body, trailer), bytes.toU32LittleEndian(body, trailer + 4))) {
             (.Some(sum), .Some(size)) => {
                 if (sum != crc32(out)) {
                     .Err(DecodeError(trailer))
@@ -254,7 +254,7 @@ fn crc32Byte(crc: U32, left: Int): U32 {
     if (left == 0) {
         crc
     } else {
-        let shifted = bits.shrU32(crc, 1);
+        let shifted = bits.shiftRightU32(crc, 1);
         let next = if (crc & 1 == 1) { shifted ^ CRC32_POLY } else { shifted };
         crc32Byte(next, left - 1)
     }
@@ -451,8 +451,8 @@ fn putBits<C: Allocator>(
     value: Int,
     width: Int,
 ): ([U8], Int, Int) {
-    let mask = bits.shl(1, width) - 1;
-    draining(ctx, out, held | bits.shl(value & mask, count), count + width)
+    let mask = bits.shiftLeft(1, width) - 1;
+    draining(ctx, out, held | bits.shiftLeft(value & mask, count), count + width)
 }
 
 /// A Huffman code: the high bit goes out first.
@@ -467,7 +467,7 @@ fn putCode<C: Allocator>(
     if (width == 0) {
         (out, held, count)
     } else {
-        let one = putBits(ctx, out, held, count, bits.shr(code, width - 1), 1);
+        let one = putBits(ctx, out, held, count, bits.shiftRight(code, width - 1), 1);
         putCode(ctx, one.0, one.1, one.2, code, width - 1)
     }
 }
@@ -479,7 +479,7 @@ fn draining<C: Allocator>(ctx: C, out: [U8], held: Int, count: Int): ([U8], Int,
         draining(
             ctx,
             out.push(ctx, (held & 255).wrapToU8()),
-            bits.shr(held, 8),
+            bits.shiftRight(held, 8),
             count - 8,
         )
     }
@@ -715,7 +715,7 @@ fn takeBit(data: [U8], c: Cursor): (Int, Cursor) {
         match (data.get(c.at)) {
             .None => (0, failed(c)),
             .Some(byte) => {
-                let value = bits.shr(byte.toI64(), c.bit) & 1;
+                let value = bits.shiftRight(byte.toI64(), c.bit) & 1;
                 if (c.bit == 7) {
                     (value, Cursor { ..c, at: c.at + 1, bit: 0 })
                 } else {
@@ -736,7 +736,7 @@ fn gathering(data: [U8], c: Cursor, width: Int, i: Int, acc: Int): (Int, Cursor)
         (acc, c)
     } else {
         let step = takeBit(data, c);
-        gathering(data, step.1, width, i + 1, acc | bits.shl(step.0, i))
+        gathering(data, step.1, width, i + 1, acc | bits.shiftLeft(step.0, i))
     }
 }
 
@@ -805,8 +805,8 @@ fn stepping(
                     step.1,
                     h,
                     length + 1,
-                    bits.shl(here, 1),
-                    bits.shl(first + count, 1),
+                    bits.shiftLeft(here, 1),
+                    bits.shiftLeft(first + count, 1),
                     index + count,
                 )
             }

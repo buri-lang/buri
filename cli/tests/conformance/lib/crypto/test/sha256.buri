@@ -98,8 +98,8 @@ test "hashing bytes and hashing their text agree" {
 }
 
 test "different messages have different digests" {
-    assert.notEq(hex("a"), hex("b"));
-    assert.notEq(hex(""), hex(" "));
+    assert.notEqual(hex("a"), hex("b"));
+    assert.notEqual(hex(""), hex(" "));
 }
 
 // A digest depends on the bytes, so text that encodes to more bytes than it has
@@ -109,7 +109,7 @@ test "non-ASCII text hashes its UTF-8 bytes" {
         Allocator: alloc(),
     };
     assert.equal(crypto.sha256Text(ctx, "é"), crypto.sha256(ctx, [195, 169]));
-    assert.notEq(hex("é"), hex("e"));
+    assert.notEqual(hex("é"), hex("e"));
 }
 
 // --- HMAC ------------------------------------------------------------------------------
@@ -164,7 +164,7 @@ test "hmac depends on the key" {
     let m = bytes.toUtf8(ctx, "message");
     let a = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k1"), m);
     let b = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k2"), m);
-    assert.notEq(a, b);
+    assert.notEqual(a, b);
 }
 
 // --- constant-time comparison --------------------------------------------------------

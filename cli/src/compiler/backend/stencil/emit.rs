@@ -2824,7 +2824,7 @@ impl<'a> Jit<'a> {
         // reached here because the same key arrives two ways: spelled inline it
         // is an `Inst::CallIntrinsic`, and spelled as a method it is a call to
         // the `Body::Runtime` function whose body this is. Answering only the
-        // first left `character.equal`, `bits.shl` and `str.concat` refused in
+        // first left `character.equal`, `bits.shiftLeft` and `str.concat` refused in
         // exactly the files that write them as methods.
         let ret_tag = self.ret_tag(prog, fi);
         if self.prim_trait_at(st, &key, ret0, p(0), p(1), Some(ret_tag)) {

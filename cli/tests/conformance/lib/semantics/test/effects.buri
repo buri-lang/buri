@@ -1104,7 +1104,7 @@ test "a fresh capture is empty" {
     };
     assert.equal(sink.captured(), "");
     greet(ctx, "x");
-    assert.notEq(sink.captured(), "");
+    assert.notEqual(sink.captured(), "");
 }
 
 test "captured accumulates in the order things were printed" {
@@ -1242,7 +1242,7 @@ test "a test clock moves only when the test advances it" {
     };
     let start = stamp(ctx);
     assert.equal(stamp(ctx).0, 500);
-    time.sleepMs(dial, 250);
+    time.sleep(dial, time.milliseconds(250));
     assert.equal(stamp(ctx).0, 750);
     assert.equal(elapsed(ctx, start), 250);
 }
@@ -1252,9 +1252,9 @@ test "advancing repeatedly accumulates" {
     let ctx = context {
         Clock: dial,
     };
-    time.sleepMs(dial, 1);
-    time.sleepMs(dial, 2);
-    time.sleepMs(dial, 3);
+    time.sleep(dial, time.milliseconds(1));
+    time.sleep(dial, time.milliseconds(2));
+    time.sleep(dial, time.milliseconds(3));
     assert.equal(stamp(ctx).0, 6);
 }
 
@@ -1267,17 +1267,17 @@ test "advancing one clock does not move another" {
     let bctx = context {
         Clock: b,
     };
-    time.sleepMs(a, 100);
+    time.sleep(a, time.milliseconds(100));
     assert.equal(stamp(actx).0, 100);
     assert.equal(stamp(bctx).0, 0);
 }
 
-test "sleepMs advances a test clock too, without sleeping" {
+test "sleep advances a test clock too, without sleeping" {
     let ctx = context {
         Clock: clock().at(500),
     };
     let start = stamp(ctx);
-    time.sleepMs(ctx, 250);
+    time.sleep(ctx, time.milliseconds(250));
     assert.equal(stamp(ctx).0, 750);
     assert.equal(elapsed(ctx, start), 250);
 }
@@ -1286,9 +1286,9 @@ test "the movement accumulates" {
     let ctx = context {
         Clock: clock().at(0),
     };
-    time.sleepMs(ctx, 1);
-    time.sleepMs(ctx, 2);
-    time.sleepMs(ctx, 3);
+    time.sleep(ctx, time.milliseconds(1));
+    time.sleep(ctx, time.milliseconds(2));
+    time.sleep(ctx, time.milliseconds(3));
     assert.equal(stamp(ctx).0, 6);
 }
 
@@ -1309,7 +1309,7 @@ test "each context gets its own clock" {
     let b = context {
         Clock: clock().at(0),
     };
-    time.sleepMs(a, 100);
+    time.sleep(a, time.milliseconds(100));
     assert.equal(stamp(a).0, 100);
     assert.equal(stamp(b).0, 0);
 }
@@ -1370,7 +1370,7 @@ test "a different seed gives a different sequence" {
     };
     let xs = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(a, fn(c, _i) => random.int(c, 0, 1000000));
     let ys = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(b, fn(c, _i) => random.int(c, 0, 1000000));
-    assert.notEq(xs, ys);
+    assert.notEqual(xs, ys);
 }
 
 test "a draw advances the seeded sequence" {
@@ -1561,7 +1561,7 @@ test "MY clock is what time.now reads" {
 
 test "MY clock ignores sleep, because my implementation does nothing" {
     let ctx = Mine();
-    time.sleepMs(ctx, 1000);
+    time.sleep(ctx, time.milliseconds(1000));
     assert.equal(stamp(ctx).0, 424242);
 }
 
@@ -1787,8 +1787,8 @@ test "an omitted Server field is .None and not a default this module chose" {
         address: .None,
         protocols: .None,
         requestLimit: .None,
-        idleTimeoutMillis: .None,
-        drainMillis: .None,
+        idleTimeout: .None,
+        drain: .None,
         tls: .None,
         websocket: .None,
         socketBuffer: .None,
@@ -1800,15 +1800,15 @@ test "an omitted Server field is .None and not a default this module chose" {
     assert.equal(elided.address, written.address);
     assert.equal(elided.protocols, written.protocols);
     assert.equal(elided.requestLimit, written.requestLimit);
-    assert.equal(elided.idleTimeoutMillis, written.idleTimeoutMillis);
-    assert.equal(elided.drainMillis, written.drainMillis);
+    assert.equal(elided.idleTimeout, written.idleTimeout);
+    assert.equal(elided.drain, written.drain);
     assert.equal(elided.tls, written.tls);
     assert.equal(elided.socketBuffer, written.socketBuffer);
     assert.none(elided.address);
     // A server that named no drain is one the runtime decides the deadline
     // for, and it is the runtime's because nothing was chosen rather than
     // because this module chose zero.
-    assert.none(elided.drainMillis);
+    assert.none(elided.drain);
     // A server without a certificate is a cleartext one, and it is cleartext
     // because nothing was chosen rather than because this module chose.
     assert.none(elided.tls);
@@ -1865,7 +1865,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
             port: 0,
             onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
             protocols: .Some([.Http1]),
-            drainMillis: .Some(2500),
+            drain: .Some(time.milliseconds(2500)),
         }),
     );
     assert.equal(stopping.port, 16);
@@ -1878,7 +1878,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
         server.bind(ctx, server.Server {
             port: 0,
             onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
-            drainMillis: .Some(2500),
+            drain: .Some(time.milliseconds(2500)),
             socketBuffer: .Some(8),
         }),
     );
@@ -1886,8 +1886,8 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
 
     // And a `Server` that chose nothing renders an empty plan — which is the
     // `.None` convention reaching the effect rather than a default this module
-    // invented on the way past. An absent `drainMillis` is an absent element
-    // and not a `.DrainMillis(-1)`, which is the one place the plan's encoding
+    // invented on the way past. An absent `drain` is an absent element
+    // and not a `.DrainMilliseconds(-1)`, which is the one place the plan's encoding
     // differs from the `Int` knobs beside it.
     let bare = assert.ok(
         server.bind(ctx, server.Server {
@@ -2361,7 +2361,7 @@ impl Listen for Scripted {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
         .Ok(Listener { handle: 1, port: 8080, handlers: 1 })
     }

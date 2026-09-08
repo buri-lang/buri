@@ -54,8 +54,8 @@ when there is a value. `Result.fold` takes both halves onto one type and
 
 `core/number` also carries the integer arithmetic that `/` and `%` do not:
 `power`, `greatestCommonDivisor`, `leastCommonMultiple`, `divideEuclidean` (the
-quotient that pairs with `remEuclid`), `divideCeiling`, `quotientRemainder`,
-`integerSquareRoot` — exact where `math.sqrt` stops being — `absoluteDifference`
+quotient that pairs with `remainderEuclidean`), `divideCeiling`, `quotientRemainder`,
+`integerSquareRoot` — exact where `math.squareRoot` stops being — `absoluteDifference`
 and `toRadix`, which writes a signed numeral in any base from 2 to 36 where
 `toHex` writes a bit pattern. `Checked` covers the remainder, the negation and
 the power as well as the four operators, at every integer width.
@@ -64,7 +64,7 @@ the power as well as the four operators, at every integer width.
 and `roundEven` — banker's rounding, the tie to the even neighbour, which is
 what a column of money wants — plus `isCloseAbsolute`, `isCloseRelative`, and
 the constants `EPSILON`, `MIN_POSITIVE` and `TAU`. Each of those is `+ - * /`,
-`sqrt` and the comparisons, so each answers the same bits on every backend. The
+`squareRoot` and the comparisons, so each answers the same bits on every backend. The
 six hyperbolics, their inverses, `lnOnePlus`, `expMinusOne` and `logBase` are
 built on `exp` and `ln` and so inherit the *existing* gap those two carry: they
 run on the JavaScript backend, and a native build reports the missing intrinsic
@@ -177,7 +177,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   same reason there is **no `Builder`**: `[[U8]].flatten` is what building looks
   like here.
 
-  `fromU64Be` and its eleven relatives cover both ends of all three widths, in
+  `fromU64BigEndian` and its eleven relatives cover both ends of all three widths, in
   both directions — 16, 32 and 64 bits, which is every length prefix a record
   format writes. Writing one is *pure*: an array literal of a fixed size
   allocates nothing a context has to grant. Reading answers an `Option`, because
@@ -488,7 +488,7 @@ re-exports `Duration`, so `from "core/date" import { Duration }` still resolves
 to the same type.
 
 A `Duration` counts **nanoseconds**. An `Instant` counts milliseconds, which is
-what the clock reports. `time.seconds(30)`, `millis`, `micros`, `nanos`,
+what the clock reports. `time.seconds(30)`, `milliseconds`, `microseconds`, `nanoseconds`,
 `minutes`, `hours` and `secondsFloat` build one, `ZERO` is the empty one, and
 `add`, `subtract`, `multiply`, `divide`, `negate` and `abs` combine them. `ratio` and
 `asSecondsFloat` answer a `Float`, because a length over a length is a number.
@@ -532,20 +532,20 @@ which reads 00-68 as 2000-2068 because no pure function can ask what year it is.
 doors, and the split follows one principle: **an RNG either takes a seed or
 takes a context**.
 
-`int`, `float` and `bytes` take a context and perform the `Random` effect. `Gen`
+`int`, `float` and `bytes` take a context and perform the `Random` effect. `Generator`
 takes a seed and performs nothing. `random.seeded(7)` is an ordinary value,
-every method answers `(value, Gen)`, and the same seed gives the same sequence
-on every backend and in every process. `Gen` is splitmix64, published in the
+every method answers `(value, Generator)`, and the same seed gives the same sequence
+on every backend and in every process. `Generator` is splitmix64, published in the
 module rather than hidden behind an effect. `split()` answers two streams, where
 a program would otherwise invent salt constants by hand.
 
-`random.gen(ctx)` bridges the two: draw a seed from the platform once, then stay
+`random.generator(ctx)` bridges the two: draw a seed from the platform once, then stay
 pure. That is what a deterministic simulator needs, since it replays a failure
 from a seed and cannot take its generator from whoever called it.
 
-`Gen.nextInt` rejection-samples, so it has **no modulo bias**.
+`Generator.nextInt` rejection-samples, so it has **no modulo bias**.
 
-`shuffle`, `pick` and `sample` draw from a list, and each has a `Gen` twin that
+`shuffle`, `pick` and `sample` draw from a list, and each has a `Generator` twin that
 answers the value and the next generator. `shuffle` is Fisher-Yates over an
 `OrderedMap<Int, T>`, so it costs O(n log n) — a `[T]` has no write that costs less
 than a copy — and every permutation is equally likely. `sample` is that shuffle
@@ -754,13 +754,13 @@ Only a test source may import
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) or
 [`core/host/testing`](../../compiler/standard_library/sources/host_testing.buri).
 `assert` is deliberately wide — `equal`,
-`eqWith`, `notEq`, `isTrue`, `isFalse`, `contains`, `containsText`,
+`equalWith`, `notEqual`, `isTrue`, `isFalse`, `contains`, `containsText`,
 `startsWith`, `isEmpty`, `notEmpty`, `len`, `unordered`, `gt`,
-`ge`, `lt`, `le`, `approxEq`, `approxEqRelative`, and the unwrapping `ok`,
+`ge`, `lt`, `le`, `approximatelyEqual`, `approximatelyEqualRelative`, and the unwrapping `ok`,
 `err`, `some`, `none` —
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
-`eqWith(ctx, actual, expected, same)` is the one for a type with no `Equal`:
+`equalWith(ctx, actual, expected, same)` is the one for a type with no `Equal`:
 `Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
 `equals(ctx, other)` instead, and passing that comparison keeps the report.
 `unordered(ctx, actual, expected)` sorts both lists first and reports the sorted
@@ -770,7 +770,7 @@ match arm using it could not produce a value.
 
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) is
 property testing over the same runner. `forAll(generator, property)` draws a
-hundred cases from `core/random`'s seeded `Gen` and stops at the first that
+hundred cases from `core/random`'s seeded `Generator` and stops at the first that
 breaks the claim; `forAllCtx` is the same where either half needs a context.
 `int(low, high)` and `listOf(ctx, item, maxLength)` are the two generators to
 compose. **The first seed is fixed and there is no shrinking**, so a failing run
@@ -847,7 +847,7 @@ refused rather than quietly halved.
 handler serving a directory, and `contentType` for splitting
 `text/html; charset=utf-8` into its two halves. `headerValues` and `setHeader`
 are `header` and `withHeader` for the fields that legitimately repeat.
-`Request.withTimeout(millis)` bounds one request — every step of it, on every
+`Request.withTimeout(milliseconds)` bounds one request — every step of it, on every
 platform — and zero is the platform's own bound.
 
 `core/net/server` is the other half of `core/net/http`: a program that *is* a
@@ -935,7 +935,7 @@ and `WebSocketClient` is granted everywhere for it.
 A `Client<C, S>` carries a `url` and the hooks. `connect(ctx, client)` dials,
 runs `onOpen`, runs `onMessage` for every frame, runs `onClose`, and answers the
 `CloseReason` the socket ended with. It returns *when the socket closes*, so
-reconnecting is a loop around it with `time.sleepMs` in the retry, and backoff
+reconnecting is a loop around it with `time.sleep` in the retry, and backoff
 is your own arithmetic rather than a knob. An `.Err` is a socket that never
 opened — a URL this platform cannot dial, a machine that refused, a server that
 did not answer `101`. Everything after that is an `.Ok`, because a socket
@@ -1060,7 +1060,7 @@ from "core/time" import * as time;
 fn page<C: Allocator + Clock + Stdout + Tasks>(ctx: C): () {
     tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 5 * 60 * 1000);
+            let _ = time.sleep(c2, time.milliseconds(5 * 60 * 1000));
             let _ = io.println(c2, "sessions expired").ignore();
             ()
         });

@@ -383,7 +383,7 @@ test "equality is numeric because the shape is canonical" {
     };
     assert.equal(bigint.of(42), assert.some(bigint.parse(ctx, "42")));
     assert.equal(bigint.of(-42), assert.some(bigint.parse(ctx, "-42")));
-    assert.notEq(bigint.of(42), bigint.of(-42));
+    assert.notEqual(bigint.of(42), bigint.of(-42));
     assert.equal(bigint.of(1).multiply(ctx, bigint.of(0)), bigint.zero());
     assert.equal(bigint.of(2).power(ctx, 100), bigint.of(2).power(ctx, 100));
 }

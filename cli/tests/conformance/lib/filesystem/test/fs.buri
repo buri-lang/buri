@@ -521,7 +521,7 @@ test "two temporary directories are two directories" {
     };
     let one = assert.ok(fs.makeTemporaryDirectory(ctx, "a"));
     let two = assert.ok(fs.makeTemporaryDirectory(ctx, "a"));
-    assert.notEq(one, two);
+    assert.notEqual(one, two);
     assert.isTrue(one.startsWith(path.of(ctx, "/tmp")));
 }
 

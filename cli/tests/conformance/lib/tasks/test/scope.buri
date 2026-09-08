@@ -107,7 +107,7 @@ test "a timer is a task that sleeps" {
     };
     let _ = tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 5 * 60 * 1000);
+            let _ = time.sleep(c2, time.milliseconds(5 * 60 * 1000));
             say(c2, "the session expired")
         });
         say(c, "mounted")

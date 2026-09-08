@@ -1243,7 +1243,7 @@ impl<'a> Checker<'a> {
     /// while it runs. `con_carries_effect` reads the conformance table, which
     /// `register_conformance` fills in afterwards — so a concrete implementor
     /// of an effect used to be invisible here and `fn sneaky(s: Scope): I64 {
-    /// s.nowMillis() }` was admitted, defeating the invariant the diagnostic
+    /// s.nowMilliseconds() }` was admitted, defeating the invariant the diagnostic
     /// itself states. And `provides` reads elaborated type bodies, which the
     /// same interleaved loop is still filling in, item by item.
     ///
@@ -3701,7 +3701,7 @@ struct Frozen { at: I64 }
 
 impl Clock for Frozen {
   fn nowMilliseconds(self): I64 { self.at }
-  fn sleepMilliseconds(self, millis: Int): () { () }
+  fn sleepMilliseconds(self, milliseconds: Int): () { () }
   fn monotonicNanoseconds(self): I64 { self.at }
 }
 

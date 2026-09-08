@@ -3213,8 +3213,8 @@ export fn main(): Result<(), Str> {
 
 /// `core/math`'s nine, and the thirteen that are a named gap.
 ///
-/// The transcendentals are absent on purpose: IEEE 754 fixes `sqrt` and the
-/// rounding functions and does **not** fix `sin`, `exp` or `pow`, so V8's
+/// The transcendentals are absent on purpose: IEEE 754 fixes `squareRoot` and the
+/// rounding functions and does **not** fix `sin`, `exp` or `power`, so V8's
 /// fdlibm port and a platform libm differ in the last bit — and a rendered
 /// `Float` shows seventeen digits of it. `missing_intrinsics` names them, which
 /// is a diagnostic; a libm call would be a conformance failure nobody could
@@ -3231,9 +3231,9 @@ from "core/math" import * as math;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "sqrt ${math.sqrt(9.0)} abs ${math.absFloat(0.0 - 2.5)}").ignore();
-  let _ = io.println(ctx, "floor ${math.floor(1.7)} ceil ${math.ceil(1.2)}").ignore();
-  let _ = io.println(ctx, "trunc ${math.trunc(0.0 - 1.7)} round ${math.round(2.5)}").ignore();
+  let _ = io.println(ctx, "sqrt ${math.squareRoot(9.0)} abs ${math.absoluteFloat(0.0 - 2.5)}").ignore();
+  let _ = io.println(ctx, "floor ${math.floor(1.7)} ceil ${math.ceiling(1.2)}").ignore();
+  let _ = io.println(ctx, "trunc ${math.truncate(0.0 - 1.7)} round ${math.round(2.5)}").ignore();
   let _ = io.println(ctx, "nan ${math.isNan(0.0)} inf ${math.isInfinite(1.0)} fin ${math.isFinite(1.0)}").ignore();
   .Ok(())
 }
@@ -3328,8 +3328,8 @@ fn say3(o: Option<I128>): Str { match (o) { .Some(_v) => "some", .None => "none"
 
 /// `core/bits`, open-coded — fourteen machine operations behind a range check.
 ///
-/// The interesting rows are the two right shifts: `bits.shr` is **logical** and
-/// `bits.sar` is arithmetic, which is why `core/bits` names both, and `-8 >> 1`
+/// The interesting rows are the two right shifts: `bits.shiftRight` is **logical** and
+/// `bits.shiftRightArithmetic` is arithmetic, which is why `core/bits` names both, and `-8 >> 1`
 /// is a very large positive number under one and `-4` under the other. The
 /// rotates go through `llvm.fshl`/`llvm.fshr` rather than `(x << n) | (x >> (w
 /// - n))`, whose second shift is poison at `n == 0`.
@@ -3345,8 +3345,8 @@ from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "shl ${bits.shl(1, 10)} sar ${bits.sar(0 - 8, 1)}").ignore();
-  let _ = io.println(ctx, "shr ${bits.shr(0 - 8, 1)}").ignore();
+  let _ = io.println(ctx, "shl ${bits.shiftLeft(1, 10)} sar ${bits.shiftRightArithmetic(0 - 8, 1)}").ignore();
+  let _ = io.println(ctx, "shr ${bits.shiftRight(0 - 8, 1)}").ignore();
   let _ = io.println(ctx, "pop ${bits.popCount(255)} lz ${bits.leadingZeros(1)} tz ${bits.trailingZeros(8)}").ignore();
   let _ = io.println(ctx, "zeros ${bits.leadingZeros(0)} ${bits.trailingZeros(0)}").ignore();
   // A rotate by zero is the identity, which is the case a shift-pair spelling
@@ -3354,11 +3354,11 @@ export fn main(): Result<(), Str> {
   // renders negative — `BigInt.asIntN(64, ..)` on the other backend too.
   let _ = io.println(ctx, "rot ${bits.rotateLeft(1, 0)} ${bits.rotateLeft(1, 1)} ${bits.rotateRight(1, 1)}").ignore();
   let b: U8 = 0b1000_0001;
-  let _ = io.println(ctx, "u8 ${bits.shlU8(b, 1)} ${bits.shrU8(b, 1)}").ignore();
+  let _ = io.println(ctx, "u8 ${bits.shiftLeftU8(b, 1)} ${bits.shiftRightU8(b, 1)}").ignore();
   let w: U32 = 0x8000_0001;
-  let _ = io.println(ctx, "u32 ${bits.shlU32(w, 1)} ${bits.shrU32(w, 31)}").ignore();
+  let _ = io.println(ctx, "u32 ${bits.shiftLeftU32(w, 1)} ${bits.shiftRightU32(w, 31)}").ignore();
   let q: U64 = 3;
-  let _ = io.println(ctx, "u64 ${bits.shlU64(q, 2)} ${bits.shrU64(q, 1)}").ignore();
+  let _ = io.println(ctx, "u64 ${bits.shiftLeftU64(q, 2)} ${bits.shiftRightU64(q, 1)}").ignore();
   .Ok(())
 }
 "#,
@@ -3386,7 +3386,7 @@ fn a_shift_out_of_range_aborts() {
 from "core/bits" import * as bits;
 from "core/io" import * as io;
 
-fn go(n: Int): Int { bits.shl(1, n) }
+fn go(n: Int): Int { bits.shiftLeft(1, n) }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };

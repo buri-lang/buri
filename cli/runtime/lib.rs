@@ -34,7 +34,7 @@
 //!     `runtime.js` does; `isAlpha` is `\p{L}`, which is a General Category and
 //!     not the **Alphabetic** property `char::is_alphabetic` answers, so that
 //!     file carries the category as data and says where the data came from;
-//!   * **the exactly-specified half of `core/math`** ([`math`]) — `sqrt`, the
+//!   * **the exactly-specified half of `core/math`** ([`math`]) — `squareRoot`, the
 //!     four rounding functions and the three predicates. The thirteen
 //!     transcendentals are deliberately absent, and that file says why: IEEE
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
@@ -484,11 +484,11 @@
 //! }
 //! ```
 //!
-//! [`buri_rt_argv_init`] is what makes `env.withArguments(ctx)` exact — `std::env` in
+//! [`buri_rt_argv_init`] is what makes `env.arguments(ctx)` exact — `std::env` in
 //! a staticlib depends on a platform-specific startup hook that a linker
 //! `--gc-sections` pass is entitled to have opinions about — and it installs
 //! the panic hook that turns a runtime bug into a message rather than a bare
-//! `SIGABRT`. If it is never called, `env.withArguments(ctx)` falls back to `std::env`
+//! `SIGABRT`. If it is never called, `env.arguments(ctx)` falls back to `std::env`
 //! and the fallback is correct on both supported platforms; the call is
 //! preferred, not required.
 //!
