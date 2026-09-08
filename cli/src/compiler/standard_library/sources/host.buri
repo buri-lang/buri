@@ -325,6 +325,10 @@ export struct HostLocation {}
 
 impl Location for HostLocation {
     fn path(self): Int;
+
+    fn push(self, path: Str): ();
+
+    fn replace(self, path: Str): ();
 }
 
 export let alloc: HostAllocator = HostAllocator { };

@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:77:32
+   |
+77 |     assert.equal(store.get(ctx) "ada");
+   |                                ^
+   |
+   = fix: write `,` here

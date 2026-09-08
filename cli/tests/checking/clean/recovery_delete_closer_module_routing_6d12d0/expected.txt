@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:30:1
+   |
+30 | test "navigate writes the address the page reads back" {
+   | ^^^^
+   |
+  --> main.buri:22:25
+   |
+22 | fn page(path: Str): Str {
+   |                         ^ opened here
+   |
+   = fix: write `}` here

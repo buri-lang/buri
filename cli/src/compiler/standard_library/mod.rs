@@ -846,10 +846,14 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Ui", "write", "ui/signal", "aSignal.set(ctx, value)"),
     w("Ui", "memo", "ui/prop", "prop.memo(ctx, compute)"),
     w("Ui", "watch", "ui/signal", "signal.watch(ctx, run)"),
-    // The address bar. Its one method answers a cell, and the door that turns
-    // that into something a tree can hold is `route`; `web.path(ctx)` is the
-    // same cell read once.
+    // The address bar. Its reader answers a cell, and the door that turns that
+    // into something a tree can hold is `route`; `web.path(ctx)` is the same
+    // cell read once. Its two writers put an address in the bar, and each door
+    // writes the cell after it — so a program never touches one without the
+    // other.
     w("Location", "path", "ui/web", "web.route(ctx)"),
+    w("Location", "push", "ui/web", "web.navigate(ctx, path)"),
+    w("Location", "replace", "ui/web", "web.replace(ctx, path)"),
 ];
 
 /// The door onto one effect method, or `None` for a name this table has never

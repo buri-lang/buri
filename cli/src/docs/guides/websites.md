@@ -62,38 +62,37 @@ fn site(): Site {
 
 /// The whole site, as one function of the path.
 ///
-/// The label and the handler are parameters because they are the halves only a
-/// page has: the worker passes a constant and a handler that does nothing, and
-/// the page passes a signal and one that writes it. Everything else is the same
-/// tree on both sides, which is what makes the markup match.
+/// The label and the two handlers are parameters because they are the halves
+/// only a page has: the worker passes a constant and handlers that do nothing,
+/// and the page passes a signal, one handler that writes it and one that
+/// navigates. Everything else is the same tree on both sides, which is what
+/// makes the markup match.
+///
+/// Only the last child reads the path, so only the last child is rebuilt when
+/// the reader navigates. The button above it keeps the signal it is bound to.
 fn page<C>(
     path: Prop<Str>,
     title: Str,
     visitors: Str,
     label: Prop<Str>,
     onPress: fn(C, Event) => (),
+    onGo: fn(C, Event) => (),
 ): Node<C> {
-    ui.computed(fn(scope) => at(path.read(scope), title, visitors, label, onPress))
+    ui.region(.Main, [], [
+        ui.heading(1, [], .Const(title)),
+        ui.text(.Const(visitors)),
+        ui.button(label, [], onPress),
+        ui.button(.Const("about"), [], onGo),
+        ui.computed(fn(scope) => at(path.read(scope))),
+    ])
 }
 
 /// Routing: an ordinary match on the path.
-fn at<C>(
-    path: Str,
-    title: Str,
-    visitors: Str,
-    label: Prop<Str>,
-    onPress: fn(C, Event) => (),
-): Node<C> {
+fn at<C>(path: Str): Node<C> {
     match (path) {
-        "/" => {
-            ui.region(.Main, [], [
-                ui.heading(1, [], .Const(title)),
-                ui.text(.Const(visitors)),
-                ui.button(label, [], onPress),
-            ])
-        },
-        "/about" => ui.region(.Main, [], [ui.heading(1, [], .Const("About"))]),
-        _other => ui.region(.Main, [], [ui.text(.Const("no page here"))]),
+        "/" => ui.region(.Article, [], [ui.text(.Const("home"))]),
+        "/about" => ui.region(.Article, [], [ui.heading(2, [], .Const("About"))]),
+        _other => ui.region(.Article, [], [ui.text(.Const("no page here"))]),
     }
 }
 
@@ -119,10 +118,19 @@ export fn main(): Result<(), Str> {
         str.format(ctx, "visitors: ${state.visitors}"),
         .Cell(thanks),
         fn(c, _event) => thanks.set(c, "thanks"),
+        fn(c, _event) => web.navigate(c, "/about"),
     );
     match (web.resume(ctx, tree)) {
         .Err(why) => .Err(why),
         .Ok(_) => {
+            // A redirect. `/index.html` is not a page here, so the entry is
+            // replaced rather than pushed: Back would otherwise take the reader
+            // to the address they were just sent away from.
+            let _ = if (web.path(ctx) == "/index.html") {
+                web.replace(ctx, "/")
+            } else {
+                ()
+            };
             match (io.println(ctx, "resumed ${web.path(ctx)} ${sent}")) {
                 .Ok(_written) => .Ok(()),
                 .Err(_e) => .Err("the page has nowhere to print"),
@@ -148,6 +156,7 @@ export fn fetch(request: Request): Response {
                     str.format(ctx, "visitors: ${state.visitors}"),
                     .Const("say thanks"),
                     fn(_ctx, _event) => (),
+                    fn(_ctx, _event) => (),
                 ),
             ),
             state.toJson(ctx),
@@ -164,7 +173,7 @@ export fn fetch(request: Request): Response {
 <!doctype html>
 <html>
 <head><meta charset="utf-8" /></head>
-<body><main><h1>Buri</h1>visitors: 3<button type="button">say thanks</button></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
+<body><main><h1>Buri</h1>visitors: 3<button type="button">say thanks</button><button type="button">about</button><article>home</article></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
 </html>
 ```
 
@@ -197,17 +206,53 @@ nothing else. That is `Watch`: the closure gets a `Scope`, which reads the graph
 and can do nothing else, which is what makes it safe to re-run whenever the
 runtime likes.
 
+Put it around as little as it can go around. Above the `computed` in `page` sit
+the heading, the visitor count and the two buttons, and none of them reads the
+path — so a navigation leaves those nodes exactly where they are, listeners and
+all.
+
 Text is rendered outside the closure, in `main` and in `fetch`, because a
 `Scope` cannot allocate: a closure may not capture a capability, so turning an
 interpolation into a `Str` has to happen where there is a context. Prepare what
 varies there and capture it. `state.toJson(ctx)` names a context for the same
 reason — rendering JSON allocates.
 
-The label and the handler are parameters of `page` for a different reason: they
+The label and the handlers are parameters of `page` for a different reason: they
 are the halves only a page has. A handler writes a signal, which needs `Ui`, and
-a worker's context grants none — so the worker passes a constant and a handler
-that does nothing, and the page passes a signal and one that writes it. The
-markup is the same either way, which is what a resume needs.
+a worker's context grants none — so the worker passes a constant and handlers
+that do nothing, and the page passes a signal, one handler that writes it and
+one that navigates. The markup is the same either way, which is what a resume
+needs.
+
+## The page navigates itself
+
+`web.navigate(ctx, path)` goes somewhere without loading a document. It puts the
+address in the address bar and writes the cell `route` wraps, so what re-renders
+is the subtree that read the path:
+
+```buri ignore why="the handler `page` takes, out of the program above"
+fn(c, _event) => web.navigate(c, "/about")
+```
+
+Everything else stays. The tree is the tree the reader is already looking at, so
+every signal in the program keeps its value — a store of signals survives its own
+navigation, which is the thing a `ui.link` cannot do: a link is a full document
+load, and a full document load builds the app again from nothing.
+
+`web.replace(ctx, path)` is the same, in place of the entry the reader is on
+rather than beside it. That is what a redirect wants:
+
+```buri ignore why="the redirect in `main`, out of the program above"
+let _ = if (web.path(ctx) == "/index.html") { web.replace(ctx, "/") } else { () };
+```
+
+Push and the reader can press Back to where they were. Replace and they cannot —
+which is right here, because Back onto `/index.html` would only send them
+forward again.
+
+Both need `Location` **and** `Ui`: one to move the address bar, one to write the
+cell. Reaching another site is a `ui.link`, and it should be — a reader deserves
+to see where a link goes.
 
 ## What the page does
 
@@ -307,5 +352,5 @@ error: `location` implements `Location`, which is not allowed on the CLOUDFLARE_
   themes.
 - [Build a web server](./web-server.md) — the other way to answer a request,
   with a port of your own.
-- [The standard library](../reference/standard-library.md) — `ui/web`'s five
+- [The standard library](../reference/standard-library.md) — `ui/web`'s eight
   functions, and everything under them.

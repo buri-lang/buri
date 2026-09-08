@@ -18,7 +18,7 @@
 //! cells it made.
 
 from "core/effect" import { Allocator };
-from "ui/effect" import { Scope, Ui, Watch };
+from "ui/effect" import { Location, Scope, Ui, Watch };
 from "ui/node" import * as node;
 from "ui/node" import { Node };
 from "ui/style" import { State };
@@ -53,6 +53,31 @@ impl Watch for Observer {
 
 /// A headless `Watch`.
 export fn observer(): Observer;
+
+/// An address bar with no browser behind it: one cell of the same graph.
+///
+/// `web.navigate` and `web.replace` write that cell, so `web.path` and
+/// `web.route` answer where a test has been. What is *not* here is a history
+/// stack — a headless platform has none, and pressing Back is a browser's own
+/// answer — so the two differ only in what a browser does with the entry.
+/// `language::a_website_is_rendered_by_its_worker_and_resumed_by_its_page`
+/// drives a built page against one and asserts that half.
+export struct Address(Int);
+
+impl Location for Address {
+    fn path(self): Int {
+        self.0
+    }
+
+    fn push(self, path: Str): () {}
+
+    fn replace(self, path: Str): () {}
+}
+
+/// A headless `Location` starting at `at`, over `ctx`'s graph.
+export fn address<C: Ui>(ctx: C, at: Str): Address {
+    Address(ctx.signal(at))
+}
 
 /// A tree the runtime rendered, ready to look at and act on.
 ///

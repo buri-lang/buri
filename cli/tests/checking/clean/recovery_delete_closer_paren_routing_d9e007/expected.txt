@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:59:64
+   |
+59 |     let _ = watch(ctx, fn(s) => log.record(page(route.read(s)));
+   |                                                                ^
+   |
+  --> main.buri:59:18
+   |
+59 |     let _ = watch(ctx, fn(s) => log.record(page(route.read(s)));
+   |                  ^ opened here
+   |
+   = fix: write `)` here

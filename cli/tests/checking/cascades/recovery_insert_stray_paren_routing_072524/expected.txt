@@ -1,0 +1,23 @@
+error: `get` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:77:18
+   |
+77 |     assert.equal(store.get(extra ctx), "ada");
+   |                  ^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:77:28
+   |
+77 |     assert.equal(store.get(extra ctx), "ada");
+   |                            ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:77:33
+   |
+77 |     assert.equal(store.get(extra ctx), "ada");
+   |                                 ^
+   |
+   = fix: write `,` here

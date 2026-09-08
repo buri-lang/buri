@@ -1,0 +1,21 @@
+error: `replace` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:63:5
+   |
+63 |     web.replace(ctx@ , "/elsewhere");
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:63:20
+   |
+63 |     web.replace(ctx@ , "/elsewhere");
+   |                    ^
+   |
+  --> main.buri:63:16
+   |
+63 |     web.replace(ctx@ , "/elsewhere");
+   |                ^ opened here
+   |
+   = fix: write `)` here
