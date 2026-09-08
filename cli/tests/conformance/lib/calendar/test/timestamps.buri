@@ -45,7 +45,10 @@ test "a fraction of a second truncates at the millisecond" {
     assert.equal(assert.some(date.parseTime(ctx, "00:00:00.05")), clock(0, 0, 0, 50));
     assert.equal(assert.some(date.parseTime(ctx, "00:00:00.005")), clock(0, 0, 0, 5));
     // Anything finer is dropped, not rounded.
-    assert.equal(assert.some(date.parseTime(ctx, "00:00:00.9999")), clock(0, 0, 0, 999));
+    assert.equal(
+        assert.some(date.parseTime(ctx, "00:00:00.9999")),
+        clock(0, 0, 0, 999),
+    );
     assert.equal(
         assert.some(date.parseTime(ctx, "00:00:00.123456789")),
         clock(0, 0, 0, 123),
@@ -88,10 +91,19 @@ test "an offset is applied, so two spellings of one moment agree" {
         Allocator: alloc(),
     };
     let utc = assert.some(date.parseDateTime(ctx, "2026-08-15T13:45:00Z"));
-    assert.equal(assert.some(date.parseDateTime(ctx, "2026-08-15T15:45:00+02:00")), utc);
-    assert.equal(assert.some(date.parseDateTime(ctx, "2026-08-15T08:45:00-05:00")), utc);
+    assert.equal(
+        assert.some(date.parseDateTime(ctx, "2026-08-15T15:45:00+02:00")),
+        utc,
+    );
+    assert.equal(
+        assert.some(date.parseDateTime(ctx, "2026-08-15T08:45:00-05:00")),
+        utc,
+    );
     // An offset that crosses midnight moves the date too.
-    assert.equal(assert.some(date.parseDateTime(ctx, "2026-08-16T00:45:00+11:00")), utc);
+    assert.equal(
+        assert.some(date.parseDateTime(ctx, "2026-08-16T00:45:00+11:00")),
+        utc,
+    );
     // Lowercase `t` and `z` are the same grammar.
     assert.equal(assert.some(date.parseDateTime(ctx, "2026-08-15t13:45:00z")), utc);
 }
@@ -226,7 +238,10 @@ test "parseHttpDate reads all three spellings RFC 9110 names" {
         moment,
     );
     // asctime pads a single-digit day with a second space.
-    assert.equal(assert.some(date.parseHttpDate(ctx, "Sun Nov  6 08:49:37 1994")), moment);
+    assert.equal(
+        assert.some(date.parseHttpDate(ctx, "Sun Nov  6 08:49:37 1994")),
+        moment,
+    );
     // And a two-digit day needs only one.
     assert.equal(
         assert.some(date.parseHttpDate(ctx, "Sat Nov 26 08:49:37 1994")),
@@ -497,8 +512,14 @@ test "a single-digit day is asctime's alone" {
     let moment = DateTime { date: day(1994, 11, 6), time: clock(8, 49, 37, 0) };
     // asctime pads to two columns with a space, and the reader treats a run of
     // spaces as one separator, so both spellings read.
-    assert.equal(assert.some(date.parseHttpDate(ctx, "Sun Nov  6 08:49:37 1994")), moment);
-    assert.equal(assert.some(date.parseHttpDate(ctx, "Sun Nov 6 08:49:37 1994")), moment);
+    assert.equal(
+        assert.some(date.parseHttpDate(ctx, "Sun Nov  6 08:49:37 1994")),
+        moment,
+    );
+    assert.equal(
+        assert.some(date.parseHttpDate(ctx, "Sun Nov 6 08:49:37 1994")),
+        moment,
+    );
     // The other two forms fix the width at two digits.
     assert.none(date.parseHttpDate(ctx, "Sun, 6 Nov 1994 08:49:37 GMT"));
     assert.none(date.parseHttpDate(ctx, "Sunday, 6-Nov-94 08:49:37 GMT"));
@@ -584,7 +605,10 @@ test "a month name in the wrong case or spelling is not a month" {
         assert.some(date.parseHttpDate(ctx, "Mon, 06 Nov 1994 08:49:37 GMT")),
         moment,
     );
-    assert.equal(assert.some(date.parseHttpDate(ctx, "Xxx Nov  6 08:49:37 1994")), moment);
+    assert.equal(
+        assert.some(date.parseHttpDate(ctx, "Xxx Nov  6 08:49:37 1994")),
+        moment,
+    );
     // But it is still a field, and one letter is too short for the two forms
     // that put a comma after it.
     assert.none(date.parseHttpDate(ctx, ", 06 Nov 1994 08:49:37 GMT"));

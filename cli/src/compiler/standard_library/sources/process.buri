@@ -173,7 +173,12 @@ export fn run<C: Allocator + Spawn>(ctx: C, command: Command): Result<Output, Io
 
 /// `[(name, value)]` as name and value alternating, which is what the effect
 /// takes.
-fn flattened<C: Allocator>(ctx: C, pairs: [(Str, Str)], index: Int, sofar: [Str]): [Str] {
+fn flattened<C: Allocator>(
+    ctx: C,
+    pairs: [(Str, Str)],
+    index: Int,
+    sofar: [Str],
+): [Str] {
     match (pairs.get(index)) {
         .None => sofar,
         .Some(pair) => {
@@ -194,7 +199,10 @@ fn flattened<C: Allocator>(ctx: C, pairs: [(Str, Str)], index: Int, sofar: [Str]
 /// **It asks whether the name resolves, not whether it can be executed.** That
 /// is `fs.exists`, so a directory with the right name answers `.Some`. The
 /// honest test is to run it and read the `.Err`.
-export fn which<C: Allocator + Environment + FileSystemRead>(ctx: C, program: Str): Option<Path> {
+export fn which<C: Allocator + Environment + FileSystemRead>(
+    ctx: C,
+    program: Str,
+): Option<Path> {
     if (program.contains("/")) {
         let at = path.of(ctx, program);
         if (fs.exists(ctx, at)) { .Some(at) } else { .None }

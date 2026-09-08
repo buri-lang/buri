@@ -21,7 +21,12 @@ fn adders<C: Allocator>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int]
 }
 
 // A parameter the closure captures but the loop never rebinds needs no copy.
-fn scalers<C: Allocator>(ctx: C, k: Int, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+fn scalers<C: Allocator>(
+    ctx: C,
+    k: Int,
+    i: Int,
+    acc: [fn(Int) => Int],
+): [fn(Int) => Int] {
     if (i >= 3) { acc } else { scalers(ctx, k, i + 1, acc.push(ctx, fn(x) => x * k)) }
 }
 

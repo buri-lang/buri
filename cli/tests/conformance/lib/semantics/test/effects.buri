@@ -13,8 +13,9 @@
 
 from "core/bytes" import * as bytes;
 from "core/effect" import {
-    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, Random, Received, Request,
-    Response, Serve, ServeError, ServeFailure, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, Random,
+    Received, Request, Response, Serve, ServeError, ServeFailure, Sockets, Stderr,
+    Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -915,7 +916,10 @@ test "readBytesIfExists answers the octets when the file is there" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.equal(assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "blob"))), .Some(raw));
+    assert.equal(
+        assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "blob"))),
+        .Some(raw),
+    );
 }
 
 test "readBytesIfExists reports every OTHER failure as a failure" {
@@ -988,7 +992,10 @@ test "writeAtomic reports the FIRST failure and leaves the destination alone" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.equal(assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])), .CrossDevice);
+    assert.equal(
+        assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])),
+        .CrossDevice,
+    );
     assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
 }
 
@@ -1178,7 +1185,9 @@ test "a captured stream keeps a passing test quiet" {
 
 test "env answers the variables it was given" {
     let ctx = context {
-        Environment: env().variables([("HOME", "/root"), ("LANG", "C")]).withArguments([]),
+        Environment: env()
+            .variables([("HOME", "/root"), ("LANG", "C")])
+            .withArguments([]),
     };
     assert.equal(assert.some(env.get(ctx, "HOME")), "/root");
     assert.equal(assert.some(env.get(ctx, "LANG")), "C");
@@ -1946,7 +1955,10 @@ test "run starts one worker per handler the listener says it will host" {
             },
         }),
     );
-    assert.equal(sink.captured(), "worked 10.0.0.1\nworked 10.0.0.1\nworked 10.0.0.1\n");
+    assert.equal(
+        sink.captured(),
+        "worked 10.0.0.1\nworked 10.0.0.1\nworked 10.0.0.1\n",
+    );
 
     // And one is one: the same server against a listener that hosts a single
     // handler is the server this module was before handlers ran on tasks.

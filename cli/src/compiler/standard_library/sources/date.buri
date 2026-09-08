@@ -159,13 +159,21 @@ export fn time(hour: Int, minute: Int, second: Int, millisecond: Int): Option<Ti
     ) {
         .None
     } else {
-        .Some(Time { hour: hour, minute: minute, second: second, millisecond: millisecond })
+        .Some(Time {
+            hour: hour,
+            minute: minute,
+            second: second,
+            millisecond: millisecond,
+        })
     }
 }
 
 /// Midnight, which every date has.
 export fn midnight(date: Date): DateTime {
-    DateTime { date: date, time: Time { hour: 0, minute: 0, second: 0, millisecond: 0 } }
+    DateTime {
+        date: date,
+        time: Time { hour: 0, minute: 0, second: 0, millisecond: 0 },
+    }
 }
 
 // --- days since the epoch -------------------------------------------------------
@@ -468,7 +476,11 @@ fn milliOf(fraction: Str): Option<Int> {
     }
 }
 
-fn hourMinuteSecond<C: Allocator>(ctx: C, clock: Str, millisecond: Option<Int>): Option<Time> {
+fn hourMinuteSecond<C: Allocator>(
+    ctx: C,
+    clock: Str,
+    millisecond: Option<Int>,
+): Option<Time> {
     let parts = clock.split(ctx, ":");
     if (parts.length() != 3) {
         .None
@@ -490,7 +502,11 @@ fn twoDigits(part: Option<Str>): Option<Int> {
     match (part) {
         .None => .None,
         .Some(text) => {
-            if (text.length() != 2 || !allDigits(text, 0)) { .None } else { text.toInt() }
+            if (text.length() != 2 || !allDigits(text, 0)) {
+                .None
+            } else {
+                text.toInt()
+            }
         },
     }
 }

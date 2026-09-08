@@ -136,7 +136,11 @@ export fn countBy<A, K: Ordered, C: Allocator>(
 
 /// One element per key rather than a group of them: `key(x)` to `x`, with a
 /// later element replacing an earlier one that answered the same key.
-export fn indexBy<A, K: Ordered, C: Allocator>(ctx: C, items: [A], key: fn(A) => K): OrderedMap<K, A> {
+export fn indexBy<A, K: Ordered, C: Allocator>(
+    ctx: C,
+    items: [A],
+    key: fn(A) => K,
+): OrderedMap<K, A> {
     items.foldCtx(
         ctx,
         fn(c, acc: OrderedMap<K, A>, x) => acc.insert(c, key(x), x),
@@ -500,7 +504,11 @@ fn fixWithRight<K: Ordered, V, C: Allocator>(
 /// A key found in a branch does not go where it sits: the entry before it in
 /// key order takes its place, and *that* one comes out of a leaf. So every
 /// removal ends up a removal from a leaf.
-fn removeFrom<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>, key: K): (Node<K, V>, Bool) {
+fn removeFrom<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    key: K,
+): (Node<K, V>, Bool) {
     let entries = entriesOf(n);
     let children = childrenOf(n);
     let (at, found) = seek(entries, key, 0);
@@ -551,7 +559,10 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
 /// pays for one root-to-leaf path rather than the two that `first` followed by
 /// `remove` costs. It compares nothing: the smallest key is wherever the shape
 /// says it is.
-fn takeFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
+fn takeFirst<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+): Option<((K, V), Node<K, V>)> {
     let entries = entriesOf(n);
     let children = childrenOf(n);
     match (children.get(0)) {
@@ -574,7 +585,10 @@ fn takeFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V)
 }
 
 /// The mirror of [`takeFirst`], down the right spine.
-fn takeLast<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
+fn takeLast<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+): Option<((K, V), Node<K, V>)> {
     let entries = entriesOf(n);
     let children = childrenOf(n);
     let at = children.length() - 1;
@@ -618,7 +632,11 @@ fn floorIn<K: Ordered, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(
 }
 
 /// The mirror of [`floorIn`]: the smallest entry whose key is at least `key`.
-fn ceilingIn<K: Ordered, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
+fn ceilingIn<K: Ordered, V>(
+    n: Node<K, V>,
+    key: K,
+    best: Option<(K, V)>,
+): Option<(K, V)> {
     let entries = entriesOf(n);
     let (at, found) = seek(entries, key, 0);
     if (found) {
@@ -926,7 +944,11 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     ///
     /// Right-biased, like `core/map`'s: `defaults.merge(ctx, overrides)` reads
     /// the way it is used.
-    export fn merge<C: Allocator>(self, ctx: C, other: OrderedMap<K, V>): OrderedMap<K, V> {
+    export fn merge<C: Allocator>(
+        self,
+        ctx: C,
+        other: OrderedMap<K, V>,
+    ): OrderedMap<K, V> {
         other
             .entries(ctx)
             .foldCtx(
@@ -963,7 +985,11 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     }
 
     /// The entries `keep` answers true for, still in key order.
-    export fn filter<C: Allocator>(self, ctx: C, keep: fn(K, V) => Bool): OrderedMap<K, V> {
+    export fn filter<C: Allocator>(
+        self,
+        ctx: C,
+        keep: fn(K, V) => Bool,
+    ): OrderedMap<K, V> {
         self
             .entries(ctx)
             .foldCtx(
@@ -980,7 +1006,11 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     ///
     /// Nothing touches the keys, so the order cannot change. It rebuilds the
     /// tree rather than copying it node for node, so it costs O(n log n).
-    export fn mapValues<W, C: Allocator>(self, ctx: C, transform: fn(V) => W): OrderedMap<K, W> {
+    export fn mapValues<W, C: Allocator>(
+        self,
+        ctx: C,
+        transform: fn(V) => W,
+    ): OrderedMap<K, W> {
         self
             .entries(ctx)
             .foldCtx(

@@ -425,8 +425,14 @@ test "the scalars each refuse the other shapes" {
         b,
         .Err(.WrongType { path: "$", wanted: "a boolean", found: "a number" }),
     );
-    assert.equal(s, .Err(.WrongType { path: "$", wanted: "a string", found: "a number" }));
-    assert.equal(f, .Err(.WrongType { path: "$", wanted: "a number", found: "a string" }));
+    assert.equal(
+        s,
+        .Err(.WrongType { path: "$", wanted: "a string", found: "a number" }),
+    );
+    assert.equal(
+        f,
+        .Err(.WrongType { path: "$", wanted: "a number", found: "a string" }),
+    );
     assert.equal(u, .Err(.WrongType { path: "$", wanted: "null", found: "a number" }));
 }
 

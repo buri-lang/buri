@@ -126,7 +126,10 @@ test "a string literal comes back spelled the way it was written" {
         Allocator: alloc(),
     };
     let e = ex(.Str("a\"b\\c\nd\te"));
-    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = \"a\\\"b\\\\c\\nd\\te\";\n");
+    assert.equal(
+        ast.print(ctx, letOf(e)).text,
+        "let X: Int = \"a\\\"b\\\\c\\nd\\te\";\n",
+    );
     assert.equal(strLine(ctx, "a\r\nb"), "let X: Int = \"a\\r\\nb\";\n");
     assert.equal(strLine(ctx, "a\0b"), "let X: Int = \"a\\0b\";\n");
     // The controls with no name of their own, and `DEL` at the far end of them.
@@ -436,7 +439,10 @@ test "an else that is neither a block nor an if is wrapped in braces" {
     // `If`'s third position is an expression, and `else c` is not Buri. A tree
     // holds no parse error, so the printer may not write one.
     let e = ex(.If([id("a")], [block([], [id("b")])], [id("c")]));
-    assert.equal(ast.print(ctx, letOf(e)).text, "let X: Int = if (a) { b } else { c };\n");
+    assert.equal(
+        ast.print(ctx, letOf(e)).text,
+        "let X: Int = if (a) { b } else { c };\n",
+    );
 }
 
 test "an else that is an if is the chain, unwrapped" {
@@ -462,7 +468,10 @@ test "a wide integer prints the digits it was given" {
         ast.print(ctx, letOf(ex(.WideInt("18446744073709551615")))).text,
         "let X: Int = 18446744073709551615;\n",
     );
-    assert.equal(ast.print(ctx, letOf(ex(.WideInt("0xff")))).text, "let X: Int = 0xff;\n");
+    assert.equal(
+        ast.print(ctx, letOf(ex(.WideInt("0xff")))).text,
+        "let X: Int = 0xff;\n",
+    );
     assert.equal(
         ast.print(ctx, letOf(ex(.WideInt("1_000")))).text,
         "let X: Int = 1_000;\n",

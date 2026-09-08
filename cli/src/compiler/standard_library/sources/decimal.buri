@@ -55,7 +55,7 @@ from "core/character" import * as character;
 from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/number" import * as number;
-from "core/order" import { Equal, Hash, Ordered, Order, Show };
+from "core/order" import { Equal, Hash, Order, Ordered, Show };
 from "core/str" import * as str;
 
 derive Equal, Hash for Decimal;
@@ -450,7 +450,11 @@ fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, In
                 match (c.toDigit(10)) {
                     .None => .None,
                     .Some(d) => {
-                        match (acc.checkedMultiply(10).andThen(fn(m) => m.checkedSubtract(d))) {
+                        match (
+                            acc
+                                .checkedMultiply(10)
+                                .andThen(fn(m) => m.checkedSubtract(d))
+                        ) {
                             .None => .None,
                             .Some(next) => {
                                 let after = if (places < 0) { -1 } else { places + 1 };

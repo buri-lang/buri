@@ -275,8 +275,8 @@ from "core/effect" import {
     ServeFailure, Sockets, Tasks,
 };
 from "core/list" import * as list;
-from "core/time" import { Duration };
 from "core/tasks" import * as tasks;
+from "core/time" import { Duration };
 
 from "core/effect" export {
     Listener, Protocol, Request, Response, Serve, ServeError, ServeFailure,

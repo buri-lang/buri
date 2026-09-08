@@ -1722,7 +1722,10 @@ A function names the effects it needs as **bounds** on its context parameter:
 # from "core/effect" import { Allocator };
 # from "core/fs" import { FileSystemRead, Path };
 
-fn loadConfig<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Config, ConfigError> {
+fn loadConfig<C: Allocator + FileSystemRead>(
+    ctx: C,
+    at: Path,
+): Result<Config, ConfigError> {
     let text = fs.readText(ctx, at)?;
     parse(ctx, text)
 }
@@ -2422,7 +2425,9 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, Clock, Environment, Network, Random, Stderr, Stdout };
+# from "core/effect" import {
+#     Allocator, Clock, Environment, Network, Random, Stderr, Stdout,
+# };
 # from "core/fs" import { FileSystemRead };
 
 context Sandbox {

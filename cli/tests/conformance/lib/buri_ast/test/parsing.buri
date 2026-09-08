@@ -52,7 +52,10 @@ test "functions" {
     };
     same(ctx, "export fn f(): Int {\n    1\n}\n");
     same(ctx, "fn g(a: Int, b: Str): Bool {\n    true\n}\n");
-    same(ctx, "fn h<T: Equal + Ordered, C: Allocator>(ctx: C, item: T): T {\n    item\n}\n");
+    same(
+        ctx,
+        "fn h<T: Equal + Ordered, C: Allocator>(ctx: C, item: T): T {\n    item\n}\n",
+    );
     same(ctx, "fn nothing(): () {\n    ()\n}\n");
 }
 
@@ -73,7 +76,10 @@ test "traits, effects and impls" {
     let ctx = context {
         Allocator: alloc(),
     };
-    same(ctx, "export trait Show {\n    fn show<C: Allocator>(self, ctx: C): Str;\n}\n");
+    same(
+        ctx,
+        "export trait Show {\n    fn show<C: Allocator>(self, ctx: C): Str;\n}\n",
+    );
     same(ctx, "export effect Clock {\n    fn now(self): Int;\n}\n");
     same(ctx, "impl Point {\n    export fn area(self): Int {\n        1\n    }\n}\n");
     same(ctx, "impl<T> [T] {\n    fn head(self): Int {\n        0\n    }\n}\n");
@@ -283,7 +289,10 @@ test "an error carries the span of the token it is about" {
     match (ast.parse(ctx, "probe.buri", "type = Int;\n")) {
         .Ok(_tree) => assert.isTrue(false),
         .Err(errors) => {
-            assert.equal(assert.some(errors.first()).span, ast.Span { start: 5, end: 6 });
+            assert.equal(assert.some(errors.first()).span, ast.Span {
+                start: 5,
+                end: 6,
+            });
         },
     }
 }

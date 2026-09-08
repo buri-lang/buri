@@ -130,7 +130,12 @@ export fn generator<C: Random>(ctx: C): Generator {
     let b = ctx.nextInt(0, 65536).wrapToU64();
     let c = ctx.nextInt(0, 65536).wrapToU64();
     let d = ctx.nextInt(0, 65536).wrapToU64();
-    Generator(a | bits.shiftLeftU64(b, 16) | bits.shiftLeftU64(c, 32) | bits.shiftLeftU64(d, 48))
+    Generator(
+        a
+            | bits.shiftLeftU64(b, 16)
+            | bits.shiftLeftU64(c, 32)
+            | bits.shiftLeftU64(d, 48),
+    )
 }
 
 /// One step: advance the counter, then avalanche a copy of it.
@@ -224,7 +229,12 @@ impl Generator {
 
 /// `nextBytes`, one draw at a time. Tail-recursive, so a long fixture costs one
 /// frame.
-fn gather<C: Allocator>(ctx: C, g: Generator, remaining: Int, acc: [U8]): ([U8], Generator) {
+fn gather<C: Allocator>(
+    ctx: C,
+    g: Generator,
+    remaining: Int,
+    acc: [U8],
+): ([U8], Generator) {
     if (remaining <= 0) {
         (acc, g)
     } else {
@@ -273,7 +283,11 @@ export fn shuffle<T, C: Allocator + Random>(ctx: C, items: [T]): [T] {
 /// }
 /// ```
 export fn pick<T, C: Random>(ctx: C, items: [T]): Option<T> {
-    if (items.length() <= 0) { .None } else { items.get(ctx.nextInt(0, items.length())) }
+    if (items.length() <= 0) {
+        .None
+    } else {
+        items.get(ctx.nextInt(0, items.length()))
+    }
 }
 
 /// `count` items, drawn without replacement and in a random order.

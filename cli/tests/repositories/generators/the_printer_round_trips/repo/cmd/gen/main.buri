@@ -490,7 +490,11 @@ fn tail(): [ast.Stmt] {
         bound(
             "counted",
             ty("Int"),
-            bin(.Add, call(fld(id("mapped"), "length"), []), call(fld(empty, "length"), [])),
+            bin(
+                .Add,
+                call(fld(id("mapped"), "length"), []),
+                call(fld(empty, "length"), []),
+            ),
         ),
         bound(
             "quotient",

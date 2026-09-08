@@ -53,8 +53,14 @@ test "a generated enum variant carries the span of its value" {
     };
     let text = source(ctx);
     let out = printed(ctx, text);
-    assert.equal(spanText(text, assert.some(anchorOf(ctx, out, "DARK")).origin), "DARK");
-    assert.equal(spanText(text, assert.some(anchorOf(ctx, out, "Shade")).origin), "Shade");
+    assert.equal(
+        spanText(text, assert.some(anchorOf(ctx, out, "DARK")).origin),
+        "DARK",
+    );
+    assert.equal(
+        spanText(text, assert.some(anchorOf(ctx, out, "Shade")).origin),
+        "Shade",
+    );
 }
 
 test "a oneof's enum and its cases carry the schema's spans" {

@@ -10,7 +10,7 @@
 //! after (SPEC 10.7).
 
 from "core/effect" import { Allocator };
-from "core/order" import { Ordered, Order };
+from "core/order" import { Order, Ordered };
 
 // --- Pure: no context parameter at all --------------------------------------
 
@@ -265,7 +265,11 @@ impl<A> [A] {
 
     /// `mapResult` for a step that answers `Option`: every element mapped, or
     /// `.None` the moment one is missing.
-    export fn mapOption<B, C: Allocator>(self, ctx: C, transform: fn(A) => Option<B>): Option<[B]> {
+    export fn mapOption<B, C: Allocator>(
+        self,
+        ctx: C,
+        transform: fn(A) => Option<B>,
+    ): Option<[B]> {
         // `Result` is the shape with an early exit in it, so the walk is one
         // and the two names differ only in what they answer.
         let mapped = self.foldResultCtx(
@@ -308,7 +312,11 @@ impl<A> [A] {
 
     /// Maps and filters in one pass: it drops an element `transform` answers `.None`
     /// for, and the `.Some` payloads are the result.
-    export fn filterMap<B, C: Allocator>(self, ctx: C, transform: fn(A) => Option<B>): [B] {
+    export fn filterMap<B, C: Allocator>(
+        self,
+        ctx: C,
+        transform: fn(A) => Option<B>,
+    ): [B] {
         self.foldCtx(
             ctx,
             fn(c, acc: [B], x) => {
@@ -322,7 +330,11 @@ impl<A> [A] {
     }
 
     /// `filterMap`, but the step takes the context instead of capturing it.
-    export fn filterMapCtx<B, C: Allocator>(self, ctx: C, f: fn(C, A) => Option<B>): [B] {
+    export fn filterMapCtx<B, C: Allocator>(
+        self,
+        ctx: C,
+        f: fn(C, A) => Option<B>,
+    ): [B] {
         self.foldCtx(
             ctx,
             fn(c, acc: [B], x) => {
@@ -405,7 +417,13 @@ impl<T> [T] {
 
 /// Tail-recursive rather than a `map` over indices, because the lambda would
 /// have to capture the list (SPEC 10.6).
-fn windowsFrom<T, C: Allocator>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
+fn windowsFrom<T, C: Allocator>(
+    ctx: C,
+    xs: [T],
+    size: Int,
+    at: Int,
+    acc: [[T]],
+): [[T]] {
     if (at + size > xs.length()) {
         acc
     } else {
@@ -542,12 +560,20 @@ impl<A> [A] {
 
     /// `flatMap`, but the step takes the context instead of capturing it — the
     /// form to use when building each piece allocates.
-    export fn flatMapCtx<B, C: Allocator>(self, ctx: C, transform: fn(C, A) => [B]): [B] {
+    export fn flatMapCtx<B, C: Allocator>(
+        self,
+        ctx: C,
+        transform: fn(C, A) => [B],
+    ): [B] {
         self.mapCtx(ctx, transform).flatten(ctx)
     }
 
     /// `map` with the element's position, counting from zero.
-    export fn mapIndexed<B, C: Allocator>(self, ctx: C, transform: fn(Int, A) => B): [B] {
+    export fn mapIndexed<B, C: Allocator>(
+        self,
+        ctx: C,
+        transform: fn(Int, A) => B,
+    ): [B] {
         mappedFrom(ctx, self, transform, 0, empty<B>())
     }
 
@@ -677,7 +703,12 @@ impl<T> [T] {
 
     /// `replaceAt` where the new element is built from the old one. An index
     /// outside the list changes nothing and never calls `update`.
-    export fn updateAt<C: Allocator>(self, ctx: C, index: Int, update: fn(T) => T): [T] {
+    export fn updateAt<C: Allocator>(
+        self,
+        ctx: C,
+        index: Int,
+        update: fn(T) => T,
+    ): [T] {
         match (self.get(index)) {
             .None => self,
             .Some(x) => self.replaceAt(ctx, index, update(x)),
@@ -1185,7 +1216,11 @@ fn zippedFrom<A, B, R, C: Allocator>(
 /// ```stdout
 /// 4
 /// ```
-export fn unfold<T, S, C: Allocator>(ctx: C, seed: S, step: fn(S) => Option<(T, S)>): [T] {
+export fn unfold<T, S, C: Allocator>(
+    ctx: C,
+    seed: S,
+    step: fn(S) => Option<(T, S)>,
+): [T] {
     unfoldFrom(ctx, seed, step, empty<T>())
 }
 

@@ -30,7 +30,10 @@
 //!     let _ = io
 //!         .println(
 //!             ctx,
-//!             "${raw.length()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(ctx, raw)}",
+//!             "${raw.length()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(
+//!                 ctx,
+//!                 raw,
+//!             )}",
 //!         )
 //!         .ignore();
 //!     .Ok(())
@@ -495,7 +498,13 @@ export fn split<C: Allocator>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
     }
 }
 
-fn splitFrom<C: Allocator>(ctx: C, b: [U8], separator: [U8], at: Int, acc: [[U8]]): [[U8]] {
+fn splitFrom<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    separator: [U8],
+    at: Int,
+    acc: [[U8]],
+): [[U8]] {
     match (indexOfFrom(b, separator, at)) {
         .Some(i) => {
             splitFrom(
@@ -936,7 +945,10 @@ impl Reader {
     ///
     /// The error index is where the *frame* began rather than where its body
     /// did.
-    export fn takeFramed<C: Allocator>(self, ctx: C): Result<([U8], Reader), DecodeError> {
+    export fn takeFramed<C: Allocator>(
+        self,
+        ctx: C,
+    ): Result<([U8], Reader), DecodeError> {
         let (n, afterLength) = self.takeVarint()?;
         match (afterLength.takeSlice(ctx, n)) {
             .Ok(pair) => .Ok(pair),

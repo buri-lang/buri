@@ -475,7 +475,10 @@ test "an ordinary send after twenty abandoned ones gets its own answer" {
         counted.sendMessage(ctx, .Reenter(fn(c) => saying(c, counted, 20))),
         .Ok(.Total(0)),
     );
-    assert.equal(counted.sendMessage(ctx, .Say(grown(ctx, "mine"))), .Ok(.Said("mine!")));
+    assert.equal(
+        counted.sendMessage(ctx, .Say(grown(ctx, "mine"))),
+        .Ok(.Said("mine!")),
+    );
     assert.equal(counted.sendMessage(ctx, .Count), .Ok(.Total(21)));
     assert.equal(counted.stop(ctx), .Ok(()));
 }

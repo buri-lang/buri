@@ -495,7 +495,10 @@ test "a combinator whose step never waits answers over the empty list too" {
         Allocator: alloc(),
     };
     assert.equal(list.empty<Int>().mapCtx(ctx, fn(c, x) => x * 2), list.empty<Int>());
-    assert.equal(list.empty<Int>().mapCtxStep(ctx, fn(c, x) => x * 2), list.empty<Int>());
+    assert.equal(
+        list.empty<Int>().mapCtxStep(ctx, fn(c, x) => x * 2),
+        list.empty<Int>(),
+    );
     assert.equal(list.empty<Int>().filterCtx(ctx, fn(c, x) => true), list.empty<Int>());
     assert.equal(list.empty<Int>().foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 7), 7);
 }

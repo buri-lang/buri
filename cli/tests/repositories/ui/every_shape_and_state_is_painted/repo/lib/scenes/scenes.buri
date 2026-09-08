@@ -176,9 +176,10 @@ fn lettering<C>(length: Length, factor: Float): Node<C> {
 /// it.
 fn flow<C>(length: Length): Node<C> {
     ui.stack([.Position(.Flow), .Background(.Rgb(245, 245, 210)), .Height(.Px(60))], [
-        ui.stack([.Pin(.Start, length), .Pin(.Top, length), .Background(.Rgb(0, 0, 0))], [
-            ui.text(.Const("pinned")),
-        ]),
+        ui.stack(
+            [.Pin(.Start, length), .Pin(.Top, length), .Background(.Rgb(0, 0, 0))],
+            [ui.text(.Const("pinned"))],
+        ),
         ui.stack([.Grow(1), .Shrink(0), .AlignSelf(.Center)], [
             ui.text(.Const("grown")),
         ]),

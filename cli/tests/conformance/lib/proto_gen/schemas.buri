@@ -61,7 +61,11 @@ export fn block<C: Allocator>(ctx: C, out: [Str], head: Str, count: Int): [Str] 
 /// `Str.slice` indexes by scalar value — the two part company at the first
 /// non-ASCII character, and a generated module holds em dashes in its
 /// documentation.
-export fn anchorOf<C: Allocator>(ctx: C, out: ast.Printed, piece: Str): Option<ast.Anchor> {
+export fn anchorOf<C: Allocator>(
+    ctx: C,
+    out: ast.Printed,
+    piece: Str,
+): Option<ast.Anchor> {
     let raw = bytes.toUtf8(ctx, out.text);
     let wanted = bytes.toUtf8(ctx, piece);
     let hit = out

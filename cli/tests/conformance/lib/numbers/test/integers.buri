@@ -570,7 +570,8 @@ test "divideFloor and remainderEuclidean reconstruct the dividend for a positive
     assert.equal(number.divideFloor(0, 3) * 3 + number.remainderEuclidean(0, 3), 0);
     assert.equal(number.divideFloor(-1, 7) * 7 + number.remainderEuclidean(-1, 7), -1);
     assert.equal(
-        number.divideFloor(86399999, 86400000) * 86400000 + number.remainderEuclidean(86399999, 86400000),
+        number.divideFloor(86399999, 86400000) * 86400000
+            + number.remainderEuclidean(86399999, 86400000),
         86399999,
     );
     assert.equal(
@@ -637,7 +638,10 @@ test "a literal pinned by an annotation gets that type" {
 test "a literal pinned by a parameter gets that type" {
     assert.equal(takesU8(255), number.maxValue<U8>());
     assert.equal(takesU32(4294967295), number.maxValue<U32>());
-    assert.equal(takesI128(170141183460469231731687303715884105727), number.maxValue<I128>());
+    assert.equal(
+        takesI128(170141183460469231731687303715884105727),
+        number.maxValue<I128>(),
+    );
 }
 
 test "an unconstrained integer literal defaults to Int" {
@@ -1214,8 +1218,14 @@ test "checkedPower at the wide widths" {
 test "checkedPower is checkedMultiply repeated" {
     // The property that says the two agree: `x^n` is `x^(n-1) * x` wherever
     // both fit.
-    assert.equal(7.checkedPower(5), 7.checkedPower(4).andThen(fn(v) => v.checkedMultiply(7)));
-    assert.equal(3.checkedPower(20), 3.checkedPower(19).andThen(fn(v) => v.checkedMultiply(3)));
+    assert.equal(
+        7.checkedPower(5),
+        7.checkedPower(4).andThen(fn(v) => v.checkedMultiply(7)),
+    );
+    assert.equal(
+        3.checkedPower(20),
+        3.checkedPower(19).andThen(fn(v) => v.checkedMultiply(3)),
+    );
 }
 
 // --- Integer arithmetic in core/number --------------------------------------------
@@ -1259,8 +1269,14 @@ test "greatestCommonDivisor divides both, and nothing larger does" {
 test "the two pairs whose divisor is not an Int answer that value anyway" {
     // `|minValue|` is `2^63`, which no `Int` holds, so these two are the
     // documented exception to the answer being non-negative.
-    assert.equal(number.greatestCommonDivisor(number.minValue<I64>(), 0), number.minValue<I64>());
-    assert.equal(number.greatestCommonDivisor(0, number.minValue<I64>()), number.minValue<I64>());
+    assert.equal(
+        number.greatestCommonDivisor(number.minValue<I64>(), 0),
+        number.minValue<I64>(),
+    );
+    assert.equal(
+        number.greatestCommonDivisor(0, number.minValue<I64>()),
+        number.minValue<I64>(),
+    );
     // With any other second argument the magnitude comes back down.
     assert.equal(number.greatestCommonDivisor(number.minValue<I64>(), 2), 2);
     assert.equal(number.greatestCommonDivisor(number.minValue<I64>(), -1), 1);
@@ -1303,10 +1319,22 @@ test "divideEuclidean pairs with remainderEuclidean at either sign of divisor" {
 }
 
 test "divideEuclidean times the divisor plus remainderEuclidean is the dividend" {
-    assert.equal(number.divideEuclidean(-7, 2) * 2 + number.remainderEuclidean(-7, 2), -7);
-    assert.equal(number.divideEuclidean(-7, -2) * -2 + number.remainderEuclidean(-7, -2), -7);
-    assert.equal(number.divideEuclidean(7, -2) * -2 + number.remainderEuclidean(7, -2), 7);
-    assert.equal(number.divideEuclidean(123, 7) * 7 + number.remainderEuclidean(123, 7), 123);
+    assert.equal(
+        number.divideEuclidean(-7, 2) * 2 + number.remainderEuclidean(-7, 2),
+        -7,
+    );
+    assert.equal(
+        number.divideEuclidean(-7, -2) * -2 + number.remainderEuclidean(-7, -2),
+        -7,
+    );
+    assert.equal(
+        number.divideEuclidean(7, -2) * -2 + number.remainderEuclidean(7, -2),
+        7,
+    );
+    assert.equal(
+        number.divideEuclidean(123, 7) * 7 + number.remainderEuclidean(123, 7),
+        123,
+    );
 }
 
 test "divideCeiling rounds toward positive infinity" {
@@ -1416,8 +1444,14 @@ test "power at the two ends of Int" {
     // square is only taken when a further round needs it.
     assert.equal(number.power(number.maxValue<I64>(), 0), .Some(1));
     assert.equal(number.power(number.minValue<I64>(), 0), .Some(1));
-    assert.equal(number.power(number.maxValue<I64>(), 1), .Some(number.maxValue<I64>()));
-    assert.equal(number.power(number.minValue<I64>(), 1), .Some(number.minValue<I64>()));
+    assert.equal(
+        number.power(number.maxValue<I64>(), 1),
+        .Some(number.maxValue<I64>()),
+    );
+    assert.equal(
+        number.power(number.minValue<I64>(), 1),
+        .Some(number.minValue<I64>()),
+    );
     // The square of either end is not an `Int`.
     assert.equal(number.power(number.maxValue<I64>(), 2), .None);
     assert.equal(number.power(number.minValue<I64>(), 2), .None);
@@ -1518,9 +1552,18 @@ test "divideEuclidean and remainderEuclidean still pair up at the ends of Int" {
     assert.equal(number.divideEuclidean(bottom, 1), bottom);
     assert.equal(number.divideEuclidean(top, -1), 0 - top);
     assert.equal(number.divideEuclidean(bottom, 2), -4611686018427387904);
-    assert.equal(number.divideEuclidean(bottom, 2) * 2 + number.remainderEuclidean(bottom, 2), bottom);
-    assert.equal(number.divideEuclidean(top, 3) * 3 + number.remainderEuclidean(top, 3), top);
-    assert.equal(number.divideEuclidean(bottom, -3) * -3 + number.remainderEuclidean(bottom, -3), bottom);
+    assert.equal(
+        number.divideEuclidean(bottom, 2) * 2 + number.remainderEuclidean(bottom, 2),
+        bottom,
+    );
+    assert.equal(
+        number.divideEuclidean(top, 3) * 3 + number.remainderEuclidean(top, 3),
+        top,
+    );
+    assert.equal(
+        number.divideEuclidean(bottom, -3) * -3 + number.remainderEuclidean(bottom, -3),
+        bottom,
+    );
 }
 
 test "quotientRemainder at every sign, and at both ends" {

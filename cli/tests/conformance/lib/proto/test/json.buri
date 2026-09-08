@@ -180,7 +180,10 @@ test "an IMPLICIT field is omitted at its default, the way proto3 did it" {
         Allocator: alloc(),
     };
     assert.equal(text(ctx, Everything { ..defaultEverything(), age: 0 }), "{}");
-    assert.equal(text(ctx, Everything { ..defaultEverything(), age: 7 }), "{\"age\":7}");
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), age: 7 }),
+        "{\"age\":7}",
+    );
 }
 
 test "a message field is written when it is present, empty or not" {

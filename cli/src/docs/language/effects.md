@@ -135,7 +135,10 @@ A function names the effects it needs as **bounds** on its context parameter:
 # from "core/effect" import { Allocator };
 # from "core/fs" import { FileSystemRead, Path };
 
-fn loadConfig<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Config, ConfigError> {
+fn loadConfig<C: Allocator + FileSystemRead>(
+    ctx: C,
+    at: Path,
+): Result<Config, ConfigError> {
     let text = fs.readText(ctx, at)?;
     parse(ctx, text)
 }

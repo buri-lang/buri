@@ -31,7 +31,9 @@
 //! }
 //! ```
 
-from "core/effect" import { Allocator, Header, Method, Network, NetError, Request, Response };
+from "core/effect" import {
+    Allocator, Header, Method, NetError, Network, Request, Response,
+};
 
 from "core/effect" export { Header, Method, NetError, Request, Response };
 
@@ -59,7 +61,12 @@ export fn request(method: Method, url: Str): Request {
 }
 
 /// The same, with a text body encoded as UTF-8.
-export fn textRequest<C: Allocator>(ctx: C, method: Method, url: Str, body: Str): Request {
+export fn textRequest<C: Allocator>(
+    ctx: C,
+    method: Method,
+    url: Str,
+    body: Str,
+): Request {
     Request {
         method: method,
         url: url,
@@ -238,7 +245,11 @@ export struct Cookie {
 /// The name and the value go out **as given**: a value holding a `;` or a space
 /// is not escaped here, because escaping it would change what the client sends
 /// back. `url.encodeComponent` is what to wrap it in.
-export fn withCookie<C: Allocator>(ctx: C, response: Response, cookie: Cookie): Response {
+export fn withCookie<C: Allocator>(
+    ctx: C,
+    response: Response,
+    cookie: Cookie,
+): Response {
     response.withHeader(ctx, "set-cookie", cookieText(ctx, cookie))
 }
 

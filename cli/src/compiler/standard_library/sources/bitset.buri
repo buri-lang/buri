@@ -110,7 +110,13 @@ fn scanFrom(words: [Int], capacity: Int, start: Int): Option<Int> {
 /// the capacity must stay clear however the words are combined.
 fn liveMask(capacity: Int, at: Int): Int {
     let rest = capacity - at * WORD;
-    if (rest >= WORD) { FULL } else if (rest <= 0) { 0 } else { bits.shiftLeft(1, rest) - 1 }
+    if (rest >= WORD) {
+        FULL
+    } else if (rest <= 0) {
+        0
+    } else {
+        bits.shiftLeft(1, rest) - 1
+    }
 }
 
 /// The bits of word `at` that lie in the half-open range `[low, high)`.
@@ -118,7 +124,11 @@ fn rangeMask(low: Int, high: Int, at: Int): Int {
     let base = at * WORD;
     let lower = if (low - base < 0) { 0 } else { low - base };
     let upper = if (high - base > WORD) { WORD } else { high - base };
-    if (lower >= upper) { 0 } else { bits.shiftLeft(1, upper) - bits.shiftLeft(1, lower) }
+    if (lower >= upper) {
+        0
+    } else {
+        bits.shiftLeft(1, upper) - bits.shiftLeft(1, lower)
+    }
 }
 
 impl BitSet {

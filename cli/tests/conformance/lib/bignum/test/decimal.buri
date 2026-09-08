@@ -47,7 +47,10 @@ test "a negative scale is read as zero" {
     assert.equal(decimal.of(5, -2), decimal.of(5, 0));
     assert.equal(decimal.of(5, -2).text(ctx), "5");
     // Multiplying is how you get the other thing.
-    assert.equal(assert.some(decimal.of(5, 0).multiply(decimal.of(100, 0))).text(ctx), "500");
+    assert.equal(
+        assert.some(decimal.of(5, 0).multiply(decimal.of(100, 0))).text(ctx),
+        "500",
+    );
 }
 
 test "equality is numeric because the shape is canonical" {
@@ -120,10 +123,19 @@ test "add raises both sides to the larger scale" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(assert.some(decimal.of(10, 1).add(decimal.of(20, 2))).text(ctx), "1.2");
+    assert.equal(
+        assert.some(decimal.of(10, 1).add(decimal.of(20, 2))).text(ctx),
+        "1.2",
+    );
     assert.equal(assert.some(decimal.of(1, 0).add(decimal.of(1, 2))).text(ctx), "1.01");
-    assert.equal(assert.some(decimal.of(1999, 2).add(decimal.of(1, 2))).text(ctx), "20");
-    assert.equal(assert.some(decimal.of(0, 0).add(decimal.of(5, 3))).text(ctx), "0.005");
+    assert.equal(
+        assert.some(decimal.of(1999, 2).add(decimal.of(1, 2))).text(ctx),
+        "20",
+    );
+    assert.equal(
+        assert.some(decimal.of(0, 0).add(decimal.of(5, 3))).text(ctx),
+        "0.005",
+    );
 }
 
 test "the sum a Float gets wrong" {
@@ -141,23 +153,44 @@ test "sub is add with the other sign" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(assert.some(decimal.of(1999, 2).subtract(decimal.of(99, 2))).text(ctx), "19");
-    assert.equal(assert.some(decimal.of(1, 0).subtract(decimal.of(1, 2))).text(ctx), "0.99");
-    assert.equal(assert.some(decimal.of(5, 1).subtract(decimal.of(5, 1))), decimal.of(0, 0));
-    assert.equal(assert.some(decimal.of(1, 1).subtract(decimal.of(2, 1))).text(ctx), "-0.1");
+    assert.equal(
+        assert.some(decimal.of(1999, 2).subtract(decimal.of(99, 2))).text(ctx),
+        "19",
+    );
+    assert.equal(
+        assert.some(decimal.of(1, 0).subtract(decimal.of(1, 2))).text(ctx),
+        "0.99",
+    );
+    assert.equal(
+        assert.some(decimal.of(5, 1).subtract(decimal.of(5, 1))),
+        decimal.of(0, 0),
+    );
+    assert.equal(
+        assert.some(decimal.of(1, 1).subtract(decimal.of(2, 1))).text(ctx),
+        "-0.1",
+    );
 }
 
 test "mul adds the scales and keeps every digit" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(assert.some(decimal.of(5, 1).multiply(decimal.of(5, 1))).text(ctx), "0.25");
+    assert.equal(
+        assert.some(decimal.of(5, 1).multiply(decimal.of(5, 1))).text(ctx),
+        "0.25",
+    );
     assert.equal(
         assert.some(decimal.of(1999, 2).multiply(decimal.of(3, 0))).text(ctx),
         "59.97",
     );
-    assert.equal(assert.some(decimal.of(0, 0).multiply(decimal.of(1999, 2))), decimal.of(0, 0));
-    assert.equal(assert.some(decimal.of(-5, 1).multiply(decimal.of(5, 1))).text(ctx), "-0.25");
+    assert.equal(
+        assert.some(decimal.of(0, 0).multiply(decimal.of(1999, 2))),
+        decimal.of(0, 0),
+    );
+    assert.equal(
+        assert.some(decimal.of(-5, 1).multiply(decimal.of(5, 1))).text(ctx),
+        "-0.25",
+    );
 }
 
 test "every arithmetic method answers .None where the units would not fit" {
@@ -335,8 +368,14 @@ test "text reaches both ends of Int with a scale on it" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(decimal.of(number.maxValue<I64>(), 2).text(ctx), "92233720368547758.07");
-    assert.equal(decimal.of(number.minValue<I64>(), 2).text(ctx), "-92233720368547758.08");
+    assert.equal(
+        decimal.of(number.maxValue<I64>(), 2).text(ctx),
+        "92233720368547758.07",
+    );
+    assert.equal(
+        decimal.of(number.minValue<I64>(), 2).text(ctx),
+        "-92233720368547758.08",
+    );
 }
 
 // --- Scale zero, and the largest scale there is ----------------------------------------
@@ -353,8 +392,14 @@ test "at scale zero a Decimal is the Int it holds" {
     assert.equal(decimal.of(0, 0).text(ctx), "0");
     assert.equal(decimal.of(7, 0).text(ctx), "7");
     assert.equal(decimal.of(-7, 0).text(ctx), "-7");
-    assert.equal(decimal.of(number.maxValue<I64>(), 0).text(ctx), "9223372036854775807");
-    assert.equal(decimal.of(number.minValue<I64>(), 0).text(ctx), "-9223372036854775808");
+    assert.equal(
+        decimal.of(number.maxValue<I64>(), 0).text(ctx),
+        "9223372036854775807",
+    );
+    assert.equal(
+        decimal.of(number.minValue<I64>(), 0).text(ctx),
+        "-9223372036854775808",
+    );
     // A trailing zero is a digit at scale zero and is kept, because there is no
     // scale left for it to be absorbed into.
     assert.equal(decimal.of(100, 0).text(ctx), "100");
@@ -365,7 +410,10 @@ test "at scale zero a Decimal is the Int it holds" {
     assert.equal(decimal.of(100, 1), decimal.of(10, 0));
     // Whole-number arithmetic at scale zero is `Int` arithmetic.
     assert.equal(decimal.of(7, 0).add(decimal.of(-7, 0)), .Some(decimal.of(0, 0)));
-    assert.equal(assert.some(decimal.of(7, 0).multiply(decimal.of(6, 0))).text(ctx), "42");
+    assert.equal(
+        assert.some(decimal.of(7, 0).multiply(decimal.of(6, 0))).text(ctx),
+        "42",
+    );
     assert.equal(decimal.of(7, 0).roundTo(0), decimal.of(7, 0));
     assert.equal(decimal.of(7, 0).toFloat(), 7.0);
 }
@@ -426,8 +474,14 @@ test "add and sub answer .None at each of the three places they can" {
     assert.equal(decimal.of(1, 1).subtract(top), .None);
     // A zero is short-circuited rather than scaled, so it survives a scale no
     // number could be raised through.
-    assert.equal(decimal.of(0, 0).add(decimal.of(1, number.maxValue<I64>())).isSome(), true);
-    assert.equal(decimal.of(1, number.maxValue<I64>()).subtract(decimal.of(0, 0)).isSome(), true);
+    assert.equal(
+        decimal.of(0, 0).add(decimal.of(1, number.maxValue<I64>())).isSome(),
+        true,
+    );
+    assert.equal(
+        decimal.of(1, number.maxValue<I64>()).subtract(decimal.of(0, 0)).isSome(),
+        true,
+    );
 }
 
 test "mul answers .None from the units and from the scales alike" {

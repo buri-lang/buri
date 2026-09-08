@@ -1515,7 +1515,14 @@ test "grapheme break vectors, 1080 to 1093" {
 // are cheaper per case, are complete instead.
 
 /// One row: the source, then the four forms it takes.
-fn forms<C: Allocator>(ctx: C, source: Str, nfc: Str, nfd: Str, nfkc: Str, nfkd: Str): () {
+fn forms<C: Allocator>(
+    ctx: C,
+    source: Str,
+    nfc: Str,
+    nfd: Str,
+    nfkc: Str,
+    nfkd: Str,
+): () {
     assert.equal(source.normalize(ctx, .Nfc), nfc);
     assert.equal(source.normalize(ctx, .Nfd), nfd);
     assert.equal(source.normalize(ctx, .Nfkc), nfkc);

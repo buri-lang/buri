@@ -21,10 +21,7 @@ A `.proto` is a generator's input, and `std/codegen/proto` is the generator:
 ```textproto schema=build
 library {
     generators: [
-        {
-            tool: "std/codegen/proto"
-            inputs: ["address.proto", "demo.proto"]
-        }
+        { tool: "std/codegen/proto", inputs: ["address.proto", "demo.proto"] },
     ]
 }
 ```

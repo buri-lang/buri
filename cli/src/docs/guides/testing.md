@@ -150,7 +150,10 @@ from "core/host/testing" import { alloc, fs };
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn archive<C: Allocator + FileSystemRead + FileSystemWrite>(ctx: C, at: Path): Result<(), IoError> {
+# fn archive<C: Allocator + FileSystemRead + FileSystemWrite>(
+#     ctx: C,
+#     at: Path,
+# ): Result<(), IoError> {
 #     match (at.withSuffix(ctx, ".bak")) {
 #         .None => .Err(.NotFound),
 #         .Some(backup) => {
@@ -199,7 +202,7 @@ A double the runner does not provide is a struct with methods, bound in a
 context the way the runner's own are:
 
 ```buri role=test
-# from "core/effect" import { Allocator, Network, NetError, Request, Response };
+# from "core/effect" import { Allocator, NetError, Network, Request, Response };
 # from "core/host/testing" import { alloc };
 # from "core/net/http" import * as http;
 # from "core/testing/assert" import * as assert;
@@ -227,7 +230,10 @@ test "a timeout reaches the caller as an error" {
         Allocator: alloc(),
         Network: StubNet { failing: "https://example.test/slow" },
     };
-    assert.equal(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
+    assert.equal(
+        assert.err(status(ctx, "https://example.test/slow")),
+        NetError.Timeout,
+    );
     assert.equal(assert.ok(status(ctx, "https://example.test/x")), 200);
 }
 ```

@@ -306,7 +306,10 @@ test "option.withDefault is eager, as every call is" {
     let ctx = context {
         Stdout: sink,
     };
-    assert.equal(noteOpt(ctx, "l", Option.Some(1)).withDefault(noteInt(ctx, "r", 2)), 1);
+    assert.equal(
+        noteOpt(ctx, "l", Option.Some(1)).withDefault(noteInt(ctx, "r", 2)),
+        1,
+    );
     assert.equal(sink.captured(), "lr");
 }
 
@@ -770,7 +773,10 @@ test "result.mapErrCtx runs the mapper on Err only" {
     let good: Result<Int, Str> = .Ok(1);
     let out = bad.mapErrCtx(ctx, fn(c, e) => noteInt(c, "e", e.length()));
     assert.equal(assert.err(out), 2);
-    assert.equal(assert.ok(good.mapErrCtx(ctx, fn(c, e) => noteInt(c, "e", e.length()))), 1);
+    assert.equal(
+        assert.ok(good.mapErrCtx(ctx, fn(c, e) => noteInt(c, "e", e.length()))),
+        1,
+    );
     assert.equal(sink.captured(), "e");
 }
 

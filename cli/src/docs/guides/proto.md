@@ -30,10 +30,7 @@ leaves `generators` alone:
 # libs/wire/BUILD.buri
 library {
     generators: [
-        {
-            tool: "std/codegen/proto"
-            inputs: ["point.proto"]
-        }
+        { tool: "std/codegen/proto", inputs: ["point.proto"] },
     ]
     visibility: ["//visibility:public"]
 }

@@ -286,8 +286,14 @@ test "toRadix reaches both ends of Int" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(number.toRadix(ctx, number.maxValue<I64>(), 10), "9223372036854775807");
-    assert.equal(number.toRadix(ctx, number.minValue<I64>(), 10), "-9223372036854775808");
+    assert.equal(
+        number.toRadix(ctx, number.maxValue<I64>(), 10),
+        "9223372036854775807",
+    );
+    assert.equal(
+        number.toRadix(ctx, number.minValue<I64>(), 10),
+        "-9223372036854775808",
+    );
     assert.equal(number.toRadix(ctx, number.minValue<I64>(), 16), "-8000000000000000");
 }
 
@@ -300,13 +306,19 @@ test "toRadix clamps a radix it has no alphabet for" {
     assert.equal(number.toRadix(ctx, 5, 1), number.toRadix(ctx, 5, 2));
     assert.equal(number.toRadix(ctx, 5, 0), number.toRadix(ctx, 5, 2));
     assert.equal(number.toRadix(ctx, 5, -10), number.toRadix(ctx, 5, 2));
-    assert.equal(number.toRadix(ctx, 5, number.minValue<I64>()), number.toRadix(ctx, 5, 2));
+    assert.equal(
+        number.toRadix(ctx, 5, number.minValue<I64>()),
+        number.toRadix(ctx, 5, 2),
+    );
     // Thirty-six is the last base there is an alphabet for; thirty-seven is the
     // first one there is not.
     assert.equal(number.toRadix(ctx, 40, 36), "14");
     assert.equal(number.toRadix(ctx, 40, 37), number.toRadix(ctx, 40, 36));
     assert.equal(number.toRadix(ctx, 40, 99), number.toRadix(ctx, 40, 36));
-    assert.equal(number.toRadix(ctx, 40, number.maxValue<I64>()), number.toRadix(ctx, 40, 36));
+    assert.equal(
+        number.toRadix(ctx, 40, number.maxValue<I64>()),
+        number.toRadix(ctx, 40, 36),
+    );
     // A negative value keeps its sign at either end of the clamp.
     assert.equal(number.toRadix(ctx, -5, 1), "-101");
     assert.equal(number.toRadix(ctx, -40, 37), "-14");

@@ -76,7 +76,9 @@ test "withTimeout is the field, and a number at or below zero clears it" {
 }
 
 test "a Duration converts to the milliseconds the field counts in" {
-    let bounded = http.request(.Get, "http://x/").withTimeout(time.seconds(5).milliseconds());
+    let bounded = http
+        .request(.Get, "http://x/")
+        .withTimeout(time.seconds(5).milliseconds());
     assert.equal(bounded.timeoutMillis, 5000);
 }
 
@@ -192,8 +194,14 @@ test "a form request is an encoded body and a content type" {
         ("t", "1&2"),
     ]);
     assert.equal(ask.method, .Post);
-    assert.equal(ask.header("content-type"), .Some("application/x-www-form-urlencoded"));
-    assert.equal(assert.ok(http.formBody(ctx, ask.body)), [("user", "a b"), ("t", "1&2")]);
+    assert.equal(
+        ask.header("content-type"),
+        .Some("application/x-www-form-urlencoded"),
+    );
+    assert.equal(assert.ok(http.formBody(ctx, ask.body)), [
+        ("user", "a b"),
+        ("t", "1&2"),
+    ]);
 }
 
 test "a form body reads what a browser sends" {
@@ -280,7 +288,10 @@ test "a media type for the files a handler serves" {
         http.contentTypeFor(path.of(ctx, "a/b/logo.svg")),
         .Some("image/svg+xml"),
     );
-    assert.equal(http.contentTypeFor(path.of(ctx, "app.wasm")), .Some("application/wasm"));
+    assert.equal(
+        http.contentTypeFor(path.of(ctx, "app.wasm")),
+        .Some("application/wasm"),
+    );
     assert.equal(
         http.contentTypeFor(path.of(ctx, "data.csv")),
         .Some("text/csv; charset=utf-8"),

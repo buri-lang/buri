@@ -230,7 +230,12 @@ impl Str {
         match (self.lastIndexOf(separator)) {
             .None => .None,
             .Some(at) => {
-                .Some((self.slice(0, at), self.slice(at + separator.length(), self.length())))
+                .Some(
+                    (
+                        self.slice(0, at),
+                        self.slice(at + separator.length(), self.length()),
+                    ),
+                )
             },
         }
     }
@@ -358,7 +363,8 @@ impl Str {
 
     /// `startsWith` under the same simple folding `equalsIgnoreCase` uses.
     export fn startsWithIgnoreCase(self, prefix: Str): Bool {
-        self.length() >= prefix.length() && sameFolded(self.slice(0, prefix.length()), prefix, 0)
+        self.length() >= prefix.length()
+            && sameFolded(self.slice(0, prefix.length()), prefix, 0)
     }
 }
 
@@ -377,7 +383,12 @@ impl Str {
     /// whole of the rest, separators and all.
     ///
     /// A `limit` of zero or less has no pieces at all.
-    export fn splitLimit<C: Allocator>(self, ctx: C, separator: Str, limit: Int): [Str] {
+    export fn splitLimit<C: Allocator>(
+        self,
+        ctx: C,
+        separator: Str,
+        limit: Int,
+    ): [Str] {
         if (limit <= 0) {
             list.empty<Str>()
         } else {
@@ -387,7 +398,12 @@ impl Str {
 
     /// `replace` for the first occurrence only. An empty needle changes
     /// nothing, which is `replace`'s rule too.
-    export fn replaceFirst<C: Allocator>(self, ctx: C, needle: Str, replacement: Str): Str {
+    export fn replaceFirst<C: Allocator>(
+        self,
+        ctx: C,
+        needle: Str,
+        replacement: Str,
+    ): Str {
         if (needle.isEmpty()) {
             self
         } else {
@@ -622,7 +638,13 @@ export fn fromIntGrouped<C: Allocator>(ctx: C, value: Int, separator: Str): Str 
     if (negative) { "-".concat(ctx, grouped) } else { grouped }
 }
 
-fn groupedFrom<C: Allocator>(ctx: C, digits: Str, separator: Str, at: Int, acc: Str): Str {
+fn groupedFrom<C: Allocator>(
+    ctx: C,
+    digits: Str,
+    separator: Str,
+    at: Int,
+    acc: Str,
+): Str {
     if (at >= digits.length()) {
         acc
     } else {
@@ -830,7 +852,9 @@ impl Str {
     ///         Stdout: host.stdout,
     ///     };
     ///     let text = "👍🏽!";
-    ///     let _ = io.println(ctx, "${text.graphemes(ctx).length()} ${text.length()}").ignore();
+    ///     let _ = io
+    ///         .println(ctx, "${text.graphemes(ctx).length()} ${text.length()}")
+    ///         .ignore();
     ///     .Ok(())
     /// }
     /// ```

@@ -308,7 +308,11 @@ export fn isCloseAbsolute(a: Float, b: Float, tolerance: Float): Bool {
 /// so is a pair of infinities. A zero against anything else is not, whatever the
 /// tolerance — nothing is a fraction of nothing.
 export fn isCloseRelative(a: Float, b: Float, tolerance: Float): Bool {
-    let scale = if (absoluteFloat(a) > absoluteFloat(b)) { absoluteFloat(a) } else { absoluteFloat(b) };
+    let scale = if (absoluteFloat(a) > absoluteFloat(b)) {
+        absoluteFloat(a)
+    } else {
+        absoluteFloat(b)
+    };
     a == b || absoluteFloat(a - b) <= absoluteFloat(tolerance) * scale
 }
 

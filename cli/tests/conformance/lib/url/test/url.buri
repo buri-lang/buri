@@ -245,7 +245,10 @@ test "an empty port is no port" {
 }
 
 test "credentials are refused rather than dropped" {
-    assert.equal(assert.err(read("https://ada:secret@example.com/")), UrlError.UserInfo);
+    assert.equal(
+        assert.err(read("https://ada:secret@example.com/")),
+        UrlError.UserInfo,
+    );
     assert.equal(assert.err(read("https://ada@example.com/")), UrlError.UserInfo);
 }
 
@@ -583,7 +586,10 @@ test "every shape a URL takes comes back as it went in" {
 }
 
 test "an escape keeps the spelling it arrived in" {
-    assert.equal(roundTrip("http://a/%7euser/%2Fx?q=%2b"), "http://a/%7euser/%2Fx?q=%2b");
+    assert.equal(
+        roundTrip("http://a/%7euser/%2Fx?q=%2b"),
+        "http://a/%7euser/%2Fx?q=%2b",
+    );
 }
 
 test "a bare question mark is dropped and a bare hash is not" {

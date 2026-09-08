@@ -38,7 +38,10 @@ test "an atomic write whose rename the plan fails" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.equal(assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])), .CrossDevice);
+    assert.equal(
+        assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])),
+        .CrossDevice,
+    );
     assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
 }
 

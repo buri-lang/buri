@@ -1745,7 +1745,12 @@ fn arm<C: Allocator>(ctx: C, out: Out, a: Arm): Out {
     emit(ctx, body, ",")
 }
 
-fn contextExpr<C: Allocator>(ctx: C, out: Out, spread: [Expr], bindings: [Binding]): Out {
+fn contextExpr<C: Allocator>(
+    ctx: C,
+    out: Out,
+    spread: [Expr],
+    bindings: [Binding],
+): Out {
     contextBraces(ctx, emit(ctx, out, "context {"), spread, bindings)
 }
 
@@ -3071,7 +3076,12 @@ fn parseItemKind<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     }
 }
 
-fn parseExportable<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseExportable<C: Allocator>(
+    ctx: C,
+    p: P,
+    docs: [Str],
+    exported: Bool,
+): (P, ItemKind) {
     if (at(p, "fn")) {
         let (after, d) = parseFn(ctx, advance(p), docs, exported);
         (after, .Fn(d))
@@ -3236,7 +3246,11 @@ fn parseGenerics<C: Allocator>(ctx: C, p: P): (P, [GenericParam]) {
     if (at(p, "<")) { parseGenericList(ctx, advance(p), []) } else { (p, []) }
 }
 
-fn parseGenericList<C: Allocator>(ctx: C, p: P, acc: [GenericParam]): (P, [GenericParam]) {
+fn parseGenericList<C: Allocator>(
+    ctx: C,
+    p: P,
+    acc: [GenericParam],
+): (P, [GenericParam]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, ">")) {
@@ -3403,7 +3417,12 @@ fn parseVariants<C: Allocator>(ctx: C, p: P, acc: [Variant]): (P, [Variant]) {
 
 // --- the rest of the declarations -------------------------------------------------
 
-fn parseTypeAlias<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseTypeAlias<C: Allocator>(
+    ctx: C,
+    p: P,
+    docs: [Str],
+    exported: Bool,
+): (P, ItemKind) {
     let (named, name) = parseName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
     let equals = eatPunct(ctx, afterGenerics, "=");
@@ -3527,7 +3546,12 @@ fn parseDeriveList<C: Allocator>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
     }
 }
 
-fn parseContext<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseContext<C: Allocator>(
+    ctx: C,
+    p: P,
+    docs: [Str],
+    exported: Bool,
+): (P, ItemKind) {
     let (named, name) = parseName(ctx, p);
     let opened = eatPunct(ctx, named, "{");
     let (afterBody, spread, bindings) = parseContextBody(ctx, opened);
@@ -3796,7 +3820,13 @@ fn parseBinary<C: Allocator>(ctx: C, p: P, level: Int): (P, Expr) {
     }
 }
 
-fn binaryRest<C: Allocator>(ctx: C, p: P, level: Int, left: Expr, start: Span): (P, Expr) {
+fn binaryRest<C: Allocator>(
+    ctx: C,
+    p: P,
+    level: Int,
+    left: Expr,
+    start: Span,
+): (P, Expr) {
     if (p.panicking || levelOps(level).contains(tokenAt(p, 0).text) == false) {
         (p, left)
     } else {
@@ -4048,7 +4078,11 @@ fn parseLambda<C: Allocator>(ctx: C, p: P): (P, Expr) {
     )
 }
 
-fn parseLambdaParams<C: Allocator>(ctx: C, p: P, acc: [LambdaParam]): (P, [LambdaParam]) {
+fn parseLambdaParams<C: Allocator>(
+    ctx: C,
+    p: P,
+    acc: [LambdaParam],
+): (P, [LambdaParam]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, ")")) {

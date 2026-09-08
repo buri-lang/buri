@@ -1094,7 +1094,10 @@ test "nullary variants are equal to themselves" {
 }
 
 test "record variants compare fieldwise" {
-    assert.equal(Shape.Rect { width: 1, height: 2 }, Shape.Rect { width: 1, height: 2 });
+    assert.equal(Shape.Rect { width: 1, height: 2 }, Shape.Rect {
+        width: 1,
+        height: 2,
+    });
     assert.notEqual(Shape.Rect { width: 1, height: 2 }, Shape.Rect {
         width: 2,
         height: 1,

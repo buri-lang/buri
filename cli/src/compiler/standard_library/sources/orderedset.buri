@@ -107,13 +107,21 @@ impl<T: Ordered> OrderedSet<T> {
         other.toList(ctx).foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), self)
     }
 
-    export fn intersect<C: Allocator>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
+    export fn intersect<C: Allocator>(
+        self,
+        ctx: C,
+        other: OrderedSet<T>,
+    ): OrderedSet<T> {
         let theirs = other;
         of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => theirs.has(x)))
     }
 
     /// The members of `self` that are not in `other`.
-    export fn difference<C: Allocator>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
+    export fn difference<C: Allocator>(
+        self,
+        ctx: C,
+        other: OrderedSet<T>,
+    ): OrderedSet<T> {
         let theirs = other;
         of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => !theirs.has(x)))
     }
@@ -130,7 +138,11 @@ impl<T: Ordered> OrderedSet<T> {
     }
 
     /// The members in exactly one of the two, in order.
-    export fn symmetricDifference<C: Allocator>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
+    export fn symmetricDifference<C: Allocator>(
+        self,
+        ctx: C,
+        other: OrderedSet<T>,
+    ): OrderedSet<T> {
         self.difference(ctx, other).union(ctx, other.difference(ctx, self))
     }
 
@@ -201,7 +213,11 @@ export fn distinct<T: Ordered, C: Allocator>(ctx: C, xs: [T]): [T] {
 
 /// [`distinct`] over a key: the first element answering each key is kept, and
 /// the rest go. One `key` call per element.
-export fn distinctBy<A, K: Ordered, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): [A] {
+export fn distinctBy<A, K: Ordered, C: Allocator>(
+    ctx: C,
+    xs: [A],
+    key: fn(A) => K,
+): [A] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([A], OrderedSet<K>), x) => {

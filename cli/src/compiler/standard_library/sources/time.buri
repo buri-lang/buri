@@ -320,7 +320,11 @@ impl Instant {
     /// How long since `earlier`, negative if `earlier` is later. Pure: the
     /// difference between two points needs no clock.
     export fn duration(self, earlier: Instant): Duration {
-        Duration(self.0.saturatingSubtract(earlier.0).saturatingMultiply(NANOSECONDS_PER_MILLISECOND))
+        Duration(
+            self.0
+                .saturatingSubtract(earlier.0)
+                .saturatingMultiply(NANOSECONDS_PER_MILLISECOND),
+        )
     }
 
     /// This point moved forward by a length. `d.milliseconds()` is what moves it, so

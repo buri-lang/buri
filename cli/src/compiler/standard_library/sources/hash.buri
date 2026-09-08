@@ -192,7 +192,8 @@ export fn siphash24(key0: U64, key1: U64, b: [U8]): U64 {
     let compressed = sipWords(start, b, 0, whole);
     // The last word is the remaining octets with the input length in its top
     // octet, so that two inputs differing only in trailing zeros differ here.
-    let last = sipTail(b, whole, whole, n, 0) | bits.shiftLeftU64((n % 256).wrapToU64(), 56);
+    let last = sipTail(b, whole, whole, n, 0)
+        | bits.shiftLeftU64((n % 256).wrapToU64(), 56);
     let absorbed = sipAbsorb(compressed, last);
     let finalised = sipRounds(State { ..absorbed, v2: absorbed.v2 ^ 0xff }, 4);
     finalised.v0 ^ finalised.v1 ^ finalised.v2 ^ finalised.v3
@@ -203,7 +204,12 @@ fn sipWords(s: State, b: [U8], i: Int, end: Int): State {
     if (i >= end) {
         s
     } else {
-        sipWords(sipAbsorb(s, bytes.toU64LittleEndian(b, i).withDefault(0)), b, i + 8, end)
+        sipWords(
+            sipAbsorb(s, bytes.toU64LittleEndian(b, i).withDefault(0)),
+            b,
+            i + 8,
+            end,
+        )
     }
 }
 

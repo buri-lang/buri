@@ -77,8 +77,14 @@ test "min and max choose per lane rather than per vector" {
 }
 
 test "abs and sqrt are lane-wise" {
-    assert.equal(simd.f32x4(-1.0, 2.0, -3.0, 4.0).abs(), simd.f32x4(1.0, 2.0, 3.0, 4.0));
-    assert.equal(simd.f32x4(1.0, 4.0, 9.0, 16.0).squareRoot(), simd.f32x4(1.0, 2.0, 3.0, 4.0));
+    assert.equal(
+        simd.f32x4(-1.0, 2.0, -3.0, 4.0).abs(),
+        simd.f32x4(1.0, 2.0, 3.0, 4.0),
+    );
+    assert.equal(
+        simd.f32x4(1.0, 4.0, 9.0, 16.0).squareRoot(),
+        simd.f32x4(1.0, 2.0, 3.0, 4.0),
+    );
 }
 
 // --- horizontal reductions -----------------------------------------------------------
@@ -231,7 +237,10 @@ test "shr fills with zeros rather than with the sign bit" {
 test "selectInt takes each lane from the side the mask names" {
     let yes = simd.i32x4(10, 20, 30, 40);
     let no = simd.i32x4(1, 2, 3, 4);
-    assert.equal(simd.selectInt(simd.i32x4(1, 0, 1, 0), yes, no), simd.i32x4(10, 2, 30, 4));
+    assert.equal(
+        simd.selectInt(simd.i32x4(1, 0, 1, 0), yes, no),
+        simd.i32x4(10, 2, 30, 4),
+    );
     assert.equal(simd.selectInt(simd.ZERO_INT, yes, no), no);
     assert.equal(simd.selectInt(simd.splatInt(1), yes, no), yes);
     // Any non-zero lane selects, not only one.
@@ -244,7 +253,10 @@ test "selectInt takes each lane from the side the mask names" {
 test "selectInt over a comparison is a branch-free clamp" {
     let v = simd.i32x4(-3, 5, 0, 12);
     let floorAt = simd.splatInt(0);
-    assert.equal(simd.selectInt(v.lessThan(floorAt), floorAt, v), simd.i32x4(0, 5, 0, 12));
+    assert.equal(
+        simd.selectInt(v.lessThan(floorAt), floorAt, v),
+        simd.i32x4(0, 5, 0, 12),
+    );
 }
 
 // --- The loads ------------------------------------------------------------------------
@@ -385,9 +397,15 @@ test "shl and shr take every count the width allows" {
     assert.equal(v.shiftRight(0), v);
     // Sixty-three is the largest count there is; sixty-four aborts.
     assert.equal(simd.splatInt(1).shiftLeft(63), simd.splatInt(number.minValue<I64>()));
-    assert.equal(simd.splatInt(number.minValue<I64>()).shiftRight(63), simd.splatInt(1));
+    assert.equal(
+        simd.splatInt(number.minValue<I64>()).shiftRight(63),
+        simd.splatInt(1),
+    );
     assert.equal(simd.splatInt(-1).shiftRight(63), simd.splatInt(1));
-    assert.equal(v.shiftLeft(63), simd.i32x4(number.minValue<I64>(), 0, number.minValue<I64>(), 0));
+    assert.equal(
+        v.shiftLeft(63),
+        simd.i32x4(number.minValue<I64>(), 0, number.minValue<I64>(), 0),
+    );
 }
 
 test "loadI32x4 refuses a negative index too" {

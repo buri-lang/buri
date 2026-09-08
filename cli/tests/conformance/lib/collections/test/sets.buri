@@ -187,7 +187,11 @@ test "distinct keeps the first of each and leaves the order alone" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(set.distinct(ctx, ["ana", "bo", "ana", "cy", "bo"]), ["ana", "bo", "cy"]);
+    assert.equal(set.distinct(ctx, ["ana", "bo", "ana", "cy", "bo"]), [
+        "ana",
+        "bo",
+        "cy",
+    ]);
     assert.equal(set.distinct(ctx, list.empty<Int>()), []);
     assert.equal(set.distinct(ctx, [1]), [1]);
     // Everything the same collapses to one, and nothing the same stays put.
@@ -367,7 +371,9 @@ test "distinct and distinctBy over a list of one and a list of the same thing" {
     assert.equal(set.distinct(ctx, ["only"]), ["only"]);
     assert.equal(set.distinctBy(ctx, ["only"], fn(w: Str) => w.length()), ["only"]);
     assert.equal(orderedset.distinct(ctx, ["only"]), ["only"]);
-    assert.equal(orderedset.distinctBy(ctx, ["only"], fn(w: Str) => w.length()), ["only"]);
+    assert.equal(orderedset.distinctBy(ctx, ["only"], fn(w: Str) => w.length()), [
+        "only",
+    ]);
     // A thousand copies of one element is one element, through all four.
     let same = list.repeat(ctx, 7, 1000);
     assert.equal(set.distinct(ctx, same), [7]);

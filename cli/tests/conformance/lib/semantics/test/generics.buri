@@ -156,7 +156,10 @@ test "a Show bound at a type with a hand-written show" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(showAll(ctx, [Backwards(1), Backwards(2)]), "Backwards(1),Backwards(2)");
+    assert.equal(
+        showAll(ctx, [Backwards(1), Backwards(2)]),
+        "Backwards(1),Backwards(2)",
+    );
 }
 
 test "number.min and number.max are the same Ordered bound at three types" {
@@ -312,7 +315,11 @@ test "the same recursion at a second element type" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(treeOf(["pear", "apple", "fig"]).inOrder(ctx), ["apple", "fig", "pear"]);
+    assert.equal(treeOf(["pear", "apple", "fig"]).inOrder(ctx), [
+        "apple",
+        "fig",
+        "pear",
+    ]);
 }
 
 test "the same recursion at a struct with a derived Ordered" {

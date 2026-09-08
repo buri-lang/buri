@@ -221,7 +221,12 @@ fn checked(body: [U8], end: Int, out: [U8]): Result<[U8], DecodeError> {
     if (end > trailer) {
         .Err(DecodeError(end))
     } else {
-        match ((bytes.toU32LittleEndian(body, trailer), bytes.toU32LittleEndian(body, trailer + 4))) {
+        match (
+            (
+                bytes.toU32LittleEndian(body, trailer),
+                bytes.toU32LittleEndian(body, trailer + 4),
+            )
+        ) {
             (.Some(sum), .Some(size)) => {
                 if (sum != crc32(out)) {
                     .Err(DecodeError(trailer))
@@ -901,7 +906,12 @@ fn fixedBlock<C: Allocator>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, 
 
 /// A dynamic block: the two trees are written into the stream ahead of the
 /// data, themselves compressed by a third.
-fn dynamicBlock<C: Allocator>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
+fn dynamicBlock<C: Allocator>(
+    ctx: C,
+    data: [U8],
+    c: Cursor,
+    out: [U8],
+): (Cursor, [U8]) {
     let hlit = takeBits(data, c, 5);
     let hdist = takeBits(data, hlit.1, 5);
     let hclen = takeBits(data, hdist.1, 4);

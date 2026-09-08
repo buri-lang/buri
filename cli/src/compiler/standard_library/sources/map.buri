@@ -235,7 +235,11 @@ impl<K: Hash + Equal, V> Map<K, V> {
     ///
     /// It rebuilds the map rather than copying the buckets, so it costs one
     /// insert per entry. The iteration order is still unspecified.
-    export fn mapValues<W, C: Allocator>(self, ctx: C, transform: fn(V) => W): Map<K, W> {
+    export fn mapValues<W, C: Allocator>(
+        self,
+        ctx: C,
+        transform: fn(V) => W,
+    ): Map<K, W> {
         self
             .entries(ctx)
             .foldCtx(
@@ -476,7 +480,11 @@ export fn indexBy<A, K: Hash + Equal, C: Allocator>(
     items: [A],
     key: fn(A) => K,
 ): Map<K, A> {
-    items.foldCtx(ctx, fn(c, acc: Map<K, A>, x) => acc.insert(c, key(x), x), empty<K, A>())
+    items.foldCtx(
+        ctx,
+        fn(c, acc: Map<K, A>, x) => acc.insert(c, key(x), x),
+        empty<K, A>(),
+    )
 }
 
 /// A map holding the given entries, later ones winning.

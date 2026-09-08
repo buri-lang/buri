@@ -160,7 +160,10 @@ test "a bounded type parameter prints its bounds" {
         .Fn(ast.FnDecl {
             name: n("go"),
             generics: [
-                ast.GenericParam { name: n("C"), bounds: [ty("Allocator"), ty("Stdout")] },
+                ast.GenericParam {
+                    name: n("C"),
+                    bounds: [ty("Allocator"), ty("Stdout")],
+                },
             ],
             params: [ast.Param { name: n("ctx"), ty: [ty("C")] }],
             ret: ast.Type { kind: .Unit, origin: ast.nowhere() },

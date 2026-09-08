@@ -6,7 +6,7 @@
 // one. The authority arrives as a parameter, every time, and that split is what
 // the rest of this package is shaped around.
 
-from "core/effect" import { Allocator, Network, NetError, Response };
+from "core/effect" import { Allocator, NetError, Network, Response };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 from "ui/effect" import { Ui, Watch };

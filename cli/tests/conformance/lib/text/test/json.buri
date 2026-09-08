@@ -333,7 +333,10 @@ test "an empty array and an empty object have nothing to lay out" {
     };
     assert.equal(json.stringifyPretty(ctx, parsed("[]"), 2), "[]");
     assert.equal(json.stringifyPretty(ctx, parsed("{}"), 2), "{}");
-    assert.equal(json.stringifyPretty(ctx, parsed("{\"a\":[]}"), 2), "{\n  \"a\": []\n}");
+    assert.equal(
+        json.stringifyPretty(ctx, parsed("{\"a\":[]}"), 2),
+        "{\n  \"a\": []\n}",
+    );
     // A scalar is a scalar at any indent.
     assert.equal(json.stringifyPretty(ctx, parsed("1"), 2), "1");
     assert.equal(json.stringifyPretty(ctx, parsed("null"), 2), "null");
@@ -443,7 +446,10 @@ test "an empty container inside another has nothing to lay out either" {
         "[\n  [],\n  [\n    []\n  ],\n  {}\n]",
     );
     // An indent of nothing still puts each on its own line, at every depth.
-    assert.equal(json.stringifyPretty(ctx, parsed("[[1],{}]"), 0), "[\n[\n1\n],\n{}\n]");
+    assert.equal(
+        json.stringifyPretty(ctx, parsed("[[1],{}]"), 0),
+        "[\n[\n1\n],\n{}\n]",
+    );
     // And every one of them parses back.
     let documents = ["[[]]", "[{}]", "{\"a\":{\"b\":{}}}", "[[],[[]],{}]"];
     let same = documents.mapCtx(ctx, fn(c, text) => {
