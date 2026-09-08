@@ -819,7 +819,10 @@ are what a filter wants: everything left on standard input, in one call rather
 than a `readLine` recursion. `readAll` answers the lines joined by a single
 `\n`, so a trailing newline does not survive; `readAllBytes` changes nothing at
 all. A stream is lines or octets and never both, so a program uses one of them.
-Both return at end of input and not before.
+Both return at end of input and not before. Prints are buffered — a run of them
+becomes one write — but everything printed lands before the program blocks on a
+sleep, an accept, a full mailbox or a read, so a server's "listening" line
+reaches a redirected log while the server is still listening.
 
 `core/cli` is the opinionated half. A `Cli<C>` carries the name, the version,
 the global `Flag`s and a list of `Command<C>`s. A command carries its own flags,
