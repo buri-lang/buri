@@ -2009,6 +2009,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "uuid/uuid.buri",
     "vectors/convert.buri",
     "vectors/simd.buri",
+    "web/routing.buri",
 ];
 
 // -----------------------------------------------------------------------

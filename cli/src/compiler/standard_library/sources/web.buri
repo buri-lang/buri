@@ -46,9 +46,17 @@
 //! `.Const(request.path())`, which reads once and registers nothing; the page
 //! passes `route`, which re-runs what read it when the reader navigates.
 //!
-//! Everything here is JavaScript's. A native artifact has no document under it
-//! and no address bar over it, so a native build that reaches one of these
-//! stops at code generation naming the operation.
+//! **A page navigates itself.** `navigate` puts an address in the address bar
+//! and writes the cell `route` wraps, and `replace` does the same in place of
+//! the entry the reader is on. Nothing is fetched and nothing is rebuilt but
+//! what read the path, so every signal the program holds survives — which is
+//! what a link cannot do.
+//!
+//! The document half is JavaScript's. A native artifact has nothing to render
+//! into, so a native build that reaches `render`, `shell`, `resume` or `state`
+//! stops at code generation naming the operation. `path`, `route`, `navigate`
+//! and `replace` are ordinary Buri over the graph, and run wherever a
+//! `Location` does.
 
 from "core/effect" import { Allocator };
 from "core/json" import * as json;
@@ -230,4 +238,32 @@ export fn path<C: Location + Watch>(ctx: C): Str {
 export fn route<C: Location>(ctx: C): Prop<Str> {
     let id = ctx.path();
     .Computed(fn(scope) => scope.read(id))
+}
+
+/// Goes to `path` without loading a document: a new history entry, and the cell
+/// `route` wraps written.
+///
+/// This is what a page does instead of following a link. The tree stays where
+/// it is, every signal in the program keeps its value, and what re-renders is
+/// the smallest thing that read the path — so an app whose state is a store of
+/// signals survives its own navigation, which a link cannot manage.
+///
+/// The entry goes on the history first and the cell after it, so anything the
+/// write wakes reads an address bar that already agrees with it.
+///
+/// `path` is an address on this site, as `/guide/routing`. Nothing here reaches
+/// another origin: that is a link, and a reader deserves to see where one goes.
+export fn navigate<C: Location + Ui>(ctx: C, path: Str): () {
+    let _ = ctx.push(path);
+    ctx.write(ctx.path(), path)
+}
+
+/// The same, replacing the entry the reader is on rather than adding one.
+///
+/// What a redirect wants. A page that sends the reader on from an address it
+/// has no route for should not leave that address behind Back, because pressing
+/// it would send them straight on again.
+export fn replace<C: Location + Ui>(ctx: C, path: Str): () {
+    let _ = ctx.replace(path);
+    ctx.write(ctx.path(), path)
 }

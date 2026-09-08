@@ -12,6 +12,9 @@
 #   * **Each artifact holds its own half.** The worker never resumes and the
 #     page never renders a document, so neither carries the other's half. That
 #     is per-entry dead code elimination, read off the bytes.
+#   * **The router ships with the page.** `web.navigate` and `web.replace` push
+#     and swap a history entry, so the page carries both and the worker carries
+#     neither.
 #   * **`Location` is the page's alone.** The last edit binds it in the
 #     worker's context, which is the one thing this feature adds to the grant
 #     table and the one thing it must not widen.
@@ -65,6 +68,24 @@ file {
 file {
   path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
   absent: "$host_HostLocation_path"
+}
+
+# And so is the router. `navigate` pushes a history entry and `replace` swaps
+# the one in front of it, which is the browser's own address bar and nothing a
+# worker has.
+file {
+  path: ".buri/out/web/cmd/site/main.mjs"
+  contains: "$host_HostLocation_push"
+}
+
+file {
+  path: ".buri/out/web/cmd/site/main.mjs"
+  contains: "$host_HostLocation_replace"
+}
+
+file {
+  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  absent: "$host_HostLocation_push"
 }
 
 # The negative twin. `Location` is granted on WEB and on nothing else, and a

@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Ninety-five of the hundred and four files are in it** — the number the
+//! **Ninety-eight of the hundred and six files are in it** — the number the
 //! harness prints, re-derived from it rather than incremented by hand, and one
 //! the prose has drifted from more than once. The seventeen newest are
 //! `core/buri/ast` and everything downstream of it — the five `buri_ast/`
@@ -810,6 +810,12 @@ const PACKAGES: &[Case] = &[
              JavaScript, so there is no native artifact for this to be the \
              answer of",
     ),
+    // The router beside it, and *in* the set: `navigate` and `replace` are
+    // ordinary Buri over the graph — a write to the cell `route` wraps, with
+    // the history entry the browser keeps behind an effect method the headless
+    // address bar implements in Buri too. Nothing here is a document, so the
+    // one thing that could hold it out is absent.
+    included("web/routing.buri"),
 ];
 
 /// Why this host cannot build and run a native artifact, or `None`.

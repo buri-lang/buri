@@ -2,13 +2,16 @@ library {
     sources: []
 
     test {
-        sources: ["test/document.buri"]
+        sources: ["test/document.buri", "test/routing.buri"]
 
         # JS only, for `lib/ui`'s reason and one more. The document a tree
         # renders into is a runtime intrinsic and no native backend has one; and
         # a website is a JavaScript artifact by construction — the two platforms
         # it is built for are WEB and CLOUDFLARE_WORKER. `native::conformance`
-        # records the file as excluded, with that reason.
+        # records `test/document.buri` as excluded, with that reason.
+        #
+        # `test/routing.buri` is in the native set: the router is ordinary Buri
+        # over the reactive graph, and there is no document in it.
         platforms: [JS]
     }
 }

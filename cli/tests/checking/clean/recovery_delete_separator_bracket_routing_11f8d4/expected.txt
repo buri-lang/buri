@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-separator]
+  --> main.buri:62:41
+   |
+62 |     assert.equal(log.recorded(), ["home" "about"]);
+   |                                         ^
+   |
+   = fix: write `,` here

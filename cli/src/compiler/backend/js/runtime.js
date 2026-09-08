@@ -6183,3 +6183,23 @@ function $ui_web_path() {
   if (typeof location === "undefined" || location === null) return "/";
   return location.pathname || "/";
 }
+
+// The two writers. `ui/web`'s `navigate` and `replace` call one of these and
+// then write the cell above, so the graph and the address bar move together
+// however the address was reached — a press here, or the reader pressing Back,
+// which is `popstate` writing the same cell.
+//
+// A host with no history is every JavaScript host that is not a browser. There
+// is nothing to push onto there, and the cell the caller writes next is the
+// whole of the address.
+function $host_HostLocation_push(self, path) {
+  if (typeof history === "undefined" || history === null) return 0;
+  history.pushState({}, "", path);
+  return 0;
+}
+
+function $host_HostLocation_replace(self, path) {
+  if (typeof history === "undefined" || history === null) return 0;
+  history.replaceState({}, "", path);
+  return 0;
+}
