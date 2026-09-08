@@ -99,35 +99,35 @@ function __cmd_x_main_buri$main(){
   }
   return $k3;
 }
-function core_json$stringify$u3rqgv(ctx_0,v_1){
-  switch(v_1[0]){
+function core_json$stringify$u3rqgv(ctx_0,value_1){
+  switch(value_1[0]){
     case 0:
       {
         return 'null';
       }
     case 1:
       {
-        return v_1[1]?'true':'false';
+        return value_1[1]?'true':'false';
       }
     case 2:
       {
-        const s_17=$str_fromFloat(ctx_0,v_1[1]);
+        const s_17=$str_fromFloat(ctx_0,value_1[1]);
         return $str_endsWith(s_17,'.0')?$str_slice(s_17,0n,$str_length(s_17)-2n):s_17;
       }
     case 3:
       {
-        return core_json$quote$u3rqgv(ctx_0,v_1[1]);
+        return core_json$quote$u3rqgv(ctx_0,value_1[1]);
       }
     case 4:
       {
-        const items_5=v_1[1];
+        const items_5=value_1[1];
         $share(items_5);
         const parts_8=$list_mapCtx(items_5,ctx_0,(c_6,item_7)=>core_json$stringify$u3rqgv(c_6,item_7));
         return $str_format(ctx_0,'['+$list_join(parts_8,ctx_0,',')+']');
       }
     case 5:
       {
-        const entries_9=v_1[1];
+        const entries_9=value_1[1];
         $share(entries_9);
         const parts_14=$list_mapCtx(entries_9,ctx_0,(c_10,e_11)=>$str_format(c_10,core_json$quote$u3rqgv(c_10,e_11[0])+':'+core_json$stringify$u3rqgv(c_10,e_11[1])));
         return $str_format(ctx_0,'{'+$list_join(parts_14,ctx_0,',')+'}');
@@ -139,8 +139,8 @@ function core_json$stringify$u3rqgv(ctx_0,v_1){
       break;
   }
 }
-function core_json$quote$u3rqgv(ctx_0,s_1){
-  const inner_4=$list_join($list_mapCtx($str_chars(s_1,ctx_0),ctx_0,(c_2,ch_3)=>{
+function core_json$quote$u3rqgv(ctx_0,text_1){
+  const inner_4=$list_join($list_mapCtx($str_chars(text_1,ctx_0),ctx_0,(c_2,ch_3)=>{
     if(ch_3==='"'){
       return '\\"';
     }else if(ch_3==='\\'){

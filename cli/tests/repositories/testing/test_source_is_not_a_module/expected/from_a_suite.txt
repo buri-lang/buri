@@ -30,10 +30,10 @@ error: "//lib/money/test/parse.buri" does not export `digits` [no-such-export]
     surface is never wider than the modules it is built from.
 
 error: there is nothing named `digits` in scope [unresolved-name]
- --> lib/money/test/cents.buri:6:32
+ --> lib/money/test/cents.buri:6:35
   |
 6 |     assert.equal(format(fromCents(digits(1905))), "some");
-  |                                ^^^^^^
+  |                                   ^^^^^^
   |
   = fix: declare `digits`, or import it — a name is in scope only from this module's own declarations and its imports
 

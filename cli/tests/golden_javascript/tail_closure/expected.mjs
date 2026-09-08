@@ -107,9 +107,9 @@ function __cmd_x_main_buri$sumTo(n_0,acc_1){
     }
   }
 }
-function core_option$Option_map$g9y0aa(self_0,f_1){
+function core_option$Option_map$g9y0aa(self_0,transform_1){
   if(self_0!==void 0){
-    return f_1(self_0);
+    return transform_1(self_0);
   }else if(self_0===void 0){
     return void 0;
   }else{

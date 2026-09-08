@@ -3905,6 +3905,14 @@ impl Jit<'_> {
             _ => (64, false),
         };
         let stem = op.trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches('U');
+        // The stencil is named after the machine's shift, `core/bits` after the
+        // word — the same split `stencil_op` above names for the arithmetic.
+        let stem = match stem {
+            "shiftLeft" => "shl",
+            "shiftRightArithmetic" => "sar",
+            "shiftRight" => "shr",
+            other => other,
+        };
         // The one-operand family: three counts and the byte reversal, none of
         // which takes a shift count and so none of which needs the range check.
         if matches!(stem, "popCount" | "leadingZeros" | "trailingZeros" | "byteSwap") {

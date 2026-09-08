@@ -239,7 +239,7 @@ extern void buri_rt_list_range(int64_t start, int64_t end, BuriList *out);
       (uint64_t)strlen(cstr) |                                                                     \
           buri_rt_str_ascii_flag((const uint8_t *)(cstr), (uint64_t)strlen(cstr))
 
-static int bytes_of(BuriStr s) { return (int)(s.length & BURI_STR_MASK); }
+static int bytes_of(BuriStr s) { return (int)(s.len & BURI_STR_MASK); }
 
 static const char *chars_of(BuriStr s) { return (const char *)s.ptr; }
 
@@ -341,11 +341,11 @@ static int mode_values(void) {
          "list len=%llu cap=%llu "
          "divmod %lld %lld %lld %lld "
          "udivmod-high %llu %llu %llu\n",
-         bytes_of(ascii), (ascii.length & BURI_STR_ASCII) != 0,
-         (unsigned long long)buri_rt_str_scalar_len(ascii.ptr, ascii.length), bytes_of(utf8),
-         (utf8.length & BURI_STR_ASCII) != 0,
-         (unsigned long long)buri_rt_str_scalar_len(utf8.ptr, utf8.length), bytes_of(empty),
-         (empty.length & BURI_STR_ASCII) != 0, (unsigned long long)list.length,
+         bytes_of(ascii), (ascii.len & BURI_STR_ASCII) != 0,
+         (unsigned long long)buri_rt_str_scalar_len(ascii.ptr, ascii.len), bytes_of(utf8),
+         (utf8.len & BURI_STR_ASCII) != 0,
+         (unsigned long long)buri_rt_str_scalar_len(utf8.ptr, utf8.len), bytes_of(empty),
+         (empty.len & BURI_STR_ASCII) != 0, (unsigned long long)list.len,
          (unsigned long long)buri_rt_cap(elements), sq, sr, snq, snr, (unsigned long long)uq[0],
          (unsigned long long)uq[1], (unsigned long long)ur[0]);
   return 0;
@@ -402,7 +402,7 @@ static int mode_fs(const char *dir) {
   printf("write=%s exists=%d read=%.*s utf8=%.*s readdir=%llu missing=%d notdir=%d "
          "exists-missing=%d\n",
          wrote == BURI_OK ? "ok" : "err", exists, bytes_of(ok), chars_of(ok), bytes_of(utf8),
-         chars_of(utf8), (unsigned long long)entries.length, not_found, not_a_dir, exists_missing);
+         chars_of(utf8), (unsigned long long)entries.len, not_found, not_a_dir, exists_missing);
   return 0;
 }
 
@@ -467,7 +467,7 @@ static int mode_wal(const char *dir) {
   BuriStr why;
   why.base = NULL;
   why.ptr = NULL;
-  why.length = 0;
+  why.len = 0;
   int32_t held = buri_rt_host_fs_remove_dir(S(root), &why);
   int32_t dropped = buri_rt_host_fs_remove_file(S(checkpoint), &err);
   int32_t rmdir = buri_rt_host_fs_remove_dir(S(root), &err);
@@ -477,14 +477,14 @@ static int mode_wal(const char *dir) {
          made_again == BURI_OK ? "ok" : "err", one == BURI_OK ? "ok" : "err",
          two == BURI_OK ? "ok" : "err", synced_one == BURI_OK ? "ok" : "err",
          synced_two == BURI_OK ? "ok" : "err");
-  for (uint64_t i = 0; i < replayed.length; i++) {
+  for (uint64_t i = 0; i < replayed.len; i++) {
     printf("%s%d", i == 0 ? "" : ".", (int)replayed.ptr[i]);
   }
   printf(" write=%s synctmp=%s rename=%s syncdir=%s tmp-gone=%d checkpoint=",
          wrote == BURI_OK ? "ok" : "err", synced_tmp == BURI_OK ? "ok" : "err",
          renamed == BURI_OK ? "ok" : "err", synced_dir == BURI_OK ? "ok" : "err", !tmp_gone);
   if (read_checkpoint == BURI_OK) {
-    for (uint64_t i = 0; i < kept.length; i++) {
+    for (uint64_t i = 0; i < kept.len; i++) {
       printf("%s%d", i == 0 ? "" : ".", (int)kept.ptr[i]);
     }
   }
@@ -507,8 +507,8 @@ static int mode_env(void) {
 
   printf("var=%.*s missing=%s args=%llu:", present == BURI_OK ? bytes_of(value) : 0,
          present == BURI_OK ? chars_of(value) : "", missing == BURI_OK ? "some" : "none",
-         (unsigned long long)args.length);
-  for (uint64_t i = 0; i < args.length; i++) {
+         (unsigned long long)args.len);
+  for (uint64_t i = 0; i < args.len; i++) {
     BuriStr arg;
     memcpy(&arg, args.ptr + i * sizeof(BuriStr), sizeof(BuriStr));
     printf("%s%.*s", i == 0 ? "" : ",", bytes_of(arg), chars_of(arg));
@@ -580,15 +580,15 @@ static int mode_entropy(void) {
   BuriList big;
   buri_rt_host_entropy_bytes(70000, &big);
   int tail_nonzero = 0;
-  for (uint64_t i = 69000; i < big.length; i++) {
+  for (uint64_t i = 69000; i < big.len; i++) {
     if (big.ptr[i] != 0) {
       tail_nonzero = 1;
     }
   }
 
   printf("empty=%llu len=%llu differ=%d nonzero=%d big=%llu tail=%d\n",
-         (unsigned long long)empty.length, (unsigned long long)first.length, differ, nonzero,
-         (unsigned long long)big.length, tail_nonzero);
+         (unsigned long long)empty.len, (unsigned long long)first.len, differ, nonzero,
+         (unsigned long long)big.len, tail_nonzero);
   return 0;
 }
 
@@ -608,10 +608,10 @@ static int mode_stdin_bytes(void) {
   int32_t a = buri_rt_host_stdin_read_bytes(4, &first);
   int32_t b = buri_rt_host_stdin_read_bytes(2, &second);
   int32_t c = buri_rt_host_stdin_read_bytes(2, &third);
-  printf("got=%llu:%.*s ", a == BURI_OK ? (unsigned long long)first.length : 0,
-         a == BURI_OK ? (int)first.length : 0, a == BURI_OK ? (const char *)first.ptr : "");
-  printf("then=%llu:%.*s ", b == BURI_OK ? (unsigned long long)second.length : 0,
-         b == BURI_OK ? (int)second.length : 0, b == BURI_OK ? (const char *)second.ptr : "");
+  printf("got=%llu:%.*s ", a == BURI_OK ? (unsigned long long)first.len : 0,
+         a == BURI_OK ? (int)first.len : 0, a == BURI_OK ? (const char *)first.ptr : "");
+  printf("then=%llu:%.*s ", b == BURI_OK ? (unsigned long long)second.len : 0,
+         b == BURI_OK ? (int)second.len : 0, b == BURI_OK ? (const char *)second.ptr : "");
   printf("then=%s\n", c == BURI_OK ? "some" : "none");
   return 0;
 }
@@ -627,7 +627,7 @@ static BuriStr borrowed(const char *cstr) {
   BuriStr s;
   s.base = NULL;
   s.ptr = (const uint8_t *)cstr;
-  s.length = (uint64_t)strlen(cstr) |
+  s.len = (uint64_t)strlen(cstr) |
           buri_rt_str_ascii_flag((const uint8_t *)cstr, (uint64_t)strlen(cstr));
   return s;
 }
@@ -649,8 +649,8 @@ static int mode_net(const char *url) {
   if (result == BURI_OK) {
     const BuriHeader *got = (const BuriHeader *)out_headers.ptr;
     printf("status=%lld headers=%llu body=%.*s", (long long)status,
-           (unsigned long long)out_headers.length, (int)out_body.length, (const char *)out_body.ptr);
-    for (uint64_t i = 0; i < out_headers.length; i++) {
+           (unsigned long long)out_headers.len, (int)out_body.len, (const char *)out_body.ptr);
+    for (uint64_t i = 0; i < out_headers.len; i++) {
       printf(" %.*s=%.*s", bytes_of(got[i].name), chars_of(got[i].name), bytes_of(got[i].value),
              chars_of(got[i].value));
     }
@@ -769,19 +769,19 @@ static int mode_text(void) {
 
   BuriList parts;
   buri_rt_str_split(S("a,b,c"), S(","), &parts);
-  printf("split %llu", (unsigned long long)parts.length);
-  for (uint64_t i = 0; i < parts.length; i++) {
+  printf("split %llu", (unsigned long long)parts.len);
+  for (uint64_t i = 0; i < parts.len; i++) {
     BuriStr *e = (BuriStr *)(parts.ptr + i * sizeof(BuriStr));
     printf(" %.*s", bytes_of(*e), chars_of(*e));
   }
   printf("\n");
-  buri_rt_list_join(parts.ptr, parts.length, S("-"), &out);
+  buri_rt_list_join(parts.ptr, parts.len, S("-"), &out);
   printf("join %.*s\n", bytes_of(out), chars_of(out));
 
   buri_rt_str_lines(S("a\nb\n"), &parts);
-  printf("lines %llu\n", (unsigned long long)parts.length);
+  printf("lines %llu\n", (unsigned long long)parts.len);
   buri_rt_str_split_any(S("a b,c"), S(" ,"), &parts);
-  printf("splitany %llu\n", (unsigned long long)parts.length);
+  printf("splitany %llu\n", (unsigned long long)parts.len);
 
   buri_rt_str_replace(S("banana"), S("na"), S("NA"), &out);
   printf("replace %.*s\n", bytes_of(out), chars_of(out));
@@ -799,9 +799,9 @@ static int mode_text(void) {
   printf("padend %.*s\n", bytes_of(out), chars_of(out));
 
   buri_rt_str_chars(S("aé"), &parts);
-  printf("chars %llu %u %u\n", (unsigned long long)parts.length, *(uint32_t *)parts.ptr,
+  printf("chars %llu %u %u\n", (unsigned long long)parts.len, *(uint32_t *)parts.ptr,
          *(uint32_t *)(parts.ptr + 4));
-  buri_rt_str_from_chars(parts.ptr, parts.length, &out);
+  buri_rt_str_from_chars(parts.ptr, parts.len, &out);
   printf("fromchars %.*s\n", bytes_of(out), chars_of(out));
   return 0;
 }
@@ -827,13 +827,13 @@ static int mode_list(void) {
          buri_rt_list_get((const uint8_t *)src, 4, -1, 8, NULL, (uint8_t *)&got));
 
   buri_rt_list_concat((const uint8_t *)src, 2, (const uint8_t *)(src + 2), 2, 8, NULL, &out);
-  printf("concat %llu %lld %lld\n", (unsigned long long)out.length, (long long)((int64_t *)out.ptr)[0],
+  printf("concat %llu %lld %lld\n", (unsigned long long)out.len, (long long)((int64_t *)out.ptr)[0],
          (long long)((int64_t *)out.ptr)[3]);
   buri_rt_free(out.ptr);
 
   int64_t item = 99;
   buri_rt_list_push((const uint8_t *)src, 4, (const uint8_t *)&item, 8, NULL, &out);
-  printf("push %llu %lld\n", (unsigned long long)out.length, (long long)((int64_t *)out.ptr)[4]);
+  printf("push %llu %lld\n", (unsigned long long)out.len, (long long)((int64_t *)out.ptr)[4]);
   buri_rt_free(out.ptr);
 
   buri_rt_list_reverse((const uint8_t *)src, 4, 8, NULL, &out);
@@ -844,18 +844,18 @@ static int mode_list(void) {
   /* Clamped at both ends rather than aborting: `$list_slice` is
    * `xs.slice(a, b)`, and that is what it does. */
   buri_rt_list_slice((const uint8_t *)src, 4, -3, 99, 8, NULL, &out);
-  printf("slice %llu\n", (unsigned long long)out.length);
+  printf("slice %llu\n", (unsigned long long)out.len);
   buri_rt_free(out.ptr);
 
   buri_rt_list_repeat((const uint8_t *)&item, 3, 8, count_retain, &out);
-  printf("repeat %llu %d\n", (unsigned long long)out.length, retains);
+  printf("repeat %llu %d\n", (unsigned long long)out.len, retains);
   buri_rt_free(out.ptr);
 
   buri_rt_list_range(2, 5, &out);
-  printf("range %llu %lld\n", (unsigned long long)out.length, (long long)((int64_t *)out.ptr)[2]);
+  printf("range %llu %lld\n", (unsigned long long)out.len, (long long)((int64_t *)out.ptr)[2]);
   buri_rt_free(out.ptr);
   buri_rt_list_range(5, 2, &out);
-  printf("range-empty %llu %d\n", (unsigned long long)out.length, out.ptr == NULL);
+  printf("range-empty %llu %d\n", (unsigned long long)out.len, out.ptr == NULL);
   return 0;
 }
 

@@ -1,11 +1,11 @@
-error: `T` has no method `len` [no-such-method]
+error: `T` has no method `length` [no-such-method]
  --> cmd/method_on_unbounded_type_param/main.buri:7:5
   |
 7 |   x.length()
-  |     ^^^
+  |     ^^^^^^
   |
-  = `T` carries no bounds, and a bare type parameter has no methods; add a bound that declares `len`
-  = fix: add a bound to `T` that declares `len`, or call one the bounds it already carries declare
+  = `T` carries no bounds, and a bare type parameter has no methods; add a bound that declares `length`
+  = fix: add a bound to `T` that declares `length`, or call one the bounds it already carries declare
 
     What to do
     ──────────
