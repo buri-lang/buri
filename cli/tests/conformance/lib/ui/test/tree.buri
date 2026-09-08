@@ -18,6 +18,8 @@
 // painting, focus order, and the browser's own dispatch of a press — and that
 // needs a browser rather than a substitute for one.
 
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
@@ -51,7 +53,7 @@ fn itself(item: Str): Str {
 /// A heading whose text does not depend on `value`, so that what changes when
 /// `value` changes is only whether the subtree was built again.
 fn headingFor<C>(value: Int): Node<C> {
-    ui.heading(1, .Const("head"))
+    ui.heading(1, [], .Const("head"))
 }
 
 // --- structure -----------------------------------------------------------------------
@@ -155,14 +157,51 @@ test "a heading is an outline level, and there is no seventh" {
         Ui: headless(),
     };
     let tree = ui.stack([], [
-        ui.heading(1, .Const("top")),
-        ui.heading(3, .Const("inner")),
-        ui.heading(9, .Const("clamped")),
-        ui.heading(0, .Const("also clamped")),
+        ui.heading(1, [], .Const("top")),
+        ui.heading(3, [], .Const("inner")),
+        ui.heading(9, [], .Const("clamped")),
+        ui.heading(0, [], .Const("also clamped")),
     ]);
     assert.eq(
         render(ctx, tree).markup(),
         "<div><h1>top</h1><h3>inner</h3><h6>clamped</h6><h1>also clamped</h1></div>",
+    );
+}
+
+test "a heading paints what the program asked for and nothing else" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    // The size the stack asks for is the size the heading is: nothing in the
+    // sheet sets one on the element, so it inherits like any other run of text.
+    let tree = ui.stack([.FontSize(.Px(13))], [ui.heading(2, [], .Const("not found"))]);
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div class=\"fs-13\"><h2>not found</h2></div>",
+    );
+    // The headless painter reads this, and a browser reads the markup above.
+    // They agree only while the heading's line carries what the sheet does.
+    assert.eq(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:fs-13\ne 1 \nt 2 not found",
+    );
+}
+
+test "a heading takes styles of its own, and they land on the heading" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    let tree = ui.heading(
+        2,
+        [.FontSize(.Px(28)), .FontWeight(.Bold)],
+        .Const("Prices"),
+    );
+    assert.eq(render(ctx, tree).markup(), "<h2 class=\"fs-28 fw-bold\">Prices</h2>");
+    assert.eq(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:fs-28 fw-bold\nt 1 Prices",
     );
 }
 
@@ -708,11 +747,20 @@ test "a control takes styles of its own, and they land on the control" {
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
 }
 
-test "the sheet drops the chrome a browser draws on a control" {
+test "the sheet drops the chrome a browser draws by itself" {
     // Otherwise a styled button paints twice: its own background inside the
     // browser's bevel. The reset is `:where(...)`, which weighs nothing in the
     // cascade, so every class beats it wherever the two meet.
     let sheet = stylesheet();
+    // A heading's level is its outline position and nothing else, so the size,
+    // the weight and the margins a browser paints on one go too. The margin is
+    // the half no ancestor could reach: it is not inherited, and the scene
+    // document the headless painter reads has no counterpart for one.
+    assert.isTrue(
+        sheet.contains(
+            ":where(h1,h2,h3,h4,h5,h6){font-size:inherit;font-weight:inherit;margin:0}",
+        ),
+    );
     assert.isTrue(
         sheet.contains(
             ":where(button){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit}",
@@ -727,7 +775,7 @@ test "the sheet drops the chrome a browser draws on a control" {
         ),
     );
     // It opens the sheet, ahead of every class in it.
-    let reset = assert.some(sheet.indexOf(":where(button)"));
+    let reset = assert.some(sheet.indexOf(":where(h1,"));
     let padding = assert.some(sheet.indexOf(".p-12{"));
     assert.isTrue(reset < padding);
 }
@@ -861,7 +909,7 @@ test "computed rebuilds its subtree from whatever it read" {
     let page = render(
         ctx,
         ui.computed(fn(c) => {
-            ui.heading(if (count.get(c) > 1) { 2 } else { 1 }, .Const("head"))
+            ui.heading(if (count.get(c) > 1) { 2 } else { 1 }, [], .Const("head"))
         }),
     );
     assert.eq(page.count("h1"), 1);
@@ -885,7 +933,7 @@ test "a computed subtree is rebuilt, and a leaf prop is not" {
     assert.notEq(coarse.identity("h1", 0), first);
 
     // The fine one: the same element, with one run of text changed.
-    let fine = render(ctx, ui.heading(1, .Computed(fn(c) => "${n.get(c)}")));
+    let fine = render(ctx, ui.heading(1, [], .Computed(fn(c) => "${n.get(c)}")));
     let kept = fine.identity("h1", 0);
     let _ = n.set(ctx, 2);
     assert.eq(fine.identity("h1", 0), kept);

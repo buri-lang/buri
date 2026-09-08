@@ -155,12 +155,26 @@ export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
 }
 ```
 
+`heading` takes one too. Its level is the document's outline, so the size and
+the weight are the styles' — an unstyled heading reads at the size of the text
+around it.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+export fn title<C>(text: Str): Node<C> {
+    ui.heading(2, [.FontSize(.Px(28)), .FontWeight(.Bold)], .Const(text))
+}
+```
+
 The sheet opens by dropping what a browser paints on one of these by itself —
 the bevel on a button, the blue underline on a link, the border and the inner
-shadow on a field — so your styles are all there is. Those rules are
-`:where(...)`, which weighs nothing in the cascade, and only the elements the
-program actually builds get one. A checkbox is left alone: `appearance: none`
-erases the tick, and this vocabulary has nothing to draw a new one with.
+shadow on a field, the size, the weight and the margins on a heading — so your
+styles are all there is. Those rules are `:where(...)`, which weighs nothing in
+the cascade, and only the elements the program actually builds get one. A
+checkbox is left alone: `appearance: none` erases the tick, and this vocabulary
+has nothing to draw a new one with.
 
 **A list region is reset the same way.** `region(.List, ...)` is a `ul`, and a
 browser marks and indents one by itself, so the sheet drops the disc, the
