@@ -5,7 +5,7 @@
 //! `let` holding one, so the module carries a *type* as well as a name — which
 //! is what a type-definition request needs something to answer with.
 
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -15,7 +15,7 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdin: host.stdin,
         Stdout: host.stdout,
     };
@@ -36,7 +36,7 @@ struct Read {
     end: Int,
 }
 
-fn respond<C: Alloc>(ctx: C, inputs: [(Str, Str)]): Json {
+fn respond<C: Allocator>(ctx: C, inputs: [(Str, Str)]): Json {
     let reads = inputs.mapCtx(ctx, fn(c, i) => readsOf(c, i.0, i.1)).flatten(ctx);
     let source = reads.mapCtx(ctx, fn(_c, r) => r.text).join(ctx, "");
     .Object([
@@ -54,12 +54,12 @@ fn respond<C: Alloc>(ctx: C, inputs: [(Str, Str)]): Json {
     ])
 }
 
-fn readsOf<C: Alloc>(ctx: C, path: Str, text: Str): [Read] {
+fn readsOf<C: Allocator>(ctx: C, path: Str, text: Str): [Read] {
     text.lines(ctx).filterMapCtx(ctx, fn(c, line) => declaration(c, path, text, line))
 }
 
 /// `Type name value` becomes a struct and a value of it.
-fn declaration<C: Alloc>(ctx: C, path: Str, whole: Str, line: Str): Option<Read> {
+fn declaration<C: Allocator>(ctx: C, path: Str, whole: Str, line: Str): Option<Read> {
     let trimmed = line.trim();
     let words = trimmed.split(ctx, " ");
     let ty = words.get(0)?;
@@ -75,16 +75,16 @@ fn declaration<C: Alloc>(ctx: C, path: Str, whole: Str, line: Str): Option<Read>
         file: path,
         text: body.concat(ctx, held),
         start: start,
-        end: start + trimmed.len(),
+        end: start + trimmed.length(),
     })
 }
 
 /// One anchor per declaration, covering everything it printed.
-fn anchorsOf<C: Alloc>(ctx: C, reads: [Read]): [Json] {
+fn anchorsOf<C: Allocator>(ctx: C, reads: [Read]): [Json] {
     reads.foldCtx(
         ctx,
         fn(c, acc: (Int, [Json]), r) => {
-            (acc.0 + r.text.len(), acc.1.push(c, anchor(r, acc.0)))
+            (acc.0 + r.text.length(), acc.1.push(c, anchor(r, acc.0)))
         },
         (0, list.empty()),
     ).1
@@ -93,7 +93,7 @@ fn anchorsOf<C: Alloc>(ctx: C, reads: [Read]): [Json] {
 fn anchor(r: Read, start: Int): Json {
     .Object([
         ("start", .Num(start.toF64())),
-        ("end", .Num((start + r.text.len()).toF64())),
+        ("end", .Num((start + r.text.length()).toF64())),
         ("file", .Str(r.file)),
         (
             "span",
@@ -102,7 +102,7 @@ fn anchor(r: Read, start: Int): Json {
     ])
 }
 
-fn allInputs<C: Alloc>(ctx: C, request: Json): Option<[(Str, Str)]> {
+fn allInputs<C: Allocator>(ctx: C, request: Json): Option<[(Str, Str)]> {
     field(request, "inputs")
         .andThen(fn(v) => asArray(v))
         .andThenCtx(ctx, fn(c, items) => {

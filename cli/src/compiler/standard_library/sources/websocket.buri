@@ -68,7 +68,7 @@
 //!             if (tries <= 0) {
 //!                 .Abnormal
 //!             } else {
-//!                 let _slept = time.sleepMs(ctx, 1000);
+//!                 let _slept = time.sleep(ctx, time.milliseconds(1000));
 //!                 following(ctx, client, tries - 1)
 //!             }
 //!         },

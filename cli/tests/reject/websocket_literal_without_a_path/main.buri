@@ -8,13 +8,13 @@
 // The plan is built rather than served, because `Listen` is not granted on the
 // platform a reject case is compiled for — and it does not need to be: the
 // literal is where the refusal happens.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import { Server, WebSocket };
 
-fn plan<C: Alloc>(ctx: C): Server<C, Int> {
+fn plan<C: Allocator>(ctx: C): Server<C, Int> {
   Server {
     port: 3000,
     onRequest: fn(_c, _request) => http.status(404),
@@ -27,7 +27,7 @@ fn plan<C: Alloc>(ctx: C): Server<C, Int> {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _said = io.println(ctx, "${plan(ctx).port}").ignore();
   .Ok(())
 }

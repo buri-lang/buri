@@ -7,7 +7,7 @@
 // `print` promises is source another program reads.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -21,7 +21,7 @@ fn imports(): [ast.Item] {
         item(
             .Import(ast.Import {
                 path: "core/effect",
-                clause: .Named([ast.ImportSpec { name: n("Alloc"), alias: [] }]),
+                clause: .Named([ast.ImportSpec { name: n("Allocator"), alias: [] }]),
             }),
         ),
     ]
@@ -31,7 +31,7 @@ fn colour(): [ast.Item] {
     [
         item(
             .Derive(ast.DeriveDecl {
-                traits: [ty("Eq"), ty("Show")],
+                traits: [ty("Equal"), ty("Show")],
                 selfTy: ty("Colour"),
             }),
         ),
@@ -118,9 +118,9 @@ fn signStmt(): ast.Stmt {
     st(.Let(pat(.Bind(n("sign"), [])), [], branch))
 }
 
-/// `let lengths = parts.map(ctx, fn(s) => s.len());`
+/// `let lengths = parts.map(ctx, fn(s) => s.length());`
 fn lengthsStmt(): ast.Stmt {
-    let body = call(field(id("s"), "len"), []);
+    let body = call(field(id("s"), "length"), []);
     let f = ex(.Lambda([ast.LambdaParam { name: n("s"), ty: [] }], [], [body]));
     let mapped = call(field(id("parts"), "map"), [ex(.Ctx), f]);
     st(.Let(pat(.Bind(n("lengths"), [])), [], mapped))
@@ -154,14 +154,14 @@ fn describe(): ast.Item {
         .Template([
             .Hole(id("first")),
             .Hole(field(id("here"), "x")),
-            .Hole(call(field(id("lengths"), "len"), [])),
+            .Hole(call(field(id("lengths"), "length"), [])),
         ]),
     );
     let tail = call(ex(.DotVariant(n("Ok"))), [rendered]);
     item(
         .Fn(ast.FnDecl {
             name: n("describe"),
-            generics: [ast.GenericParam { name: n("C"), bounds: [ty("Alloc")] }],
+            generics: [ast.GenericParam { name: n("C"), bounds: [ty("Allocator")] }],
             params: [
                 ast.Param { name: n("ctx"), ty: [ty("C")] },
                 ast.Param { name: n("p"), ty: [ty("Point")] },
@@ -176,23 +176,23 @@ fn describe(): ast.Item {
 }
 
 /// The tail: `.Ok("...")` over three template holes.
-fn okLine<C: Alloc>(ctx: C): Str {
+fn okLine<C: Allocator>(ctx: C): Str {
     "    .Ok(\""
         .concat(ctx, hole(ctx, "first"))
         .concat(ctx, hole(ctx, "here.x"))
-        .concat(ctx, hole(ctx, "lengths.len()"))
+        .concat(ctx, hole(ctx, "lengths.length()"))
         .concat(ctx, "\")")
 }
 
 /// The text of that module, one line to a line.
-fn expected<C: Alloc>(ctx: C): Str {
+fn expected<C: Allocator>(ctx: C): Str {
     [
         "//! A generated module.",
         "",
-        "from \"core/effect\" import { Alloc };",
+        "from \"core/effect\" import { Allocator };",
         "from \"core/list\" import * as list;",
         "",
-        "derive Eq, Show for Colour;",
+        "derive Equal, Show for Colour;",
         "/// A colour, or the name of one.",
         "export enum Colour {",
         "    Red,",
@@ -204,7 +204,7 @@ fn expected<C: Alloc>(ctx: C): Str {
         "    export y: Int,",
         "}",
         "",
-        "export fn describe<C: Alloc>(ctx: C, p: Point, c: Colour): Result<Str, Str> {",
+        "export fn describe<C: Allocator>(ctx: C, p: Point, c: Colour): Result<Str, Str> {",
         "    let label = match (c) {",
         "        .Red => \"red\",",
         "        .Named(text) => text,",
@@ -212,7 +212,7 @@ fn expected<C: Alloc>(ctx: C): Str {
         "    let scaled = (p.x + p.y) * 2;",
         "    let sign = if (scaled > 0) { \"+\" } else { \"-\" };",
         "    let parts = [label, sign];",
-        "    let lengths = parts.map(ctx, fn(s) => s.len());",
+        "    let lengths = parts.map(ctx, fn(s) => s.length());",
         "    let here = Point { x: scaled, y: 0 };",
         "    let first = parts.first().okOr(\"empty\")?;",
         okLine(ctx),
@@ -223,16 +223,16 @@ fn expected<C: Alloc>(ctx: C): Str {
 
 test "a whole module prints the source the formatter leaves alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = imports().concat(ctx, colour()).concat(ctx, [point(), describe()]);
     let m = ast.Module { items: items, docs: ["A generated module."] };
-    assert.eq(ast.print(ctx, m).text, expected(ctx));
+    assert.equal(ast.print(ctx, m).text, expected(ctx));
 }
 
 test "nothing in that module knows where it came from" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = imports().concat(ctx, colour()).concat(ctx, [point(), describe()]);
     let m = ast.Module { items: items, docs: ["A generated module."] };

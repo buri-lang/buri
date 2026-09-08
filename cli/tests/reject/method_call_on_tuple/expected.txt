@@ -1,11 +1,11 @@
-error: `(I64, I64)` has no method `len` [no-such-method]
+error: `(I64, I64)` has no method `length` [no-such-method]
  --> cmd/method_call_on_tuple/main.buri:7:5
   |
-7 |   t.len()
-  |     ^^^
+7 |   t.length()
+  |     ^^^^^^
   |
   = tuples, function types, and `Template` have no defining module, so they have no methods
-  = fix: there is no module to declare `len` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
+  = fix: there is no module to declare `length` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
 
     What to do
     ──────────

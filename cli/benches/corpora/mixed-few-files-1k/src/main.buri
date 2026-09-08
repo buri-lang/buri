@@ -4,7 +4,7 @@
 //! monomorphization reaches the whole program from `main` and the
 //! lowering benchmark is not measuring dead-code elimination.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import * as host;
 from "//bench/m0000.buri" import { blend0, reach0 };
 
@@ -12,7 +12,7 @@ from "//bench/m0000.buri" import { blend0, reach0 };
 /// `core/host`, so it is the only place the context can be built.
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     let total = 0 + blend0(1) + reach0(ctx);
     if (total == 0) { .Err("empty") } else { .Ok(()) }

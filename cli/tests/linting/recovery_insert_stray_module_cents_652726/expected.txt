@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_652726/lib.buri:1:29
+  |
+1 | derive Equal, Show for Cents, ;
+  |                             ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here

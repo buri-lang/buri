@@ -73,8 +73,9 @@ const STYLE_PIN: usize = 15;
 const STYLE_PADDING_EDGE: usize = 23;
 
 // `ui/node`'s `NodeKind`, whose variant order is load-bearing for the same
-// reason and says so in its own comment. Only the three that lower to an
+// reason and says so in its own comment. Only the four that lower to an
 // element a browser paints chrome on are named here.
+const NODE_HEADING: usize = 2;
 const NODE_BUTTON: usize = 5;
 const NODE_LINK: usize = 6;
 const NODE_FIELD: usize = 8;
@@ -728,9 +729,9 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 }
 
 /// Everything a browser paints on an element by itself that no atomic class
-/// can get under: the bevel on a button, the blue underline on a link, the
-/// border and the inner shadow on a field, the disc and the forty-pixel indent
-/// on a list.
+/// can get under: the size, the weight and the margins on a heading, the bevel
+/// on a button, the blue underline on a link, the border and the inner shadow
+/// on a field, the disc and the forty-pixel indent on a list.
 ///
 /// A class says what one property is and nothing about the rest, so the sheet
 /// has to say it once, up front, for the elements the program actually builds.
@@ -738,11 +739,13 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 /// cascade — every class beats it, whatever order they land in.
 ///
 /// What comes out is also what the headless painter already draws: no padding
-/// nobody asked for, the surrounding font, and no marker beside a list item. A
-/// toggle's box is deliberately left alone. `appearance:none` on a checkbox
-/// erases the tick, and this vocabulary has nothing to draw a new one with.
+/// nobody asked for, the surrounding font, no margin the scene document has
+/// no counterpart for, and no marker beside a list item. A toggle's box is
+/// deliberately left alone. `appearance:none` on a checkbox erases the tick,
+/// and this vocabulary has nothing to draw a new one with.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Reset {
+    pub heading: bool,
     pub button: bool,
     pub link: bool,
     pub field: bool,
@@ -758,6 +761,15 @@ const CONTROL_RESET: &str =
 impl Reset {
     fn rules(self) -> String {
         let mut out = String::new();
+        if self.heading {
+            // A level is an outline position, not a size, so the size and the
+            // weight belong to the styles and the margin to nobody: this
+            // vocabulary has no margins, and the scene document the headless
+            // painter reads has no counterpart for one.
+            out.push_str(
+                ":where(h1,h2,h3,h4,h5,h6){font-size:inherit;font-weight:inherit;margin:0}\n",
+            );
+        }
         if self.button {
             out.push_str(&format!(":where(button){{{CONTROL_RESET}}}\n"));
         }
@@ -796,6 +808,7 @@ pub fn reset_in(
     if let ExprKind::EnumLit { con, variant, .. } = &e.kind {
         if *con == node_con {
             match *variant {
+                NODE_HEADING => out.heading = true,
                 NODE_BUTTON => out.button = true,
                 NODE_LINK => out.link = true,
                 NODE_FIELD => out.field = true,

@@ -61,16 +61,16 @@ use std::process::Command;
 pub const FIXED_CLOCK_JS: &str = concat!(
     "// The action's clock: 1970-01-01T00:00:00Z, frozen.\n",
     "try{Date.now=function(){return 0;};}catch(e){}\n",
-    "try{if(typeof $host_HostClock_nowMillis===\"function\")",
-    "$host_HostClock_nowMillis=function(){return 0;};}catch(e){}\n",
-    // Replaced rather than left alone: the runtime's own `sleepMillis` waits
+    "try{if(typeof $host_HostClock_nowMilliseconds===\"function\")",
+    "$host_HostClock_nowMilliseconds=function(){return 0;};}catch(e){}\n",
+    // Replaced rather than left alone: the runtime's own `sleepMilliseconds` waits
     // on a real timer, which a frozen `Date.now` does not shorten by a
     // millisecond. Where no time elapses, sleeping for it takes no time.
     //
     // The replacement is not `async`, and does not need to be: its callers
     // `await` it, and `await 0` is `0`.
-    "try{if(typeof $host_HostClock_sleepMillis===\"function\")",
-    "$host_HostClock_sleepMillis=function(){return 0;};}catch(e){}\n",
+    "try{if(typeof $host_HostClock_sleepMilliseconds===\"function\")",
+    "$host_HostClock_sleepMilliseconds=function(){return 0;};}catch(e){}\n",
     // The other clock. It never goes backwards and it is not the wall clock,
     // but it is still a reading that differs between two runs, so an action
     // that stamps one would not reproduce. Frozen at zero like the rest.
@@ -134,8 +134,8 @@ mod tests {
         for name in
             [
                 "Date.now",
-                "$host_HostClock_nowMillis",
-                "$host_HostClock_sleepMillis",
+                "$host_HostClock_nowMilliseconds",
+                "$host_HostClock_sleepMilliseconds",
                 "$host_HostClock_monotonicNanoseconds",
                 "Math.random",
             ]

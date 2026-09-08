@@ -2,7 +2,7 @@
 //
 // Starting another program is the largest authority a context can carry, and a
 // page has nowhere to put a child: no process table, no `fork`, no `exec`. So
-// `Spawn` is its own row rather than a second export on `Proc`'s, and both are
+// `Spawn` is its own row rather than a second export on `Process`'s, and both are
 // withheld from a page and from a worker.
 //
 // The corpus can ask for `JS` and `WEB` and no more, so the worker's half of
@@ -11,7 +11,7 @@
 // this fixture pins is the sentence a person reads when they try it.
 //
 // PLATFORM: WEB — a page has no process table, so nothing it binds may start one.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/process" import { Spawn };
@@ -19,7 +19,7 @@ from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Spawn: host.spawn,
     Ui: host.ui,

@@ -4,12 +4,12 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 
-derive Eq, Show for Node1;
+derive Equal, Show for Node1;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node1 {
@@ -51,13 +51,13 @@ export fn compute1_0(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_0<C: Alloc>(ctx: C): Int {
+export fn probe1_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute1_0(7)
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach1<C: Alloc>(ctx: C): Int {
+export fn reach1<C: Allocator>(ctx: C): Int {
     0 + probe1_0(ctx) + reach0(ctx)
 }

@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:31:73
+   |
+31 |     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] }
+   |                                                                         ^
+   |
+   = fix: write `;` here

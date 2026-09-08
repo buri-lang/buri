@@ -7,7 +7,7 @@
 // `Position(.PinViewport)` is measured against the page, so a dock written
 // three boxes deep sits in the page's corner rather than at the top left.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -76,7 +76,7 @@ fn docked<C>(): Node<C> {
 
 test "a picture is a picture and not a hole in the page" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "pictures", pictures(), .Checked);
@@ -84,7 +84,7 @@ test "a picture is a picture and not a hole in the page" {
 
 test "an overlay pinned to the viewport sits in the viewport's corner" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "pinned-dock", docked(), .Checked);

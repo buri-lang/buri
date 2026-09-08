@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:49:24
+   |
+49 |         dependencies: [,
+   |                        ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:60:1
+   |
+60 | 
+   | ^
+   |
+  --> main.buri:43:74
+   |
+43 | test "a schema the reader refuses answers its diagnostics and no module" {
+   |                                                                          ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:52:52
+   |
+52 |     assert.equal(out.diagnostics.map(ctx, fn(d) => @ d.code), [
+   |                                                    ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

@@ -2510,7 +2510,7 @@ fn bounded_expr(rng: &mut Rng, depth: u32, x: i64) -> (String, i64) {
 fn printer(rng: &mut Rng) -> Printer {
     let funcs = 1 + rng.below(5);
     let mut text = String::from(
-        "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\
+        "from \"core/effect\" import { Allocator, Stdout };\nfrom \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\n",
     );
     let mut lines: Vec<String> = Vec::new();
@@ -2582,7 +2582,7 @@ fn printer(rng: &mut Rng) -> Printer {
 
     text.push_str(
         "export fn main(): Result<(), Str> {\n  \
-         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n",
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n",
     );
     for l in &lines {
         text.push_str(l);
@@ -2770,7 +2770,7 @@ fn projectedInline(count: Int): Int {
   let d2 = identity(deep(count)).inner;
   let d1 = d2.inner;
   let items = d1.inner;
-  items.items.len()
+  items.items.length()
 }
 fn projectedBound(count: Int): Int {
   let held = identity(deep(count)).inner;
@@ -2781,7 +2781,7 @@ fn projectedTwice(count: Int): Int {
   let inner = outer.inner;
   countOf(inner.inner)
 }
-fn countOf(items: Items): Int { items.items.len() }
+fn countOf(items: Items): Int { items.items.length() }
 
 fn step(k: Int, held: Int): Step {
   Step {
@@ -2845,7 +2845,7 @@ fn walkOne(octets: [U8], at: Int, octet: U8, state: Walk): Result<Walk, Fault> {
 
 fn walk(octets: [U8]): Result<Int, Fault> {
   let walked = walkFrom(octets, 0, Walk { seen: list.empty<Int>(), total: 0 })?;
-  .Ok(walked.total + walked.seen.len())
+  .Ok(walked.total + walked.seen.length())
 }
 
 fn shownWalk(answer: Result<Int, Fault>): Str {
@@ -2860,15 +2860,15 @@ fn shownWalk(answer: Result<Int, Fault>): Str {
 // literal from the call site rather than a conversion, because `Int.toU8` is
 // the inexact conversion that answers a `Result` (SPEC 6.2.1) and this shape
 // is about the option and not about the conversion.
-fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).len() }
+fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).length() }
 fn matched(held: Option<[U8]>): Int {
-  match (held) { .None => 0, .Some(raw) => raw.len() }
+  match (held) { .None => 0, .Some(raw) => raw.length() }
 }
 fn wrapped(held: Option<Wrapper>): Int {
-  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.len()
+  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.length()
 }
 fn wrappedMatch(held: Option<Wrapper>): Int {
-  match (held) { .None => 0, .Some(w) => w.octets.len() }
+  match (held) { .None => 0, .Some(w) => w.octets.length() }
 }
 
 // 5. `sortBy` over an element whose type holds an enum two levels down.

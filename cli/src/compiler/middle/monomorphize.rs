@@ -323,7 +323,7 @@ pub struct Effects {
 #[derive(Clone, Debug, Default)]
 pub struct ConEffects {
     /// The constructor implements an effect, so a value of it *is* a
-    /// capability — `Tables::con_carries_effect`. `core/host`'s `HostFs` is
+    /// capability — `Tables::con_carries_effect`. `core/host`'s `HostFileSystem` is
     /// one; `ui/effect`'s `Scope` is the one the standard library passes
     /// *as an ordinary argument*, and so the one this question is asked
     /// about most.
@@ -606,7 +606,7 @@ struct SymbolClash<'a> {
 /// "the backend declares the runtime import and defines nothing"
 /// (`backend/llvm/emit.rs`) — so two of them under one key are two names for
 /// one runtime entry rather than two bodies fighting over a symbol. `Str`'s
-/// `compare` is reached both inherently and through `Ord` and is a live
+/// `compare` is reached both inherently and through `Ordered` and is a live
 /// example. `language::symbols` sweeps the corpus with the same exclusion, and
 /// the two have to agree: this one is the invariant on every program the
 /// toolchain ever compiles, and that one is the invariant on programs nobody
@@ -1071,7 +1071,7 @@ impl Monomorphizer<'_> {
             .module_paths
             .get(info.module.index())
             .cloned()
-            .unwrap_or_else(|| "core/num".into());
+            .unwrap_or_else(|| "core/number".into());
         // `core/str` is `str` and `ui/effect` is `ui_effect`, which is what
         // every backend's runtime table is written against. A standard library
         // module path is the module and nothing else — it never names a file
@@ -1080,11 +1080,11 @@ impl Monomorphizer<'_> {
         let short = module.strip_prefix("core/").unwrap_or(&module).replace('/', "_");
         let key = match info.self_ty {
             // `core/str` exists for `Str`, so `str.Str.len` says it twice.
-            // `core/num` is the defining module of a dozen types, so there the
+            // `core/number` is the defining module of a dozen types, so there the
             // type is what tells two conversions apart.
             Some(con)
                 if is_prim(self.tables(), con)
-                    && short != "num"
+                    && short != "number"
                     && info.impl_of.is_none() =>
             {
                 format!("{short}.{}", info.name)
@@ -1782,8 +1782,8 @@ impl Monomorphizer<'_> {
         let mut all = args;
         all.push(desc_arg);
         match (name.as_str(), method) {
-            ("Eq", _) => ExprKind::Intrinsic { name: "structuralEq".into(), targs: Vec::new(), args: all },
-            ("Ord", _) => {
+            ("Equal", _) => ExprKind::Intrinsic { name: "structuralEq".into(), targs: Vec::new(), args: all },
+            ("Ordered", _) => {
                 ExprKind::Intrinsic { name: "structuralCompare".into(), targs: Vec::new(), args: all }
             }
             // `show` and `toJson` each take a context they do not use here:
@@ -1804,7 +1804,7 @@ impl Monomorphizer<'_> {
             }
             // The operator traits derived on a newtype: apply the operation to
             // the wrapped value and rewrap.
-            (op @ ("Add" | "Sub" | "Mul" | "Div" | "Rem" | "Neg"), _) => {
+            (op @ ("Add" | "Subtract" | "Multiply" | "Divide" | "Remainder" | "Negate"), _) => {
                 self.derived_operator(op, recv, all, span)
             }
             _ => {
@@ -1861,10 +1861,10 @@ impl Monomorphizer<'_> {
         };
         let prim_op = match op {
             "Add" => typed::PrimOp::Add,
-            "Sub" => typed::PrimOp::Sub,
-            "Mul" => typed::PrimOp::Mul,
-            "Div" => typed::PrimOp::Div,
-            "Rem" => typed::PrimOp::Rem,
+            "Subtract" => typed::PrimOp::Sub,
+            "Multiply" => typed::PrimOp::Mul,
+            "Divide" => typed::PrimOp::Div,
+            "Remainder" => typed::PrimOp::Rem,
             _ => typed::PrimOp::Neg,
         };
         let unwrapped: Vec<typed::Expr> = args
@@ -1898,7 +1898,7 @@ impl Monomorphizer<'_> {
     }
 
     /// Interns a runtime type descriptor. Field names and variant names are
-    /// what `show` needs; `eq` and `compare` need the shape.
+    /// what `show` needs; `equal` and `compare` need the shape.
     fn descriptor(&mut self, ty: &Ty) -> usize {
         if let Some(i) = self.desc_index.get(ty) {
             return *i;
@@ -2024,7 +2024,7 @@ fn self_positions(ty: &Ty) -> Vec<usize> {
 //   impl<C: Fs> Fs for ReadOnly<C>      supplies          FnInfo.generics = impl generics ++ method generics
 //
 // So the method's own arguments carry over unchanged, and the impl's have to
-// be read back off the receiver — `ReadOnly<HostFs>` says `C = HostFs`. That is
+// be read back off the receiver — `ReadOnly<HostFileSystem>` says `C = HostFileSystem`. That is
 // a match of the impl's head against the receiver, and it is written as one
 // here. It used to be arithmetic: take the receiver's arguments, append the
 // method's, pad with `Ty::Unit` and truncate to the declared count. That is
@@ -2216,7 +2216,7 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 ///   type — `json.decode` and the two `core/testing/assert` entries.
 ///
 /// A key whose erased parameter is only ever a **context** needs none of the
-/// three: a `C: Alloc` appears in argument position, and rule 1 of the emission
+/// three: a `C: Allocator` appears in argument position, and rule 1 of the emission
 /// order flattens an argument into its leaves whatever its type is. That is
 /// most of this list, and it is still listed, because "the parameter happens to
 /// be a context" is a fact about today's signature rather than a rule the next
@@ -2242,7 +2242,7 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// now held to it, and `undetermined-intrinsic-type` is what it says.
 ///
 /// Sorted, and asserted sorted, so a reader can find a key and a duplicate is
-/// visible. `num.<Prim>.show` and `num.<Prim>.toJson` are **not** here: they
+/// visible. `number.<Prim>.show` and `number.<Prim>.toJson` are **not** here: they
 /// are one fact about every primitive rather than twenty-six, and
 /// [`prim_show_or_to_json`] states it once.
 const GENERIC_INTRINSICS: &[&str] = &[
@@ -2283,11 +2283,11 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // answer.
     "alloc.copyOut",
     // `core/bool` and `core/character`: `show` and `toJson` are minted by
-    // `semantics::builtins` at every primitive and both name `C: Alloc`,
+    // `semantics::builtins` at every primitive and both name `C: Allocator`,
     // because rendering allocates. The type is in the key already.
     "bool.show",
     "bool.toJson",
-    // `core/bytes`: four `C: Alloc` conversions. Every one of them answers a
+    // `core/bytes`: four `C: Allocator` conversions. Every one of them answers a
     // `[U8]` or takes one, and the element type is fixed at `U8` — which is
     // why `runtime_table` gives them `Extra::None` and the stride is known.
     "bytes.f32ToBytes",
@@ -2370,7 +2370,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.foldResultCtx",
     "list.get",
     "list.join",
-    "list.len",
+    "list.length",
     "list.map",
     "list.mapCtx",
     // The closure trampoline's pilot (`backend/intrinsic_keys.rs`'s
@@ -2394,9 +2394,9 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // *return* type. Neither backend emits a call: both open-code the constant
     // from the destination's own width (`stencil/emit.rs`, `js/intrinsics.rs`),
     // so the erasure is repaired by there being no runtime call to erase into.
-    "num.maxValue",
-    "num.minValue",
-    // `core/str`. Every one names `C: Alloc` for the block it builds and
+    "number.maxValue",
+    "number.minValue",
+    // `core/str`. Every one names `C: Allocator` for the block it builds and
     // nothing else; `Str` is three leaves at every instantiation, so there is
     // no element pair to supply and `runtime_table` gives them `Extra::None`.
     "str.chars",
@@ -2465,17 +2465,17 @@ fn generic_intrinsic_allowed(key: &str) -> bool {
     GENERIC_INTRINSICS.contains(&key) || prim_show_or_to_json(key)
 }
 
-/// `num.I64.show`, `num.F64.toJson` and their siblings: the two generic methods
+/// `number.I64.show`, `number.F64.toJson` and their siblings: the two generic methods
 /// `semantics::builtins` mints at every primitive, for every primitive whose
-/// defining module is `core/num` and whose key therefore carries the type.
+/// defining module is `core/number` and whose key therefore carries the type.
 ///
 /// Read off `Prim::all()` rather than written out, for the reason
 /// `backend::intrinsic_keys::derive_key` is: the family is *every* primitive,
 /// and a hand-written list of thirteen is a list that can be short by one.
-/// Both methods name `C: Alloc` and nothing else — the type they are at is in
-/// the key, which is what `short != "num"` in `intrinsic_key` arranges.
+/// Both methods name `C: Allocator` and nothing else — the type they are at is in
+/// the key, which is what `short != "number"` in `intrinsic_key` arranges.
 fn prim_show_or_to_json(key: &str) -> bool {
-    let Some(rest) = key.strip_prefix("num.") else { return false };
+    let Some(rest) = key.strip_prefix("number.") else { return false };
     let Some((ty, op)) = rest.split_once('.') else { return false };
     matches!(op, "show" | "toJson") && Prim::all().iter().any(|p| p.name() == ty)
 }
@@ -2601,7 +2601,7 @@ mod tests {
     }
 
     /// Shape one: neither the `impl` nor the method is generic. Every `impl`
-    /// in `core/host` is this — `impl Fs for HostFs`, reached as
+    /// in `core/host` is this — `impl FileSystemRead for HostFileSystem`, reached as
     /// `fs.readText(ctx, p)` and dispatched on `ctx`.
     #[test]
     fn a_plain_impl_of_a_plain_method_instantiates_at_nothing() {
@@ -2611,7 +2611,7 @@ mod tests {
     }
 
     /// Shape two: the method has generics of its own and the `impl` has none.
-    /// `impl Show for Order { fn show<C: Alloc>(self, ctx: C): Str }` — the
+    /// `impl Show for Order { fn show<C: Allocator>(self, ctx: C): Str }` — the
     /// call site's `C` carries over untouched.
     #[test]
     fn a_method_generic_carries_over_from_the_call_site() {
@@ -2622,7 +2622,7 @@ mod tests {
 
     /// Shape three: the `impl` head is generic and the method is not.
     /// `impl<C: Fs> Fs for Guarded<C>` — an attenuating wrapper over any
-    /// filesystem — reached as `Guarded<HostFs>`. The old arithmetic got this
+    /// filesystem — reached as `Guarded<HostFileSystem>`. The old arithmetic got this
     /// one right by
     /// coincidence — the receiver's arguments happened to be the impl's, in
     /// order.
@@ -2764,10 +2764,10 @@ mod tests {
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
-        list.join list.len list.map list.mapCtx list.mapCtxStep list.push \
+        list.join list.length list.map list.mapCtx list.mapCtxStep list.push \
         list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
-        num.maxValue num.minValue \
+        number.maxValue number.minValue \
         str.chars str.concat str.format str.fromChars str.fromFloat \
         str.fromInt str.lines str.padEnd str.padStart str.repeat str.replace \
         str.show str.split str.splitAny str.toJson str.toLower str.toUpper \
@@ -2842,23 +2842,23 @@ mod tests {
     fn show_and_to_json_are_allowed_at_every_primitive() {
         for p in Prim::all() {
             let name = p.name();
-            assert!(generic_intrinsic_allowed(&format!("num.{name}.show")), "{name} show");
-            assert!(generic_intrinsic_allowed(&format!("num.{name}.toJson")), "{name} toJson");
+            assert!(generic_intrinsic_allowed(&format!("number.{name}.show")), "{name} show");
+            assert!(generic_intrinsic_allowed(&format!("number.{name}.toJson")), "{name} toJson");
         }
     }
 
-    /// And says nothing about anything else in `core/num`. `hash`, `eq` and
+    /// And says nothing about anything else in `core/number`. `hash`, `equal` and
     /// `compare` are minted with no generics at all, so they never reach the
     /// check — this pins that widening the family would take an edit.
     #[test]
     fn the_primitive_family_is_those_two_methods_and_no_others() {
-        for key in ["num.I64.hash", "num.I64.eq", "num.F64.compare", "num.I64.showOff"] {
+        for key in ["number.I64.hash", "number.I64.equal", "number.F64.compare", "number.I64.showOff"] {
             assert!(!generic_intrinsic_allowed(key), "`{key}` was let through");
         }
         // A type that is not a primitive, spelled into the same shape.
-        assert!(!generic_intrinsic_allowed("num.Decimal.show"));
+        assert!(!generic_intrinsic_allowed("number.Decimal.show"));
         // And the prefix alone is not enough.
-        assert!(!generic_intrinsic_allowed("num.show"));
+        assert!(!generic_intrinsic_allowed("number.show"));
         assert!(!generic_intrinsic_allowed("numeric.I64.show"));
     }
 
@@ -2980,7 +2980,7 @@ mod tests {
 
     /// An intrinsic defines nothing, so two of them under one key are two
     /// names for one runtime entry. `Str.compare`, reached both inherently and
-    /// through `Ord`, is the live example — and the exclusion has to be the
+    /// through `Ordered`, is the live example — and the exclusion has to be the
     /// one `language::symbols` makes, or a green corpus and a passing compiler
     /// would be saying different things.
     #[test]

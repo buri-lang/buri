@@ -4,12 +4,12 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
 
-derive Eq, Show for Node7;
+derive Equal, Show for Node7;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node7 {
@@ -47,7 +47,7 @@ export fn compute7_0(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_0<C: Alloc>(ctx: C): Int {
+export fn probe7_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute7_0(7)
 }
@@ -62,23 +62,23 @@ export fn firstOr7_1<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll7_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll7_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric7_1(ns: [Int], ss: [Str]): Int {
-    firstOr7_1<Int>(ns, 0) + firstOr7_1<Str>(ss, "").len()
+    firstOr7_1<Int>(ns, 0) + firstOr7_1<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_1<C: Alloc>(ctx: C): Int {
-    useGeneric7_1([1, 2], ["a"]) + describeAll7_1(ctx, [1, 2]).len()
+export fn probe7_1<C: Allocator>(ctx: C): Int {
+    useGeneric7_1([1, 2], ["a"]) + describeAll7_1(ctx, [1, 2]).length()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label7_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label7_2<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "alpha" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -91,12 +91,12 @@ export fn constants7_2(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_2<C: Alloc>(ctx: C): Int {
+export fn probe7_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants7_2();
-    label7_2(ctx, a, e).len() + b
+    label7_2(ctx, a, e).length() + b
 }
 
-derive Eq, Show for Rec7_3;
+derive Equal, Show for Rec7_3;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec7_3 {
     export f0: Int,
@@ -111,40 +111,40 @@ impl Rec7_3 {
         self.f0 * factor + 586
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec7_3: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_3<C: Alloc>(ctx: C): Int {
+export fn probe7_3<C: Allocator>(ctx: C): Int {
     let r = Rec7_3 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest7_4<C: Alloc>(ctx: C): Int {
+export fn digest7_4<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [5073, 2622, 4871, 3507];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain7_4(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_4<C: Alloc>(ctx: C): Int {
+export fn probe7_4<C: Allocator>(ctx: C): Int {
     digest7_4(ctx) + drain7_4()
 }
 
-derive Eq, Show for Rec7_5;
+derive Equal, Show for Rec7_5;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec7_5 {
     export f0: Int,
@@ -157,21 +157,21 @@ impl Rec7_5 {
         self.f0 * factor + 864
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec7_5: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_5<C: Alloc>(ctx: C): Int {
+export fn probe7_5<C: Allocator>(ctx: C): Int {
     let r = Rec7_5 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label7_6<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label7_6<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "alpha" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -184,9 +184,9 @@ export fn constants7_6(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_6<C: Alloc>(ctx: C): Int {
+export fn probe7_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants7_6();
-    label7_6(ctx, a, e).len() + b
+    label7_6(ctx, a, e).length() + b
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -199,23 +199,23 @@ export fn firstOr7_7<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll7_7<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll7_7<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric7_7(ns: [Int], ss: [Str]): Int {
-    firstOr7_7<Int>(ns, 0) + firstOr7_7<Str>(ss, "").len()
+    firstOr7_7<Int>(ns, 0) + firstOr7_7<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_7<C: Alloc>(ctx: C): Int {
-    useGeneric7_7([1, 2], ["a"]) + describeAll7_7(ctx, [1, 2]).len()
+export fn probe7_7<C: Allocator>(ctx: C): Int {
+    useGeneric7_7([1, 2], ["a"]) + describeAll7_7(ctx, [1, 2]).length()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label7_8<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label7_8<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "echo" } else { "charlie" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -228,9 +228,9 @@ export fn constants7_8(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_8<C: Alloc>(ctx: C): Int {
+export fn probe7_8<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants7_8();
-    label7_8(ctx, a, e).len() + b
+    label7_8(ctx, a, e).length() + b
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -243,18 +243,18 @@ export fn firstOr7_9<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll7_9<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll7_9<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric7_9(ns: [Int], ss: [Str]): Int {
-    firstOr7_9<Int>(ns, 0) + firstOr7_9<Str>(ss, "").len()
+    firstOr7_9<Int>(ns, 0) + firstOr7_9<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_9<C: Alloc>(ctx: C): Int {
-    useGeneric7_9([1, 2], ["a"]) + describeAll7_9(ctx, [1, 2]).len()
+export fn probe7_9<C: Allocator>(ctx: C): Int {
+    useGeneric7_9([1, 2], ["a"]) + describeAll7_9(ctx, [1, 2]).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -267,44 +267,44 @@ export fn firstOr7_10<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll7_10<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll7_10<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric7_10(ns: [Int], ss: [Str]): Int {
-    firstOr7_10<Int>(ns, 0) + firstOr7_10<Str>(ss, "").len()
+    firstOr7_10<Int>(ns, 0) + firstOr7_10<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_10<C: Alloc>(ctx: C): Int {
-    useGeneric7_10([1, 2], ["a"]) + describeAll7_10(ctx, [1, 2]).len()
+export fn probe7_10<C: Allocator>(ctx: C): Int {
+    useGeneric7_10([1, 2], ["a"]) + describeAll7_10(ctx, [1, 2]).length()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest7_11<C: Alloc>(ctx: C): Int {
+export fn digest7_11<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [9358, 5257, 5124, 1089, 9923, 2459, 6974, 3528, 9749];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain7_11(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe7_11<C: Alloc>(ctx: C): Int {
+export fn probe7_11<C: Allocator>(ctx: C): Int {
     digest7_11(ctx) + drain7_11()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach7<C: Alloc>(ctx: C): Int {
+export fn reach7<C: Allocator>(ctx: C): Int {
     0
         + probe7_0(ctx)
         + probe7_1(ctx)

@@ -4,10 +4,10 @@
 // Elision is a checker-side desugar: the literal is built with an explicit
 // `.None` in the field's place, so every backend inherits it and the derived
 // traits see an ordinary value. That is what these assertions are: an elided
-// literal and a written one are the same value, by `Eq`, by `Show` and by
+// literal and a written one are the same value, by `Equal`, by `Show` and by
 // `Hash`.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/semantics" import {
@@ -24,7 +24,7 @@ test "every optional field may be left out at once" {
 }
 
 test "an omitted field is the same value as a written `.None`" {
-    assert.eq(World { hi: "hi" }, World {
+    assert.equal(World { hi: "hi" }, World {
         hi: "hi",
         hello: .None,
         aliased: .None,
@@ -34,16 +34,16 @@ test "an omitted field is the same value as a written `.None`" {
 
 test "a written value is not disturbed by the omission of another" {
     let world = World { hi: "hi", hello: .Some("there") };
-    assert.eq(world.hello, .Some("there"));
+    assert.equal(world.hello, .Some("there"));
     assert.isTrue(world.aliased.isNone());
 }
 
 test "an omitted field is not equal to a written `.Some`" {
-    assert.notEq(World { hi: "hi" }, World { hi: "hi", hello: .Some("there") });
+    assert.notEqual(World { hi: "hi" }, World { hi: "hi", hello: .Some("there") });
 }
 
 test "a required field of another type still decides equality" {
-    assert.notEq(World { hi: "hi" }, World { hi: "bye" });
+    assert.notEqual(World { hi: "hi" }, World { hi: "bye" });
 }
 
 // -----------------------------------------------------------------------------
@@ -55,7 +55,7 @@ test "a field declared through an alias of `Option` may be left out" {
 }
 
 test "an alias field takes a written value like any other" {
-    assert.eq(World { hi: "hi", aliased: .Some("named") }.aliased, .Some("named"));
+    assert.equal(World { hi: "hi", aliased: .Some("named") }.aliased, .Some("named"));
 }
 
 test "an omitted `Option<Option<T>>` is the outer `.None`" {
@@ -79,17 +79,17 @@ test "the inner `.None` is still writable" {
 
 test "shorthand and elision compose" {
     let hi = "hi";
-    assert.eq(World { hi }, World { hi: "hi" });
+    assert.equal(World { hi }, World { hi: "hi" });
 }
 
 test "a spread provides the fields the literal does not write" {
     let base = World { hi: "hi", hello: .Some("there") };
-    assert.eq(World { ..base }, base);
+    assert.equal(World { ..base }, base);
 }
 
 test "a spread keeps an optional field rather than resetting it" {
     let base = World { hi: "hi", hello: .Some("there") };
-    assert.eq(World { ..base, hi: "bye" }.hello, .Some("there"));
+    assert.equal(World { ..base, hi: "bye" }.hello, .Some("there"));
 }
 
 test "an update may overwrite an optional field with `.None`" {
@@ -98,12 +98,12 @@ test "an update may overwrite an optional field with `.None`" {
 }
 
 test "elision inside the declaring module builds the same value" {
-    assert.eq(worldHere(), World { hi: "hi" });
+    assert.equal(worldHere(), World { hi: "hi" });
 }
 
 test "a private optional field is elided by the module that declares it" {
     assert.isTrue(hiddenPrivate(hidden(7)).isNone());
-    assert.eq(hidden(7), hidden(7));
+    assert.equal(hidden(7), hidden(7));
 }
 
 // -----------------------------------------------------------------------------
@@ -115,16 +115,16 @@ test "a field declared `Option<T>` may be left out at an instantiation" {
 }
 
 test "a field declared `Option<T>` takes a written value" {
-    assert.eq(Holder { only: 1, slot: .Some(2) }.slot, .Some(2));
+    assert.equal(Holder { only: 1, slot: .Some(2) }.slot, .Some(2));
 }
 
 test "the same declaration elides at a second instantiation" {
-    assert.eq(Holder { only: "a" }, Holder { only: "a", slot: .None });
+    assert.equal(Holder { only: "a" }, Holder { only: "a", slot: .None });
 }
 
 test "a field declared `T` is required even where `T` is an `Option`" {
     let held: Holder<Option<Int>> = Holder { only: .Some(1) };
-    assert.eq(held.only, .Some(1));
+    assert.equal(held.only, .Some(1));
     assert.isTrue(held.slot.isNone());
 }
 
@@ -134,9 +134,9 @@ test "a field declared `T` is required even where `T` is an `Option`" {
 
 test "a derived `Show` reads the same either way" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         World { hi: "hi" }.show(ctx),
         World { hi: "hi", hello: .None, aliased: .None, nested: .None }.show(ctx),
     );
@@ -144,16 +144,16 @@ test "a derived `Show` reads the same either way" {
 
 test "a derived `Show` still distinguishes an omission from a value" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.notEq(
+    assert.notEqual(
         World { hi: "hi" }.show(ctx),
         World { hi: "hi", hello: .Some("there") }.show(ctx),
     );
 }
 
-test "a derived `Hash` agrees with a derived `Eq`" {
-    assert.eq(
+test "a derived `Hash` agrees with a derived `Equal`" {
+    assert.equal(
         World { hi: "hi" }.hash(),
         World { hi: "hi", hello: .None, aliased: .None, nested: .None }.hash(),
     );
@@ -161,7 +161,10 @@ test "a derived `Hash` agrees with a derived `Eq`" {
 
 test "a derived `Show` on a generic struct reads the same either way" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(Holder { only: 1 }.show(ctx), Holder { only: 1, slot: .None }.show(ctx));
+    assert.equal(
+        Holder { only: 1 }.show(ctx),
+        Holder { only: 1, slot: .None }.show(ctx),
+    );
 }

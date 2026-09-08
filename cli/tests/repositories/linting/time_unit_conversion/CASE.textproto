@@ -27,7 +27,7 @@ edit {
 
 edit {
   file: "cmd/app/main.buri"
-  replace: "let NANOS_PER_MILLISECOND: I64 = 1_000_000;\n\n"
+  replace: "let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;\n\n"
   with: ""
 }
 
@@ -40,13 +40,13 @@ edit {
 edit {
   file: "cmd/app/main.buri"
   replace: "    startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000\n"
-  with: "    startedNanos + time.seconds(30).nanos()\n"
+  with: "    startedNanos + time.seconds(30).nanoseconds()\n"
 }
 
 edit {
   file: "cmd/app/main.buri"
-  replace: "    nanos / NANOS_PER_MILLISECOND\n"
-  with: "    time.nanos(nanos).millis()\n"
+  replace: "    nanoseconds / NANOSECONDS_PER_MILLISECOND\n"
+  with: "    time.nanoseconds(nanoseconds).milliseconds()\n"
 }
 
 run {

@@ -1,16 +1,16 @@
 // Derived structural operations. Each one is a runtime walk over a type
 // descriptor rather than code specialised to the type it compares.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-derive Eq, Ord, Show, Hash for Pair;
+derive Equal, Ordered, Show, Hash for Pair;
 struct Pair {
     a: Int,
     b: Str,
 }
 
-derive Eq, Show for Tag;
+derive Equal, Show for Tag;
 enum Tag {
     Low,
     High(Int),
@@ -18,7 +18,7 @@ enum Tag {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let p = Pair { a: 1, b: "x" };

@@ -46,7 +46,7 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 from "core/host/testing" import { alloc as testAlloc, tasks };
 from "core/testing/assert" import * as assert;
 
@@ -56,7 +56,7 @@ let LOOSE: Int = 70000;
 
 /// A `Str` this program built, `LOOSE` bytes of it. **This is the load-bearing
 /// helper of the file** — a literal would prove nothing. See the header.
-fn big<C: Alloc>(ctx: C, unit: Str): Str {
+fn big<C: Allocator>(ctx: C, unit: Str): Str {
     unit.repeat(ctx, LOOSE)
 }
 
@@ -69,14 +69,14 @@ enum Keep {
     Get,
 }
 
-derive Eq, Show for Kept;
+derive Equal, Show for Kept;
 enum Kept {
     Stored,
     Held(Str),
 }
 
 /// An actor whose state is a `Str`, and whose protocol reaches each crossing.
-fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
+fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
@@ -102,14 +102,14 @@ struct Escaped<C> {
 /// Scopes that map and release pages of their own, so that an address which
 /// escaped an earlier arena is one this allocator is entitled to hand out
 /// again. Answers a number, so nothing they built leaves them.
-fn churn<C: Alloc>(ctx: C): Int {
+fn churn<C: Allocator>(ctx: C): Int {
     // Small scopes first: these are the ones that draw a *pooled* block, so a
     // carrier that outlived its arena is written over rather than merely stale.
     let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
-        alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
+        alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).length())
     });
-    let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).len());
-    small.len() + large
+    let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).length());
+    small.length() + large
 }
 
 // -----------------------------------------------------------------------------
@@ -121,15 +121,15 @@ fn churn<C: Alloc>(ctx: C): Int {
 /// scope by construction.
 test "an actor started inside a scope still has the state it started with" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         Escaped { scope: c, address: actor.start(c, keeper(big(c, "s"))) }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "s"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "s"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// The message a scope posts is stepped inside that scope, and what the step
@@ -137,7 +137,7 @@ test "an actor started inside a scope still has the state it started with" {
 /// only value that can dangle is the one the message carried.
 test "a message sent inside a scope is stepped correctly" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -146,8 +146,8 @@ test "a message sent inside a scope is stepped correctly" {
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "m"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "m"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// `drive` puts the state back when the mailbox runs dry. A step that ran
@@ -155,7 +155,7 @@ test "a message sent inside a scope is stepped correctly" {
 /// carries nothing, so the value under test is the one the *step* made.
 test "a state a step built inside a scope survives the scope" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -164,15 +164,15 @@ test "a state a step built inside a scope survives the scope" {
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// An actor that outlived its scope is an ordinary actor: the messages it gets
 /// afterwards are posted from the platform allocator and step the same way.
 test "an actor started inside a scope steps messages sent to it later" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -180,8 +180,8 @@ test "an actor started inside a scope steps messages sent to it later" {
     });
     let _ = churn(ctx);
     let _ = out.address.sendMessage(out.scope, .Grow).ignore();
-    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
-    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 
 /// `stop` closes a mailbox the runtime has been holding since the scope that
@@ -189,7 +189,7 @@ test "an actor started inside a scope steps messages sent to it later" {
 /// charged stops moving, and every send after the stop is refused.
 test "an actor started inside a scope is stopped correctly afterwards" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -198,8 +198,8 @@ test "an actor started inside a scope is stopped correctly afterwards" {
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.stop(out.scope), .Ok(()));
-    assert.eq(out.address.sendMessage(out.scope, .Put("late")), .Err(.Stopped));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
+    assert.equal(out.address.sendMessage(out.scope, .Put("late")), .Err(.Stopped));
 }
 
 // -----------------------------------------------------------------------------
@@ -213,7 +213,7 @@ test "an actor started inside a scope is stopped correctly afterwards" {
 /// rather than by the send above it.
 test "a scope answers what it asked an actor inside it" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -224,5 +224,5 @@ test "a scope answers what it asked an actor inside it" {
         answered
     });
     let _ = churn(ctx);
-    assert.eq(out, .Ok(.Held(big(ctx, "a"))));
+    assert.equal(out, .Ok(.Held(big(ctx, "a"))));
 }

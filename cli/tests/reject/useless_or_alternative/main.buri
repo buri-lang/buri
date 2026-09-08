@@ -3,7 +3,7 @@
 // there, and `Hello.Now(_)` was taken by the arm above. Asking the question of
 // the arm as a whole cannot see this — one live alternative carries the dead
 // one in with it — so it is asked of each alternative.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -17,7 +17,7 @@ fn greeting(hi: Hello): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, greeting(Hello.World)).ignore();
   .Ok(())
 }

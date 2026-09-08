@@ -19,8 +19,10 @@ error: "core/char" is now "core/character" [retired-module]
           character.fromDigit(n, 16).withDefault('0')
       }
 
-    Two have been renamed so far: core/char is core/character, and core/proc is
-    core/process.
+    Five have been renamed so far, and every one of them is an abbreviation
+    replaced by the word: core/char is core/character, core/num is core/number,
+    core/ordmap is core/orderedmap, core/ordset is core/orderedset, and
+    core/proc is core/process.
 
     Why
     ───
@@ -29,11 +31,35 @@ error: "core/char" is now "core/character" [retired-module]
     mean one module with two names, and every reader of an import would have to
     know they were the same — which is the thing a rename is meant to stop.
 
-error: "core/proc" is now "core/process" [retired-module]
+error: "core/num" is now "core/number" [retired-module]
  --> cmd/retired_module_path/main.buri:7:6
   |
-7 | from "core/proc" import * as process;
-  |      ^^^^^^^^^^^
+7 | from "core/num" import * as number;
+  |      ^^^^^^^^^^
   |
   = the abbreviation was renamed rather than kept beside the new name, so one module has one path and two imports of it are the same import
-  = fix: write "core/process" in the import
+  = fix: write "core/number" in the import
+error: "core/ordmap" is now "core/orderedmap" [retired-module]
+ --> cmd/retired_module_path/main.buri:8:6
+  |
+8 | from "core/ordmap" import * as orderedmap;
+  |      ^^^^^^^^^^^^^
+  |
+  = the abbreviation was renamed rather than kept beside the new name, so one module has one path and two imports of it are the same import
+  = fix: write "core/orderedmap" in the import
+error: "core/ordset" is now "core/orderedset" [retired-module]
+ --> cmd/retired_module_path/main.buri:9:6
+  |
+9 | from "core/ordset" import * as orderedset;
+  |      ^^^^^^^^^^^^^
+  |
+  = the abbreviation was renamed rather than kept beside the new name, so one module has one path and two imports of it are the same import
+  = fix: write "core/orderedset" in the import
+error: "core/proc" is now "core/process" [retired-module]
+  --> cmd/retired_module_path/main.buri:10:6
+   |
+10 | from "core/proc" import * as process;
+   |      ^^^^^^^^^^^
+   |
+   = the abbreviation was renamed rather than kept beside the new name, so one module has one path and two imports of it are the same import
+   = fix: write "core/process" in the import

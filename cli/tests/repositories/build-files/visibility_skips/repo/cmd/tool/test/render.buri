@@ -5,6 +5,6 @@ from "core/testing/assert" import * as assert;
 from "//cmd/tool" import { render };
 
 test "render distinguishes zero" {
-    assert.eq(render(0), "zero");
-    assert.eq(render(1), "some");
+    assert.equal(render(0), "zero");
+    assert.equal(render(1), "some");
 }

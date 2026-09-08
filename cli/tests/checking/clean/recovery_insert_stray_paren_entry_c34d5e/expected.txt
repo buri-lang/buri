@@ -1,9 +1,0 @@
-error: expected an identifier, found `,` [unexpected-token]
-  --> main.buri:52:51
-   |
-52 |     assert.eq(out.diagnostics.map(ctx, fn(d) => d., code), ["proto-syntax-declaration"]);
-   |                                                   ^
-   |
-   = expected: an identifier
-   = actual: `,`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -112,13 +112,13 @@ pub enum Api {
 ///
 /// The two travel together because the second means nothing without the first:
 /// there is no such thing as a derived method that satisfies no trait. A
-/// `derive` also has no prose of its own — the sentence explaining what `eq`
-/// means is on `Eq` — which is the fact `documentation::module_entries` reads
+/// `derive` also has no prose of its own — the sentence explaining what `equal`
+/// means is on `Equal` — which is the fact `documentation::module_entries` reads
 /// this for.
 #[derive(Clone)]
 pub struct Via {
     pub trait_name: String,
-    /// Written as `derive Eq for Instant;` rather than as an `impl` block.
+    /// Written as `derive Equal for Instant;` rather than as an `impl` block.
     pub derived: bool,
 }
 
@@ -270,7 +270,7 @@ pub fn std_filter(m: &ModuleData) -> bool {
 ///
 /// A `derive` line names a trait and a type and stops there — the methods are
 /// the trait's, and the trait is nearly always declared somewhere else.
-/// `derive Eq, Ord, Show for Instant;` in `core/time` reaches three
+/// `derive Equal, Ordered, Show for Instant;` in `core/time` reaches three
 /// declarations in `core/order` through the prelude, without an import to
 /// follow. So expanding one takes the whole compilation, which is what
 /// `from_loaded` has and one module's AST does not.
@@ -364,7 +364,7 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
                 let Some(owner) = derived_owner(module, d.self_ty) else { continue };
                 for ty in t.type_list(d.traits) {
                     let written = formatting::type_text(t, *ty);
-                    // `Eq` and `order.Eq` name the same trait, and only the
+                    // `Equal` and `order.Eq` name the same trait, and only the
                     // last segment is the name.
                     let name = written.rsplit('.').next().unwrap_or(written.as_str());
                     let Some(found) = traits.find(path, name) else { continue };
@@ -685,13 +685,13 @@ mod tests {
     fn the_signatures_are_the_real_ones() {
         let modules = stdlib();
         let (_, map_fn) = find_item(&modules, "core/list.map").expect("core/list.map");
-        assert!(map_fn.signature.contains("map<B, C: Alloc>"), "{}", map_fn.signature);
-        assert_eq!(map_fn.api.effects(), ["Alloc".to_string()], "map allocates and says so");
+        assert!(map_fn.signature.contains("map<B, C: Allocator>"), "{}", map_fn.signature);
+        assert_eq!(map_fn.api.effects(), ["Allocator".to_string()], "map allocates and says so");
 
-        let (_, len) = find_item(&modules, "core/list.len").expect("core/list.len");
+        let (_, len) = find_item(&modules, "core/list.length").expect("core/list.length");
         assert!(len.api.effects().is_empty(), "len is pure");
 
-        let (_, alloc) = find_item(&modules, "core/effect.Alloc").expect("core/effect.Alloc");
+        let (_, alloc) = find_item(&modules, "core/effect.Allocator").expect("core/effect.Allocator");
         assert_eq!(alloc.kind(), ItemKind::Effect);
         assert!(alloc.api.members().iter().any(|m| m.name == "allocate"));
     }

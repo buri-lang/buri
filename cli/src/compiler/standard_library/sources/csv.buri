@@ -6,18 +6,18 @@
 //!
 //! ```buri run
 //! from "core/csv" import * as csv;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let rows = csv.parse(ctx, "name,note\nada,\"one, two\"").withDefault([]);
 //!     let note = rows.get(1).andThen(fn(row) => row.get(1)).withDefault("");
-//!     let _ = io.println(ctx, "${rows.len()} rows, and the note is ${note}").ignore();
+//!     let _ = io.println(ctx, "${rows.length()} rows, and the note is ${note}").ignore();
 //!     .Ok(())
 //! }
 //! ```
@@ -47,11 +47,11 @@
 //! is what RFC 4180 says a record ends with, and the last one carries no
 //! terminator — so `parse(render(rows))` gives `rows` back.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show for CsvError;
+derive Equal, Show for CsvError;
 /// Why a file is not a table. Both carry a **0-based record index**: the record
 /// that opened the quote, and the record whose width is wrong.
 export enum CsvError {
@@ -65,19 +65,19 @@ export enum CsvError {
 ///
 /// ```buri
 /// from "core/csv" import * as csv;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn widths<C: Alloc>(ctx: C, text: Str): Result<[Int], csv.CsvError> {
+/// export fn widths<C: Allocator>(ctx: C, text: Str): Result<[Int], csv.CsvError> {
 ///     match (csv.parse(ctx, text)) {
 ///         .Err(e) => .Err(e),
-///         .Ok(rows) => .Ok(rows.map(ctx, fn(row) => row.len())),
+///         .Ok(rows) => .Ok(rows.map(ctx, fn(row) => row.length())),
 ///     }
 /// }
 /// ```
 ///
 /// The empty text is no records at all, not one empty one. O(n) in the
 /// characters, and one pass.
-export fn parse<C: Alloc>(ctx: C, text: Str): Result<[[Str]], CsvError> {
+export fn parse<C: Allocator>(ctx: C, text: Str): Result<[[Str]], CsvError> {
     parseWith(ctx, text, ',')
 }
 
@@ -95,13 +95,13 @@ export fn parse<C: Alloc>(ctx: C, text: Str): Result<[[Str]], CsvError> {
 ///
 /// ```buri
 /// from "core/csv" import * as csv;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn tsv<C: Alloc>(ctx: C, text: Str): Result<[[Str]], csv.CsvError> {
+/// export fn tsv<C: Allocator>(ctx: C, text: Str): Result<[[Str]], csv.CsvError> {
 ///     csv.parseWith(ctx, text, '\t')
 /// }
 /// ```
-export fn parseWith<C: Alloc>(
+export fn parseWith<C: Allocator>(
     ctx: C,
     text: Str,
     delimiter: Char,
@@ -128,15 +128,15 @@ export fn parseWith<C: Alloc>(
 ///
 /// ```buri
 /// from "core/csv" import * as csv;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn columns<C: Alloc>(ctx: C, text: Str): Result<Int, csv.CsvError> {
-///     csv.parseWithHeader(ctx, text).map(fn(table) => table.0.len())
+/// export fn columns<C: Allocator>(ctx: C, text: Str): Result<Int, csv.CsvError> {
+///     csv.parseWithHeader(ctx, text).map(fn(table) => table.0.length())
 /// }
 /// ```
 ///
 /// The empty text has no header and no records, so it answers `([], [])`.
-export fn parseWithHeader<C: Alloc>(
+export fn parseWithHeader<C: Allocator>(
     ctx: C,
     text: Str,
 ): Result<([Str], [[Str]]), CsvError> {
@@ -155,13 +155,13 @@ export fn parseWithHeader<C: Alloc>(
 ///
 /// ```buri run
 /// from "core/csv" import * as csv;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let rows = csv.render(ctx, [["plain", "one, two"], ["a\"b", ""]]).lines(ctx);
@@ -178,7 +178,7 @@ export fn parseWithHeader<C: Alloc>(
 ///
 /// Records are joined with `\r\n` and the last one has no terminator. O(n) in
 /// the characters written.
-export fn render<C: Alloc>(ctx: C, rows: [[Str]]): Str {
+export fn render<C: Allocator>(ctx: C, rows: [[Str]]): Str {
     rows
         .mapCtx(ctx, fn(c, row) => {
             row.mapCtx(c, fn(f, cell) => quoted(f, cell)).join(c, ",")
@@ -205,7 +205,7 @@ let AFTER_QUOTE: Int = 3;
 /// `started` says whether a record is under way, which is what separates a text
 /// that ended on a terminator from one that ended on a delimiter: `"a\n"` is one
 /// record and `"a,"` is one record of two fields.
-fn scanning<C: Alloc>(
+fn scanning<C: Allocator>(
     ctx: C,
     cs: [Char],
     delimiter: Char,
@@ -306,7 +306,7 @@ fn scanning<C: Alloc>(
 }
 
 /// The text ran out. A quote still open is the one way that is an error.
-fn ending<C: Alloc>(
+fn ending<C: Allocator>(
     ctx: C,
     state: Int,
     started: Bool,
@@ -315,7 +315,7 @@ fn ending<C: Alloc>(
     rows: [[Str]],
 ): Result<[[Str]], CsvError> {
     if (state == QUOTED) {
-        .Err(.Unterminated(rows.len()))
+        .Err(.Unterminated(rows.length()))
     } else if (started) {
         .Ok(rows.push(ctx, row.push(ctx, str.fromChars(ctx, field))))
     } else {
@@ -327,7 +327,7 @@ fn ending<C: Alloc>(
 fn rectangular(rows: [[Str]], at: Int): Result<[[Str]], CsvError> {
     match ((rows.first(), rows.get(at))) {
         (.Some(first), .Some(row)) => {
-            if (row.len() == first.len()) {
+            if (row.length() == first.length()) {
                 rectangular(rows, at + 1)
             } else {
                 .Err(.RaggedRow(at))
@@ -340,7 +340,7 @@ fn rectangular(rows: [[Str]], at: Int): Result<[[Str]], CsvError> {
 // --- The writer ---------------------------------------------------------------
 
 /// One field, quoted when it holds something a reader would otherwise split on.
-fn quoted<C: Alloc>(ctx: C, text: Str): Str {
+fn quoted<C: Allocator>(ctx: C, text: Str): Str {
     if (
         text.contains(",")
             || text.contains("\"")

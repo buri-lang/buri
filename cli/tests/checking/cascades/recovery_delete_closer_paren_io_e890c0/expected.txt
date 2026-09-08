@@ -1,0 +1,30 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+   --> main.buri:109:5
+    |
+109 |     assert.equal(io.readAllBytes(ctx, [7]);
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = expected: 2
+    = actual: 1
+    = fix: pass exactly 2
+error: `readAllBytes` takes 1 arguments, but 2 were given [wrong-argument-count]
+   --> main.buri:109:18
+    |
+109 |     assert.equal(io.readAllBytes(ctx, [7]);
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = expected: 1
+    = actual: 2
+    = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+   --> main.buri:109:43
+    |
+109 |     assert.equal(io.readAllBytes(ctx, [7]);
+    |                                           ^
+    |
+   --> main.buri:109:17
+    |
+109 |     assert.equal(io.readAllBytes(ctx, [7]);
+    |                 ^ opened here
+    |
+    = fix: write `)` here

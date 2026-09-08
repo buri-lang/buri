@@ -1,9 +1,9 @@
-from "core/effect" import { Alloc, IoError };
+from "core/effect" import { Allocator, IoError };
 from "core/fs" import * as fs;
-from "core/fs" import { FsWrite, Path };
+from "core/fs" import { FileSystemWrite, Path };
 
 /// Writes one entry, and reports whether the filesystem took it.
-export fn record<C: Alloc + FsWrite>(
+export fn record<C: Allocator + FileSystemWrite>(
     ctx: C,
     path: Path,
     entry: Str,

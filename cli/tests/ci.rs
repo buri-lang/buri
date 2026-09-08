@@ -1664,8 +1664,8 @@ impl Image {
 /// freshly opened sessions with the cache off, into two directories, compared
 /// byte for byte. A repository written here rather than one of the checked-in
 /// ones, because both native binaries in `cli/tests/example` are refused by the
-/// dev build — `//cmd/server` needs `host.HostFs.readFile` and `//tools/report`
-/// needs `host.HostEnv.args`. A small program that only prints is what this
+/// dev build — `//cmd/server` needs `host.HostFileSystem.readFile` and `//tools/report`
+/// needs `host.HostEnvironment.arguments`. A small program that only prints is what this
 /// needs; a small artifact's bytes are no less reproducible.
 #[cfg(target_os = "linux")]
 #[test]

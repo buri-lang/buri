@@ -17,7 +17,7 @@ Drop the `export`.
 ## Why
 
 Conformance belongs to the type: once `Version` is visible, everything
-`impl Eq for Version` supplies is visible with it. Withholding a method the
+`impl Equal for Version` supplies is visible with it. Withholding a method the
 trait requires would be a conformance that does not hold.
 
 ## A program that provokes it
@@ -26,10 +26,10 @@ An `impl` block for the type's own methods is the other case, and `export`
 means something there.
 
 ```buri fail code=impl-method-export
-# from "core/order" import { Eq };
+# from "core/order" import { Equal };
 export struct Version { export major: Int }
 
-impl Eq for Version {
-  export fn eq(self, other: Version): Bool { self.major == other.major }
+impl Equal for Version {
+  export fn equal(self, other: Version): Bool { self.major == other.major }
 }
 ```

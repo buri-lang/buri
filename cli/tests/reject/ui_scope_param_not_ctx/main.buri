@@ -5,7 +5,7 @@
 // effect-carrying by conformance rather than by a bound, and a parameter of it
 // must be `ctx`. `Signal<Int>` beside it stays ordinary data — the handle
 // holds no authority, which is the other half of the same design.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Scope, Ui, Watch };
@@ -16,7 +16,7 @@ fn peek(s: Scope, n: Signal<Int>): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let n = signal(ctx, 1);
   .Ok(())
 }

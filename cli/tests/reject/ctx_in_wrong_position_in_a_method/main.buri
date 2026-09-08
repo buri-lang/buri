@@ -3,7 +3,7 @@
 // Inside a method the convention is receiver first, context second. That is
 // the position `Actor.step(self, ctx, msg)` is written in, and until rule 26
 // ran inside `trait` and `impl` bodies nothing here was read at all.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -26,7 +26,7 @@ impl Bell {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let bell = Bell { tone: "ding" };
   let _ = bell.ring(2, ctx);
   let _ = bell.peal(3, ctx);

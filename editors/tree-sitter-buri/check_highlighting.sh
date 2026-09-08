@@ -57,7 +57,7 @@ trap 'rm -rf "$work"' EXIT
 # it. Where two patterns capture the same node the later one wins, which is why
 # `UserId(` is a constructor rather than the type the shape rule says it is.
 GRAMMAR="
-5 Alloc type
+5 Allocator type
 6 list namespace
 7 round function
 7 rounded function
@@ -77,7 +77,7 @@ GRAMMAR="
 33 page property
 40 describe function
 40 hash variable.parameter
-40 Alloc type
+40 Allocator type
 41 UserId constructor
 44 User type
 44 id property
@@ -156,11 +156,11 @@ UNCOLOURED="
 
 # --- What the server is asked for --------------------------------------------
 #
-# The same file, the same rows, and the answers only a resolver has: `Alloc` is
+# The same file, the same rows, and the answers only a resolver has: `Allocator` is
 # a trait and not merely a capitalized word, `list` is a module, `Shelf` is a
 # variant, and every name on UNCOLOURED is something.
 SERVER="
-5 Alloc interface
+5 Allocator interface
 6 list namespace
 7 rounded function
 8 fromInt function
@@ -177,7 +177,7 @@ SERVER="
 40 describe function
 40 C typeParameter
 40 hash variable
-40 Alloc interface
+40 Allocator interface
 41 UserId type
 41 id variable !readonly
 43 hash variable

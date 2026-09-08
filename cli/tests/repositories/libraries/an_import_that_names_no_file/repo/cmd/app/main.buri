@@ -2,14 +2,14 @@
 // files away is refused for writing. A path that leaves the package names the
 // package; //cmd/app is not //lib/money, so //lib/money is what it writes.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io

@@ -9,7 +9,7 @@
 //! ```buri run
 //! from "core/actor" import * as actor;
 //! from "core/actor" import { Actor, Stepped };
-//! from "core/effect" import { Alloc, Stdout, Tasks };
+//! from "core/effect" import { Allocator, Stdout, Tasks };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
@@ -23,7 +23,7 @@
 //!     Count(Int),
 //! }
 //!
-//! fn counter<C: Alloc + Tasks>(
+//! fn counter<C: Allocator + Tasks>(
 //!     initial: Int,
 //! ): Actor<C, Int, CounterMessage, CounterAnswer> {
 //!     Actor {
@@ -39,7 +39,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!         Tasks: host.tasks,
 //!     };
@@ -137,7 +137,7 @@
 //! would reach the runtime *in pages the scope is about to unmap*.
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 
 // --- The vocabulary -----------------------------------------------------------
 
@@ -161,7 +161,7 @@ export struct Actor<C, S, M, R> {
     export onStop: Option<fn(C, S) => ()>,
 }
 
-derive Eq, Show for Stepped;
+derive Equal, Show for Stepped;
 /// What one step produced: the state to carry forward, and the answer to the
 /// message.
 export struct Stepped<S, R> {
@@ -199,7 +199,7 @@ export struct Address<C, S, M, R> {
 /// at.
 struct Reply<R>(Int);
 
-derive Eq, Show for Stopped;
+derive Equal, Show for Stopped;
 /// The one way an actor operation fails: there is no actor any more.
 export enum Stopped {
     /// The mailbox is closed. `stop` did it, and nothing reopens it.
@@ -258,7 +258,7 @@ let MAILBOX: Int = 64;
 /// `core/alloc`'s `copyAcross` deep-copies the state out of every arena on the
 /// way in, because the runtime holds it past this call and an actor started
 /// inside an `alloc.scoped` body outlives that body.
-export fn start<C: Alloc + Tasks, S, M, R>(
+export fn start<C: Allocator + Tasks, S, M, R>(
     ctx: C,
     actor: Actor<C, S, M, R>,
 ): Address<C, S, M, R> {
@@ -269,7 +269,7 @@ export fn start<C: Alloc + Tasks, S, M, R>(
     }
 }
 
-impl<C: Alloc + Tasks, S, M, R> Address<C, S, M, R> {
+impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     /// Posts `message`, runs the mailbox down, and answers what the step
     /// answered for it.
     ///
@@ -334,7 +334,7 @@ impl<C: Alloc + Tasks, S, M, R> Address<C, S, M, R> {
 
 /// Every message now in the mailbox, in the order it arrived, each one answered
 /// into the slot it came with.
-fn draining<C: Alloc + Tasks, S, M, R>(
+fn draining<C: Allocator + Tasks, S, M, R>(
     ctx: C,
     address: Address<C, S, M, R>,
     state: S,
@@ -373,7 +373,7 @@ fn draining<C: Alloc + Tasks, S, M, R>(
 /// ran inside an `alloc.scoped` body built the next state *there*, and the
 /// runtime keeps it long after that body has answered. That deep copy is
 /// unconditional, and it runs once per *drive* rather than once per message.
-fn drive<C: Alloc + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): Bool {
+fn drive<C: Allocator + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): Bool {
     match (taking(ctx, address)) {
         .None => false,
         .Some(held) => {
@@ -404,7 +404,7 @@ fn drive<C: Alloc + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): Bool 
 /// **`popped` and not `mailboxPop`.** Nothing here ever looks *inside* the
 /// block, so a direct call would leave the intrinsic's `M` determined by
 /// nothing at all. See "Taking a block back".
-fn discarding<C: Alloc + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): () {
+fn discarding<C: Allocator + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): () {
     match (popped(ctx, address)) {
         .None => (),
         .Some(_dropped) => discarding(ctx, address),
@@ -412,7 +412,7 @@ fn discarding<C: Alloc + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): 
 }
 
 /// `onStop`, where there is one.
-fn ending<C: Alloc + Tasks, S>(
+fn ending<C: Allocator + Tasks, S>(
     ctx: C,
     hook: Option<fn(C, S) => ()>,
     last: S,
@@ -481,7 +481,7 @@ fn answering<C: Tasks, R>(ctx: C, reply: Reply<R>): Option<[Carried<R>]> {
 ///
 /// `.None` where the slot is gone. The block is not taken on that path, so the
 /// caller here releases an answer nobody is waiting for.
-fn filling<C: Alloc + Tasks, R>(ctx: C, reply: Reply<R>, value: R): Option<Int> {
+fn filling<C: Allocator + Tasks, R>(ctx: C, reply: Reply<R>, value: R): Option<Int> {
     replyPut(ctx, reply.0, alloc.copyAcross([carried(value)]))
 }
 

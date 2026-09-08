@@ -22,13 +22,13 @@
 //! rest of the message at the wrong offset.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/json" import { Json };
 from "core/list" import * as list;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/str" import * as str;
 
-derive Eq, Show for ProtoError;
+derive Equal, Show for ProtoError;
 /// Where a message stopped being one.
 ///
 /// Every case carries a byte offset or a field number.
@@ -67,44 +67,46 @@ let TWO32: Int = 4294967296;
 // order.
 
 /// The header of one field: its number and its wire type, as a varint.
-export fn tag<C: Alloc>(ctx: C, field: Int, wire: Int): [U8] {
+export fn tag<C: Allocator>(ctx: C, field: Int, wire: Int): [U8] {
     bytes.toVarint(ctx, field * 8 + wire)
 }
 
 /// A varint field: `int32`, `int64`, `uint32`, `uint64`, `bool`, and an enum.
 /// A `sint*` field is this with `bytes.zigzag` applied first.
-export fn varintField<C: Alloc>(ctx: C, field: Int, value: Int): [U8] {
+export fn varintField<C: Allocator>(ctx: C, field: Int, value: Int): [U8] {
     tag(ctx, field, VARINT).concat(ctx, bytes.toVarint(ctx, value))
 }
 
 /// A `fixed64` or `sfixed64` field: eight little-endian bytes.
-export fn fixed64Field<C: Alloc>(ctx: C, field: Int, value: Int): [U8] {
+export fn fixed64Field<C: Allocator>(ctx: C, field: Int, value: Int): [U8] {
     tag(ctx, field, I64).concat(ctx, le64(ctx, value))
 }
 
 /// A `fixed32` or `sfixed32` field: four little-endian bytes.
-export fn fixed32Field<C: Alloc>(ctx: C, field: Int, value: Int): [U8] {
+export fn fixed32Field<C: Allocator>(ctx: C, field: Int, value: Int): [U8] {
     tag(ctx, field, I32).concat(ctx, le32(value))
 }
 
 /// A `double` field.
-export fn f64Field<C: Alloc>(ctx: C, field: Int, x: Float): [U8] {
+export fn f64Field<C: Allocator>(ctx: C, field: Int, x: Float): [U8] {
     tag(ctx, field, I64).concat(ctx, bytes.f64ToBytes(ctx, x))
 }
 
 /// A `float` field.
-export fn f32Field<C: Alloc>(ctx: C, field: Int, x: Float): [U8] {
+export fn f32Field<C: Allocator>(ctx: C, field: Int, x: Float): [U8] {
     tag(ctx, field, I32).concat(ctx, bytes.f32ToBytes(ctx, x))
 }
 
 /// A length-delimited field: `bytes`, an embedded message, and a packed
 /// repeated field, which are one encoding wearing three names.
-export fn bytesField<C: Alloc>(ctx: C, field: Int, body: [U8]): [U8] {
-    tag(ctx, field, LEN).concat(ctx, bytes.toVarint(ctx, body.len())).concat(ctx, body)
+export fn bytesField<C: Allocator>(ctx: C, field: Int, body: [U8]): [U8] {
+    tag(ctx, field, LEN)
+        .concat(ctx, bytes.toVarint(ctx, body.length()))
+        .concat(ctx, body)
 }
 
 /// A `string` field. UTF-8 is what the format says a string is.
-export fn strField<C: Alloc>(ctx: C, field: Int, s: Str): [U8] {
+export fn strField<C: Allocator>(ctx: C, field: Int, s: Str): [U8] {
     bytesField(ctx, field, bytes.toUtf8(ctx, s))
 }
 
@@ -114,20 +116,20 @@ export fn le32(value: Int): [U8] {
     let v = if (value < 0) { value + TWO32 } else { value };
     [
         (v % 256).wrapToU8(),
-        (div(v, 256) % 256).wrapToU8(),
-        (div(v, 65536) % 256).wrapToU8(),
-        (div(v, 16777216) % 256).wrapToU8(),
+        (divide(v, 256) % 256).wrapToU8(),
+        (divide(v, 65536) % 256).wrapToU8(),
+        (divide(v, 16777216) % 256).wrapToU8(),
     ]
 }
 
 /// Eight little-endian bytes, as two halves, so that a negative `sfixed64`
 /// writes its two's complement exactly rather than through a double.
-export fn le64<C: Alloc>(ctx: C, value: Int): [U8] {
+export fn le64<C: Allocator>(ctx: C, value: Int): [U8] {
     let (hi, lo) = halves(value);
     le32(lo).concat(ctx, le32(hi))
 }
 
-fn div(a: Int, b: Int): Int {
+fn divide(a: Int, b: Int): Int {
     (a - a % b) / b
 }
 
@@ -158,7 +160,7 @@ fn halves(value: Int): (Int, Int) {
 export fn readTag(b: [U8], at: Int): Result<(Int, Int, Int), ProtoError> {
     let (key, next) = readVarint(b, at)?;
     let wire = key % 8;
-    let field = div(key - wire, 8);
+    let field = divide(key - wire, 8);
     // A tag is a `uint32` and a five-byte varint carries more than 32 bits, so
     // this checks the value too rather than reading the low 32 bits.
     if (next - at > 5 || key < 0 || key > 4294967295) {
@@ -191,7 +193,7 @@ export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
 
 /// Four little-endian bytes, read as unsigned.
 export fn readFixed32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-    if (at + 4 > b.len()) {
+    if (at + 4 > b.length()) {
         .Err(.Truncated(at))
     } else {
         .Ok(
@@ -212,7 +214,7 @@ export fn readFixed32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
 export fn readFixed64(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
     // This checks the length once, up front, so a short input reports at the
     // byte the field began rather than four bytes into it.
-    if (at + 8 > b.len()) {
+    if (at + 8 > b.length()) {
         .Err(.Truncated(at))
     } else {
         let (lo, mid) = readFixed32(b, at)?;
@@ -246,22 +248,26 @@ export fn readF32(b: [U8], at: Int): Result<(Float, Int), ProtoError> {
 }
 
 /// The body of a length-delimited field, and the index just past it.
-export fn readBytes<C: Alloc>(
+export fn readBytes<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
 ): Result<([U8], Int), ProtoError> {
-    let (len, next) = readVarint(b, at)?;
-    if (len < 0 || next + len > b.len()) {
+    let (length, next) = readVarint(b, at)?;
+    if (length < 0 || next + length > b.length()) {
         .Err(.Truncated(at))
     } else {
-        .Ok((b.slice(ctx, next, next + len), next + len))
+        .Ok((b.slice(ctx, next, next + length), next + length))
     }
 }
 
 /// The same, decoded as UTF-8. A `string` field whose bytes are not text is an
 /// error rather than a replacement character — see `core/bytes`.
-export fn readStr<C: Alloc>(ctx: C, b: [U8], at: Int): Result<(Str, Int), ProtoError> {
+export fn readStr<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+): Result<(Str, Int), ProtoError> {
     let (raw, next) = readBytes(ctx, b, at)?;
     match (bytes.fromUtf8(ctx, raw)) {
         .Ok(s) => .Ok((s, next)),
@@ -280,15 +286,15 @@ export fn skip(b: [U8], at: Int, wire: Int): Result<Int, ProtoError> {
         let (_v, next) = readVarint(b, at)?;
         .Ok(next)
     } else if (wire == I64) {
-        if (at + 8 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 8) }
+        if (at + 8 > b.length()) { .Err(.Truncated(at)) } else { .Ok(at + 8) }
     } else if (wire == I32) {
-        if (at + 4 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 4) }
+        if (at + 4 > b.length()) { .Err(.Truncated(at)) } else { .Ok(at + 4) }
     } else if (wire == LEN) {
-        let (len, next) = readVarint(b, at)?;
-        if (len < 0 || next + len > b.len()) {
+        let (length, next) = readVarint(b, at)?;
+        if (length < 0 || next + length > b.length()) {
             .Err(.Truncated(at))
         } else {
-            .Ok(next + len)
+            .Ok(next + length)
         }
     } else {
         .Err(.BadWireType { field: 0, wire: wire })
@@ -307,17 +313,17 @@ fn byteAt(b: [U8], i: Int): Int {
 // send it — so the generated decoder takes both, and these read the packed
 // half.
 
-export fn packedVarints<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
+export fn packedVarints<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
     packedVarintsAt(ctx, b, 0, list.empty<Int>())
 }
 
-fn packedVarintsAt<C: Alloc>(
+fn packedVarintsAt<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readVarint(b, at)?;
@@ -326,17 +332,17 @@ fn packedVarintsAt<C: Alloc>(
 }
 
 /// The same, keeping each value's low 32 bits.
-export fn packedVarints32<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
+export fn packedVarints32<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
     packedVarints32At(ctx, b, 0, list.empty<Int>())
 }
 
-fn packedVarints32At<C: Alloc>(
+fn packedVarints32At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readVarint32(b, at)?;
@@ -344,17 +350,17 @@ fn packedVarints32At<C: Alloc>(
     }
 }
 
-export fn packedFixed32<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
+export fn packedFixed32<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
     packedFixed32At(ctx, b, 0, list.empty<Int>())
 }
 
-fn packedFixed32At<C: Alloc>(
+fn packedFixed32At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readFixed32(b, at)?;
@@ -362,17 +368,17 @@ fn packedFixed32At<C: Alloc>(
     }
 }
 
-export fn packedFixed64<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
+export fn packedFixed64<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
     packedFixed64At(ctx, b, 0, list.empty<Int>())
 }
 
-fn packedFixed64At<C: Alloc>(
+fn packedFixed64At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readFixed64(b, at)?;
@@ -380,17 +386,17 @@ fn packedFixed64At<C: Alloc>(
     }
 }
 
-export fn packedF64<C: Alloc>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
+export fn packedF64<C: Allocator>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
     packedF64At(ctx, b, 0, list.empty<Float>())
 }
 
-fn packedF64At<C: Alloc>(
+fn packedF64At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
     acc: [Float],
 ): Result<[Float], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readF64(b, at)?;
@@ -398,17 +404,17 @@ fn packedF64At<C: Alloc>(
     }
 }
 
-export fn packedF32<C: Alloc>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
+export fn packedF32<C: Allocator>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
     packedF32At(ctx, b, 0, list.empty<Float>())
 }
 
-fn packedF32At<C: Alloc>(
+fn packedF32At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
     acc: [Float],
 ): Result<[Float], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readF32(b, at)?;
@@ -434,7 +440,7 @@ fn packedF32At<C: Alloc>(
 // for: it *accepts* a 64-bit integer as a number as well as a string.
 
 /// A 64-bit integer, as proto3 JSON writes one.
-export fn jsonInt64<C: Alloc>(ctx: C, x: Int): Json {
+export fn jsonInt64<C: Allocator>(ctx: C, x: Int): Json {
     Json.Str(str.fromInt(ctx, x))
 }
 
@@ -449,9 +455,9 @@ export fn jsonInt32(x: Int): Json {
 export fn jsonFloat(x: Float): Json {
     if (x != x) {
         Json.Str("NaN")
-    } else if (x > num.maxValue<F64>()) {
+    } else if (x > number.maxValue<F64>()) {
         Json.Str("Infinity")
-    } else if (x < num.minValue<F64>()) {
+    } else if (x < number.minValue<F64>()) {
         Json.Str("-Infinity")
     } else {
         Json.Num(x)
@@ -459,7 +465,7 @@ export fn jsonFloat(x: Float): Json {
 }
 
 /// `bytes`, base64 with padding.
-export fn jsonBytes<C: Alloc>(ctx: C, b: [U8]): Json {
+export fn jsonBytes<C: Allocator>(ctx: C, b: [U8]): Json {
     Json.Str(bytes.toBase64(ctx, b))
 }
 
@@ -525,7 +531,7 @@ fn numericText(s: Str): Option<Float> {
 /// integer part that is `0` or begins with a non-zero digit, then whatever a
 /// fraction and an exponent are made of.
 fn wellFormedNumber(s: Str): Bool {
-    let body = if (s.startsWith("-")) { s.slice(1, s.len()) } else { s };
+    let body = if (s.startsWith("-")) { s.slice(1, s.length()) } else { s };
     match ((body.charAt(0), body.charAt(1))) {
         (.None, _) => false,
         (.Some('0'), .Some(c)) => {
@@ -574,9 +580,11 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
     let x = asFloat(doc, path)?;
     // NaN and the two infinities are values a `float` holds, so the range check
     // only concerns the finite ones.
-    if (x != x || x > num.maxValue<F64>() || x < num.minValue<F64>()) {
+    if (x != x || x > number.maxValue<F64>() || x < number.minValue<F64>()) {
         .Ok(x)
-    } else if (x > num.maxValue<F32>().toF64() || x < num.minValue<F32>().toF64()) {
+    } else if (
+        x > number.maxValue<F32>().toF64() || x < number.minValue<F32>().toF64()
+    ) {
         .Err(.BadJson { path: path, wanted: "a number a float can hold" })
     } else {
         .Ok(x)
@@ -588,7 +596,7 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
 fn finite(x: Float, path: Str): Result<Float, ProtoError> {
     if (x != x) {
         .Ok(x)
-    } else if (x > num.maxValue<F64>() || x < num.minValue<F64>()) {
+    } else if (x > number.maxValue<F64>() || x < number.minValue<F64>()) {
         .Err(.BadJson { path: path, wanted: "a number a double can hold" })
     } else {
         .Ok(x)
@@ -622,14 +630,18 @@ export fn asStr(doc: Json, path: Str): Result<Str, ProtoError> {
 ///
 /// `core/bytes` writes and reads the standard alphabet, always padded. proto3
 /// JSON has to accept both, so the translation lives here.
-export fn asBytes<C: Alloc>(ctx: C, doc: Json, path: Str): Result<[U8], ProtoError> {
+export fn asBytes<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<[U8], ProtoError> {
     match (doc.asStr()) {
         .None => .Err(.BadJson { path: path, wanted: "base64" }),
         .Some(s) => {
             let standard = s.replace(ctx, "-", "+").replace(ctx, "_", "/");
             let padded = standard.concat(
                 ctx,
-                PAD.slice(0, (4 - standard.len() % 4) % 4),
+                PAD.slice(0, (4 - standard.length() % 4) % 4),
             );
             match (bytes.fromBase64(ctx, padded)) {
                 .Ok(b) => .Ok(b),
@@ -649,11 +661,11 @@ export fn asArray(doc: Json, path: Str): Result<[Json], ProtoError> {
 }
 
 /// A member's own path, for the error a reader deeper down will raise.
-export fn at<C: Alloc>(ctx: C, path: Str, name: Str): Str {
+export fn at<C: Allocator>(ctx: C, path: Str, name: Str): Str {
     str.format(ctx, "${path}.${name}")
 }
 
 /// An element's path.
-export fn index<C: Alloc>(ctx: C, path: Str, i: Int): Str {
+export fn index<C: Allocator>(ctx: C, path: Str, i: Int): Str {
     str.format(ctx, "${path}[${i}]")
 }

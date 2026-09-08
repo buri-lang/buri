@@ -9,5 +9,5 @@ struct Pair<A, B> {
     export b: B,
 }
 
-derive Eq for Pair<Int>;
+derive Equal for Pair<Int>;
 ```

@@ -23,8 +23,10 @@ export fn hexDigit(n: Int): Char {
 }
 ```
 
-Two have been renamed so far: `core/char` is `core/character`, and `core/proc`
-is `core/process`.
+Five have been renamed so far, and every one of them is an abbreviation
+replaced by the word: `core/char` is `core/character`, `core/num` is
+`core/number`, `core/ordmap` is `core/orderedmap`, `core/ordset` is
+`core/orderedset`, and `core/proc` is `core/process`.
 
 ## Why
 

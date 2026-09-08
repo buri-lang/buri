@@ -1,4 +1,4 @@
-# A library that says nothing about platforms. It takes an `FsRead` as a
+# A library that says nothing about platforms. It takes an `FileSystemRead` as a
 # bound, which is a demand for an implementation rather than one, so it
 # compiles for a page as readily as for a server — and the rule saying nothing
 # is what keeps it that way.

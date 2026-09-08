@@ -1855,23 +1855,23 @@ impl FnLower<'_> {
 /// The intrinsic key, with the *return* type's primitive appended where the
 /// operation is one of `Bounded`'s two.
 ///
-/// `num.minValue` and `num.maxValue` take no argument at all: `Bounded`'s
+/// `number.minValue` and `number.maxValue` take no argument at all: `Bounded`'s
 /// methods reach their type through the return type (`js/intrinsics.rs`'s
 /// `numeric_free` says the same thing on the other backend). By the time a
 /// backend sees the call, that type is an IR scalar — `I8`, which is `I8` and
 /// `U8` alike — and the two answers differ by 128.
 ///
 /// So the key gains it, and becomes the three-segment form every other numeric
-/// operation already has: `num.U8.minValue`. That is the same trick
+/// operation already has: `number.U8.minValue`. That is the same trick
 /// [`qualified_key`] plays for `derivePrimShow`, for the same reason, and it is
 /// applied here rather than in `monomorphize` because only `middle::lower`'s
 /// output — which is the native backends' input and nothing else's — needs it.
 fn bounded_key(tables: &Tables, key: &str, ret: &Ty) -> String {
-    if !matches!(key, "num.minValue" | "num.maxValue") {
+    if !matches!(key, "number.minValue" | "number.maxValue") {
         return key.to_string();
     }
     match tables.as_prim(ret) {
-        Some(p) => format!("num.{}.{}", p.name(), key.trim_start_matches("num.")),
+        Some(p) => format!("number.{}.{}", p.name(), key.trim_start_matches("number.")),
         None => key.to_string(),
     }
 }
@@ -2095,37 +2095,37 @@ mod tests {
     #[test]
     fn a_projection_never_reads_a_base_this_block_has_already_released() {
         let p = lower(&program(
-            "from \"core/effect\" import { Alloc };\n\
+            "from \"core/effect\" import { Allocator };\n\
              from \"core/host\" import * as host;\n\n\
              struct Inner { export items: [Str] }\n\
              struct Outer { export inner: Inner, export tag: Str }\n\
              enum Held { One { name: Str, rest: [Str] }, Two { name: Str } }\n\
              struct Holder { export held: Held, export label: Str }\n\n\
-             fn make<C: Alloc>(ctx: C): Outer {\n\
+             fn make<C: Allocator>(ctx: C): Outer {\n\
              \x20 Outer { inner: Inner { items: [\"x\".repeat(ctx, 8)] }, tag: \"y\".repeat(ctx, 8) }\n\
              }\n\n\
              fn identity<T>(value: T): T { value }\n\n\
-             fn holder<C: Alloc>(ctx: C): Holder {\n\
+             fn holder<C: Allocator>(ctx: C): Holder {\n\
              \x20 Holder {\n\
              \x20   held: .One { name: \"n\".repeat(ctx, 8), rest: [\"r\".repeat(ctx, 8)] },\n\
              \x20   label: \"l\".repeat(ctx, 8),\n\
              \x20 }\n\
              }\n\n\
-             fn used<C: Alloc>(ctx: C, label: Str, names: [Str]): Int {\n\
-             \x20 label.len() + names.map(ctx, fn(s) => s.len()).len()\n\
+             fn used<C: Allocator>(ctx: C, label: Str, names: [Str]): Int {\n\
+             \x20 label.length() + names.map(ctx, fn(s) => s.length()).length()\n\
              }\n\n\
-             export fn projected<C: Alloc>(ctx: C): Int {\n\
+             export fn projected<C: Allocator>(ctx: C): Int {\n\
              \x20 let inner = identity(make(ctx)).inner;\n\
-             \x20 inner.items.len()\n\
+             \x20 inner.items.length()\n\
              }\n\n\
-             export fn armed<C: Alloc>(ctx: C): Int {\n\
+             export fn armed<C: Allocator>(ctx: C): Int {\n\
              \x20 let h = holder(ctx);\n\
              \x20 match (h.held) {\n\
              \x20   .One { name, rest } => used(ctx, h.label, [name].concat(ctx, rest)),\n\
              \x20   .Two { name } => used(ctx, h.label, [name]),\n\
              \x20 }\n\
              }",
-            "  let ctx = context { Alloc: host.alloc };\n\
+            "  let ctx = context { Allocator: host.alloc };\n\
              \x20 let _ = projected(ctx) + armed(ctx);",
         ));
         let mut bases = 0usize;
@@ -2326,7 +2326,7 @@ export fn quarter(n: Int): Option<Int> {
     fn a_lowered_program_names_one_unit_per_module() {
         let p = lower_plain(&program(
             "export fn id(n: Int): Int { n }",
-            "  let _ = id([1, 2].len());",
+            "  let _ = id([1, 2].length());",
         ));
         assert!(p.units.iter().any(|u| u == "test"), "{:?}", p.units);
         assert!(p.units.iter().any(|u| u.starts_with("core_")), "{:?}", p.units);
@@ -2338,10 +2338,10 @@ export fn quarter(n: Int): Option<Int> {
 
     #[test]
     fn an_intrinsic_is_a_runtime_symbol_and_not_a_body() {
-        let p = lower(&program("", "  let _ = [1, 2].len();"));
+        let p = lower(&program("", "  let _ = [1, 2].length();"));
         let runtime: Vec<&str> = p.funcs.iter().filter_map(|f| f.intrinsic_key()).collect();
         assert!(
-            runtime.contains(&"list.len"),
+            runtime.contains(&"list.length"),
             "`len` is supplied by the runtime, by key: {runtime:?}"
         );
         for f in &p.funcs {
@@ -2379,7 +2379,7 @@ export fn head(xs: [Int]): Int {
   match (xs) {
     [] => 0,
     [a] => a,
-    [a, b, ..rest] => a + b + rest.len(),
+    [a, b, ..rest] => a + b + rest.length(),
   }
 }
 
@@ -2556,15 +2556,15 @@ export fn step(n: Int): Int {
     fn a_binding_nothing_reads_is_still_dropped() {
         let p = lower_plain(&program(
             "
-from \"core/effect\" import { Alloc };
+from \"core/effect\" import { Allocator };
 from \"core/host\" import * as host;
 
-export fn junk<C: Alloc>(ctx: C, n: Int): Int {
+export fn junk<C: Allocator>(ctx: C, n: Int): Int {
   let s = \"z\".repeat(ctx, n);
   n
 }
 ",
-            "  let _ = junk(context { Alloc: host.alloc }, 4);",
+            "  let _ = junk(context { Allocator: host.alloc }, 4);",
         ));
         assert_eq!(
             render(&p, ":junk"),

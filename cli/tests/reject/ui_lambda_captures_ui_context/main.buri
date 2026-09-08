@@ -5,7 +5,7 @@
 // shape exists to prevent — a closure that has closed over the program's
 // effect budget and can be called from anywhere, including from inside a
 // reactive computation that was handed read authority and nothing else.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
@@ -16,7 +16,7 @@ fn later<C: Ui>(ctx: C, n: Signal<Int>): fn(Int) => () {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let n = signal(ctx, 1);
   let bump = later(ctx, n);
   let _ = bump(2);

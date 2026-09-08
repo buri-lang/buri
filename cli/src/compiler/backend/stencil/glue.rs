@@ -226,8 +226,8 @@ const E_ELEM: u32 = 64;
 /// `buri_rt_alloc` and has no use for one (`rtcall.rs`). A *step* does not — it
 /// is a Buri closure whose signature names the context, because a lambda may
 /// not capture one (SPEC 10.6). `core/host`'s allocators are empty structs and
-/// would need no room at all; `core/host/testing`'s `TestAlloc` is
-/// `struct TestAlloc(I64)` and carries a handle, so a record with nowhere to
+/// would need no room at all; `core/host/testing`'s `TestAllocator` is
+/// `struct TestAllocator(I64)` and carries a handle, so a record with nowhere to
 /// put one would refuse every file in the conformance corpus.
 pub const E_FRAME: u32 = 16;
 const E_CTX: u32 = 24;

@@ -9,7 +9,7 @@
 
 from "core/json" import { FromJson, ToJson };
 
-derive Eq, Show, ToJson, FromJson for Point;
+derive Equal, Show, ToJson, FromJson for Point;
 // --- structs ------------------------------------------------------------------
 
 /// Named fields: an object keyed by those names.
@@ -18,7 +18,7 @@ export struct Point {
     export y: Int,
 }
 
-derive Eq, Show, ToJson, FromJson for Segment;
+derive Equal, Show, ToJson, FromJson for Segment;
 /// Nesting, and a list of a type that is itself derived.
 export struct Segment {
     export start: Point,
@@ -27,20 +27,20 @@ export struct Segment {
     export waypoints: [Point],
 }
 
-derive Eq, Show, ToJson, FromJson for Meters;
+derive Equal, Show, ToJson, FromJson for Meters;
 /// One positional field. It is still an array of one: transparency would make
 /// the wire format depend on the field count.
 export struct Meters(export Int);
 
-derive Eq, Show, ToJson, FromJson for Pair;
+derive Equal, Show, ToJson, FromJson for Pair;
 /// Two positional fields.
 export struct Pair(export Int, export Str);
 
-derive Eq, Show, ToJson, FromJson for Hollow;
+derive Equal, Show, ToJson, FromJson for Hollow;
 /// A struct with nothing in it, which is an empty object.
 export struct Hollow {}
 
-derive Eq, Show, ToJson, FromJson for Everything;
+derive Equal, Show, ToJson, FromJson for Everything;
 /// One component of every kind a fold can reach.
 export struct Everything {
     export flag: Bool,
@@ -54,7 +54,7 @@ export struct Everything {
     export many: [Point],
 }
 
-derive Eq, Show, ToJson, FromJson for Wrapper;
+derive Equal, Show, ToJson, FromJson for Wrapper;
 /// A generic wrapper. The fold is over the *instantiated* components, so
 /// `Wrapper<Point>` and `Wrapper<[Int]>` write different documents from one
 /// `derive`.
@@ -63,7 +63,7 @@ export struct Wrapper<T> {
     export tag: Str,
 }
 
-derive Eq, Show, ToJson, FromJson for Colour;
+derive Equal, Show, ToJson, FromJson for Colour;
 // --- enums --------------------------------------------------------------------
 
 /// Every variant payload-free, which is the case a bare string covers.
@@ -73,7 +73,7 @@ export enum Colour {
     Blue,
 }
 
-derive Eq, Show, ToJson, FromJson for Shape;
+derive Equal, Show, ToJson, FromJson for Shape;
 /// All three variant shapes in one type: no payload, positional, named.
 export enum Shape {
     Empty,
@@ -82,7 +82,7 @@ export enum Shape {
     Rect { width: Int, height: Int },
 }
 
-derive Eq, Show, ToJson, FromJson for Rose;
+derive Equal, Show, ToJson, FromJson for Rose;
 // --- recursion ----------------------------------------------------------------
 
 /// A rose tree: the type recurses through a *list* of itself, which is the
@@ -93,7 +93,7 @@ export enum Rose {
     Branch([Rose]),
 }
 
-derive Eq, Show, ToJson, FromJson for Chain;
+derive Equal, Show, ToJson, FromJson for Chain;
 /// The same recursion through an `Option` as well as a list, so the walk has
 /// to survive two containers rather than one.
 export struct Chain {

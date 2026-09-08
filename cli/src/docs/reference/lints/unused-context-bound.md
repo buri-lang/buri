@@ -6,7 +6,7 @@ note: "a bound on a context parameter is a demand made of every caller — it sa
 fix: remove the bound
 ---
 A `ctx` parameter says a function touches the world. Its **bounds** say which
-parts of it. `fn save<C: Alloc + FsWrite>(ctx: C, …)` reads as "this allocates
+parts of it. `fn save<C: Allocator + FileSystemWrite>(ctx: C, …)` reads as "this allocates
 and this writes files", and every caller has to be holding a context that can do
 both. A dead bound spreads, too, because the caller's own signature has to carry
 it to satisfy the demand.
@@ -52,8 +52,8 @@ break one. So the edit stays inside the declaration, and it is offered whether
 or not the name is on the library's surface.
 
 **The bytes are per parameter, not per bound.** A bound list is one piece of
-text with shared separators — the ranges that delete `FsWrite` and `Io` from
-`<C: Alloc + FsWrite + Io>` both claim the `+` between them — so removing
+text with shared separators — the ranges that delete `FileSystemWrite` and `Io` from
+`<C: Allocator + FileSystemWrite + Io>` both claim the `+` between them — so removing
 several is one rewrite. Every finding about one parameter carries that same
 rewrite, `buri lint --fix` applies it once, and the run after it is clean.
 

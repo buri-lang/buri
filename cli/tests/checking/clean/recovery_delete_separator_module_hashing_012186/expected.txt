@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:13:40
+   |
+13 | from "core/effect" import { Allocator }
+   |                                        ^
+   |
+   = fix: write `;` here

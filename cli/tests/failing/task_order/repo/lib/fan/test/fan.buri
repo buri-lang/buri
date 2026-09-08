@@ -7,7 +7,7 @@
 // that used it would pin this file's hash and go red the next time somebody
 // fixed a typo in this comment.
 
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 from "core/host/testing" import { alloc, task, tasks };
 from "core/testing/assert" import * as assert;
 from "//lib/fan" import { labelled };
@@ -15,18 +15,18 @@ from "//lib/fan" import { labelled };
 test "a seeded order names the seed that replays it" {
     let scheduler = tasks().seed(5);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     // The results are in the items' order whatever order the work ran in, so
     // this is false — and the report under it says which order that was.
-    assert.eq(labelled(ctx, [1, 2, 3]), [3, 2, 1]);
+    assert.equal(labelled(ctx, [1, 2, 3]), [3, 2, 1]);
 }
 
 test "an everyOrder run names which of the orders it is" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     let _ = labelled(ctx, [1, 2, 3]);
@@ -34,18 +34,18 @@ test "an everyOrder run names which of the orders it is" {
     // So the report is written by the second of the six runs and says so: the
     // count a reader needs to know how much of the space was explored, and the
     // seed they need to run that one again on its own.
-    assert.eq(scheduler.calls(), [task(0), task(1), task(2)]);
+    assert.equal(scheduler.calls(), [task(0), task(1), task(2)]);
 }
 
 test "a faulted task carries the order too" {
     let scheduler = tasks().seed(5).faults([task(1).fails("upstream went away")]);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     // The plan ends this block at task 1, which under `seed(5)` is the second
     // task to run rather than the second item. The failure has a message and no
     // rendered pair, and the order line is under it all the same: it is a fact
     // about the run and not about the assertion.
-    assert.eq(labelled(ctx, [1, 2, 3]), [1, 102, 203]);
+    assert.equal(labelled(ctx, [1, 2, 3]), [1, 102, 203]);
 }

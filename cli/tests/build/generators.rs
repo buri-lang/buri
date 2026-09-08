@@ -55,7 +55,7 @@ const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEvery
 /// into the value they came from. A program that merely named a generated type
 /// would link the same way and prove less.
 const PROGRAM: &str = r#"from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//lib/proto" import {
@@ -64,7 +64,7 @@ from "//lib/proto" import {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let v = Everything {
@@ -306,13 +306,13 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
     );
     scratch.write(
         "cmd/app/main.buri",
-        "from \"core/effect\" import { Alloc, Stdout };\n\
+        "from \"core/effect\" import { Allocator, Stdout };\n\
          from \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\
          from \"//lib/wire\" import { echoed, size };\n\n\
          export fn main(): Result<(), Str> {\n  \
-         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
-         let _ = io.println(ctx, \"size=${size} echoed=${echoed.len()}\").ignore();\n  \
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
+         let _ = io.println(ctx, \"size=${size} echoed=${echoed.length()}\").ignore();\n  \
          .Ok(())\n\
          }\n",
     );
@@ -322,7 +322,7 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
 
 /// A generator that answers with the bytes it was handed and how many there
 /// were, and that fills standard error before it does.
-const MEASURING_GENERATOR: &str = r#"from "core/effect" import { Alloc, Stderr, Stdin, Stdout };
+const MEASURING_GENERATOR: &str = r#"from "core/effect" import { Allocator, Stderr, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -332,7 +332,7 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stderr: host.stderr,
     Stdin: host.stdin,
     Stdout: host.stdout,
@@ -343,7 +343,7 @@ export fn main(): Result<(), Str> {
   let _ = io.eprintln(ctx, "e".repeat(ctx, 100000)).ignore();
   let source = str.format(
     ctx,
-    "export let size: Int = ${text.len()};\nexport let echoed: Str = \"${text}\";\n",
+    "export let size: Int = ${text.length()};\nexport let echoed: Str = \"${text}\";\n",
   );
   let unit: Json = .Object([
     ("name", .Str("units")),

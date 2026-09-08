@@ -1,8 +1,8 @@
 warning: `ctx` is not used; the function is pure [unused-context]
-  --> cmd/app/main.buri:15:20
+  --> cmd/app/main.buri:15:24
    |
-15 | fn plain<C: Alloc>(ctx: C, label: Str): Int {
-   |                    ^^^^^^
+15 | fn plain<C: Allocator>(ctx: C, label: Str): Int {
+   |                        ^^^^^^
    |
    = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
    = fix: remove the `ctx` parameter, and the context argument at every call site
@@ -62,10 +62,10 @@ warning: `ctx` is not used; the function is pure [unused-context]
      in the body names at all.
 
 warning: `ctx` is not used; the function is pure [unused-context]
- --> lib/label/stamp.buri:7:27
+ --> lib/label/stamp.buri:7:31
   |
-7 | export fn stamp<C: Alloc>(ctx: C, label: Str): Int {
-  |                           ^^^^^^
+7 | export fn stamp<C: Allocator>(ctx: C, label: Str): Int {
+  |                               ^^^^^^
   |
   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
   = fix: remove the `ctx` parameter, and the context argument at every call site

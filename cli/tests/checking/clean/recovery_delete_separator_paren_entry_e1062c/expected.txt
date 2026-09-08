@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-separator]
-  --> main.buri:25:39
-   |
-25 |                 "lib/wire/point.proto"
-   |                                       ^
-   |
-   = fix: write `,` here

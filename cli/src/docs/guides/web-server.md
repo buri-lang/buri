@@ -2,7 +2,7 @@
 
 Being a server is three authorities, and a program names the ones it uses.
 `Listen` accepts connections. `Sockets` pushes on one somebody else accepted.
-`Net`, which is `core/net/http`'s effect, talks *out* to other servers. A
+`Network`, which is `core/net/http`'s effect, talks *out* to other servers. A
 program that answers requests need not be one that can make them.
 
 `core/net/server` is the accepting half; `core/net/http` is the client half, and
@@ -27,7 +27,7 @@ declares no `outputs` builds for JS, which grants neither `Listen` nor
 
 ```buri
 // cmd/server/main.buri
-from "core/effect" import { Alloc, Listen, Request, Response, Tasks };
+from "core/effect" import { Allocator, Listen, Request, Response, Tasks };
 from "core/host" import * as host;
 from "core/json" import * as json;
 from "core/json" import { Json };
@@ -36,7 +36,7 @@ from "core/net/server" import * as server;
 from "core/str" import * as str;
 
 /// One request, answered. An ordinary function over an ordinary context.
-export fn route<C: Alloc>(ctx: C, request: Request): Response {
+export fn route<C: Allocator>(ctx: C, request: Request): Response {
     match (request.path()) {
         "/health" => {
             let body = Json.Object([
@@ -52,7 +52,7 @@ export fn route<C: Alloc>(ctx: C, request: Request): Response {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Tasks: host.tasks,
     };
@@ -105,7 +105,7 @@ of its own.
 ```buri name=counting
 # from "core/actor" import * as actor;
 # from "core/actor" import { Actor, Address, Stepped };
-# from "core/effect" import { Alloc, Request, Response, Sockets, Tasks };
+# from "core/effect" import { Allocator, Request, Response, Sockets, Tasks };
 # from "core/json" import * as json;
 # from "core/json" import { Json };
 # from "core/net/http" import * as http;
@@ -117,7 +117,7 @@ enum Hits {
     Seen,
 }
 
-fn hits<C: Alloc + Tasks>(): Actor<C, Int, Hits, Int> {
+fn hits<C: Allocator + Tasks>(): Actor<C, Int, Hits, Int> {
     Actor {
         state: 0,
         step: fn(c, seen, message) => {
@@ -128,7 +128,7 @@ fn hits<C: Alloc + Tasks>(): Actor<C, Int, Hits, Int> {
     }
 }
 
-fn route<C: Alloc + Tasks>(
+fn route<C: Allocator + Tasks>(
     ctx: C,
     counted: Address<C, Int, Hits, Int>,
     request: Request,
@@ -243,7 +243,7 @@ fn staying<C: Clock + Sockets + WebSocketClient>(
     match (websocket.connect(ctx, client)) {
         .Err(never) => .Err(never),
         .Ok(_ended) => {
-            let _slept = time.sleepMs(ctx, waitMs);
+            let _slept = time.sleep(ctx, time.milliseconds(waitMs));
             staying(ctx, client, waitMs * 2)
         },
     }
@@ -300,24 +300,24 @@ from "core/testing/assert" import * as assert;
 
 test "an unknown path is a 404" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, hits());
     let answer = route(ctx, counted, http.request(.Get, "http://localhost/nope"));
-    assert.eq(answer.status, 404);
+    assert.equal(answer.status, 404);
 }
 
 test "a broadcast reaches every socket in the room" {
     let pushes = sockets();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Sockets: pushes,
     };
     let one = pushes.open();
     let two = pushes.open();
     broadcast(ctx, [one, two], "closing time");
-    assert.eq(pushes.sent(), [
+    assert.equal(pushes.sent(), [
         (one, .Text("closing time")),
         (two, .Text("closing time")),
     ]);

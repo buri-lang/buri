@@ -5,32 +5,32 @@
 // make, and it is why the passing test sits at the bottom of this file.
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "//lib/arith" import { leftover, push, ratio };
 
 test "division by zero" {
-    assert.eq(ratio(1, 0), 0);
+    assert.equal(ratio(1, 0), 0);
 }
 
 test "remainder by zero" {
-    assert.eq(leftover(1, 0), 0);
+    assert.equal(leftover(1, 0), 0);
 }
 
 test "a shift as wide as the type" {
-    assert.eq(push(1, 64), 0);
+    assert.equal(push(1, 64), 0);
 }
 
 test "an allocation past a fixed budget" {
     let buffer = alloc.fixedBuffer(64);
     let ctx = context {
-        Alloc: buffer,
+        Allocator: buffer,
     };
     let _ = alloc.allocate(ctx, 32);
     let _ = alloc.allocate(ctx, 40);
-    assert.eq(1, 1);
+    assert.equal(1, 1);
 }
 
 test "the test after four aborts still runs" {
-    assert.eq(1, 1);
+    assert.equal(1, 1);
 }

@@ -5,14 +5,14 @@
 //! claim.
 //!
 //! ```buri role=test
-//! from "core/effect" import { Alloc };
+//! from "core/effect" import { Allocator };
 //! from "core/host/testing" import { alloc };
 //! from "core/list" import * as list;
 //! from "core/testing/check" import * as check;
 //!
 //! test "reversing twice gives the list back" {
 //!     let ctx = context {
-//!         Alloc: alloc(),
+//!         Allocator: alloc(),
 //!     };
 //!     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 100), 8), fn(c, items) => {
 //!         items.reverse(c).reverse(c).compare(items) == .Equal
@@ -21,7 +21,7 @@
 //! ```
 //!
 //! **Nothing here draws from the platform.** A generator is
-//! `core/random`'s `Gen` — a seed in, a value and the next generator out — so a
+//! `core/random`'s `Generator` — a seed in, a value and the next generator out — so a
 //! run is the same run on every backend, in every process, forever. That is
 //! what makes the failure replayable: the report names the seed the failing
 //! case was drawn from, and
@@ -47,10 +47,10 @@
 //! report the way every other assertion does: the file, the line, and both
 //! values.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/random" import * as random;
-from "core/random" import { Gen };
+from "core/random" import { Generator };
 from "core/testing/assert" import * as assert;
 
 /// How many cases [`forAll`] and [`forAllCtx`] draw. A hundred is enough to
@@ -94,7 +94,10 @@ export struct Counterexample<T> {
 ///
 /// Drawing stops at the first failure, so a broken property costs one case
 /// rather than a hundred.
-export fn forAll<T>(generator: fn(Gen) => (T, Gen), property: fn(T) => Bool): () {
+export fn forAll<T>(
+    generator: fn(Generator) => (T, Generator),
+    property: fn(T) => Bool,
+): () {
     assert.none(firstFailure(generator, property, random.seeded(FIRST_SEED), CASES))
 }
 
@@ -102,23 +105,23 @@ export fn forAll<T>(generator: fn(Gen) => (T, Gen), property: fn(T) => Bool): ()
 /// which anything that builds a list does.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/list" import * as list;
 /// from "core/testing/check" import * as check;
 ///
 /// test "sorting keeps the length" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
-///         items.sort(c).len() == items.len()
+///         items.sort(c).length() == items.length()
 ///     });
 /// }
 /// ```
-export fn forAllCtx<T, C: Alloc>(
+export fn forAllCtx<T, C: Allocator>(
     ctx: C,
-    generator: fn(C, Gen) => (T, Gen),
+    generator: fn(C, Generator) => (T, Generator),
     property: fn(C, T) => Bool,
 ): () {
     assert.none(
@@ -137,8 +140,8 @@ export fn forAllCtx<T, C: Alloc>(
 /// ```
 ///
 /// An empty range draws `low` every time and steps nothing, which is
-/// `Gen.nextInt`'s answer rather than an abort.
-export fn int(low: Int, high: Int): fn(Gen) => (Int, Gen) {
+/// `Generator.nextInt`'s answer rather than an abort.
+export fn int(low: Int, high: Int): fn(Generator) => (Int, Generator) {
     fn(g) => g.nextInt(low, high)
 }
 
@@ -150,27 +153,27 @@ export fn int(low: Int, high: Int): fn(Gen) => (Int, Gen) {
 /// generator [`forAllCtx`] takes, never [`forAll`]'s.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/list" import * as list;
 /// from "core/testing/check" import * as check;
 ///
 /// test "a drawn list is never longer than the bound" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 5), fn(_c, items) => {
-///         items.len() <= 5
+///         items.length() <= 5
 ///     });
 /// }
 /// ```
 ///
 /// A negative `maxLength` gives the empty list every time.
-export fn listOf<T, C: Alloc>(
+export fn listOf<T, C: Allocator>(
     ctx: C,
-    item: fn(Gen) => (T, Gen),
+    item: fn(Generator) => (T, Generator),
     maxLength: Int,
-): fn(C, Gen) => ([T], Gen) {
+): fn(C, Generator) => ([T], Generator) {
     // `ctx` names the context the lists are built in and is read nowhere else:
     // the lambda takes its own, because it cannot capture this one.
     let _ = ctx;
@@ -183,9 +186,9 @@ export fn listOf<T, C: Alloc>(
 /// One case at a time, stopping at the first that fails. Tail-recursive, so a
 /// hundred cases cost one frame.
 fn firstFailure<T>(
-    generator: fn(Gen) => (T, Gen),
+    generator: fn(Generator) => (T, Generator),
     property: fn(T) => Bool,
-    g: Gen,
+    g: Generator,
     remaining: Int,
 ): Option<Counterexample<T>> {
     if (remaining <= 0) {
@@ -200,11 +203,11 @@ fn firstFailure<T>(
     }
 }
 
-fn firstFailureCtx<T, C: Alloc>(
+fn firstFailureCtx<T, C: Allocator>(
     ctx: C,
-    generator: fn(C, Gen) => (T, Gen),
+    generator: fn(C, Generator) => (T, Generator),
     property: fn(C, T) => Bool,
-    g: Gen,
+    g: Generator,
     remaining: Int,
 ): Option<Counterexample<T>> {
     if (remaining <= 0) {
@@ -220,13 +223,13 @@ fn firstFailureCtx<T, C: Alloc>(
 }
 
 /// `count` draws, appended in the order they came out.
-fn drawn<T, C: Alloc>(
+fn drawn<T, C: Allocator>(
     ctx: C,
-    item: fn(Gen) => (T, Gen),
+    item: fn(Generator) => (T, Generator),
     remaining: Int,
-    g: Gen,
+    g: Generator,
     acc: [T],
-): ([T], Gen) {
+): ([T], Generator) {
     if (remaining <= 0) {
         (acc, g)
     } else {

@@ -7,7 +7,7 @@
 // Every other unfoldable style degrades quietly to the inline tier. These two
 // constructors are the exception because they have nowhere to degrade *to*, and
 // silently dropping a breakpoint is worse than refusing it.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Scope, Ui, Watch };
@@ -17,6 +17,6 @@ from "ui/style" import { Style };
 let wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack([wide], []), [])
 }

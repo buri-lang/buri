@@ -1,7 +1,7 @@
 // A counter, as `core/actor`'s own module header writes one.
 
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/io" import * as io;
 
 export enum CounterMessage {
@@ -12,13 +12,13 @@ export enum CounterMessage {
     Get,
 }
 
-derive Eq, Show for CounterAnswer;
+derive Equal, Show for CounterAnswer;
 export enum CounterAnswer {
     Done,
     Count(Int),
 }
 
-export fn counter<C: Alloc + Stdout + Tasks>(
+export fn counter<C: Allocator + Stdout + Tasks>(
     initial: Int,
 ): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {

@@ -15,7 +15,7 @@ run {
   golden: "lint.json"
 }
 
-# Dropping the import is the whole fix. `Alloc` stays, and its import stays
+# Dropping the import is the whole fix. `Allocator` stays, and its import stays
 # clean — a name used only as a bound is used.
 edit {
   file: "lib/money/cents.buri"

@@ -6,7 +6,7 @@
 // lookup, the other one is wrong, and the list goes on rebuilding both. There
 // is no answer to choose between them, so the runtime refuses at the point it
 // happens and names the key (SPEC 6.9).
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -28,7 +28,7 @@ fn rows<C>(items: Prop<[Str]>): Node<C> {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Ui: host.ui,
     Watch: host.watch,

@@ -82,7 +82,7 @@ pub struct Unit {
     /// makes a platform *be* the set of effects its host exports rather than a
     /// claim a comment makes: binding `Ui: host.ui` under `platform: LINUX` is
     /// then an unresolved name at the line that asked for it, and so is
-    /// `Net: host.net` under `platform: WEB`.
+    /// `Network: host.net` under `platform: WEB`.
     ///
     /// `None` is an analysis that is not building an artifact — `buri lint`,
     /// the language server, the documentation harness, `buri test` — and it

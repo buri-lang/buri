@@ -29,7 +29,7 @@
 # rather than the generated `test#0` the tables file it under. Prepared here
 # from the opening quote of that sentence, which is where the item points.
 {"jsonrpc": "2.0", "id": 10, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/test/cart.buri"}, "position": {"line": 3, "character": 5}}}
-# So the walk works from a test too. `assert.eq` is standard-library and drops
+# So the walk works from a test too. `assert.equal` is standard-library and drops
 # out for having no file.
 {"jsonrpc": "2.0", "id": 11, "method": "callHierarchy/outgoingCalls", "params": {"item": {"data": {"position": {"character": 5, "line": 3}, "uri": "file://<scratch>/lib/shop/test/cart.buri"}, "detail": "//lib/shop/test/cart", "kind": 12, "name": "a shelf holds nothing until it is stocked", "range": {"end": {"character": 1, "line": 6}, "start": {"character": 0, "line": 3}}, "selectionRange": {"end": {"character": 48, "line": 3}, "start": {"character": 5, "line": 3}}, "uri": "file://<scratch>/lib/shop/test/cart.buri"}}}
 # A module-level `let` is a caller too — its value is checked on its own, with

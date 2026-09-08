@@ -150,7 +150,7 @@ test "the namespace is the package, so two packages cannot collide" {
     // `cardlib.surface` is mapped straight onto `app.bg` and the two are worth
     // exactly the same colour.
     let _ = install([cardThemed(cardTheme), appThemed(day)]);
-    assert.eq(
+    assert.equal(
         render(ctx, page(card("card"))).markup(),
         "<div class=\"bg-t_app_bg fg-t_app_fg\"><div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div></div>",
     );
@@ -164,23 +164,23 @@ test "a component that uses tokens carries the same classes under any theme" {
         "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>";
 
     let _ = install([cardThemed(cardTheme), appThemed(day)]);
-    assert.eq(render(ctx, card("card")).markup(), expected);
+    assert.equal(render(ctx, card("card")).markup(), expected);
 
     let _ = install([cardThemed(cardTheme), appThemed(night)]);
-    assert.eq(render(ctx, card("card")).markup(), expected);
+    assert.equal(render(ctx, card("card")).markup(), expected);
 }
 
 // --- a theme is a block of values ----------------------------------------------------
 
 test "a theme resolves each of its tokens to a value" {
-    assert.eq(
+    assert.equal(
         install([appThemed(day)]),
         ":root{--app-bg:rgb(255,255,255);--app-fg:rgb(24,24,27)}\n",
     );
 }
 
 test "one block per theme, in the order the app passed them" {
-    assert.eq(
+    assert.equal(
         install([cardThemed(cardTheme), appThemed(day)]),
         ":root{--cardlib-surface:rgb(255,255,255);--cardlib-onSurface:rgb(24,24,27);--cardlib-accent:rgb(29,78,216)}\n:root{--app-bg:rgb(255,255,255);--app-fg:rgb(24,24,27)}\n",
     );
@@ -205,11 +205,11 @@ test "a chain that ends nowhere names nothing rather than guessing" {
     // `onSurface` lead to a variable nobody defined. They are left out; the
     // one token that was mapped to a value is still there.
     let block = install([cardThemed(cardTheme)]);
-    assert.eq(block, ":root{--cardlib-accent:rgb(29,78,216)}\n");
+    assert.equal(block, ":root{--cardlib-accent:rgb(29,78,216)}\n");
 }
 
 test "no themes at all is no block at all" {
-    assert.eq(install([]), "");
+    assert.equal(install([]), "");
 }
 
 // --- switching -----------------------------------------------------------------------
@@ -237,8 +237,8 @@ test "switching a theme swaps the values and changes no class" {
 
     // The element was never touched. That is the whole claim: dark mode is a
     // block of values, not a second stylesheet.
-    assert.eq(tree.markup(), before);
-    assert.eq(
+    assert.equal(tree.markup(), before);
+    assert.equal(
         tree.markup(),
         "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>",
     );
@@ -256,11 +256,11 @@ test "switching back restores the values it had" {
     assert.isFalse(variables() == light);
 
     dark.set(ctx, false);
-    assert.eq(variables(), light);
+    assert.equal(variables(), light);
 }
 
 test "a constant condition still picks a side, and registers nothing to change" {
-    assert.eq(
+    assert.equal(
         install([theme.switching(.Const(true), appThemed(night), appThemed(day))]),
         ":root{--app-bg:rgb(24,24,27);--app-fg:rgb(240,240,245)}\n",
     );
@@ -276,7 +276,7 @@ test "a token the compiler could not fold is the same custom property inline" {
     // — and what is written out is the *same* `var()` the stylesheet would have
     // held, so whether a token folded changes what it costs and not what it
     // looks like.
-    assert.eq(
+    assert.equal(
         render(ctx, tinted(Card.Accent.color())).markup(),
         "<div style=\"background-color: var(--cardlib-accent)\"></div>",
     );

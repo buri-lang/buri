@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-separator]
+  --> main.buri:93:44
+   |
+93 |     assert.equal(io.readAllBytes(ctx), [104 0, 105, 255, 0]);
+   |                                            ^
+   |
+   = fix: write `,` here

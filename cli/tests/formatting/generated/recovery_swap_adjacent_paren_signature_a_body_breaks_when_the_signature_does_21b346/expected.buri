@@ -1,1 +1,0 @@
-export fn aFunctionWhoseSignatureIsTooWide<C: Alloc>(ctxC :, first: Str, second: Str): Str { first }

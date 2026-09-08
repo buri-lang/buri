@@ -1,5 +1,5 @@
 export trait Weigh {
-    fn weighWithEverything<C: Alloc + Stdout>(
+    fn weighWithEverything<C: Allocator + Stdout>(
         self,
         ctx: C,
         scale: Str,

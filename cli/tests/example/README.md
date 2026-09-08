@@ -132,7 +132,7 @@ which is what an untagged library is *for*.
 | [`cmd/basket/main.buri`](./cmd/basket/main.buri) | A page's effect budget, and one theme per package whose tokens the program uses |
 | [`cmd/basket/theme.buri`](./cmd/basket/theme.buri) | The contract between a library's tokens and an app, as a `match` that stops compiling |
 | [`cmd/basket/view.buri`](./cmd/basket/view.buri) | Which of the three reactive constructors to reach for, and what each one re-runs |
-| [`cmd/basket/test/view.buri`](./cmd/basket/test/view.buri) | A page tested with no browser: a `Net` written for the test, a keyed row's identity across a change, and a theme switch that moves no element |
+| [`cmd/basket/test/view.buri`](./cmd/basket/test/view.buri) | A page tested with no browser: a `Network` written for the test, a keyed row's identity across a change, and a theme switch that moves no element |
 | [`tools/report/BUILD.buri`](./tools/report/BUILD.buri) | Two rules, one directory, one build file |
 | [`tools/report/main.buri`](./tools/report/main.buri) | A binary reaching its co-located library through `//tools/report` and nothing else |
 
@@ -145,7 +145,7 @@ which is what an untagged library is *for*.
   unreachable from `lib/store`, and unmentionable in
   `lib/money/test/cents.buri`.
 - **Count the ways `//lib/store` stays out of the browser.** The tag, the
-  visibility list, and its functions naming `Fs` in their bounds, which the JS
+  visibility list, and its functions naming `FileSystem` in their bounds, which the JS
   platform cannot satisfy. Three mechanisms, three failure modes.
 - **Follow `sample()`.** Declared in `lib/ledger/testing/fixtures.buri`, built
   from the library's internals, re-exported by `lib/ledger/testing/lib.buri`,
@@ -154,10 +154,10 @@ which is what an untagged library is *for*.
 - **Compare `cmd/server/BUILD.buri` and `cmd/web/BUILD.buri`.** Same libraries,
   same sources, different platforms and different tags, and every difference
   between the two builds is visible in those two files.
-- **Then compare all three `main.buri`s at once.** `//cmd/server` binds `Fs`
-  and `Env`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui` and
+- **Then compare all three `main.buri`s at once.** `//cmd/server` binds `FileSystem`
+  and `Environment`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui` and
   `Watch`, which `core/host` exports under `platform: WEB` and under no other —
-  plus `Net`, which every platform grants. None of the three would build for
+  plus `Network`, which every platform grants. None of the three would build for
   either of the others' outputs, and the error lands on the line that asked for
   the effect.
 - **Follow a token from `lib/kit/tokens.buri` to a colour.** `Token.Surface` is
@@ -273,14 +273,14 @@ fence needs `repo=` only when the example lives in a *different* repository's
 documentation.
 
 ```buri run
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io.println(ctx, "a latte costs ${fromCents(450).format(ctx)}").ignore();

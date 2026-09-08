@@ -1,7 +1,7 @@
 // One binary, two ways in. The page enters at `main` and binds the reactive
 // graph; the worker enters at `fetch` and binds nothing a page has. Each entry
 // builds its own context, and neither is refused on the other's behalf.
-from "core/effect" import { Alloc, Request, Response, Stdout };
+from "core/effect" import { Allocator, Request, Response, Stdout };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "ui/effect" import { Ui, Watch };
@@ -14,7 +14,7 @@ fn view<C: Ui>(ctx: C, path: Str): Node<C> {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Ui: host.ui,
         Watch: host.watch,
@@ -24,7 +24,7 @@ export fn main(): Result<(), Str> {
 
 export fn fetch(request: Request): Response {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     http.text(ctx, request.path())
 }

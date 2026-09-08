@@ -737,11 +737,11 @@ fn the_standard_library_reference_is_complete() {
 
 /// Every conformance the source declares is on the module's page.
 ///
-/// `derive Eq, Ord, Show for Instant;` puts three methods on `Instant`, and
+/// `derive Equal, Ordered, Show for Instant;` puts three methods on `Instant`, and
 /// the page used to say nothing about any of them: the renderer read `impl`
 /// blocks and walked past `derive` lines. A reader designing an enum with an
 /// `Instant` payload read the page, concluded the type satisfied nothing, and
-/// planned a hand-written `impl Eq` they did not need.
+/// planned a hand-written `impl Equal` they did not need.
 ///
 /// The walk is over the whole library rather than the one module, because a
 /// renderer that cannot see a shape cannot see it anywhere — and it reads the
@@ -858,7 +858,7 @@ fn type_head(written: &str) -> String {
 }
 
 /// The case from the issue, through the command a user runs: `Instant` and
-/// `Monotonic` derive `Eq`, `Ord` and `Show`, and the page has to say so the
+/// `Monotonic` derive `Equal`, `Ordered` and `Show`, and the page has to say so the
 /// way it already said `Duration.show`.
 #[test]
 fn a_derived_conformance_reaches_the_page_a_user_reads() {
@@ -866,14 +866,14 @@ fn a_derived_conformance_reaches_the_page_a_user_reads() {
     assert!(out.status.success(), "`buri docs core/time` failed");
     let page = String::from_utf8_lossy(&out.stdout);
     for want in [
-        "Instant.compare — via Ord",
-        "Instant.eq — via Eq",
+        "Instant.compare — via Ordered",
+        "Instant.equal — via Equal",
         "Instant.show — via Show",
-        "Monotonic.compare — via Ord",
-        "Monotonic.eq — via Eq",
+        "Monotonic.compare — via Ordered",
+        "Monotonic.equal — via Equal",
         "Monotonic.show — via Show",
-        "Duration.compare — via Ord",
-        "Duration.eq — via Eq",
+        "Duration.compare — via Ordered",
+        "Duration.equal — via Equal",
         "Duration.hash — via Hash",
         // The hand-written one, which was the only conformance the page ever
         // showed.

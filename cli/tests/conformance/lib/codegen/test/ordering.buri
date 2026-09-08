@@ -1,9 +1,9 @@
-// SPEC 5.12.3 — what `derive Ord` means where a field is a `[T]`.
+// SPEC 5.12.3 — what `derive Ordered` means where a field is a `[T]`.
 //
-// `derive Eq` over an array was already answered on both backends; ordering was
+// `derive Equal` over an array was already answered on both backends; ordering was
 // not. The helper the middle end bottoms out at — `deriveArrayCompare`,
 // `([T], [T], fn(T, T) -> Order) -> Order` — had no body on the stencil
-// backend, so `derive Ord` on a type holding an array was a program the front
+// backend, so `derive Ordered` on a type holding an array was a program the front
 // end accepted and no native target could build (buri-lang/buri#27).
 //
 // The order is lexicographic and it is `$cmp`'s array arm: the first
@@ -15,7 +15,7 @@
 // literals the compiler is free to share one and a comparison would be answered
 // by identity.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import { Order };
@@ -48,17 +48,17 @@ test "equal arrays are equal and neither below nor above" {
     assert.isTrue(mkOctets([1, 2]) == mkOctets([1, 2]));
     assert.isFalse(mkOctets([1, 2]) < mkOctets([1, 2]));
     assert.isFalse(mkOctets([1, 2]) > mkOctets([1, 2]));
-    assert.eq(mkOctets([1, 2]).compare(mkOctets([1, 2])), Order.Equal);
+    assert.equal(mkOctets([1, 2]).compare(mkOctets([1, 2])), Order.Equal);
     assert.isTrue(mkOctets([]) == mkOctets([]));
     assert.isFalse(mkOctets([]) < mkOctets([]));
 }
 
 test "compare answers the three variants" {
-    assert.eq(mkOctets([1]).compare(mkOctets([2])), Order.Less);
-    assert.eq(mkOctets([2]).compare(mkOctets([1])), Order.Greater);
-    assert.eq(mkOctets([1]).compare(mkOctets([1])), Order.Equal);
-    assert.eq(mkOctets([1]).compare(mkOctets([1, 1])), Order.Less);
-    assert.eq(mkOctets([1, 1]).compare(mkOctets([1])), Order.Greater);
+    assert.equal(mkOctets([1]).compare(mkOctets([2])), Order.Less);
+    assert.equal(mkOctets([2]).compare(mkOctets([1])), Order.Greater);
+    assert.equal(mkOctets([1]).compare(mkOctets([1])), Order.Equal);
+    assert.equal(mkOctets([1]).compare(mkOctets([1, 1])), Order.Less);
+    assert.equal(mkOctets([1, 1]).compare(mkOctets([1])), Order.Greater);
 }
 
 // --- a `Str` element -----------------------------------------------------------------
@@ -101,9 +101,14 @@ test "within one variant the array decides" {
 
 test "a derived ordering sorts" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [mkOctets([2]), mkOctets([1, 5]), mkOctets([]), mkOctets([1])];
     let sorted = xs.sort(ctx);
-    assert.eq(sorted, [mkOctets([]), mkOctets([1]), mkOctets([1, 5]), mkOctets([2])]);
+    assert.equal(sorted, [
+        mkOctets([]),
+        mkOctets([1]),
+        mkOctets([1, 5]),
+        mkOctets([2]),
+    ]);
 }

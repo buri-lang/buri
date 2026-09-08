@@ -8,7 +8,7 @@ program's own work concurrently is authority like any other.
 ## `parallel` runs a list of work
 
 ```buri run
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -16,12 +16,12 @@ from "core/tasks" import * as tasks;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
     let sizes = tasks.parallel(ctx, ["alpha", "be", "gamma"], fn(c, index, word) => {
-        str.format(c, "${index}:${word.len()}")
+        str.format(c, "${index}:${word.length()}")
     });
     let _ = io.println(ctx, sizes.join(ctx, " ")).ignore();
     .Ok(())
@@ -64,7 +64,7 @@ else.
 once the body and every task spawned into it have finished.
 
 ```buri run
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -72,14 +72,14 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Clock: host.clock,
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
     let _ = tasks.scope(ctx, fn(c, here) => {
         tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 5);
+            let _ = time.sleep(c2, time.milliseconds(5));
             let _ = io.println(c2, "the timer fired").ignore();
             ()
         })
@@ -95,7 +95,7 @@ the scope is closed
 ```
 
 **A timer is a task that sleeps.** There is no `Timer` type and no
-`setTimeout` — `sleepMs` already waits, and a task is already the thing that
+`setTimeout` — `sleep` already waits, and a task is already the thing that
 waits without holding up the code around it.
 
 **`Scope` is inert.** It holds no context, so a lambda may capture one, and an
@@ -131,7 +131,7 @@ the messages the enum declares.
 
 ```buri name=books
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/io" import * as io;
 
 enum Ledger {
@@ -144,7 +144,7 @@ enum Entered {
     Cents(Int),
 }
 
-fn ledger<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Ledger, Entered> {
+fn ledger<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Ledger, Entered> {
     Actor {
         state: 0,
         step: fn(c, total, message) => {
@@ -183,7 +183,7 @@ from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
@@ -244,7 +244,7 @@ an address, not a counter.
 
 `Actor<C, S, M, R>`'s `C` is the caller's context, exactly as `parallel`'s is,
 so a step may do anything the code around it could and nothing more. `ledger`
-above says `C: Alloc + Stdout + Tasks` because its `onStop` prints. One whose
+above says `C: Allocator + Stdout + Tasks` because its `onStop` prints. One whose
 hook did not print would not name `Stdout`, and nothing a caller binds could add
 it. The bound is settled at `actor.start`, on the context the step will be
 handed ([effects and capabilities](./effects.md)).
@@ -261,12 +261,12 @@ from "core/testing/assert" import * as assert;
 
 test "a recorded amount is added to the running total" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: tasks(),
     };
     let step = ledger().step;
-    assert.eq(step(ctx, 450, .Record(1905)).state, 2355);
+    assert.equal(step(ctx, 450, .Record(1905)).state, 2355);
 }
 ```
 

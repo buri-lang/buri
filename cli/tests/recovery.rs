@@ -392,7 +392,7 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // Re-read again when `cli/tests/conformance/lib/actor/` landed, for the
         // same reason and with the same evidence: `delete-closer` went from
         // 12.6% to 13.2% of a population that grew by one file. That file is
-        // dense in nested closers — `assert.eq(counted.ask(ctx, fn(reply) =>
+        // dense in nested closers — `assert.equal(counted.ask(ctx, fn(reply) =>
         // .Get(reply)), .Ok(2))` ends in four of them — and deleting one leaves
         // a call the checker can still count the arguments of, so it counts
         // them and says so. That is the residue this row measures rather than a
@@ -418,7 +418,14 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // in those merges, and the population grew by files dense in closers (a
         // vector table is a literal inside a call inside an assertion). 220 of
         // 1560 is 14.1%, and fifteen is that rounded up.
-        ("a syntax error stays a syntax error", "delete-closer") => 15,
+        // Re-read when the standard library's names were spelled out — `len` to
+        // `length`, `eq` to `equal`, `Alloc` to `Allocator` and the rest. Not one
+        // parser, checker or corpus *file* moved: what moved is how the corpus
+        // reads. Every name is longer, so `buri format` rewrapped the calls the
+        // corpus is drawn from, and a mutation of a call that used to fit on one
+        // line is now a mutation of a different program. 253 of 1686 is 15.1%,
+        // one case over a ceiling of fifteen, and sixteen is that rounded up.
+        ("a syntax error stays a syntax error", "delete-closer") => 16,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,
@@ -504,7 +511,7 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // it is a standard-library module, an effect declaration and JavaScript
         // runtime functions — and the population grew by a file that is dense
         // in what this row measures. A website assertion is a call inside a
-        // call inside an assertion (`assert.eq(web.render(tree()), "...")`, and
+        // call inside an assertion (`assert.equal(web.render(tree()), "...")`, and
         // a `match` on a `splitOnce` inside a `match` on another), so swapping
         // two adjacent tokens in one leaves a program the grammar reads
         // differently and the checker then has an honest opinion about. 485 of

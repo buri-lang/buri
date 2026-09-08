@@ -5,7 +5,7 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # `unused-context-bound`, on the *second* of the two dead bounds. A bound list
 # is one piece of text with shared separators, so the edit removes both — the
-# ranges that delete `Alloc` and `Clock` on their own would both claim the `+`
+# ranges that delete `Allocator` and `Clock` on their own would both claim the `+`
 # between them. Both findings carry that same rewrite, and the list holds it
 # **once**: two findings answered by one edit are one entry in the menu.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/announce.buri"}, "range": {"start": {"line": 5, "character": 30}, "end": {"line": 5, "character": 35}}, "context": {"diagnostics": [{"code": "unused-context-bound", "message": "bound `Clock` on `C` is not used by this function", "range": {"start": {"line": 5, "character": 30}, "end": {"line": 5, "character": 35}}}]}}}

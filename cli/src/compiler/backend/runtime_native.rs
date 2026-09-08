@@ -36,8 +36,8 @@ pub const SYMBOL_PREFIX: &str = "buri_rt_";
 /// is `buri_rt_host_stdout_println` and **not** `buri_rt_host_host_stdout_println`.
 /// The effect type repeats its module in its name, and the symbol does not
 /// repeat it twice — so a snake-cased segment that begins with the previous
-/// segment drops that prefix. `host.HostAlloc.allocate` is
-/// `buri_rt_host_alloc_allocate`, which is the same rule and keeps the
+/// segment drops that prefix. `host.HostAllocator.allocate` is
+/// `buri_rt_host_allocator_allocate`, which is the same rule and keeps the
 /// non-redundant repetition it happens to have.
 ///
 /// One copy for every backend, because the rule is the runtime's and not any
@@ -63,8 +63,8 @@ pub fn symbol_for(key: &str) -> String {
     out
 }
 
-/// `HostFs` -> `host_fs`, `readFile` -> `read_file`, `nowMillis` ->
-/// `now_millis`. An underscore before an upper-case letter that follows a
+/// `HostFileSystem` -> `host_file_system`, `readFile` -> `read_file`,
+/// `nowMilliseconds` -> `now_milliseconds`. An underscore before an upper-case letter that follows a
 /// lower-case one or a digit; runs of capitals are not split, because no key
 /// has one.
 fn snake_into(segment: &str, out: &mut String) {
@@ -99,7 +99,7 @@ use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 /// §2.1's rule is that the discriminant `0 ..= n` names a variant of `E` and
 /// that the variant it names carries no fields, because there is one
 /// out-pointer and it belongs to `.Ok`. That restriction is what kept every
-/// `Fs` operation out of both runtime tables: `IoError`'s seventh variant is
+/// `FileSystem` operation out of both runtime tables: `IoError`'s seventh variant is
 /// `Other(Str)`, the one a native `read` of a directory or a `removeDir` of a
 /// non-empty one answers with, and an entry that could not carry its message
 /// would answer `.Other("")` — a failure that says nothing at all, where the
@@ -290,7 +290,7 @@ pub fn net() -> bool {
 /// speak HTTP/1.1. What a toolchain without QUIC owes a program that asked for
 /// `.Http3` is a run-time `.Err(Unsupported)` — `cli/runtime/net.rs`'s `serves`
 /// is the one line F2's `serve` calls to produce it — which is the same
-/// asymmetry `host.HostNet.fetch` and `https://` already carry.
+/// asymmetry `host.HostNetwork.fetch` and `https://` already carry.
 ///
 /// So what reads this today is a **test**, and that is the honest description:
 /// `cli/tests/native/runtime.rs` asserts it against the archive's own
@@ -344,13 +344,13 @@ pub fn crypto() -> bool {
 /// answers anyway is not a problem either — the gap is only ever consulted when
 /// [`net`] is false, and with `net` off the archive answers none of them.
 ///
-/// `host.HostNet.fetch` is deliberately **not** here, and it stayed out when
+/// `host.HostNetwork.fetch` is deliberately **not** here, and it stayed out when
 /// `https://` landed. The earlier reason was that `cli/runtime/http.rs` reached
 /// none of the crates; the reason now is stronger. `http.rs` writes the
 /// cleartext client itself and only *wraps* the socket for `https://`, so a
 /// `net`-off runtime answers `http://` exactly as it always did. Putting the
 /// key here would refuse, at compile time, every program that mentions
-/// `Net.fetch` — including every program that was only ever going to ask for
+/// `Network.fetch` — including every program that was only ever going to ask for
 /// `http://`. What a `net`-off toolchain owes an `https://` URL is a run-time
 /// `NetError::Transport` naming the feature, and `http.rs`'s `parse` is where
 /// that sentence is written.
@@ -362,7 +362,7 @@ pub fn crypto() -> bool {
 /// asks for is a *field* of a value rather than an operation a key names — so
 /// there is nothing for a key-shaped rule to match on. A toolchain without QUIC
 /// compiles the program and `serve` answers `.Err(Unsupported)`, which is the
-/// same choice as `HostNet.fetch` above and made for the same reason.
+/// same choice as `HostNetwork.fetch` above and made for the same reason.
 pub fn net_intrinsic(key: &str) -> bool {
     // `core/actor`'s nine. They are not a host effect and have no `host.`
     // prefix to strip — the authority is the `C: Tasks` bound in each
@@ -393,10 +393,10 @@ pub fn net_intrinsic(key: &str) -> bool {
 ///
 /// **`host_testing.TestEntropy.*` is deliberately not here.** The test
 /// platform's `Entropy` is seeded, its body is in `cli/runtime/testing.rs`
-/// beside `TestRand`'s and behind no feature, and it reaches no crate — so a
+/// beside `TestRandom`'s and behind no feature, and it reaches no crate — so a
 /// `crypto`-less toolchain runs a suite that binds `entropy()` exactly as it
-/// always did. That is the same distinction `host.HostFs` and
-/// `host_testing.TestFs` are on: two implementations of one effect, and only
+/// always did. That is the same distinction `host.HostFileSystem` and
+/// `host_testing.TestFileSystem` are on: two implementations of one effect, and only
 /// one of them needs the world.
 pub fn crypto_intrinsic(key: &str) -> bool {
     let Some(rest) = key.strip_prefix("host.") else { return false };
@@ -594,9 +594,9 @@ mod tests {
             assert!(net_intrinsic(key), "{key} is not recognised as networking");
         }
         for key in [
-            "host.HostFs.readFile",
-            "host.HostClock.nowMillis",
-            "host.HostNet.fetch",
+            "host.HostFileSystem.readFile",
+            "host.HostClock.nowMilliseconds",
+            "host.HostNetwork.fetch",
             "list.map",
             "host.HostListen",
             "HostListen.listen",
@@ -627,7 +627,7 @@ mod tests {
         for key in [
             "host_testing.TestEntropy.bytes",
             "host_testing.entropy",
-            "host.HostRand.nextInt",
+            "host.HostRandom.nextInt",
             "host.HostListen.listen",
             "crypto.sha256",
             "host.HostEntropy",

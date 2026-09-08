@@ -1,5 +1,5 @@
-from "core/effect" import { Alloc, Rand };
-from "core/fs" import { FsRead, FsWrite };
+from "core/effect" import { Allocator, Random };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/host/testing" import { alloc, fs as disk, rand };
 from "core/testing/assert" import * as assert;
 from "//lib/writer" import { written };
@@ -9,20 +9,20 @@ from "//lib/writer" import { written };
 // that this constructor survives the inliner and is still a symbol when the
 // batched binary is linked.
 context Fixture {
-    Alloc: alloc(),
-    FsRead: disk(),
-    FsWrite: disk(),
-    Rand: rand().seed(7),
+    Allocator: alloc(),
+    FileSystemRead: disk(),
+    FileSystemWrite: disk(),
+    Random: rand().seed(7),
 }
 
 test "a written list holds what was put in it" {
     let ctx = Fixture();
 
-    assert.eq(written(ctx, 1), 1);
+    assert.equal(written(ctx, 1), 1);
 }
 
 test "a second written list holds what was put in it" {
     let ctx = Fixture();
 
-    assert.eq(written(ctx, 2), 1);
+    assert.equal(written(ctx, 2), 1);
 }

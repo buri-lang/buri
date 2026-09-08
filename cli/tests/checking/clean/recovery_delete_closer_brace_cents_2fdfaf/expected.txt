@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:38:48
+   |
+38 |     export fn format<C: Allocator>(self, ctx: C: Str {
+   |                                                ^
+   |
+  --> main.buri:38:35
+   |
+38 |     export fn format<C: Allocator>(self, ctx: C: Str {
+   |                                   ^ opened here
+   |
+   = fix: write `)` here

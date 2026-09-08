@@ -7,8 +7,8 @@ reserved module roots. `core/*` is a deliberately small set of essentials.
 
 **The reference for a module is the module.** `buri docs core/list` renders it
 from the source the compiler checked, so a signature on the page is a signature
-that exists. Every conformance is on it too, `derive Eq, Ord, Show for Instant;`
-reading as `Instant.eq — via Eq` beside the methods somebody wrote by hand.
+that exists. Every conformance is on it too, `derive Equal, Ordered, Show for Instant;`
+reading as `Instant.equal — via Equal` beside the methods somebody wrote by hand.
 `buri docs core/list.map` renders one item of it. `buri docs` lists
 [every module](../../compiler/standard_library/sources/). This page maps over
 the top of that: which modules there are, what each one costs, and what is
@@ -22,12 +22,12 @@ applied:
 
 | Tier | Shape | Example |
 |---|---|---|
-| **Pure** | no `ctx` parameter | `xs.len()`, `date.weekday(d)`, `v.dot(o)` |
-| **Deterministic** | `ctx` bounded by `Alloc` only | `xs.map(ctx, f)`, `json.stringify(ctx, v)` |
+| **Pure** | no `ctx` parameter | `xs.length()`, `date.weekday(d)`, `v.dot(o)` |
+| **Deterministic** | `ctx` bounded by `Allocator` only | `xs.map(ctx, f)`, `json.stringify(ctx, v)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)`, `time.now(ctx)` |
 
 One rule decides the tier. An operation with a fixed result size is pure. An
-operation whose result size depends on runtime data names `Alloc`. So `len` and
+operation whose result size depends on runtime data names `Allocator`. So `len` and
 `fold` are pure, and `map` and `filter` are not. A `F32x4` is four numbers in a
 struct, so every operation in `core/simd` is pure.
 
@@ -36,13 +36,13 @@ struct, so every operation in `core/simd` is pure.
 [`core/option`](../../compiler/standard_library/sources/option.buri),
 [`core/result`](../../compiler/standard_library/sources/result.buri),
 [`core/order`](../../compiler/standard_library/sources/order.buri),
-[`core/num`](../../compiler/standard_library/sources/num.buri),
+[`core/number`](../../compiler/standard_library/sources/number.buri),
 [`core/bool`](../../compiler/standard_library/sources/bool.buri),
 [`core/math`](../../compiler/standard_library/sources/math.buri),
 [`core/bits`](../../compiler/standard_library/sources/bits.buri).
 
 `Option`, `Result`, `Order` and the comparison and operator traits are in the
-prelude, so `derive Eq for Point;` works in a module that imports nothing.
+prelude, so `derive Equal for Point;` works in a module that imports nothing.
 
 **An argument is evaluated whether it is needed or not**, so each eager
 combinator has a deferred twin: `withDefaultWith`, `orElse` and `okOrWith` on
@@ -54,10 +54,10 @@ when there is a value. `Result.fold` takes both halves onto one type and
 `Option` off a nested one, `option.zip` answers both values or neither, and
 `toList` is the one-or-none list `filterMap` wants.
 
-`core/num` also carries the integer arithmetic that `/` and `%` do not:
+`core/number` also carries the integer arithmetic that `/` and `%` do not:
 `power`, `greatestCommonDivisor`, `leastCommonMultiple`, `divideEuclidean` (the
-quotient that pairs with `remEuclid`), `divideCeiling`, `quotientRemainder`,
-`integerSquareRoot` — exact where `math.sqrt` stops being — `absoluteDifference`
+quotient that pairs with `remainderEuclidean`), `divideCeiling`, `quotientRemainder`,
+`integerSquareRoot` — exact where `math.squareRoot` stops being — `absoluteDifference`
 and `toRadix`, which writes a signed numeral in any base from 2 to 36 where
 `toHex` writes a bit pattern. `Checked` covers the remainder, the negation and
 the power as well as the four operators, at every integer width.
@@ -66,7 +66,7 @@ the power as well as the four operators, at every integer width.
 and `roundEven` — banker's rounding, the tie to the even neighbour, which is
 what a column of money wants — plus `isCloseAbsolute`, `isCloseRelative`, and
 the constants `EPSILON`, `MIN_POSITIVE` and `TAU`. Each of those is `+ - * /`,
-`sqrt` and the comparisons, so each answers the same bits on every backend. The
+`squareRoot` and the comparisons, so each answers the same bits on every backend. The
 six hyperbolics, their inverses, `lnOnePlus`, `expMinusOne` and `logBase` are
 built on `exp` and `ln` and so inherit the *existing* gap those two carry: they
 run on the JavaScript backend, and a native build reports the missing intrinsic
@@ -107,7 +107,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   is byte-for-byte UTF-8 order for a valid string, as in Rust, Go and Python. It
   is *not* the UTF-16 code-unit order a JavaScript `<` gives, on either backend,
   and the two disagree above the basic multilingual plane. `<`, `[Str].sort`,
-  `core/order`'s `str` and an `OrdMap<Str, _>`'s key order all use that one
+  `core/order`'s `str` and an `OrderedMap<Str, _>`'s key order all use that one
   comparison.
 
   Beside them: `stripPrefix` and `stripSuffix` for the trim-if-present form,
@@ -134,7 +134,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   `core/char` — and a program that never calls these carries none of them.
   Everything here walks the string and probes a table per scalar; the three that
   take a context unpack each table once per call, and `graphemeCount` is pure
-  and cannot, so `graphemes(ctx).len()` is the cheaper count where a context is
+  and cannot, so `graphemes(ctx).length()` is the cheaper count where a context is
   at hand.
 
 - **`core/char`** — one scalar's own questions. `isDigit`, `isAlpha` and
@@ -156,7 +156,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   of digits.** `character.fromDigit(n, radix)` and `character.toDigit(radix)`
   invert each other over base 2 to base 36, and `character.isHexDigit` is the
   predicate.
-  `num.toHex(ctx, x, width)` renders a number zero-padded and lowercase in
+  `number.toHex(ctx, x, width)` renders a number zero-padded and lowercase in
   64-bit two's complement, so a negative number comes out as its bit pattern
   rather than a `-`. `str.toRadix(text, radix)` reads any of those bases back,
   answering `.None` rather than a value the `Int` cannot hold.
@@ -174,12 +174,12 @@ unordered, so it answers `.Equal` for a pair it could not order.
   `takeByte`, `takeVarint`, `takeSlice` and `takeFramed` each answer the value
   and the *next* reader, rather than moving this one, so a decoder that looks
   ahead and changes its mind still holds the reader it started from. The methods
-  that only move the cursor are pure. The two that answer a `[U8]` name `Alloc`,
+  that only move the cursor are pure. The two that answer a `[U8]` name `Allocator`,
   because a Buri list is a value and not a view, so slicing one copies. For the
   same reason there is **no `Builder`**: `[[U8]].flatten` is what building looks
   like here.
 
-  `fromU64Be` and its eleven relatives cover both ends of all three widths, in
+  `fromU64BigEndian` and its eleven relatives cover both ends of all three widths, in
   both directions — 16, 32 and 64 bits, which is every length prefix a record
   format writes. Writing one is *pure*: an array literal of a fixed size
   allocates nothing a context has to grant. Reading answers an `Option`, because
@@ -302,7 +302,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   line from `Stdin`, hands your function the `Request`, and writes the
   `Response` back as one JSON line on `Stdout`. It calls `core/buri/ast`'s
   `print` for you, so what goes over the wire is text plus anchors and never a
-  tree. The function `run` takes is handed a context bounded by `Alloc`, `Stdin`
+  tree. The function `run` takes is handed a context bounded by `Allocator`, `Stdin`
   and `Stdout`, so a generator written the documented way cannot reach the clock
   or the disk — that is the determinism, and it is a type error rather than a
   rule. `run` answers `.Err` when there was no
@@ -333,7 +333,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   land on the schema line that produced it. Each message brings `defaultM`,
   `encodeM`, `decodeM`, `encodeMJson`, `decodeMJson` and `decodeMJsonAt`, and
   each enum four of its own. Costs one pass over the schema to build the type
-  table and one to write the tree; a type name resolves through an `OrdMap`, so
+  table and one to write the tree; a type name resolves through an `OrderedMap`, so
   a schema of `n` declarations costs O(n log t) in the `t` types in scope.
   [The proto reference](./build/proto.md) is the mapping, and it is a promise.
   This is the module the build runs: `generators: [{ tool: "std/codegen/proto",
@@ -347,8 +347,8 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/heap`](../../compiler/standard_library/sources/heap.buri),
 [`core/map`](../../compiler/standard_library/sources/map.buri),
 [`core/set`](../../compiler/standard_library/sources/set.buri),
-[`core/ordmap`](../../compiler/standard_library/sources/ordmap.buri),
-[`core/ordset`](../../compiler/standard_library/sources/ordset.buri),
+[`core/orderedmap`](../../compiler/standard_library/sources/orderedmap.buri),
+[`core/orderedset`](../../compiler/standard_library/sources/orderedset.buri),
 [`core/bitset`](../../compiler/standard_library/sources/bitset.buri).
 
 Every one of these is a value, so every "modification" answers a new one. Each
@@ -357,16 +357,16 @@ module states its cost rather than leaving you to guess:
 | | Lookup | Insert | Note |
 |---|---|---|---|
 | `core/queue` | O(1) | O(1) amortized | Banker's deque: two lists, the front reversed. The reversal makes both ends an append. |
-| `core/heap` | O(1) `peek` | O(1) `push` | A pairing heap, smallest first. `merge` is O(1) and `pop` is O(log n) amortized. It holds duplicates, which is why it is not an `OrdSet`. |
+| `core/heap` | O(1) `peek` | O(1) `push` | A pairing heap, smallest first. `merge` is O(1) and `pop` is O(log n) amortized. It holds duplicates, which is why it is not an `OrderedSet`. |
 | `core/map`, `core/set` | O(1) expected | O(b) in buckets | Buckets of association lists. Grows and rehashes past a load factor of 4. **Iteration order is unspecified and will change.** |
-| `core/ordmap`, `core/ordset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration runs in key order.** `range` and `prefix` scan at O(log n + m) rather than filtering over everything. |
+| `core/orderedmap`, `core/orderedset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration runs in key order.** `range` and `prefix` scan at O(log n + m) rather than filtering over everything. |
 | `core/bitset` | O(1) | O(n/32) | 32 bits to an `Int` word. 32 and not 64 because `Int` is signed, and a bit in position 63 would make every shift a question about sign extension. |
 
 **Two keyed collections, and order is what you choose between.** `Map` hashes,
-and looks one key up faster. `OrdMap` compares, and answers "every key between
+and looks one key up faster. `OrderedMap` compares, and answers "every key between
 these two" or "every key starting with this" without visiting the rest. Its keys
-need `Ord` rather than `Hash + Eq`. A compound key is a struct with `derive
-Ord`, and a derived `Ord` compares fields in declaration order, which is what a
+need `Ordered` rather than `Hash + Equal`. A compound key is a struct with `derive
+Ordered`, and a derived `Ordered` compares fields in declaration order, which is what a
 multi-column index wants.
 
 **A fallible step is a traversal, not a fold.** `xs.mapResult(ctx, f)` and
@@ -384,7 +384,7 @@ change, `sortBy` and a walk is the O(n log n) answer.
 overlapping where `windows` slides, `partition` answers both sides in one pass,
 and `insertAt`, `replaceAt`, `updateAt` and `pushFront` are the edits. Searching
 runs both ways: `findLast` and `findLastIndex` from the end, `indexOf` and
-`lastIndexOf` at an `Eq` element, `startsWith` and `endsWith` over a whole
+`lastIndexOf` at an `Equal` element, `startsWith` and `endsWith` over a whole
 sublist. On a list that is already sorted, `binarySearch` and `binarySearchBy`
 are O(log n) and their `.Err` carries the insertion point, and `partitionPoint`
 counts the leading run in the same time. `scan` keeps a fold's working, `reduce`
@@ -396,7 +396,7 @@ finish it — `mean` is on `[Int]` and `meanFloat` on `[Float]`, because one
 method name resolves once for `[T]`.
 
 **Grouping answers a map, so it lives with the map.** `map.groupBy(ctx, xs,
-key)` and `ordmap.groupBy` collect the elements under each key, `indexBy` keeps
+key)` and `orderedmap.groupBy` collect the elements under each key, `indexBy` keeps
 one element per key, and `countBy` counts them without building the groups.
 `map.frequencies` is `countBy` with the element as its own key. They are free
 functions because `core/list` sits at the bottom of the dependency order and
@@ -405,7 +405,7 @@ what a counter needs; both maps have it. `mapValues` puts every value through a
 function without touching the keys, and `filterMapValues` drops the ones it
 answers nothing for. `merge` is right-biased and `mergeWith` decides a key that
 is in both. `filter`, `pop`, `takeKeys` and `dropKeys` are the rest.
-`OrdMap.popFirst` and `popLast` take an entry off an end in **one descent**,
+`OrderedMap.popFirst` and `popLast` take an entry off an end in **one descent**,
 where `first` and then `remove` is two — which is what a sorted work queue does
 on every step — and `floor` and `ceiling` answer the nearest key at or below, or
 at or above, which `range` cannot.
@@ -416,16 +416,16 @@ one side, `isSupersetOf` is `isSubsetOf` read from the other end, and
 `isEmpty` allocates a whole set to ask a yes-or-no question. `set.distinct` and
 `distinctBy` drop later duplicates and keep the order, in O(n) against
 `core/list`'s `uniqueBy`, which asks about everything already kept and costs
-O(n²); they are free functions for `groupBy`'s reason. `core/ordset` has the
-same six over `Ord`, plus `floor` and `ceiling`.
+O(n²); they are free functions for `groupBy`'s reason. `core/orderedset` has the
+same six over `Ordered`, plus `floor` and `ceiling`.
 
 **Walking a `BitSet` one bit at a time.** `firstSet` and `nextSet` read words
 and skip an empty one whole, so finding a member costs O(n/32) rather than
 `toList`'s whole-set allocation. `toggle`, `complement` and `setRange` are
 word-at-a-time too, and each stops at the capacity rather than at the word.
 
-`Queue`, `Map`, `Set`, `OrdMap`, `OrdSet` and `BitSet` provide `equals` rather
-than deriving `Eq`, because a derived `Eq` would compare the *representation*.
+`Queue`, `Map`, `Set`, `OrderedMap`, `OrderedSet` and `BitSet` provide `equals` rather
+than deriving `Equal`, because a derived `Equal` would compare the *representation*.
 Two maps built in different orders need not share a bucket layout.
 
 ## Numbers and vectors
@@ -451,11 +451,11 @@ are a single comparison each and let one through.
 [`core/bigint`](../../compiler/standard_library/sources/bigint.buri) is an
 integer with no width. Sign and magnitude over base-`2^24` limbs, pure Buri,
 every operation taking a context because every operation allocates. `add` and
-`sub` cost O(n); `mul` is schoolbook at O(n·m); `quotientRemainder` is
+`subtract` cost O(n); `multiply` is schoolbook at O(n·m); `quotientRemainder` is
 schoolbook long division with each quotient limb binary-searched, at O(n·m·24);
 `parse` and `text` are O(d²) in the digits. Karatsuba wins past a few hundred
 limbs and loses below, and nothing needs the crossover yet. The limit is about
-32768 limbs — a little over 236,000 decimal digits — because `mul` sums a
+32768 limbs — a little over 236,000 decimal digits — because `multiply` sums a
 column of limb products in one `Int`.
 
 [`core/decimal`](../../compiler/standard_library/sources/decimal.buri) is money.
@@ -490,9 +490,9 @@ re-exports `Duration`, so `from "core/date" import { Duration }` still resolves
 to the same type.
 
 A `Duration` counts **nanoseconds**. An `Instant` counts milliseconds, which is
-what the clock reports. `time.seconds(30)`, `millis`, `micros`, `nanos`,
+what the clock reports. `time.seconds(30)`, `milliseconds`, `microseconds`, `nanoseconds`,
 `minutes`, `hours` and `secondsFloat` build one, `ZERO` is the empty one, and
-`add`, `sub`, `mul`, `divide`, `negate` and `abs` combine them. `ratio` and
+`add`, `subtract`, `multiply`, `divide`, `negate` and `abs` combine them. `ratio` and
 `asSecondsFloat` answer a `Float`, because a length over a length is a number.
 **Every one of those saturates**, because overflow is undefined behaviour and a
 deadline is where a program can least afford it.
@@ -534,22 +534,22 @@ which reads 00-68 as 2000-2068 because no pure function can ask what year it is.
 doors, and the split follows one principle: **an RNG either takes a seed or
 takes a context**.
 
-`int`, `float` and `bytes` take a context and perform the `Rand` effect. `Gen`
+`int`, `float` and `bytes` take a context and perform the `Random` effect. `Generator`
 takes a seed and performs nothing. `random.seeded(7)` is an ordinary value,
-every method answers `(value, Gen)`, and the same seed gives the same sequence
-on every backend and in every process. `Gen` is splitmix64, published in the
+every method answers `(value, Generator)`, and the same seed gives the same sequence
+on every backend and in every process. `Generator` is splitmix64, published in the
 module rather than hidden behind an effect. `split()` answers two streams, where
 a program would otherwise invent salt constants by hand.
 
-`random.gen(ctx)` bridges the two: draw a seed from the platform once, then stay
+`random.generator(ctx)` bridges the two: draw a seed from the platform once, then stay
 pure. That is what a deterministic simulator needs, since it replays a failure
 from a seed and cannot take its generator from whoever called it.
 
-`Gen.nextInt` rejection-samples, so it has **no modulo bias**.
+`Generator.nextInt` rejection-samples, so it has **no modulo bias**.
 
-`shuffle`, `pick` and `sample` draw from a list, and each has a `Gen` twin that
+`shuffle`, `pick` and `sample` draw from a list, and each has a `Generator` twin that
 answers the value and the next generator. `shuffle` is Fisher-Yates over an
-`OrdMap<Int, T>`, so it costs O(n log n) — a `[T]` has no write that costs less
+`OrderedMap<Int, T>`, so it costs O(n log n) — a `[T]` has no write that costs less
 than a copy — and every permutation is equally likely. `sample` is that shuffle
 and a `take`, so it costs the same in the length of the *list* rather than of
 the sample. `nextGaussian` is Marsaglia's polar method: a point in the square
@@ -637,7 +637,7 @@ log record where four would do. [`core/hash`](#checksums) covers that case.
 
 [`core/uuid`](../../compiler/standard_library/sources/uuid.buri) — a `Uuid` is
 sixteen octets with RFC 9562's version and variant fields fixed, and it carries
-`Eq`, `Ord`, `Hash` and `Show`.
+`Equal`, `Ordered`, `Hash` and `Show`.
 
 **A `Str` is not a `Uuid`.** `parse` is the only way in from text and answers
 `.None` for anything that is not thirty-six characters in the canonical
@@ -667,12 +667,13 @@ millisecond. A bearer token is [`crypto.token`](#cryptography).
 second reserved root. They have a page of their own:
 [user interfaces](../guides/user-interfaces.md).
 
-`button`, `link`, `field` and `toggle` take a `[Style]` like every container
-does, and it lands on the control itself — so a hover, focus or disabled rule
-fires on the thing that is hovered, focused or disabled. The stylesheet opens by
-dropping the chrome a browser paints on one of those — and the marker and indent
-it paints on a list — so what is left is what the styles say. `ListMarker` puts
-a list's marks back.
+`heading`, `button`, `link`, `field` and `toggle` take a `[Style]` like every
+container does, and it lands on the element itself — so a hover, focus or
+disabled rule fires on the thing that is hovered, focused or disabled, and a
+heading is the size its styles say rather than the size a browser picked. The
+stylesheet opens by dropping the chrome a browser paints on one of those — and
+the marker and indent it paints on a list — so what is left is what the styles
+say. `ListMarker` puts a list's marks back.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
@@ -684,7 +685,7 @@ the state it rendered from with it; the page reads that state back, builds the
 same tree, and resumes on the markup that arrived.
 
 ```buri
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/json" import { Json };
 from "core/net/http" import * as http;
 from "core/net/http" import { Response };
@@ -694,10 +695,10 @@ from "ui/prop" import { Prop };
 from "ui/web" import * as web;
 
 fn page<C>(path: Prop<Str>): Node<C> {
-    ui.region(.Main, [], [ui.heading(1, path)])
+    ui.region(.Main, [], [ui.heading(1, [], path)])
 }
 
-fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
+fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
     http.html(ctx, web.shell(ctx, path, web.render(page(.Const(path))), state))
 }
 ```
@@ -762,15 +763,15 @@ Only a test source may import
 [`core/testing/assert`](../../compiler/standard_library/sources/assert.buri),
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) or
 [`core/host/testing`](../../compiler/standard_library/sources/host_testing.buri).
-`assert` is deliberately wide — `eq`,
-`eqWith`, `notEq`, `isTrue`, `isFalse`, `contains`, `containsText`,
+`assert` is deliberately wide — `equal`,
+`equalWith`, `notEqual`, `isTrue`, `isFalse`, `contains`, `containsText`,
 `startsWith`, `isEmpty`, `notEmpty`, `len`, `unordered`, `gt`,
-`ge`, `lt`, `le`, `approxEq`, `approxEqRelative`, and the unwrapping `ok`,
+`ge`, `lt`, `le`, `approximatelyEqual`, `approximatelyEqualRelative`, and the unwrapping `ok`,
 `err`, `some`, `none` —
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
-`eqWith(ctx, actual, expected, same)` is the one for a type with no `Eq`:
-`Map`, `Set`, `OrdMap`, `OrdSet`, `Queue` and `BitSet` answer
+`equalWith(ctx, actual, expected, same)` is the one for a type with no `Equal`:
+`Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
 `equals(ctx, other)` instead, and passing that comparison keeps the report.
 `unordered(ctx, actual, expected)` sorts both lists first and reports the sorted
 pair, which costs O(n log n).
@@ -779,7 +780,7 @@ match arm using it could not produce a value.
 
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) is
 property testing over the same runner. `forAll(generator, property)` draws a
-hundred cases from `core/random`'s seeded `Gen` and stops at the first that
+hundred cases from `core/random`'s seeded `Generator` and stops at the first that
 breaks the claim; `forAllCtx` is the same where either half needs a context.
 `int(low, high)` and `listOf(ctx, item, maxLength)` are the two generators to
 compose. **The first seed is fixed and there is no shrinking**, so a failing run
@@ -792,10 +793,10 @@ property costs one draw rather than a hundred.
 [Tasks and actors](../guides/concurrency.md) is the concurrency model
 underneath. What follows is the map.
 
-`core/process` carries two authorities. `process.exit(ctx, code)` is `Proc`'s one
+`core/process` carries two authorities. `process.exit(ctx, code)` is `Process`'s one
 operation. `Spawn` is the other, and it is the largest authority a context can
 hold: a program that can run `sh` can do anything its user can, so it is its own
-effect and its own grant rather than a second method on `Proc`.
+effect and its own grant rather than a second method on `Process`.
 `process.command(program, arguments)` builds a `Command`, `process.run(ctx, command)`
 runs it and waits, and `process.which(ctx, program)` is where `PATH` says a program
 is. **The exit code is not an error**: a child that ran and failed is `.Ok` with
@@ -804,7 +805,7 @@ so a value with a space or a `;` in it is one argument and never a second
 command. `run` reads both streams while the child runs, so a child that writes
 more than a pipe holds does not deadlock.
 
-`core/env` and `core/cli` are the two halves of a command line. `env.args(ctx)`
+`core/env` and `core/cli` are the two halves of a command line. `env.arguments(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 `argv[0]`, and you have to *tell* a help page what to call the program.
 `env.all(ctx)` is every variable as `(name, value)` pairs, in the platform's own
@@ -836,8 +837,8 @@ one, or fires the command. A parse error goes to stderr with the usage under it
 and comes back as `.Err`, which `main`'s contract turns into exit 1. A handler
 takes an `Arguments` and asks it by name — `on`, `value`, `many`, `arg`,
 `positionals` — rather than a struct of its own fields. Everything under `run`
-sits at the `Alloc` tier, which lets a test hand it `core/host/testing`'s
-`env().arguments([...])` and read the answer out of a captured stream.
+sits at the `Allocator` tier, which lets a test hand it `core/host/testing`'s
+`env().withArguments([...])` and read the answer out of a captured stream.
 `buri docs core/cli` is the module's own page, with the five spellings a flag
 may take and a program worked end to end.
 
@@ -859,7 +860,7 @@ refused rather than quietly halved.
 handler serving a directory, and `contentType` for splitting
 `text/html; charset=utf-8` into its two halves. `headerValues` and `setHeader`
 are `header` and `withHeader` for the fields that legitimately repeat.
-`Request.withTimeout(millis)` bounds one request — every step of it, on every
+`Request.withTimeout(milliseconds)` bounds one request — every step of it, on every
 platform — and zero is the platform's own bound.
 
 `core/net/server` is the other half of `core/net/http`: a program that *is* a
@@ -884,7 +885,7 @@ only with TLS, because ALPN chooses it inside the handshake: a `Server` naming
 `.Http2` without a certificate fails at the bind, and one with a certificate and
 no `protocols` offers HTTP/1.1. The server answers as many requests at once as
 the acceptor said it would host, because `run` puts each handler on a task of
-its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
+its own, which is why `serve` needs `Tasks` and `Allocator` beside `Listen`. Only
 `LINUX` and `MACOS` grant `Listen`, so only they can serve — `Tasks` itself is
 granted everywhere, a page included.
 
@@ -918,7 +919,7 @@ when a shutdown begins closes with `.GoingAway`, and `onClose` still runs.
 holding a port. The platform stops accepting connections, lets the program
 answer the requests already in flight, then tells the accept loop the listener
 is closed. `serve` returns `.Ok(())`, and whatever a program does after `serve`
-still happens. `drainMillis` bounds how long the middle step may take, and a
+still happens. `drain` bounds how long the middle step may take, and a
 second signal is the operating system's own, so `Ctrl-C` twice stops a process
 that will not drain. The platform holds the signals only while it holds a port.
 
@@ -947,7 +948,7 @@ and `WebSocketClient` is granted everywhere for it.
 A `Client<C, S>` carries a `url` and the hooks. `connect(ctx, client)` dials,
 runs `onOpen`, runs `onMessage` for every frame, runs `onClose`, and answers the
 `CloseReason` the socket ended with. It returns *when the socket closes*, so
-reconnecting is a loop around it with `time.sleepMs` in the retry, and backoff
+reconnecting is a loop around it with `time.sleep` in the retry, and backoff
 is your own arithmetic rather than a knob. An `.Err` is a socket that never
 opened — a URL this platform cannot dial, a machine that refused, a server that
 did not answer `101`. Everything after that is an `.Ok`, because a socket
@@ -977,11 +978,11 @@ like a click. A worker dials the same way while it answers a request.
 headers. A token or a subprotocol goes in the URL, which is what every browser
 client does, and what came back is on the response in `onOpen`.
 
-`core/fs` declares its own effects, and it declares **two**. `FsRead` is seven
-methods and `FsWrite` is nine. Reading and writing
+`core/fs` declares its own effects, and it declares **two**. `FileSystemRead` is seven
+methods and `FileSystemWrite` is nine. Reading and writing
 are two grants rather than two spellings of one: a program that reads its
 configuration has not thereby earned the right to delete it. `core/fs`
-re-exports `Path`, so `from "core/fs" import { FsRead, Path }` is one import.
+re-exports `Path`, so `from "core/fs" import { FileSystemRead, Path }` is one import.
 
 Beyond the wrappers over those sixteen methods it has operations of its own.
 `readBytesIfExists` folds
@@ -1002,7 +1003,7 @@ head of a log costs the head. `canonicalize` resolves every link and every `..`,
 which is the one question `core/path` cannot answer. And
 `makeTemporaryDirectory` makes a directory under `TMPDIR` named for a prefix and
 sixteen hex characters of the operating system's own entropy — `Entropy` rather
-than `Rand`, because a predictable name in a shared directory is one somebody
+than `Random`, because a predictable name in a shared directory is one somebody
 else can create first.
 
 `core/path` says where a file *is*, as a type. Every `Path` has been through
@@ -1016,7 +1017,7 @@ different files, so `..` stays a component and the filesystem decides what it
 means. `parent`, `fileName`, `stem`, `extension`, `isAbsolute`, `startsWith` and
 `matchesGlob` are views and take no context. `of`, `join`, `joinPath`,
 `withSuffix`, `withExtension`, `withoutExtension`, `relativeTo` and `components`
-build something new and name `Alloc`. `join` never substitutes an absolute
+build something new and name `Allocator`. `join` never substitutes an absolute
 argument for the receiver, so `path.of(ctx, "/srv").join(ctx, "/etc")` is
 `/srv/etc`, and `joinPath` is the same call for a `Path`. The other
 behaviour is how a program that joined a user's string onto its own directory
@@ -1038,10 +1039,10 @@ finished in, handing each call the item's own index. Every task finishes before
 `parallel` returns, so nothing outlives the context that granted it:
 
 ```buri
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 from "core/tasks" import * as tasks;
 
-fn squares<C: Alloc + Tasks>(ctx: C, ns: [Int]): [Int] {
+fn squares<C: Allocator + Tasks>(ctx: C, ns: [Int]): [Int] {
     tasks.parallel(ctx, ns, fn(c, i, n) => n * n)
 }
 ```
@@ -1064,15 +1065,15 @@ have finished, so the waiting moves from the call to the scope and nothing
 still escapes the context that granted it:
 
 ```buri
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
 
-fn page<C: Alloc + Clock + Stdout + Tasks>(ctx: C): () {
+fn page<C: Allocator + Clock + Stdout + Tasks>(ctx: C): () {
     tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 5 * 60 * 1000);
+            let _ = time.sleep(c2, time.milliseconds(5 * 60 * 1000));
             let _ = io.println(c2, "sessions expired").ignore();
             ()
         });
@@ -1088,7 +1089,7 @@ a scope to a handler that spawns later. A library cannot spawn: it exposes a
 a loop ends by finding its socket closed or by asking an actor whether to carry
 on, because there is no way to unwind a task from outside it.
 
-Both carry `Alloc` beside `Tasks`: `spawn` copies the task out of whatever arena
+Both carry `Allocator` beside `Tasks`: `spawn` copies the task out of whatever arena
 it was written in, and a scope drains its rounds through `parallel`.
 
 Rounds are why the platform table above covers a spawned task too. They are also
@@ -1139,16 +1140,16 @@ the only way to reach the bound, since nothing drains while a step holds the
 state, so a step that posts a sixty-fifth message waits for room nobody is
 coming to make.
 
-`core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
+`core/net/http` documents `Request` and `Response`, the two types `Network.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own
 signature names them. You build a message with a free function and then by
 chaining:
 
 ```buri
-from "core/effect" import { Alloc, Net };
+from "core/effect" import { Allocator, Network };
 from "core/net/http" import * as http;
 
-fn ping<C: Alloc + Net>(ctx: C): Str {
+fn ping<C: Allocator + Network>(ctx: C): Str {
     match (http.send(ctx, http.request(.Get, "http://example.com/ping"))) {
         .Ok(reply) => http.bodyText(ctx, reply.body).withDefault("not text"),
         .Err(e) => http.errorText(e),
@@ -1169,7 +1170,7 @@ mutation. The language has no associated functions, since a function inside an
 them, so
 each call mints a fresh double. A method configures one by answering a new one:
 `clock().at(1000)`, `rand().seed(7)`, `entropy().seed(7)`,
-`env().variables([...]).arguments([...])`, `fs().files([...]).readOnly()`.
+`env().variables([...]).withArguments([...])`, `fs().files([...]).readOnly()`.
 
 `net()` **refuses** every request until `net().respond(fn(request) => ...)` says
 what to answer. That responder is a pure function of the `Request`, because
@@ -1228,8 +1229,8 @@ source may import `core/host/testing`. See [testing](./build/testing.md).
 ## Allocators
 
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri) —
-`GeneralPurpose`, `Arena`, `FixedBuffer`. Three implementations of `Alloc`, and
-anything may import them. `Alloc` is the one effect whose implementation carries
+`GeneralPurpose`, `Arena`, `FixedBuffer`. Three implementations of `Allocator`, and
+anything may import them. `Allocator` is the one effect whose implementation carries
 no authority: a `Region` is a number, so a library that builds its own allocator
 has been granted nothing.
 
@@ -1247,17 +1248,17 @@ has been granted nothing.
 
 ```buri
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, Path };
+from "core/fs" import { FileSystemRead, Path };
 
-fn inAScope<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
+fn inAScope<C: Allocator + FileSystemRead>(ctx: C, at: Path): Bool {
     alloc.scoped(ctx, fn(c) => fs.exists(c, at))
 }
 ```
 
 `scoped(ctx, body)` runs `body` with a `Scoped<C>`, an attenuating wrapper that
-forwards every effect `ctx` grants and replaces one. Its `Alloc` is the scope's
+forwards every effect `ctx` grants and replaces one. Its `Allocator` is the scope's
 own arena. A charge inside reserves from that arena, and the caller's
 allocator's totals do not move. When `body` returns, the arena's pages go back
 to the platform. Nothing else changes: the body prints on the same stdout, reads
@@ -1278,7 +1279,7 @@ backends: **every `allocate(ctx, n)`, and nothing else.** The charge for an
 operation is *defined* rather than measured. A `Str` of *n* UTF-8 bytes charges
 `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, and a view charges
 nothing. Those rows are charged by definition and reported to no allocator. The
-model sits beside `Alloc` in `core/effect`.
+model sits beside `Allocator` in `core/effect`.
 
 ## Loading code later
 

@@ -3,7 +3,7 @@
 from "core/buri/ast" import * as ast;
 from "core/codegen" import * as codegen;
 from "core/codegen" import { Diagnostic, Request, Response };
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host/testing" import { alloc, stdin, stdout };
 from "core/testing/assert" import * as assert;
 
@@ -12,7 +12,7 @@ from "core/testing/assert" import * as assert;
 /// Every input and every dependency, back out as a diagnostic. What a
 /// generator saw is only observable in what it answers, so this is how the
 /// request half is asserted on.
-fn echo<C: Alloc>(ctx: C, request: Request): Response {
+fn echo<C: Allocator>(ctx: C, request: Request): Response {
     let seen = request.inputs.concat(ctx, request.dependencies);
     Response {
         modules: [],
@@ -59,12 +59,12 @@ test "a request document decodes to the Request a generator sees" {
     ].join(alloc(), "");
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines([request]),
         Stdout: out,
     };
-    assert.eq(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
-    assert.eq(
+    assert.equal(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.equal(
         out.captured(),
         [
             "{\"modules\":[],\"diagnostics\":[",
@@ -79,32 +79,32 @@ test "a request document decodes to the Request a generator sees" {
 test "an empty request is an empty Request" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines([EMPTY_REQUEST]),
         Stdout: out,
     };
-    assert.eq(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
-    assert.eq(out.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
+    assert.equal(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.equal(out.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
 }
 
 test "an absent member and a null one are both the empty list" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines(["{}"]),
         Stdout: out,
     };
-    assert.eq(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
-    assert.eq(out.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
+    assert.equal(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.equal(out.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
 
     let second = stdout();
     let nulls = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines(["{\"inputs\":null,\"dependencies\":null}"]),
         Stdout: second,
     };
-    assert.eq(codegen.run(nulls, fn(c, r) => echo(c, r)), .Ok(()));
-    assert.eq(second.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
+    assert.equal(codegen.run(nulls, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.equal(second.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
 }
 
 // --- the response ---------------------------------------------------------------
@@ -112,7 +112,7 @@ test "an absent member and a null one are both the empty list" {
 test "a module goes out as text plus anchors" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines([EMPTY_REQUEST]),
         Stdout: out,
     };
@@ -122,8 +122,8 @@ test "a module goes out as text plus anchors" {
             diagnostics: [],
         }
     };
-    assert.eq(codegen.run(ctx, answer), .Ok(()));
-    assert.eq(
+    assert.equal(codegen.run(ctx, answer), .Ok(()));
+    assert.equal(
         out.captured(),
         [
             "{\"modules\":[{\"name\":\"point.proto\",\"text\":\"export type Id = Int;\\n\",",
@@ -136,15 +136,15 @@ test "a module goes out as text plus anchors" {
 test "a module whose nodes came from nowhere sends no anchors" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines([EMPTY_REQUEST]),
         Stdout: out,
     };
     let answer = fn(_c, _r) => {
         Response { modules: [("point.proto", alias("", 0, 0))], diagnostics: [] }
     };
-    assert.eq(codegen.run(ctx, answer), .Ok(()));
-    assert.eq(
+    assert.equal(codegen.run(ctx, answer), .Ok(()));
+    assert.equal(
         out.captured(),
         [
             "{\"modules\":[{\"name\":\"point.proto\",\"text\":\"export type Id = Int;\\n\",",
@@ -156,7 +156,7 @@ test "a module whose nodes came from nowhere sends no anchors" {
 test "a diagnostic carries its origin, or null" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines([EMPTY_REQUEST]),
         Stdout: out,
     };
@@ -181,8 +181,8 @@ test "a diagnostic carries its origin, or null" {
             ],
         }
     };
-    assert.eq(codegen.run(ctx, answer), .Ok(()));
-    assert.eq(
+    assert.equal(codegen.run(ctx, answer), .Ok(()));
+    assert.equal(
         out.captured(),
         [
             "{\"modules\":[],\"diagnostics\":[",
@@ -202,7 +202,7 @@ test "every offset is a plain integer, with no point and no exponent" {
     // would be a response the build could not read.
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines([EMPTY_REQUEST]),
         Stdout: out,
     };
@@ -220,8 +220,8 @@ test "every offset is a plain integer, with no point and no exponent" {
             ],
         }
     };
-    assert.eq(codegen.run(ctx, answer), .Ok(()));
-    assert.eq(
+    assert.equal(codegen.run(ctx, answer), .Ok(()));
+    assert.equal(
         out.captured(),
         [
             "{\"modules\":[],\"diagnostics\":[",

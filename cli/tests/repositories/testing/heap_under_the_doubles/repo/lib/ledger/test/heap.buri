@@ -7,10 +7,10 @@
 // the three ways `middle::rc` used to lose a block a program was still holding,
 // written here through the values a test source actually gets them from.
 
-from "core/effect" import { Alloc, Env };
+from "core/effect" import { Allocator, Environment };
 from "core/env" import * as environment;
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/host/testing" import { alloc, env, fs as memory, renameFile };
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
@@ -20,11 +20,11 @@ from "//lib/ledger" import { empty, folded };
 test "a read whose answer the test throws away" {
     let disk = memory().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
     };
     let _ = assert.ok(fs.readText(ctx, path.of(ctx, "a")));
-    assert.eq(assert.ok(disk.read("a")), "A");
+    assert.equal(assert.ok(disk.read("a")), "A");
 }
 
 // A `?` that leaves `core/fs`'s `writeAtomic` with the temporary path it built
@@ -34,22 +34,25 @@ test "an atomic write whose rename the plan fails" {
         .files([("db", "old")])
         .faults([renameFile("db.tmp", "db").fails(.CrossDevice)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])), .CrossDevice);
-    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
+    assert.equal(
+        assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])),
+        .CrossDevice,
+    );
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
 }
 
 // The argument strings a double answered with, folded through a `..acc` update
 // that replaces the list it grew out of.
 test "the arguments folded into an accumulator" {
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().arguments(["one", "two", "three"]),
+        Allocator: alloc(),
+        Environment: env().withArguments(["one", "two", "three"]),
     };
-    let end = folded(ctx, environment.args(ctx), 0, empty());
-    assert.eq(end.words.len(), 3);
-    assert.eq(end.last, "three");
+    let end = folded(ctx, environment.arguments(ctx), 0, empty());
+    assert.equal(end.words.length(), 3);
+    assert.equal(end.last, "three");
 }

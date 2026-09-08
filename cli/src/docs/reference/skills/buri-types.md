@@ -51,7 +51,7 @@ let maybe = xs[0];                      // Option<Int>, never Int
   the enum does. To hide a representation, use a struct with a private field.
 - An array literal is not an allocation. Any operation whose result length
   depends on runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs
-  `Alloc`.
+  `Allocator`.
 
 `Option<T>`, `Result<T, E>` and `Order` are in the prelude. **You may not
 discard a `Result`.** Consume it with `?`, `match`, `result.withDefault`, or
@@ -61,8 +61,8 @@ the greppable `result.ignore`. `Option` is not must-use.
 
 ```buri
 fn identity<T>(x: T): T { x }
-fn largest<T: Ord>(xs: [T]): Option<T> { ... }
-fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
+fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
+fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
 
 let f = identity<Int>;                  // type arguments go on the expression
 let e: [Int] = list.empty<Int>();
@@ -71,18 +71,18 @@ let e: [Int] = list.empty<Int>();
 Inside such a function you may call **only the bound's methods** on the
 parameter. Generic code that needs an operation no trait provides takes it as a
 function argument: `sortBy(xs, cmp)`. There is one constraint mechanism:
-`<T: Ord + Show>` and `<C: Alloc + FsRead>` are the same feature.
+`<T: Ordered + Show>` and `<C: Allocator + FileSystemRead>` are the same feature.
 
 ## Traits
 
 A trait is an interface: a named set of method signatures.
 
 ```buri
-trait Ord {
+trait Ordered {
     fn compare(self, other: Self): Order;
 }
 trait Show {
-    fn show<C: Alloc>(self, ctx: C): Str;
+    fn show<C: Allocator>(self, ctx: C): Str;
 }
 ```
 
@@ -97,31 +97,31 @@ trait Show {
 ### `derive`
 
 ```buri
-derive Eq, Ord, Show for Version;
+derive Equal, Ordered, Show for Version;
 ```
 
 `derive` writes the methods structurally: fields and variants in declaration
 order, recursing into field types. It fails to compile when a field type does
-not satisfy the trait itself. You can derive `Eq`, `Ord`, `Show`, `Hash`,
+not satisfy the trait itself. You can derive `Equal`, `Ordered`, `Show`, `Hash`,
 `ToJson`, `FromJson` and the operator traits. `ToJson` and `FromJson` are
 **derive-only**, and the compiler rejects a hand-written `impl` of either.
 
-`assert.eq(a, b)` needs `Eq` for the comparison and `Show` for the failure
-message, so `derive Eq, Show for YourType;` is usually what an
+`assert.equal(a, b)` needs `Equal` for the comparison and `Show` for the failure
+message, so `derive Equal, Show for YourType;` is usually what an
 `unsatisfied-bound` on a test is asking for.
 
 ### Operators are trait methods
 
 | Operator | Method |
 |---|---|
-| `a + b` `a - b` `-a` | `Add.add` `Sub.sub` `Neg.neg` |
-| `a * b` `a / b` `a % b` | `Mul.mul` `Div.div` `Rem.rem` |
-| `a == b` `a != b` | `Eq.eq` |
-| `a < b` `a <= b` `a > b` `a >= b` | `Ord.compare` |
+| `a + b` `a - b` `-a` | `Add.add` `Subtract.subtract` `Negate.negate` |
+| `a * b` `a / b` `a % b` | `Multiply.multiply` `Divide.divide` `Remainder.remainder` |
+| `a == b` `a != b` | `Equal.equal` |
+| `a < b` `a <= b` `a > b` `a >= b` | `Ordered.compare` |
 
 ```buri
 struct Meters(F64);
-derive Add, Sub, Ord, Show for Meters;
+derive Add, Subtract, Ordered, Show for Meters;
 
 let total = Meters(1.5) + Meters(2.0);     // Meters
 // let bad = Meters(1.5) + 2.0;            // ERROR: F64 is not Meters
@@ -155,7 +155,7 @@ supertraits, no trait objects, no dynamic dispatch.
 | a `struct` or `enum` you declared | the module declaring it |
 | `[T]` | `core/list` |
 | `Str` `Char` `Bool` | `core/str` `core/character` `core/bool` |
-| every integer and float type | `core/num` |
+| every integer and float type | `core/number` |
 | `Option<T>` `Result<T, E>` | `core/option` `core/result` |
 | tuples, function types, `Template` | none — no methods |
 
@@ -163,17 +163,17 @@ supertraits, no trait objects, no dynamic dispatch.
 error, so write a free function. **Methods are not values**: `sq.area` is not
 one, so wrap the call in a lambda. **The receiver's type must be known.** Where
 two bounds declare the same method name, call the trait method as a function to
-disambiguate: `Ord.compare(x, y)`.
+disambiguate: `Ordered.compare(x, y)`.
 
 ## Effects
 
 An **effect** is an interface declared with `effect` instead of `trait`, and
-only platform modules may declare one. `core/effect` declares `Alloc`, `Net`,
-`Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`
+only platform modules may declare one. `core/effect` declares `Allocator`, `Network`,
+`Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`
 (`LINUX` and `MACOS`, where a program serves a page), and `Sockets` and
 `WebSocketClient` (everywhere: a page dials a socket, and never accepts one).
 `core/fs` is a platform module too, and it declares the filesystem's
-two, `FsRead` and `FsWrite`: reading your configuration does not earn you the
+two, `FileSystemRead` and `FileSystemWrite`: reading your configuration does not earn you the
 right to delete it. Every method there names a `Path` (`core/path`), which
 `core/fs` re-exports.
 
@@ -182,7 +182,7 @@ An effect is a trait in every other respect but three:
 - an effect's implementors are **effect-carrying**, so you may pass one only as
   `self` or `ctx`;
 - **no type may implement both an effect and a trait**, so an effect-carrying
-  type satisfies no ordinary bound, which keeps `T: Ord` from being a context;
+  type satisfies no ordinary bound, which keeps `T: Ordered` from being a context;
 - **you perform an effect by handing the context to a function.**
   `ctx.println("hi")` is `io.println(ctx, "hi")`, and `ctx.readFile(p)` is
   `fs.readText(ctx, p)`. The doors are `core/alloc`, `core/io`, `core/fs`,
@@ -201,10 +201,10 @@ An effect is a trait in every other respect but three:
 other name, never any other position, at most one of each.
 
 ```buri
-fn readText<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, IoError>  // ok
-fn render<C: Alloc>(self, ctx: C): Str                        // ok
-fn sneaky<C: FsRead>(a: Int, handle: C): Bool                           // ERROR
-fn twoWorlds<A: FsRead, B: Net>(ctx: A, other: B): ()                   // ERROR
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>  // ok
+fn render<C: Allocator>(self, ctx: C): Str                        // ok
+fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool                           // ERROR
+fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): ()                   // ERROR
 ```
 
 **Receiver first, context second, everything else after**, and the compiler
@@ -219,12 +219,12 @@ That is the purity theorem in usable form.
 
 | Tier | Shape | Example |
 |---|---|---|
-| **Pure** | no `ctx` | `xs.len()`, `s.trim()`, `xs.fold(f, z)` |
-| **Deterministic** | `ctx` bounded by `Alloc` alone | `xs.map(ctx, f)` |
+| **Pure** | no `ctx` | `xs.length()`, `s.trim()`, `xs.fold(f, z)` |
+| **Deterministic** | `ctx` bounded by `Allocator` alone | `xs.map(ctx, f)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)` |
 
 An operation with a fixed result size is pure; one whose result size depends on
-runtime data names `Alloc`. Fixed-size construction — literals, tuples, enum
+runtime data names `Allocator`. Fixed-size construction — literals, tuples, enum
 payloads, closures, `Template`s — never needs it.
 
 ### The capture rule
@@ -252,11 +252,11 @@ A context binds each effect to a value implementing it. One form, used by both
 `main` and a test.
 
 ```buri
-let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
+let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
 
 context Fixture {
-    Alloc: alloc(),
-    FsRead: fs().files([("config.toml", "port=8080")]),
+    Allocator: alloc(),
+    FileSystemRead: fs().files([("config.toml", "port=8080")]),
 }
 ```
 
@@ -282,7 +282,7 @@ That holds transitively.
 ```buri
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
     let _ = io.println(ctx, msg).ignore();
-    // fs.readText(ctx, at)              // ERROR: C is not bounded by FsRead
+    // fs.readText(ctx, at)              // ERROR: C is not bounded by FileSystemRead
 }
 ```
 
@@ -290,5 +290,5 @@ fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
 callee holds a value that genuinely lacks the rest. It narrows the whole
 context, never one effect out of it. Reach for confinement by default and
 attenuation at trust boundaries. You may import `core/alloc`'s
-`GeneralPurpose`, `Arena` and `FixedBuffer` anywhere, because `Alloc` is the
+`GeneralPurpose`, `Arena` and `FixedBuffer` anywhere, because `Allocator` is the
 one effect whose implementation grants nothing.

@@ -4,7 +4,7 @@
 // `impl` has a diagnostic of its own for a method that does not open with
 // `self` (`impl-fn-without-self`), so the two places a misplaced `self` can
 // reach rule 26 are a `trait` body and the `impl` that supplies it.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -24,7 +24,7 @@ impl Scale for Square {
 // wrong place has no call shape that typechecks, and a call site would bury
 // the two diagnostics this case is about under the mismatches it caused.
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let square = Square { side: 3 };
   let _ = io.println(ctx, "${square.side}").ignore();
   .Ok(())

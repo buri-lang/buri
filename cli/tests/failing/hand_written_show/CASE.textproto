@@ -4,7 +4,7 @@
 # report says what the value *is*, and a type's own `show` is free to say
 # something shorter, prettier or deliberately partial.
 #
-# So `assert.eq` no longer carries a `Show` bound. It named one "for the
+# So `assert.equal` no longer carries a `Show` bound. It named one "for the
 # message" and the message never used it, which made `Show` a tax on being
 # assertable; a type is assertable now as soon as it is comparable.
 #

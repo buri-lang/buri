@@ -192,12 +192,12 @@ through its receiver's type, so calling `e.amount.format(ctx)` on a `Cents` that
 arrived from `//lib/money` uses that library even when no import names it:
 
 ```buri repo=cli/tests/example
-# from "core/effect" import { Alloc };
+# from "core/effect" import { Allocator };
 from "//lib/ledger" import { Entry };
 
 // `amount` is a Cents from //lib/money, and `format` is one of its methods —
 // no import names //lib/money, and this target still depends on it.
-fn line<C: Alloc>(ctx: C, e: Entry): Str {
+fn line<C: Allocator>(ctx: C, e: Entry): Str {
     e.amount.format(ctx)
 }
 ```

@@ -5,6 +5,6 @@ from "//lib/helper" import { double };
 from "//lib/subject" import { triple };
 
 test "triple, checked against double" {
-    assert.eq(triple(2), 6);
-    assert.eq(double(3), 6);
+    assert.equal(triple(2), 6);
+    assert.equal(double(3), 6);
 }
