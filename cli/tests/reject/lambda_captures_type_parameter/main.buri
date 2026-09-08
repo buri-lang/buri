@@ -2,7 +2,7 @@
 // `formal/findings/cases/hide_generic.buri`. Nothing in `hide` mentions an
 // effect, so a taint predicate that reads only the signature says the lambda
 // is fine — and then `hide(ctx)` hands back a closure holding a capability.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -11,7 +11,7 @@ fn hide<T>(x: T): fn() => T {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let smuggler = hide(ctx);
   let recovered = smuggler();
   let _ = io.println(recovered, "laundered").ignore();

@@ -2,7 +2,7 @@
 // that closes the cycle, these five uses report nothing of their own: the
 // alias resolves to the error type, and one cycle stays one diagnostic.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -10,7 +10,7 @@ from "//lib/units" import { deepest, Depth, Height, metres, reading, Sounding };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let low: Depth = reading(3.0);

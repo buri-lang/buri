@@ -75,7 +75,7 @@ fn graph_queries() {
 ///
 /// The eighth is the generated *JSON* codec under a plain `buri test`, which is
 /// the native backend on a host that has one. A JSON number reaches a decoder
-/// as an `F64`, so every integer field converts through `num.F64.toI64`, and
+/// as an `F64`, so every integer field converts through `number.F64.toI64`, and
 /// the suite reported `1 failed to compile` until `emit.rs` grew the inexact
 /// conversions (buri-lang/buri#43).
 #[test]
@@ -417,14 +417,14 @@ const NOTIFICATIONS: &[&str] = &[
 
 /// The program the surface is driven against: one file, one import and one
 /// call, so that a position request has something under it.
-const SURFACE_PROGRAM: &str = r#"from "core/effect" import { Alloc, Stdout };
+const SURFACE_PROGRAM: &str = r#"from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn answer(): Int { 41 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "answer=${answer()}").ignore();
   .Ok(())
 }

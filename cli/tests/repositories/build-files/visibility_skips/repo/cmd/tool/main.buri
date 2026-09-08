@@ -1,7 +1,7 @@
 // Reaches the co-located library through //cmd/tool. That edge is implicit —
 // it is not in `dependencies` and could not be — so visibility never sees it.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//cmd/tool" import { render };
@@ -9,7 +9,7 @@ from "//cmd/tool/flags.buri" import { label };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io

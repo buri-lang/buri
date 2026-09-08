@@ -1,4 +1,4 @@
-// core/set and core/ordset — the operations added beside union, intersect and
+// core/set and core/orderedset — the operations added beside union, intersect and
 // difference, and the two free functions that dedupe a list.
 //
 // The cost claims are the point of the large cases here. `isDisjointFrom`
@@ -8,11 +8,11 @@
 // computation it replaces, over an input big enough that the two would part
 // company.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import * as order;
-from "core/ordset" import * as ordset;
+from "core/orderedset" import * as orderedset;
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
 
@@ -20,18 +20,18 @@ from "core/testing/assert" import * as assert;
 
 test "symmetricDifference is the members in exactly one side" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = set.of(ctx, [1, 2, 3]);
     let b = set.of(ctx, [3, 4]);
-    assert.eq(a.symmetricDifference(ctx, b).toList(ctx).sort(ctx), [1, 2, 4]);
+    assert.equal(a.symmetricDifference(ctx, b).toList(ctx).sort(ctx), [1, 2, 4]);
     // Symmetric, which is the whole name.
-    assert.eq(b.symmetricDifference(ctx, a).toList(ctx).sort(ctx), [1, 2, 4]);
+    assert.equal(b.symmetricDifference(ctx, a).toList(ctx).sort(ctx), [1, 2, 4]);
 }
 
 test "symmetricDifference with nothing, and with itself" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = set.of(ctx, [1, 2]);
     assert.isTrue(a.symmetricDifference(ctx, set.empty<Int>()).equals(ctx, a));
@@ -43,11 +43,11 @@ test "symmetricDifference with nothing, and with itself" {
 
 test "an ordered symmetricDifference comes out in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    let a = ordset.of(ctx, [1, 2, 3]);
-    let b = ordset.of(ctx, [3, 4]);
-    assert.eq(a.symmetricDifference(ctx, b).toList(ctx), [1, 2, 4]);
+    let a = orderedset.of(ctx, [1, 2, 3]);
+    let b = orderedset.of(ctx, [3, 4]);
+    assert.equal(a.symmetricDifference(ctx, b).toList(ctx), [1, 2, 4]);
     assert.isTrue(a.symmetricDifference(ctx, a).isEmpty());
 }
 
@@ -55,7 +55,7 @@ test "an ordered symmetricDifference comes out in order" {
 
 test "isDisjointFrom is true when nothing is shared" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = set.of(ctx, [1, 2, 3]);
     assert.isTrue(a.isDisjointFrom(ctx, set.of(ctx, [4, 5])));
@@ -75,7 +75,7 @@ test "isDisjointFrom is true when nothing is shared" {
 // neither an early stop nor a late one is what makes it pass.
 test "isDisjointFrom agrees with the intersection it does not build" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let low = set.of(ctx, list.range(ctx, 0, 400));
     let high = set.of(ctx, list.range(ctx, 400, 800));
@@ -92,21 +92,21 @@ test "isDisjointFrom agrees with the intersection it does not build" {
 
 test "an ordered set is disjoint on the same terms" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    let low = ordset.of(ctx, list.range(ctx, 0, 200));
-    let high = ordset.of(ctx, list.range(ctx, 200, 400));
+    let low = orderedset.of(ctx, list.range(ctx, 0, 200));
+    let high = orderedset.of(ctx, list.range(ctx, 200, 400));
     assert.isTrue(low.isDisjointFrom(ctx, high));
     assert.isTrue(low.intersect(ctx, high).isEmpty());
-    assert.isFalse(low.isDisjointFrom(ctx, ordset.of(ctx, [199, 500])));
-    assert.isTrue(low.isDisjointFrom(ctx, ordset.empty<Int>()));
+    assert.isFalse(low.isDisjointFrom(ctx, orderedset.of(ctx, [199, 500])));
+    assert.isTrue(low.isDisjointFrom(ctx, orderedset.empty<Int>()));
 }
 
 // --- isSupersetOf --------------------------------------------------------------
 
 test "isSupersetOf is isSubsetOf read from the other end" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = set.of(ctx, [1, 2, 3]);
     let b = set.of(ctx, [1, 2]);
@@ -120,23 +120,23 @@ test "isSupersetOf is isSubsetOf read from the other end" {
 
 test "an ordered set is a superset on the same terms" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    let a = ordset.of(ctx, [1, 2, 3]);
-    assert.isTrue(a.isSupersetOf(ctx, ordset.of(ctx, [3, 1])));
-    assert.isFalse(a.isSupersetOf(ctx, ordset.of(ctx, [3, 4])));
-    assert.isTrue(a.isSupersetOf(ctx, ordset.empty<Int>()));
+    let a = orderedset.of(ctx, [1, 2, 3]);
+    assert.isTrue(a.isSupersetOf(ctx, orderedset.of(ctx, [3, 1])));
+    assert.isFalse(a.isSupersetOf(ctx, orderedset.of(ctx, [3, 4])));
+    assert.isTrue(a.isSupersetOf(ctx, orderedset.empty<Int>()));
 }
 
 // --- filter --------------------------------------------------------------------
 
 test "filter keeps what the predicate keeps" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = set.of(ctx, list.range(ctx, 0, 10));
     let evens = s.filter(ctx, fn(x) => x % 2 == 0);
-    assert.eq(evens.toList(ctx).sort(ctx), [0, 2, 4, 6, 8]);
+    assert.equal(evens.toList(ctx).sort(ctx), [0, 2, 4, 6, 8]);
     assert.isTrue(s.filter(ctx, fn(_x) => false).isEmpty());
     assert.isTrue(s.filter(ctx, fn(_x) => true).equals(ctx, s));
     assert.isTrue(set.empty<Int>().filter(ctx, fn(_x) => true).isEmpty());
@@ -144,38 +144,38 @@ test "filter keeps what the predicate keeps" {
 
 test "an ordered filter comes out in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    let s = ordset.of(ctx, list.range(ctx, 0, 10));
-    assert.eq(s.filter(ctx, fn(x) => x % 3 == 0).toList(ctx), [0, 3, 6, 9]);
+    let s = orderedset.of(ctx, list.range(ctx, 0, 10));
+    assert.equal(s.filter(ctx, fn(x) => x % 3 == 0).toList(ctx), [0, 3, 6, 9]);
     assert.isTrue(s.filter(ctx, fn(_x) => false).isEmpty());
-    assert.isTrue(ordset.empty<Int>().filter(ctx, fn(_x) => true).isEmpty());
+    assert.isTrue(orderedset.empty<Int>().filter(ctx, fn(_x) => true).isEmpty());
 }
 
 // --- floor / ceiling on an ordered set -------------------------------------------
 
 test "floor and ceiling answer the nearest member on each side" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    let s = ordset.of(ctx, [10, 20, 30]);
-    assert.eq(assert.some(s.floor(25)), 20);
-    assert.eq(assert.some(s.ceiling(25)), 30);
+    let s = orderedset.of(ctx, [10, 20, 30]);
+    assert.equal(assert.some(s.floor(25)), 20);
+    assert.equal(assert.some(s.ceiling(25)), 30);
     // A member is its own floor and its own ceiling.
-    assert.eq(assert.some(s.floor(20)), 20);
-    assert.eq(assert.some(s.ceiling(20)), 20);
+    assert.equal(assert.some(s.floor(20)), 20);
+    assert.equal(assert.some(s.ceiling(20)), 20);
     assert.isTrue(s.floor(9).isNone());
     assert.isTrue(s.ceiling(31).isNone());
-    assert.isTrue(ordset.empty<Int>().floor(0).isNone());
-    assert.isTrue(ordset.empty<Int>().ceiling(0).isNone());
+    assert.isTrue(orderedset.empty<Int>().floor(0).isNone());
+    assert.isTrue(orderedset.empty<Int>().ceiling(0).isNone());
 }
 
 test "floor and ceiling hold over a set deep enough to have split" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let evens = list.range(ctx, 0, 200).map(ctx, fn(i) => i * 2);
-    let s = ordset.of(ctx, evens);
+    let s = orderedset.of(ctx, evens);
     let probes = list.range(ctx, 0, 398);
     assert.isTrue(probes.all(fn(p) => s.floor(p) == .Some(p - p % 2)));
     assert.isTrue(probes.all(fn(p) => s.ceiling(p) == .Some(p + p % 2)));
@@ -185,43 +185,47 @@ test "floor and ceiling hold over a set deep enough to have split" {
 
 test "distinct keeps the first of each and leaves the order alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(set.distinct(ctx, ["ana", "bo", "ana", "cy", "bo"]), ["ana", "bo", "cy"]);
-    assert.eq(set.distinct(ctx, list.empty<Int>()), []);
-    assert.eq(set.distinct(ctx, [1]), [1]);
+    assert.equal(set.distinct(ctx, ["ana", "bo", "ana", "cy", "bo"]), [
+        "ana",
+        "bo",
+        "cy",
+    ]);
+    assert.equal(set.distinct(ctx, list.empty<Int>()), []);
+    assert.equal(set.distinct(ctx, [1]), [1]);
     // Everything the same collapses to one, and nothing the same stays put.
-    assert.eq(set.distinct(ctx, [7, 7, 7]), [7]);
-    assert.eq(set.distinct(ctx, [3, 1, 2]), [3, 1, 2]);
+    assert.equal(set.distinct(ctx, [7, 7, 7]), [7]);
+    assert.equal(set.distinct(ctx, [3, 1, 2]), [3, 1, 2]);
 }
 
 test "distinctBy keeps the first element answering each key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let words = ["ant", "ape", "bee", "bat", "cow"];
-    assert.eq(set.distinctBy(ctx, words, fn(w: Str) => w.slice(0, 1)), [
+    assert.equal(set.distinctBy(ctx, words, fn(w: Str) => w.slice(0, 1)), [
         "ant",
         "bee",
         "cow",
     ]);
-    assert.eq(set.distinctBy(ctx, list.empty<Int>(), fn(n: Int) => n), []);
+    assert.equal(set.distinctBy(ctx, list.empty<Int>(), fn(n: Int) => n), []);
     // One key for everything answers one element.
-    assert.eq(set.distinctBy(ctx, [1, 2, 3], fn(_n: Int) => 0), [1]);
+    assert.equal(set.distinctBy(ctx, [1, 2, 3], fn(_n: Int) => 0), [1]);
 }
 
 test "an ordered distinct answers the same list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(ordset.distinct(ctx, [3, 1, 3, 2, 1]), [3, 1, 2]);
-    assert.eq(ordset.distinct(ctx, list.empty<Int>()), []);
+    assert.equal(orderedset.distinct(ctx, [3, 1, 3, 2, 1]), [3, 1, 2]);
+    assert.equal(orderedset.distinct(ctx, list.empty<Int>()), []);
     let words = ["ant", "ape", "bee", "bat"];
-    assert.eq(ordset.distinctBy(ctx, words, fn(w: Str) => w.slice(0, 1)), [
+    assert.equal(orderedset.distinctBy(ctx, words, fn(w: Str) => w.slice(0, 1)), [
         "ant",
         "bee",
     ]);
-    assert.eq(ordset.distinctBy(ctx, list.empty<Int>(), fn(n: Int) => n), []);
+    assert.equal(orderedset.distinctBy(ctx, list.empty<Int>(), fn(n: Int) => n), []);
 }
 
 // `uniqueBy` is the O(n²) answer and this is the O(n) one, so they must agree
@@ -230,20 +234,20 @@ test "an ordered distinct answers the same list" {
 // the first-seen order would show it.
 test "distinct agrees with uniqueBy over two thousand elements" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = list.range(ctx, 0, 2000).map(ctx, fn(i) => i * 7 % 100);
     let byHash = set.distinct(ctx, xs);
     let byComparison = xs.uniqueBy(ctx, fn(a: Int, b: Int) => order.int(a, b));
-    assert.eq(byHash, byComparison);
-    assert.eq(byHash.len(), 100);
+    assert.equal(byHash, byComparison);
+    assert.equal(byHash.length(), 100);
     // And the ordered one is the third way to the same list.
-    assert.eq(ordset.distinct(ctx, xs), byComparison);
+    assert.equal(orderedset.distinct(ctx, xs), byComparison);
 }
 
 test "distinctBy agrees with uniqueBy over a key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = list.range(ctx, 0, 2000);
     let key = fn(n: Int) => n % 137;
@@ -252,9 +256,9 @@ test "distinctBy agrees with uniqueBy over a key" {
         ctx,
         order.by(key, fn(a: Int, b: Int) => order.int(a, b)),
     );
-    assert.eq(byHash, byComparison);
-    assert.eq(byHash.len(), 137);
-    assert.eq(ordset.distinctBy(ctx, xs, key), byComparison);
+    assert.equal(byHash, byComparison);
+    assert.equal(byHash.length(), 137);
+    assert.equal(orderedset.distinctBy(ctx, xs, key), byComparison);
 }
 
 // --- The empty set, on both sides of every relation ---------------------------------
@@ -263,7 +267,7 @@ test "distinctBy agrees with uniqueBy over a key" {
 // only itself. Each of the four is the negative twin of a case above.
 test "the empty set on both sides of isDisjointFrom and isSupersetOf" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = set.of(ctx, [1, 2]);
     let none = set.empty<Int>();
@@ -283,10 +287,10 @@ test "the empty set on both sides of isDisjointFrom and isSupersetOf" {
 
 test "the empty ordered set on both sides of the same two" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    let a = ordset.of(ctx, [1, 2]);
-    let none = ordset.empty<Int>();
+    let a = orderedset.of(ctx, [1, 2]);
+    let none = orderedset.empty<Int>();
     assert.isTrue(a.isDisjointFrom(ctx, none));
     assert.isTrue(none.isDisjointFrom(ctx, a));
     assert.isTrue(a.isSupersetOf(ctx, none));
@@ -298,25 +302,25 @@ test "the empty ordered set on both sides of the same two" {
 
 test "filter on a set of one, on the empty set, and over a large one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = set.of(ctx, [1]);
     assert.isTrue(one.filter(ctx, fn(_x) => true).equals(ctx, one));
     assert.isTrue(one.filter(ctx, fn(_x) => false).isEmpty());
     assert.isTrue(set.empty<Int>().filter(ctx, fn(_x) => true).isEmpty());
     let big = set.of(ctx, list.range(ctx, 0, 300));
-    assert.eq(big.filter(ctx, fn(x) => x % 3 == 0).len(), 100);
+    assert.equal(big.filter(ctx, fn(x) => x % 3 == 0).length(), 100);
     // The ordered one keeps its order through a filter.
-    let ordered = ordset.of(ctx, list.range(ctx, 0, 300));
-    assert.eq(ordered.filter(ctx, fn(x) => x % 100 == 0).toList(ctx), [0, 100, 200]);
-    assert.isTrue(ordset.of(ctx, [1]).filter(ctx, fn(_x) => false).isEmpty());
+    let ordered = orderedset.of(ctx, list.range(ctx, 0, 300));
+    assert.equal(ordered.filter(ctx, fn(x) => x % 100 == 0).toList(ctx), [0, 100, 200]);
+    assert.isTrue(orderedset.of(ctx, [1]).filter(ctx, fn(_x) => false).isEmpty());
 }
 
 // A superset relation that only just holds and only just fails, over a set big
 // enough that a wrong answer could not be a coincidence.
 test "isSupersetOf and isDisjointFrom at the boundary over three hundred members" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let all = set.of(ctx, list.range(ctx, 0, 300));
     let most = set.of(ctx, list.range(ctx, 0, 299));
@@ -335,9 +339,9 @@ test "isSupersetOf and isDisjointFrom at the boundary over three hundred members
 // the right-hand side would still look right on the sizes above.
 test "symmetricDifference over singletons and over three hundred members" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         set
             .of(ctx, [1])
             .symmetricDifference(ctx, set.of(ctx, [2]))
@@ -351,7 +355,7 @@ test "symmetricDifference over singletons and over three hundred members" {
     let low = set.of(ctx, list.range(ctx, 0, 300));
     let high = set.of(ctx, list.range(ctx, 150, 450));
     let only = low.symmetricDifference(ctx, high);
-    assert.eq(only.len(), 300);
+    assert.equal(only.length(), 300);
     assert.isTrue(only.has(0));
     assert.isFalse(only.has(200));
     assert.isTrue(only.has(449));
@@ -362,16 +366,18 @@ test "symmetricDifference over singletons and over three hundred members" {
 
 test "distinct and distinctBy over a list of one and a list of the same thing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(set.distinct(ctx, ["only"]), ["only"]);
-    assert.eq(set.distinctBy(ctx, ["only"], fn(w: Str) => w.len()), ["only"]);
-    assert.eq(ordset.distinct(ctx, ["only"]), ["only"]);
-    assert.eq(ordset.distinctBy(ctx, ["only"], fn(w: Str) => w.len()), ["only"]);
+    assert.equal(set.distinct(ctx, ["only"]), ["only"]);
+    assert.equal(set.distinctBy(ctx, ["only"], fn(w: Str) => w.length()), ["only"]);
+    assert.equal(orderedset.distinct(ctx, ["only"]), ["only"]);
+    assert.equal(orderedset.distinctBy(ctx, ["only"], fn(w: Str) => w.length()), [
+        "only",
+    ]);
     // A thousand copies of one element is one element, through all four.
     let same = list.repeat(ctx, 7, 1000);
-    assert.eq(set.distinct(ctx, same), [7]);
-    assert.eq(ordset.distinct(ctx, same), [7]);
-    assert.eq(set.distinctBy(ctx, same, fn(n: Int) => n), [7]);
-    assert.eq(ordset.distinctBy(ctx, same, fn(n: Int) => n), [7]);
+    assert.equal(set.distinct(ctx, same), [7]);
+    assert.equal(orderedset.distinct(ctx, same), [7]);
+    assert.equal(set.distinctBy(ctx, same, fn(n: Int) => n), [7]);
+    assert.equal(orderedset.distinctBy(ctx, same, fn(n: Int) => n), [7]);
 }

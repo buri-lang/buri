@@ -5,7 +5,7 @@
 // somebody's generated repository.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/buri_ast" import { block, ex, field, id, n, one, ty, tyOf };
@@ -14,36 +14,36 @@ from "//lib/buri_ast" import { block, ex, field, id, n, one, ty, tyOf };
 
 test "a namespace import prints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Import(ast.Import { path: "core/list", clause: .Namespace(n("list")) }),
     );
-    assert.eq(ast.print(ctx, m).text, "from \"core/list\" import * as list;\n");
+    assert.equal(ast.print(ctx, m).text, "from \"core/list\" import * as list;\n");
 }
 
 test "a named import sorts its clause" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let specs = [
         ast.ImportSpec { name: n("Stdout"), alias: [] },
-        ast.ImportSpec { name: n("Alloc"), alias: [] },
+        ast.ImportSpec { name: n("Allocator"), alias: [] },
     ];
     let m = one(.Import(ast.Import { path: "core/effect", clause: .Named(specs) }));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
-        "from \"core/effect\" import { Alloc, Stdout };\n",
+        "from \"core/effect\" import { Allocator, Stdout };\n",
     );
 }
 
 test "an aliased name keeps its alias" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let specs = [ast.ImportSpec { name: n("map"), alias: [n("mapping")] }];
     let m = one(.Import(ast.Import { path: "core/list", clause: .Named(specs) }));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "from \"core/list\" import { map as mapping };\n",
     );
@@ -51,7 +51,7 @@ test "an aliased name keeps its alias" {
 
 test "the leading import run is sorted, the library ahead of the repository" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [
         importOf("//lib/shapes", "shapes"),
@@ -59,7 +59,7 @@ test "the leading import run is sorted, the library ahead of the repository" {
         importOf("core/list", "list"),
     ];
     let m = ast.Module { items: items, docs: [] };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "from \"core/list\" import * as list;\nfrom \"core/str\" import * as str;\n".concat(
             ctx,
@@ -77,14 +77,14 @@ fn importOf(path: Str, alias: Str): ast.Item {
 
 test "a re-export prints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let specs = [
         ast.ImportSpec { name: n("Alpha"), alias: [] },
         ast.ImportSpec { name: n("beta"), alias: [] },
     ];
     let m = one(.ReExport(ast.ReExport { path: "//lib/shapes", specs: specs }));
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "from \"//lib/shapes\" export { Alpha, beta };\n",
     );
@@ -94,7 +94,7 @@ test "a re-export prints" {
 
 test "a function with a body prints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Fn(ast.FnDecl {
@@ -110,7 +110,7 @@ test "a function with a body prints" {
             docs: ["Their sum."],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "/// Their sum.\nexport fn add(a: Int, b: Int): Int {\n    a + b\n}\n",
     );
@@ -118,7 +118,7 @@ test "a function with a body prints" {
 
 test "a body with nothing in it closes up" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Fn(ast.FnDecl {
@@ -131,12 +131,12 @@ test "a body with nothing in it closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export fn nothing(): () {}\n");
+    assert.equal(ast.print(ctx, m).text, "export fn nothing(): () {}\n");
 }
 
 test "a function with no body is a signature" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Fn(ast.FnDecl {
@@ -149,18 +149,21 @@ test "a function with no body is a signature" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "fn probe(): ();\n");
+    assert.equal(ast.print(ctx, m).text, "fn probe(): ();\n");
 }
 
 test "a bounded type parameter prints its bounds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Fn(ast.FnDecl {
             name: n("go"),
             generics: [
-                ast.GenericParam { name: n("C"), bounds: [ty("Alloc"), ty("Stdout")] },
+                ast.GenericParam {
+                    name: n("C"),
+                    bounds: [ty("Allocator"), ty("Stdout")],
+                },
             ],
             params: [ast.Param { name: n("ctx"), ty: [ty("C")] }],
             ret: ast.Type { kind: .Unit, origin: ast.nowhere() },
@@ -169,9 +172,9 @@ test "a bounded type parameter prints its bounds" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
-        "fn go<C: Alloc + Stdout>(ctx: C): () {\n    ()\n}\n",
+        "fn go<C: Allocator + Stdout>(ctx: C): () {\n    ()\n}\n",
     );
 }
 
@@ -179,7 +182,7 @@ test "a bounded type parameter prints its bounds" {
 
 test "a record struct gives every field a line" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Struct(ast.StructDecl {
@@ -190,7 +193,7 @@ test "a record struct gives every field a line" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export struct Point {\n    /// Across.\n    export x: Int,\n    y: Int,\n}\n",
     );
@@ -208,7 +211,7 @@ fn fieldOf(text: Str, exported: Bool, docs: [Str]): ast.FieldDecl {
 
 test "a tuple struct stays on its line" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Struct(ast.StructDecl {
@@ -221,12 +224,12 @@ test "a tuple struct stays on its line" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export struct Meters(export F64);\n");
+    assert.equal(ast.print(ctx, m).text, "export struct Meters(export F64);\n");
 }
 
 test "a struct with no fields closes up" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Struct(ast.StructDecl {
@@ -237,12 +240,12 @@ test "a struct with no fields closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export struct Empty {}\n");
+    assert.equal(ast.print(ctx, m).text, "export struct Empty {}\n");
 }
 
 test "an enum gives every variant a line" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Enum(ast.EnumDecl {
@@ -260,7 +263,7 @@ test "an enum gives every variant a line" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export enum Shape {\n    Dot,\n    Circle(Int),\n".concat(
             ctx,
@@ -275,7 +278,7 @@ fn variantOf(text: Str, payload: ast.VariantPayload): ast.Variant {
 
 test "an enum with no variants closes up" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Enum(ast.EnumDecl {
@@ -286,12 +289,12 @@ test "an enum with no variants closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export enum Nothing {}\n");
+    assert.equal(ast.print(ctx, m).text, "export enum Nothing {}\n");
 }
 
 test "a type alias prints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .TypeAlias(ast.TypeAliasDecl {
@@ -302,12 +305,12 @@ test "a type alias prints" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "export type Pairs<T> = Option<List<T>>;\n");
+    assert.equal(ast.print(ctx, m).text, "export type Pairs<T> = Option<List<T>>;\n");
 }
 
 test "a module-level let prints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Let(ast.LetDecl {
@@ -318,14 +321,14 @@ test "a module-level let prints" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "let LIMIT: Int = 7;\n");
+    assert.equal(ast.print(ctx, m).text, "let LIMIT: Int = 7;\n");
 }
 
 // --- traits, impls and derives ---------------------------------------------------
 
 test "a trait prints its methods as signatures" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Trait(ast.TraitDecl {
@@ -337,7 +340,7 @@ test "a trait prints its methods as signatures" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export trait Named {\n    /// What to call it.\n    fn label(self): Str;\n}\n",
     );
@@ -357,7 +360,7 @@ fn signature(text: Str, docs: [Str]): ast.FnDecl {
 
 test "an effect prints with its own keyword" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Trait(ast.TraitDecl {
@@ -369,7 +372,7 @@ test "an effect prints with its own keyword" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "export effect Beep {\n    fn beep(self): Str;\n}\n",
     );
@@ -377,7 +380,7 @@ test "an effect prints with its own keyword" {
 
 test "an inherent impl puts a blank line between its methods" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Impl(ast.ImplDecl {
@@ -388,7 +391,7 @@ test "an inherent impl puts a blank line between its methods" {
             docs: [],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "impl Point {\n    export fn first(self): Int {\n        self.x\n    }\n\n".concat(
             ctx,
@@ -411,7 +414,7 @@ fn method(text: Str): ast.FnDecl {
 
 test "a trait impl names the trait and the type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Impl(ast.ImplDecl {
@@ -422,25 +425,25 @@ test "a trait impl names the trait and the type" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "impl<T> Named for Wrapper<T> {}\n");
+    assert.equal(ast.print(ctx, m).text, "impl<T> Named for Wrapper<T> {}\n");
 }
 
 test "a derive prints its trait list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Derive(ast.DeriveDecl {
-            traits: [ty("Eq"), ty("Show")],
+            traits: [ty("Equal"), ty("Show")],
             selfTy: ty("Meters"),
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "derive Eq, Show for Meters;\n");
+    assert.equal(ast.print(ctx, m).text, "derive Equal, Show for Meters;\n");
 }
 
 test "a derive sits on the declaration it is about" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let decl = ast.Item {
         kind: .TypeAlias(ast.TypeAliasDecl {
@@ -453,15 +456,15 @@ test "a derive sits on the declaration it is about" {
         origin: ast.nowhere(),
     };
     let derived = ast.Item {
-        kind: .Derive(ast.DeriveDecl { traits: [ty("Eq")], selfTy: ty("Id") }),
+        kind: .Derive(ast.DeriveDecl { traits: [ty("Equal")], selfTy: ty("Id") }),
         origin: ast.nowhere(),
     };
     // Written below the declaration, and printed above it — which is where the
     // formatter moves it.
     let m = ast.Module { items: [decl, derived], docs: [] };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
-        "derive Eq for Id;\n/// A key.\nexport type Id = Int;\n",
+        "derive Equal for Id;\n/// A key.\nexport type Id = Int;\n",
     );
 }
 
@@ -469,7 +472,7 @@ test "a derive sits on the declaration it is about" {
 
 test "module documentation leads, with a blank line under it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = ast.Module {
         items: [
@@ -486,7 +489,7 @@ test "module documentation leads, with a blank line under it" {
         ],
         docs: ["What this is.", "", "And why."],
     };
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
         "//! What this is.\n//!\n//! And why.\n\nexport type Id = Int;\n",
     );
@@ -494,16 +497,16 @@ test "module documentation leads, with a blank line under it" {
 
 test "a module of nothing prints nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(ast.print(ctx, ast.Module { items: [], docs: [] }).text, "");
+    assert.equal(ast.print(ctx, ast.Module { items: [], docs: [] }).text, "");
 }
 
 // --- what only a test source may write ---------------------------------------------
 
 test "a test declaration prints its name and its body" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Test(ast.TestDecl {
@@ -512,20 +515,20 @@ test "a test declaration prints its name and its body" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "test \"it holds\" {\n    ()\n}\n");
+    assert.equal(ast.print(ctx, m).text, "test \"it holds\" {\n    ()\n}\n");
 }
 
 test "a test declaration with an empty body closes up" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(.Test(ast.TestDecl { name: "nothing", body: block([], []), docs: [] }));
-    assert.eq(ast.print(ctx, m).text, "test \"nothing\" {}\n");
+    assert.equal(ast.print(ctx, m).text, "test \"nothing\" {}\n");
 }
 
 test "a context declaration prints its name and its bindings" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Context(ast.ContextDecl {
@@ -533,7 +536,7 @@ test "a context declaration prints its name and its bindings" {
             spread: [],
             bindings: [
                 ast.Binding {
-                    effectTy: ty("Alloc"),
+                    effectTy: ty("Allocator"),
                     value: ex(.Call([id("alloc")], [])),
                 },
             ],
@@ -541,15 +544,15 @@ test "a context declaration prints its name and its bindings" {
             docs: ["The world a test runs in."],
         }),
     );
-    assert.eq(
+    assert.equal(
         ast.print(ctx, m).text,
-        "/// The world a test runs in.\nexport context Fixture {\n    Alloc: alloc(),\n}\n",
+        "/// The world a test runs in.\nexport context Fixture {\n    Allocator: alloc(),\n}\n",
     );
 }
 
 test "a context declaration with nothing in it closes up" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(
         .Context(ast.ContextDecl {
@@ -560,5 +563,5 @@ test "a context declaration with nothing in it closes up" {
             docs: [],
         }),
     );
-    assert.eq(ast.print(ctx, m).text, "context Empty {\n}\n");
+    assert.equal(ast.print(ctx, m).text, "context Empty {\n}\n");
 }

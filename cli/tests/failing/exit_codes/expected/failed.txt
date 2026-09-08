@@ -1,5 +1,5 @@
 FAIL //lib/subject  test/subject.buri  "the answer"
-  assert.eq failed
+  assert.equal failed
     actual:   41
     expected: 42
   --> lib/subject/test/subject.buri:4:1

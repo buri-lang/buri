@@ -6,7 +6,7 @@
 // same decision from the other side — `isOpen` is the double's, because a
 // program that could ask would be a program racing the far side.
 
-from "core/effect" import { Alloc, Sockets };
+from "core/effect" import { Allocator, Sockets };
 from "core/net/server" import { Message, Socket };
 
 /// Pushes `message` at every socket in the room and answers how many it was
@@ -14,10 +14,14 @@ from "core/net/server" import { Message, Socket };
 ///
 /// The count is what the room *pushed*, not what arrived: `send` never waits,
 /// and a socket that has already gone takes the message and drops it.
-export fn broadcast<C: Alloc + Sockets>(ctx: C, room: [Socket], message: Message): Int {
+export fn broadcast<C: Allocator + Sockets>(
+    ctx: C,
+    room: [Socket],
+    message: Message,
+): Int {
     let _pushed = room.mapCtx(ctx, fn(c, socket) => {
         let _sent = socket.send(c, message);
         0
     });
-    room.len()
+    room.length()
 }

@@ -5,7 +5,7 @@ error: `Suit` cannot be interpolated [not-interpolatable]
    |                                          ^^^^^^^^^^^
    |
    = a hole holds a primitive — `Int`, `Float`, `Bool`, `Char`, `Str` — or a value whose `Show` is derived
-   = `Suit`'s `Show` is written by hand, and `show<C: Alloc>(self, ctx: C)` names a context a hole has no way to reach
+   = `Suit`'s `Show` is written by hand, and `show<C: Allocator>(self, ctx: C)` names a context a hole has no way to reach
    = fix: call it in the hole, as in `${x.show(ctx)}`
 
      A Template names no context, which is why io.println(ctx, "hi ${name}")
@@ -18,7 +18,7 @@ error: `Suit` cannot be interpolated [not-interpolatable]
      compiles, printing what p.show(ctx) produces.
 
      A hand-written impl Show is the other case, and it stays your call. show<C:
-     Alloc>(self, ctx: C) names a context the interpolation cannot reach, so
+     Allocator>(self, ctx: C) names a context the interpolation cannot reach, so
      write the conversion out.
 
        str.format(ctx, "the suit is ${suit.show(ctx)}")

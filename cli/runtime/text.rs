@@ -1,5 +1,5 @@
 //! `core/str`, natively: the whole of the surface `str.buri` declares without a
-//! body, minus the ones the backends open-code — which is now `str.len` and
+//! body, minus the ones the backends open-code — which is now `str.length` and
 //! `str.format` alone, because [`buri_rt_str_concat`] is here for the
 //! copy-and-patch backend to call (MEMORY.md §5.3).
 //!
@@ -8,14 +8,14 @@
 //! idea of what a string operation should do. Three consequences worth stating
 //! before the code, because each one would otherwise look like a mistake:
 //!
-//! * **Indices are Unicode scalars, offsets are bytes.** `str.len`, `charAt`,
+//! * **Indices are Unicode scalars, offsets are bytes.** `str.length`, `charAt`,
 //!   `slice`, `indexOf` and the two `pad`s all speak in scalar counts
 //!   (`str.buri:18`), while a `BuriStr` is a byte range. Every entry below that
 //!   takes an index converts, and the ASCII flag (VALUE-MODEL.md §3.1) is what
 //!   makes that free on the input that matters: set, and a scalar index *is* a
 //!   byte offset.
 //! * **A pure operation returns a view.** `slice`, `trim`, `trimStart`,
-//!   `trimEnd` and `splitOnce` are declared without an `Alloc` bound, which is
+//!   `trimEnd` and `splitOnce` are declared without an `Allocator` bound, which is
 //!   `core/str`'s way of saying they do not copy. So they answer a `BuriStr`
 //!   pointing into the *caller's* allocation, and they incref its base before
 //!   doing so — which is `lib.rs` §3's "a result is owned" applied to a value
@@ -118,7 +118,7 @@ unsafe fn slice_of(base: *mut u8, ptr: *const u8, len: u64, from: usize, to: usi
 /// end.
 ///
 /// O(1) when the ASCII flag is set, and a walk over the non-continuation bytes
-/// otherwise — the same fast path `str.len` takes.
+/// otherwise — the same fast path `str.length` takes.
 fn byte_offset(bytes: &[u8], ascii: bool, index: usize) -> usize {
     if ascii {
         return index.min(bytes.len());
@@ -473,7 +473,7 @@ pub unsafe extern "C" fn buri_rt_str_split_once(
 /// **Unicode scalar value order**, which for a valid string is exactly UTF-8
 /// byte order — so this is a `memcmp` and a length tie-break, with nothing
 /// decoded. It is what `str::cmp` answers in Rust, `<` answers in Go and `<`
-/// answers in Python, and it is what `str.len()` and `charAt` already count in.
+/// answers in Python, and it is what `str.length()` and `charAt` already count in.
 ///
 /// It used to be UTF-16 code-unit order, transcoding on the fly so that the
 /// answer would match JavaScript's `<`. That parity was real and the order was
@@ -503,13 +503,13 @@ pub unsafe extern "C" fn buri_rt_str_compare(
     }
 }
 
-/// `Eq` on `Str`, as bytes. Identical strings have identical UTF-8, so this
+/// `Equal` on `Str`, as bytes. Identical strings have identical UTF-8, so this
 /// needs no decoding.
 ///
 /// # Safety
 /// Both ranges are readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_str_eq(
+pub unsafe extern "C" fn buri_rt_str_equal(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -628,7 +628,7 @@ fn is_js_float_literal(t: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// `Alloc`-bounded, and MEMORY.md §5.3's reuse
+// `Allocator`-bounded, and MEMORY.md §5.3's reuse
 // ---------------------------------------------------------------------------
 
 /// `str.concat(self, ctx, other) -> Str`, with MEMORY.md §5.3's in-place
@@ -748,7 +748,7 @@ fn grown(needed: u64) -> u64 {
 }
 
 // ---------------------------------------------------------------------------
-// `Alloc`-bounded: every result is a fresh block
+// `Allocator`-bounded: every result is a fresh block
 // ---------------------------------------------------------------------------
 
 /// `str.split(self, ctx, separator) -> [Str]`.

@@ -2,7 +2,7 @@
 // what this case is about, and a library with a finding of its own would make
 // the report ambiguous about which half was being read.
 
-derive Eq, Show for Cents;
+derive Equal, Show for Cents;
 export struct Cents(export I64);
 
 export fn fromCents(c: I64): Cents {

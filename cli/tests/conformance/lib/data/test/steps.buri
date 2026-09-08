@@ -28,7 +28,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped, Stopped };
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 from "core/host/testing" import { alloc, tasks };
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
@@ -39,7 +39,7 @@ enum Note {
     Read,
 }
 
-derive Eq, Show for Heard;
+derive Equal, Show for Heard;
 enum Heard {
     Noted(Int),
     Log(Int),
@@ -47,7 +47,7 @@ enum Heard {
 
 /// The recorder. `Saw(n)` folds `n` into the state and answers `n` doubled;
 /// `Read` answers the state without changing it.
-fn recorder<C: Alloc + Tasks>(): Actor<C, Int, Note, Heard> {
+fn recorder<C: Allocator + Tasks>(): Actor<C, Int, Note, Heard> {
     Actor {
         state: 0,
         step: fn(c, seen, note) => {
@@ -79,29 +79,29 @@ fn heardSoFar(r: Result<Heard, Stopped>): Int {
 
 test "mapCtx waits for a step that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let doubled = [1, 2, 3].mapCtx(ctx, fn(c, x) => {
         noted(heard.sendMessage(c, .Saw(x)))
     });
-    assert.eq(doubled, [2, 4, 6]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(doubled, [2, 4, 6]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "mapCtx over the empty list runs no waiting step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let doubled = list
         .empty<Int>()
         .mapCtx(ctx, fn(c, x) => noted(heard.sendMessage(c, .Saw(x))));
-    assert.eq(doubled, list.empty<Int>());
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 0);
+    assert.equal(doubled, list.empty<Int>());
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 0);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -109,15 +109,15 @@ test "mapCtx over the empty list runs no waiting step" {
 
 test "mapCtxStep waits for a step that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let doubled = [4, 5, 6].mapCtxStep(ctx, fn(c, x) => {
         noted(heard.sendMessage(c, .Saw(x)))
     });
-    assert.eq(doubled, [8, 10, 12]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 456);
+    assert.equal(doubled, [8, 10, 12]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 456);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -125,15 +125,15 @@ test "mapCtxStep waits for a step that waits" {
 
 test "filterCtx waits for a predicate that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let even = [1, 2, 3, 4].filterCtx(ctx, fn(c, x) => {
         noted(heard.sendMessage(c, .Saw(x))) % 4 == 0
     });
-    assert.eq(even, [2, 4]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 1234);
+    assert.equal(even, [2, 4]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 1234);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -141,7 +141,7 @@ test "filterCtx waits for a predicate that waits" {
 
 test "foldCtx waits for a step that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -150,8 +150,8 @@ test "foldCtx waits for a step that waits" {
         fn(c, acc: Int, x) => acc + noted(heard.sendMessage(c, .Saw(x))),
         0,
     );
-    assert.eq(total, 12);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(total, 12);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -159,7 +159,7 @@ test "foldCtx waits for a step that waits" {
 
 test "foldResultCtx waits for a step that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -168,14 +168,14 @@ test "foldResultCtx waits for a step that waits" {
         fn(c, acc: Int, x) => .Ok(acc + noted(heard.sendMessage(c, .Saw(x)))),
         0,
     );
-    assert.eq(assert.ok(total), 12);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(assert.ok(total), 12);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "foldResultCtx stops at the first failing waiting step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -190,9 +190,9 @@ test "foldResultCtx stops at the first failing waiting step" {
         },
         0,
     );
-    assert.eq(assert.err(out), "stopped");
+    assert.equal(assert.err(out), "stopped");
     // Two steps ran and the third did not, which the state says exactly.
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -205,35 +205,35 @@ test "foldResultCtx stops at the first failing waiting step" {
 
 test "mapResultCtx waits for a step that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let out: Result<[Int], Str> = [1, 2, 3].mapResultCtx(ctx, fn(c, x) => {
         .Ok(noted(heard.sendMessage(c, .Saw(x))))
     });
-    assert.eq(assert.ok(out), [2, 4, 6]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(assert.ok(out), [2, 4, 6]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "mapOptionCtx waits for a step that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let out = [1, 2, 3].mapOptionCtx(ctx, fn(c, x) => {
         .Some(noted(heard.sendMessage(c, .Saw(x))))
     });
-    assert.eq(assert.some(out), [2, 4, 6]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(assert.some(out), [2, 4, 6]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "filterMapCtx waits for a step that waits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -244,8 +244,8 @@ test "filterMapCtx waits for a step that waits" {
             false => .Some(seen),
         }
     });
-    assert.eq(out, [2, 6]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(out, [2, 6]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -253,15 +253,15 @@ test "filterMapCtx waits for a step that waits" {
 
 test "a waiting step nested two combinators deep still runs" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let out = [[1, 2], [3]].mapCtx(ctx, fn(c, xs: [Int]) => {
         xs.mapCtx(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x))))
     });
-    assert.eq(out, [[2, 4], [6]]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(out, [[2, 4], [6]]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -275,12 +275,12 @@ test "a waiting step nested two combinators deep still runs" {
 
 test "a step that does not wait still answers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].mapCtx(ctx, fn(c, x) => x * 2), [2, 4, 6]);
-    assert.eq([1, 2, 3].mapCtxStep(ctx, fn(c, x) => x * 2), [2, 4, 6]);
-    assert.eq([1, 2, 3, 4].filterCtx(ctx, fn(c, x) => x % 2 == 0), [2, 4]);
-    assert.eq([1, 2, 3].foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 0), 6);
+    assert.equal([1, 2, 3].mapCtx(ctx, fn(c, x) => x * 2), [2, 4, 6]);
+    assert.equal([1, 2, 3].mapCtxStep(ctx, fn(c, x) => x * 2), [2, 4, 6]);
+    assert.equal([1, 2, 3, 4].filterCtx(ctx, fn(c, x) => x % 2 == 0), [2, 4]);
+    assert.equal([1, 2, 3].foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 0), 6);
 }
 
 // --- a step that waits on only some of the elements ---------------------------
@@ -293,7 +293,7 @@ test "a step that does not wait still answers" {
 
 test "mapCtx waits for a step that waits on one element only" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -303,16 +303,16 @@ test "mapCtx waits for a step that waits on one element only" {
             false => x * 2,
         }
     });
-    assert.eq(doubled, [2, 4, 6]);
+    assert.equal(doubled, [2, 4, 6]);
     // One message, so only the element that took the waiting arm reached the
     // actor.
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 2);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 2);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "filterCtx waits for a predicate that waits on one element only" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -322,14 +322,14 @@ test "filterCtx waits for a predicate that waits on one element only" {
             false => false,
         }
     });
-    assert.eq(kept, [2, 4]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 24);
+    assert.equal(kept, [2, 4]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 24);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "foldCtx waits for a step that waits on the last element only" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -343,8 +343,8 @@ test "foldCtx waits for a step that waits on the last element only" {
         },
         0,
     );
-    assert.eq(total, 9);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 3);
+    assert.equal(total, 9);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 3);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -360,7 +360,7 @@ test "foldCtx waits for a step that waits on the last element only" {
 
 test "a waiting mapCtx and a plain one in one program both answer" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -368,15 +368,15 @@ test "a waiting mapCtx and a plain one in one program both answer" {
         noted(heard.sendMessage(c, .Saw(x)))
     });
     let plain = ["a", "b"].mapCtx(ctx, fn(c, s) => s.concat(c, "!"));
-    assert.eq(waited, [2, 4, 6]);
-    assert.eq(plain, ["a!", "b!"]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(waited, [2, 4, 6]);
+    assert.equal(plain, ["a!", "b!"]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "a plain fold inside a waiting map still answers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -386,8 +386,8 @@ test "a plain fold inside a waiting map still answers" {
         let base = [1, 2, 3].foldCtx(c, fn(d, acc: Int, y) => acc + y, 0);
         base + noted(heard.sendMessage(c, .Saw(x)))
     });
-    assert.eq(out, [8, 10]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
+    assert.equal(out, [8, 10]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -401,23 +401,23 @@ test "a plain fold inside a waiting map still answers" {
 
 test "a wait at every level of two nested combinators still runs in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let out = [[1, 2], [3]].mapCtx(ctx, fn(c, xs: [Int]) => {
         let inner = xs.mapCtx(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x))));
         // And the outer step waits too, after its own inner loop has finished.
-        inner.len() + noted(heard.sendMessage(c, .Saw(9)))
+        inner.length() + noted(heard.sendMessage(c, .Saw(9)))
     });
-    assert.eq(out, [20, 19]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 12939);
+    assert.equal(out, [20, 19]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 12939);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "a wait at every level of three nested combinators still runs" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
@@ -432,23 +432,23 @@ test "a wait at every level of three nested combinators still runs" {
             })
             .foldCtx(c, fn(d, acc: Int, n) => acc + n, 0)
     });
-    assert.eq(out, [2, 4]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
+    assert.equal(out, [2, 4]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "a waiting mapCtxStep inside a waiting mapCtx still runs" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let out = [[1], [2]].mapCtx(ctx, fn(c, xs: [Int]) => {
-        xs.mapCtxStep(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x)))).len()
+        xs.mapCtxStep(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x)))).length()
             + noted(heard.sendMessage(c, .Saw(8)))
     });
-    assert.eq(out, [17, 17]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 1828);
+    assert.equal(out, [17, 17]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 1828);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -462,29 +462,29 @@ test "a waiting mapCtxStep inside a waiting mapCtx still runs" {
 
 test "a waiting step under Tasks.parallel runs before parallel answers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let out = tasks.parallel(ctx, [1, 2, 3], fn(c, i, x) => {
         noted(heard.sendMessage(c, .Saw(x))) + i
     });
-    assert.eq(out, [2, 5, 8]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    assert.equal(out, [2, 5, 8]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 
 test "a waiting mapCtx inside a parallel step runs before parallel answers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let heard = actor.start(ctx, recorder());
     let out = tasks.parallel(ctx, [1, 2], fn(c, i, x) => {
-        [x, x].mapCtx(c, fn(d, y) => noted(heard.sendMessage(d, .Saw(y)))).len()
+        [x, x].mapCtx(c, fn(d, y) => noted(heard.sendMessage(d, .Saw(y)))).length()
     });
-    assert.eq(out, [2, 2]);
-    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 1122);
+    assert.equal(out, [2, 2]);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 1122);
     let _ = heard.stop(ctx).ignore();
 }
 
@@ -492,10 +492,13 @@ test "a waiting mapCtx inside a parallel step runs before parallel answers" {
 
 test "a combinator whose step never waits answers over the empty list too" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().mapCtx(ctx, fn(c, x) => x * 2), list.empty<Int>());
-    assert.eq(list.empty<Int>().mapCtxStep(ctx, fn(c, x) => x * 2), list.empty<Int>());
-    assert.eq(list.empty<Int>().filterCtx(ctx, fn(c, x) => true), list.empty<Int>());
-    assert.eq(list.empty<Int>().foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 7), 7);
+    assert.equal(list.empty<Int>().mapCtx(ctx, fn(c, x) => x * 2), list.empty<Int>());
+    assert.equal(
+        list.empty<Int>().mapCtxStep(ctx, fn(c, x) => x * 2),
+        list.empty<Int>(),
+    );
+    assert.equal(list.empty<Int>().filterCtx(ctx, fn(c, x) => true), list.empty<Int>());
+    assert.equal(list.empty<Int>().foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 7), 7);
 }

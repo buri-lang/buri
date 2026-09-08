@@ -72,8 +72,8 @@ file {
 # the page beside it is fine, but because a worker has no address of its own.
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(request: Request): Response {\n    let ctx = context {\n        Alloc: host.alloc,\n    };"
-  with: "export fn fetch(request: Request): Response {\n    let ctx = context {\n        Alloc: host.alloc,\n        Location: host.location,\n    };"
+  replace: "export fn fetch(request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n    };"
+  with: "export fn fetch(request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n        Location: host.location,\n    };"
 }
 
 run {

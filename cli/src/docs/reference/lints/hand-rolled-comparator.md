@@ -2,7 +2,7 @@
 title: A comparator over a primitive is already in `core/order`
 severity: warning
 message: this is `{comparator}`, written out
-note: "`core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take"
+note: "`core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take"
 fix: call `{comparator}` with the two operands, and delete the chain
 ---
 ```
@@ -14,7 +14,7 @@ fn compareInts(left: Int, right: Int): Order {
 That function is `order.int`. Not "like" it: `core/order` declares it with that
 body, character for character.
 
-Comparators travel in packs. One arrives because `derive Ord` did not reach
+Comparators travel in packs. One arrives because `derive Ordered` did not reach
 somewhere, and then there are four: one for `Int`, one for `Bool`, one for
 `Float` that quietly disagrees with the first two about `NaN`, and one for `Str`
 that delegates to `compare`. The library has the whole set:

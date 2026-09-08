@@ -10,10 +10,10 @@
 //!     `self` or `ctx`;
 //!   - no type may implement both an effect and a trait.
 
-derive Eq, Show for Region;
-/// A region of memory. `Alloc` is a *resource* effect: it can fail and it costs
+derive Equal, Show for Region;
+/// A region of memory. `Allocator` is a *resource* effect: it can fail and it costs
 /// something, but nobody can observe it. That is what keeps a function bounded
-/// only by `Alloc` deterministic (SPEC 10.5).
+/// only by `Allocator` deterministic (SPEC 10.5).
 export struct Region(export I64);
 
 /// What allocating costs, as a **definition**.
@@ -33,13 +33,13 @@ export struct Region(export I64);
 /// allocator did.
 ///
 /// A **view charges nothing** because `slice`, `trim` and `splitOnce` are
-/// declared without an `Alloc` bound. A **fixed-size construction charges
+/// declared without an `Allocator` bound. A **fixed-size construction charges
 /// nothing** even where the implementation heap-allocates, because SPEC 10.5
-/// says fixed-size construction never requires `Alloc`.
+/// says fixed-size construction never requires `Allocator`.
 ///
 /// Change a row and you break observable behaviour. `core/alloc` counts the
 /// charges, and it says which of these rows an allocator hears about today.
-export effect Alloc {
+export effect Allocator {
     fn allocate(self, bytes: Int): Region;
 }
 
@@ -71,7 +71,7 @@ export effect Stdout {
     ///
     /// `print` takes a `Template` and the platform encodes it; this takes bytes
     /// and the platform encodes nothing.
-    fn writeBytes(self, b: [U8]): Result<(), IoError>;
+    fn writeBytes(self, bytes: [U8]): Result<(), IoError>;
 }
 
 /// Writing to standard error, on `Stdout`'s terms, `Result` included. The two
@@ -83,21 +83,21 @@ export effect Stderr {
 
 export effect Stdin {
     fn readLine(self): Option<Str>;
-    /// Exactly `n` octets, or fewer at end of input — `.None` when there were
+    /// Exactly `count` octets, or fewer at end of input — `.None` when there were
     /// none at all.
     ///
     /// Blocks until the octets arrive. `readLine` reads the input to its end,
     /// so a program using it cannot answer before the other side has finished
     /// speaking; this is how a request/response protocol over a pipe is
     /// written.
-    fn readBytes(self, n: Int): Option<[U8]>;
+    fn readBytes(self, count: Int): Option<[U8]>;
 }
 
-// `Fs` is not here. It split into `FsRead` and `FsWrite`, and the platform
+// `FileSystem` is not here. It split into `FileSystemRead` and `FileSystemWrite`, and the platform
 // module `core/fs` declares both: every method of both names a `Path`, and this
 // module sits below `core/path`.
 
-export effect Net {
+export effect Network {
     /// One request, one response. `Request` and `Response` are declared below,
     /// and they are the same two types `core/net/http` re-exports and a server
     /// hands its handler.
@@ -105,8 +105,8 @@ export effect Net {
 }
 
 export effect Clock {
-    fn nowMillis(self): I64;
-    fn sleepMillis(self, millis: Int): ();
+    fn nowMilliseconds(self): I64;
+    fn sleepMilliseconds(self, milliseconds: Int): ();
 
     /// A reading off a clock that only ever goes forward, in nanoseconds.
     ///
@@ -115,7 +115,7 @@ export effect Clock {
     /// with two readings is subtract them. `core/time`'s `Monotonic` is the type
     /// that says so.
     ///
-    /// This is what an elapsed measurement wants, and `nowMillis` is not: wall
+    /// This is what an elapsed measurement wants, and `nowMilliseconds` is not: wall
     /// time steps when NTP corrects it and can step backwards, and it counts
     /// whole milliseconds.
     fn monotonicNanoseconds(self): I64;
@@ -128,17 +128,17 @@ export effect Clock {
 /// observer who has seen enough output of either can predict the rest.
 ///
 /// A program that needs unpredictability names `Entropy` below. A program that
-/// wants a generator it can *replay* uses `core/random`'s `Gen`: a seeded value
+/// wants a generator it can *replay* uses `core/random`'s `Generator`: a seeded value
 /// rather than an effect, with the same distribution and the same numbers
 /// twice.
-export effect Rand {
-    fn nextInt(self, lo: Int, hi: Int): Int;
+export effect Random {
+    fn nextInt(self, low: Int, high: Int): Int;
     fn nextFloat(self): Float;
 }
 
 /// Octets nobody can predict, from the operating system's own generator.
 ///
-/// **This is not `Rand` with a better distribution.** `Rand` promises
+/// **This is not `Random` with a better distribution.** `Random` promises
 /// *uniformity*, a claim about the shape of a sequence. This promises
 /// *unpredictability*, a claim about somebody who has already seen part of one.
 /// A seeded generator keeps the first promise and cannot keep the second — and
@@ -165,13 +165,13 @@ export effect Entropy {
 /// The process's environment: its variables and the arguments it was started
 /// with.
 ///
-/// `args` and not `arguments`: `core/env` exports `args(ctx)` and is the only
-/// caller of this method. A type's methods are one map keyed by name, so the
-/// name `arguments` is left for `core/host/testing`'s `TestEnv` builder, where
-/// `env().arguments([...])` is how a test says what the arguments are.
-export effect Env {
+/// `arguments` and not `args`: `core/env` exports `arguments(ctx)` and is the
+/// only caller of this method. A type's methods are one map keyed by name, so
+/// `core/host/testing`'s builder takes the other name — `env().withArguments`
+/// is how a test says what the arguments are.
+export effect Environment {
     fn variable(self, name: Str): Option<Str>;
-    fn args(self): [Str];
+    fn arguments(self): [Str];
 
     /// Where the process is running, as text. `core/env` turns it into a
     /// `Path`.
@@ -181,7 +181,7 @@ export effect Env {
     ///
     /// `allVariables` and not `variables`, for the reason `args` is not
     /// `arguments`: a type's methods are one map keyed by name, and
-    /// `core/host/testing`'s `TestEnv` already spends `variables` on the
+    /// `core/host/testing`'s `TestEnvironment` already spends `variables` on the
     /// builder a test writes its environment with.
     fn allVariables(self): [(Str, Str)];
 
@@ -192,7 +192,7 @@ export effect Env {
     fn operatingSystemName(self): Str;
 }
 
-export effect Proc {
+export effect Process {
     fn exitWith(self, code: Int): ();
 }
 
@@ -230,14 +230,14 @@ export effect Proc {
 /// on the calling carrier. All three answer the same list. `core/tasks` has the
 /// table.
 export effect Tasks {
-    /// Runs `f` over every item and answers the results in the items' order,
+    /// Runs `step` over every item and answers the results in the items' order,
     /// handing every step `ctx` — the caller's whole context.
-    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    fn parallel<C, A, B>(self, ctx: C, items: [A], step: fn(C, Int, A) => B): [B];
 }
 
 /// Accepting connections.
 ///
-/// `Net` is "I make requests"; this is "I accept them". Two authorities, so two
+/// `Network` is "I make requests"; this is "I accept them". Two authorities, so two
 /// grants: a program that fetches a URL has not thereby earned the right to hold
 /// a port open. `Sockets` is declared beside this one and granted with it, since
 /// a platform that accepts connections can write back on them.
@@ -322,7 +322,7 @@ export effect Listen {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError>;
 
     /// The next connection on this listener with a whole request on it.
@@ -419,7 +419,7 @@ export effect Listen {
 /// Writing to a connection somebody else accepted.
 ///
 /// A websocket is not a request and a response, so the authority to push on one
-/// is neither `Listen` nor `Net`. It is separate because it *outlives* the
+/// is neither `Listen` nor `Network`. It is separate because it *outlives* the
 /// handler: a socket handle can go to an actor and be pushed to from there long
 /// after the request that opened it returned.
 ///
@@ -537,7 +537,7 @@ export effect WebSocketClient {
 
 /// Speaking a protocol nobody here has heard of.
 ///
-/// `Net` is one request and one answer. `Listen` accepts connections. This is
+/// `Network` is one request and one answer. `Listen` accepts connections. This is
 /// the one below both of them: a connection dialled out, bytes each way, and no
 /// opinion at all about what they mean. It is what a Redis client, a Postgres
 /// client or a line protocol is written out of.
@@ -588,7 +588,7 @@ export effect Tcp {
     fn tcpClose(self, handle: Int): ();
 }
 
-derive Eq, Show for IoError;
+derive Equal, Show for IoError;
 /// Declared here rather than in `core/fs` because the three stream effects above
 /// answer it too. `core/fs` re-exports it, so a program that only reads files
 /// names one module.
@@ -605,7 +605,7 @@ export enum IoError {
     Other(Str),
 }
 
-derive Eq, Show for NetError;
+derive Equal, Show for NetError;
 export enum NetError {
     Timeout,
     Refused,
@@ -618,7 +618,7 @@ export enum NetError {
     Aborted,
 }
 
-derive Eq, Show for Protocol;
+derive Equal, Show for Protocol;
 /// An HTTP version a server may be asked to speak.
 ///
 /// The **declaration order is the ABI**: the variant index is what crosses to
@@ -636,7 +636,7 @@ export enum Protocol {
     Http3,
 }
 
-derive Eq, Show for Serve;
+derive Equal, Show for Serve;
 /// One thing a listener is being asked for — **the bind's whole plan, one
 /// element at a time.**
 ///
@@ -672,7 +672,7 @@ export enum Serve {
     /// **It bounds the waiting and not the handlers.** A handler still running
     /// when this expires still answers the connection it was given; what expires
     /// is the patience of the workers that have nothing to do.
-    DrainMillis(Int),
+    DrainMilliseconds(Int),
     /// How many messages a socket's outbound buffer holds before the socket is
     /// closed.
     ///
@@ -683,7 +683,7 @@ export enum Serve {
     SocketBuffer(Int),
 }
 
-derive Eq, Show for ServeFailure;
+derive Equal, Show for ServeFailure;
 /// Why a server stopped, as a closed set.
 ///
 /// Separate from `NetError` because being a server fails in different ways from
@@ -711,7 +711,7 @@ export enum ServeFailure {
     Transport,
 }
 
-derive Eq, Show for ServeError;
+derive Equal, Show for ServeError;
 /// Why a server stopped, and what the platform said about it.
 ///
 /// A **struct** rather than an enum with payloads: `cause` is what a program
@@ -723,7 +723,7 @@ export struct ServeError {
     export detail: Str,
 }
 
-derive Eq, Show for Listener;
+derive Equal, Show for Listener;
 /// An open port. Inert data: three integers the acceptor understands and nobody
 /// else does.
 ///
@@ -746,7 +746,7 @@ export struct Listener {
     export handlers: Int,
 }
 
-derive Eq, Show for Frame;
+derive Equal, Show for Frame;
 /// Which of the three things `listenReceive` answered with.
 ///
 /// **Three and not five**: a ping and a pong are the transport keeping a
@@ -764,7 +764,7 @@ export enum Frame {
     Closed,
 }
 
-derive Eq, Show for Received;
+derive Equal, Show for Received;
 /// One thing that arrived on a socket.
 ///
 /// **A struct with a kind beside it, rather than an enum with payloads**, on
@@ -797,7 +797,7 @@ export struct Received {
     export code: Int,
 }
 
-derive Eq, Show for Connected;
+derive Equal, Show for Connected;
 /// A WebSocket client's opening handshake, answered.
 ///
 /// **Flat, and a struct rather than a pair**, on `Received`'s terms: it crosses
@@ -828,7 +828,7 @@ export struct Connected {
     export body: [U8],
 }
 
-derive Eq, Show for Method;
+derive Equal, Show for Method;
 /// The request method.
 ///
 /// Its **wire spelling never appears in Buri code**: `GET` is written `.Get`,
@@ -847,7 +847,7 @@ export enum Method {
     Options,
 }
 
-derive Eq, Show for Header;
+derive Equal, Show for Header;
 /// One header field.
 ///
 /// **Names are lowercase.** HTTP/2 and HTTP/3 require it on the wire, every
@@ -860,8 +860,8 @@ export struct Header {
     export value: Str,
 }
 
-derive Eq, Show for Request;
-/// An HTTP request: what `Net.fetch` takes, and what a server's handler is given.
+derive Equal, Show for Request;
+/// An HTTP request: what `Network.fetch` takes, and what a server's handler is given.
 ///
 /// The body is octets rather than text: a decoded `Str` would have to be lossy or
 /// fallible, and both are wrong for a byte range or a protobuf. `core/net/http`
@@ -871,19 +871,19 @@ export struct Request {
     export url: Str,
     export headers: [Header],
     export body: [U8],
-    /// How long `Net.fetch` may take on this request, in milliseconds, counting
+    /// How long `Network.fetch` may take on this request, in milliseconds, counting
     /// every step: the name lookup, the connect, the TLS handshake and each read
     /// and write. **Zero is the platform's own bound**, which is what every
     /// request that has not asked for one carries.
     ///
     /// Milliseconds and not a `Duration`, because `core/time` names `Clock` and
-    /// so sits above this module — the same reason `Clock.sleepMillis` counts in
+    /// so sits above this module — the same reason `Clock.sleepMilliseconds` counts in
     /// milliseconds and `time.sleep` takes the `Duration`.
     export timeoutMillis: Int,
 }
 
-derive Eq, Show for Response;
-/// An HTTP response: what `Net.fetch` answers, and what a server's handler
+derive Equal, Show for Response;
+/// An HTTP response: what `Network.fetch` answers, and what a server's handler
 /// returns. The body is octets, for `Request`'s reason.
 export struct Response {
     export status: Int,
@@ -903,7 +903,7 @@ impl Request {
             .None => self.url,
         };
         let rooted = match (after.indexOf("/")) {
-            .Some(at) => after.slice(at, after.len()),
+            .Some(at) => after.slice(at, after.length()),
             .None => "/",
         };
         let noQuery = match (rooted.splitOnce("?")) {
@@ -939,7 +939,7 @@ impl Request {
 
     /// The same request with one more header. Appends rather than replaces,
     /// because `set-cookie` legitimately repeats.
-    export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
+    export fn withHeader<C: Allocator>(self, ctx: C, name: Str, value: Str): Request {
         Request {
             ..self,
             headers: self
@@ -953,7 +953,7 @@ impl Request {
     /// `header` answers the first, which is right for every field but the ones
     /// that legitimately repeat — `set-cookie` on the way back, and a client
     /// sending `accept` twice on the way out.
-    export fn headerValues<C: Alloc>(self, ctx: C, name: Str): [Str] {
+    export fn headerValues<C: Allocator>(self, ctx: C, name: Str): [Str] {
         self.headers.filterMap(ctx, fn(h) => matching(h, name))
     }
 
@@ -962,7 +962,7 @@ impl Request {
     ///
     /// `withHeader` appends and never replaces, so this is the other half — and
     /// the only way to change a field you have already set.
-    export fn setHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
+    export fn setHeader<C: Allocator>(self, ctx: C, name: Str, value: Str): Request {
         let lower = name.toLower(ctx);
         Request {
             ..self,
@@ -981,7 +981,7 @@ impl Request {
         Request { ..self, body: body }
     }
 
-    /// The same request, bounded. `millis` at or below zero puts the platform's
+    /// The same request, bounded. `milliseconds` at or below zero puts the platform's
     /// own bound back.
     ///
     /// **Every platform honours it.** A native `fetch` bounds the lookup, the
@@ -989,9 +989,12 @@ impl Request {
     /// aborts the request when it runs out. Either way an expired request is
     /// `.Err(.Timeout)`.
     ///
-    /// A `Duration` converts: `request.withTimeout(time.seconds(5).millis())`.
-    export fn withTimeout(self, millis: Int): Request {
-        Request { ..self, timeoutMillis: if (millis > 0) { millis } else { 0 } }
+    /// A `Duration` converts: `request.withTimeout(time.seconds(5).milliseconds())`.
+    export fn withTimeout(self, milliseconds: Int): Request {
+        Request {
+            ..self,
+            timeoutMillis: if (milliseconds > 0) { milliseconds } else { 0 },
+        }
     }
 }
 
@@ -1011,7 +1014,7 @@ impl Response {
     }
 
     /// The same response with one more header. Appends, for `Request`'s reason.
-    export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Response {
+    export fn withHeader<C: Allocator>(self, ctx: C, name: Str, value: Str): Response {
         Response {
             status: self.status,
             headers: self
@@ -1023,13 +1026,13 @@ impl Response {
 
     /// Every value under this name, in the order they arrived —
     /// `Request.headerValues`, on the other message.
-    export fn headerValues<C: Alloc>(self, ctx: C, name: Str): [Str] {
+    export fn headerValues<C: Allocator>(self, ctx: C, name: Str): [Str] {
         self.headers.filterMap(ctx, fn(h) => matching(h, name))
     }
 
     /// The same response with exactly one header under this name.
     /// `Request.setHeader`, on the other message.
-    export fn setHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Response {
+    export fn setHeader<C: Allocator>(self, ctx: C, name: Str, value: Str): Response {
         let lower = name.toLower(ctx);
         Response {
             ..self,

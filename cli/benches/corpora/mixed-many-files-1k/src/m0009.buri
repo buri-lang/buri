@@ -4,13 +4,13 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
 from "//bench/m0005.buri" import { blend5, Node5, reach5, seed5 };
 
-derive Eq, Show for Node9;
+derive Equal, Show for Node9;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node9 {
@@ -46,22 +46,22 @@ export fn firstOr9_0<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll9_0<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll9_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric9_0(ns: [Int], ss: [Str]): Int {
-    firstOr9_0<Int>(ns, 0) + firstOr9_0<Str>(ss, "").len()
+    firstOr9_0<Int>(ns, 0) + firstOr9_0<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe9_0<C: Alloc>(ctx: C): Int {
-    useGeneric9_0([1, 2], ["a"]) + describeAll9_0(ctx, [1, 2]).len()
+export fn probe9_0<C: Allocator>(ctx: C): Int {
+    useGeneric9_0([1, 2], ["a"]) + describeAll9_0(ctx, [1, 2]).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach9<C: Alloc>(ctx: C): Int {
+export fn reach9<C: Allocator>(ctx: C): Int {
     0 + probe9_0(ctx) + reach4(ctx) + reach5(ctx)
 }

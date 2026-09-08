@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:19:42
+   |
+19 |     assert.equal(one.hash(), other.hash();
+   |                                          ^
+   |
+  --> main.buri:19:17
+   |
+19 |     assert.equal(one.hash(), other.hash();
+   |                 ^ opened here
+   |
+   = fix: write `)` here

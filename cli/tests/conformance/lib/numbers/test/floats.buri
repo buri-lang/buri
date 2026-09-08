@@ -1,16 +1,16 @@
 // Floating point — SPEC 5.1.1 (`F32` is binary32 and `F64` is binary64),
 // 6.2 ("Floating point follows IEEE-754. `==` on floats compares numerically
-// with `-0.0` equal to `0.0`, and `NaN != NaN`"), and 5.11 (`Ord` on floats
+// with `-0.0` equal to `0.0`, and `NaN != NaN`"), and 5.11 (`Ordered` on floats
 // orders `-0.0` equal to `0.0`).
 //
 // The values here are chosen so the expected answer is exactly representable
 // wherever the point is to test arithmetic rather than to test rounding; the
 // tests that do exercise rounding say so.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/math" import * as math;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/order" import { Order };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
@@ -30,65 +30,65 @@ fn negInf(): F64 {
 // --- F64 arithmetic ----------------------------------------------------------------
 
 test "F64 adds, subtracts, multiplies and divides" {
-    assert.eq(0.5 + 0.25, 0.75);
-    assert.eq(0.75 - 0.25, 0.5);
-    assert.eq(1.5 * 2.0, 3.0);
-    assert.eq(3.0 / 2.0, 1.5);
+    assert.equal(0.5 + 0.25, 0.75);
+    assert.equal(0.75 - 0.25, 0.5);
+    assert.equal(1.5 * 2.0, 3.0);
+    assert.equal(3.0 / 2.0, 1.5);
 }
 
 test "F64 division does not truncate" {
-    assert.eq(1.0 / 4.0, 0.25);
-    assert.eq(7.0 / 2.0, 3.5);
-    assert.eq(-7.0 / 2.0, -3.5);
-    assert.eq(1.0 / 2.0, 0.5);
+    assert.equal(1.0 / 4.0, 0.25);
+    assert.equal(7.0 / 2.0, 3.5);
+    assert.equal(-7.0 / 2.0, -3.5);
+    assert.equal(1.0 / 2.0, 0.5);
 }
 
 test "the float remainder takes the sign of the dividend" {
-    assert.eq(7.5 % 2.0, 1.5);
-    assert.eq(-7.5 % 2.0, -1.5);
-    assert.eq(7.5 % -2.0, 1.5);
-    assert.eq(-7.5 % -2.0, -1.5);
+    assert.equal(7.5 % 2.0, 1.5);
+    assert.equal(-7.5 % 2.0, -1.5);
+    assert.equal(7.5 % -2.0, 1.5);
+    assert.equal(-7.5 % -2.0, -1.5);
 }
 
 test "negating a float" {
     let a: F64 = 1.5;
-    assert.eq(-a, -1.5);
-    assert.eq(-(-a), 1.5);
-    assert.eq(-0.0 == 0.0, true);
+    assert.equal(-a, -1.5);
+    assert.equal(-(-a), 1.5);
+    assert.equal(-0.0 == 0.0, true);
 }
 
 test "F64 carries binary floating point rounding, not decimal arithmetic" {
-    assert.notEq(0.1 + 0.2, 0.3);
-    assert.eq(0.1 + 0.2, 0.30000000000000004);
-    assert.eq(0.1 + 0.4, 0.5);
+    assert.notEqual(0.1 + 0.2, 0.3);
+    assert.equal(0.1 + 0.2, 0.30000000000000004);
+    assert.equal(0.1 + 0.4, 0.5);
 }
 
 test "powers of two are exact in F64" {
-    assert.eq(0.5 + 0.5, 1.0);
-    assert.eq(0.125 * 8.0, 1.0);
-    assert.eq(9007199254740992.0 + 0.0, 9007199254740992.0);
-    assert.eq(9007199254740992.0 + 1.0, 9007199254740992.0);
+    assert.equal(0.5 + 0.5, 1.0);
+    assert.equal(0.125 * 8.0, 1.0);
+    assert.equal(9007199254740992.0 + 0.0, 9007199254740992.0);
+    assert.equal(9007199254740992.0 + 1.0, 9007199254740992.0);
 }
 
 test "a float literal with nothing to pin it defaults to Float" {
     let a = 1.5;
     let b: F64 = 1.5;
-    assert.eq(a, b);
-    assert.eq(a * 2.0, 3.0);
+    assert.equal(a, b);
+    assert.equal(a * 2.0, 3.0);
 }
 
 test "a float literal pinned by an annotation gets that type" {
     let a: F32 = 1.5;
     let b: F32 = 2.5;
-    assert.eq(a + b, 4.0);
-    assert.eq(a.toF64(), 1.5);
+    assert.equal(a + b, 4.0);
+    assert.equal(a.toF64(), 1.5);
 }
 
 test "an exponent literal is the value it spells" {
-    assert.eq(1.0e3, 1000.0);
-    assert.eq(1.5e-3, 0.0015);
-    assert.eq(6.0e2, 600.0);
-    assert.eq(1.0e0, 1.0);
+    assert.equal(1.0e3, 1000.0);
+    assert.equal(1.5e-3, 0.0015);
+    assert.equal(6.0e2, 600.0);
+    assert.equal(1.0e0, 1.0);
 }
 
 // --- IEEE-754 behaviour --------------------------------------------------------------
@@ -100,7 +100,7 @@ test "NaN is equal to itself and to every other NaN" {
     let x = nan();
     assert.isTrue(x == x);
     assert.isFalse(x != x);
-    assert.eq(x, x);
+    assert.equal(x, x);
     // A different bit pattern for the same value: negation flips the sign bit
     // and nothing else, so an equality that compared bits would fail here.
     let y = -x;
@@ -135,18 +135,18 @@ test "NaN propagates through arithmetic" {
 }
 
 test "minus zero equals zero but keeps its sign" {
-    assert.eq(-0.0, 0.0);
+    assert.equal(-0.0, 0.0);
     assert.isTrue(-0.0 == 0.0);
     assert.isFalse(-0.0 < 0.0);
-    assert.eq(1.0 / 0.0, inf());
-    assert.eq(1.0 / -0.0, negInf());
+    assert.equal(1.0 / 0.0, inf());
+    assert.equal(1.0 / -0.0, negInf());
 }
 
 test "the infinities behave like infinities" {
-    assert.eq(inf() + 1.0, inf());
-    assert.eq(inf() * 2.0, inf());
-    assert.eq(negInf() + 1.0, negInf());
-    assert.eq(inf() + negInf() == inf(), false);
+    assert.equal(inf() + 1.0, inf());
+    assert.equal(inf() * 2.0, inf());
+    assert.equal(negInf() + 1.0, negInf());
+    assert.equal(inf() + negInf() == inf(), false);
     assert.isTrue(math.isNan(inf() + negInf()));
     assert.isTrue(math.isNan(inf() * 0.0));
 }
@@ -155,7 +155,7 @@ test "infinity orders above every finite value" {
     assert.isTrue(inf() > 1.0e300);
     assert.isTrue(negInf() < -1.0e300);
     assert.isTrue(negInf() < inf());
-    assert.eq(1.0 / inf(), 0.0);
+    assert.equal(1.0 / inf(), 0.0);
 }
 
 test "isNan, isInfinite and isFinite classify a float" {
@@ -172,97 +172,97 @@ test "isNan, isInfinite and isFinite classify a float" {
 // --- core/math -------------------------------------------------------------------------
 
 test "sqrt" {
-    assert.eq(math.sqrt(9.0), 3.0);
-    assert.eq(math.sqrt(0.0), 0.0);
-    assert.eq(math.sqrt(2.0), 1.4142135623730951);
-    assert.eq(math.sqrt(0.25), 0.5);
-    assert.isTrue(math.isNan(math.sqrt(-1.0)));
-    assert.eq(math.sqrt(math.INFINITY), math.INFINITY);
+    assert.equal(math.squareRoot(9.0), 3.0);
+    assert.equal(math.squareRoot(0.0), 0.0);
+    assert.equal(math.squareRoot(2.0), 1.4142135623730951);
+    assert.equal(math.squareRoot(0.25), 0.5);
+    assert.isTrue(math.isNan(math.squareRoot(-1.0)));
+    assert.equal(math.squareRoot(math.INFINITY), math.INFINITY);
 }
 
-test "cbrt" {
-    assert.eq(math.cbrt(27.0), 3.0);
-    assert.eq(math.cbrt(-8.0), -2.0);
-    assert.eq(math.cbrt(0.0), 0.0);
+test "cubeRoot" {
+    assert.equal(math.cubeRoot(27.0), 3.0);
+    assert.equal(math.cubeRoot(-8.0), -2.0);
+    assert.equal(math.cubeRoot(0.0), 0.0);
 }
 
 test "pow" {
-    assert.eq(math.pow(2.0, 10.0), 1024.0);
-    assert.eq(math.pow(2.0, 0.0), 1.0);
-    assert.eq(math.pow(2.0, -1.0), 0.5);
-    assert.eq(math.pow(9.0, 0.5), 3.0);
-    assert.eq(math.pow(-2.0, 3.0), -8.0);
+    assert.equal(math.power(2.0, 10.0), 1024.0);
+    assert.equal(math.power(2.0, 0.0), 1.0);
+    assert.equal(math.power(2.0, -1.0), 0.5);
+    assert.equal(math.power(9.0, 0.5), 3.0);
+    assert.equal(math.power(-2.0, 3.0), -8.0);
 }
 
 test "floor rounds toward negative infinity" {
-    assert.eq(math.floor(2.7), 2.0);
-    assert.eq(math.floor(2.0), 2.0);
-    assert.eq(math.floor(-2.1), -3.0);
-    assert.eq(math.floor(-2.0), -2.0);
+    assert.equal(math.floor(2.7), 2.0);
+    assert.equal(math.floor(2.0), 2.0);
+    assert.equal(math.floor(-2.1), -3.0);
+    assert.equal(math.floor(-2.0), -2.0);
 }
 
 test "ceil rounds toward positive infinity" {
-    assert.eq(math.ceil(2.1), 3.0);
-    assert.eq(math.ceil(2.0), 2.0);
-    assert.eq(math.ceil(-2.7), -2.0);
-    assert.eq(math.ceil(-2.0), -2.0);
+    assert.equal(math.ceiling(2.1), 3.0);
+    assert.equal(math.ceiling(2.0), 2.0);
+    assert.equal(math.ceiling(-2.7), -2.0);
+    assert.equal(math.ceiling(-2.0), -2.0);
 }
 
 test "trunc rounds toward zero" {
-    assert.eq(math.trunc(2.7), 2.0);
-    assert.eq(math.trunc(-2.7), -2.0);
-    assert.eq(math.trunc(0.9), 0.0);
-    assert.eq(math.trunc(-0.9), 0.0);
+    assert.equal(math.truncate(2.7), 2.0);
+    assert.equal(math.truncate(-2.7), -2.0);
+    assert.equal(math.truncate(0.9), 0.0);
+    assert.equal(math.truncate(-0.9), 0.0);
 }
 
 test "round goes to the nearer whole number" {
-    assert.eq(math.round(2.4), 2.0);
-    assert.eq(math.round(2.6), 3.0);
-    assert.eq(math.round(-2.4), -2.0);
-    assert.eq(math.round(-2.6), -3.0);
-    assert.eq(math.round(2.0), 2.0);
+    assert.equal(math.round(2.4), 2.0);
+    assert.equal(math.round(2.6), 3.0);
+    assert.equal(math.round(-2.4), -2.0);
+    assert.equal(math.round(-2.6), -3.0);
+    assert.equal(math.round(2.0), 2.0);
 }
 
-test "absFloat and the abs method agree" {
+test "absoluteFloat and the abs method agree" {
     let a: F64 = -2.5;
-    assert.eq(math.absFloat(-2.5), 2.5);
-    assert.eq(math.absFloat(2.5), 2.5);
-    assert.eq(math.absFloat(0.0), 0.0);
-    assert.eq(a.abs(), 2.5);
-    assert.eq(math.absFloat(negInf()), inf());
+    assert.equal(math.absoluteFloat(-2.5), 2.5);
+    assert.equal(math.absoluteFloat(2.5), 2.5);
+    assert.equal(math.absoluteFloat(0.0), 0.0);
+    assert.equal(a.abs(), 2.5);
+    assert.equal(math.absoluteFloat(negInf()), inf());
 }
 
 test "exp and ln invert each other" {
-    assert.eq(math.exp(0.0), 1.0);
-    assert.eq(math.ln(1.0), 0.0);
-    assert.eq(math.ln(math.E), 1.0);
-    assert.eq(math.exp(1.0), math.E);
-    assert.eq(math.ln(math.exp(2.0)), 2.0);
+    assert.equal(math.exp(0.0), 1.0);
+    assert.equal(math.ln(1.0), 0.0);
+    assert.equal(math.ln(math.E), 1.0);
+    assert.equal(math.exp(1.0), math.E);
+    assert.equal(math.ln(math.exp(2.0)), 2.0);
 }
 
 test "log2 and log10" {
-    assert.eq(math.log2(1024.0), 10.0);
-    assert.eq(math.log2(1.0), 0.0);
-    assert.eq(math.log10(1000.0), 3.0);
-    assert.eq(math.log10(1.0), 0.0);
+    assert.equal(math.log2(1024.0), 10.0);
+    assert.equal(math.log2(1.0), 0.0);
+    assert.equal(math.log10(1000.0), 3.0);
+    assert.equal(math.log10(1.0), 0.0);
 }
 
 test "the trigonometric functions at their easy points" {
-    assert.eq(math.sin(0.0), 0.0);
-    assert.eq(math.cos(0.0), 1.0);
-    assert.eq(math.tan(0.0), 0.0);
-    assert.eq(math.asin(0.0), 0.0);
-    assert.eq(math.atan(0.0), 0.0);
-    assert.eq(math.acos(1.0), 0.0);
-    assert.eq(math.atan2(0.0, 1.0), 0.0);
-    assert.eq(math.atan2(1.0, 0.0), math.PI / 2.0);
+    assert.equal(math.sin(0.0), 0.0);
+    assert.equal(math.cos(0.0), 1.0);
+    assert.equal(math.tan(0.0), 0.0);
+    assert.equal(math.asin(0.0), 0.0);
+    assert.equal(math.atan(0.0), 0.0);
+    assert.equal(math.acos(1.0), 0.0);
+    assert.equal(math.atan2(0.0, 1.0), 0.0);
+    assert.equal(math.atan2(1.0, 0.0), math.PI / 2.0);
 }
 
 test "PI and E are the binary64 values nearest the constants" {
-    assert.eq(math.PI, 3.141592653589793);
-    assert.eq(math.E, 2.718281828459045);
-    assert.eq(math.sin(math.PI) < 1.0e-15, true);
-    assert.eq(math.cos(math.PI), -1.0);
+    assert.equal(math.PI, 3.141592653589793);
+    assert.equal(math.E, 2.718281828459045);
+    assert.equal(math.sin(math.PI) < 1.0e-15, true);
+    assert.equal(math.cos(math.PI), -1.0);
 }
 
 // --- F32 ---------------------------------------------------------------------------------
@@ -270,10 +270,10 @@ test "PI and E are the binary64 values nearest the constants" {
 test "F32 adds, subtracts, multiplies and divides" {
     let a: F32 = 1.5;
     let b: F32 = 0.5;
-    assert.eq(a + b, 2.0);
-    assert.eq(a - b, 1.0);
-    assert.eq(a * b, 0.75);
-    assert.eq(a / b, 3.0);
+    assert.equal(a + b, 2.0);
+    assert.equal(a - b, 1.0);
+    assert.equal(a * b, 0.75);
+    assert.equal(a / b, 3.0);
 }
 
 test "F32 compares like a float" {
@@ -281,10 +281,10 @@ test "F32 compares like a float" {
     let b: F32 = 2.5;
     assert.isTrue(a < b);
     assert.isFalse(b < a);
-    assert.eq(a.compare(b), Order.Less);
+    assert.equal(a.compare(b), Order.Less);
     let z: F32 = -0.0;
     let p: F32 = 0.0;
-    assert.eq(z, p);
+    assert.equal(z, p);
 }
 
 test "F32 is binary32, so it stops counting by ones at two to the twenty-fourth" {
@@ -292,65 +292,65 @@ test "F32 is binary32, so it stops counting by ones at two to the twenty-fourth"
     // binary32, so adding one to 16777216.0 has to give 16777216.0 back.
     let a: F32 = 16777216.0;
     let b: F32 = 1.0;
-    assert.eq(a + b, 16777216.0);
+    assert.equal(a + b, 16777216.0);
 }
 
 test "F32 rounds a decimal literal to binary32" {
     // 0.1 is not representable in binary32 either; the nearest binary32 value
     // is 0.100000001490116119384765625.
     let a: F32 = 0.1;
-    assert.eq(a.toF64(), 0.10000000149011612);
+    assert.equal(a.toF64(), 0.10000000149011612);
 }
 
 // --- Rendering and parsing -----------------------------------------------------------------
 
 test "a whole-number float renders with a point" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(str.fromFloat(ctx, 1.0), "1.0");
-    assert.eq(str.fromFloat(ctx, 0.0), "0.0");
-    assert.eq(str.fromFloat(ctx, -2.0), "-2.0");
-    assert.eq(str.fromFloat(ctx, 100.0), "100.0");
+    assert.equal(str.fromFloat(ctx, 1.0), "1.0");
+    assert.equal(str.fromFloat(ctx, 0.0), "0.0");
+    assert.equal(str.fromFloat(ctx, -2.0), "-2.0");
+    assert.equal(str.fromFloat(ctx, 100.0), "100.0");
 }
 
 test "a fractional float renders its digits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(str.fromFloat(ctx, 0.5), "0.5");
-    assert.eq(str.fromFloat(ctx, -0.25), "-0.25");
-    assert.eq(str.fromFloat(ctx, 0.1 + 0.2), "0.30000000000000004");
+    assert.equal(str.fromFloat(ctx, 0.5), "0.5");
+    assert.equal(str.fromFloat(ctx, -0.25), "-0.25");
+    assert.equal(str.fromFloat(ctx, 0.1 + 0.2), "0.30000000000000004");
 }
 
 test "the special values render as names rather than numbers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(str.fromFloat(ctx, inf()), "inf");
-    assert.eq(str.fromFloat(ctx, negInf()), "-inf");
-    assert.eq(str.fromFloat(ctx, nan()), "NaN");
-    assert.eq(str.fromFloat(ctx, -0.0), "-0.0");
+    assert.equal(str.fromFloat(ctx, inf()), "inf");
+    assert.equal(str.fromFloat(ctx, negInf()), "-inf");
+    assert.equal(str.fromFloat(ctx, nan()), "NaN");
+    assert.equal(str.fromFloat(ctx, -0.0), "-0.0");
 }
 
 test "show on a float agrees with str.fromFloat" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a: F64 = 1.5;
-    assert.eq(a.show(ctx), str.fromFloat(ctx, 1.5));
+    assert.equal(a.show(ctx), str.fromFloat(ctx, 1.5));
     let b: F64 = 2.0;
-    assert.eq(b.show(ctx), "2.0");
+    assert.equal(b.show(ctx), "2.0");
 }
 
 test "str.toFloat parses what str.fromFloat wrote" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.some(str.fromFloat(ctx, 1.5).toFloat()), 1.5);
-    assert.eq(assert.some(str.fromFloat(ctx, -0.25).toFloat()), -0.25);
-    assert.eq(assert.some("2.5".toFloat()), 2.5);
-    assert.eq(assert.some("2".toFloat()), 2.0);
+    assert.equal(assert.some(str.fromFloat(ctx, 1.5).toFloat()), 1.5);
+    assert.equal(assert.some(str.fromFloat(ctx, -0.25).toFloat()), -0.25);
+    assert.equal(assert.some("2.5".toFloat()), 2.5);
+    assert.equal(assert.some("2".toFloat()), 2.0);
 }
 
 test "str.toFloat rejects what is not a float" {
@@ -362,45 +362,45 @@ test "str.toFloat rejects what is not a float" {
 // --- Ordering and the free functions ----------------------------------------------------------
 
 test "min and max on floats" {
-    assert.eq(num.min(1.5, 2.5), 1.5);
-    assert.eq(num.max(1.5, 2.5), 2.5);
-    assert.eq(num.min(-1.5, -2.5), -2.5);
-    assert.eq(num.max(0.0, -0.0), 0.0);
+    assert.equal(number.min(1.5, 2.5), 1.5);
+    assert.equal(number.max(1.5, 2.5), 2.5);
+    assert.equal(number.min(-1.5, -2.5), -2.5);
+    assert.equal(number.max(0.0, -0.0), 0.0);
 }
 
 test "clamp on floats" {
-    assert.eq(num.clamp(0.0, 1.0, 2.5), 1.0);
-    assert.eq(num.clamp(0.0, 1.0, -2.5), 0.0);
-    assert.eq(num.clamp(0.0, 1.0, 0.5), 0.5);
-    assert.eq(num.clamp(0.0, 1.0, inf()), 1.0);
+    assert.equal(number.clamp(0.0, 1.0, 2.5), 1.0);
+    assert.equal(number.clamp(0.0, 1.0, -2.5), 0.0);
+    assert.equal(number.clamp(0.0, 1.0, 0.5), 0.5);
+    assert.equal(number.clamp(0.0, 1.0, inf()), 1.0);
 }
 
 test "signum on floats" {
     let a: F64 = -2.5;
     let b: F64 = 2.5;
     let z: F64 = 0.0;
-    assert.eq(a.signum(), -1.0);
-    assert.eq(b.signum(), 1.0);
-    assert.eq(z.signum(), 0.0);
+    assert.equal(a.signum(), -1.0);
+    assert.equal(b.signum(), 1.0);
+    assert.equal(z.signum(), 0.0);
 }
 
 test "compare on floats orders minus zero with zero" {
     let a: F64 = 1.5;
     let b: F64 = 2.5;
-    assert.eq(a.compare(b), Order.Less);
-    assert.eq(b.compare(a), Order.Greater);
-    assert.eq(a.compare(a), Order.Equal);
+    assert.equal(a.compare(b), Order.Less);
+    assert.equal(b.compare(a), Order.Greater);
+    assert.equal(a.compare(a), Order.Equal);
     let z: F64 = -0.0;
     let p: F64 = 0.0;
-    assert.eq(z.compare(p), Order.Equal);
+    assert.equal(z.compare(p), Order.Equal);
 }
 
 test "Float is F64, not a type of its own" {
     let a: Float = 1.5;
     let b: F64 = 1.5;
-    assert.eq(a, b);
-    assert.eq(a + b, 3.0);
-    assert.eq(math.sqrt(b), math.sqrt(a));
+    assert.equal(a, b);
+    assert.equal(a + b, 3.0);
+    assert.equal(math.squareRoot(b), math.squareRoot(a));
 }
 
 test "the comparison operators on F64" {
@@ -434,25 +434,25 @@ fn near(actual: Float, expected: Float): () {
 test "expMinusOne keeps the digits that exp(x) - 1 throws away" {
     near(math.expMinusOne(1.0), 1.7182818284590453);
     near(math.expMinusOne(-1.0), -0.6321205588285577);
-    assert.eq(math.expMinusOne(0.0), 0.0);
+    assert.equal(math.expMinusOne(0.0), 0.0);
     // The whole reason it exists: down here `exp(x) - 1.0` is zero.
-    assert.eq(math.expMinusOne(1.0e-16), 1.0e-16);
-    assert.eq(math.exp(1.0e-16) - 1.0, 0.0);
+    assert.equal(math.expMinusOne(1.0e-16), 1.0e-16);
+    assert.equal(math.exp(1.0e-16) - 1.0, 0.0);
     near(math.expMinusOne(1.0e-8), 1.0000000050000001e-8);
 }
 
 test "expMinusOne at the ends" {
-    assert.eq(math.expMinusOne(math.NEG_INFINITY), -1.0);
-    assert.eq(math.expMinusOne(math.INFINITY), math.INFINITY);
+    assert.equal(math.expMinusOne(math.NEG_INFINITY), -1.0);
+    assert.equal(math.expMinusOne(math.INFINITY), math.INFINITY);
     assert.isTrue(math.isNan(math.expMinusOne(nan())));
 }
 
 test "lnOnePlus keeps the digits that ln(1 + x) throws away" {
     near(math.lnOnePlus(1.0), 0.6931471805599453);
     near(math.lnOnePlus(-0.5), -0.6931471805599453);
-    assert.eq(math.lnOnePlus(0.0), 0.0);
-    assert.eq(math.lnOnePlus(1.0e-16), 1.0e-16);
-    assert.eq(math.ln(1.0 + 1.0e-16), 0.0);
+    assert.equal(math.lnOnePlus(0.0), 0.0);
+    assert.equal(math.lnOnePlus(1.0e-16), 1.0e-16);
+    assert.equal(math.ln(1.0 + 1.0e-16), 0.0);
 }
 
 test "expMinusOne and lnOnePlus undo each other" {
@@ -472,21 +472,21 @@ test "sinh is odd and matches its published values" {
     near(math.sinh(1.0), 1.1752011936438014);
     near(math.sinh(0.5), 0.5210953054937474);
     near(math.sinh(-1.0), -1.1752011936438014);
-    assert.eq(math.sinh(0.0), 0.0);
+    assert.equal(math.sinh(0.0), 0.0);
     near(math.sinh(3.0), 10.017874927409903);
 }
 
 test "sinh is x itself as x approaches zero" {
-    assert.eq(math.sinh(1.0e-16), 1.0e-16);
-    assert.eq(math.sinh(1.0e-8), 1.0e-8);
+    assert.equal(math.sinh(1.0e-16), 1.0e-16);
+    assert.equal(math.sinh(1.0e-8), 1.0e-8);
 }
 
 test "sinh overflows only where the answer does" {
     // `exp(710)` is infinite and `sinh(710)` is not.
     assert.isTrue(math.isFinite(math.sinh(710.0)));
     assert.isTrue(math.isInfinite(math.exp(710.0)));
-    assert.eq(math.sinh(math.INFINITY), math.INFINITY);
-    assert.eq(math.sinh(math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.equal(math.sinh(math.INFINITY), math.INFINITY);
+    assert.equal(math.sinh(math.NEG_INFINITY), math.NEG_INFINITY);
     assert.isTrue(math.isNan(math.sinh(nan())));
 }
 
@@ -494,15 +494,15 @@ test "cosh is even and never below one" {
     near(math.cosh(1.0), 1.5430806348152437);
     near(math.cosh(0.25), 1.0314130998795732);
     near(math.cosh(-1.0), 1.5430806348152437);
-    assert.eq(math.cosh(0.0), 1.0);
+    assert.equal(math.cosh(0.0), 1.0);
     assert.isTrue(math.cosh(0.3) >= 1.0);
     assert.isTrue(math.cosh(-0.3) >= 1.0);
 }
 
 test "cosh overflows only where the answer does" {
     assert.isTrue(math.isFinite(math.cosh(710.0)));
-    assert.eq(math.cosh(math.INFINITY), math.INFINITY);
-    assert.eq(math.cosh(math.NEG_INFINITY), math.INFINITY);
+    assert.equal(math.cosh(math.INFINITY), math.INFINITY);
+    assert.equal(math.cosh(math.NEG_INFINITY), math.INFINITY);
     assert.isTrue(math.isNan(math.cosh(nan())));
 }
 
@@ -517,16 +517,16 @@ test "tanh is odd and stays inside minus one to one" {
     near(math.tanh(1.0), 0.7615941559557649);
     near(math.tanh(0.5), 0.46211715726000974);
     near(math.tanh(-1.0), -0.7615941559557649);
-    assert.eq(math.tanh(0.0), 0.0);
+    assert.equal(math.tanh(0.0), 0.0);
     assert.isTrue(math.tanh(5.0) < 1.0);
     assert.isTrue(math.tanh(-5.0) > -1.0);
 }
 
 test "tanh is one to the last bit past twenty-two" {
-    assert.eq(math.tanh(23.0), 1.0);
-    assert.eq(math.tanh(-23.0), -1.0);
-    assert.eq(math.tanh(math.INFINITY), 1.0);
-    assert.eq(math.tanh(math.NEG_INFINITY), -1.0);
+    assert.equal(math.tanh(23.0), 1.0);
+    assert.equal(math.tanh(-23.0), -1.0);
+    assert.equal(math.tanh(math.INFINITY), 1.0);
+    assert.equal(math.tanh(math.NEG_INFINITY), -1.0);
     assert.isTrue(math.isNan(math.tanh(nan())));
 }
 
@@ -540,21 +540,21 @@ test "tanh is sinh over cosh" {
 test "asinh is defined everywhere and is odd" {
     near(math.asinh(1.0), 0.881373587019543);
     near(math.asinh(-1.0), -0.881373587019543);
-    assert.eq(math.asinh(0.0), 0.0);
+    assert.equal(math.asinh(0.0), 0.0);
     near(math.asinh(1.0e12), 28.32416829648849);
-    assert.eq(math.asinh(math.INFINITY), math.INFINITY);
-    assert.eq(math.asinh(math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.equal(math.asinh(math.INFINITY), math.INFINITY);
+    assert.equal(math.asinh(math.NEG_INFINITY), math.NEG_INFINITY);
     assert.isTrue(math.isNan(math.asinh(nan())));
 }
 
 test "acosh is NaN below one and zero at it" {
-    assert.eq(math.acosh(1.0), 0.0);
+    assert.equal(math.acosh(1.0), 0.0);
     near(math.acosh(2.0), 1.3169578969248166);
     near(math.acosh(1.5), 0.9624236501192069);
     near(math.acosh(1.0e12), 28.32416829648849);
     assert.isTrue(math.isNan(math.acosh(0.5)));
     assert.isTrue(math.isNan(math.acosh(-1.0)));
-    assert.eq(math.acosh(math.INFINITY), math.INFINITY);
+    assert.equal(math.acosh(math.INFINITY), math.INFINITY);
     assert.isTrue(math.isNan(math.acosh(nan())));
 }
 
@@ -562,9 +562,9 @@ test "atanh is NaN outside minus one to one, and infinite at each end" {
     near(math.atanh(0.5), 0.5493061443340549);
     near(math.atanh(-0.5), -0.5493061443340549);
     near(math.atanh(0.9), 1.4722194895832204);
-    assert.eq(math.atanh(0.0), 0.0);
-    assert.eq(math.atanh(1.0), math.INFINITY);
-    assert.eq(math.atanh(-1.0), math.NEG_INFINITY);
+    assert.equal(math.atanh(0.0), 0.0);
+    assert.equal(math.atanh(1.0), math.INFINITY);
+    assert.equal(math.atanh(-1.0), math.NEG_INFINITY);
     assert.isTrue(math.isNan(math.atanh(1.5)));
     assert.isTrue(math.isNan(math.atanh(-1.5)));
     assert.isTrue(math.isNan(math.atanh(nan())));
@@ -599,25 +599,25 @@ fn smallest(): Float {
 
 test "the odd functions keep the sign of a negative zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `sinh`, `tanh`, `asinh` and `atanh` are odd, so each answers `-0.0` at
     // `-0.0` — and `-0.0` is the value a sign that was thrown away shows up at.
-    assert.eq(str.fromFloat(ctx, math.sinh(-0.0)), "-0.0");
-    assert.eq(str.fromFloat(ctx, math.tanh(-0.0)), "-0.0");
-    assert.eq(str.fromFloat(ctx, math.asinh(-0.0)), "-0.0");
-    assert.eq(str.fromFloat(ctx, math.atanh(-0.0)), "-0.0");
-    assert.eq(str.fromFloat(ctx, math.expMinusOne(-0.0)), "-0.0");
-    assert.eq(str.fromFloat(ctx, math.lnOnePlus(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.sinh(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.tanh(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.asinh(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.atanh(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.expMinusOne(-0.0)), "-0.0");
+    assert.equal(str.fromFloat(ctx, math.lnOnePlus(-0.0)), "-0.0");
     // At `0.0` each answers a positive zero.
-    assert.eq(str.fromFloat(ctx, math.sinh(0.0)), "0.0");
-    assert.eq(str.fromFloat(ctx, math.tanh(0.0)), "0.0");
-    assert.eq(str.fromFloat(ctx, math.asinh(0.0)), "0.0");
-    assert.eq(str.fromFloat(ctx, math.atanh(0.0)), "0.0");
+    assert.equal(str.fromFloat(ctx, math.sinh(0.0)), "0.0");
+    assert.equal(str.fromFloat(ctx, math.tanh(0.0)), "0.0");
+    assert.equal(str.fromFloat(ctx, math.asinh(0.0)), "0.0");
+    assert.equal(str.fromFloat(ctx, math.atanh(0.0)), "0.0");
     // `cosh` is even and `acosh` is defined only above one, so neither has a
     // sign to keep: both answer a positive value at either zero.
-    assert.eq(math.cosh(-0.0), 1.0);
-    assert.eq(math.cosh(0.0), 1.0);
+    assert.equal(math.cosh(-0.0), 1.0);
+    assert.equal(math.cosh(0.0), 1.0);
     assert.isTrue(math.isNan(math.acosh(-0.0)));
     assert.isTrue(math.isNan(math.acosh(0.0)));
 }
@@ -625,29 +625,29 @@ test "the odd functions keep the sign of a negative zero" {
 test "the family at the two infinities" {
     // `sinh` is odd and `cosh` is even, so an infinite argument gives an
     // infinity of the matching sign and a positive one respectively.
-    assert.eq(math.sinh(inf()), inf());
-    assert.eq(math.sinh(negInf()), negInf());
-    assert.eq(math.cosh(inf()), inf());
-    assert.eq(math.cosh(negInf()), inf());
+    assert.equal(math.sinh(inf()), inf());
+    assert.equal(math.sinh(negInf()), negInf());
+    assert.equal(math.cosh(inf()), inf());
+    assert.equal(math.cosh(negInf()), inf());
     // `tanh` saturates, and it does so long before infinity.
-    assert.eq(math.tanh(inf()), 1.0);
-    assert.eq(math.tanh(negInf()), -1.0);
-    assert.eq(math.asinh(inf()), inf());
-    assert.eq(math.asinh(negInf()), negInf());
-    assert.eq(math.acosh(inf()), inf());
+    assert.equal(math.tanh(inf()), 1.0);
+    assert.equal(math.tanh(negInf()), -1.0);
+    assert.equal(math.asinh(inf()), inf());
+    assert.equal(math.asinh(negInf()), negInf());
+    assert.equal(math.acosh(inf()), inf());
     assert.isTrue(math.isNan(math.acosh(negInf())));
     // `atanh` is defined only inside minus one to one.
     assert.isTrue(math.isNan(math.atanh(inf())));
     assert.isTrue(math.isNan(math.atanh(negInf())));
     // `exp(x) - 1` is infinity above and minus one below, which is the limit.
-    assert.eq(math.expMinusOne(inf()), inf());
-    assert.eq(math.expMinusOne(negInf()), -1.0);
-    assert.eq(math.lnOnePlus(inf()), inf());
+    assert.equal(math.expMinusOne(inf()), inf());
+    assert.equal(math.expMinusOne(negInf()), -1.0);
+    assert.equal(math.lnOnePlus(inf()), inf());
     // `1 + x` is negative down there, and a logarithm of a negative number has
     // no answer.
     assert.isTrue(math.isNan(math.lnOnePlus(negInf())));
     // And `ln(1 + x)` at `x == -1` is the logarithm of zero.
-    assert.eq(math.lnOnePlus(-1.0), negInf());
+    assert.equal(math.lnOnePlus(-1.0), negInf());
     assert.isTrue(math.isNan(math.lnOnePlus(-2.0)));
 }
 
@@ -668,33 +668,33 @@ test "the family at a subnormal is the argument itself" {
     // Every one of these is `x + O(x^3)` at the origin, and down here the
     // correction is far below the last bit — so each answers `x` exactly, which
     // is the whole reason `expMinusOne` and `lnOnePlus` exist.
-    assert.eq(math.sinh(smallest()), smallest());
-    assert.eq(math.tanh(smallest()), smallest());
-    assert.eq(math.asinh(smallest()), smallest());
-    assert.eq(math.atanh(smallest()), smallest());
-    assert.eq(math.expMinusOne(smallest()), smallest());
-    assert.eq(math.lnOnePlus(smallest()), smallest());
-    assert.eq(math.sinh(math.MIN_POSITIVE), math.MIN_POSITIVE);
-    assert.eq(math.expMinusOne(math.MIN_POSITIVE), math.MIN_POSITIVE);
+    assert.equal(math.sinh(smallest()), smallest());
+    assert.equal(math.tanh(smallest()), smallest());
+    assert.equal(math.asinh(smallest()), smallest());
+    assert.equal(math.atanh(smallest()), smallest());
+    assert.equal(math.expMinusOne(smallest()), smallest());
+    assert.equal(math.lnOnePlus(smallest()), smallest());
+    assert.equal(math.sinh(math.MIN_POSITIVE), math.MIN_POSITIVE);
+    assert.equal(math.expMinusOne(math.MIN_POSITIVE), math.MIN_POSITIVE);
     // `cosh` is one plus a correction, and there is no room for one here.
-    assert.eq(math.cosh(smallest()), 1.0);
+    assert.equal(math.cosh(smallest()), 1.0);
 }
 
 test "the family at the largest finite value" {
     // `sinh` and `cosh` overflow past about 710, so the largest value is far
     // beyond either.
-    assert.eq(math.sinh(largest()), inf());
-    assert.eq(math.sinh(0.0 - largest()), negInf());
-    assert.eq(math.cosh(largest()), inf());
-    assert.eq(math.cosh(0.0 - largest()), inf());
+    assert.equal(math.sinh(largest()), inf());
+    assert.equal(math.sinh(0.0 - largest()), negInf());
+    assert.equal(math.cosh(largest()), inf());
+    assert.equal(math.cosh(0.0 - largest()), inf());
     // `tanh` and the three inverses do not: each is answered without ever
     // squaring the argument, which is why they are written the way they are.
-    assert.eq(math.tanh(largest()), 1.0);
-    assert.eq(math.tanh(0.0 - largest()), -1.0);
+    assert.equal(math.tanh(largest()), 1.0);
+    assert.equal(math.tanh(0.0 - largest()), -1.0);
     assert.isTrue(math.isFinite(math.asinh(largest())));
     assert.isTrue(math.isFinite(math.acosh(largest())));
     assert.isTrue(math.isNan(math.atanh(largest())));
-    assert.eq(math.expMinusOne(largest()), inf());
+    assert.equal(math.expMinusOne(largest()), inf());
     // `1 + x` is `x` up here, so `lnOnePlus` is `ln` — and the correction it
     // would otherwise apply is what leaves the range, not the answer.
     assert.isTrue(math.isFinite(math.lnOnePlus(largest())));
@@ -711,14 +711,14 @@ test "the family at the largest finite value" {
 test "logBase at the bases that have no logarithm" {
     // `ln(x) / ln(base)`, so each of these is a division whose answer IEEE 754
     // fixes even where the logarithms themselves are not exact.
-    assert.eq(math.logBase(1.0, 10.0), 0.0);
-    assert.eq(math.logBase(8.0, 1.0), inf());
+    assert.equal(math.logBase(1.0, 10.0), 0.0);
+    assert.equal(math.logBase(8.0, 1.0), inf());
     assert.isTrue(math.isNan(math.logBase(1.0, 1.0)));
-    assert.eq(math.logBase(0.0, 10.0), negInf());
+    assert.equal(math.logBase(0.0, 10.0), negInf());
     assert.isTrue(math.isNan(math.logBase(-1.0, 10.0)));
     assert.isTrue(math.isNan(math.logBase(8.0, -2.0)));
-    assert.eq(math.logBase(inf(), 10.0), inf());
-    assert.eq(math.logBase(8.0, inf()), 0.0);
+    assert.equal(math.logBase(inf(), 10.0), inf());
+    assert.equal(math.logBase(8.0, inf()), 0.0);
     near(math.logBase(8.0, 2.0), 3.0);
     near(math.logBase(1000.0, 10.0), 3.0);
 }

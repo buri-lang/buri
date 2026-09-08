@@ -6,7 +6,7 @@
 
 from "core/date" import * as date;
 from "core/date" import { Date, DateTime, Duration, Weekday };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -32,12 +32,12 @@ test "the three leap year rules" {
 }
 
 test "February is the month that changes length" {
-    assert.eq(date.daysInMonth(2024, 2), 29);
-    assert.eq(date.daysInMonth(2023, 2), 28);
-    assert.eq(date.daysInMonth(1900, 2), 28);
-    assert.eq(date.daysInMonth(2023, 1), 31);
-    assert.eq(date.daysInMonth(2023, 4), 30);
-    assert.eq(date.daysInMonth(2023, 13), 0);
+    assert.equal(date.daysInMonth(2024, 2), 29);
+    assert.equal(date.daysInMonth(2023, 2), 28);
+    assert.equal(date.daysInMonth(1900, 2), 28);
+    assert.equal(date.daysInMonth(2023, 1), 31);
+    assert.equal(date.daysInMonth(2023, 4), 30);
+    assert.equal(date.daysInMonth(2023, 13), 0);
 }
 
 // --- construction is the validation ----------------------------------------------
@@ -61,20 +61,20 @@ test "a time outside the clock cannot be built" {
 // --- days from civil ---------------------------------------------------------------
 
 test "the epoch is day zero" {
-    assert.eq(date.toDays(d(1970, 1, 1)), 0);
-    assert.eq(date.fromDays(0), d(1970, 1, 1));
+    assert.equal(date.toDays(d(1970, 1, 1)), 0);
+    assert.equal(date.fromDays(0), d(1970, 1, 1));
 }
 
 test "days either side of the epoch" {
-    assert.eq(date.toDays(d(1969, 12, 31)), -1);
-    assert.eq(date.toDays(d(1970, 1, 2)), 1);
-    assert.eq(date.fromDays(-1), d(1969, 12, 31));
+    assert.equal(date.toDays(d(1969, 12, 31)), -1);
+    assert.equal(date.toDays(d(1970, 1, 2)), 1);
+    assert.equal(date.fromDays(-1), d(1969, 12, 31));
 }
 
 test "known day numbers" {
-    assert.eq(date.toDays(d(2000, 1, 1)), 10957);
-    assert.eq(date.toDays(d(2024, 2, 29)), 19782);
-    assert.eq(date.fromDays(19782), d(2024, 2, 29));
+    assert.equal(date.toDays(d(2000, 1, 1)), 10957);
+    assert.equal(date.toDays(d(2024, 2, 29)), 19782);
+    assert.equal(date.fromDays(19782), d(2024, 2, 29));
 }
 
 // The property that matters more than any single number: the two directions
@@ -93,7 +93,7 @@ test "toDays and fromDays are inverses" {
     assert.isTrue(cases.all(fn(c) => date.fromDays(date.toDays(c)) == c));
 }
 
-// The era of Hinnant's algorithm is `num.divFloor(y, 400)`, and the branch that
+// The era of Hinnant's algorithm is `number.divideFloor(y, 400)`, and the branch that
 // matters is the one below year zero: a truncating `/` there puts the date in
 // the wrong era and every answer that follows it is wrong by a day or more. The
 // calendar is proleptic Gregorian, so these years exist and have answers.
@@ -113,73 +113,73 @@ test "toDays and fromDays are inverses before year zero too" {
 }
 
 test "the day before the first of January is the last of December, in every era" {
-    assert.eq(date.fromDays(date.toDays(d(0, 1, 1)) - 1), d(-1, 12, 31));
-    assert.eq(date.fromDays(date.toDays(d(-400, 1, 1)) - 1), d(-401, 12, 31));
-    assert.eq(date.fromDays(date.toDays(d(1, 1, 1)) - 1), d(0, 12, 31));
+    assert.equal(date.fromDays(date.toDays(d(0, 1, 1)) - 1), d(-1, 12, 31));
+    assert.equal(date.fromDays(date.toDays(d(-400, 1, 1)) - 1), d(-401, 12, 31));
+    assert.equal(date.fromDays(date.toDays(d(1, 1, 1)) - 1), d(0, 12, 31));
 }
 
 // --- weekdays -------------------------------------------------------------------
 
 test "the epoch was a Thursday" {
-    assert.eq(date.weekday(d(1970, 1, 1)), Weekday.Thursday);
+    assert.equal(date.weekday(d(1970, 1, 1)), Weekday.Thursday);
 }
 
 test "known weekdays, including before the epoch" {
-    assert.eq(date.weekday(d(2024, 2, 29)), Weekday.Thursday);
-    assert.eq(date.weekday(d(2000, 1, 1)), Weekday.Saturday);
-    assert.eq(date.weekday(d(1969, 7, 20)), Weekday.Sunday);
-    assert.eq(date.weekday(d(1900, 1, 1)), Weekday.Monday);
+    assert.equal(date.weekday(d(2024, 2, 29)), Weekday.Thursday);
+    assert.equal(date.weekday(d(2000, 1, 1)), Weekday.Saturday);
+    assert.equal(date.weekday(d(1969, 7, 20)), Weekday.Sunday);
+    assert.equal(date.weekday(d(1900, 1, 1)), Weekday.Monday);
 }
 
 test "day of the year" {
-    assert.eq(date.dayOfYear(d(2023, 1, 1)), 1);
-    assert.eq(date.dayOfYear(d(2023, 12, 31)), 365);
-    assert.eq(date.dayOfYear(d(2024, 12, 31)), 366);
-    assert.eq(date.dayOfYear(d(2024, 3, 1)), 61);
+    assert.equal(date.dayOfYear(d(2023, 1, 1)), 1);
+    assert.equal(date.dayOfYear(d(2023, 12, 31)), 365);
+    assert.equal(date.dayOfYear(d(2024, 12, 31)), 366);
+    assert.equal(date.dayOfYear(d(2024, 3, 1)), 61);
 }
 
 // --- arithmetic ------------------------------------------------------------------
 
 test "adding days crosses months and years" {
-    assert.eq(d(2023, 1, 31).addDays(1), d(2023, 2, 1));
-    assert.eq(d(2023, 12, 31).addDays(1), d(2024, 1, 1));
-    assert.eq(d(2024, 2, 28).addDays(1), d(2024, 2, 29));
-    assert.eq(d(2023, 2, 28).addDays(1), d(2023, 3, 1));
-    assert.eq(d(2023, 1, 1).addDays(-1), d(2022, 12, 31));
+    assert.equal(d(2023, 1, 31).addDays(1), d(2023, 2, 1));
+    assert.equal(d(2023, 12, 31).addDays(1), d(2024, 1, 1));
+    assert.equal(d(2024, 2, 28).addDays(1), d(2024, 2, 29));
+    assert.equal(d(2023, 2, 28).addDays(1), d(2023, 3, 1));
+    assert.equal(d(2023, 1, 1).addDays(-1), d(2022, 12, 31));
 }
 
 test "daysUntil is signed" {
-    assert.eq(d(2023, 1, 1).daysUntil(d(2023, 1, 31)), 30);
-    assert.eq(d(2023, 1, 31).daysUntil(d(2023, 1, 1)), -30);
-    assert.eq(d(2023, 1, 1).daysUntil(d(2023, 1, 1)), 0);
+    assert.equal(d(2023, 1, 1).daysUntil(d(2023, 1, 31)), 30);
+    assert.equal(d(2023, 1, 31).daysUntil(d(2023, 1, 1)), -30);
+    assert.equal(d(2023, 1, 1).daysUntil(d(2023, 1, 1)), 0);
 }
 
 // The choice this module makes, written down as a test so it cannot drift:
 // adding a month to the 31st clamps rather than overflowing into next month.
 test "adding months clamps the day to the month it lands in" {
-    assert.eq(d(2023, 1, 31).addMonths(1), d(2023, 2, 28));
-    assert.eq(d(2024, 1, 31).addMonths(1), d(2024, 2, 29));
-    assert.eq(d(2023, 3, 31).addMonths(1), d(2023, 4, 30));
-    assert.eq(d(2023, 1, 15).addMonths(1), d(2023, 2, 15));
+    assert.equal(d(2023, 1, 31).addMonths(1), d(2023, 2, 28));
+    assert.equal(d(2024, 1, 31).addMonths(1), d(2024, 2, 29));
+    assert.equal(d(2023, 3, 31).addMonths(1), d(2023, 4, 30));
+    assert.equal(d(2023, 1, 15).addMonths(1), d(2023, 2, 15));
 }
 
 test "adding months crosses years in both directions" {
-    assert.eq(d(2023, 12, 1).addMonths(1), d(2024, 1, 1));
-    assert.eq(d(2023, 1, 1).addMonths(-1), d(2022, 12, 1));
-    assert.eq(d(2023, 6, 1).addMonths(-18), d(2021, 12, 1));
-    assert.eq(d(2024, 2, 29).addYears(1), d(2025, 2, 28));
+    assert.equal(d(2023, 12, 1).addMonths(1), d(2024, 1, 1));
+    assert.equal(d(2023, 1, 1).addMonths(-1), d(2022, 12, 1));
+    assert.equal(d(2023, 6, 1).addMonths(-18), d(2021, 12, 1));
+    assert.equal(d(2024, 2, 29).addYears(1), d(2025, 2, 28));
 }
 
 // `addMonths` splits a month count into a year and a month with the same floor
 // division `toDays` uses, so it has the same branch below zero — and there the
 // months of the year have to keep running 1 to 12 rather than going negative.
 test "adding months crosses year zero" {
-    assert.eq(d(1, 1, 1).addMonths(-1), d(0, 12, 1));
-    assert.eq(d(0, 12, 1).addMonths(1), d(1, 1, 1));
-    assert.eq(d(0, 1, 1).addMonths(-1), d(-1, 12, 1));
-    assert.eq(d(-1, 12, 1).addMonths(1), d(0, 1, 1));
-    assert.eq(d(1, 1, 1).addMonths(-13), d(-1, 12, 1));
-    assert.eq(d(1, 3, 1).addYears(-2), d(-1, 3, 1));
+    assert.equal(d(1, 1, 1).addMonths(-1), d(0, 12, 1));
+    assert.equal(d(0, 12, 1).addMonths(1), d(1, 1, 1));
+    assert.equal(d(0, 1, 1).addMonths(-1), d(-1, 12, 1));
+    assert.equal(d(-1, 12, 1).addMonths(1), d(0, 1, 1));
+    assert.equal(d(1, 1, 1).addMonths(-13), d(-1, 12, 1));
+    assert.equal(d(1, 3, 1).addYears(-2), d(-1, 3, 1));
 }
 
 // --- instants ---------------------------------------------------------------------
@@ -189,38 +189,38 @@ test "adding months crosses year zero" {
 // pair gives a day that is too late and a negative time of day.
 test "an instant well before the epoch lands on the right day and time" {
     let dayMillis = 86400000;
-    assert.eq(date.fromInstant(Instant(-dayMillis)).date, d(1969, 12, 31));
-    assert.eq(date.fromInstant(Instant(-dayMillis)).time.hour, 0);
-    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).date, d(1969, 12, 30));
-    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.hour, 23);
-    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.minute, 59);
-    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.second, 59);
-    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.milli, 999);
+    assert.equal(date.fromInstant(Instant(-dayMillis)).date, d(1969, 12, 31));
+    assert.equal(date.fromInstant(Instant(-dayMillis)).time.hour, 0);
+    assert.equal(date.fromInstant(Instant(-dayMillis - 1)).date, d(1969, 12, 30));
+    assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.hour, 23);
+    assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.minute, 59);
+    assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.second, 59);
+    assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.millisecond, 999);
     // And the round trip, which is what the two of them together promise.
     let dt = DateTime { date: d(1900, 3, 1), time: assert.some(date.time(0, 0, 0, 1)) };
-    assert.eq(date.fromInstant(date.toInstant(dt)), dt);
+    assert.equal(date.fromInstant(date.toInstant(dt)), dt);
 }
 
 test "the epoch instant is the epoch date at midnight" {
-    assert.eq(date.fromInstant(Instant(0)), date.midnight(d(1970, 1, 1)));
-    assert.eq(date.toInstant(date.midnight(d(1970, 1, 1))), Instant(0));
+    assert.equal(date.fromInstant(Instant(0)), date.midnight(d(1970, 1, 1)));
+    assert.equal(date.toInstant(date.midnight(d(1970, 1, 1))), Instant(0));
 }
 
 test "an instant carries the time of day" {
     let dt = date.fromInstant(Instant(1000 * 60 * 60 * 13 + 1000 * 60 * 45 + 1500));
-    assert.eq(dt.date, d(1970, 1, 1));
-    assert.eq(dt.time.hour, 13);
-    assert.eq(dt.time.minute, 45);
-    assert.eq(dt.time.second, 1);
-    assert.eq(dt.time.milli, 500);
+    assert.equal(dt.date, d(1970, 1, 1));
+    assert.equal(dt.time.hour, 13);
+    assert.equal(dt.time.minute, 45);
+    assert.equal(dt.time.second, 1);
+    assert.equal(dt.time.millisecond, 500);
 }
 
 // Before the epoch the division has to floor rather than truncate, or the date
 // comes out a day late.
 test "an instant before the epoch lands on the right day" {
-    assert.eq(date.fromInstant(Instant(-1)).date, d(1969, 12, 31));
-    assert.eq(date.fromInstant(Instant(-1)).time.hour, 23);
-    assert.eq(date.fromInstant(Instant(-1)).time.milli, 999);
+    assert.equal(date.fromInstant(Instant(-1)).date, d(1969, 12, 31));
+    assert.equal(date.fromInstant(Instant(-1)).time.hour, 23);
+    assert.equal(date.fromInstant(Instant(-1)).time.millisecond, 999);
 }
 
 test "instants and date-times are inverses" {
@@ -228,53 +228,53 @@ test "instants and date-times are inverses" {
         date: d(2024, 2, 29),
         time: assert.some(date.time(13, 45, 1, 500)),
     };
-    assert.eq(date.fromInstant(date.toInstant(dt)), dt);
+    assert.equal(date.fromInstant(date.toInstant(dt)), dt);
 }
 
 test "durations are lengths and instants are points" {
     let a = Instant(1000);
     let b = Instant(1000 + 90 * 1000);
-    assert.eq(date.between(a, b), time.seconds(90));
-    assert.eq(date.between(a, b).seconds(), 90);
-    assert.eq(date.between(a, b).minutes(), 1);
-    assert.eq(date.between(b, a), time.seconds(-90));
-    assert.eq(date.plus(a, time.seconds(90)), b);
-    assert.eq(time.millis(date.MILLIS_PER_DAY).days(), 1);
-    assert.eq(time.millis(date.MILLIS_PER_HOUR).hours(), 1);
+    assert.equal(date.between(a, b), time.seconds(90));
+    assert.equal(date.between(a, b).seconds(), 90);
+    assert.equal(date.between(a, b).minutes(), 1);
+    assert.equal(date.between(b, a), time.seconds(-90));
+    assert.equal(date.plus(a, time.seconds(90)), b);
+    assert.equal(time.milliseconds(date.MILLISECONDS_PER_DAY).days(), 1);
+    assert.equal(time.milliseconds(date.MILLISECONDS_PER_HOUR).hours(), 1);
 }
 
 test "the calendar's Duration is core/time's, re-exported and not a copy" {
     // Imported here from `core/date` and there from `core/time`: one type, so
     // a value built by one module's constructor is read by the other's getter.
     let borrowed: Duration = time.seconds(1);
-    assert.eq(borrowed.millis(), 1000);
-    assert.eq(date.between(Instant(0), Instant(1000)), borrowed);
+    assert.equal(borrowed.milliseconds(), 1000);
+    assert.equal(date.between(Instant(0), Instant(1000)), borrowed);
 }
 
 // --- ISO 8601 ----------------------------------------------------------------------
 
 test "dates format with fixed width" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(date.formatDate(ctx, d(2024, 2, 29)), "2024-02-29");
-    assert.eq(date.formatDate(ctx, d(999, 1, 2)), "0999-01-02");
+    assert.equal(date.formatDate(ctx, d(2024, 2, 29)), "2024-02-29");
+    assert.equal(date.formatDate(ctx, d(999, 1, 2)), "0999-01-02");
 }
 
 test "date-times format as UTC with milliseconds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let dt = DateTime {
         date: d(2026, 8, 15),
         time: assert.some(date.time(13, 45, 0, 7)),
     };
-    assert.eq(date.formatDateTime(ctx, dt), "2026-08-15T13:45:00.007Z");
+    assert.equal(date.formatDateTime(ctx, dt), "2026-08-15T13:45:00.007Z");
 }
 
 test "parseDate reads what formatDate writes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cases = [d(1970, 1, 1), d(2024, 2, 29), d(2100, 12, 31)];
     // `mapCtx`, then check: a lambda may not capture a context, so the round
@@ -282,12 +282,12 @@ test "parseDate reads what formatDate writes" {
     let back = cases.mapCtx(ctx, fn(c, one) => {
         date.parseDate(c, date.formatDate(c, one))
     });
-    assert.eq(back, cases.mapCtx(ctx, fn(_c, one) => .Some(one)));
+    assert.equal(back, cases.mapCtx(ctx, fn(_c, one) => .Some(one)));
 }
 
 test "parseDate is strict" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(date.parseDate(ctx, "2024-2-29").isSome());
     assert.isTrue(date.parseDate(ctx, "2023-02-29").isNone());
@@ -300,12 +300,12 @@ test "parseDate is strict" {
 
 test "dates and times order chronologically" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(d(2023, 1, 1) < d(2023, 1, 2));
     assert.isTrue(d(2023, 1, 31) < d(2023, 2, 1));
     assert.isTrue(d(2022, 12, 31) < d(2023, 1, 1));
-    assert.eq([d(2024, 1, 1), d(2023, 6, 1), d(2023, 1, 1)].sort(ctx), [
+    assert.equal([d(2024, 1, 1), d(2023, 6, 1), d(2023, 1, 1)].sort(ctx), [
         d(2023, 1, 1),
         d(2023, 6, 1),
         d(2024, 1, 1),
@@ -318,94 +318,94 @@ test "dates and times order chronologically" {
 // two part company. A week belongs to the year its Thursday falls in.
 
 test "the ISO week of an ordinary day" {
-    assert.eq(date.isoWeek(d(2026, 8, 15)), (2026, 33));
-    assert.eq(date.isoWeek(d(2024, 2, 29)), (2024, 9));
-    assert.eq(date.isoWeek(d(1970, 1, 1)), (1970, 1));
+    assert.equal(date.isoWeek(d(2026, 8, 15)), (2026, 33));
+    assert.equal(date.isoWeek(d(2024, 2, 29)), (2024, 9));
+    assert.equal(date.isoWeek(d(1970, 1, 1)), (1970, 1));
 }
 
 test "a January day can belong to the previous year's last week" {
     // 2027-01-01 is a Friday, so its Thursday is in 2026.
-    assert.eq(date.isoWeek(d(2027, 1, 1)), (2026, 53));
-    assert.eq(date.isoWeek(d(2021, 1, 1)), (2020, 53));
-    assert.eq(date.isoWeek(d(2005, 1, 2)), (2004, 53));
+    assert.equal(date.isoWeek(d(2027, 1, 1)), (2026, 53));
+    assert.equal(date.isoWeek(d(2021, 1, 1)), (2020, 53));
+    assert.equal(date.isoWeek(d(2005, 1, 2)), (2004, 53));
     // And the Monday that starts the new week-year starts week 1.
-    assert.eq(date.isoWeek(d(2021, 1, 4)), (2021, 1));
-    assert.eq(date.isoWeek(d(2026, 1, 1)), (2026, 1));
+    assert.equal(date.isoWeek(d(2021, 1, 4)), (2021, 1));
+    assert.equal(date.isoWeek(d(2026, 1, 1)), (2026, 1));
 }
 
 test "a December day can belong to the next year's first week" {
-    assert.eq(date.isoWeek(d(2026, 12, 31)), (2026, 53));
-    assert.eq(date.isoWeek(d(2020, 12, 31)), (2020, 53));
-    assert.eq(date.isoWeek(d(2015, 12, 28)), (2015, 53));
-    assert.eq(date.isoWeek(d(2016, 1, 3)), (2015, 53));
+    assert.equal(date.isoWeek(d(2026, 12, 31)), (2026, 53));
+    assert.equal(date.isoWeek(d(2020, 12, 31)), (2020, 53));
+    assert.equal(date.isoWeek(d(2015, 12, 28)), (2015, 53));
+    assert.equal(date.isoWeek(d(2016, 1, 3)), (2015, 53));
 }
 
 test "every day of one week has the same week number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 2026-08-10 is a Monday.
     let monday = d(2026, 8, 10);
-    assert.eq(date.weekday(monday), Weekday.Monday);
+    assert.equal(date.weekday(monday), Weekday.Monday);
     let weeks = list
         .range(ctx, 0, 7)
         .map(ctx, fn(offset) => date.isoWeek(monday.addDays(offset)));
-    assert.eq(weeks, list.repeat(ctx, (2026, 33), 7));
+    assert.equal(weeks, list.repeat(ctx, (2026, 33), 7));
     // And the next day starts the next one.
-    assert.eq(date.isoWeek(monday.addDays(7)), (2026, 34));
+    assert.equal(date.isoWeek(monday.addDays(7)), (2026, 34));
 }
 
 // --- calendar-unit arithmetic -------------------------------------------------------
 
 test "monthsUntil counts whole months in both directions" {
     let january = d(2026, 1, 15);
-    assert.eq(january.monthsUntil(d(2026, 4, 15)), 3);
-    assert.eq(january.monthsUntil(d(2027, 1, 15)), 12);
-    assert.eq(january.monthsUntil(january), 0);
-    assert.eq(january.monthsUntil(d(2025, 10, 15)), 0 - 3);
+    assert.equal(january.monthsUntil(d(2026, 4, 15)), 3);
+    assert.equal(january.monthsUntil(d(2027, 1, 15)), 12);
+    assert.equal(january.monthsUntil(january), 0);
+    assert.equal(january.monthsUntil(d(2025, 10, 15)), 0 - 3);
 }
 
 test "a month is not whole until the day of the month comes round" {
     let endOfJanuary = d(2026, 1, 31);
     // The 31st to the 28th of February is nearly a month, and nearly is zero.
-    assert.eq(endOfJanuary.monthsUntil(d(2026, 2, 28)), 0);
-    assert.eq(endOfJanuary.monthsUntil(d(2026, 3, 1)), 1);
-    assert.eq(endOfJanuary.monthsUntil(d(2026, 3, 31)), 2);
+    assert.equal(endOfJanuary.monthsUntil(d(2026, 2, 28)), 0);
+    assert.equal(endOfJanuary.monthsUntil(d(2026, 3, 1)), 1);
+    assert.equal(endOfJanuary.monthsUntil(d(2026, 3, 31)), 2);
     // Backwards, the same rule the other way up.
     let march = d(2026, 3, 31);
-    assert.eq(march.monthsUntil(d(2026, 3, 1)), 0);
-    assert.eq(march.monthsUntil(d(2026, 2, 28)), 0 - 1);
+    assert.equal(march.monthsUntil(d(2026, 3, 1)), 0);
+    assert.equal(march.monthsUntil(d(2026, 2, 28)), 0 - 1);
 }
 
 test "yearsUntil is monthsUntil over twelve" {
     let born = d(2000, 2, 29);
     // A birthday counts on the day, not the day before.
-    assert.eq(born.yearsUntil(d(2001, 2, 28)), 0);
-    assert.eq(born.yearsUntil(d(2001, 3, 1)), 1);
-    assert.eq(born.yearsUntil(d(2026, 3, 1)), 26);
-    assert.eq(born.yearsUntil(d(1999, 3, 1)), 0);
-    assert.eq(born.yearsUntil(d(1998, 3, 1)), 0 - 1);
+    assert.equal(born.yearsUntil(d(2001, 2, 28)), 0);
+    assert.equal(born.yearsUntil(d(2001, 3, 1)), 1);
+    assert.equal(born.yearsUntil(d(2026, 3, 1)), 26);
+    assert.equal(born.yearsUntil(d(1999, 3, 1)), 0);
+    assert.equal(born.yearsUntil(d(1998, 3, 1)), 0 - 1);
 }
 
 test "the first and last day of a month" {
     let middle = d(2026, 8, 15);
-    assert.eq(middle.startOfMonth(), d(2026, 8, 1));
-    assert.eq(middle.endOfMonth(), d(2026, 8, 31));
+    assert.equal(middle.startOfMonth(), d(2026, 8, 1));
+    assert.equal(middle.endOfMonth(), d(2026, 8, 31));
     // Thirty days has September.
-    assert.eq(d(2026, 9, 30).endOfMonth(), d(2026, 9, 30));
+    assert.equal(d(2026, 9, 30).endOfMonth(), d(2026, 9, 30));
     // February, both ways.
-    assert.eq(d(2026, 2, 5).endOfMonth(), d(2026, 2, 28));
-    assert.eq(d(2024, 2, 5).endOfMonth(), d(2024, 2, 29));
+    assert.equal(d(2026, 2, 5).endOfMonth(), d(2026, 2, 28));
+    assert.equal(d(2024, 2, 5).endOfMonth(), d(2024, 2, 29));
     // Both are idempotent.
-    assert.eq(middle.startOfMonth().startOfMonth(), middle.startOfMonth());
-    assert.eq(middle.endOfMonth().endOfMonth(), middle.endOfMonth());
+    assert.equal(middle.startOfMonth().startOfMonth(), middle.startOfMonth());
+    assert.equal(middle.endOfMonth().endOfMonth(), middle.endOfMonth());
 }
 
 test "the end of a month is the day before the start of the next" {
     let month = d(2026, 2, 10);
-    assert.eq(month.endOfMonth().addDays(1), month.addMonths(1).startOfMonth());
-    assert.eq(d(2026, 12, 3).endOfMonth().addDays(1), d(2027, 1, 1));
-    assert.eq(d(2026, 1, 1).addDays(0 - 1), d(2025, 12, 1).endOfMonth());
+    assert.equal(month.endOfMonth().addDays(1), month.addMonths(1).startOfMonth());
+    assert.equal(d(2026, 12, 3).endOfMonth().addDays(1), d(2027, 1, 1));
+    assert.equal(d(2026, 1, 1).addDays(0 - 1), d(2025, 12, 1).endOfMonth());
 }
 
 // --- the ISO week at the turn of a year ------------------------------------------
@@ -418,7 +418,7 @@ test "the end of a month is the day before the start of the next" {
 
 test "the ISO week of every day from the 29th of December to the 3rd of January" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let expected: [(Int, Int)] = [
         (2015, 53),
@@ -547,12 +547,12 @@ test "the ISO week of every day from the 29th of December to the 3rd of January"
                 date.isoWeek(d(year + 1, 1, 3)),
             ]
         });
-    assert.eq(actual, expected);
+    assert.equal(actual, expected);
 }
 
 test "a week number is between 1 and 53, and a whole week shares its Thursday's" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Eight hundred consecutive days, which is two New Years with every weekday
     // in every position around them.
@@ -588,17 +588,17 @@ fn isoWeekday(day: Date): Int {
 
 test "the first and last day of every month in a leap year and a common one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let leap = list
         .range(ctx, 1, 13)
         .map(ctx, fn(month) => d(2024, month, 15).endOfMonth().day);
-    assert.eq(leap, [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
+    assert.equal(leap, [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
     // The same months in a year with no leap day.
     let common = list
         .range(ctx, 1, 13)
         .map(ctx, fn(month) => d(2023, month, 15).endOfMonth().day);
-    assert.eq(common, [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
+    assert.equal(common, [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
     // Every first is the 1st, and neither end moves the month or the year.
     let wrong = list
         .range(ctx, 1, 13)
@@ -617,7 +617,7 @@ test "the first and last day of every month in a leap year and a common one" {
 
 test "the day after the end of every month is the first of the next" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let bad = list
         .range(ctx, 0, 24)
@@ -630,7 +630,7 @@ test "the day after the end of every month is the first of the next" {
 
 test "addMonths of monthsUntil lands on or before the date it counted to" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The clamping and the counting are two different rules, and the doc
     // comment claims they meet here. Month ends against month ends is where
@@ -656,13 +656,13 @@ test "addMonths of monthsUntil lands on or before the date it counted to" {
 test "a month end counts to the day of the month it started on" {
     // January the 31st to February the 29th is still not a whole month: the
     // 31st has not come round.
-    assert.eq(d(2024, 1, 31).monthsUntil(d(2024, 2, 29)), 0);
-    assert.eq(d(2024, 1, 29).monthsUntil(d(2024, 2, 29)), 1);
+    assert.equal(d(2024, 1, 31).monthsUntil(d(2024, 2, 29)), 0);
+    assert.equal(d(2024, 1, 29).monthsUntil(d(2024, 2, 29)), 1);
     // And the leap day itself, forwards and backwards.
-    assert.eq(d(2024, 2, 29).monthsUntil(d(2025, 2, 28)), 11);
-    assert.eq(d(2024, 2, 29).monthsUntil(d(2028, 2, 29)), 48);
-    assert.eq(d(2024, 2, 29).yearsUntil(d(2025, 2, 28)), 0);
-    assert.eq(d(2024, 2, 29).yearsUntil(d(2028, 2, 29)), 4);
-    assert.eq(d(2024, 2, 29).monthsUntil(d(2023, 2, 28)), 0 - 12);
-    assert.eq(d(2024, 2, 29).monthsUntil(d(2024, 1, 31)), 0);
+    assert.equal(d(2024, 2, 29).monthsUntil(d(2025, 2, 28)), 11);
+    assert.equal(d(2024, 2, 29).monthsUntil(d(2028, 2, 29)), 48);
+    assert.equal(d(2024, 2, 29).yearsUntil(d(2025, 2, 28)), 0);
+    assert.equal(d(2024, 2, 29).yearsUntil(d(2028, 2, 29)), 4);
+    assert.equal(d(2024, 2, 29).monthsUntil(d(2023, 2, 28)), 0 - 12);
+    assert.equal(d(2024, 2, 29).monthsUntil(d(2024, 1, 31)), 0);
 }

@@ -1,7 +1,7 @@
 // EXPECT: `buri docs core/result`
 // A user can never write `impl Result<I64, Str>`, so the fix may not ask for
 // one: a type the toolchain ships is pointed at its own documentation instead.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -10,7 +10,7 @@ fn addContext(value: Result<Int, Str>): Result<Int, Str> {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let r = addContext(.Ok(1));
   let _ = io.println(ctx, "${r.isOk()}").ignore();
   .Ok(())

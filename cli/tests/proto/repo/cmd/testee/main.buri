@@ -11,7 +11,7 @@
 // answer. The payload is `TestAllTypesProto3`, generated from the pruned
 // vendored schema. No hand-written protobuf appears anywhere in this program.
 
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -34,7 +34,7 @@ let KNOWN: Str = "protobuf_test_messages.proto3.TestAllTypesProto3";
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdin: host.stdin,
         Stdout: host.stdout,
     };
@@ -44,12 +44,12 @@ export fn main(): Result<(), Str> {
 /// One request at a time until the runner closes the pipe.
 ///
 /// Tail-recursive, so a suite of several thousand tests costs no stack.
-fn serve<C: Alloc + Stdin + Stdout>(ctx: C): Result<(), Str> {
+fn serve<C: Allocator + Stdin + Stdout>(ctx: C): Result<(), Str> {
     match (readFrame(ctx)) {
         .None => .Ok(()),
         .Some(request) => {
             let reply = encodeConformanceResponse(ctx, answer(ctx, request));
-            let _ = io.writeBytes(ctx, littleEndian32(reply.len())).ignore();
+            let _ = io.writeBytes(ctx, littleEndian32(reply.length())).ignore();
             let _ = io.writeBytes(ctx, reply).ignore();
             serve(ctx)
         },
@@ -60,11 +60,11 @@ fn serve<C: Alloc + Stdin + Stdout>(ctx: C): Result<(), Str> {
 ///
 /// A truncated frame is end of input too: the runner closing the pipe mid-frame
 /// means it has stopped asking, and there is nobody left to tell.
-fn readFrame<C: Alloc + Stdin>(ctx: C): Option<[U8]> {
+fn readFrame<C: Allocator + Stdin>(ctx: C): Option<[U8]> {
     match (io.readBytes(ctx, 4)) {
         .None => .None,
         .Some(header) => {
-            if (header.len() < 4) {
+            if (header.length() < 4) {
                 .None
             } else {
                 let n = readLittleEndian32(header);
@@ -74,7 +74,7 @@ fn readFrame<C: Alloc + Stdin>(ctx: C): Option<[U8]> {
     }
 }
 
-fn littleEndian32<C: Alloc>(n: Int): [U8] {
+fn littleEndian32<C: Allocator>(n: Int): [U8] {
     proto.le32(n)
 }
 
@@ -86,7 +86,7 @@ fn readLittleEndian32(b: [U8]): Int {
 }
 
 /// One test.
-fn answer<C: Alloc>(ctx: C, frame: [U8]): ConformanceResponse {
+fn answer<C: Allocator>(ctx: C, frame: [U8]): ConformanceResponse {
     match (decodeConformanceRequest(ctx, frame)) {
         // A request we cannot even read is a runtime error rather than a parse
         // error: `parse_error` is about the *payload*, and saying so here would
@@ -126,7 +126,7 @@ fn format(request: ConformanceRequest): WireFormat {
 /// The payload, read in whichever format it arrived in. `.Ok(.None)` is a
 /// payload this testee does not implement, which is a skip rather than a
 /// failure.
-fn parse<C: Alloc>(
+fn parse<C: Allocator>(
     ctx: C,
     request: ConformanceRequest,
 ): Result<Option<TestAllTypesProto3>, Str> {
@@ -154,7 +154,7 @@ fn parse<C: Alloc>(
     }
 }
 
-fn serialize<C: Alloc>(
+fn serialize<C: Allocator>(
     ctx: C,
     request: ConformanceRequest,
     message: TestAllTypesProto3,
@@ -175,7 +175,7 @@ fn serialize<C: Alloc>(
     }
 }
 
-fn parseError<C: Alloc>(ctx: C, message: Str): ConformanceResponse {
+fn parseError<C: Allocator>(ctx: C, message: Str): ConformanceResponse {
     let _ = ctx;
     ConformanceResponse {
         ..defaultConformanceResponse(),
@@ -183,12 +183,12 @@ fn parseError<C: Alloc>(ctx: C, message: Str): ConformanceResponse {
     }
 }
 
-fn skipped<C: Alloc>(ctx: C, why: Str): ConformanceResponse {
+fn skipped<C: Allocator>(ctx: C, why: Str): ConformanceResponse {
     let _ = ctx;
     ConformanceResponse { ..defaultConformanceResponse(), result: .Some(.Skipped(why)) }
 }
 
-fn runtimeError<C: Alloc>(ctx: C, message: Str): ConformanceResponse {
+fn runtimeError<C: Allocator>(ctx: C, message: Str): ConformanceResponse {
     let _ = ctx;
     ConformanceResponse {
         ..defaultConformanceResponse(),

@@ -36,7 +36,7 @@
 //! promises.
 //!
 //! ```buri
-//! from "core/effect" import { Alloc, Stdout, Tasks };
+//! from "core/effect" import { Allocator, Stdout, Tasks };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/list" import * as list;
@@ -45,7 +45,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!         Tasks: host.tasks,
 //!     };
@@ -71,7 +71,7 @@
 //! opened it.
 //!
 //! ```buri
-//! from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+//! from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/tasks" import * as tasks;
@@ -79,14 +79,14 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Clock: host.clock,
 //!         Stdout: host.stdout,
 //!         Tasks: host.tasks,
 //!     };
 //!     let _ = tasks.scope(ctx, fn(c, here) => {
 //!         let _ = tasks.spawn(c, here, fn(c2) => {
-//!             let _ = time.sleepMs(c2, 5);
+//!             let _ = time.sleep(c2, time.milliseconds(5));
 //!             let _ = io.println(c2, "the timer fired").ignore();
 //!             ()
 //!         });
@@ -97,7 +97,7 @@
 //! ```
 //!
 //! **A timer is a task that sleeps.** There is no `Timer` type and no
-//! `setTimeout`: `clock.sleepMillis` already waits, and a task is already the
+//! `setTimeout`: `clock.sleepMilliseconds` already waits, and a task is already the
 //! thing that waits without holding up the code around it. So the five-minute
 //! timer above is five lines of ordinary program.
 //!
@@ -134,20 +134,20 @@
 //! the page does (`design/native/DECISIONS.md`).
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 
-/// Runs `f` over every item and answers the results in the items' order.
+/// Runs `step` over every item and answers the results in the items' order.
 ///
-/// The `Int` `f` receives is the item's own index, so a task knows where it is
+/// The `Int` `step` receives is the item's own index, so a task knows where it is
 /// without the closure counting.
 ///
 /// An empty list answers an empty list and runs nothing.
-export fn parallel<C: Alloc + Tasks, A, B>(
+export fn parallel<C: Allocator + Tasks, A, B>(
     ctx: C,
     items: [A],
-    f: fn(C, Int, A) => B,
+    step: fn(C, Int, A) => B,
 ): [B] {
-    ctx.parallel(ctx, items, f)
+    ctx.parallel(ctx, items, step)
 }
 
 // --- Background work ----------------------------------------------------------
@@ -169,7 +169,7 @@ export struct Scope(Int);
 ///
 /// A body that spawns nothing costs one round through the runtime to find that
 /// nothing is waiting.
-export fn scope<C: Alloc + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
+export fn scope<C: Allocator + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
     let here = Scope(scopeOpen(ctx));
     let run = body;
     let answer = run(ctx, here);
@@ -178,9 +178,9 @@ export fn scope<C: Alloc + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
     answer
 }
 
-/// Starts `f` in `scope`, and answers without waiting for it.
+/// Starts `step` in `scope`, and answers without waiting for it.
 ///
-/// `f` is handed the caller's whole context, so a task may do anything the code
+/// `step` is handed the caller's whole context, so a task may do anything the code
 /// around it could and nothing more: a lambda may not capture an
 /// effect-carrying value (SPEC 10.6).
 ///
@@ -192,8 +192,8 @@ export fn scope<C: Alloc + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
 /// A spawn that arrives while the scope's own drain is running is picked up by
 /// that drain. One that arrives after it has ended — which on a page is what a
 /// handler does — runs here, on the task that spawned it.
-export fn spawn<C: Alloc + Tasks>(ctx: C, scope: Scope, f: fn(C) => ()): () {
-    let _ = scopePush(ctx, scope.0, alloc.copyAcross([carried(f)]));
+export fn spawn<C: Allocator + Tasks>(ctx: C, scope: Scope, step: fn(C) => ()): () {
+    let _ = scopePush(ctx, scope.0, alloc.copyAcross([carried(step)]));
     match (scopeEnter(ctx, scope.0)) {
         false => (),
         true => {
@@ -215,7 +215,7 @@ export fn spawn<C: Alloc + Tasks>(ctx: C, scope: Scope, f: fn(C) => ()): () {
 /// and answers that round's indices, `parallel` runs them, and whatever they
 /// spawned is the next round. So a task spawned by a task is waited for, and
 /// the overlap inside a round is `parallel`'s.
-fn draining<C: Alloc + Tasks>(ctx: C, scope: Scope): () {
+fn draining<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
     let round = scopeRound(ctx, scope.0);
     match (round.isEmpty()) {
         true => (),
@@ -233,7 +233,7 @@ fn draining<C: Alloc + Tasks>(ctx: C, scope: Scope): () {
 /// ending would otherwise wait for a drain that has already stopped. So
 /// `scopeLeave` answers whether anything is waiting, and this takes the drain
 /// back when it is.
-fn resting<C: Alloc + Tasks>(ctx: C, scope: Scope): () {
+fn resting<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
     match (scopeLeave(ctx, scope.0)) {
         false => (),
         true => {
@@ -252,7 +252,7 @@ fn resting<C: Alloc + Tasks>(ctx: C, scope: Scope): () {
 ///
 /// `false` where the slot is already empty. Answering a `Bool` rather than `()`
 /// keeps `parallel`'s result element above zero bytes.
-fn running<C: Alloc + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
+fn running<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
     match (taking(ctx, scope, at)) {
         .None => false,
         .Some(held) => {

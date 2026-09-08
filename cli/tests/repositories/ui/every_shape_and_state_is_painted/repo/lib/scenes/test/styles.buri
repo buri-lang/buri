@@ -6,7 +6,7 @@
 // itself. The picture is what says it does not: an unstyled heading is the size
 // of the text around it, and a styled one is the size it asked for.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -15,7 +15,7 @@ from "//lib/scenes" import { fractions, plate, tinted };
 
 test "every property at zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "styles-at-zero", plate(.Px(0), 0.0), .Hover);
@@ -23,7 +23,7 @@ test "every property at zero" {
 
 test "every property at the size of the page" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "styles-at-the-viewport", plate(.Px(800), 3.0), .Hover);
@@ -31,7 +31,7 @@ test "every property at the size of the page" {
 
 test "a style the compiler could not fold still paints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(
@@ -48,7 +48,7 @@ test "a style the compiler could not fold still paints" {
 
 test "a fraction track takes its share of what is left" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "grid-fractions", fractions(), .Hover);
@@ -56,7 +56,7 @@ test "a fraction track takes its share of what is left" {
 
 test "a heading is the size its styles say, not the size a browser picked" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(

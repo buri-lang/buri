@@ -16,7 +16,7 @@
 
 use crate::compiler::semantics::types::{Prim, Tables, Ty};
 
-/// The `Eq`/`Ord`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
+/// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
 /// `Char::toU32`, and `Str`'s `show`.
 ///
 /// These are four *language* answers, and two backends must not give different
@@ -24,11 +24,11 @@ use crate::compiler::semantics::types::{Prim, Tables, Ty};
 pub fn prim_trait_op(key: &str) -> bool {
     matches!(
         key,
-        "bool.eq"
+        "bool.equal"
             | "bool.compare"
             | "bool.hash"
             | "bool.show"
-            | "character.eq"
+            | "character.equal"
             | "character.compare"
             | "character.hash"
             | "character.show"
@@ -71,20 +71,20 @@ pub fn lazy_chunk_of(key: &str) -> Option<usize> {
 pub fn bits_op(key: &str) -> bool {
     matches!(
         key,
-        "bits.shl"
-            | "bits.shr"
-            | "bits.sar"
+        "bits.shiftLeft"
+            | "bits.shiftRight"
+            | "bits.shiftRightArithmetic"
             | "bits.popCount"
             | "bits.leadingZeros"
             | "bits.trailingZeros"
             | "bits.rotateLeft"
             | "bits.rotateRight"
-            | "bits.shlU8"
-            | "bits.shrU8"
-            | "bits.shlU32"
-            | "bits.shrU32"
-            | "bits.shlU64"
-            | "bits.shrU64"
+            | "bits.shiftLeftU8"
+            | "bits.shiftRightU8"
+            | "bits.shiftLeftU32"
+            | "bits.shiftRightU32"
+            | "bits.shiftLeftU64"
+            | "bits.shiftRightU64"
             | "bits.rotateLeftU8"
             | "bits.rotateRightU8"
             | "bits.rotateLeftU32"
@@ -149,7 +149,7 @@ pub fn json_arm(prim: Prim) -> JsonArm {
 /// declares `Null` first, and a backend that hard-coded `1`, `2`, `3` would be
 /// reading a declaration order out of a table that records it.
 /// `middle::derives` builds the *compound* arms of the same enum through its
-/// own `Env::json_variant`, asking the same question of the same declaration;
+/// own `Environment::json_variant`, asking the same question of the same declaration;
 /// this is the half a **backend** needs, because a primitive leaf is an
 /// intrinsic and never reaches that pass's builder.
 ///
@@ -188,7 +188,7 @@ pub enum Step {
 pub struct ListCall {
     pub kind: Step,
     /// The context, where the *step* takes one. `map` and `mapCtx` both have a
-    /// context argument — `Alloc`, for the block they build — and only the
+    /// context argument — `Allocator`, for the block they build — and only the
     /// second passes it on, because a lambda may not capture one (SPEC 10.6).
     pub ctx: Option<usize>,
     pub func: usize,
@@ -214,7 +214,7 @@ pub fn list_call(key: &str) -> Option<ListCall> {
         "list.mapCtx" => call(Step::Map, Some(1), 2, None),
         "list.filter" => call(Step::Filter, None, 2, None),
         "list.filterCtx" => call(Step::Filter, Some(1), 2, None),
-        // `sortBy(self, ctx, order)`: the `C: Alloc` bound is for the block the
+        // `sortBy(self, ctx, order)`: the `C: Allocator` bound is for the block the
         // sort builds, and the comparator never sees it — so `ctx` is `None`
         // here for the same reason it is on `map`.
         "list.sortBy" => call(Step::Sort, None, 2, None),
@@ -526,7 +526,7 @@ mod tests {
             "list.find",
             "list.findIndex",
             "list.count",
-            "list.len",
+            "list.length",
             "str.split",
         ] {
             assert!(!ctx_step_key(key), "{key} is not");

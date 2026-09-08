@@ -14,7 +14,7 @@
 // it rebuilds its whole subtree, so it is the coarse instrument. Everything
 // here that varies is a string or a class, so everything here is a `Prop`.
 
-from "core/effect" import { Alloc, Net };
+from "core/effect" import { Allocator, Network };
 from "core/str" import * as str;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
@@ -131,10 +131,10 @@ let totalStyle: Style = .Group([
 /// The whole page.
 ///
 /// `C` names every effect a handler anywhere below may reach for, and nothing
-/// wider: `Net` is here because one button asks the server for the ledger, and
-/// `Alloc` because two handlers build a list. `main` decides what those are
+/// wider: `Network` is here because one button asks the server for the ledger, and
+/// `Allocator` because two handlers build a list. `main` decides what those are
 /// worth, and a platform decides whether `main` may ask.
-export fn page<C: Alloc + Net + Ui + Watch>(ctx: C, state: State): Node<C> {
+export fn page<C: Allocator + Network + Ui + Watch>(ctx: C, state: State): Node<C> {
     ui.column([pageStyle], [
         banner(state),
         ui.region(.Main, [.Layout(.Column), .Gap(.Rem(1.0))], [
@@ -171,7 +171,7 @@ fn banner<C>(state: State): Node<C> {
 /// Both fields are labelled, because `ui.field` has no form that is not. An
 /// unlabelled input is the commonest accessibility failure there is and, unlike
 /// a missing `alt`, it has no visual fallback — so it is not expressible.
-fn composer<C: Alloc + Net + Ui + Watch>(state: State): Node<C> {
+fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
     ui.form(fn(c, submitted) => add(c, state), [formStyle], [
         ui.field(.Const("Item"), .Text, [fieldStyle], state.draftMemo),
         ui.field(.Const("Amount in dollars"), .Number, [fieldStyle], state.draftAmount),
@@ -202,7 +202,7 @@ fn notice<C>(state: State): Node<C> {
 }
 
 /// The basket, or the fact that there is not one yet.
-fn lines<C: Alloc + Ui + Watch>(state: State): Node<C> {
+fn lines<C: Allocator + Ui + Watch>(state: State): Node<C> {
     ui.choose(
         .Computed(fn(scope) => state.items.get(scope).isEmpty()),
         card(.Const("Nothing in the basket"), [
@@ -247,7 +247,7 @@ fn keyOf(item: Entry): Str {
 /// `.When` is the style tier's version of the same idea. Both branches are
 /// extracted into the stylesheet at compile time and the runtime picks between
 /// two class strings it was handed; no rule is built anywhere, ever.
-fn line<C: Alloc + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
+fn line<C: Allocator + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
     let settled: Prop<Bool> = .Computed(fn(scope) => {
         isTicked(state.ticked.get(scope), item.memo)
     });
@@ -292,7 +292,7 @@ fn summary<C: Ui>(ctx: C, state: State): Node<C> {
                 ),
             ]),
             ui.spacer(),
-            pill(.Computed(fn(scope) => "${state.ticked.get(scope).len()} settled")),
+            pill(.Computed(fn(scope) => "${state.ticked.get(scope).length()} settled")),
         ]),
         meter(settled),
     ])

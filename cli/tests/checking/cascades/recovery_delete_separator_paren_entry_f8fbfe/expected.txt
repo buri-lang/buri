@@ -1,0 +1,30 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:52:5
+   |
+52 |     assert.equal(out.diagnostics.map(ctx, fn(d) => d.code) [
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: expected `I64`, found `Str` [type-mismatch]
+  --> main.buri:53:9
+   |
+53 |         "proto-syntax-declaration",
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^ an index is `I64`
+   |
+   = expected: `I64`
+   = actual: `Str`
+   = fix: produce a `I64` here, or change what surrounds it to accept a `Str`
+error: this index is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:53:35
+   |
+53 |         "proto-syntax-declaration",
+   |                                   ^
+   |
+  --> main.buri:52:60
+   |
+52 |     assert.equal(out.diagnostics.map(ctx, fn(d) => d.code) [
+   |                                                            ^ opened here
+   |
+   = fix: write `]` here

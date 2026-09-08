@@ -30,10 +30,7 @@ leaves `generators` alone:
 # libs/wire/BUILD.buri
 library {
     generators: [
-        {
-            tool: "std/codegen/proto"
-            inputs: ["point.proto"]
-        }
+        { tool: "std/codegen/proto", inputs: ["point.proto"] },
     ]
     visibility: ["//visibility:public"]
 }
@@ -64,11 +61,11 @@ Each message brings a default, a binary codec and a JSON codec: for `Point`,
 take a context — here for an `Address` message in another repository:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/proto" import { ProtoError };
 from "//lib/proto/address.proto" import { Address, decodeAddress, encodeAddress };
 
-export fn roundTrip<C: Alloc>(ctx: C, a: Address): Result<Address, ProtoError> {
+export fn roundTrip<C: Allocator>(ctx: C, a: Address): Result<Address, ProtoError> {
     decodeAddress(ctx, encodeAddress(ctx, a))
 }
 ```

@@ -1,0 +1,128 @@
+// `core/lazy` — what `load` answers, on every backend.
+//
+// `load(f)` is the identity: the value that comes back computes what `f`
+// computes, for every argument, and closes over nothing. That is the whole of
+// what the *language* promises, and it has to hold on a native build, which has
+// no second file to fetch, exactly as it does on JavaScript, which does.
+//
+// So every assertion here is a literal written into the file, and the two
+// backends either both pass it or disagree about the language.
+// `cli/tests/native/conformance.rs` runs this same file through the
+// copy-and-patch backend.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/lazy" import * as lazy;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+
+fn double(n: Int): Int {
+    n * 2
+}
+
+fn describe<C: Allocator>(ctx: C, n: Int): Str {
+    str.format(ctx, "n is ${n}")
+}
+
+/// Reached from `deep` and from nowhere else, which is what makes `deep` worth
+/// splitting: everything under it moves with it.
+fn onlyDeepReachesThis(n: Int): Int {
+    n + 1
+}
+
+fn deep(n: Int): Int {
+    onlyDeepReachesThis(onlyDeepReachesThis(n))
+}
+
+/// Loaded from inside something that was itself loaded. A chunk may hold a
+/// `load` of its own, so this is a chunk fetched from inside a chunk.
+fn inner(n: Int): Int {
+    n * 3
+}
+
+fn outer(n: Int): Int {
+    let f = lazy.load(inner);
+    f(n) + 1
+}
+
+/// Reached from two `load`s, which is what puts it in two chunks.
+fn shared(n: Int): Int {
+    n - 1
+}
+
+fn left(n: Int): Int {
+    shared(n) 10 *
+}
+
+fn right(n: Int): Int {
+    shared(n) * 100
+}
+
+/// A `load` written inside a body, so that it runs once per call.
+fn doubled(n: Int): Int {
+    let f = lazy.load(double);
+    f(n)
+}
+
+test "load answers a function that computes what the original computes" {
+    let f = lazy.load(double);
+    assert.equal(f(21), 42);
+    assert.equal(f(0), 0);
+    assert.equal(f(-3), -6);
+}
+
+test "a loaded function takes a context like any other" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let f = lazy.load(describe);
+    assert.equal(f(ctx, 7), "n is 7");
+}
+
+test "what the loaded function calls comes with it" {
+    let f = lazy.load(deep);
+    assert.equal(f(10), 12);
+}
+
+test "loading the same function twice answers the same behaviour twice" {
+    let a = lazy.load(double);
+    let b = lazy.load(double);
+    assert.equal(a(4), b(4));
+    assert.equal(a(4), 8);
+}
+
+test "a loaded function is a value, so it can be passed on" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let f = lazy.load(double);
+    assert.equal([1, 2, 3].map(ctx, f), [2, 4, 6]);
+}
+
+test "a loaded function may load another" {
+    let f = lazy.load(outer);
+    assert.equal(f(5), 16);
+    // And the inner one on its own answers what it always did.
+    assert.equal(lazy.load(inner)(5), 15);
+}
+
+test "two loads that reach one helper both answer through it" {
+    let a = lazy.load(left);
+    let b = lazy.load(right);
+    assert.equal(a(3), 20);
+    assert.equal(b(3), 200);
+}
+
+test "a load written inside a body runs every time that body runs" {
+    // The module's own sentence: a `load` at the top of a body fetches the
+    // chunk every time that body runs, and answers the same function each time.
+    assert.equal(doubled(1) + doubled(2) + doubled(3), 12);
+}
+
+test "loading something the program already calls answers it unchanged" {
+    // `double` is called directly above, so there is nothing to move out of the
+    // artifact and the split is a no-op. The answer must not depend on that.
+    assert.equal(double(5), 10);
+    let f = lazy.load(double);
+    assert.equal(f(5), 10);
+}

@@ -1,9 +1,0 @@
-error: expected an expression, found `@` [unexpected-token]
-  --> main.buri:39:39
-   |
-39 |     assert.approxEq(time.secondsFloat(@ 0.125).asSecondsFloat(), 0.125, 1e-9);
-   |                                       ^
-   |
-   = expected: an expression
-   = actual: `@`
-   = fix: write a value here

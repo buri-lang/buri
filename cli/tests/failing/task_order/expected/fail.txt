@@ -1,11 +1,11 @@
 FAIL //lib/fan  test/fan.buri  "a seeded order names the seed that replays it"
-  assert.eq failed
+  assert.equal failed
     actual:   [1, 102, 203]
     expected: [3, 2, 1]
   the tasks completed in the order 2, 1, 0 — replay it with `tasks().seed(5)`
   --> lib/fan/test/fan.buri:15:1
 FAIL //lib/fan  test/fan.buri  "an everyOrder run names which of the orders it is"
-  assert.eq failed
+  assert.equal failed
     actual:   [TaskCall { index: 0 }, TaskCall { index: 2 }, TaskCall { index: 1 }]
     expected: [TaskCall { index: 0 }, TaskCall { index: 1 }, TaskCall { index: 2 }]
   the tasks completed in the order 0, 2, 1, order 2 of 6 — replay it with `tasks().seed(1)`

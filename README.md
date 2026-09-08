@@ -17,7 +17,7 @@ Buri is safe, fast to run, fast to compile, and friendly, in that order:
 A strict, purely functional, statically typed language that compiles to JavaScript and native code. Here's a sample program:
 
 ```buri run
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -42,7 +42,7 @@ export fn main(): Result<(), Str> {
     // This context lets the program allocate and print to standard out, and
     // nothing else: no network calls, no filesystem.
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 

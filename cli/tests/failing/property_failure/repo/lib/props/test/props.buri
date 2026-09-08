@@ -4,7 +4,7 @@
 // draws and breaks on the hundredth — which is what says the runner draws every
 // case it promised rather than stopping early.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/check" import * as check;
@@ -19,7 +19,7 @@ test "nothing is ever drawn" {
 
 test "a drawn list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 9), 4), fn(_c, xs) => {
         xs.isEmpty()
@@ -28,7 +28,7 @@ test "a drawn list is empty" {
 
 test "a drawn list is sorted already" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 9), 4), fn(_c, xs) => {
         xs.isSortedBy(fn(a, b) => a.compare(b))

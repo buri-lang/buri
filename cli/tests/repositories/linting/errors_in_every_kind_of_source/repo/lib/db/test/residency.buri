@@ -2,7 +2,7 @@
 // test source can write it: a context is built here, and one of its keys names
 // an effect that no longer exists.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/db" import { stamp };
@@ -10,9 +10,9 @@ from "//lib/db/testing" import { fakeStamp };
 
 test "a tenant is stamped with its region" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Fs: alloc(),
     };
     let region: Str = 1;
-    assert.eq(stamp(ctx, region), fakeStamp(ctx, region));
+    assert.equal(stamp(ctx, region), fakeStamp(ctx, region));
 }

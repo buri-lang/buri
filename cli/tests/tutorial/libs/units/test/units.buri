@@ -1,15 +1,15 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//libs/units" import { ParseError, parseQuantity, Quantity, Unit };
 
 test "two words make a quantity" {
     let marathon = assert.ok(parseQuantity("26.2", "mi"));
-    assert.eq(marathon, Quantity { amount: 26.2, unit: Unit.Miles });
+    assert.equal(marathon, Quantity { amount: 26.2, unit: Unit.Miles });
 }
 
 test "a word that names no unit comes back with the word" {
-    assert.eq(
+    assert.equal(
         assert.err(parseQuantity("1", "furlong")),
         ParseError.UnknownUnit("furlong"),
     );
@@ -17,8 +17,8 @@ test "a word that names no unit comes back with the word" {
 
 test "a marathon is 42.16 kilometres, to two places" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let marathon = Quantity { amount: 26.2, unit: Unit.Miles };
-    assert.eq(marathon.into(.Kilometres).format(ctx), "42.16 km");
+    assert.equal(marathon.into(.Kilometres).format(ctx), "42.16 km");
 }

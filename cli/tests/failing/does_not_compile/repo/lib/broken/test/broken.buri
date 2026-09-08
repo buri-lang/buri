@@ -6,5 +6,5 @@
 from "core/testing/assert" import * as assert;
 
 test "a type error inside a test" {
-    assert.eq(1, "one");
+    assert.equal(1, "one");
 }

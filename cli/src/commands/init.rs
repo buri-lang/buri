@@ -229,7 +229,7 @@ fn enclosing_repository(root: &Path) -> Option<PathBuf> {
 ///
 /// Both halves of this are load-bearing. `find_root` walks up by popping
 /// components, so `buri init ../elsewhere` would have it climb back into the
-/// directory the `..` just left, and a relative `sub` would run out of
+/// directory the `..` just left, and a relative `subtract` would run out of
 /// components before reaching the root that encloses it. And the target need
 /// not exist yet, so the deepest ancestor that *does* is canonicalized and the
 /// rest is appended — which is also what resolves a symlinked parent.

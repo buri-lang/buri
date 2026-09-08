@@ -1,7 +1,7 @@
-error: `T` does not satisfy `Eq` [unsatisfied-bound]
+error: `T` does not satisfy `Equal` [unsatisfied-bound]
   --> cmd/ui_each_item_unbounded/main.buri:17:3
    |
 17 |   ui.each(items, name, fn(c, item, index) => ui.text(.Const(name(item))))
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = fix: bound the type parameter with `Eq`, or use a type that has one
+   = fix: bound the type parameter with `Equal`, or use a type that has one

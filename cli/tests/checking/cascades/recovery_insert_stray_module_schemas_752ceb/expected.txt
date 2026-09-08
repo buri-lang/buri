@@ -1,0 +1,29 @@
+error: `extra` is not a trait or effect [not-a-trait]
+  --> main.buri:44:20
+   |
+44 | export fn lines<C: extra Allocator>(ctx: C, text: Str): [Str] {
+   |                    ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `extra` as one
+error: a generic parameter ends with `,` [missing-separator]
+  --> main.buri:44:25
+   |
+44 | export fn lines<C: extra Allocator>(ctx: C, text: Str): [Str] {
+   |                         ^
+   |
+   = fix: write `,` here
+error: `C` does not satisfy `Allocator` [unsatisfied-bound]
+  --> main.buri:45:5
+   |
+45 |     printed(ctx, text).text.lines(ctx)
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Allocator`, or use a type that has one
+error: `C` does not satisfy `Allocator` [unsatisfied-bound]
+  --> main.buri:45:5
+   |
+45 |     printed(ctx, text).text.lines(ctx)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Allocator`, or use a type that has one

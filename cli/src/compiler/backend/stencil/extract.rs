@@ -14,7 +14,7 @@
 //! | fold | what it recovers |
 //! |---|---|
 //! | [`fold_addressing`] | a frame offset in a load or store's own `imm12` field, instead of an address computed into a register |
-//! | [`fold_imm`] | a literal in an `add`/`sub`/`cmp`'s `imm12` field |
+//! | [`fold_imm`] | a literal in an `add`/`subtract`/`cmp`'s `imm12` field |
 //! | [`fold_cond`] | a two-way branch as `b.cc` + `b` rather than `b.cc` + `b` + `b`, by making the conditional's `imm19` a hole |
 //! | [`swap_arms`] | the twin of a folded conditional with the arms exchanged, so the emitter can pick whichever one falls through |
 //!

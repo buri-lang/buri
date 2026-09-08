@@ -1,0 +1,17 @@
+error: expected `(`, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_9cee7c/main.buri:42:53
+   |
+42 | fn rendered<C: Allocator + Clock>(ctx: C, render: fn? (C, Str) => Str, label: Str): Str {
+   |                                                     ^
+   |
+   = expected: `(`
+   = actual: `?`
+   = fix: write `(` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_expected_9cee7c/main.buri:60:18
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                  ^^^^^^^^
+   |
+   = did you mean `Ordered`?
+   = fix: correct the spelling, or declare it

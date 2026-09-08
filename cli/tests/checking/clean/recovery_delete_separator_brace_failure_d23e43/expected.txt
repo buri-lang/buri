@@ -1,7 +1,0 @@
-error: a struct-literal field ends with `,` [missing-separator]
-  --> main.buri:88:54
-   |
-88 |     let silent = fn(_c, _r) => Response { modules: [] diagnostics: [] };
-   |                                                      ^
-   |
-   = fix: write `,` here

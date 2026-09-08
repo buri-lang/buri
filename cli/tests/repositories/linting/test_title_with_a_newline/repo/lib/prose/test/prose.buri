@@ -7,9 +7,9 @@ from "core/testing/assert" import * as assert;
 from "//lib/prose" import { shout };
 
 test "a title\nthat wraps" {
-    assert.eq(shout("hi"), "hi")
+    assert.equal(shout("hi"), "hi")
 }
 
 test "a title on one line" {
-    assert.eq(shout("ho"), "ho")
+    assert.equal(shout("ho"), "ho")
 }

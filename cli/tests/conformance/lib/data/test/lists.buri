@@ -4,7 +4,7 @@
 // them gets an empty-collection case, because an empty list is where a fold's
 // seed and a `get`'s bounds check are actually visible.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/math" import * as math;
@@ -12,14 +12,14 @@ from "core/order" import * as order;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
-// --- len / isEmpty ------------------------------------------------------------
+// --- length / isEmpty ------------------------------------------------------------
 
-test "len counts the elements" {
-    assert.eq([1, 2, 3].len(), 3);
+test "length counts the elements" {
+    assert.equal([1, 2, 3].length(), 3);
 }
 
-test "len of the empty list is zero" {
-    assert.eq(list.empty<Int>().len(), 0);
+test "length of the empty list is zero" {
+    assert.equal(list.empty<Int>().length(), 0);
 }
 
 test "isEmpty is true only for the empty list" {
@@ -30,11 +30,11 @@ test "isEmpty is true only for the empty list" {
 // --- get / indexing -----------------------------------------------------------
 
 test "get in range yields Some" {
-    assert.eq(assert.some([10, 20, 30].get(1)), 20);
+    assert.equal(assert.some([10, 20, 30].get(1)), 20);
 }
 
 test "get at the last index yields Some" {
-    assert.eq(assert.some([10, 20, 30].get(2)), 30);
+    assert.equal(assert.some([10, 20, 30].get(2)), 30);
 }
 
 test "get past the end yields None" {
@@ -59,7 +59,7 @@ test "get on the empty list yields None" {
 
 test "indexing syntax yields Option in range" {
     let xs = [7, 8, 9];
-    assert.eq(assert.some(xs[0]), 7);
+    assert.equal(assert.some(xs[0]), 7);
 }
 
 test "indexing syntax yields None out of range" {
@@ -79,7 +79,7 @@ test "indexing the empty list yields None" {
 
 test "indexing agrees with get" {
     let xs = [4, 5, 6];
-    assert.eq(assert.some(xs[2]), assert.some(xs.get(2)));
+    assert.equal(assert.some(xs[2]), assert.some(xs.get(2)));
     assert.none(xs[7]);
     assert.none(xs.get(7));
 }
@@ -87,7 +87,7 @@ test "indexing agrees with get" {
 // --- first / last -------------------------------------------------------------
 
 test "first yields the head" {
-    assert.eq(assert.some([1, 2, 3].first()), 1);
+    assert.equal(assert.some([1, 2, 3].first()), 1);
 }
 
 test "first of the empty list is None" {
@@ -95,11 +95,11 @@ test "first of the empty list is None" {
 }
 
 test "last yields the final element" {
-    assert.eq(assert.some([1, 2, 3].last()), 3);
+    assert.equal(assert.some([1, 2, 3].last()), 3);
 }
 
 test "last of a one-element list is its only element" {
-    assert.eq(assert.some([42].last()), 42);
+    assert.equal(assert.some([42].last()), 42);
 }
 
 test "last of the empty list is None" {
@@ -109,28 +109,28 @@ test "last of the empty list is None" {
 // --- fold ---------------------------------------------------------------------
 
 test "fold accumulates left to right" {
-    assert.eq([1, 2, 3, 4].fold(fn(acc, x) => acc + x, 0), 10);
+    assert.equal([1, 2, 3, 4].fold(fn(acc, x) => acc + x, 0), 10);
 }
 
 test "fold is left-associative in argument order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         ["a", "b", "c"].foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), ""),
         "abc",
     );
 }
 
 test "fold on the empty list returns the seed" {
-    assert.eq(list.empty<Int>().fold(fn(acc, x) => acc + x, 99), 99);
+    assert.equal(list.empty<Int>().fold(fn(acc, x) => acc + x, 99), 99);
 }
 
 test "foldCtx threads the context through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         ["a", "b", "c"].foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), ""),
         "abc",
     );
@@ -138,9 +138,9 @@ test "foldCtx threads the context through" {
 
 test "foldCtx on the empty list returns the seed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         list.empty<Str>().foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), "seed"),
         "seed",
     );
@@ -148,7 +148,7 @@ test "foldCtx on the empty list returns the seed" {
 
 test "foldResult returns Ok when every step succeeds" {
     let r = [1, 2, 3].foldResult(fn(acc, x) => .Ok(acc + x), 0);
-    assert.eq(assert.ok(r), 6);
+    assert.equal(assert.ok(r), 6);
 }
 
 test "foldResult stops at the first Err" {
@@ -156,7 +156,7 @@ test "foldResult stops at the first Err" {
         fn(acc, x) => if (x == 3) { .Err("stopped at 3") } else { .Ok(acc + x) },
         0,
     );
-    assert.eq(assert.err(r), "stopped at 3");
+    assert.equal(assert.err(r), "stopped at 3");
 }
 
 test "foldResult does not run steps after the first Err" {
@@ -164,12 +164,12 @@ test "foldResult does not run steps after the first Err" {
         fn(acc, x) => if (x == 0) { .Err(acc) } else { .Ok(acc + x) },
         0,
     );
-    assert.eq(assert.err(r), 1);
+    assert.equal(assert.err(r), 1);
 }
 
 test "foldResult on the empty list returns Ok of the seed" {
     let r = list.empty<Int>().foldResult(fn(acc, x) => .Ok(acc + x), 5);
-    assert.eq(assert.ok(r), 5);
+    assert.equal(assert.ok(r), 5);
 }
 
 // --- any / all / count --------------------------------------------------------
@@ -199,21 +199,21 @@ test "all on the empty list is vacuously true" {
 }
 
 test "count counts matching elements" {
-    assert.eq([1, 2, 3, 4, 5].count(fn(x) => x % 2 == 1), 3);
+    assert.equal([1, 2, 3, 4, 5].count(fn(x) => x % 2 == 1), 3);
 }
 
 test "count is zero when nothing matches" {
-    assert.eq([1, 2, 3].count(fn(x) => x > 10), 0);
+    assert.equal([1, 2, 3].count(fn(x) => x > 10), 0);
 }
 
 test "count on the empty list is zero" {
-    assert.eq(list.empty<Int>().count(fn(x) => true), 0);
+    assert.equal(list.empty<Int>().count(fn(x) => true), 0);
 }
 
 // --- find / findIndex / contains ----------------------------------------------
 
 test "find yields the first match" {
-    assert.eq(assert.some([1, 5, 3, 7].find(fn(x) => x > 2)), 5);
+    assert.equal(assert.some([1, 5, 3, 7].find(fn(x) => x > 2)), 5);
 }
 
 test "find yields None when nothing matches" {
@@ -225,7 +225,7 @@ test "find on the empty list is None" {
 }
 
 test "findIndex yields the index of the first match" {
-    assert.eq(assert.some([1, 5, 3, 7].findIndex(fn(x) => x > 2)), 1);
+    assert.equal(assert.some([1, 5, 3, 7].findIndex(fn(x) => x > 2)), 1);
 }
 
 test "findIndex yields None when nothing matches" {
@@ -257,23 +257,23 @@ test "contains works on strings" {
 
 test "map applies the function elementwise" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].map(ctx, fn(x) => x * 2), [2, 4, 6]);
+    assert.equal([1, 2, 3].map(ctx, fn(x) => x * 2), [2, 4, 6]);
 }
 
 test "map may change the element type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].map(ctx, fn(x) => x > 1), [false, true]);
+    assert.equal([1, 2].map(ctx, fn(x) => x > 1), [false, true]);
 }
 
 test "map on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().map(ctx, fn(x) => x * 2), list.empty<Int>());
+    assert.equal(list.empty<Int>().map(ctx, fn(x) => x * 2), list.empty<Int>());
 }
 
 // A callback that answers a `Result` builds a list *of* `Result`s. It is the
@@ -283,29 +283,29 @@ test "map on the empty list is empty" {
 // element type is then the `Result` rather than its payload.
 test "map with a fallible callback answers a list of results" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ns: [I64] = [200, 300];
     let rs = ns.map(ctx, fn(n) => n.toU8());
     // 300 does not fit in a `U8`, and the failure survives to the caller
     // instead of being replaced by a zero.
-    assert.eq(rs.map(ctx, fn(r) => r.isOk()), [true, false]);
+    assert.equal(rs.map(ctx, fn(r) => r.isOk()), [true, false]);
     let vals: [U8] = [200, 0];
-    assert.eq(rs.map(ctx, fn(r) => r.withDefault(0)), vals);
+    assert.equal(rs.map(ctx, fn(r) => r.withDefault(0)), vals);
 }
 
 test "mapCtx threads the context into the callback" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(["a", "b"].mapCtx(ctx, fn(c, x) => x.toUpper(c)), ["A", "B"]);
+    assert.equal(["a", "b"].mapCtx(ctx, fn(c, x) => x.toUpper(c)), ["A", "B"]);
 }
 
 test "mapCtx on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         list.empty<Str>().mapCtx(ctx, fn(c, x) => x.toUpper(c)),
         list.empty<Str>(),
     );
@@ -313,37 +313,37 @@ test "mapCtx on the empty list is empty" {
 
 test "filter keeps the elements the predicate accepts" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4, 5].filter(ctx, fn(x) => x % 2 == 0), [2, 4]);
+    assert.equal([1, 2, 3, 4, 5].filter(ctx, fn(x) => x % 2 == 0), [2, 4]);
 }
 
 test "filter keeps source order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([5, 1, 4, 2, 3].filter(ctx, fn(x) => x < 4), [1, 2, 3]);
+    assert.equal([5, 1, 4, 2, 3].filter(ctx, fn(x) => x < 4), [1, 2, 3]);
 }
 
 test "filter can keep nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].filter(ctx, fn(x) => false), list.empty<Int>());
+    assert.equal([1, 2, 3].filter(ctx, fn(x) => false), list.empty<Int>());
 }
 
 test "filter on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().filter(ctx, fn(x) => true), list.empty<Int>());
+    assert.equal(list.empty<Int>().filter(ctx, fn(x) => true), list.empty<Int>());
 }
 
 test "filterCtx threads the context into the predicate" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         ["ab", "b", "abc"].filterCtx(ctx, fn(c, x) => x.toUpper(c).startsWith("A")),
         ["ab", "abc"],
     );
@@ -351,116 +351,116 @@ test "filterCtx threads the context into the predicate" {
 
 test "filterCtx on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Str>().filterCtx(ctx, fn(c, x) => true), list.empty<Str>());
+    assert.equal(list.empty<Str>().filterCtx(ctx, fn(c, x) => true), list.empty<Str>());
 }
 
 // --- concat / push ------------------------------------------------------------
 
 test "concat joins two lists in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].concat(ctx, [3, 4]), [1, 2, 3, 4]);
+    assert.equal([1, 2].concat(ctx, [3, 4]), [1, 2, 3, 4]);
 }
 
 test "concat with an empty right operand is the left" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].concat(ctx, list.empty<Int>()), [1, 2]);
+    assert.equal([1, 2].concat(ctx, list.empty<Int>()), [1, 2]);
 }
 
 test "concat with an empty left operand is the right" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().concat(ctx, [3, 4]), [3, 4]);
+    assert.equal(list.empty<Int>().concat(ctx, [3, 4]), [3, 4]);
 }
 
 test "concat of two empty lists is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().concat(ctx, list.empty<Int>()), list.empty<Int>());
+    assert.equal(list.empty<Int>().concat(ctx, list.empty<Int>()), list.empty<Int>());
 }
 
 test "push appends at the end" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].push(ctx, 3), [1, 2, 3]);
+    assert.equal([1, 2].push(ctx, 3), [1, 2, 3]);
 }
 
 test "push onto the empty list yields a singleton" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().push(ctx, 1), [1]);
+    assert.equal(list.empty<Int>().push(ctx, 1), [1]);
 }
 
 test "push leaves the original untouched" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1, 2];
     let ys = xs.push(ctx, 3);
-    assert.eq(xs, [1, 2]);
-    assert.eq(ys, [1, 2, 3]);
+    assert.equal(xs, [1, 2]);
+    assert.equal(ys, [1, 2, 3]);
 }
 
 // --- reverse ------------------------------------------------------------------
 
 test "reverse reverses" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].reverse(ctx), [3, 2, 1]);
+    assert.equal([1, 2, 3].reverse(ctx), [3, 2, 1]);
 }
 
 test "reverse of a singleton is itself" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1].reverse(ctx), [1]);
+    assert.equal([1].reverse(ctx), [1]);
 }
 
 test "reverse of the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().reverse(ctx), list.empty<Int>());
+    assert.equal(list.empty<Int>().reverse(ctx), list.empty<Int>());
 }
 
 test "reverse twice is the identity" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].reverse(ctx).reverse(ctx), [1, 2, 3, 4]);
+    assert.equal([1, 2, 3, 4].reverse(ctx).reverse(ctx), [1, 2, 3, 4]);
 }
 
 // --- sortBy / sort ------------------------------------------------------------
 
 test "sortBy orders by the comparator" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([3, 1, 2].sortBy(ctx, fn(a, b) => order.int(a, b)), [1, 2, 3]);
+    assert.equal([3, 1, 2].sortBy(ctx, fn(a, b) => order.int(a, b)), [1, 2, 3]);
 }
 
 test "sortBy with a reversed comparator sorts descending" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([3, 1, 2].sortBy(ctx, fn(a, b) => order.int(b, a)), [3, 2, 1]);
+    assert.equal([3, 1, 2].sortBy(ctx, fn(a, b) => order.int(b, a)), [3, 2, 1]);
 }
 
 test "sortBy on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         list.empty<Int>().sortBy(ctx, fn(a, b) => order.int(a, b)),
         list.empty<Int>(),
     );
@@ -468,11 +468,11 @@ test "sortBy on the empty list is empty" {
 
 test "sortBy is stable" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Compare on the first element only; equal keys must keep source order.
     let xs = [(1, "a"), (0, "b"), (1, "c"), (0, "d"), (1, "e")];
-    assert.eq(xs.sortBy(ctx, fn(a, b) => order.int(a.0, b.0)), [
+    assert.equal(xs.sortBy(ctx, fn(a, b) => order.int(a.0, b.0)), [
         (0, "b"),
         (0, "d"),
         (1, "a"),
@@ -483,10 +483,10 @@ test "sortBy is stable" {
 
 test "sortBy is stable when every key is equal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [(0, 1), (0, 2), (0, 3), (0, 4)];
-    assert.eq(xs.sortBy(ctx, fn(a, b) => order.int(a.0, b.0)), [
+    assert.equal(xs.sortBy(ctx, fn(a, b) => order.int(a.0, b.0)), [
         (0, 1),
         (0, 2),
         (0, 3),
@@ -494,28 +494,28 @@ test "sortBy is stable when every key is equal" {
     ]);
 }
 
-test "sort orders by Ord" {
+test "sort orders by Ordered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([3, 1, 2].sort(ctx), [1, 2, 3]);
+    assert.equal([3, 1, 2].sort(ctx), [1, 2, 3]);
 }
 
 test "sort of the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().sort(ctx), list.empty<Int>());
+    assert.equal(list.empty<Int>().sort(ctx), list.empty<Int>());
 }
 
 test "sort of strings is lexicographic" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(["pear", "apple", "fig"].sort(ctx), ["apple", "fig", "pear"]);
+    assert.equal(["pear", "apple", "fig"].sort(ctx), ["apple", "fig", "pear"]);
 }
 
-// `sort` is `Ord`, and for `Str` that is `core/str`'s `compare`: lexicographic
+// `sort` is `Ordered`, and for `Str` that is `core/str`'s `compare`: lexicographic
 // by Unicode scalar value, on both backends. U+FFE5 and U+FFFD are near the top
 // of the basic multilingual plane and U+1F600 is above it, which is exactly
 // where the scalar order and the UTF-16 one a JavaScript `<` would give part
@@ -523,324 +523,327 @@ test "sort of strings is lexicographic" {
 // at U+D800.
 test "sort of strings orders by scalar value above the basic multilingual plane" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(["😀", "￥", "a", "�"].sort(ctx), ["a", "￥", "�", "😀"]);
+    assert.equal(["😀", "￥", "a", "�"].sort(ctx), ["a", "￥", "�", "😀"]);
 }
 
 test "sort keeps duplicates" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([2, 1, 2, 1].sort(ctx), [1, 1, 2, 2]);
+    assert.equal([2, 1, 2, 1].sort(ctx), [1, 1, 2, 2]);
 }
 
 // --- take / drop / slice ------------------------------------------------------
 
 test "take keeps the first n" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].take(ctx, 2), [1, 2]);
+    assert.equal([1, 2, 3, 4].take(ctx, 2), [1, 2]);
 }
 
 test "take of zero is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].take(ctx, 0), list.empty<Int>());
+    assert.equal([1, 2, 3].take(ctx, 0), list.empty<Int>());
 }
 
 test "take of more than the length is the whole list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].take(ctx, 10), [1, 2, 3]);
+    assert.equal([1, 2, 3].take(ctx, 10), [1, 2, 3]);
 }
 
 test "take on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().take(ctx, 3), list.empty<Int>());
+    assert.equal(list.empty<Int>().take(ctx, 3), list.empty<Int>());
 }
 
 test "take of a negative count is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].take(ctx, -1), list.empty<Int>());
+    assert.equal([1, 2, 3].take(ctx, -1), list.empty<Int>());
 }
 
 test "drop removes the first n" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].drop(ctx, 2), [3, 4]);
+    assert.equal([1, 2, 3, 4].drop(ctx, 2), [3, 4]);
 }
 
 test "drop of zero is the whole list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].drop(ctx, 0), [1, 2, 3]);
+    assert.equal([1, 2, 3].drop(ctx, 0), [1, 2, 3]);
 }
 
 test "drop of more than the length is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].drop(ctx, 10), list.empty<Int>());
+    assert.equal([1, 2, 3].drop(ctx, 10), list.empty<Int>());
 }
 
 test "drop on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().drop(ctx, 3), list.empty<Int>());
+    assert.equal(list.empty<Int>().drop(ctx, 3), list.empty<Int>());
 }
 
 test "drop of a negative count is the whole list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].drop(ctx, -1), [1, 2, 3]);
+    assert.equal([1, 2, 3].drop(ctx, -1), [1, 2, 3]);
 }
 
 test "slice takes a half-open range" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4, 5].slice(ctx, 1, 4), [2, 3, 4]);
+    assert.equal([1, 2, 3, 4, 5].slice(ctx, 1, 4), [2, 3, 4]);
 }
 
 test "slice with start equal to end is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].slice(ctx, 1, 1), list.empty<Int>());
+    assert.equal([1, 2, 3].slice(ctx, 1, 1), list.empty<Int>());
 }
 
 test "slice covering everything is the whole list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].slice(ctx, 0, 3), [1, 2, 3]);
+    assert.equal([1, 2, 3].slice(ctx, 0, 3), [1, 2, 3]);
 }
 
 test "slice clamps past the end" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].slice(ctx, 1, 99), [2, 3]);
+    assert.equal([1, 2, 3].slice(ctx, 1, 99), [2, 3]);
 }
 
 test "slice with an inverted range is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].slice(ctx, 2, 1), list.empty<Int>());
+    assert.equal([1, 2, 3].slice(ctx, 2, 1), list.empty<Int>());
 }
 
 test "slice on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().slice(ctx, 0, 2), list.empty<Int>());
+    assert.equal(list.empty<Int>().slice(ctx, 0, 2), list.empty<Int>());
 }
 
 // --- zip / flatten ------------------------------------------------------------
 
 test "zip pairs elementwise" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].zip(ctx, ["a", "b", "c"]), [(1, "a"), (2, "b"), (3, "c")]);
+    assert.equal([1, 2, 3].zip(ctx, ["a", "b", "c"]), [(1, "a"), (2, "b"), (3, "c")]);
 }
 
 test "zip stops at the shorter list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].zip(ctx, ["a"]), [(1, "a")]);
+    assert.equal([1, 2, 3].zip(ctx, ["a"]), [(1, "a")]);
 }
 
 test "zip with an empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].zip(ctx, list.empty<Str>()), list.empty<(Int, Str)>());
+    assert.equal([1, 2].zip(ctx, list.empty<Str>()), list.empty<(Int, Str)>());
 }
 
 test "zip on the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Int>().zip(ctx, ["a"]), list.empty<(Int, Str)>());
+    assert.equal(list.empty<Int>().zip(ctx, ["a"]), list.empty<(Int, Str)>());
 }
 
 test "flatten concatenates the inner lists" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([[1, 2], [3], [4, 5]].flatten(ctx), [1, 2, 3, 4, 5]);
+    assert.equal([[1, 2], [3], [4, 5]].flatten(ctx), [1, 2, 3, 4, 5]);
 }
 
 test "flatten skips empty inner lists" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([[1], list.empty<Int>(), [2]].flatten(ctx), [1, 2]);
+    assert.equal([[1], list.empty<Int>(), [2]].flatten(ctx), [1, 2]);
 }
 
 test "flatten of an empty outer list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<[Int]>().flatten(ctx), list.empty<Int>());
+    assert.equal(list.empty<[Int]>().flatten(ctx), list.empty<Int>());
 }
 
 test "flatten of a list of empty lists is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([list.empty<Int>(), list.empty<Int>()].flatten(ctx), list.empty<Int>());
+    assert.equal(
+        [list.empty<Int>(), list.empty<Int>()].flatten(ctx),
+        list.empty<Int>(),
+    );
 }
 
 // --- join ---------------------------------------------------------------------
 
 test "join inserts the separator between elements" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(["a", "b", "c"].join(ctx, ", "), "a, b, c");
+    assert.equal(["a", "b", "c"].join(ctx, ", "), "a, b, c");
 }
 
 test "join of a singleton has no separator" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(["only"].join(ctx, ", "), "only");
+    assert.equal(["only"].join(ctx, ", "), "only");
 }
 
 test "join of the empty list is the empty string" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.empty<Str>().join(ctx, ", "), "");
+    assert.equal(list.empty<Str>().join(ctx, ", "), "");
 }
 
 test "join with an empty separator concatenates" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(["a", "b", "c"].join(ctx, ""), "abc");
+    assert.equal(["a", "b", "c"].join(ctx, ""), "abc");
 }
 
 test "join preserves empty elements" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(["", "b", ""].join(ctx, "-"), "-b-");
+    assert.equal(["", "b", ""].join(ctx, "-"), "-b-");
 }
 
 // --- empty / range / repeat ---------------------------------------------------
 
 test "empty produces a list of length zero" {
-    assert.eq(list.empty<Int>().len(), 0);
+    assert.equal(list.empty<Int>().length(), 0);
 }
 
 test "empty lists of the same element type are equal" {
-    assert.eq(list.empty<Int>(), list.empty<Int>());
+    assert.equal(list.empty<Int>(), list.empty<Int>());
 }
 
 test "range is half-open" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.range(ctx, 0, 5), [0, 1, 2, 3, 4]);
+    assert.equal(list.range(ctx, 0, 5), [0, 1, 2, 3, 4]);
 }
 
 test "range from a nonzero start" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.range(ctx, 3, 6), [3, 4, 5]);
+    assert.equal(list.range(ctx, 3, 6), [3, 4, 5]);
 }
 
 test "range with start equal to end is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.range(ctx, 4, 4), list.empty<Int>());
+    assert.equal(list.range(ctx, 4, 4), list.empty<Int>());
 }
 
 test "range with start past end is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.range(ctx, 5, 2), list.empty<Int>());
+    assert.equal(list.range(ctx, 5, 2), list.empty<Int>());
 }
 
 test "range over negative numbers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.range(ctx, -2, 2), [-2, -1, 0, 1]);
+    assert.equal(list.range(ctx, -2, 2), [-2, -1, 0, 1]);
 }
 
 test "repeat produces n copies" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.repeat(ctx, 7, 3), [7, 7, 7]);
+    assert.equal(list.repeat(ctx, 7, 3), [7, 7, 7]);
 }
 
 test "repeat zero times is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.repeat(ctx, 7, 0), list.empty<Int>());
+    assert.equal(list.repeat(ctx, 7, 0), list.empty<Int>());
 }
 
 test "repeat a negative number of times is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.repeat(ctx, 7, -3), list.empty<Int>());
+    assert.equal(list.repeat(ctx, 7, -3), list.empty<Int>());
 }
 
 test "repeat works on strings" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.repeat(ctx, "x", 2), ["x", "x"]);
+    assert.equal(list.repeat(ctx, "x", 2), ["x", "x"]);
 }
 
 // --- numeric folds ------------------------------------------------------------
 
 test "sum adds the elements" {
-    assert.eq([1, 2, 3, 4].sum(), 10);
+    assert.equal([1, 2, 3, 4].sum(), 10);
 }
 
 test "sum of the empty list is zero" {
-    assert.eq(list.empty<Int>().sum(), 0);
+    assert.equal(list.empty<Int>().sum(), 0);
 }
 
 test "sum handles negatives" {
-    assert.eq([5, -3, -2].sum(), 0);
+    assert.equal([5, -3, -2].sum(), 0);
 }
 
 test "sumFloat adds the elements" {
-    assert.eq([1.5, 2.5].sumFloat(), 4.0);
+    assert.equal([1.5, 2.5].sumFloat(), 4.0);
 }
 
 test "sumFloat of the empty list is zero" {
-    assert.eq(list.empty<Float>().sumFloat(), 0.0);
+    assert.equal(list.empty<Float>().sumFloat(), 0.0);
 }
 
 test "maximum yields the largest element" {
-    assert.eq(assert.some([3, 9, 2].maximum()), 9);
+    assert.equal(assert.some([3, 9, 2].maximum()), 9);
 }
 
 test "maximum of the empty list is None" {
@@ -848,15 +851,15 @@ test "maximum of the empty list is None" {
 }
 
 test "maximum of a singleton is that element" {
-    assert.eq(assert.some([4].maximum()), 4);
+    assert.equal(assert.some([4].maximum()), 4);
 }
 
-test "maximum on strings uses Ord" {
-    assert.eq(assert.some(["fig", "apple", "pear"].maximum()), "pear");
+test "maximum on strings uses Ordered" {
+    assert.equal(assert.some(["fig", "apple", "pear"].maximum()), "pear");
 }
 
 test "minimum yields the smallest element" {
-    assert.eq(assert.some([3, 9, 2].minimum()), 2);
+    assert.equal(assert.some([3, 9, 2].minimum()), 2);
 }
 
 test "minimum of the empty list is None" {
@@ -864,44 +867,44 @@ test "minimum of the empty list is None" {
 }
 
 test "minimum of a singleton is that element" {
-    assert.eq(assert.some([4].minimum()), 4);
+    assert.equal(assert.some([4].minimum()), 4);
 }
 
-test "minimum on strings uses Ord" {
-    assert.eq(assert.some(["fig", "apple", "pear"].minimum()), "apple");
+test "minimum on strings uses Ordered" {
+    assert.equal(assert.some(["fig", "apple", "pear"].minimum()), "apple");
 }
 
 // --- structural equality on lists (SPEC 5.11) ---------------------------------
 
 test "two separately built lists with equal contents are equal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = [1, 2, 3];
     let b = list.range(ctx, 1, 4);
-    assert.eq(a, b);
+    assert.equal(a, b);
 }
 
 test "lists of different lengths are not equal" {
-    assert.notEq([1, 2], [1, 2, 3]);
+    assert.notEqual([1, 2], [1, 2, 3]);
 }
 
 test "lists differing in one element are not equal" {
-    assert.notEq([1, 2, 3], [1, 9, 3]);
+    assert.notEqual([1, 2, 3], [1, 9, 3]);
 }
 
 test "list equality is elementwise and ordered" {
-    assert.notEq([1, 2], [2, 1]);
+    assert.notEqual([1, 2], [2, 1]);
 }
 
 test "nested lists compare structurally" {
-    assert.eq([[1, 2], [3]], [[1, 2], [3]]);
-    assert.notEq([[1, 2], [3]], [[1], [2, 3]]);
+    assert.equal([[1, 2], [3]], [[1, 2], [3]]);
+    assert.notEqual([[1, 2], [3]], [[1], [2, 3]]);
 }
 
 test "lists of tuples compare structurally" {
-    assert.eq([(1, "a"), (2, "b")], [(1, "a"), (2, "b")]);
-    assert.notEq([(1, "a")], [(1, "b")]);
+    assert.equal([(1, "a"), (2, "b")], [(1, "a"), (2, "b")]);
+    assert.notEqual([(1, "a")], [(1, "b")]);
 }
 
 // --- foldResultCtx ---------------------------------------------------------------
@@ -912,19 +915,19 @@ test "lists of tuples compare structurally" {
 
 test "foldResultCtx accumulates while every step succeeds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = [1, 2, 3].foldResultCtx(
         ctx,
         fn(c, acc: [Int], x) => .Ok(acc.push(c, x * 10)),
         list.empty<Int>(),
     );
-    assert.eq(assert.ok(out), [10, 20, 30]);
+    assert.equal(assert.ok(out), [10, 20, 30]);
 }
 
 test "foldResultCtx stops at the first failure" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = [1, 0, 3].foldResultCtx(
         ctx,
@@ -933,34 +936,34 @@ test "foldResultCtx stops at the first failure" {
         },
         list.empty<Int>(),
     );
-    assert.eq(assert.err(out), "zero");
+    assert.equal(assert.err(out), "zero");
 }
 
 test "foldResultCtx over the empty list is the seed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = list
         .empty<Int>()
         .foldResultCtx(ctx, fn(c, acc: [Int], x) => .Ok(acc.push(c, x)), [7]);
-    assert.eq(assert.ok(out), [7]);
+    assert.equal(assert.ok(out), [7]);
 }
 
 // The step after the failing one must not run, or an error would be a
 // suggestion rather than a stop.
 test "foldResultCtx does not run the step after a failure" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = [1, 2, 3].foldResultCtx(
         ctx,
         fn(c, acc: [Int], x) => {
-            if (x >= 2) { .Err(acc.len()) } else { .Ok(acc.push(c, x)) }
+            if (x >= 2) { .Err(acc.length()) } else { .Ok(acc.push(c, x)) }
         },
         list.empty<Int>(),
     );
     // One element accumulated before the failure, and nothing after it.
-    assert.eq(assert.err(out), 1);
+    assert.equal(assert.err(out), 1);
 }
 
 // --- aliasing -----------------------------------------------------------------
@@ -976,164 +979,164 @@ struct Basket {
     items: [Int],
 }
 
-fn appended<C: Alloc>(ctx: C, xs: [Int], x: Int): [Int] {
+fn appended<C: Allocator>(ctx: C, xs: [Int], x: Int): [Int] {
     xs.push(ctx, x)
 }
 
-fn grow<C: Alloc>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
+fn grow<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
     if (i >= n) { acc } else { grow(ctx, i + 1, n, acc.push(ctx, i)) }
 }
 
 test "two pushes onto one list do not see each other" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1, 2].concat(ctx, [3]);
     let a = xs.push(ctx, 4);
     let b = xs.push(ctx, 5);
-    assert.eq(a, [1, 2, 3, 4]);
-    assert.eq(b, [1, 2, 3, 5]);
-    assert.eq(xs, [1, 2, 3]);
+    assert.equal(a, [1, 2, 3, 4]);
+    assert.equal(b, [1, 2, 3, 5]);
+    assert.equal(xs, [1, 2, 3]);
 }
 
 test "a callee that pushes leaves the caller's list alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = list.empty<Int>().push(ctx, 1).push(ctx, 2);
     let a = appended(ctx, xs, 3);
     let b = appended(ctx, xs, 4);
-    assert.eq(xs, [1, 2]);
-    assert.eq(a, [1, 2, 3]);
-    assert.eq(b, [1, 2, 4]);
+    assert.equal(xs, [1, 2]);
+    assert.equal(a, [1, 2, 3]);
+    assert.equal(b, [1, 2, 4]);
 }
 
 test "concat leaves both operands alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1].concat(ctx, [2]);
     let ys = [3].concat(ctx, [4]);
     let joined = xs.concat(ctx, ys);
-    assert.eq(joined, [1, 2, 3, 4]);
-    assert.eq(xs, [1, 2]);
-    assert.eq(ys, [3, 4]);
+    assert.equal(joined, [1, 2, 3, 4]);
+    assert.equal(xs, [1, 2]);
+    assert.equal(ys, [3, 4]);
 }
 
 test "concatenating a list with itself doubles it once" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1].concat(ctx, [2]);
-    assert.eq(xs.concat(ctx, xs), [1, 2, 1, 2]);
+    assert.equal(xs.concat(ctx, xs), [1, 2, 1, 2]);
 }
 
 test "reverse leaves the list it was called on alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1].concat(ctx, [2, 3]);
     let r = xs.reverse(ctx);
-    assert.eq(r, [3, 2, 1]);
-    assert.eq(xs, [1, 2, 3]);
+    assert.equal(r, [3, 2, 1]);
+    assert.equal(xs, [1, 2, 3]);
 }
 
 test "take, drop and slice leave the list they read alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1].concat(ctx, [2, 3, 4]);
-    assert.eq(xs.take(ctx, 2), [1, 2]);
-    assert.eq(xs.drop(ctx, 2), [3, 4]);
-    assert.eq(xs.slice(ctx, 1, 3), [2, 3]);
-    assert.eq(xs, [1, 2, 3, 4]);
+    assert.equal(xs.take(ctx, 2), [1, 2]);
+    assert.equal(xs.drop(ctx, 2), [3, 4]);
+    assert.equal(xs.slice(ctx, 1, 3), [2, 3]);
+    assert.equal(xs, [1, 2, 3, 4]);
 }
 
 test "a list inside a list is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let inner = [1].concat(ctx, [2]);
     let outer = list.empty<[Int]>().push(ctx, inner);
     let grown = assert.some(outer.get(0)).push(ctx, 3);
-    assert.eq(grown, [1, 2, 3]);
-    assert.eq(assert.some(outer.get(0)), [1, 2]);
+    assert.equal(grown, [1, 2, 3]);
+    assert.equal(assert.some(outer.get(0)), [1, 2]);
 }
 
 test "a list in a struct survives two functional updates" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = Basket { label: "base", items: [1].concat(ctx, [2]) };
     let one = Basket { ..base, items: base.items.push(ctx, 3) };
     let two = Basket { ..base, items: base.items.push(ctx, 4) };
-    assert.eq(one.items, [1, 2, 3]);
-    assert.eq(two.items, [1, 2, 4]);
-    assert.eq(base.items, [1, 2]);
+    assert.equal(one.items, [1, 2, 3]);
+    assert.equal(two.items, [1, 2, 4]);
+    assert.equal(base.items, [1, 2]);
 }
 
 // The accumulator a fold is handed still belongs to whoever passed it.
 test "a fold seed is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seed = [0].concat(ctx, list.empty<Int>());
     let out = [1, 2].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed);
-    assert.eq(out, [0, 1, 2]);
-    assert.eq(seed, [0]);
+    assert.equal(out, [0, 1, 2]);
+    assert.equal(seed, [0]);
 }
 
 // Every element a higher-order operation hands to a callback is one the list
 // still holds.
 test "an element handed to a callback is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let inner = [1].concat(ctx, [2]);
     let outer = list.empty<[Int]>().push(ctx, inner);
-    let lengths = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9).len());
-    assert.eq(lengths, [3]);
-    assert.eq(assert.some(outer.get(0)), [1, 2]);
+    let lengths = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9).length());
+    assert.equal(lengths, [3]);
+    assert.equal(assert.some(outer.get(0)), [1, 2]);
 }
 
 // A list rebound by a loop is the case the whole optimisation is for: the
 // answer is the same, and the work is not.
 test "an accumulator grown in a loop answers what a copy would" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grow(ctx, 0, 40, list.empty<Int>());
-    assert.eq(xs.len(), 40);
-    assert.eq(assert.some(xs.get(0)), 0);
-    assert.eq(assert.some(xs.get(39)), 39);
+    assert.equal(xs.length(), 40);
+    assert.equal(assert.some(xs.get(0)), 0);
+    assert.equal(assert.some(xs.get(39)), 39);
 }
 
 // A fresh aggregate can only hold aliases that were already marked on the way
 // in, which is what makes reading a field back out of a dying one safe.
 test "a list zipped into a fresh pair is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let inner = [1].concat(ctx, [2]);
     let outer = list.empty<[Int]>().push(ctx, inner);
     let pairs = outer.zip(ctx, [10]);
     let grown = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9));
-    assert.eq(pairs.len(), 1);
-    assert.eq(assert.some(grown.get(0)), [1, 2, 9]);
-    assert.eq(assert.some(outer.get(0)), [1, 2]);
+    assert.equal(pairs.length(), 1);
+    assert.equal(assert.some(grown.get(0)), [1, 2, 9]);
+    assert.equal(assert.some(outer.get(0)), [1, 2]);
 }
 
 // A list held in a tuple built beside a use of it.
 test "a list put into a tuple beside another use of it is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1].concat(ctx, [2]);
-    let pair = (xs, xs.len());
+    let pair = (xs, xs.length());
     let grown = pair.0.push(ctx, 3);
-    assert.eq(grown, [1, 2, 3]);
-    assert.eq(xs, [1, 2]);
-    assert.eq(pair.1, 2);
+    assert.equal(grown, [1, 2, 3]);
+    assert.equal(xs, [1, 2]);
+    assert.equal(pair.1, 2);
 }
 
 // --- mapResult / mapOption / filterMap -----------------------------------------
@@ -1148,61 +1151,61 @@ fn evenHalf(n: Int): Option<Int> {
 
 test "mapResult maps every element when no step fails" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.ok([1, 2, 3].mapResult(ctx, small)), [2, 4, 6]);
+    assert.equal(assert.ok([1, 2, 3].mapResult(ctx, small)), [2, 4, 6]);
 }
 
 // The first failure is the one reported, which is what makes the traversal a
 // replacement for a fold that has to stop.
 test "mapResult answers the first Err and no later one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.err([1, 20, 30].mapResult(ctx, small)), 20);
+    assert.equal(assert.err([1, 20, 30].mapResult(ctx, small)), 20);
 }
 
 test "mapResult of the empty list is Ok of the empty list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.ok(list.empty<Int>().mapResult(ctx, small)), []);
+    assert.equal(assert.ok(list.empty<Int>().mapResult(ctx, small)), []);
 }
 
 test "mapOption maps every element when none is missing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.some([2, 4].mapOption(ctx, evenHalf)), [1, 2]);
+    assert.equal(assert.some([2, 4].mapOption(ctx, evenHalf)), [1, 2]);
 }
 
 test "mapOption is None when one element is missing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.none([2, 3, 4].mapOption(ctx, evenHalf));
 }
 
 test "mapOption of the empty list is Some of the empty list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.some(list.empty<Int>().mapOption(ctx, evenHalf)), []);
+    assert.equal(assert.some(list.empty<Int>().mapOption(ctx, evenHalf)), []);
 }
 
 test "filterMap keeps the Some payloads and drops the rest" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].filterMap(ctx, evenHalf), [1, 2]);
+    assert.equal([1, 2, 3, 4].filterMap(ctx, evenHalf), [1, 2]);
 }
 
 test "filterMap of a list with nothing to keep is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 3].filterMap(ctx, evenHalf), list.empty<Int>());
-    assert.eq(list.empty<Int>().filterMap(ctx, evenHalf), list.empty<Int>());
+    assert.equal([1, 3].filterMap(ctx, evenHalf), list.empty<Int>());
+    assert.equal(list.empty<Int>().filterMap(ctx, evenHalf), list.empty<Int>());
 }
 
 // --- the *Ctx traversals ---------------------------------------------------------
@@ -1212,20 +1215,20 @@ test "filterMap of a list with nothing to keep is empty" {
 // the walk hands it one. Every helper below allocates, which is what makes
 // these different tests rather than the same ones spelled twice.
 
-fn twice<C: Alloc>(ctx: C, n: Int): Result<[Int], Int> {
+fn twice<C: Allocator>(ctx: C, n: Int): Result<[Int], Int> {
     if (n < 10) { .Ok(list.repeat(ctx, n, 2)) } else { .Err(n) }
 }
 
-fn twiceIfEven<C: Alloc>(ctx: C, n: Int): Option<[Int]> {
+fn twiceIfEven<C: Allocator>(ctx: C, n: Int): Option<[Int]> {
     if (n % 2 == 0) { .Some(list.repeat(ctx, n, 2)) } else { .None }
 }
 
 test "mapResultCtx maps with the context in hand" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.ok([1, 2].mapResultCtx(ctx, twice)), [[1, 1], [2, 2]]);
-    assert.eq(
+    assert.equal(assert.ok([1, 2].mapResultCtx(ctx, twice)), [[1, 1], [2, 2]]);
+    assert.equal(
         assert.ok(list.empty<Int>().mapResultCtx(ctx, twice)),
         list.empty<[Int]>(),
     );
@@ -1233,18 +1236,18 @@ test "mapResultCtx maps with the context in hand" {
 
 test "mapResultCtx answers the first Err" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.err([1, 20, 30].mapResultCtx(ctx, twice)), 20);
+    assert.equal(assert.err([1, 20, 30].mapResultCtx(ctx, twice)), 20);
 }
 
 test "mapOptionCtx maps with the context, and is None at the first miss" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.some([2, 4].mapOptionCtx(ctx, twiceIfEven)), [[2, 2], [4, 4]]);
+    assert.equal(assert.some([2, 4].mapOptionCtx(ctx, twiceIfEven)), [[2, 2], [4, 4]]);
     assert.none([2, 3].mapOptionCtx(ctx, twiceIfEven));
-    assert.eq(
+    assert.equal(
         assert.some(list.empty<Int>().mapOptionCtx(ctx, twiceIfEven)),
         list.empty<[Int]>(),
     );
@@ -1252,86 +1255,86 @@ test "mapOptionCtx maps with the context, and is None at the first miss" {
 
 test "filterMapCtx keeps what the context-taking step answers Some for" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].filterMapCtx(ctx, twiceIfEven), [[2, 2], [4, 4]]);
-    assert.eq([1, 3].filterMapCtx(ctx, twiceIfEven), list.empty<[Int]>());
-    assert.eq(list.empty<Int>().filterMapCtx(ctx, twiceIfEven), list.empty<[Int]>());
+    assert.equal([1, 2, 3, 4].filterMapCtx(ctx, twiceIfEven), [[2, 2], [4, 4]]);
+    assert.equal([1, 3].filterMapCtx(ctx, twiceIfEven), list.empty<[Int]>());
+    assert.equal(list.empty<Int>().filterMapCtx(ctx, twiceIfEven), list.empty<[Int]>());
 }
 
 // --- removeAt / windows / uniqueBy / generate -----------------------------------
 
 test "removeAt drops the element at the index" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].removeAt(ctx, 0), [2, 3]);
-    assert.eq([1, 2, 3].removeAt(ctx, 1), [1, 3]);
-    assert.eq([1, 2, 3].removeAt(ctx, 2), [1, 2]);
+    assert.equal([1, 2, 3].removeAt(ctx, 0), [2, 3]);
+    assert.equal([1, 2, 3].removeAt(ctx, 1), [1, 3]);
+    assert.equal([1, 2, 3].removeAt(ctx, 2), [1, 2]);
 }
 
 // Total at every index, like `get`: there is no way to remove out of bounds
 // and no way to abort by trying.
 test "removeAt outside the list removes nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].removeAt(ctx, 3), [1, 2, 3]);
-    assert.eq([1, 2, 3].removeAt(ctx, -1), [1, 2, 3]);
-    assert.eq(list.empty<Int>().removeAt(ctx, 0), list.empty<Int>());
+    assert.equal([1, 2, 3].removeAt(ctx, 3), [1, 2, 3]);
+    assert.equal([1, 2, 3].removeAt(ctx, -1), [1, 2, 3]);
+    assert.equal(list.empty<Int>().removeAt(ctx, 0), list.empty<Int>());
 }
 
 test "windows are the runs of the given size, one position apart" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].windows(ctx, 2), [[1, 2], [2, 3], [3, 4]]);
-    assert.eq([1, 2, 3].windows(ctx, 3), [[1, 2, 3]]);
+    assert.equal([1, 2, 3, 4].windows(ctx, 2), [[1, 2], [2, 3], [3, 4]]);
+    assert.equal([1, 2, 3].windows(ctx, 3), [[1, 2, 3]]);
 }
 
 test "a list shorter than the window has none, and neither does size zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].windows(ctx, 3), list.empty<[Int]>());
-    assert.eq([1, 2].windows(ctx, 0), list.empty<[Int]>());
-    assert.eq([1, 2].windows(ctx, -1), list.empty<[Int]>());
-    assert.eq(list.empty<Int>().windows(ctx, 2), list.empty<[Int]>());
+    assert.equal([1, 2].windows(ctx, 3), list.empty<[Int]>());
+    assert.equal([1, 2].windows(ctx, 0), list.empty<[Int]>());
+    assert.equal([1, 2].windows(ctx, -1), list.empty<[Int]>());
+    assert.equal(list.empty<Int>().windows(ctx, 2), list.empty<[Int]>());
 }
 
 test "uniqueBy keeps the first of each run and the list's own order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([3, 1, 3, 2, 1].uniqueBy(ctx, order.int), [3, 1, 2]);
-    assert.eq(["b", "a", "b"].uniqueBy(ctx, order.str), ["b", "a"]);
-    assert.eq(list.empty<Int>().uniqueBy(ctx, order.int), list.empty<Int>());
+    assert.equal([3, 1, 3, 2, 1].uniqueBy(ctx, order.int), [3, 1, 2]);
+    assert.equal(["b", "a", "b"].uniqueBy(ctx, order.str), ["b", "a"]);
+    assert.equal(list.empty<Int>().uniqueBy(ctx, order.int), list.empty<Int>());
 }
 
 // The comparator decides what "the same" means, so a case-insensitive one
 // answers a different set from `order.str`.
 test "uniqueBy is unique by its comparator" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    let byLength = order.by(fn(s: Str) => s.len(), order.int);
-    assert.eq(["ab", "cd", "e"].uniqueBy(ctx, byLength), ["ab", "e"]);
+    let byLength = order.by(fn(s: Str) => s.length(), order.int);
+    assert.equal(["ab", "cd", "e"].uniqueBy(ctx, byLength), ["ab", "e"]);
 }
 
 test "generate builds the list from the position" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.generate(ctx, 4, fn(i) => i * i), [0, 1, 4, 9]);
-    assert.eq(list.generate(ctx, 1, fn(i) => i), [0]);
+    assert.equal(list.generate(ctx, 4, fn(i) => i * i), [0, 1, 4, 9]);
+    assert.equal(list.generate(ctx, 1, fn(i) => i), [0]);
 }
 
 test "generate of zero or fewer is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.generate(ctx, 0, fn(i) => i), list.empty<Int>());
-    assert.eq(list.generate(ctx, -3, fn(i) => i), list.empty<Int>());
+    assert.equal(list.generate(ctx, 0, fn(i) => i), list.empty<Int>());
+    assert.equal(list.generate(ctx, -3, fn(i) => i), list.empty<Int>());
 }
 
 // --- isSortedBy / maxBy / minBy -------------------------------------------------
@@ -1349,7 +1352,7 @@ test "a list of fewer than two elements is sorted" {
 // The predicate `sort` answers, which is the invariant worth having.
 test "a sorted list is sorted by the order it was sorted with" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [5, 1, 4, 1, 3];
     assert.isTrue(xs.sortBy(ctx, order.int).isSortedBy(order.int));
@@ -1359,10 +1362,10 @@ test "a sorted list is sorted by the order it was sorted with" {
 }
 
 test "maxBy and minBy answer by the comparator" {
-    assert.eq(assert.some([3, 1, 2].maxBy(order.int)), 3);
-    assert.eq(assert.some([3, 1, 2].minBy(order.int)), 1);
-    assert.eq(
-        assert.some(["bb", "a"].maxBy(order.by(fn(s: Str) => s.len(), order.int))),
+    assert.equal(assert.some([3, 1, 2].maxBy(order.int)), 3);
+    assert.equal(assert.some([3, 1, 2].minBy(order.int)), 1);
+    assert.equal(
+        assert.some(["bb", "a"].maxBy(order.by(fn(s: Str) => s.length(), order.int))),
         "bb",
     );
 }
@@ -1375,9 +1378,9 @@ test "maxBy and minBy of the empty list are None" {
 // Ties go to the earlier element, which is what `maximum` does and what makes
 // the answer independent of the sort.
 test "maxBy and minBy keep the first of equal elements" {
-    let byLength = order.by(fn(s: Str) => s.len(), order.int);
-    assert.eq(assert.some(["ab", "cd"].maxBy(byLength)), "ab");
-    assert.eq(assert.some(["ab", "cd"].minBy(byLength)), "ab");
+    let byLength = order.by(fn(s: Str) => s.length(), order.int);
+    assert.equal(assert.some(["ab", "cd"].maxBy(byLength)), "ab");
+    assert.equal(assert.some(["ab", "cd"].minBy(byLength)), "ab");
 }
 
 // --- what is not a second reference -------------------------------------------
@@ -1394,7 +1397,7 @@ test "maxBy and minBy keep the first of equal elements" {
 // Every list below is grown by the program, because a literal lives in the
 // constant pool and is never the unique owner an in-place write is looking for.
 
-derive Eq, Show for Out;
+derive Equal, Show for Out;
 /// `core/buri/ast`'s printer, with the names changed: the pieces written so
 /// far, and the offset the next one starts at.
 struct Out {
@@ -1402,7 +1405,7 @@ struct Out {
     at: Int,
 }
 
-derive Eq, Show for Swapped;
+derive Equal, Show for Swapped;
 /// The same two fields, declared the other way round. Moving them past each
 /// other used to decide whether the push copied.
 struct Swapped {
@@ -1410,67 +1413,67 @@ struct Swapped {
     pieces: [Int],
 }
 
-derive Eq, Show for Both;
+derive Equal, Show for Both;
 /// Two lists, so the field read beside the push is a *counted* one.
 struct Both {
     left: [Int],
     right: [Int],
 }
 
-derive Eq, Show for Leaf;
+derive Equal, Show for Leaf;
 struct Leaf {
     xs: [Int],
     n: Int,
 }
 
-derive Eq, Show for Mid;
+derive Equal, Show for Mid;
 struct Mid {
     leaf: Leaf,
 }
 
-derive Eq, Show for Top;
+derive Equal, Show for Top;
 struct Top {
     mid: Mid,
 }
 
 /// One piece written: the shape every token of the printer goes through.
-fn wrote<C: Alloc>(ctx: C, out: Out, x: Int): Out {
+fn wrote<C: Allocator>(ctx: C, out: Out, x: Int): Out {
     Out { ..out, pieces: out.pieces.push(ctx, x), at: out.at + 1 }
 }
 
 /// The same, with the fields declared the other way round.
-fn wroteSwapped<C: Alloc>(ctx: C, out: Swapped, x: Int): Swapped {
+fn wroteSwapped<C: Allocator>(ctx: C, out: Swapped, x: Int): Swapped {
     Swapped { ..out, at: out.at + 1, pieces: out.pieces.push(ctx, x) }
 }
 
 /// A recursive walk whose **tail is a projection of a counted value**: the
 /// accumulator is a `(Out, Bool)` and what comes back is its first element.
-fn writing<C: Alloc>(ctx: C, i: Int, n: Int, acc: (Out, Bool)): Out {
+fn writing<C: Allocator>(ctx: C, i: Int, n: Int, acc: (Out, Bool)): Out {
     if (i >= n) { acc.0 } else { writing(ctx, i + 1, n, (wrote(ctx, acc.0, i), true)) }
 }
 
 test "a push beside an uncounted field of the same record answers what a copy would" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = wrote(ctx, Out { pieces: list.empty<Int>(), at: 0 }, 1);
     let one = wrote(ctx, base, 2);
     let two = wrote(ctx, base, 3);
-    assert.eq(one, Out { pieces: [1, 2], at: 2 });
-    assert.eq(two, Out { pieces: [1, 3], at: 2 });
-    assert.eq(base, Out { pieces: [1], at: 1 });
+    assert.equal(one, Out { pieces: [1, 2], at: 2 });
+    assert.equal(two, Out { pieces: [1, 3], at: 2 });
+    assert.equal(base, Out { pieces: [1], at: 1 });
 }
 
 test "the same record with its two fields declared the other way round agrees" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = wroteSwapped(ctx, Swapped { at: 0, pieces: list.empty<Int>() }, 1);
     let one = wroteSwapped(ctx, base, 2);
     let two = wroteSwapped(ctx, base, 3);
-    assert.eq(one, Swapped { at: 2, pieces: [1, 2] });
-    assert.eq(two, Swapped { at: 2, pieces: [1, 3] });
-    assert.eq(base, Swapped { at: 1, pieces: [1] });
+    assert.equal(one, Swapped { at: 2, pieces: [1, 2] });
+    assert.equal(two, Swapped { at: 2, pieces: [1, 3] });
+    assert.equal(base, Swapped { at: 1, pieces: [1] });
 }
 
 // The negative twin of the rule above. Reading `out.at` is not a second reader
@@ -1480,7 +1483,7 @@ test "the same record with its two fields declared the other way round agrees" {
 // the rule about speed rather than about meaning.
 test "a push beside a counted field of the same record answers what a copy would" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = Both {
         left: list.empty<Int>().push(ctx, 1),
@@ -1488,14 +1491,14 @@ test "a push beside a counted field of the same record answers what a copy would
     };
     let one = Both { ..base, left: base.left.push(ctx, 2), right: base.right };
     let two = Both { ..base, left: base.left.push(ctx, 3), right: base.right };
-    assert.eq(one, Both { left: [1, 2], right: [9] });
-    assert.eq(two, Both { left: [1, 3], right: [9] });
-    assert.eq(base, Both { left: [1], right: [9] });
+    assert.equal(one, Both { left: [1, 2], right: [9] });
+    assert.equal(two, Both { left: [1, 3], right: [9] });
+    assert.equal(base, Both { left: [1], right: [9] });
 }
 
 test "a projection chain three deep answers what a copy would" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let top = Top {
         mid: Mid { leaf: Leaf { xs: list.empty<Int>().push(ctx, 1), n: 0 } },
@@ -1518,26 +1521,26 @@ test "a projection chain three deep answers what a copy would" {
             },
         },
     };
-    assert.eq(grownOnce.mid.leaf.xs, [1, 2]);
-    assert.eq(grownAgain.mid.leaf.xs, [1, 3]);
-    assert.eq(top.mid.leaf.xs, [1]);
-    assert.eq(grownOnce.mid.leaf.n, 1);
+    assert.equal(grownOnce.mid.leaf.xs, [1, 2]);
+    assert.equal(grownAgain.mid.leaf.xs, [1, 3]);
+    assert.equal(top.mid.leaf.xs, [1]);
+    assert.equal(grownOnce.mid.leaf.n, 1);
 }
 
 test "a recursive walk whose tail projects out of a counted value answers what a copy would" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seed = (Out { pieces: list.empty<Int>(), at: 0 }, false);
-    assert.eq(writing(ctx, 0, 4, seed), Out { pieces: [0, 1, 2, 3], at: 4 });
+    assert.equal(writing(ctx, 0, 4, seed), Out { pieces: [0, 1, 2, 3], at: 4 });
     // The seed is still what it was: the walk took a copy of the piece it kept
     // rather than the pair's own.
-    assert.eq(seed.0, Out { pieces: list.empty<Int>(), at: 0 });
+    assert.equal(seed.0, Out { pieces: list.empty<Int>(), at: 0 });
 }
 
 test "a projection out of a nameless temporary answers what a copy would" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `xs.foldCtx(ctx, f, (out, false)).0`: the fold answers a pair nothing
     // holds, and the `.0` is the whole of what survives it.
@@ -1548,7 +1551,7 @@ test "a projection out of a nameless temporary answers what a copy would" {
             fn(c, acc: (Out, Bool), i) => (wrote(c, acc.0, i), true),
             (Out { pieces: list.empty<Int>(), at: 0 }, false),
         ).0;
-    assert.eq(built, Out { pieces: [0, 1, 2, 3], at: 4 });
+    assert.equal(built, Out { pieces: [0, 1, 2, 3], at: 4 });
 }
 
 // `middle::inline` replaces a call with a `let` per argument and the callee's
@@ -1558,24 +1561,24 @@ test "a projection out of a nameless temporary answers what a copy would" {
 // still holds.
 test "a value handed to the same inlinable call twice is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = wrote(ctx, Out { pieces: list.empty<Int>(), at: 0 }, 7);
     let first = wrote(ctx, out, 8);
     let second = wrote(ctx, out, 9);
-    assert.eq(first.pieces, [7, 8]);
-    assert.eq(second.pieces, [7, 9]);
-    assert.eq(out.pieces, [7]);
+    assert.equal(first.pieces, [7, 8]);
+    assert.equal(second.pieces, [7, 9]);
+    assert.equal(out.pieces, [7]);
 }
 
 test "a list handed to the same inlinable call twice is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = list.empty<Int>().push(ctx, 1).push(ctx, 2);
-    assert.eq(appended(ctx, xs, 3), [1, 2, 3]);
-    assert.eq(appended(ctx, xs, 4), [1, 2, 4]);
-    assert.eq(xs, [1, 2]);
+    assert.equal(appended(ctx, xs, 3), [1, 2, 3]);
+    assert.equal(appended(ctx, xs, 4), [1, 2, 4]);
+    assert.equal(xs, [1, 2]);
 }
 
 // --- a fold's seed, in every fold that takes one ------------------------------
@@ -1587,20 +1590,23 @@ test "a list handed to the same inlinable call twice is not written through" {
 
 test "a foldCtx seed read afterwards is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seed = list.empty<Int>().push(ctx, 0);
     let out = [1, 2].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed);
-    assert.eq(out, [0, 1, 2]);
-    assert.eq(seed, [0]);
+    assert.equal(out, [0, 1, 2]);
+    assert.equal(seed, [0]);
     // And a second fold over the same seed answers the same thing.
-    assert.eq([3].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed), [0, 3]);
-    assert.eq(seed, [0]);
+    assert.equal([3].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed), [
+        0,
+        3,
+    ]);
+    assert.equal(seed, [0]);
 }
 
 test "a foldResultCtx seed read afterwards is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seed = list.empty<Int>().push(ctx, 0);
     let out: Result<[Int], Str> = [1, 2].foldResultCtx(
@@ -1608,13 +1614,13 @@ test "a foldResultCtx seed read afterwards is not written through" {
         fn(c, acc: [Int], x) => .Ok(acc.push(c, x)),
         seed,
     );
-    assert.eq(assert.ok(out), [0, 1, 2]);
-    assert.eq(seed, [0]);
+    assert.equal(assert.ok(out), [0, 1, 2]);
+    assert.equal(seed, [0]);
 }
 
 test "a foldResultCtx that stops early leaves its seed alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seed = list.empty<Int>().push(ctx, 0);
     let out: Result<[Int], Str> = [1, 2].foldResultCtx(
@@ -1627,13 +1633,13 @@ test "a foldResultCtx that stops early leaves its seed alone" {
         },
         seed,
     );
-    assert.eq(assert.err(out), "stopped");
-    assert.eq(seed, [0]);
+    assert.equal(assert.err(out), "stopped");
+    assert.equal(seed, [0]);
 }
 
 test "an inner fold's seed is the outer fold's accumulator, and neither is written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seed = list.empty<Int>().push(ctx, 0);
     let out = [1, 2].foldCtx(
@@ -1643,86 +1649,89 @@ test "an inner fold's seed is the outer fold's accumulator, and neither is writt
         },
         seed,
     );
-    assert.eq(out, [0, 1, 1, 2, 2]);
-    assert.eq(seed, [0]);
+    assert.equal(out, [0, 1, 1, 2, 2]);
+    assert.equal(seed, [0]);
 }
 
 // --- flatMap / flatMapCtx -------------------------------------------------------
 
 test "flatMap runs the pieces together" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].flatMap(ctx, fn(n) => [n, n]), [1, 1, 2, 2, 3, 3]);
+    assert.equal([1, 2, 3].flatMap(ctx, fn(n) => [n, n]), [1, 1, 2, 2, 3, 3]);
 }
 
 test "flatMap drops a piece that is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].flatMap(ctx, fn(n) => if (n == 2) { [] } else { [n] }), [1, 3]);
+    assert.equal([1, 2, 3].flatMap(ctx, fn(n) => if (n == 2) { [] } else { [n] }), [
+        1,
+        3,
+    ]);
 }
 
 test "flatMap of the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(list.empty<Int>().flatMap(ctx, fn(n) => [n]));
 }
 
 test "flatMapCtx takes the context instead of capturing it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let pieces = ["ab", "c"].flatMapCtx(ctx, fn(c, s) => s.chars(c));
-    assert.eq(pieces, ['a', 'b', 'c']);
+    assert.equal(pieces, ['a', 'b', 'c']);
 }
 
 // --- mapIndexed / mapIndexedCtx / foldIndexed / filterIndexed / indexed ----------
 
 test "mapIndexed sees the position" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([10, 20, 30].mapIndexed(ctx, fn(i, n) => i * n), [0, 20, 60]);
+    assert.equal([10, 20, 30].mapIndexed(ctx, fn(i, n) => i * n), [0, 20, 60]);
 }
 
 test "mapIndexed of the empty list is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(list.empty<Int>().mapIndexed(ctx, fn(i, n) => i + n));
 }
 
 test "mapIndexedCtx threads the context" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let shown = ["a", "b"].mapIndexedCtx(ctx, fn(c, i, s) => str.format(c, "${i}${s}"));
-    assert.eq(shown, ["0a", "1b"]);
+    assert.equal(shown, ["0a", "1b"]);
 }
 
 test "foldIndexed sees the position and allocates nothing" {
-    assert.eq([10, 20, 30].foldIndexed(fn(acc, i, n) => acc + i * n, 0), 80);
-    assert.eq(list.empty<Int>().foldIndexed(fn(acc, i, n) => acc + i + n, 7), 7);
+    assert.equal([10, 20, 30].foldIndexed(fn(acc, i, n) => acc + i * n, 0), 80);
+    assert.equal(list.empty<Int>().foldIndexed(fn(acc, i, n) => acc + i + n, 7), 7);
 }
 
 test "filterIndexed keeps by position" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].filterIndexed(ctx, fn(i, _n) => i % 2 == 0), [1, 3]);
+    assert.equal([1, 2, 3, 4].filterIndexed(ctx, fn(i, _n) => i % 2 == 0), [1, 3]);
     assert.isEmpty(list.empty<Int>().filterIndexed(ctx, fn(i, n) => i == n));
 }
 
 test "indexed pairs each element with its position" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let pairs = ["a", "b"].indexed(ctx);
-    assert.eq(pairs.len(), 2);
-    assert.eq(assert.some(pairs.get(1)).0, 1);
-    assert.eq(assert.some(pairs.get(1)).1, "b");
+    assert.equal(pairs.length(), 2);
+    assert.equal(assert.some(pairs.get(1)).0, 1);
+    assert.equal(assert.some(pairs.get(1)).1, "b");
     assert.isEmpty(list.empty<Int>().indexed(ctx));
 }
 
@@ -1730,25 +1739,25 @@ test "indexed pairs each element with its position" {
 
 test "takeWhile stops at the first refusal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 9, 3].takeWhile(ctx, fn(n) => n < 5), [1, 2]);
-    assert.eq([1, 2, 9, 3].dropWhile(ctx, fn(n) => n < 5), [9, 3]);
+    assert.equal([1, 2, 9, 3].takeWhile(ctx, fn(n) => n < 5), [1, 2]);
+    assert.equal([1, 2, 9, 3].dropWhile(ctx, fn(n) => n < 5), [9, 3]);
 }
 
 test "takeWhile takes everything or nothing at the edges" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].takeWhile(ctx, fn(n) => n < 5), [1, 2]);
+    assert.equal([1, 2].takeWhile(ctx, fn(n) => n < 5), [1, 2]);
     assert.isEmpty([9, 1].takeWhile(ctx, fn(n) => n < 5));
     assert.isEmpty([1, 2].dropWhile(ctx, fn(n) => n < 5));
-    assert.eq([9, 1].dropWhile(ctx, fn(n) => n < 5), [9, 1]);
+    assert.equal([9, 1].dropWhile(ctx, fn(n) => n < 5), [9, 1]);
 }
 
 test "takeWhile and dropWhile of the empty list are empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(list.empty<Int>().takeWhile(ctx, fn(n) => n < 5));
     assert.isEmpty(list.empty<Int>().dropWhile(ctx, fn(n) => n < 5));
@@ -1758,25 +1767,25 @@ test "takeWhile and dropWhile of the empty list are empty" {
 
 test "chunks steps by size and the last group is short" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let groups = [1, 2, 3, 4, 5].chunks(ctx, 2);
-    assert.eq(groups.len(), 3);
-    assert.eq(assert.some(groups.get(0)), [1, 2]);
-    assert.eq(assert.some(groups.get(2)), [5]);
+    assert.equal(groups.length(), 3);
+    assert.equal(assert.some(groups.get(0)), [1, 2]);
+    assert.equal(assert.some(groups.get(2)), [5]);
 }
 
 test "chunks divides evenly when it can" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3, 4].chunks(ctx, 2).len(), 2);
-    assert.eq([1, 2].chunks(ctx, 5).len(), 1);
+    assert.equal([1, 2, 3, 4].chunks(ctx, 2).length(), 2);
+    assert.equal([1, 2].chunks(ctx, 5).length(), 1);
 }
 
 test "chunks of a size at or below zero has no groups" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty([1, 2].chunks(ctx, 0));
     assert.isEmpty([1, 2].chunks(ctx, -1));
@@ -1787,19 +1796,19 @@ test "chunks of a size at or below zero has no groups" {
 
 test "partition keeps both sides in the order they arrived" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let split = [1, 2, 3, 4].partition(ctx, fn(n) => n % 2 == 0);
-    assert.eq(split.0, [2, 4]);
-    assert.eq(split.1, [1, 3]);
+    assert.equal(split.0, [2, 4]);
+    assert.equal(split.1, [1, 3]);
 }
 
 test "partition puts everything on one side when the predicate is constant" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let all = [1, 2].partition(ctx, fn(_n) => true);
-    assert.eq(all.0, [1, 2]);
+    assert.equal(all.0, [1, 2]);
     assert.isEmpty(all.1);
     let none = list.empty<Int>().partition(ctx, fn(_n) => true);
     assert.isEmpty(none.0);
@@ -1810,92 +1819,95 @@ test "partition puts everything on one side when the predicate is constant" {
 
 test "insertAt puts the item at the index" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 3].insertAt(ctx, 1, 2), [1, 2, 3]);
-    assert.eq([1, 2].insertAt(ctx, 0, 0), [0, 1, 2]);
+    assert.equal([1, 3].insertAt(ctx, 1, 2), [1, 2, 3]);
+    assert.equal([1, 2].insertAt(ctx, 0, 0), [0, 1, 2]);
 }
 
 test "insertAt past either end appends or prepends" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].insertAt(ctx, 99, 3), [1, 2, 3]);
-    assert.eq([1, 2].insertAt(ctx, -5, 0), [0, 1, 2]);
-    assert.eq(list.empty<Int>().insertAt(ctx, 3, 1), [1]);
+    assert.equal([1, 2].insertAt(ctx, 99, 3), [1, 2, 3]);
+    assert.equal([1, 2].insertAt(ctx, -5, 0), [0, 1, 2]);
+    assert.equal(list.empty<Int>().insertAt(ctx, 3, 1), [1]);
 }
 
 test "replaceAt exchanges one element" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 9, 3].replaceAt(ctx, 1, 2), [1, 2, 3]);
+    assert.equal([1, 9, 3].replaceAt(ctx, 1, 2), [1, 2, 3]);
 }
 
 test "replaceAt outside the list changes nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2].replaceAt(ctx, 2, 9), [1, 2]);
-    assert.eq([1, 2].replaceAt(ctx, -1, 9), [1, 2]);
+    assert.equal([1, 2].replaceAt(ctx, 2, 9), [1, 2]);
+    assert.equal([1, 2].replaceAt(ctx, -1, 9), [1, 2]);
     assert.isEmpty(list.empty<Int>().replaceAt(ctx, 0, 9));
 }
 
 test "updateAt builds the new element from the old one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 9, 3].updateAt(ctx, 1, fn(n) => n - 7), [1, 2, 3]);
-    assert.eq([1, 2].updateAt(ctx, 5, fn(n) => n * 100), [1, 2]);
-    assert.eq([1, 2].updateAt(ctx, -1, fn(n) => n * 100), [1, 2]);
+    assert.equal([1, 9, 3].updateAt(ctx, 1, fn(n) => n - 7), [1, 2, 3]);
+    assert.equal([1, 2].updateAt(ctx, 5, fn(n) => n * 100), [1, 2]);
+    assert.equal([1, 2].updateAt(ctx, -1, fn(n) => n * 100), [1, 2]);
 }
 
 test "pushFront adds at the other end" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([2, 3].pushFront(ctx, 1), [1, 2, 3]);
-    assert.eq(list.empty<Int>().pushFront(ctx, 1), [1]);
+    assert.equal([2, 3].pushFront(ctx, 1), [1, 2, 3]);
+    assert.equal(list.empty<Int>().pushFront(ctx, 1), [1]);
 }
 
 test "getOr answers the fallback outside the list" {
-    assert.eq([1, 2].getOr(0, 9), 1);
-    assert.eq([1, 2].getOr(2, 9), 9);
-    assert.eq([1, 2].getOr(-1, 9), 9);
-    assert.eq(list.empty<Int>().getOr(0, 9), 9);
+    assert.equal([1, 2].getOr(0, 9), 1);
+    assert.equal([1, 2].getOr(2, 9), 9);
+    assert.equal([1, 2].getOr(-1, 9), 9);
+    assert.equal(list.empty<Int>().getOr(0, 9), 9);
 }
 
 // --- binarySearchBy / binarySearch / partitionPoint ------------------------------
 
 test "binarySearchBy finds what is there" {
     let xs = [10, 20, 30, 40];
-    assert.eq(assert.ok(xs.binarySearchBy(fn(x) => x.compare(10))), 0);
-    assert.eq(assert.ok(xs.binarySearchBy(fn(x) => x.compare(40))), 3);
+    assert.equal(assert.ok(xs.binarySearchBy(fn(x) => x.compare(10))), 0);
+    assert.equal(assert.ok(xs.binarySearchBy(fn(x) => x.compare(40))), 3);
 }
 
 test "binarySearchBy answers the insertion point for what is not" {
     let xs = [10, 20, 30, 40];
-    assert.eq(assert.err(xs.binarySearchBy(fn(x) => x.compare(5))), 0);
-    assert.eq(assert.err(xs.binarySearchBy(fn(x) => x.compare(25))), 2);
-    assert.eq(assert.err(xs.binarySearchBy(fn(x) => x.compare(99))), 4);
+    assert.equal(assert.err(xs.binarySearchBy(fn(x) => x.compare(5))), 0);
+    assert.equal(assert.err(xs.binarySearchBy(fn(x) => x.compare(25))), 2);
+    assert.equal(assert.err(xs.binarySearchBy(fn(x) => x.compare(99))), 4);
 }
 
 test "binarySearchBy on the empty list answers zero" {
-    assert.eq(assert.err(list.empty<Int>().binarySearchBy(fn(x) => x.compare(1))), 0);
+    assert.equal(
+        assert.err(list.empty<Int>().binarySearchBy(fn(x) => x.compare(1))),
+        0,
+    );
 }
 
 test "binarySearch uses the type's own order" {
     let xs = ["a", "c", "e"];
-    assert.eq(assert.ok(xs.binarySearch("c")), 1);
-    assert.eq(assert.err(xs.binarySearch("d")), 2);
-    assert.eq(assert.err(xs.binarySearch("")), 0);
+    assert.equal(assert.ok(xs.binarySearch("c")), 1);
+    assert.equal(assert.err(xs.binarySearch("d")), 2);
+    assert.equal(assert.err(xs.binarySearch("")), 0);
 }
 
 // Every insertion point `binarySearch` reports has to be a place the element
 // belongs: the sorted list with it put there is still sorted.
 test "binarySearch agrees with sort over a whole range" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = list.range(ctx, 0, 40).map(ctx, fn(n) => n * 2);
     let wrong = list
@@ -1910,25 +1922,25 @@ test "binarySearch agrees with sort over a whole range" {
 }
 
 test "partitionPoint counts the leading run" {
-    assert.eq([1, 2, 9, 10].partitionPoint(fn(n) => n < 5), 2);
-    assert.eq([1, 2].partitionPoint(fn(n) => n < 5), 2);
-    assert.eq([9, 10].partitionPoint(fn(n) => n < 5), 0);
-    assert.eq(list.empty<Int>().partitionPoint(fn(n) => n < 5), 0);
+    assert.equal([1, 2, 9, 10].partitionPoint(fn(n) => n < 5), 2);
+    assert.equal([1, 2].partitionPoint(fn(n) => n < 5), 2);
+    assert.equal([9, 10].partitionPoint(fn(n) => n < 5), 0);
+    assert.equal(list.empty<Int>().partitionPoint(fn(n) => n < 5), 0);
 }
 
 // --- findLast / findLastIndex / indexOf / lastIndexOf / startsWith / endsWith ----
 
 test "findLast searches from the end" {
-    assert.eq(assert.some([1, 2, 3, 2].findLast(fn(n) => n == 2)), 2);
-    assert.eq(assert.some([1, 2, 3, 2].findLastIndex(fn(n) => n == 2)), 3);
+    assert.equal(assert.some([1, 2, 3, 2].findLast(fn(n) => n == 2)), 2);
+    assert.equal(assert.some([1, 2, 3, 2].findLastIndex(fn(n) => n == 2)), 3);
     assert.none([1, 2].findLast(fn(n) => n == 9));
     assert.none([1, 2].findLastIndex(fn(n) => n == 9));
     assert.none(list.empty<Int>().findLast(fn(n) => n == 1));
 }
 
 test "indexOf and lastIndexOf answer the two ends" {
-    assert.eq(assert.some([1, 2, 1].indexOf(1)), 0);
-    assert.eq(assert.some([1, 2, 1].lastIndexOf(1)), 2);
+    assert.equal(assert.some([1, 2, 1].indexOf(1)), 0);
+    assert.equal(assert.some([1, 2, 1].lastIndexOf(1)), 2);
     assert.none([1, 2].indexOf(9));
     assert.none([1, 2].lastIndexOf(9));
     assert.none(list.empty<Int>().indexOf(1));
@@ -1954,15 +1966,15 @@ test "every list starts and ends with the empty one, and none with a longer" {
 
 test "scan keeps the running value after each step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].scan(ctx, fn(acc, n) => acc + n, 0), [1, 3, 6]);
+    assert.equal([1, 2, 3].scan(ctx, fn(acc, n) => acc + n, 0), [1, 3, 6]);
     assert.isEmpty(list.empty<Int>().scan(ctx, fn(acc, n) => acc + n, 0));
 }
 
 test "reduce folds with the first element as the seed" {
-    assert.eq(assert.some([1, 2, 3].reduce(fn(a, b) => a + b)), 6);
-    assert.eq(assert.some([7].reduce(fn(a, b) => a + b)), 7);
+    assert.equal(assert.some([1, 2, 3].reduce(fn(a, b) => a + b)), 6);
+    assert.equal(assert.some([7].reduce(fn(a, b) => a + b)), 7);
     assert.none(list.empty<Int>().reduce(fn(a, b) => a + b));
 }
 
@@ -1970,34 +1982,34 @@ test "reduce folds with the first element as the seed" {
 
 test "splitAt cuts the list in two" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let halves = [1, 2, 3].splitAt(ctx, 1);
-    assert.eq(halves.0, [1]);
-    assert.eq(halves.1, [2, 3]);
+    assert.equal(halves.0, [1]);
+    assert.equal(halves.1, [2, 3]);
 }
 
 test "splitAt outside the list gives one whole side and one empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let past = [1, 2].splitAt(ctx, 9);
-    assert.eq(past.0, [1, 2]);
+    assert.equal(past.0, [1, 2]);
     assert.isEmpty(past.1);
     let before = [1, 2].splitAt(ctx, -1);
     assert.isEmpty(before.0);
-    assert.eq(before.1, [1, 2]);
+    assert.equal(before.1, [1, 2]);
 }
 
 test "splitFirst answers the head and the tail" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let first = assert.some([1, 2, 3].splitFirst(ctx));
-    assert.eq(first.0, 1);
-    assert.eq(first.1, [2, 3]);
+    assert.equal(first.0, 1);
+    assert.equal(first.1, [2, 3]);
     let only = assert.some([1].splitFirst(ctx));
-    assert.eq(only.0, 1);
+    assert.equal(only.0, 1);
     assert.isEmpty(only.1);
     assert.none(list.empty<Int>().splitFirst(ctx));
 }
@@ -2006,30 +2018,30 @@ test "splitFirst answers the head and the tail" {
 
 test "intersperse puts the separator between neighbours only" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].intersperse(ctx, 0), [1, 0, 2, 0, 3]);
-    assert.eq([1].intersperse(ctx, 0), [1]);
+    assert.equal([1, 2, 3].intersperse(ctx, 0), [1, 0, 2, 0, 3]);
+    assert.equal([1].intersperse(ctx, 0), [1]);
     assert.isEmpty(list.empty<Int>().intersperse(ctx, 0));
 }
 
 test "chunkBy groups neighbours the comparison calls equal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let runs = [1, 1, 2, 1].chunkBy(ctx, fn(a, b) => a == b);
-    assert.eq(runs.len(), 3);
-    assert.eq(assert.some(runs.get(0)), [1, 1]);
-    assert.eq(assert.some(runs.get(2)), [1]);
+    assert.equal(runs.length(), 3);
+    assert.equal(assert.some(runs.get(0)), [1, 1]);
+    assert.equal(assert.some(runs.get(2)), [1]);
     assert.isEmpty(list.empty<Int>().chunkBy(ctx, fn(a, b) => a == b));
 }
 
 test "deduplicateBy keeps the first of each run" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 1, 2, 2, 1].deduplicateBy(ctx, fn(a, b) => a == b), [1, 2, 1]);
-    assert.eq([1].deduplicateBy(ctx, fn(a, b) => a == b), [1]);
+    assert.equal([1, 1, 2, 2, 1].deduplicateBy(ctx, fn(a, b) => a == b), [1, 2, 1]);
+    assert.equal([1].deduplicateBy(ctx, fn(a, b) => a == b), [1]);
     assert.isEmpty(list.empty<Int>().deduplicateBy(ctx, fn(a, b) => a == b));
 }
 
@@ -2037,11 +2049,11 @@ test "deduplicateBy keeps the first of each run" {
 
 test "unzip is zip run backwards" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let sides = [(1, "a"), (2, "b")].unzip(ctx);
-    assert.eq(sides.0, [1, 2]);
-    assert.eq(sides.1, ["a", "b"]);
+    assert.equal(sides.0, [1, 2]);
+    assert.equal(sides.1, ["a", "b"]);
     let empty: [(Int, Str)] = [];
     let neither = empty.unzip(ctx);
     assert.isEmpty(neither.0);
@@ -2050,10 +2062,10 @@ test "unzip is zip run backwards" {
 
 test "zipWith combines and stops at the shorter list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq([1, 2, 3].zipWith(ctx, [10, 20], fn(a, b) => a + b), [11, 22]);
-    assert.eq([1].zipWith(ctx, [10, 20], fn(a, b) => a + b), [11]);
+    assert.equal([1, 2, 3].zipWith(ctx, [10, 20], fn(a, b) => a + b), [11, 22]);
+    assert.equal([1].zipWith(ctx, [10, 20], fn(a, b) => a + b), [11]);
     assert.isEmpty([1, 2].zipWith(ctx, list.empty<Int>(), fn(a, b) => a + b));
 }
 
@@ -2061,17 +2073,17 @@ test "zipWith combines and stops at the shorter list" {
 
 test "unfold builds a list from a seed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let halves = list.unfold(ctx, 8, fn(n) => {
         if (n == 0) { .None } else { .Some((n, n / 2)) }
     });
-    assert.eq(halves, [8, 4, 2, 1]);
+    assert.equal(halves, [8, 4, 2, 1]);
 }
 
 test "unfold whose step refuses at once is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let none: [Int] = list.unfold(ctx, 0, fn(_n) => .None);
     assert.isEmpty(none);
@@ -2079,16 +2091,16 @@ test "unfold whose step refuses at once is empty" {
 
 test "rangeBy strides in either direction" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(list.rangeBy(ctx, 0, 10, 3), [0, 3, 6, 9]);
-    assert.eq(list.rangeBy(ctx, 3, 0, -1), [3, 2, 1]);
-    assert.eq(list.rangeBy(ctx, 0, 4, 1), [0, 1, 2, 3]);
+    assert.equal(list.rangeBy(ctx, 0, 10, 3), [0, 3, 6, 9]);
+    assert.equal(list.rangeBy(ctx, 3, 0, -1), [3, 2, 1]);
+    assert.equal(list.rangeBy(ctx, 0, 4, 1), [0, 1, 2, 3]);
 }
 
 test "rangeBy stops before a bound it has already passed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(list.rangeBy(ctx, 5, 0, 1));
     assert.isEmpty(list.rangeBy(ctx, 0, 5, -1));
@@ -2097,7 +2109,7 @@ test "rangeBy stops before a bound it has already passed" {
 
 test "rangeBy with a step of zero is empty rather than endless" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(list.rangeBy(ctx, 0, 10, 0));
 }
@@ -2105,38 +2117,38 @@ test "rangeBy with a step of zero is empty rather than endless" {
 // --- product / mean / meanFloat / median / sumOf ---------------------------------
 
 test "product multiplies, and the empty list is one" {
-    assert.eq([2, 3, 4].product(), 24);
-    assert.eq([7].product(), 7);
-    assert.eq(list.empty<Int>().product(), 1);
-    assert.eq([2, 0, 3].product(), 0);
+    assert.equal([2, 3, 4].product(), 24);
+    assert.equal([7].product(), 7);
+    assert.equal(list.empty<Int>().product(), 1);
+    assert.equal([2, 0, 3].product(), 0);
 }
 
 test "mean divides the exact sum" {
     let xs: [Int] = [1, 2, 3];
-    assert.eq(assert.some(xs.mean()), 2.0);
+    assert.equal(assert.some(xs.mean()), 2.0);
     let one: [Int] = [5];
-    assert.eq(assert.some(one.mean()), 5.0);
+    assert.equal(assert.some(one.mean()), 5.0);
     assert.none(list.empty<Int>().mean());
 }
 
 test "meanFloat is the mean of a float list" {
-    assert.eq(assert.some([1.0, 2.0].meanFloat()), 1.5);
+    assert.equal(assert.some([1.0, 2.0].meanFloat()), 1.5);
     assert.none(list.empty<Float>().meanFloat());
 }
 
 test "median is the middle, or the mean of the two middles" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(assert.some([3.0, 1.0, 2.0].median(ctx)), 2.0);
-    assert.eq(assert.some([4.0, 1.0].median(ctx)), 2.5);
-    assert.eq(assert.some([7.0].median(ctx)), 7.0);
+    assert.equal(assert.some([3.0, 1.0, 2.0].median(ctx)), 2.0);
+    assert.equal(assert.some([4.0, 1.0].median(ctx)), 2.5);
+    assert.equal(assert.some([7.0].median(ctx)), 7.0);
     assert.none(list.empty<Float>().median(ctx));
 }
 
 test "sumOf adds a number read off each element" {
-    assert.eq(["a", "bb"].sumOf(fn(s) => s.len()), 3);
-    assert.eq(list.empty<Str>().sumOf(fn(s) => s.len()), 0);
+    assert.equal(["a", "bb"].sumOf(fn(s) => s.length()), 3);
+    assert.equal(list.empty<Str>().sumOf(fn(s) => s.length()), 0);
 }
 
 // --- The three sizes ------------------------------------------------------------
@@ -2148,37 +2160,37 @@ test "sumOf adds a number read off each element" {
 
 test "the new verbs on a list of one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = [7];
-    assert.eq(one.flatMap(ctx, fn(n) => [n, n]), [7, 7]);
-    assert.eq(one.mapIndexed(ctx, fn(i, n) => i + n), [7]);
-    assert.eq(one.foldIndexed(fn(acc, i, n) => acc + i + n, 0), 7);
-    assert.eq(one.filterIndexed(ctx, fn(i, _n) => i == 0), [7]);
-    assert.eq(one.indexed(ctx).len(), 1);
-    assert.eq(one.takeWhile(ctx, fn(n) => n < 9), [7]);
+    assert.equal(one.flatMap(ctx, fn(n) => [n, n]), [7, 7]);
+    assert.equal(one.mapIndexed(ctx, fn(i, n) => i + n), [7]);
+    assert.equal(one.foldIndexed(fn(acc, i, n) => acc + i + n, 0), 7);
+    assert.equal(one.filterIndexed(ctx, fn(i, _n) => i == 0), [7]);
+    assert.equal(one.indexed(ctx).length(), 1);
+    assert.equal(one.takeWhile(ctx, fn(n) => n < 9), [7]);
     assert.isEmpty(one.dropWhile(ctx, fn(n) => n < 9));
-    assert.eq(one.chunks(ctx, 3).len(), 1);
-    assert.eq(assert.some(one.chunks(ctx, 3).get(0)), [7]);
+    assert.equal(one.chunks(ctx, 3).length(), 1);
+    assert.equal(assert.some(one.chunks(ctx, 3).get(0)), [7]);
     let sides = one.partition(ctx, fn(n) => n > 0);
-    assert.eq(sides.0, [7]);
+    assert.equal(sides.0, [7]);
     assert.isEmpty(sides.1);
-    assert.eq(one.scan(ctx, fn(acc, n) => acc + n, 1), [8]);
-    assert.eq(assert.some(one.reduce(fn(a, b) => a + b)), 7);
-    assert.eq(one.chunkBy(ctx, fn(a, b) => a == b).len(), 1);
-    assert.eq(one.deduplicateBy(ctx, fn(a, b) => a == b), [7]);
-    assert.eq(one.intersperse(ctx, 0), [7]);
-    assert.eq(one.zipWith(ctx, [1, 2], fn(a, b) => a + b), [8]);
-    assert.eq(one.sumOf(fn(n) => n), 7);
-    assert.eq(one.product(), 7);
-    assert.eq(assert.some(one.mean()), 7.0);
+    assert.equal(one.scan(ctx, fn(acc, n) => acc + n, 1), [8]);
+    assert.equal(assert.some(one.reduce(fn(a, b) => a + b)), 7);
+    assert.equal(one.chunkBy(ctx, fn(a, b) => a == b).length(), 1);
+    assert.equal(one.deduplicateBy(ctx, fn(a, b) => a == b), [7]);
+    assert.equal(one.intersperse(ctx, 0), [7]);
+    assert.equal(one.zipWith(ctx, [1, 2], fn(a, b) => a + b), [8]);
+    assert.equal(one.sumOf(fn(n) => n), 7);
+    assert.equal(one.product(), 7);
+    assert.equal(assert.some(one.mean()), 7.0);
     let pairs = one.indexed(ctx).unzip(ctx);
-    assert.eq(pairs.0, [0]);
-    assert.eq(pairs.1, [7]);
-    assert.eq(assert.ok(one.binarySearch(7)), 0);
-    assert.eq(assert.err(one.binarySearch(8)), 1);
-    assert.eq(one.partitionPoint(fn(n) => n < 9), 1);
-    assert.eq(assert.some(one.findLast(fn(n) => n == 7)), 7);
+    assert.equal(pairs.0, [0]);
+    assert.equal(pairs.1, [7]);
+    assert.equal(assert.ok(one.binarySearch(7)), 0);
+    assert.equal(assert.err(one.binarySearch(8)), 1);
+    assert.equal(one.partitionPoint(fn(n) => n < 9), 1);
+    assert.equal(assert.some(one.findLast(fn(n) => n == 7)), 7);
 }
 
 // Five hundred is past every other list in this file, and past the point where
@@ -2186,75 +2198,78 @@ test "the new verbs on a list of one" {
 // have got right by accident.
 test "the new verbs on five hundred elements" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = list.range(ctx, 0, 500);
-    assert.eq(xs.len(), 500);
-    assert.eq(xs.flatMap(ctx, fn(n) => [n]).len(), 500);
-    assert.eq(xs.flatMap(ctx, fn(n) => if (n % 2 == 0) { [n] } else { [] }).len(), 250);
+    assert.equal(xs.length(), 500);
+    assert.equal(xs.flatMap(ctx, fn(n) => [n]).length(), 500);
+    assert.equal(
+        xs.flatMap(ctx, fn(n) => if (n % 2 == 0) { [n] } else { [] }).length(),
+        250,
+    );
     assert.isTrue(xs.mapIndexed(ctx, fn(i, n) => i - n).all(fn(d) => d == 0));
-    assert.eq(xs.foldIndexed(fn(acc, i, n) => acc + i - n, 0), 0);
-    assert.eq(xs.filterIndexed(ctx, fn(i, _n) => i % 2 == 0).len(), 250);
-    assert.eq(xs.indexed(ctx).len(), 500);
-    assert.eq(xs.takeWhile(ctx, fn(n) => n < 300).len(), 300);
-    assert.eq(xs.dropWhile(ctx, fn(n) => n < 300).len(), 200);
+    assert.equal(xs.foldIndexed(fn(acc, i, n) => acc + i - n, 0), 0);
+    assert.equal(xs.filterIndexed(ctx, fn(i, _n) => i % 2 == 0).length(), 250);
+    assert.equal(xs.indexed(ctx).length(), 500);
+    assert.equal(xs.takeWhile(ctx, fn(n) => n < 300).length(), 300);
+    assert.equal(xs.dropWhile(ctx, fn(n) => n < 300).length(), 200);
     // Five hundred is not a multiple of seven, so the last group is short.
     let groups = xs.chunks(ctx, 7);
-    assert.eq(groups.len(), 72);
-    assert.eq(assert.some(groups.get(71)).len(), 3);
-    assert.eq(groups.sumOf(fn(g) => g.len()), 500);
+    assert.equal(groups.length(), 72);
+    assert.equal(assert.some(groups.get(71)).length(), 3);
+    assert.equal(groups.sumOf(fn(g) => g.length()), 500);
     let sides = xs.partition(ctx, fn(n) => n % 2 == 0);
-    assert.eq(sides.0.len(), 250);
-    assert.eq(sides.1.len(), 250);
-    assert.eq(xs.insertAt(ctx, 250, -1).len(), 501);
-    assert.eq(xs.insertAt(ctx, 250, -1).get(250), .Some(-1));
-    assert.eq(xs.replaceAt(ctx, 499, -1).last(), .Some(-1));
-    assert.eq(xs.updateAt(ctx, 0, fn(n) => n + 1000).first(), .Some(1000));
-    assert.eq(xs.pushFront(ctx, -1).first(), .Some(-1));
-    assert.eq(xs.getOr(499, -1), 499);
-    assert.eq(xs.getOr(500, -1), -1);
-    assert.eq(assert.ok(xs.binarySearch(321)), 321);
-    assert.eq(assert.err(xs.binarySearch(500)), 500);
-    assert.eq(xs.partitionPoint(fn(n) => n < 321), 321);
-    assert.eq(assert.some(xs.findLast(fn(n) => n % 100 == 0)), 400);
-    assert.eq(assert.some(xs.findLastIndex(fn(n) => n % 100 == 0)), 400);
-    assert.eq(assert.some(xs.indexOf(499)), 499);
-    assert.eq(assert.some(xs.lastIndexOf(0)), 0);
+    assert.equal(sides.0.length(), 250);
+    assert.equal(sides.1.length(), 250);
+    assert.equal(xs.insertAt(ctx, 250, -1).length(), 501);
+    assert.equal(xs.insertAt(ctx, 250, -1).get(250), .Some(-1));
+    assert.equal(xs.replaceAt(ctx, 499, -1).last(), .Some(-1));
+    assert.equal(xs.updateAt(ctx, 0, fn(n) => n + 1000).first(), .Some(1000));
+    assert.equal(xs.pushFront(ctx, -1).first(), .Some(-1));
+    assert.equal(xs.getOr(499, -1), 499);
+    assert.equal(xs.getOr(500, -1), -1);
+    assert.equal(assert.ok(xs.binarySearch(321)), 321);
+    assert.equal(assert.err(xs.binarySearch(500)), 500);
+    assert.equal(xs.partitionPoint(fn(n) => n < 321), 321);
+    assert.equal(assert.some(xs.findLast(fn(n) => n % 100 == 0)), 400);
+    assert.equal(assert.some(xs.findLastIndex(fn(n) => n % 100 == 0)), 400);
+    assert.equal(assert.some(xs.indexOf(499)), 499);
+    assert.equal(assert.some(xs.lastIndexOf(0)), 0);
     assert.isTrue(xs.startsWith(list.range(ctx, 0, 10)));
     assert.isTrue(xs.endsWith(list.range(ctx, 490, 500)));
-    assert.eq(xs.scan(ctx, fn(acc, n) => acc + n, 0).last(), .Some(124750));
-    assert.eq(assert.some(xs.reduce(fn(a, b) => a + b)), 124750);
+    assert.equal(xs.scan(ctx, fn(acc, n) => acc + n, 0).last(), .Some(124750));
+    assert.equal(assert.some(xs.reduce(fn(a, b) => a + b)), 124750);
     let halves = xs.splitAt(ctx, 250);
-    assert.eq(halves.0.len(), 250);
-    assert.eq(halves.1.len(), 250);
-    assert.eq(assert.some(xs.splitFirst(ctx)).1.len(), 499);
-    assert.eq(xs.intersperse(ctx, -1).len(), 999);
-    assert.eq(xs.chunkBy(ctx, fn(a, b) => a / 10 == b / 10).len(), 50);
-    assert.eq(xs.deduplicateBy(ctx, fn(a, b) => a / 10 == b / 10).len(), 50);
+    assert.equal(halves.0.length(), 250);
+    assert.equal(halves.1.length(), 250);
+    assert.equal(assert.some(xs.splitFirst(ctx)).1.length(), 499);
+    assert.equal(xs.intersperse(ctx, -1).length(), 999);
+    assert.equal(xs.chunkBy(ctx, fn(a, b) => a / 10 == b / 10).length(), 50);
+    assert.equal(xs.deduplicateBy(ctx, fn(a, b) => a / 10 == b / 10).length(), 50);
     let unzipped = xs.indexed(ctx).unzip(ctx);
-    assert.eq(unzipped.0, xs);
-    assert.eq(unzipped.1, xs);
-    assert.eq(xs.zipWith(ctx, xs, fn(a, b) => a + b).last(), .Some(998));
-    assert.eq(xs.sumOf(fn(n) => n), 124750);
-    assert.eq(assert.some(xs.mean()), 249.5);
+    assert.equal(unzipped.0, xs);
+    assert.equal(unzipped.1, xs);
+    assert.equal(xs.zipWith(ctx, xs, fn(a, b) => a + b).last(), .Some(998));
+    assert.equal(xs.sumOf(fn(n) => n), 124750);
+    assert.equal(assert.some(xs.mean()), 249.5);
     let counted = list.unfold(ctx, 0, fn(n) => {
         if (n >= 500) { .None } else { .Some((n, n + 1)) }
     });
-    assert.eq(counted, xs);
-    assert.eq(list.rangeBy(ctx, 0, 500, 1), xs);
-    assert.eq(list.rangeBy(ctx, 499, -1, -1), xs.reverse(ctx));
+    assert.equal(counted, xs);
+    assert.equal(list.rangeBy(ctx, 0, 500, 1), xs);
+    assert.equal(list.rangeBy(ctx, 499, -1, -1), xs.reverse(ctx));
 }
 
 // A median over an even and an odd length, both long enough that the middle is
 // not the element the list was built around.
 test "median over a long list is the middle of the sorted order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let odd = list.range(ctx, 0, 101).map(ctx, fn(n) => n.toF64()).reverse(ctx);
-    assert.eq(assert.some(odd.median(ctx)), 50.0);
+    assert.equal(assert.some(odd.median(ctx)), 50.0);
     let even = list.range(ctx, 0, 100).map(ctx, fn(n) => n.toF64()).reverse(ctx);
-    assert.eq(assert.some(even.median(ctx)), 49.5);
+    assert.equal(assert.some(even.median(ctx)), 49.5);
 }
 
 // --- What the documented weak claims say ----------------------------------------
@@ -2265,7 +2280,7 @@ test "median over a long list is the middle of the sorted order" {
 // still an index the list has room for, whatever order the elements are in.
 test "binarySearch on an unsorted list answers a position, not a promise" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let jumbled = [5, 1, 9, 3, 7, 2, 8, 4, 6, 0];
     let outside = list
@@ -2275,19 +2290,19 @@ test "binarySearch on an unsorted list answers a position, not a promise" {
                 .Ok(i) => i,
                 .Err(i) => i,
             };
-            at < 0 || at > jumbled.len()
+            at < 0 || at > jumbled.length()
         });
     assert.isEmpty(outside);
     // A hit it does report is a real one, even here.
     match (jumbled.binarySearch(7)) {
-        .Ok(at) => assert.eq(jumbled.get(at), .Some(7)),
-        .Err(at) => assert.isTrue(at >= 0 && at <= jumbled.len()),
+        .Ok(at) => assert.equal(jumbled.get(at), .Some(7)),
+        .Err(at) => assert.isTrue(at >= 0 && at <= jumbled.length()),
     };
     // The empty list and the singleton are the two shapes with no order to get
     // wrong.
-    assert.eq(assert.err(list.empty<Int>().binarySearch(1)), 0);
-    assert.eq(assert.err([2].binarySearch(1)), 0);
-    assert.eq(assert.err([2].binarySearch(3)), 1);
+    assert.equal(assert.err(list.empty<Int>().binarySearch(1)), 0);
+    assert.equal(assert.err([2].binarySearch(1)), 0);
+    assert.equal(assert.err([2].binarySearch(3)), 1);
 }
 
 // `median` sorts, and `sort` has no order to work with once a `NaN` is in the
@@ -2295,7 +2310,7 @@ test "binarySearch on an unsorted list answers a position, not a promise" {
 // stays true is that a list with something in it still answers `.Some`.
 test "median of a list holding a NaN still answers something" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let nan = 0.0 / 0.0;
     assert.isTrue(math.isNan(assert.some([nan].median(ctx))));
@@ -2311,17 +2326,17 @@ test "median of a list holding a NaN still answers something" {
 // the whole of what can be asserted about the bound.
 test "unfold is bounded by its step alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let once: [Int] = list.unfold(ctx, 1, fn(n) => {
         if (n > 1) { .None } else { .Some((n, n + 1)) }
     });
-    assert.eq(once, [1]);
+    assert.equal(once, [1]);
     let long = list.unfold(ctx, 0, fn(n) => {
         if (n >= 500) { .None } else { .Some((n * 2, n + 1)) }
     });
-    assert.eq(long.len(), 500);
-    assert.eq(long.last(), .Some(998));
+    assert.equal(long.length(), 500);
+    assert.equal(long.last(), .Some(998));
 }
 
 // --- Indices outside the list, at both ends -------------------------------------
@@ -2329,33 +2344,33 @@ test "unfold is bounded by its step alone" {
 // `insertAt` clamps, `replaceAt` and `updateAt` refuse, `getOr` falls back and
 // `splitAt` gives one whole side. The cases above take each one index past the
 // end; these take them as far as an `Int` goes, because a clamp written as
-// `index > len` and one written as a modulus part company there.
+// `index > length` and one written as a modulus part company there.
 test "the index verbs hold far outside the list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1, 2, 3];
-    assert.eq(xs.insertAt(ctx, 1000000, 9), [1, 2, 3, 9]);
-    assert.eq(xs.insertAt(ctx, -1000000, 9), [9, 1, 2, 3]);
-    assert.eq(xs.replaceAt(ctx, 1000000, 9), xs);
-    assert.eq(xs.replaceAt(ctx, -1000000, 9), xs);
-    assert.eq(xs.updateAt(ctx, 1000000, fn(n) => n * 10), xs);
-    assert.eq(xs.updateAt(ctx, -1000000, fn(n) => n * 10), xs);
-    assert.eq(xs.getOr(1000000, 0), 0);
-    assert.eq(xs.getOr(-1000000, 0), 0);
+    assert.equal(xs.insertAt(ctx, 1000000, 9), [1, 2, 3, 9]);
+    assert.equal(xs.insertAt(ctx, -1000000, 9), [9, 1, 2, 3]);
+    assert.equal(xs.replaceAt(ctx, 1000000, 9), xs);
+    assert.equal(xs.replaceAt(ctx, -1000000, 9), xs);
+    assert.equal(xs.updateAt(ctx, 1000000, fn(n) => n * 10), xs);
+    assert.equal(xs.updateAt(ctx, -1000000, fn(n) => n * 10), xs);
+    assert.equal(xs.getOr(1000000, 0), 0);
+    assert.equal(xs.getOr(-1000000, 0), 0);
     let past = xs.splitAt(ctx, 1000000);
-    assert.eq(past.0, xs);
+    assert.equal(past.0, xs);
     assert.isEmpty(past.1);
     let before = xs.splitAt(ctx, -1000000);
     assert.isEmpty(before.0);
-    assert.eq(before.1, xs);
+    assert.equal(before.1, xs);
     // The same six on the empty list, where there is no index that is inside.
     let none = list.empty<Int>();
-    assert.eq(none.insertAt(ctx, -1, 9), [9]);
-    assert.eq(none.insertAt(ctx, 1, 9), [9]);
+    assert.equal(none.insertAt(ctx, -1, 9), [9]);
+    assert.equal(none.insertAt(ctx, 1, 9), [9]);
     assert.isEmpty(none.replaceAt(ctx, 0, 9));
     assert.isEmpty(none.updateAt(ctx, 0, fn(n) => n));
-    assert.eq(none.getOr(0, 9), 9);
+    assert.equal(none.getOr(0, 9), 9);
     let neither = none.splitAt(ctx, 5);
     assert.isEmpty(neither.0);
     assert.isEmpty(neither.1);
@@ -2365,7 +2380,7 @@ test "the index verbs hold far outside the list" {
 // tells it from a `get`-then-`replaceAt` that would.
 test "updateAt outside the list does not run its step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ran = [1, 2].updateAt(ctx, 5, fn(_n) => 0 - 1).contains(0 - 1);
     assert.isFalse(ran);
@@ -2375,29 +2390,29 @@ test "updateAt outside the list does not run its step" {
 
 test "chunks of one is one group per element, and of the length is one group" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [1, 2, 3];
-    assert.eq(xs.chunks(ctx, 1).len(), 3);
-    assert.eq(xs.chunks(ctx, 3).len(), 1);
-    assert.eq(assert.some(xs.chunks(ctx, 3).get(0)), xs);
-    assert.eq(xs.chunks(ctx, 4).len(), 1);
+    assert.equal(xs.chunks(ctx, 1).length(), 3);
+    assert.equal(xs.chunks(ctx, 3).length(), 1);
+    assert.equal(assert.some(xs.chunks(ctx, 3).get(0)), xs);
+    assert.equal(xs.chunks(ctx, 4).length(), 1);
     assert.isEmpty(list.empty<Int>().chunks(ctx, 0));
     assert.isEmpty(list.empty<Int>().chunks(ctx, -3));
 }
 
 test "rangeBy with a step of zero is empty in either direction and at either bound" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(list.rangeBy(ctx, 0, 10, 0));
     assert.isEmpty(list.rangeBy(ctx, 10, 0, 0));
     assert.isEmpty(list.rangeBy(ctx, 0, 0, 0));
     // A negative step that has to move away from the bound stops at once, and
     // one that steps past it stops before it rather than on it.
-    assert.eq(list.rangeBy(ctx, 10, 0, -4), [10, 6, 2]);
-    assert.eq(list.rangeBy(ctx, 0, 10, 4), [0, 4, 8]);
-    assert.eq(list.rangeBy(ctx, 0, 1, -1), []);
-    assert.eq(list.rangeBy(ctx, 1, 1, -1), []);
-    assert.eq(list.rangeBy(ctx, 1, 0, -1), [1]);
+    assert.equal(list.rangeBy(ctx, 10, 0, -4), [10, 6, 2]);
+    assert.equal(list.rangeBy(ctx, 0, 10, 4), [0, 4, 8]);
+    assert.equal(list.rangeBy(ctx, 0, 1, -1), []);
+    assert.equal(list.rangeBy(ctx, 1, 1, -1), []);
+    assert.equal(list.rangeBy(ctx, 1, 0, -1), [1]);
 }

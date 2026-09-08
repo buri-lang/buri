@@ -20,14 +20,14 @@
 //! A bearer token is `crypto.token`.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/uuid" import * as uuid;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let read = uuid.parse("550e8400-e29b-41d4-a716-446655440000");
@@ -47,12 +47,12 @@
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
-from "core/effect" import { Alloc, Clock, Entropy };
-from "core/order" import { Eq, Hash, Ord, Show };
+from "core/effect" import { Allocator, Clock, Entropy };
+from "core/order" import { Equal, Hash, Ordered, Show };
 from "core/str" import * as str;
 from "core/time" import * as time;
 
-derive Eq, Ord, Hash for Uuid;
+derive Equal, Ordered, Hash for Uuid;
 /// Sixteen octets, in the order they are written down.
 ///
 /// The field is exported so a wire format can take the octets straight, and
@@ -63,7 +63,7 @@ export struct Uuid(export [U8]);
 /// generator, with the version and variant fields overwritten.
 ///
 /// That leaves 122 random bits. Use it where nothing needs ordering.
-export fn version4<C: Alloc + Entropy>(ctx: C): Uuid {
+export fn version4<C: Allocator + Entropy>(ctx: C): Uuid {
     stamped(crypto.randomBytes(ctx, 16), 4)
 }
 
@@ -76,17 +76,17 @@ export fn version4<C: Alloc + Entropy>(ctx: C): Uuid {
 ///
 /// The timestamp is readable by anyone holding the identifier. Do not use one
 /// where when it was made is a secret.
-export fn version7<C: Alloc + Clock + Entropy>(ctx: C): Uuid {
-    let millis = time.now(ctx).0;
+export fn version7<C: Allocator + Clock + Entropy>(ctx: C): Uuid {
+    let milliseconds = time.now(ctx).0;
     let raw = crypto.randomBytes(ctx, 16);
     stamped(
         [
-            bits.shr(millis, 40).wrapToU8(),
-            bits.shr(millis, 32).wrapToU8(),
-            bits.shr(millis, 24).wrapToU8(),
-            bits.shr(millis, 16).wrapToU8(),
-            bits.shr(millis, 8).wrapToU8(),
-            millis.wrapToU8(),
+            bits.shiftRight(milliseconds, 40).wrapToU8(),
+            bits.shiftRight(milliseconds, 32).wrapToU8(),
+            bits.shiftRight(milliseconds, 24).wrapToU8(),
+            bits.shiftRight(milliseconds, 16).wrapToU8(),
+            bits.shiftRight(milliseconds, 8).wrapToU8(),
+            milliseconds.wrapToU8(),
             octetOf(raw, 6),
             octetOf(raw, 7),
             octetOf(raw, 8),
@@ -142,7 +142,7 @@ export fn zero(): Uuid {
 /// about the version or the variant is checked: a `Uuid` built this way is
 /// whatever the octets said.
 export fn fromBytes(bytes: [U8]): Option<Uuid> {
-    if (bytes.len() != 16) { .None } else { .Some(Uuid(bytes)) }
+    if (bytes.length() != 16) { .None } else { .Some(Uuid(bytes)) }
 }
 
 /// Reads `550e8400-e29b-41d4-a716-446655440000`, in either case.
@@ -154,7 +154,7 @@ export fn fromBytes(bytes: [U8]): Option<Uuid> {
 /// The version and variant fields are read rather than checked, so the nil
 /// identifier and anything else already written down still parses.
 export fn parse(text: Str): Option<Uuid> {
-    if (text.len() != 36 || !hyphenated(text) || !allHexDigits(text, 0)) {
+    if (text.length() != 36 || !hyphenated(text) || !allHexDigits(text, 0)) {
         .None
     } else {
         .Some(
@@ -228,7 +228,7 @@ fn allHexDigits(text: Str, n: Int): Bool {
 impl Uuid {
     /// The canonical spelling: lowercase hex in five hyphenated groups, and
     /// `parse` reads it back.
-    export fn text<C: Alloc>(self, ctx: C): Str {
+    export fn text<C: Allocator>(self, ctx: C): Str {
         let hex = bytes.toHex(ctx, self.0);
         let a = hex.slice(0, 8);
         let b = hex.slice(8, 12);
@@ -242,7 +242,7 @@ impl Uuid {
 /// The canonical spelling, so an identifier in an interpolation reads the way it
 /// does everywhere else. `derive Show` would print the sixteen octets.
 impl Show for Uuid {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         self.text(ctx)
     }
 }

@@ -150,7 +150,7 @@ The table:
 | Same, and can abort | add `inaccessiblemem: write` |
 | Same, and **adjusts the count of a value based on a parameter** | `argmem` becomes `readwrite` — §3.2.1 |
 | Same, and adjusts a count reached any other way | no memory attribute for the heap: the default location is `readwrite` |
-| Bounded only by `Alloc` — deterministic (SPEC 10.5) | `memory(write, argmem: read, inaccessiblemem: readwrite, errnomem: readwrite)` — §3.2.1's second half |
+| Bounded only by `Allocator` — deterministic (SPEC 10.5) | `memory(write, argmem: read, inaccessiblemem: readwrite, errnomem: readwrite)` — §3.2.1's second half |
 | Bounded by an observable effect | no memory attribute; the default `memory(readwrite)` |
 | Every function, on every backend | `nounwind` — there is no unwinding in the language at all (SPEC 6.9) |
 | A function **this backend** proved returns: no loop, and no cycle in the call graph it can reach | `willreturn`, and `mustprogress` — §3.6 |

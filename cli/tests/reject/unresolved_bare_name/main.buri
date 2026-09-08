@@ -3,13 +3,13 @@
 // The control for `namespace_member_missing`: the same name, written with no
 // namespace in front of it. Nothing here is a namespace member, so the answer
 // is about the name itself and stays what it always was.
-from "core/effect" import { Alloc, Stdout };
-from "core/fs" import { FsRead };
+from "core/effect" import { Allocator, Stdout };
+from "core/fs" import { FileSystemRead };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
   let _ = appendBytes(ctx, "wal");
   .Ok(())
 }

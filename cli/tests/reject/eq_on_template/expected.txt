@@ -1,4 +1,4 @@
-error: `Template` does not implement `Eq` [missing-conformance]
+error: `Template` does not implement `Equal` [missing-conformance]
   --> cmd/eq_on_template/main.buri:10:16
    |
 10 |   let same = a == a;
@@ -10,7 +10,7 @@ error: `Template` does not implement `Eq` [missing-conformance]
      What to do
      ──────────
 
-     Bind a value whose type has impl Alloc for ....
+     Bind a value whose type has impl Allocator for ....
 
      Why
      ───

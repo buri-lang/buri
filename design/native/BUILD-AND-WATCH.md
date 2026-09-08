@@ -73,7 +73,7 @@ other five are not.
 
 **`tokio` is linked deliberately.** `cli/runtime/rt.rs` is the carrier runtime
 — the reactor handle, the carrier pool with its 512 KiB stacks and the task
-table — and `Clock::sleepMillis` and `Net::fetch` wait on it through
+table — and `Clock::sleepMilliseconds` and `Network::fetch` wait on it through
 `park_on`, so the reactor and its timer wheel are in the archive on purpose:
 
 | `aarch64-apple-darwin`, `libburi_rt.a` | bytes |
@@ -185,7 +185,7 @@ HTTP/3 is behind a feature of its own and that feature is **not** in
 `default`. The bar admits `quinn` on the same grounds as the other five, but
 the *default* is the opposite of `net`'s, and the reason is who pays. `net`'s
 five are what a program that speaks the network at all needs, so a toolchain
-that could not would make `Net` a build-flag question for every user. `quinn`
+that could not would make `Network` a build-flag question for every user. `quinn`
 is what a program that has **asked for HTTP/3** needs, and asking is the
 difference: a user who never mentions `.Http3` should not resolve, compile or
 ship a QUIC stack.

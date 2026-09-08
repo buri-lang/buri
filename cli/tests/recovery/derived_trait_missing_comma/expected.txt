@@ -1,5 +1,5 @@
-error [missing-separator] 2:10-2:10
+error [missing-separator] 2:13-2:13
 message: a derived trait ends with `,`
 fix: write `,` here
-edit: 2:10-2:10 ","
+edit: 2:13-2:13 ","
 

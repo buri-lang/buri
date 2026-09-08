@@ -8,7 +8,7 @@ struct Point {
     export y: Int,
 }
 
-fn same<T: Eq>(a: T, b: T): Bool {
+fn same<T: Equal>(a: T, b: T): Bool {
     a == b
 }
 

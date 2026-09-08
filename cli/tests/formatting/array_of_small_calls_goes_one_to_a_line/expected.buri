@@ -9,5 +9,5 @@ test "dates" {
         d(2024, 12, 31),
         d(2100, 3, 1),
     ];
-    assert.eq(cases.len(), 8);
+    assert.equal(cases.length(), 8);
 }

@@ -4,7 +4,7 @@
 # quotes for `Char`, `$f64` for `Float`, and `String(v)` for everything else.
 #
 # `NaN`, `-0.0` and an infinity are here because they are the three doubles a
-# renderer gets wrong, and `assert.eq` on `NaN` fails for the reason the value
+# renderer gets wrong, and `assert.equal` on `NaN` fails for the reason the value
 # is interesting: `NaN != NaN`, so the assertion reports a value against itself.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,

@@ -26,7 +26,7 @@ Comparison is non-associative: `a < b < c` is a parse error.
 Bitwise operators bind tighter than comparison (as in Rust), so `a & MASK == 0`
 means `(a & MASK) == 0`.
 
-There is no `<<` or `>>`. Use `bits.shl(x, n)` and `bits.shr(x, n)`. See
+There is no `<<` or `>>`. Use `bits.shiftLeft(x, n)` and `bits.shiftRight(x, n)`. See
 `design/grammar-rationale.md` 12.6.
 
 ### 6.2 Arithmetic
@@ -62,7 +62,7 @@ equivalence relation**. It compares numerically, so `-0.0 == 0.0` is true and
 `0.1 + 0.2 != 0.3`, and it is reflexive, so **`NaN == NaN` is true** — every
 `NaN` equals every other `NaN` regardless of sign or payload. IEEE-754 says the
 opposite, and the trade is deliberate: everything built on `==` — a `Map` key, a
-`Set` member, `list.contains`, `derive Eq` — quietly requires an equivalence
+`Set` member, `list.contains`, `derive Equal` — quietly requires an equivalence
 relation.
 
 The **ordering** operators are unchanged and remain IEEE-754's: `NaN < x`,
@@ -109,7 +109,7 @@ integer type defines `toF64` as an exact-to-53-bits conversion that rounds beyon
 that. That bound is the float's rather than the backend's, so `toF64` rounds
 identically everywhere.
 
-`core/num` holds one of these functions per source-and-target pair. `as` appears
+`core/number` holds one of these functions per source-and-target pair. `as` appears
 only in import specifiers (`design/grammar-rationale.md` 12.5).
 
 `Char` and `U32` convert the same way: `c.toU32()` is exact, `n.toChar()` yields
@@ -127,21 +127,21 @@ you spell them out where you use them:
 ```buri
 trait Checked {
     fn checkedAdd(self, rhs: Self): Option<Self>;
-    fn checkedSub(self, rhs: Self): Option<Self>;
-    fn checkedMul(self, rhs: Self): Option<Self>;
-    fn checkedDiv(self, rhs: Self): Option<Self>;
+    fn checkedSubtract(self, rhs: Self): Option<Self>;
+    fn checkedMultiply(self, rhs: Self): Option<Self>;
+    fn checkedDivide(self, rhs: Self): Option<Self>;
 }
 
 trait Wrapping {
     fn wrappingAdd(self, rhs: Self): Self;
-    fn wrappingSub(self, rhs: Self): Self;
-    fn wrappingMul(self, rhs: Self): Self;
+    fn wrappingSubtract(self, rhs: Self): Self;
+    fn wrappingMultiply(self, rhs: Self): Self;
 }
 
 trait Saturating {
     fn saturatingAdd(self, rhs: Self): Self;
-    fn saturatingSub(self, rhs: Self): Self;
-    fn saturatingMul(self, rhs: Self): Self;
+    fn saturatingSubtract(self, rhs: Self): Self;
+    fn saturatingMultiply(self, rhs: Self): Self;
 }
 
 trait Bounded {
@@ -152,8 +152,8 @@ trait Bounded {
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let safe = a.checkedAdd(b).withDefault(0);
-let hash = seed.wrappingMul(31).wrappingAdd(byte);
-let ceiling = num.maxValue<U8>();
+let hash = seed.wrappingMultiply(31).wrappingAdd(byte);
+let ceiling = number.maxValue<U8>();
 ```
 
 Every built-in integer type satisfies all four; the float types satisfy
@@ -174,7 +174,7 @@ the checker reports that as an error wherever a block may stand.
 let hypotenuse = {
   let a2 = a * a;
   let b2 = b * b;
-  math.sqrt(a2 + b2)
+  math.squareRoot(a2 + b2)
 };
 ```
 
@@ -317,9 +317,9 @@ x.f()          //  self = x
 comes second:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc };
+# from "core/effect" import { Allocator };
 impl<A> [A] {
-  export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
+  export fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B];
 }
 
 xs.map(ctx, double)          // reads as: this list, in this world, mapped
@@ -367,7 +367,7 @@ candidate set, no autoref, no autoderef, and no coherence check. Resolution does
 need the receiver's type, so name resolution consults inference.
 
 Where two bounds declare the same method name, the call is ambiguous.
-Disambiguate it by calling the trait method as a function: `Ord.compare(x, y)`.
+Disambiguate it by calling the trait method as a function: `Ordered.compare(x, y)`.
 
 Defining modules:
 
@@ -378,7 +378,7 @@ Defining modules:
 | `Str` | `core/str` |
 | `Char` | `core/character` |
 | `Bool` | `core/bool` |
-| every integer and float type | `core/num` |
+| every integer and float type | `core/number` |
 | `Option<T>` | `core/option` |
 | `Result<T, E>` | `core/result` |
 | tuples, function types, `Template` | none — no methods |
@@ -400,10 +400,10 @@ Postfix `?` unwraps a `Result` or `Option`, returning early from the enclosing
 function on the failure case.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc };
-# from "core/fs" import { FsRead, Path };
+# from "core/effect" import { Allocator };
+# from "core/fs" import { FileSystemRead, Path };
 
-fn loadPort<C: Alloc + FsRead>(ctx: C, at: Path): Result<Int, ConfigError> {
+fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, ConfigError> {
     let text = fs.readText(ctx, at)?; // Err(e) => return Err(e)
     let cfg = parseConfig(text)?;
     .Ok(cfg.port)

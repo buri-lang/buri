@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { Json };
@@ -7,7 +7,7 @@ from "//libs/wire" import { decodePointJson, defaultPoint, encodePointJson, Poin
 
 /// The document a piece of text describes. Every text below is a literal, so
 /// `.Null` is unreachable.
-fn doc<C: Alloc>(ctx: C, source: Str): Json {
+fn doc<C: Allocator>(ctx: C, source: Str): Json {
     match (json.parse(ctx, source)) {
         .Ok(v) => v,
         .Err(_e) => Json.Null,
@@ -16,21 +16,21 @@ fn doc<C: Alloc>(ctx: C, source: Str): Json {
 
 test "a point round-trips through JSON" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let p = Point { ..defaultPoint(), x: .Some(3) };
     let back = assert.ok(decodePointJson(ctx, encodePointJson(ctx, p)));
-    assert.eq(back, p);
+    assert.equal(back, p);
 }
 
 // The member the decoder reads is a JSON number, which reaches the generated
-// code as an `F64` — so this is the case the suite is here for: `num.F64.toI64`
+// code as an `F64` — so this is the case the suite is here for: `number.F64.toI64`
 // answering `.Ok` on a value that is an integer and `.Err` on one that is not.
 test "a fractional member is not an int32" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         decodePointJson(ctx, doc(ctx, "{\"x\":2.5}")),
         .Err(.BadJson { path: "$.x", wanted: "an integer" }),
     );

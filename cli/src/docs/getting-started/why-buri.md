@@ -23,7 +23,7 @@ Buri the compiler answers them.
 A whole program, with every one of those answers visible in it:
 
 ```buri run
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -49,7 +49,7 @@ impl Entry {
 // bindings are the whole budget, so nothing here can touch the filesystem.
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 
@@ -102,7 +102,7 @@ only platform modules may declare one. A function names the effects it needs as
 bounds on its context parameter:
 
 ```buri sig role=platform
-# from "core/effect" import { Alloc, IoError };
+# from "core/effect" import { Allocator, IoError };
 
 # struct User(Int);
 
@@ -112,15 +112,15 @@ bounds on its context parameter:
 
 // The real pair, in `core/fs`. Reading and writing are separate grants: a
 // program that reads its configuration has not earned the right to delete it.
-effect FsRead {
+effect FileSystemRead {
     fn readFile(self, path: Str): Result<Str, IoError>;
 }
 
-effect FsWrite {
+effect FileSystemWrite {
     fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
 
-fn loadUser<C: Alloc + FsRead>(ctx: C, id: Str): Result<User, LoadError>;
+fn loadUser<C: Allocator + FileSystemRead>(ctx: C, id: Str): Result<User, LoadError>;
 ```
 
 **An effect-carrying parameter must be `self` or `ctx`**, never any other name
@@ -130,22 +130,22 @@ first two parameters. No type may implement both an effect and a trait.
 The implementations that really do anything live in `core/host`, and only the
 file exporting `main` may import it. `main` takes no parameters: it names the
 effects it wants, binds each to one of those implementations, and passes the
-result down. A program whose `main` never binds `Net` cannot open a socket
+result down. A program whose `main` never binds `Network` cannot open a socket
 anywhere in its call graph, because nothing anywhere can obtain a value bounded
-by `Net`. To hand a callee less of the world, name fewer bounds. The bound is
+by `Network`. To hand a callee less of the world, name fewer bounds. The bound is
 what confines it:
 
 ```buri
 # from "core/effect" import { Stdout };
 # from "core/fs" import * as fs;
-# from "core/fs" import { FsRead, Path };
+# from "core/fs" import { FileSystemRead, Path };
 # from "core/io" import * as io;
 
-/// A caller may hand this the context that also carries `FsRead`. The value is
+/// A caller may hand this the context that also carries `FileSystemRead`. The value is
 /// the same one; the bound is what this function can do with it.
 fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
     let _ = io.println(ctx, msg).ignore();
-    let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FsRead`
+    let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FileSystemRead`
 }
 ```
 

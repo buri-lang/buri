@@ -31,7 +31,7 @@ reference, under [`cli/src/docs/language/`](../cli/src/docs/language/).
 9. Private fields may not be read, written, or matched outside the module that
    declares them (Section 5.6).
 10. Numeric conversions are ordinary methods, declared per source-and-target pair
-    in `core/num` (Section 6.2.1).
+    in `core/number` (Section 6.2.1).
 11. A numeric literal must be representable in the type it resolves to
     (Section 5.1.1).
 12. The dot form (`.Variant`) requires a known expected type (Section 5.7).

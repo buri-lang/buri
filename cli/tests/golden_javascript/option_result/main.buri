@@ -1,7 +1,7 @@
 // `Option` and `Result` are ordinary enums, so every `Some`, `None`, `Ok` and
 // `Err` is an allocation. `?` and `withDefault` are the two places the backend
 // already knows their shape.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -41,7 +41,7 @@ fn reason(b: Bad): Str {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let pairs = [("port", "8080"), ("host", "local")];

@@ -1,9 +1,0 @@
-error: expected `=>`, found `extra` [unexpected-token]
-  --> main.buri:61:28
-   |
-61 |     assert.eq(label(fn(_x) extra => "flat"), "flat");
-   |                            ^^^^^
-   |
-   = expected: `=>`
-   = actual: `extra`
-   = fix: write `=>` here

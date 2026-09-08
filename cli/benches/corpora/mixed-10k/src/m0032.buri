@@ -4,13 +4,13 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0003.buri" import { blend3, Node3, reach3, seed3 };
 from "//bench/m0030.buri" import { blend30, Node30, reach30, seed30 };
 
-derive Eq, Show for Node32;
+derive Equal, Show for Node32;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node32 {
@@ -51,12 +51,12 @@ export fn compute32_0(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_0<C: Alloc>(ctx: C): Int {
+export fn probe32_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute32_0(7)
 }
 
-derive Eq, Show for State32_1;
+derive Equal, Show for State32_1;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State32_1 {
     Idle,
@@ -87,14 +87,14 @@ export fn start32_1(ticks: Int): State32_1 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_1<C: Alloc>(ctx: C): Int {
+export fn probe32_1<C: Allocator>(ctx: C): Int {
     let s = start32_1(5);
-    rank32_1(s) + s.show(ctx).len()
+    rank32_1(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label32_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label32_2<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "golf" } else { "alpha" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -107,12 +107,12 @@ export fn constants32_2(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_2<C: Alloc>(ctx: C): Int {
+export fn probe32_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants32_2();
-    label32_2(ctx, a, e).len() + b
+    label32_2(ctx, a, e).length() + b
 }
 
-derive Eq, Show for State32_3;
+derive Equal, Show for State32_3;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State32_3 {
     Idle,
@@ -149,9 +149,9 @@ export fn start32_3(ticks: Int): State32_3 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_3<C: Alloc>(ctx: C): Int {
+export fn probe32_3<C: Allocator>(ctx: C): Int {
     let s = start32_3(5);
-    rank32_3(s) + s.show(ctx).len()
+    rank32_3(s) + s.show(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -164,18 +164,18 @@ export fn firstOr32_4<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll32_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll32_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric32_4(ns: [Int], ss: [Str]): Int {
-    firstOr32_4<Int>(ns, 0) + firstOr32_4<Str>(ss, "").len()
+    firstOr32_4<Int>(ns, 0) + firstOr32_4<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_4<C: Alloc>(ctx: C): Int {
-    useGeneric32_4([1, 2], ["a"]) + describeAll32_4(ctx, [1, 2]).len()
+export fn probe32_4<C: Allocator>(ctx: C): Int {
+    useGeneric32_4([1, 2], ["a"]) + describeAll32_4(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -198,7 +198,7 @@ export fn parseBoth32_5(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_5<C: Alloc>(ctx: C): Int {
+export fn probe32_5<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth32_5("1", "2")) {
         .Some(v) => v,
@@ -217,18 +217,18 @@ export fn firstOr32_6<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll32_6<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll32_6<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric32_6(ns: [Int], ss: [Str]): Int {
-    firstOr32_6<Int>(ns, 0) + firstOr32_6<Str>(ss, "").len()
+    firstOr32_6<Int>(ns, 0) + firstOr32_6<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_6<C: Alloc>(ctx: C): Int {
-    useGeneric32_6([1, 2], ["a"]) + describeAll32_6(ctx, [1, 2]).len()
+export fn probe32_6<C: Allocator>(ctx: C): Int {
+    useGeneric32_6([1, 2], ["a"]) + describeAll32_6(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -251,7 +251,7 @@ export fn parseBoth32_7(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_7<C: Alloc>(ctx: C): Int {
+export fn probe32_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth32_7("1", "2")) {
         .Some(v) => v,
@@ -260,7 +260,7 @@ export fn probe32_7<C: Alloc>(ctx: C): Int {
     choose32_7(.Some(3), .None) + extra
 }
 
-derive Eq, Show for State32_8;
+derive Equal, Show for State32_8;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State32_8 {
     Idle,
@@ -297,14 +297,14 @@ export fn start32_8(ticks: Int): State32_8 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe32_8<C: Alloc>(ctx: C): Int {
+export fn probe32_8<C: Allocator>(ctx: C): Int {
     let s = start32_8(5);
-    rank32_8(s) + s.show(ctx).len()
+    rank32_8(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach32<C: Alloc>(ctx: C): Int {
+export fn reach32<C: Allocator>(ctx: C): Int {
     0
         + probe32_0(ctx)
         + probe32_1(ctx)

@@ -4,11 +4,11 @@ from "//lib/money/testing" import { sample };
 from "//lib/util/testing" import { blank };
 
 test "cents keep the value they were made with" {
-    assert.eq(fromCents(5).value, 5);
+    assert.equal(fromCents(5).value, 5);
 }
 
 test "the sample fixture is the sample amount" {
-    assert.eq(sample().value, 1905);
+    assert.equal(sample().value, 1905);
 }
 
 test "a blank memo is blank" {

@@ -1,17 +1,17 @@
 error: expected `import`, found `{` [unexpected-token]
  --> lib/recovery_swap_adjacent_module_cents_fb131c/lib.buri:4:20
   |
-4 | from "core/effect" { import Alloc };
+4 | from "core/effect" { import Allocator };
   |                    ^
   |
   = expected: `import`
   = actual: `{`
   = fix: write `import` here
 error: expected a declaration, found `;` [unexpected-token]
- --> lib/recovery_swap_adjacent_module_cents_fb131c/lib.buri:4:36
+ --> lib/recovery_swap_adjacent_module_cents_fb131c/lib.buri:4:40
   |
-4 | from "core/effect" { import Alloc };
-  |                                    ^
+4 | from "core/effect" { import Allocator };
+  |                                        ^
   |
   = expected: a declaration
   = actual: `;`
@@ -24,18 +24,18 @@ warning: str is imported but not used [unused-import]
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import
-error: `Alloc` is not a trait or effect [not-a-trait]
+error: `Allocator` is not a trait or effect [not-a-trait]
  --> lib/recovery_swap_adjacent_module_cents_fb131c/lib.buri:7:23
   |
-7 | export fn describe<C: Alloc>(ctx: C): Str {
-  |                       ^^^^^
+7 | export fn describe<C: Allocator>(ctx: C): Str {
+  |                       ^^^^^^^^^
   |
   = a bound names a declared trait; there are no where clauses
-  = fix: name a declared trait or effect, or declare `Alloc` as one
-error: `C` does not satisfy `Alloc` [unsatisfied-bound]
+  = fix: name a declared trait or effect, or declare `Allocator` as one
+error: `C` does not satisfy `Allocator` [unsatisfied-bound]
  --> lib/recovery_swap_adjacent_module_cents_fb131c/lib.buri:8:5
   |
 8 |     "some".concat(ctx, " cents")
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = fix: bound the type parameter with `Alloc`, or use a type that has one
+  = fix: bound the type parameter with `Allocator`, or use a type that has one

@@ -36,13 +36,13 @@ fn expected_stdout() -> String {
 fn program(ending: &str) -> String {
     format!(
         "\
-from \"core/effect\" import {{ Alloc, Proc, Stderr, Stdout }};
+from \"core/effect\" import {{ Allocator, Process, Stderr, Stdout }};
 from \"core/host\" import * as host;
 from \"core/io\" import * as io;
 from \"core/process\" import * as process;
 
 // Prints `line` `n` times. Recursive, so nothing here folds it away.
-fn shout<C: Alloc + Stdout>(ctx: C, line: Str, n: Int): Int {{
+fn shout<C: Allocator + Stdout>(ctx: C, line: Str, n: Int): Int {{
     if (n <= 0) {{
         0
     }} else {{
@@ -53,8 +53,8 @@ fn shout<C: Alloc + Stdout>(ctx: C, line: Str, n: Int): Int {{
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
-        Alloc: host.alloc,
-        Proc: host.proc,
+        Allocator: host.alloc,
+        Process: host.proc,
         Stderr: host.stderr,
         Stdout: host.stdout,
     }};
@@ -150,7 +150,7 @@ fn an_abort_keeps_what_was_printed_before_it() {
     // The divisor is the length the runtime answered minus the length asked
     // for, so it is zero and nothing folds the division away beforehand.
     let ending = format!(
-        "let zero = line.len() - {WIDTH};\n    \
+        "let zero = line.length() - {WIDTH};\n    \
          let _ = io.println(ctx, \"${{10 / zero}}\").ignore();\n    .Ok(())"
     );
     scratch.binary_package("cmd/aborts", &program(&ending));

@@ -3,7 +3,7 @@
 // somewhere the analysis in front of the fix cannot reach: past the library's
 // surface for one, and inside a type for the other.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//lib/label" import { stamp };
@@ -12,19 +12,19 @@ from "//lib/label" import { stamp };
 /// its shape is the one `fn(C, Str) => Int` asked for rather than the one its
 /// body needs: deleting the parameter would change the type and leave the call
 /// exactly where it was.
-fn plain<C: Alloc>(ctx: C, label: Str): Int {
-    label.len()
+fn plain<C: Allocator>(ctx: C, label: Str): Int {
+    label.length()
 }
 
 /// Not reported. Handing the context to a function-typed parameter is one of
 /// the three ways of using one.
-fn apply<C: Alloc>(ctx: C, measure: fn(C, Str) => Int, label: Str): Int {
+fn apply<C: Allocator>(ctx: C, measure: fn(C, Str) => Int, label: Str): Int {
     measure(ctx, label)
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let label = "ledger";

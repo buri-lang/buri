@@ -61,11 +61,11 @@
 //! * **The heap header** (MEMORY.md §2) is [`HEADER_BYTES`] immediately before
 //!   every payload, which is why `[T]`'s `ptr` is a payload start and `Str`'s
 //!   is not.
-//! * **The `Alloc` cost model** (MEMORY.md §7.1) is [`Layouts::charge_list`]
+//! * **The `Allocator` cost model** (MEMORY.md §7.1) is [`Layouts::charge_list`]
 //!   and friends: a *defined* charge computed from this table, so both
 //!   backends charge the same number for the same program.
 //!
-//! Design: `design/native/VALUE-MODEL.md`, and the `Alloc` cost model in
+//! Design: `design/native/VALUE-MODEL.md`, and the `Allocator` cost model in
 //! `MEMORY.md` §7.1.
 
 use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyConId, TyDef};
@@ -157,7 +157,7 @@ pub const IMMORTAL: u64 = u64::MAX;
 pub const GROWTH_FLOOR: u64 = 64;
 
 /// Bit 63 of `Str::len`: set means every byte of the view is below `0x80`, so
-/// the scalar count is the byte count and `str.len()` is a mask
+/// the scalar count is the byte count and `str.length()` is a mask
 /// (VALUE-MODEL.md §3.1).
 pub const STR_ASCII_FLAG: u64 = 1 << 63;
 
@@ -174,7 +174,7 @@ pub const STR_LEN: usize = 2;
 
 /// Field indices into a `[T]`'s [`Layout::fields`].
 pub const LIST_PTR: usize = 0;
-/// Element count, exactly — no flag, because `list.len()` is always O(1).
+/// Element count, exactly — no flag, because `list.length()` is always O(1).
 pub const LIST_LEN: usize = 1;
 
 /// Field indices into a closure's [`Layout::fields`].
@@ -804,18 +804,18 @@ impl<'a> Layouts<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // The `Alloc` cost model (MEMORY.md §7.1)
+    // The `Allocator` cost model (MEMORY.md §7.1)
     // -----------------------------------------------------------------------
     //
     // A *defined* charge, computed from the types, so that both backends and
     // both platforms charge the same number for the same program and a test
     // asserting one is not flaky. The rows that are zero are zero because the
-    // language says so: a `Str` view has no `Alloc` bound (`str.buri:26-45`),
-    // and SPEC 10.5 says fixed-size construction never requires `Alloc`.
+    // language says so: a `Str` view has no `Allocator` bound (`str.buri:26-45`),
+    // and SPEC 10.5 says fixed-size construction never requires `Allocator`.
     //
     // **Nothing in the compiler calls these, and that is not a reason to
     // delete them.** MEMORY.md §7.1 names the table three times over — here,
-    // in `core/effect`'s source above the `Alloc` declaration, and in
+    // in `core/effect`'s source above the `Allocator` declaration, and in
     // `core/alloc`'s `strBytes`, `listBytes` and `closureBytes` — and calls a
     // change to any row a breaking change to observable behaviour. The
     // charge a running program accounts for is `core/alloc`'s spelling; this
@@ -1054,9 +1054,9 @@ pub fn charge_allocate(n: u64) -> u64 {
 }
 
 /// A `Str` view — `slice`, `trim`, `splitOnce` — charges nothing, because the
-/// language says so: none of them carries an `Alloc` bound. The same zero is
+/// language says so: none of them carries an `Allocator` bound. The same zero is
 /// the charge for a fixed-size construction, which SPEC 10.5 says never
-/// requires `Alloc` even where the implementation allocates.
+/// requires `Allocator` even where the implementation allocates.
 pub const CHARGE_VIEW: u64 = 0;
 
 /// `offset` rounded up to `align`, which is a power of two and at least 1.
@@ -1473,7 +1473,7 @@ mod tests {
     #[test]
     fn a_struct_with_no_fields_is_zero_sized() {
         let mut t = tables();
-        let host = add_struct(&mut t, "HostFs", &[], &[]);
+        let host = add_struct(&mut t, "HostFileSystem", &[], &[]);
         let mut l = Layouts::new(&t);
         assert!(l.zero_sized(&con(host)));
         assert_eq!(l.of(con(host)).repr, Repr::Zero);
@@ -1834,9 +1834,9 @@ mod tests {
     #[test]
     fn a_context_of_zero_sized_implementations_is_zero_sized() {
         let mut t = tables();
-        let alloc = add_trait(&mut t, "Alloc");
+        let alloc = add_trait(&mut t, "Allocator");
         let stdout = add_trait(&mut t, "Stdout");
-        let host_alloc = add_struct(&mut t, "HostAlloc", &[], &[]);
+        let host_alloc = add_struct(&mut t, "HostAllocator", &[], &[]);
         let host_stdout = add_struct(&mut t, "HostStdout", &[], &[]);
         let ctx = add_ctx(&mut t, vec![(alloc, con(host_alloc)), (stdout, con(host_stdout))]);
         let mut l = Layouts::new(&t);
@@ -1850,7 +1850,7 @@ mod tests {
     #[test]
     fn a_context_that_holds_state_is_a_record_of_exactly_that() {
         let mut t = tables();
-        let alloc = add_trait(&mut t, "Alloc");
+        let alloc = add_trait(&mut t, "Allocator");
         let stdout = add_trait(&mut t, "Stdout");
         // A `FixedBuffer` holds a budget and a total; `HostStdout` holds
         // nothing, and costs nothing even beside one that does.
@@ -2173,7 +2173,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // The `Alloc` cost model
+    // The `Allocator` cost model
     // -----------------------------------------------------------------------
 
     #[test]
@@ -2192,7 +2192,7 @@ mod tests {
     fn the_charge_for_a_string_is_the_header_plus_its_bytes() {
         assert_eq!(charge_str(0), 16);
         assert_eq!(charge_str(7), 23);
-        // A view charges nothing, because `slice` carries no `Alloc` bound.
+        // A view charges nothing, because `slice` carries no `Allocator` bound.
         assert_eq!(CHARGE_VIEW, 0);
         assert_eq!(charge_allocate(4096), 4096);
     }
@@ -2237,7 +2237,7 @@ mod tests {
                 variant("Rect", &[p(Prim::F64), p(Prim::F64)]),
             ],
         );
-        let host = add_struct(&mut t, "HostFs", &[], &[]);
+        let host = add_struct(&mut t, "HostFileSystem", &[], &[]);
         let fs = add_trait(&mut t, "Fs");
         let free = add_ctx(&mut t, vec![(fs, con(host))]);
         let chain = declare(&mut t, "Chain", &[]);
@@ -2321,7 +2321,7 @@ Option<Option<Str>>: size 32, align 8, stride 32
   enum tag i8 @0, payload @8
     .Some(@8)
     .None
-HostFs: size 0, align 1, stride 0
+HostFileSystem: size 0, align 1, stride 0
   zero-sized
 context { Fs }: size 0, align 1, stride 0
   zero-sized

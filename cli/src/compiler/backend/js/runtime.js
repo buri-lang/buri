@@ -87,7 +87,7 @@ function $wrapTo(v, bits, signed) {
 // `$wrapTo` takes the low bits of a value it is *handed*, and the caller used
 // to hand it a double it had already computed. Above 2^53 that double is
 // rounded, and the low bits of a rounded value are not the low bits of the
-// answer — `U32.wrappingMul(0xffffffff, 0xffffffff)` is 1, its exact product
+// answer — `U32.wrappingMultiply(0xffffffff, 0xffffffff)` is 1, its exact product
 // 18446744065119617025 rounds to an even double, and the wrap of that is 0. So
 // the arithmetic itself happens in BigInt and only the wrapped result, which
 // is inside the type's range by construction, comes back as a `number`.
@@ -621,7 +621,7 @@ function $val(x) {
   return x;
 }
 
-function $list_len(xs) {
+function $list_length(xs) {
   return BigInt(xs.length);
 }
 
@@ -920,7 +920,7 @@ function $chars(s) {
 //
 // That is worth testing for, because `$chars` allocates an array as long as the
 // string: without this, `len` was O(n) *with an allocation*, and the ordinary
-// `for i in 0..s.len() { s.charAt(i) }` scan was O(n²) with n allocations. The
+// `for i in 0..s.length() { s.charAt(i) }` scan was O(n²) with n allocations. The
 // scan is still quadratic here — the fix for that is to iterate `chars()`
 // rather than to index — but the constant is about a hundred times smaller.
 //
@@ -932,7 +932,7 @@ function $wide(s) {
   return $surrogate.test(s);
 }
 
-function $str_len(s) {
+function $str_length(s) {
   return BigInt($wide(s) ? $chars(s).length : s.length);
 }
 
@@ -992,7 +992,7 @@ function $str_splitOnce(s, sep) {
   return i < 0 ? undefined : $some([s.slice(0, i), s.slice(i + sep.length)]);
 }
 
-// `Str.compare`, and through `Ord` every `<`, `sort` and `OrdMap` key order.
+// `Str.compare`, and through `Ordered` every `<`, `sort` and `OrderedMap` key order.
 //
 // **Unicode scalar value order**, which for a valid string is byte-for-byte
 // UTF-8 order — the same answer `str::cmp` gives in Rust, `<` gives in Go and
@@ -1112,12 +1112,12 @@ function $str_fromFloat(c, x) {
 }
 
 function $str_padStart(s, c, w, fill) {
-  const n = Number(w) - Number($str_len(s));
+  const n = Number(w) - Number($str_length(s));
   return n > 0 ? fill.repeat(n) + s : s;
 }
 
 function $str_padEnd(s, c, w, fill) {
-  const n = Number(w) - Number($str_len(s));
+  const n = Number(w) - Number($str_length(s));
   return n > 0 ? s + fill.repeat(n) : s;
 }
 
@@ -1162,9 +1162,9 @@ function $character_toDigit(c, radix) {
 
 // --- core/math --------------------------------------------------------------------
 
-const $math_sqrt = Math.sqrt;
-const $math_cbrt = Math.cbrt;
-const $math_pow = Math.pow;
+const $math_squareRoot = Math.sqrt;
+const $math_cubeRoot = Math.cbrt;
+const $math_power = Math.pow;
 const $math_exp = Math.exp;
 const $math_ln = Math.log;
 const $math_log10 = Math.log10;
@@ -1177,10 +1177,10 @@ const $math_acos = Math.acos;
 const $math_atan = Math.atan;
 const $math_atan2 = Math.atan2;
 const $math_floor = Math.floor;
-const $math_ceil = Math.ceil;
+const $math_ceiling = Math.ceil;
 const $math_round = Math.round;
-const $math_trunc = Math.trunc;
-const $math_absFloat = Math.abs;
+const $math_truncate = Math.trunc;
+const $math_absoluteFloat = Math.abs;
 const $math_isNan = Number.isNaN;
 function $math_isInfinite(x) {
   return x === Infinity || x === -Infinity;
@@ -1226,17 +1226,17 @@ function $umask(v, bits) {
   return bits >= 32 ? v >>> 0 : v & ((1 << bits) - 1);
 }
 
-function $bits_shl(x, n) {
+function $bits_shiftLeft(x, n) {
   return BigInt.asIntN(64, x << $shiftCount(n, 64));
 }
 
-function $bits_shr(x, n) {
+function $bits_shiftRight(x, n) {
   // Logical: reinterpret as unsigned, shift, then narrow back, so a shift by
   // zero is the identity rather than the unsigned reinterpretation.
   return BigInt.asIntN(64, BigInt.asUintN(64, x) >> $shiftCount(n, 64));
 }
 
-function $bits_sar(x, n) {
+function $bits_shiftRightArithmetic(x, n) {
   return x >> $shiftCount(n, 64);
 }
 
@@ -1281,22 +1281,22 @@ function $bits_rotateRight(x, n) {
 }
 
 // The narrow widths, where the value is a `number` and only the count is not.
-function $bits_shlU8(x, n) {
+function $bits_shiftLeftU8(x, n) {
   return Number(BigInt.asUintN(8, $big(x) << $shiftCount(n, 8)));
 }
-function $bits_shrU8(x, n) {
+function $bits_shiftRightU8(x, n) {
   return Number($big(x) >> $shiftCount(n, 8));
 }
-function $bits_shlU32(x, n) {
+function $bits_shiftLeftU32(x, n) {
   return Number(BigInt.asUintN(32, $big(x) << $shiftCount(n, 32)));
 }
-function $bits_shrU32(x, n) {
+function $bits_shiftRightU32(x, n) {
   return Number($big(x) >> $shiftCount(n, 32));
 }
-function $bits_shlU64(x, n) {
+function $bits_shiftLeftU64(x, n) {
   return BigInt.asUintN(64, x << $shiftCount(n, 64));
 }
-function $bits_shrU64(x, n) {
+function $bits_shiftRightU64(x, n) {
   return x >> $shiftCount(n, 64);
 }
 
@@ -1667,7 +1667,7 @@ function $exit(code) {
 // three count; this one is what a program gets when it asks for none of them,
 // and it is a `Region` of the bytes requested (`effect.buri`'s cost model, last
 // row).
-function $host_HostAlloc_allocate(self, n) {
+function $host_HostAllocator_allocate(self, n) {
   return [Number(n)];
 }
 
@@ -1721,7 +1721,7 @@ function $alloc_total(h) {
 
 // --- core/alloc's scope (G4) -------------------------------------------------
 //
-// `Scoped<C>` forwards every effect but `Alloc`, and its `Alloc` charges the
+// `Scoped<C>` forwards every effect but `Allocator`, and its `Allocator` charges the
 // arena named by these handles. What the *native* runtime does on top of this
 // — reserve the bytes as anonymous pages and `munmap` them at release — has no
 // counterpart here and needs none: this backend has a garbage collector under
@@ -2037,7 +2037,7 @@ function $utf8Lossy(b) {
 
 // `require` does not exist in an ES module on node, so the backend emits a
 // `createRequire` prologue when — and only when — a program actually reaches
-// one of the two modules below. A program whose `main` binds neither `Fs` nor
+// one of the two modules below. A program whose `main` binds neither `FileSystem` nor
 // `Stdout.writeBytes` never gets one.
 //
 // The synchronous half answers the two writers that must not wait:
@@ -2059,9 +2059,9 @@ function $fsOrNull() {
   return null;
 }
 
-// The filesystem every `Fs` method reaches: `node:fs/promises`, so that a read
+// The filesystem every `FileSystem` method reaches: `node:fs/promises`, so that a read
 // is a wait rather than a stall. **Node and Bun only.** A browser has no such
-// module and no browser platform grants `Fs` (`standard_library`'s grant
+// module and no browser platform grants `FileSystem` (`standard_library`'s grant
 // table), so the abort below is unreachable from a `WEB` artifact and is what
 // a mis-grant would say out loud rather than silently.
 // A `Path` is a one-field struct, and generated code represents a struct as an
@@ -2081,7 +2081,7 @@ function $fsp() {
   $abort("this platform grants no filesystem");
 }
 
-async function $host_HostFs_readFile(self, at) {
+async function $host_HostFileSystem_readFile(self, at) {
   const p = $osPath(at);
   try {
     return $ok(await $fsp().readFile(p, "utf8"));
@@ -2090,7 +2090,7 @@ async function $host_HostFs_readFile(self, at) {
   }
 }
 
-async function $host_HostFs_writeFile(self, at, b) {
+async function $host_HostFileSystem_writeFile(self, at, b) {
   const p = $osPath(at);
   try {
     await $fsp().writeFile(p, b);
@@ -2102,7 +2102,7 @@ async function $host_HostFs_writeFile(self, at, b) {
 
 // `access` rather than a `stat`: the question is whether the name resolves,
 // and the answer to every failure is the same `false`.
-async function $host_HostFs_fileExists(self, at) {
+async function $host_HostFileSystem_fileExists(self, at) {
   const p = $osPath(at);
   try {
     await $fsp().access(p);
@@ -2112,7 +2112,7 @@ async function $host_HostFs_fileExists(self, at) {
   }
 }
 
-async function $host_HostFs_readDir(self, at) {
+async function $host_HostFileSystem_readDir(self, at) {
   const p = $osPath(at);
   try {
     return $ok(await $fsp().readdir(p));
@@ -2121,7 +2121,7 @@ async function $host_HostFs_readDir(self, at) {
   }
 }
 
-async function $host_HostFs_readFileBytes(self, at) {
+async function $host_HostFileSystem_readFileBytes(self, at) {
   const p = $osPath(at);
   try {
     return $ok(Array.from(await $fsp().readFile(p)));
@@ -2130,7 +2130,7 @@ async function $host_HostFs_readFileBytes(self, at) {
   }
 }
 
-async function $host_HostFs_writeFileBytes(self, at, b) {
+async function $host_HostFileSystem_writeFileBytes(self, at, b) {
   const p = $osPath(at);
   try {
     await $fsp().writeFile(p, Uint8Array.from(b));
@@ -2142,7 +2142,7 @@ async function $host_HostFs_writeFileBytes(self, at, b) {
 
 // `"a"` is `O_APPEND | O_CREAT`, so the position is taken and the octets
 // written as one operation and the file appears when it was absent.
-async function $host_HostFs_appendFile(self, at, b) {
+async function $host_HostFileSystem_appendFile(self, at, b) {
   const p = $osPath(at);
   try {
     await $fsp().appendFile(p, Uint8Array.from(b));
@@ -2152,7 +2152,7 @@ async function $host_HostFs_appendFile(self, at, b) {
   }
 }
 
-async function $host_HostFs_renameFile(self, source, destination) {
+async function $host_HostFileSystem_renameFile(self, source, destination) {
   const from = $osPath(source);
   const to = $osPath(destination);
   try {
@@ -2163,7 +2163,7 @@ async function $host_HostFs_renameFile(self, source, destination) {
   }
 }
 
-async function $host_HostFs_removeFile(self, at) {
+async function $host_HostFileSystem_removeFile(self, at) {
   const p = $osPath(at);
   try {
     await $fsp().unlink(p);
@@ -2177,7 +2177,7 @@ async function $host_HostFs_removeFile(self, at) {
 // `ENOTEMPTY`, which `$ioErr` has no classified variant for and so reports as
 // `.Other` carrying the platform's own sentence. `core/fs`'s `removeDir` is
 // where the argument for having no recursive form lives.
-async function $host_HostFs_removeDir(self, at) {
+async function $host_HostFileSystem_removeDir(self, at) {
   const p = $osPath(at);
   try {
     await $fsp().rmdir(p);
@@ -2189,7 +2189,7 @@ async function $host_HostFs_removeDir(self, at) {
 
 // `recursive` is what makes the parents and the already-there case both work;
 // a path naming a file is still `EEXIST`, which is `.AlreadyExists`.
-async function $host_HostFs_makeDir(self, at) {
+async function $host_HostFileSystem_makeDir(self, at) {
   const p = $osPath(at);
   try {
     await $fsp().mkdir(p, { recursive: true });
@@ -2202,7 +2202,7 @@ async function $host_HostFs_makeDir(self, at) {
 // `fsync` on a directory flushes its entries, which is what makes a preceding
 // rename durable. Opened read-only: `fsync(2)` needs no write access, and a
 // directory cannot be opened for writing at all.
-async function $host_HostFs_syncFile(self, at) {
+async function $host_HostFileSystem_syncFile(self, at) {
   const p = $osPath(at);
   let fh;
   try {
@@ -2231,9 +2231,9 @@ function $entryKind(st) {
 
 // `lstat` and not `stat`: `metadata` does not follow a link, which is what
 // makes `.Symlink` reachable and what keeps a walk out of a loop. `Metadata` is
-// `[kind, size, modified]` and `Instant` is a one-field struct, so the millis
+// `[kind, size, modified]` and `Instant` is a one-field struct, so the milliseconds
 // arrive wrapped.
-async function $host_HostFs_metadata(self, at) {
+async function $host_HostFileSystem_metadata(self, at) {
   const p = $osPath(at);
   try {
     const st = await $fsp().lstat(p);
@@ -2246,7 +2246,7 @@ async function $host_HostFs_metadata(self, at) {
 // A window of the file without reading the rest of it. An offset past the end
 // is the empty list, which is what a read at end of file is; a negative offset
 // or count is the one failure this can produce that the platform would not.
-async function $host_HostFs_readRange(self, at, from, count) {
+async function $host_HostFileSystem_readRange(self, at, from, count) {
   const p = $osPath(at);
   const start = Number(from);
   const want = Number(count);
@@ -2268,7 +2268,7 @@ async function $host_HostFs_readRange(self, at, from, count) {
   }
 }
 
-async function $host_HostFs_realPath(self, at) {
+async function $host_HostFileSystem_realPath(self, at) {
   const p = $osPath(at);
   try {
     return $ok(await $fsp().realpath(p));
@@ -2279,7 +2279,7 @@ async function $host_HostFs_realPath(self, at) {
 
 // Contents only, and not atomic: a reader of the destination can see half of
 // it. `EISDIR` on a directory source, which `$ioErr` reports as `.Other`.
-async function $host_HostFs_copyFile(self, source, destination) {
+async function $host_HostFileSystem_copyFile(self, source, destination) {
   try {
     await $fsp().copyFile($osPath(source), $osPath(destination));
     return $ok(0);
@@ -2323,7 +2323,7 @@ function $httpResponseHeaders(response) {
 // rather than `AbortSignal.timeout`: the controller is in every engine this
 // runs on and the static is not, and what an expired request has to answer is
 // `.Timeout` either way rather than the `AbortError` the platform throws.
-async function $host_HostNet_fetch(self, request) {
+async function $host_HostNetwork_fetch(self, request) {
   $aboutToBlock();
   const method = $HTTP_METHOD[Number(request[0])] || "GET";
   const url = request[1];
@@ -2366,7 +2366,7 @@ async function $host_HostNet_fetch(self, request) {
 //
 // The platform calls this per request with its own `Request` and sends what it
 // answers, so the module's default export is the whole of the artifact's
-// surface. What crosses is `$host_HostNet_fetch`'s crossing in reverse: a Buri
+// surface. What crosses is `$host_HostNetwork_fetch`'s crossing in reverse: a Buri
 // `Request` is `[method, url, headers, body, timeoutMillis]` and a `Response` is
 // `[status, headers, body]`, a `Header` is `[name, value]`, a payloadless enum
 // is its variant index, and a `[U8]` is an ordinary array of numbers. A request
@@ -2401,7 +2401,7 @@ async function $fetchEntry(entry, request) {
   });
 }
 
-function $host_HostClock_nowMillis(self) {
+function $host_HostClock_nowMilliseconds(self) {
   return BigInt(Date.now());
 }
 
@@ -2413,7 +2413,7 @@ function $host_HostClock_nowMillis(self) {
 //
 // `setTimeout` is universal — node, Bun and every browser — so there is
 // nothing to split on here.
-async function $host_HostClock_sleepMillis(self, ms) {
+async function $host_HostClock_sleepMilliseconds(self, ms) {
   $aboutToBlock();
   const n = Number(ms);
   await new Promise((wake) => setTimeout(wake, n > 0 ? n : 0));
@@ -2433,13 +2433,13 @@ function $host_HostClock_monotonicNanoseconds(self) {
   return BigInt(Math.round(ms * 1e6));
 }
 
-function $host_HostRand_nextInt(self, lo, hi) {
+function $host_HostRandom_nextInt(self, lo, hi) {
   if (hi <= lo) $abort("random range is empty");
   const span = Number(hi - lo);
   return lo + BigInt(Math.floor(Math.random() * span));
 }
 
-function $host_HostRand_nextFloat(self) {
+function $host_HostRandom_nextFloat(self) {
   return Math.random();
 }
 
@@ -2472,25 +2472,25 @@ function $host_HostEntropy_bytes(self, count) {
   return Array.from(out);
 }
 
-function $host_HostEnv_variable(self, name) {
+function $host_HostEnvironment_variable(self, name) {
   const env = typeof process !== "undefined" ? process.env : {};
   const v = env[name];
   return v === undefined ? undefined : $some(v);
 }
 
-function $host_HostEnv_args(self) {
+function $host_HostEnvironment_arguments(self) {
   if (typeof Bun !== "undefined") return Bun.argv.slice(2);
   if (typeof process !== "undefined") return process.argv.slice(2);
   return [];
 }
 
-function $host_HostEnv_currentDirectory(self) {
+function $host_HostEnvironment_currentDirectory(self) {
   return typeof process !== "undefined" ? process.cwd() : "/";
 }
 
 // In the engine's own order, which is insertion order over the object it built
 // the environment into. `core/env` promises no order at all.
-function $host_HostEnv_allVariables(self) {
+function $host_HostEnvironment_allVariables(self) {
   const env = typeof process !== "undefined" ? process.env : {};
   const out = [];
   for (const name of Object.keys(env)) {
@@ -2502,7 +2502,7 @@ function $host_HostEnv_allVariables(self) {
 // node's word for the platform, mapped to the one `core/env` documents.
 // Anything else passes through, which is the honest answer for a platform this
 // toolchain does not build for.
-function $host_HostEnv_operatingSystemName(self) {
+function $host_HostEnvironment_operatingSystemName(self) {
   if (typeof process === "undefined") return "unknown";
   const p = process.platform;
   if (p === "darwin") return "macos";
@@ -2699,7 +2699,7 @@ function $tasks_scopeLeave(c, handle) {
   return s.waiting.length > 0;
 }
 
-function $host_HostProc_exitWith(self, code) {
+function $host_HostProcess_exitWith(self, code) {
   $exit(Number(code));
   return 0;
 }
@@ -2905,7 +2905,7 @@ async function $host_HostWebSocketClient_connectSocket(self, url) {
   };
   // One await on a promise three handlers resolve. Nothing spins and nothing
   // blocks, so a page keeps rendering while this is in flight — the same
-  // thing that let `Net.fetch` onto a page.
+  // thing that let `Network.fetch` onto a page.
   const failed = await opening;
   if (failed !== null) return $err([$SERVE_TRANSPORT, failed]);
   const handle = $wsNext++;
@@ -3297,7 +3297,7 @@ function $ui_write(cell, v) {
 // than N.
 //
 // The transaction is the handler's *synchronous* run, and that is the whole of
-// the decision now that a handler can wait. A page grants `Net`, so a press
+// the decision now that a handler can wait. A page grants `Network`, so a press
 // may write "asking the server", suspend on the answer, and write again when
 // it arrives — and those are two transactions, not one held open across the
 // wait. Holding it open would mean the first notice did not reach the document
@@ -4769,7 +4769,7 @@ function $slot(x) {
 //
 // Configuration answers a *new* handle rather than editing the one it was
 // called on, so `clock()` and `clock().at(1000)` are two clocks and a test
-// holding both holds two. `TestFs.readOnly` is the one that answers a new
+// holding both holds two. `TestFileSystem.readOnly` is the one that answers a new
 // handle over the *same* two objects, because attenuating a filesystem is not
 // copying it.
 
@@ -4780,7 +4780,7 @@ function $host_testing_alloc() {
 // `Region` is a newtype over `I64`, so the charge stays a `BigInt`: the count
 // is handed straight back, which is what both native backends open-code and
 // what makes `alloc.allocate(ctx, 64) == Region(64)` true on every backend.
-function $host_testing_TestAlloc_allocate(self, n) {
+function $host_testing_TestAllocator_allocate(self, n) {
   return [n];
 }
 
@@ -4877,7 +4877,7 @@ function $host_testing_TestStdin_calls(self) {
   });
 }
 
-// A `TestFs` handle is a *view*: the files and directories it reads and writes,
+// A `TestFileSystem` handle is a *view*: the files and directories it reads and writes,
 // and whether writes through this view are refused. `readOnly` answers a second
 // view over the *same* two objects, which is what makes `readOnly` a method
 // without turning it into a copy — an attenuating view holds the inner
@@ -4888,8 +4888,8 @@ function $host_testing_TestStdin_calls(self) {
 // `-1` where nothing has called `faults`; it travels with a builder exactly as
 // `ro` does.
 //
-// Every row below takes the **handle** rather than the `TestFs`, because a
-// `TestFs` is a handle *and* a fault plan and an argument crosses as its leaves.
+// Every row below takes the **handle** rather than the `TestFileSystem`, because a
+// `TestFileSystem` is a handle *and* a fault plan and an argument crosses as its leaves.
 // That is `$host_testing_netCalls`'s reason, one slice later.
 function $tslot(h) {
   return $t.h[Number(h)];
@@ -4972,7 +4972,7 @@ function $host_testing_spelled(b) {
 //
 // The plan itself never reaches this file. It is a list of Buri values holding
 // an `IoError`, and `cli/runtime/lib.rs` §2.1 cannot name an error variant that
-// carries a field, so matching is the `Eq` the `Call` records derive and happens
+// carries a field, so matching is the `Equal` the `Call` records derive and happens
 // in `host_testing.buri` — on both backends, from one implementation. What is
 // here is the half a program cannot keep: which entries have fired, and what
 // each of them would read like in a failure message.
@@ -5025,7 +5025,7 @@ function $host_testing_addFsFault(h, name, path, body) {
   );
 }
 
-// The URL and not the whole request: matching is `NetCall`'s derived `Eq` and
+// The URL and not the whole request: matching is `NetCall`'s derived `Equal` and
 // reads every field of it, and a message naming every header would be a
 // paragraph where a reader wants a line.
 function $host_testing_addNetFault(h, url) {
@@ -5458,7 +5458,7 @@ function $host_testing_TestWebSocketClient_connectReceive(self, socket) {
 
 // A fresh, empty log, and the handle that names it. A bare `I64` rather than a
 // handle-carrying value, because `net()` is a Buri body that builds the
-// `TestNet` around it — the responder in the other field is a value this file
+// `TestNetwork` around it — the responder in the other field is a value this file
 // cannot make.
 function $host_testing_newNet() {
   return $tmint({ calls: [], plan: -1 });
@@ -5499,8 +5499,8 @@ function $host_testing_recordFetch(h, method, url, headers, body, timeout) {
 // Every request this network answered, in that order. A `NetCall` is a newtype
 // over `Request`, so each one is its request in a one-element array.
 //
-// By the handle and not by the `TestNet`: that value carries a responder as
-// well, and `TestNet.calls` is the Buri body that unwraps it — the one `calls()`
+// By the handle and not by the `TestNetwork`: that value carries a responder as
+// well, and `TestNetwork.calls` is the Buri body that unwraps it — the one `calls()`
 // in this module that is not a row of its own.
 function $host_testing_netCalls(h) {
   return $t.h[Number(h)].calls.map(function (r) {
@@ -5571,7 +5571,7 @@ function $host_testing_tcpCalls(h) {
 }
 
 // The read-back, without the effect: the same answer `readFile` gives, and no
-// `Fs` bound needed to ask it.
+// `FileSystem` bound needed to ask it.
 function $host_testing_fsRead(h, p) {
   const f = $tslot(h).files;
   return p in f ? $ok($utf8Lossy(f[p])) : $err([0]);
@@ -5789,7 +5789,7 @@ function $host_testing_fsCopyFile(h, from, to) {
   return $host_testing_logged(s, call, $ok(0));
 }
 
-// Millis in and millis out are both `I64`, so this one counts in `BigInt`.
+// Millis in and milliseconds out are both `I64`, so this one counts in `BigInt`.
 function $host_testing_clock() {
   return $handle({ now: 0n });
 }
@@ -5798,18 +5798,18 @@ function $host_testing_TestClock_at(self, ms) {
   return $handle({ now: ms });
 }
 
-function $host_testing_TestClock_nowMillis(self) {
+function $host_testing_TestClock_nowMilliseconds(self) {
   return $slot(self).now;
 }
 
 // Moves the clock without sleeping, which is the whole point of a test clock.
-function $host_testing_TestClock_sleepMillis(self, ms) {
+function $host_testing_TestClock_sleepMilliseconds(self, ms) {
   $slot(self).now += ms;
   return 0;
 }
 
 // One reading, two clocks: the monotonic side is the millisecond side in
-// nanoseconds, so `sleepMillis` moves both together and a test can assert an
+// nanoseconds, so `sleepMilliseconds` moves both together and a test can assert an
 // elapsed measurement without waiting for one.
 function $host_testing_TestClock_monotonicNanoseconds(self) {
   return $slot(self).now * 1000000n;
@@ -5833,20 +5833,20 @@ function $host_testing_rand() {
   return $handle({ s: 1 });
 }
 
-function $host_testing_TestRand_seed(self, n) {
+function $host_testing_TestRandom_seed(self, n) {
   return $handle({ s: Number(BigInt.asUintN(32, n)) || 1 });
 }
 
-function $host_testing_TestRand_nextInt(self, lo, hi) {
+function $host_testing_TestRandom_nextInt(self, lo, hi) {
   if (hi <= lo) $abort("random range is empty");
   return lo + (BigInt($nextRand($slot(self))) % (hi - lo));
 }
 
-function $host_testing_TestRand_nextFloat(self) {
+function $host_testing_TestRandom_nextFloat(self) {
   return $nextRand($slot(self)) / 4294967296;
 }
 
-// The seeded `Entropy`, on `TestRand`'s own generator and at its own seeds, so
+// The seeded `Entropy`, on `TestRandom`'s own generator and at its own seeds, so
 // `entropy().seed(7)` and `rand().seed(7)` draw the same sequence — one octet
 // per step, which is the low byte `nextInt(0, 256)` would have taken. A sealed
 // value written into an assertion therefore holds on both backends.
@@ -5874,34 +5874,34 @@ function $host_testing_env() {
 // Each builder keeps the other half, so the two compose in either order. The
 // last binding of a name wins, because each assignment overwrites the one
 // before it.
-function $host_testing_TestEnv_variables(self, vars) {
+function $host_testing_TestEnvironment_variables(self, vars) {
   const v = {};
   for (const e of vars) v[e[0]] = e[1];
   return $handle({ vars: v, args: $slot(self).args.slice() });
 }
 
-function $host_testing_TestEnv_arguments(self, args) {
+function $host_testing_TestEnvironment_withArguments(self, args) {
   return $handle({ vars: Object.assign({}, $slot(self).vars), args: args.slice() });
 }
 
-function $host_testing_TestEnv_variable(self, name) {
+function $host_testing_TestEnvironment_variable(self, name) {
   const v = $slot(self).vars;
   return name in v ? $some(v[name]) : undefined;
 }
 
-function $host_testing_TestEnv_args(self) {
+function $host_testing_TestEnvironment_arguments(self) {
   return $slot(self).args.slice();
 }
 
 // `/` and `test`, whatever the machine running the suite is. A double that
 // answered the runner's own directory or platform would give one test two
 // answers on two machines.
-function $host_testing_TestEnv_currentDirectory(self) {
+function $host_testing_TestEnvironment_currentDirectory(self) {
   return "/";
 }
 
 // Sorted, unlike the real thing: a hermetic double owes a test one order.
-function $host_testing_TestEnv_allVariables(self) {
+function $host_testing_TestEnvironment_allVariables(self) {
   const v = $slot(self).vars;
   return Object.keys(v)
     .sort()
@@ -5910,7 +5910,7 @@ function $host_testing_TestEnv_allVariables(self) {
     });
 }
 
-function $host_testing_TestEnv_operatingSystemName(self) {
+function $host_testing_TestEnvironment_operatingSystemName(self) {
   return "test";
 }
 
@@ -5925,7 +5925,7 @@ function $host_testing_newSpawn() {
 
 // The plan is the program, the working directory and then the arguments, and
 // the split happens here for the reason `host_testing.buri` gives: a Buri body
-// would need an `Alloc` and an effect method takes only `self`.
+// would need an `Allocator` and an effect method takes only `self`.
 function $host_testing_recordSpawn(h, plan) {
   $tslot(h).calls.push([plan.length > 0 ? plan[0] : "", plan.slice(2)]);
   return 0;
@@ -5937,10 +5937,10 @@ function $host_testing_spawnCalls(h) {
   });
 }
 
-// `proc()` has no function here and no slot: `TestProc` records nothing,
-// because nothing can read it back. `proc()` is `TestProc(0)` and `exitWith`
+// `proc()` has no function here and no slot: `TestProcess` records nothing,
+// because nothing can read it back. `proc()` is `TestProcess(0)` and `exitWith`
 // is an empty body, both written in `host_testing.buri` — the same shape
-// `TestNet` has, reached for the plainer reason.
+// `TestNetwork` has, reached for the plainer reason.
 
 // --- core/testing/assert ------------------------------------------------------------
 //

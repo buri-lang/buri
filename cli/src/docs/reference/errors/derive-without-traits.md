@@ -2,7 +2,7 @@
 title: A `derive` clause names at least one trait
 message: a `derive` clause names no traits
 note: `derive` generates one implementation per trait it names, so a clause naming none would generate nothing; delete it, or name what the type should derive
-fix: name the traits between `derive` and `for`, as in `derive Eq, Show for Meters;`
+fix: name the traits between `derive` and `for`, as in `derive Equal, Show for Meters;`
 ---
 # A `derive` clause names at least one trait
 
@@ -12,7 +12,7 @@ error: a `derive` clause names no traits [derive-without-traits]
 
 ## What to do
 
-Name the traits between `derive` and `for`, as in `derive Eq, Show for Meters;`,
+Name the traits between `derive` and `for`, as in `derive Equal, Show for Meters;`,
 or delete the clause. It generates one implementation per trait it names, so a
 clause naming none generates nothing.
 
