@@ -72,9 +72,15 @@ fn graph_queries() {
 /// `JS`, a `WEB` and a `CLOUDFLARE_WORKER` output, because a generated module
 /// is compiled once per platform and each of those is a compile that can fail
 /// on its own.
+///
+/// The eighth is the generated *JSON* codec under a plain `buri test`, which is
+/// the native backend on a host that has one. A JSON number reaches a decoder
+/// as an `F64`, so every integer field converts through `num.F64.toI64`, and
+/// the suite reported `1 failed to compile` until `emit.rs` grew the inexact
+/// conversions (buri-lang/buri#43).
 #[test]
 fn proto_schemas() {
-    run_corpus(&tests_dir().join("repositories/proto"), "proto", 7);
+    run_corpus(&tests_dir().join("repositories/proto"), "proto", 8);
 }
 
 /// BUILD-FILES.md's `generators`: a program the build runs, whose output
@@ -179,9 +185,15 @@ fn lint_catalogue() {
 /// runner does with a suite — the flags, the timeout, the golden-file update
 /// mode, the exact shape of a failure report, and the verdict a suite that
 /// never compiled gets.
+///
+/// `a_suite_over_the_ast` is where "a suite that names no platform runs
+/// natively" is a claim about a real program rather than about the runner: a
+/// module is a `[ast.Item]`, an `ast.Item` is 448 bytes, and the stencil
+/// backend staged a `[T]` element in a fixed 320 — so every suite that reached
+/// `core/buri/ast` was a suite that did not compile (buri-lang/buri#48).
 #[test]
 fn test_suites() {
-    run_corpus(&tests_dir().join("repositories/testing"), "testing", 12);
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 13);
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a

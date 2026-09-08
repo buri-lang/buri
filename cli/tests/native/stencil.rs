@@ -866,11 +866,14 @@ export fn main(): Result<(), Str> {
 ///
 /// Shapes stay unimplemented on purpose (`backend/stencil/mod.rs`'s header), and
 /// what has to be true of every one of them is that the build stops with a
-/// sentence. An **inexact** conversion is the one used here because it is
-/// stable: `x.toI64()` where not every `Float` fits answers
-/// `Result<Int, RangeError>` (SPEC 6.2.1), and `RangeError` is a struct of two
-/// `Str`s the backend would have to build — a gap `llvm/mod.rs` records for
-/// itself too.
+/// sentence. `deriveArrayHash` is the one used here because it is stable and it
+/// is reached from *emission* rather than from `missing_intrinsics`: a
+/// `derive Hash` whose field is a `[T]` bottoms out at the one derive leaf over
+/// an array this backend has no body for, which is why
+/// `bignum/hashing.buri` and `uuid/hashing.buri` are out of the native set.
+///
+/// An inexact conversion used to be the shape here, and is not: all four
+/// shapes SPEC 6.2.1 gives one are compiled now (buri-lang/buri#43).
 #[test]
 fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
     if !supported() {
@@ -883,11 +886,16 @@ from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
 from "core/host" import { stdout };
 from "core/io" import * as io;
+
+derive Hash for Bag;
+struct Bag {
+    items: [Int],
+}
+
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
-  let x: F64 = 2.5;
-  let n = x.toI64();
-  let _ = io.println(stdout, "${n.withDefault(0)}").ignore();
+  let b = Bag { items: [1, 2, 3] };
+  let _ = io.println(stdout, "${b.hash()}").ignore();
   .Ok(())
 }
 "#,
@@ -1907,11 +1915,17 @@ const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
     "actor/payloads.buri",
     "actor/scoped.buri",
+    "buri_ast/anchors.buri",
+    "buri_ast/expressions.buri",
+    "buri_ast/items.buri",
+    "buri_ast/module.buri",
+    "buri_ast/parsing.buri",
     "buri_ast/tokens.buri",
     "bignum/bigint.buri",
     "bignum/decimal.buri",
     "calendar/date.buri",
     "calendar/duration.buri",
+    "calendar/fractions.buri",
     "calendar/timestamps.buri",
     "canary/canary.buri",
     "cli/arguments.buri",
@@ -1943,6 +1957,8 @@ const CORPUS_COMPILES: &[&str] = &[
     "data/steps.buri",
     "data/strings.buri",
     "data/unicode.buri",
+    "generators/failure.buri",
+    "generators/wire.buri",
     "http/messages.buri",
     "environment/env.buri",
     "filesystem/fs.buri",
@@ -1953,13 +1969,20 @@ const CORPUS_COMPILES: &[&str] = &[
     "memory/discards.buri",
     "memory/scoped.buri",
     "numbers/bits.buri",
+    "numbers/conversions.buri",
     "numbers/integers.buri",
     "numbers/special_floats.buri",
     "process/process.buri",
     "proto/binary.buri",
     "proto/failures.buri",
+    "proto/json.buri",
     "proto_schema/reading.buri",
     "proto_schema/refusals.buri",
+    "proto_gen/codecs.buri",
+    "proto_gen/entry.buri",
+    "proto_gen/failures.buri",
+    "proto_gen/mapping.buri",
+    "proto_gen/origins.buri",
     "random/draws.buri",
     "random/gen.buri",
     "semantics/anonymous.buri",
@@ -1977,10 +2000,12 @@ const CORPUS_COMPILES: &[&str] = &[
     "tcp/stream.buri",
     "text/bytes.buri",
     "text/hex.buri",
+    "text/json.buri",
     "text/path.buri",
     "ui/reactivity.buri",
     "url/url.buri",
     "uuid/uuid.buri",
+    "vectors/convert.buri",
     "vectors/simd.buri",
 ];
 
