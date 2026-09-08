@@ -3,10 +3,10 @@
 name = derive-heavy-1k
 profile = derive-heavy
 generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+revision = 8
+recorded = 2026-09-08
 params = derives=6 lines=1000 w_enum=4 w_struct=4
 lines = 1059
-bytes = 34481
+bytes = 35000
 modules = 5
-digest = 492f3a6314d3941551fde0e4879f7b0ce4b30275c5094c52a6f3c72c73a230a8
+digest = 9d0d423423eb265213143eff009b0990756b80053fdcc5c8e2b2e92c88ef7a90

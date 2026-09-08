@@ -3,10 +3,10 @@
 name = mixed-many-files-1k
 profile = mixed-many-files
 generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+revision = 8
+recorded = 2026-09-08
 params = fanout=2..5 lines=1000 lines_per_module=40
 lines = 1094
-bytes = 40517
+bytes = 40908
 modules = 18
-digest = 680f3d050b124b6e2cbc3f6870bf77157a39df2eafc26285d4aaf5142776f1c2
+digest = 4d8ac67dae76c87cc6bd52b5b69375a251fa1e6f31eb736168d2225eaa5f35b0
