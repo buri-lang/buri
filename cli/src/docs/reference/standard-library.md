@@ -803,7 +803,7 @@ so a value with a space or a `;` in it is one argument and never a second
 command. `run` reads both streams while the child runs, so a child that writes
 more than a pipe holds does not deadlock.
 
-`core/env` and `core/cli` are the two halves of a command line. `env.withArguments(ctx)`
+`core/env` and `core/cli` are the two halves of a command line. `env.arguments(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 `argv[0]`, and you have to *tell* a help page what to call the program.
 `env.all(ctx)` is every variable as `(name, value)` pairs, in the platform's own
