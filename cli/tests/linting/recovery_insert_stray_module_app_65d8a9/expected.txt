@@ -1,9 +1,0 @@
-error: expected a type, found `@` [unexpected-token]
-  --> lib/recovery_insert_stray_module_app_65d8a9/main.buri:10:27
-   |
-10 | export fn main(): Result<(@ ), Str> {
-   |                           ^
-   |
-   = expected: a type
-   = actual: `@`
-   = fix: name a type here, as in `Int` or `[Str]`

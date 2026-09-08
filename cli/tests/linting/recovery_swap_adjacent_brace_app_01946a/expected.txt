@@ -1,9 +1,0 @@
-error: expected `{`, found `Allocator` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_app_01946a/main.buri:12:9
-   |
-12 |         Allocator: host.alloc,
-   |         ^^^^^
-   |
-   = expected: `{`
-   = actual: `Allocator`
-   = fix: write `{` here

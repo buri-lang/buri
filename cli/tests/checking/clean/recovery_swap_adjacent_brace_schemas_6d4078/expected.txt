@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:75:17
+   |
+75 |     match (hit{ )
+   |                 ^
+   |
+  --> main.buri:75:15
+   |
+75 |     match (hit{ )
+   |               ^ opened here
+   |
+   = fix: write `}` here
+error: expected `{`, found `.` [unexpected-token]
+  --> main.buri:76:9
+   |
+76 |         .Some(pair) => .Some(pair.0),
+   |         ^
+   |
+   = expected: `{`
+   = actual: `.`
+   = fix: write `{` here

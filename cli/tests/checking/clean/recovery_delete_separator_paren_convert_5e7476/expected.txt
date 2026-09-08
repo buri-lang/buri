@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:20:72
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5).toInt(), simd.i32x4(0 0, -2, 2));
+   |                                                                        ^
+   |
+   = fix: write `,` here

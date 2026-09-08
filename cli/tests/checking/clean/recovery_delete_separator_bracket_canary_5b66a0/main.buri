@@ -13,6 +13,6 @@ test "the canary holds" {
 }
 
 test "the canary holds under a context" {
-    let doubled = [1, 2 3].fold(fn(acc, x) => acc + x, 0);
+    let doubled = [1 2, 3].fold(fn(acc, x) => acc + x, 0);
     assert.equal(doubled, 6);
 }

@@ -8,10 +8,10 @@ error: expected an identifier, found `@` [unexpected-token]
   = actual: `@`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
 error: expected a declaration, found `;` [unexpected-token]
- --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:6:46
+ --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:6:50
   |
 6 | from "core/effect" import { @ Allocator, Stdout };
-  |                                              ^
+  |                                                  ^
   |
   = expected: a declaration
   = actual: `;`
@@ -20,7 +20,7 @@ error: `Allocator` is not a declared effect [not-an-effect]
   --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:12:9
    |
 12 |         Allocator: host.alloc,
-   |         ^^^^^
+   |         ^^^^^^^^^
    |
    = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Allocator` is not one
 error: `Stdout` is not a declared effect [not-an-effect]

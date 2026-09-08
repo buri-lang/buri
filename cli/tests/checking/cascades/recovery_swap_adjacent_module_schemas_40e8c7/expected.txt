@@ -1,0 +1,16 @@
+error: expected an identifier, found `{` [unexpected-token]
+  --> main.buri:39:57
+   |
+39 | export fn printed<C: Allocator>(ctx: C, text: Str): ast.{ Printed
+   |                                                         ^
+   |
+   = expected: an identifier
+   = actual: `{`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `printed` in scope [unresolved-name]
+  --> main.buri:45:5
+   |
+45 |     printed(ctx, text).text.lines(ctx)
+   |     ^^^^^^^
+   |
+   = fix: declare `printed`, or import it — a name is in scope only from this module's own declarations and its imports
