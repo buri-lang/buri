@@ -28,7 +28,7 @@ test "the panel" {
     snapshot(
         ctx,
         "panel",
-        ui.column([.Padding(.Px(16))], [ui.heading(2, .Const("panel"))]),
+        ui.column([.Padding(.Px(16))], [ui.heading(2, [], .Const("panel"))]),
         .Hover,
     );
 }

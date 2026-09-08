@@ -19,7 +19,7 @@
 //! /// The whole site, as one function of the path. The worker calls it with
 //! /// `.Const(request.path())`; the page calls it with `web.route(ctx)`.
 //! fn page<C>(path: Prop<Str>): Node<C> {
-//!     ui.region(.Main, [], [ui.heading(1, path)])
+//!     ui.region(.Main, [], [ui.heading(1, [], path)])
 //! }
 //!
 //! fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {

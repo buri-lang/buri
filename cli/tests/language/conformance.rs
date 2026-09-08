@@ -1114,7 +1114,7 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     WebSocketClient: host.websocketClient,
   };
-  match (ui.mount(ctx, ui.region(.Main, [], [ui.heading(1, .Const("live"))]), [])) {
+  match (ui.mount(ctx, ui.region(.Main, [], [ui.heading(1, [], .Const("live"))]), [])) {
     .Err(why) => .Err(why),
     .Ok(_mounted) => {
       let _said = io.println(ctx, "mounted").ignore();
@@ -2491,7 +2491,7 @@ fn page<C>(
         .Main,
         [],
         [
-            ui.heading(1, .Const(state.title)),
+            ui.heading(1, [], .Const(state.title)),
             // Two runs of text side by side, and a third holding one space: a
             // browser parses all three into one node.
             ui.text(.Const("one")),
@@ -2528,7 +2528,7 @@ fn at<C>(path: Str): Node<C> {
     match (path) {
         "/" => ui.region(.Article, [], [ui.text(.Const("home"))]),
         "/about" => {
-            ui.region(.Article, [], [ui.heading(2, .Const("About")), ui.text(.Const("about"))])
+            ui.region(.Article, [], [ui.heading(2, [], .Const("About")), ui.text(.Const("about"))])
         },
         _other => ui.region(.Article, [], [ui.text(.Const("nowhere"))]),
     }

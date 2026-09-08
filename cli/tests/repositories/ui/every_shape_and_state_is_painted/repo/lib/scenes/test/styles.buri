@@ -1,6 +1,10 @@
 // Every property the painter honours, twice: once with every length at zero
 // and every multiple at zero, and once with every length at the viewport's own
 // size. A property that stopped being read would move one of the two.
+//
+// And a heading, which is the one element whose type a browser would decide by
+// itself. The picture is what says it does not: an unstyled heading is the size
+// of the text around it, and a styled one is the size it asked for.
 
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
@@ -37,6 +41,27 @@ test "a style the compiler could not fold still paints" {
             tinted(0, ui.text(.Const("nought"))),
             tinted(128, ui.text(.Const("half"))),
             tinted(255, ui.text(.Const("full"))),
+        ]),
+        .Hover,
+    );
+}
+
+test "a heading is the size its styles say, not the size a browser picked" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "headings",
+        ui.column([.Padding(.Px(12)), .Gap(.Px(6)), .FontSize(.Px(13))], [
+            ui.heading(1, [], .Const("inherited")),
+            ui.heading(
+                2,
+                [.FontSize(.Px(28)), .FontWeight(.Bold)],
+                .Const("asked for"),
+            ),
+            ui.text(.Const("beside them")),
         ]),
         .Hover,
     );

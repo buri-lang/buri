@@ -667,11 +667,12 @@ millisecond. A bearer token is [`crypto.token`](#cryptography).
 second reserved root. They have a page of their own:
 [user interfaces](../guides/user-interfaces.md).
 
-`button`, `link`, `field` and `toggle` take a `[Style]` like every container
-does, and it lands on the control itself — so a hover, focus or disabled rule
-fires on the thing that is hovered, focused or disabled. The stylesheet opens by
-dropping the chrome a browser paints on one of those, so what is left is what
-the styles say.
+`heading`, `button`, `link`, `field` and `toggle` take a `[Style]` like every
+container does, and it lands on the element itself — so a hover, focus or
+disabled rule fires on the thing that is hovered, focused or disabled, and a
+heading is the size its styles say rather than the size a browser picked. The
+stylesheet opens by dropping the chrome a browser paints on one of those, so
+what is left is what the styles say.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
@@ -693,7 +694,7 @@ from "ui/prop" import { Prop };
 from "ui/web" import * as web;
 
 fn page<C>(path: Prop<Str>): Node<C> {
-    ui.region(.Main, [], [ui.heading(1, path)])
+    ui.region(.Main, [], [ui.heading(1, [], path)])
 }
 
 fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
