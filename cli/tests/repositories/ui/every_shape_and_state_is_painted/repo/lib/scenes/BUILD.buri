@@ -1,4 +1,4 @@
-# Five test sources, one suite, one linked binary — so this case also says a
+# Six test sources, one suite, one linked binary — so this case also says a
 # snapshot from the second file lands beside a snapshot from the first, in the
 # one `test/__snapshots__` the package owns.
 library {
@@ -11,6 +11,7 @@ library {
             "test/styles.buri",
             "test/states.buri",
             "test/pictures.buri",
+            "test/tables.buri",
         ]
     }
 }

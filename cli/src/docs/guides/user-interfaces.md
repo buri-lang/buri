@@ -338,6 +338,9 @@ The rest is short:
 - `.Position(.PinViewport)` is measured against the page, so a dock pinned to
   the bottom right lands in the bottom right however deep it was written, and it
   paints over everything else.
+- `.Table` stacks its rows and a `.TableRow` divides into one equal column per
+  cell, so a column lines up down the table. `.ColumnHeader` and `.RowHeader`
+  are bold and centred, which is what a browser does to a `<th>`.
 - `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.
