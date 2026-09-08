@@ -100,6 +100,29 @@ context WrappedFixture {
     FileSystemRead: guarded(fs().files([("a", "A")])),
 }
 
+/// A spread of a declaration written **after** it.
+///
+/// A spread reads the type its base recorded, and the declarations are checked
+/// in the order their ids were minted — item order inside a file, and
+/// module-discovery order across them, neither of which has anything to do with
+/// which declaration spreads which. When the base lost that race the spread
+/// contributed nothing: no diagnostic where the mistake was, and an
+/// `unsatisfied-bound` at every use for an effect bound a few lines below. So
+/// this pair is written in the order that used to lose, and every declaration
+/// above it is written in the order that always worked.
+context SpreadsWhatFollows {
+    ..DeclaredLast(),
+    Clock: clock().at(4242),
+}
+
+/// The base, and the only declaration in this file written after its spreader.
+context DeclaredLast {
+    Allocator: alloc(),
+    Clock: clock(),
+    Environment: env(),
+    FileSystemRead: fs().files([("later.toml", "port=4242")]),
+}
+
 /// A context assembled from scratch, naming only two effects.
 context Tiny {
     Allocator: alloc(),
@@ -277,6 +300,18 @@ test "a binding written after two spreads beats the twice-inherited one" {
     // One level up, and two: neither was disturbed by the replacement.
     assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=9999");
     assert.equal(env.arguments(ctx), []);
+}
+
+test "a context may spread one declared after it" {
+    let ctx = SpreadsWhatFollows();
+    // Three effects this declaration never names, all of them the base's.
+    assert.equal(assert.ok(loadText(ctx, "later.toml")), "port=4242");
+    assert.equal(env.arguments(ctx), []);
+}
+
+test "a binding written after a spread of a later declaration still replaces it" {
+    let ctx = SpreadsWhatFollows();
+    assert.equal(stamp(ctx).0, 4242);
 }
 
 test "an inherited effect can be called from an inline context expression" {
