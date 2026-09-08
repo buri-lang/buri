@@ -56,7 +56,7 @@ impl Rec33_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe33_0<C: Allocator>(ctx: C): Int {
     let r = Rec33_0 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show for State33_1;
@@ -92,7 +92,7 @@ export fn start33_1(ticks: Int): State33_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe33_1<C: Allocator>(ctx: C): Int {
     let s = start33_1(5);
-    rank33_1(s) + s.show(ctx).len()
+    rank33_1(s) + s.show(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -111,12 +111,12 @@ export fn describeAll33_2<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric33_2(ns: [Int], ss: [Str]): Int {
-    firstOr33_2<Int>(ns, 0) + firstOr33_2<Str>(ss, "").len()
+    firstOr33_2<Int>(ns, 0) + firstOr33_2<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe33_2<C: Allocator>(ctx: C): Int {
-    useGeneric33_2([1, 2], ["a"]) + describeAll33_2(ctx, [1, 2]).len()
+    useGeneric33_2([1, 2], ["a"]) + describeAll33_2(ctx, [1, 2]).length()
 }
 
 derive Equal, Show for State33_3;
@@ -158,7 +158,7 @@ export fn start33_3(ticks: Int): State33_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe33_3<C: Allocator>(ctx: C): Int {
     let s = start33_3(5);
-    rank33_3(s) + s.show(ctx).len()
+    rank33_3(s) + s.show(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -177,12 +177,12 @@ export fn describeAll33_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric33_4(ns: [Int], ss: [Str]): Int {
-    firstOr33_4<Int>(ns, 0) + firstOr33_4<Str>(ss, "").len()
+    firstOr33_4<Int>(ns, 0) + firstOr33_4<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe33_4<C: Allocator>(ctx: C): Int {
-    useGeneric33_4([1, 2], ["a"]) + describeAll33_4(ctx, [1, 2]).len()
+    useGeneric33_4([1, 2], ["a"]) + describeAll33_4(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -260,7 +260,7 @@ export fn constants33_7(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe33_7<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants33_7();
-    label33_7(ctx, a, e).len() + b
+    label33_7(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -298,14 +298,14 @@ export fn digest33_9<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [7650, 6049, 9087, 3174, 5695, 5028, 9848, 9352, 5245, 3180];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain33_9(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.

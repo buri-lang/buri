@@ -13,7 +13,7 @@ from "//lib/label" import { stamp };
 /// body needs: deleting the parameter would change the type and leave the call
 /// exactly where it was.
 fn plain<C: Allocator>(ctx: C, label: Str): Int {
-    label.len()
+    label.length()
 }
 
 /// Not reported. Handing the context to a function-typed parameter is one of

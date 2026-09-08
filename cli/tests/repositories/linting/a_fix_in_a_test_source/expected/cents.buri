@@ -11,7 +11,7 @@ from "//lib/money" import { Cents, fromCents };
 from "//lib/money/testing" import { fakeCents };
 
 fn width<C: Allocator>(label: Str): Int {
-    label.len()
+    label.length()
 }
 
 test "the fake answers a hundred and fifty cents" {

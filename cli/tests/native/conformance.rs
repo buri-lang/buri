@@ -1499,14 +1499,14 @@ test "an environment holds what it was given and nothing else" {
   assert.equal(assert.some(env.get(ctx, "LANG")), "C");
   assert.isTrue(env.get(ctx, "PATH").isNone());
   let args = env.withArguments(ctx);
-  assert.equal(args.len(), 2);
+  assert.equal(args.length(), 2);
   assert.equal(args.join(ctx, " "), "--verbose x");
 }
 
 test "an empty environment has no variables and no arguments" {
   let ctx = context { Allocator: alloc(), Environment: env() };
   assert.isTrue(env.get(ctx, "HOME").isNone());
-  assert.equal(env.withArguments(ctx).len(), 0);
+  assert.equal(env.withArguments(ctx).length(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
@@ -1519,11 +1519,11 @@ test "stdin reads its lines, then end of input" {
 test "a stdin of octets reads them, and readLine finds nothing there" {
   let ctx = context { Allocator: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
   let first = assert.some(io.readBytes(ctx, 3));
-  assert.equal(first.len(), 3);
+  assert.equal(first.length(), 3);
   assert.equal(assert.some(first.get(0)), 1);
   assert.equal(assert.some(first.get(2)), 3);
   let rest = assert.some(io.readBytes(ctx, 3));
-  assert.equal(rest.len(), 1);
+  assert.equal(rest.length(), 1);
   assert.equal(assert.some(rest.get(0)), 4);
   assert.isTrue(io.readBytes(ctx, 1).isNone());
   assert.isTrue(io.readLine(ctx).isNone());

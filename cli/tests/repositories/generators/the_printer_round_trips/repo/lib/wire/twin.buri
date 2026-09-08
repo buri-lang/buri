@@ -86,7 +86,7 @@ export fn probe<C: Allocator>(ctx: C, n: Int): Int {
         [] => 0,
     };
     let indexed: Int = items[2].withDefault(0);
-    let counted: Int = mapped.len() + list.empty<Int>().len();
+    let counted: Int = mapped.length() + list.empty<Int>().length();
     let quotient: Int = n * 6 / 2 - n % 4;
     let compared: Bool = n < 100 && n >= 0 || n <= 7;
     let scored: Int = if (compared) { 1 } else { 0 };

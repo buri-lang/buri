@@ -100,7 +100,7 @@ let CHUNK: Int = 65_536;
 /// # from "core/io" import * as io;
 ///
 /// export fn size<C: Allocator + Stdin + Stdout>(ctx: C): () {
-///     io.println(ctx, "${io.readAllBytes(ctx).len()}").ignore()
+///     io.println(ctx, "${io.readAllBytes(ctx).length()}").ignore()
 /// }
 /// ```
 ///
@@ -117,7 +117,7 @@ fn gatheredBytes<C: Allocator + Stdin>(ctx: C, sofar: [[U8]]): [[U8]] {
     match (ctx.readBytes(CHUNK)) {
         .None => sofar,
         .Some(chunk) => {
-            if (chunk.len() == 0) {
+            if (chunk.length() == 0) {
                 sofar
             } else {
                 gatheredBytes(ctx, sofar.push(ctx, chunk))

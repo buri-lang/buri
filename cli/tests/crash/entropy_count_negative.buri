@@ -16,7 +16,7 @@ export fn main(): Result<(), Str> {
     Entropy: host.entropy,
   };
   // Opaque to the compiler, so the call is really made.
-  let count = 0 - 1 - env.arguments(ctx).len();
-  let _ = io.println(ctx, "${crypto.randomBytes(ctx, count).len()}").ignore();
+  let count = 0 - 1 - env.arguments(ctx).length();
+  let _ = io.println(ctx, "${crypto.randomBytes(ctx, count).length()}").ignore();
   .Ok(())
 }

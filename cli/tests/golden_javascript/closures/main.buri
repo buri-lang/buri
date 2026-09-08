@@ -23,7 +23,7 @@ export fn main(): Result<(), Str> {
     let big = xs.filter(ctx, fn(x) => x > 2);
 
     let _ = io
-        .println(ctx, "${biased.sum()} ${doubled.sum()} ${summed} ${big.len()}")
+        .println(ctx, "${biased.sum()} ${doubled.sum()} ${summed} ${big.length()}")
         .ignore();
     .Ok(())
 }

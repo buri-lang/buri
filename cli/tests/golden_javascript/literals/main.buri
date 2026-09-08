@@ -53,7 +53,7 @@ export fn main(): Result<(), Str> {
         .println(ctx, "${severity(quiet())} ${severity(Level.Error_("x"))}")
         .ignore();
     let _ = io
-        .println(ctx, "${origin().0} ${primes().len()} ${primes().sum()}")
+        .println(ctx, "${origin().0} ${primes().length()} ${primes().sum()}")
         .ignore();
     .Ok(())
 }

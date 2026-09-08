@@ -521,12 +521,12 @@ fn parts<C: Allocator>(ctx: C, text: Str): Parts {
     };
     let (scheme, rest) = schemeOf(ctx, beforeQuery);
     if (rest.startsWith("//")) {
-        let body = rest.slice(2, rest.len());
-        let cut = body.indexOf("/").withDefault(body.len());
+        let body = rest.slice(2, rest.length());
+        let cut = body.indexOf("/").withDefault(body.length());
         Parts {
             scheme: scheme,
             authority: .Some(body.slice(0, cut)),
-            path: body.slice(cut, body.len()),
+            path: body.slice(cut, body.length()),
             query: query,
             fragment: fragment,
         }
@@ -584,7 +584,7 @@ fn hostPort<C: Allocator>(ctx: C, text: Option<Str>): Result<(Str, Option<Int>),
                         hosted(
                             ctx,
                             whole.slice(0, close + 1),
-                            whole.slice(close + 1, whole.len()),
+                            whole.slice(close + 1, whole.length()),
                         )
                     },
                 }
@@ -609,7 +609,7 @@ fn hosted<C: Allocator>(
     } else if (!rest.startsWith(":")) {
         .Err(.BadPort(rest))
     } else {
-        let digits = rest.slice(1, rest.len());
+        let digits = rest.slice(1, rest.length());
         match (digits.toInt()) {
             .None => .Err(.BadPort(digits)),
             .Some(n) => {
@@ -686,7 +686,7 @@ fn merged<C: Allocator>(ctx: C, base: Url, path: Str): Str {
 }
 
 fn lastSlash(text: Str, start: Int, best: Option<Int>): Option<Int> {
-    match (text.slice(start, text.len()).indexOf("/")) {
+    match (text.slice(start, text.length()).indexOf("/")) {
         .None => best,
         .Some(at) => lastSlash(text, start + at + 1, .Some(start + at)),
     }
@@ -702,26 +702,26 @@ fn walking<C: Allocator>(ctx: C, input: Str, out: [Str]): [Str] {
     if (input == "") {
         out
     } else if (input.startsWith("../")) {
-        walking(ctx, input.slice(3, input.len()), out)
+        walking(ctx, input.slice(3, input.length()), out)
     } else if (input.startsWith("./")) {
-        walking(ctx, input.slice(2, input.len()), out)
+        walking(ctx, input.slice(2, input.length()), out)
     } else if (input.startsWith("/./")) {
-        walking(ctx, input.slice(2, input.len()), out)
+        walking(ctx, input.slice(2, input.length()), out)
     } else if (input == "/.") {
         walking(ctx, "/", out)
     } else if (input.startsWith("/../")) {
-        walking(ctx, input.slice(3, input.len()), dropLast(ctx, out))
+        walking(ctx, input.slice(3, input.length()), dropLast(ctx, out))
     } else if (input == "/..") {
         walking(ctx, "/", dropLast(ctx, out))
     } else if (input == "." || input == "..") {
         out
     } else {
-        let body = input.slice(1, input.len());
-        let cut = 1 + body.indexOf("/").withDefault(body.len());
-        walking(ctx, input.slice(cut, input.len()), out.push(ctx, input.slice(0, cut)))
+        let body = input.slice(1, input.length());
+        let cut = 1 + body.indexOf("/").withDefault(body.length());
+        walking(ctx, input.slice(cut, input.length()), out.push(ctx, input.slice(0, cut)))
     }
 }
 
 fn dropLast<C: Allocator>(ctx: C, out: [Str]): [Str] {
-    if (out.isEmpty()) { out } else { out.take(ctx, out.len() - 1) }
+    if (out.isEmpty()) { out } else { out.take(ctx, out.length() - 1) }
 }

@@ -166,7 +166,7 @@ fn buildRuns<C: Allocator>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
   if (k >= runs) {
     acc
   } else {
-    buildRuns(ctx, k + 1, runs, n, acc + build(ctx, 0, n, list.empty<Int>()).len())
+    buildRuns(ctx, k + 1, runs, n, acc + build(ctx, 0, n, list.empty<Int>()).length())
   }
 }
 
@@ -179,7 +179,7 @@ fn foldRuns<C: Allocator>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
       k + 1,
       runs,
       n,
-      acc + fold(ctx, 0, n, State { total: 0, items: list.empty<Int>() }).items.len(),
+      acc + fold(ctx, 0, n, State { total: 0, items: list.empty<Int>() }).items.length(),
     )
   }
 }
@@ -408,7 +408,7 @@ fn writeRuns<C: Allocator>(ctx: C, k: Int, count: Int, n: Int, acc: Int): Int {
       k + 1,
       count,
       n,
-      acc + write(ctx, 0, n, Out { items: list.empty<Int>(), total: 0 }).items.len(),
+      acc + write(ctx, 0, n, Out { items: list.empty<Int>(), total: 0 }).items.length(),
     )
   }
 }
@@ -573,7 +573,7 @@ fn runs<C: Allocator>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): I
   if (k >= count) {
     acc
   } else {
-    runs(ctx, k + 1, count, tree, acc + ast.print(ctx, tree).text.len())
+    runs(ctx, k + 1, count, tree, acc + ast.print(ctx, tree).text.length())
   }
 }
 

@@ -323,8 +323,8 @@ test "an answer outlives the scopes that run after it" {
     });
     let third = alloc.scoped(ctx, fn(c) => built(c, "more", 128));
     assert.equal(first, ["keepkeepkeep", "meme"]);
-    assert.equal(second.len(), 1);
-    assert.equal(third.len(), 512);
+    assert.equal(second.length(), 1);
+    assert.equal(third.length(), 512);
 }
 
 test "two sequential scopes each answer their own value" {
@@ -355,7 +355,7 @@ test "a scope that answers nothing counted answers it anyway" {
     let ctx = context {
         Allocator: testing.alloc(),
     };
-    let n = alloc.scoped(ctx, fn(c) => built(c, "count", 4).len());
+    let n = alloc.scoped(ctx, fn(c) => built(c, "count", 4).length());
     assert.equal(n, 20);
 }
 

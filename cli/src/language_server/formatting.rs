@@ -180,11 +180,11 @@ fn line_starts(text: &str, lines: &[&str]) -> Vec<u32> {
 #[expect(
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
-    reason = "every index is a loop bound below `a.len()` or `b.len()`, and the table is \
-              allocated at exactly `(a.len() + 1) * (b.len() + 1)` — the product is checked \
+    reason = "every index is a loop bound below `a.length()` or `b.length()`, and the table is \
+              allocated at exactly `(a.length() + 1) * (b.length() + 1)` — the product is checked \
               against the bound above before anything is allocated, so neither the \
               multiplication nor the addition can overflow, and `i * width + j` is inside the \
-              table for every `i <= a.len()` and `j <= b.len()`"
+              table for every `i <= a.length()` and `j <= b.length()`"
 )]
 fn aligned(a: &[&str], b: &[&str]) -> Vec<(usize, usize)> {
     // Both sides have had their common top and bottom removed, so what is left

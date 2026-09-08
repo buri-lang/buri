@@ -255,7 +255,7 @@ test "the classifiers agree over the whole of printable ASCII" {
         Allocator: alloc(),
     };
     let cs = PRINTABLE_ASCII.chars(ctx);
-    assert.equal(cs.len(), 95);
+    assert.equal(cs.length(), 95);
     assert.isTrue(cs.all(fn(c) => c.isAscii()));
     assert.isTrue(cs.all(fn(c) => c.isPrintable()));
     assert.isTrue(cs.all(fn(c) => c.isControl() == false));
@@ -274,7 +274,7 @@ test "the classifiers agree over the whole of printable ASCII" {
 // The other thirty-three: a control is never printable, is always one byte, and
 // only six of them end a line.
 test "the classifiers agree over the whole of the C0 block" {
-    assert.equal(C0.len(), 33);
+    assert.equal(C0.length(), 33);
     assert.isTrue(C0.all(fn(c) => c.isAscii()));
     assert.isTrue(C0.all(fn(c) => c.isControl()));
     assert.isTrue(C0.all(fn(c) => c.isPrintable() == false));

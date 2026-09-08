@@ -2355,7 +2355,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.foldResultCtx",
     "list.get",
     "list.join",
-    "list.len",
+    "list.length",
     "list.map",
     "list.mapCtx",
     // The closure trampoline's pilot (`backend/intrinsic_keys.rs`'s
@@ -2749,7 +2749,7 @@ mod tests {
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
-        list.join list.len list.map list.mapCtx list.mapCtxStep list.push \
+        list.join list.length list.map list.mapCtx list.mapCtxStep list.push \
         list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
         number.maxValue number.minValue \

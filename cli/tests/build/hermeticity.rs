@@ -246,7 +246,7 @@ fn generator(marked: bool) -> String {
         false => String::new(),
         true => "  let tally = fs.readText(ctx, path.of(ctx, \"tally.txt\")).withDefault(\"\");\n  \
                  let _ = fs\n    .writeText(ctx, path.of(ctx, \"tally.txt\"), tally.concat(ctx, \"x\"))\n    \
-                 .ignore();\n  let n = n0 + tally.len();\n"
+                 .ignore();\n  let n = n0 + tally.length();\n"
             .to_string(),
     };
     let plain = match marked {

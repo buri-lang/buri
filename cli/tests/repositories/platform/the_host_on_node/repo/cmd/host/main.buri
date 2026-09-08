@@ -106,7 +106,7 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         .run(ctx, process.command(yes.text(), []))
         .mapErr(fn(_e) => "true")?;
     let _p2 = io
-        .println(ctx, "true ${ran.code} ${ran.stdout.len()} ${ran.stderr.len()}")
+        .println(ctx, "true ${ran.code} ${ran.stdout.length()} ${ran.stderr.length()}")
         .mapErr(fn(_e) => "print")?;
 
     // A child that ran and failed is `.Ok` with a code and something on
@@ -117,7 +117,7 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
     let _p3 = io
         .println(
             ctx,
-            "failed ${complained.code != 0} ${complained.stderr.len() > 0} ${refused(
+            "failed ${complained.code != 0} ${complained.stderr.length() > 0} ${refused(
                 process.run(ctx, process.command("buri-no-such-program", [])),
             )}",
         )
@@ -135,7 +135,7 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
     };
     let all = process.run(ctx, flooded).mapErr(fn(_e) => "cat large")?;
     let _p4 = io
-        .println(ctx, "large ${all.code} ${all.stdout.len()}")
+        .println(ctx, "large ${all.code} ${all.stdout.length()}")
         .mapErr(fn(_e) => "print")?;
 
     // The child's whole environment, replaced rather than added to.
@@ -259,7 +259,7 @@ export fn main(): Result<(), Str> {
             ctx,
             "empty ${fs
                 .walk(ctx, empty)
-                .map(fn(found) => found.len())
+                .map(fn(found) => found.length())
                 .withDefault(0 - 1)} ${refused(
                 fs.walk(ctx, root.join(ctx, "nope")),
             )} ${refused(fs.walk(ctx, note))}",
@@ -276,7 +276,7 @@ export fn main(): Result<(), Str> {
         .println(
             ctx,
             "window ${head
-                == [101, 108, 108]} ${past.len()} ${last.len()} ${none.len()} ${refused(
+                == [101, 108, 108]} ${past.length()} ${last.length()} ${none.length()} ${refused(
                 fs.readRange(ctx, note, 0 - 1, 2),
             )} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
         )
@@ -295,7 +295,7 @@ export fn main(): Result<(), Str> {
     let _p9 = io
         .println(
             ctx,
-            "copy ${back.len()} ${itself.len()} ${refused(
+            "copy ${back.length()} ${itself.length()} ${refused(
                 fs.copy(ctx, note, root.join(ctx, "nowhere/x")),
             )} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
         )

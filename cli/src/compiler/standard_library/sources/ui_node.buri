@@ -305,7 +305,7 @@ export fn each<C, T: Equal>(
 ): Node<C> {
     Node(
         .Each(
-            fn(scope) => items.read(scope).len(),
+            fn(scope) => items.read(scope).length(),
             fn(scope, index) => {
                 match (items.read(scope).get(index)) {
                     .Some(item) => key(item),

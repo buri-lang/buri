@@ -17,7 +17,7 @@
 //!     };
 //!     let rows = csv.parse(ctx, "name,note\nada,\"one, two\"").withDefault([]);
 //!     let note = rows.get(1).andThen(fn(row) => row.get(1)).withDefault("");
-//!     let _ = io.println(ctx, "${rows.len()} rows, and the note is ${note}").ignore();
+//!     let _ = io.println(ctx, "${rows.length()} rows, and the note is ${note}").ignore();
 //!     .Ok(())
 //! }
 //! ```
@@ -70,7 +70,7 @@ export enum CsvError {
 /// export fn widths<C: Allocator>(ctx: C, text: Str): Result<[Int], csv.CsvError> {
 ///     match (csv.parse(ctx, text)) {
 ///         .Err(e) => .Err(e),
-///         .Ok(rows) => .Ok(rows.map(ctx, fn(row) => row.len())),
+///         .Ok(rows) => .Ok(rows.map(ctx, fn(row) => row.length())),
 ///     }
 /// }
 /// ```
@@ -131,7 +131,7 @@ export fn parseWith<C: Allocator>(
 /// from "core/effect" import { Allocator };
 ///
 /// export fn columns<C: Allocator>(ctx: C, text: Str): Result<Int, csv.CsvError> {
-///     csv.parseWithHeader(ctx, text).map(fn(table) => table.0.len())
+///     csv.parseWithHeader(ctx, text).map(fn(table) => table.0.length())
 /// }
 /// ```
 ///
@@ -315,7 +315,7 @@ fn ending<C: Allocator>(
     rows: [[Str]],
 ): Result<[[Str]], CsvError> {
     if (state == QUOTED) {
-        .Err(.Unterminated(rows.len()))
+        .Err(.Unterminated(rows.length()))
     } else if (started) {
         .Ok(rows.push(ctx, row.push(ctx, str.fromChars(ctx, field))))
     } else {
@@ -327,7 +327,7 @@ fn ending<C: Allocator>(
 fn rectangular(rows: [[Str]], at: Int): Result<[[Str]], CsvError> {
     match ((rows.first(), rows.get(at))) {
         (.Some(first), .Some(row)) => {
-            if (row.len() == first.len()) {
+            if (row.length() == first.length()) {
                 rectangular(rows, at + 1)
             } else {
                 .Err(.RaggedRow(at))

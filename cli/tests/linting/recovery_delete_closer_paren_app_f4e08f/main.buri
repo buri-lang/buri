@@ -14,7 +14,7 @@ from "core/str" import * as str;
 /// and `--fix` takes the parameter out and the argument at the call site with
 /// it.
 fn width<C: Allocator>(ctx: C, label: Str): Int {
-    label.len()
+    label.length()
 }
 
 /// A callee that asks for a context of its own — printing is one, because an

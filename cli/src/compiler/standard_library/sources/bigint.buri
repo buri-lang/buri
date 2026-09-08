@@ -160,7 +160,7 @@ export fn of(value: Int): BigInt {
 export fn parse<C: Allocator>(ctx: C, text: Str): Option<BigInt> {
     let negative = text.startsWith("-");
     let first = if (negative) { 1 } else { 0 };
-    if (text.len() <= first) {
+    if (text.length() <= first) {
         .None
     } else {
         digitsOf(ctx, text, first, []).map(fn(limbs) => build(negative, limbs))
@@ -252,7 +252,7 @@ impl BigInt {
         } else {
             let columns = list.generate(
                 ctx,
-                self.limbs.len() + other.limbs.len() - 1,
+                self.limbs.length() + other.limbs.length() - 1,
                 fn(k) => column(self.limbs, other.limbs, k),
             );
             build(self.negative != other.negative, carry(ctx, columns, 0, 0, []))
@@ -293,7 +293,7 @@ impl BigInt {
                 ctx,
                 self.limbs,
                 other.limbs,
-                self.limbs.len() - 1,
+                self.limbs.length() - 1,
                 [],
                 [],
             );
@@ -384,7 +384,7 @@ impl BigInt {
     export fn toInt(self): Result<Int, RangeError> {
         // Accumulated below zero, so `minValue` is reachable and `maxValue + 1`
         // is not mistaken for it.
-        match (fold(self.limbs, self.limbs.len() - 1, 0)) {
+        match (fold(self.limbs, self.limbs.length() - 1, 0)) {
             .None => .Err(tooBig()),
             .Some(below) => {
                 if (self.negative) {
@@ -449,10 +449,10 @@ fn build(negative: Bool, limbs: [Int]): BigInt {
 
 /// Two magnitudes compared: by length first, then from the top down.
 fn compareLimbs(a: [Int], b: [Int]): Order {
-    if (a.len() != b.len()) {
-        a.len().compare(b.len())
+    if (a.length() != b.length()) {
+        a.length().compare(b.length())
     } else {
-        fromTop(a, b, a.len() - 1)
+        fromTop(a, b, a.length() - 1)
     }
 }
 
@@ -476,7 +476,7 @@ fn addLimbs<C: Allocator>(
     carried: Int,
     acc: [Int],
 ): [Int] {
-    if (at >= a.len() && at >= b.len() && carried == 0) {
+    if (at >= a.length() && at >= b.length() && carried == 0) {
         acc
     } else {
         let sum = a.get(at).withDefault(0) + b.get(at).withDefault(0) + carried;
@@ -493,7 +493,7 @@ fn subLimbs<C: Allocator>(
     borrowed: Int,
     acc: [Int],
 ): [Int] {
-    if (at >= a.len()) {
+    if (at >= a.length()) {
         trim(ctx, acc)
     } else {
         let difference = a.get(at).withDefault(0) - b.get(at).withDefault(0) - borrowed;
@@ -511,11 +511,11 @@ fn subLimbs<C: Allocator>(
 /// Each product is under `2^48`, so a column stays inside an `Int` up to about
 /// 32768 terms — the module's stated limit.
 fn column(a: [Int], b: [Int], k: Int): Int {
-    diagonal(a, b, k, number.max(0, k - b.len() + 1), 0)
+    diagonal(a, b, k, number.max(0, k - b.length() + 1), 0)
 }
 
 fn diagonal(a: [Int], b: [Int], k: Int, i: Int, acc: Int): Int {
-    if (i > k || i >= a.len()) {
+    if (i > k || i >= a.length()) {
         acc
     } else {
         let step = a.get(i).withDefault(0) * b.get(k - i).withDefault(0);
@@ -525,7 +525,7 @@ fn diagonal(a: [Int], b: [Int], k: Int, i: Int, acc: Int): Int {
 
 /// Carries propagated through a list of unnormalised columns.
 fn carry<C: Allocator>(ctx: C, columns: [Int], at: Int, carried: Int, acc: [Int]): [Int] {
-    if (at >= columns.len() && carried == 0) {
+    if (at >= columns.length() && carried == 0) {
         trim(ctx, acc)
     } else {
         let total = columns.get(at).withDefault(0) + carried;
@@ -546,7 +546,7 @@ fn smallStep<C: Allocator>(
     carried: Int,
     acc: [Int],
 ): [Int] {
-    if (at >= limbs.len() && carried == 0) {
+    if (at >= limbs.length() && carried == 0) {
         trim(ctx, acc)
     } else {
         let total = limbs.get(at).withDefault(0) * factor + carried;
@@ -557,7 +557,7 @@ fn smallStep<C: Allocator>(
 /// `limbs / divisor` and the remainder, where `divisor` fits in a limb. Used by
 /// `text`.
 fn divModSmall<C: Allocator>(ctx: C, limbs: [Int], divisor: Int): ([Int], Int) {
-    let (digits, rest) = downFrom(ctx, limbs, divisor, limbs.len() - 1, 0, []);
+    let (digits, rest) = downFrom(ctx, limbs, divisor, limbs.length() - 1, 0, []);
     (trim(ctx, digits.reverse(ctx)), rest)
 }
 
@@ -624,8 +624,8 @@ fn searchDigit<C: Allocator>(ctx: C, r: [Int], b: [Int], lo: Int, hi: Int): Int 
 
 /// Trailing zero limbs dropped, which is what keeps one value to one shape.
 fn trim<C: Allocator>(ctx: C, limbs: [Int]): [Int] {
-    let top = topNonZero(limbs, limbs.len() - 1);
-    if (top + 1 == limbs.len()) { limbs } else { limbs.take(ctx, top + 1) }
+    let top = topNonZero(limbs, limbs.length() - 1);
+    if (top + 1 == limbs.length()) { limbs } else { limbs.take(ctx, top + 1) }
 }
 
 fn topNonZero(limbs: [Int], at: Int): Int {
@@ -658,7 +658,7 @@ fn squaring<C: Allocator>(ctx: C, base: BigInt, exponent: Int, acc: BigInt): Big
 /// `base` to a negative power, truncated: zero, except where the base is `1` or
 /// `-1` and the fraction is one of those.
 fn reciprocal(base: BigInt, exponent: Int): BigInt {
-    if (base.limbs.len() != 1 || base.limbs.get(0).withDefault(0) != 1) {
+    if (base.limbs.length() != 1 || base.limbs.get(0).withDefault(0) != 1) {
         zero()
     } else if (base.negative && exponent % 2 != 0) {
         of(-1)

@@ -25,7 +25,7 @@ test "each iteration's closure captures that iteration's parameter" {
         Allocator: alloc(),
     };
     let fs = adders(ctx, 0, []);
-    assert.equal(fs.len(), 4);
+    assert.equal(fs.length(), 4);
     // Not `100 100 100 100`, which is what capturing the loop's slot gives.
     assert.equal(fs.get(0).map(fn(f) => f(100)).withDefault(-1), 100);
     assert.equal(fs.get(1).map(fn(f) => f(100)).withDefault(-1), 101);
@@ -38,7 +38,7 @@ test "the same holds across a merged mutually recursive loop" {
         Allocator: alloc(),
     };
     let fs = addersEven(ctx, 0, []);
-    assert.equal(fs.len(), 4);
+    assert.equal(fs.length(), 4);
     // `+0`, `*1`, `+2`, `*3` — alternating, because the two members alternate.
     assert.equal(fs.get(0).map(fn(f) => f(100)).withDefault(-1), 100);
     assert.equal(fs.get(1).map(fn(f) => f(100)).withDefault(-1), 100);
@@ -51,7 +51,7 @@ test "a parameter the loop never rebinds is captured unchanged" {
         Allocator: alloc(),
     };
     let fs = scalers(ctx, 7, 0, []);
-    assert.equal(fs.len(), 3);
+    assert.equal(fs.length(), 3);
     assert.equal(fs.get(0).map(fn(f) => f(2)).withDefault(-1), 14);
     assert.equal(fs.get(1).map(fn(f) => f(2)).withDefault(-1), 14);
     assert.equal(fs.get(2).map(fn(f) => f(2)).withDefault(-1), 14);
@@ -62,7 +62,7 @@ test "two closures made in one iteration agree about it" {
         Allocator: alloc(),
     };
     let fs = pairs(ctx, 0, []);
-    assert.equal(fs.len(), 6);
+    assert.equal(fs.length(), 6);
     // `+0 -0 +1 -1 +2 -2` applied to 10.
     assert.equal(fs.get(0).map(fn(f) => f(10)).withDefault(-1), 10);
     assert.equal(fs.get(1).map(fn(f) => f(10)).withDefault(-1), 10);

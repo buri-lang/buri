@@ -150,7 +150,7 @@ fn an_abort_keeps_what_was_printed_before_it() {
     // The divisor is the length the runtime answered minus the length asked
     // for, so it is zero and nothing folds the division away beforehand.
     let ending = format!(
-        "let zero = line.len() - {WIDTH};\n    \
+        "let zero = line.length() - {WIDTH};\n    \
          let _ = io.println(ctx, \"${{10 / zero}}\").ignore();\n    .Ok(())"
     );
     scratch.binary_package("cmd/aborts", &program(&ending));

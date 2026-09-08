@@ -655,7 +655,7 @@ fn handle<C: Allocator + FileSystemRead + Stdout>(ctx: C, request: Request): Res
     let _ = io.println(ctx, "serving").ignore();
     // The charge a handler makes on its own behalf, which under `dispatch` is
     // the scope's and not the server's.
-    let _ = alloc.allocate(ctx, alloc.strBytes(request.url.len()));
+    let _ = alloc.allocate(ctx, alloc.strBytes(request.url.length()));
     match (fs.readText(ctx, path.of(ctx, request.url))) {
         .Ok(_body) => Response { status: 200, headers: [], body: [] },
         .Err(_e) => Response { status: 404, headers: [], body: [] },

@@ -98,7 +98,7 @@ export fn parse<C: Allocator>(ctx: C, text: Str): Result<Json, JsonError> {
     let start = skipSpace(cs, 0);
     let (v, next) = value(ctx, cs, start, 0)?;
     let end = skipSpace(cs, next);
-    if (end < cs.len()) { .Err(.Trailing(end)) } else { .Ok(v) }
+    if (end < cs.length()) { .Err(.Trailing(end)) } else { .Ok(v) }
 }
 
 /// Whitespace, of which JSON admits exactly four characters.
@@ -161,7 +161,7 @@ fn value<C: Allocator>(
 
 /// `null`, `true`, `false` — each is its own spelling and nothing else.
 fn keyword(cs: [Char], i: Int, word: Str, v: Json): Result<(Json, Int), JsonError> {
-    let n = word.len();
+    let n = word.length();
     if (matches(cs, i, word, 0, n)) { .Ok((v, i + n)) } else { .Err(.Unexpected(i)) }
 }
 
@@ -193,7 +193,7 @@ fn array<C: Allocator>(
     match (cs.get(i)) {
         .None => .Err(.Unterminated),
         .Some(c) => {
-            if (c == ']' && acc.len() == 0) {
+            if (c == ']' && acc.length() == 0) {
                 .Ok((Json.Array(acc), i + 1))
             } else {
                 let (v, after) = value(ctx, cs, i, depth + 1)?;
@@ -220,7 +220,7 @@ fn object<C: Allocator>(
     match (cs.get(i)) {
         .None => .Err(.Unterminated),
         .Some(c) => {
-            if (c == '}' && acc.len() == 0) {
+            if (c == '}' && acc.length() == 0) {
                 .Ok((Json.Object(acc), i + 1))
             } else if (c != '"') {
                 // A key is a string: JSON admits no bare word.
@@ -532,7 +532,7 @@ fn byKey<C: Allocator>(ctx: C, v: Json): Json {
 /// and writes it `3`, so the trailing `.0` comes off.
 fn numberText<C: Allocator>(ctx: C, x: Float): Str {
     let s = str.fromFloat(ctx, x);
-    if (s.endsWith(".0")) { s.slice(0, s.len() - 2) } else { s }
+    if (s.endsWith(".0")) { s.slice(0, s.length() - 2) } else { s }
 }
 
 /// A quoted, escaped string literal.

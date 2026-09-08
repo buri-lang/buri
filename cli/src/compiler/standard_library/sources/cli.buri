@@ -23,7 +23,7 @@
 //! }
 //!
 //! fn count<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
-//!     let _ = io.println(ctx, "${arguments.positionals().len()}").ignore();
+//!     let _ = io.println(ctx, "${arguments.positionals().length()}").ignore();
 //!     .Ok(())
 //! }
 //!
@@ -787,7 +787,7 @@ fn classify(token: Str): Token {
             match (token.startsWith("--")) {
                 true => longToken(token),
                 false => {
-                    match (token.startsWith("-") && token.len() > 1) {
+                    match (token.startsWith("-") && token.length() > 1) {
                         true => shortToken(token),
                         false => .Plain(token),
                     }
@@ -798,7 +798,7 @@ fn classify(token: Str): Token {
 }
 
 fn longToken(token: Str): Token {
-    let rest = token.slice(2, token.len());
+    let rest = token.slice(2, token.length());
     match (rest.splitOnce("=")) {
         .Some(split) => {
             let (name, value) = split;
@@ -806,7 +806,7 @@ fn longToken(token: Str): Token {
                 true => .Bad(token),
                 false => {
                     .Named {
-                        display: token.slice(0, name.len() + 2),
+                        display: token.slice(0, name.length() + 2),
                         long: .Some(name),
                         short: .None,
                         value: .Some(value),
@@ -821,13 +821,13 @@ fn longToken(token: Str): Token {
 }
 
 fn shortToken(token: Str): Token {
-    let rest = token.slice(1, token.len());
+    let rest = token.slice(1, token.length());
     match (rest.splitOnce("=")) {
         .Some(split) => {
             let (name, value) = split;
             match (name.charAt(0)) {
                 .Some(letter) => {
-                    match (name.len() == 1) {
+                    match (name.length() == 1) {
                         true => {
                             .Named {
                                 display: token.slice(0, 2),
@@ -843,7 +843,7 @@ fn shortToken(token: Str): Token {
             }
         },
         .None => {
-            match (rest.len() == 1) {
+            match (rest.length() == 1) {
                 true => {
                     match (rest.charAt(0)) {
                         .Some(letter) => {
@@ -1027,8 +1027,8 @@ fn table<C: Allocator>(ctx: C, rows: [(Str, Str)]): Str {
         ctx,
         fn(_c, widest, row) => {
             let (left, _) = row;
-            match (left.len() > widest) {
-                true => left.len(),
+            match (left.length() > widest) {
+                true => left.length(),
                 false => widest,
             }
         },

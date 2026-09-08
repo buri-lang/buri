@@ -51,7 +51,7 @@ export fn describe<C: Allocator>(ctx: C, hash: Str): Str {
     let counts = list.range(ctx, 0, MAX_RETRIES);
     let nothing = list.empty<Int>();
     let origin = Source.Catalogue {
-        page: u2.name.len() + counts.len() + nothing.len(),
+        page: u2.name.length() + counts.length() + nothing.length(),
     };
     let shelf: Source = .Shelf;
     match (origin) {

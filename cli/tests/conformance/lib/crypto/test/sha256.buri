@@ -83,8 +83,8 @@ test "a digest is thirty-two bytes" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(crypto.sha256Text(ctx, "abc").0.len(), 32);
-    assert.equal(crypto.sha256Text(ctx, "abc").toHex(ctx).len(), 64);
+    assert.equal(crypto.sha256Text(ctx, "abc").0.length(), 32);
+    assert.equal(crypto.sha256Text(ctx, "abc").toHex(ctx).length(), 64);
 }
 
 test "hashing bytes and hashing their text agree" {

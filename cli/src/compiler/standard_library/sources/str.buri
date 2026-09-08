@@ -17,10 +17,10 @@ from "core/order" import { Order };
 
 impl Str {
     /// The number of Unicode scalar values, not the number of UTF-8 bytes.
-    export fn len(self): Int;
+    export fn length(self): Int;
 
     export fn isEmpty(self): Bool {
-        self.len() == 0
+        self.length() == 0
     }
 
     export fn charAt(self, index: Int): Option<Char>;
@@ -49,7 +49,7 @@ impl Str {
     /// neither half is a copy.
     export fn splitOnce(self, separator: Str): Option<(Str, Str)>;
 
-    /// Lexicographic, **by Unicode scalar value** — the same unit `len` counts
+    /// Lexicographic, **by Unicode scalar value** — the same unit `length` counts
     /// and `charAt` hands back. For a valid string that is byte-for-byte UTF-8
     /// order, so the first byte the two differ at decides, and a string that is
     /// a prefix of another sorts before it.
@@ -110,7 +110,7 @@ impl Str {
         } else {
             let negative = self.startsWith("-");
             let first = if (negative) { 1 } else { 0 };
-            if (self.len() <= first) {
+            if (self.length() <= first) {
                 .None
             } else {
                 // Accumulates downwards, so the magnitude never has to fit:
@@ -201,7 +201,7 @@ impl Str {
     /// Pure, because both answers are views into `self`.
     export fn stripPrefix(self, prefix: Str): Option<Str> {
         if (self.startsWith(prefix)) {
-            .Some(self.slice(prefix.len(), self.len()))
+            .Some(self.slice(prefix.length(), self.length()))
         } else {
             .None
         }
@@ -210,7 +210,7 @@ impl Str {
     /// `stripPrefix` at the other end.
     export fn stripSuffix(self, suffix: Str): Option<Str> {
         if (self.endsWith(suffix)) {
-            .Some(self.slice(0, self.len() - suffix.len()))
+            .Some(self.slice(0, self.length() - suffix.length()))
         } else {
             .None
         }
@@ -221,7 +221,7 @@ impl Str {
     /// The empty needle is found at the end, which is where the last empty
     /// slice is.
     export fn lastIndexOf(self, needle: Str): Option<Int> {
-        lastMatch(self, needle, self.len() - needle.len())
+        lastMatch(self, needle, self.length() - needle.length())
     }
 
     /// `splitOnce` at the last separator rather than the first — the split a
@@ -230,7 +230,7 @@ impl Str {
         match (self.lastIndexOf(separator)) {
             .None => .None,
             .Some(at) => {
-                .Some((self.slice(0, at), self.slice(at + separator.len(), self.len())))
+                .Some((self.slice(0, at), self.slice(at + separator.length(), self.length())))
             },
         }
     }
@@ -241,7 +241,7 @@ impl Str {
     /// The parameter is `start` and not `from`, because `from` opens an import.
     export fn indexOfFrom(self, needle: Str, start: Int): Option<Int> {
         let at = if (start < 0) { 0 } else { start };
-        self.slice(at, self.len()).indexOf(needle).map(fn(found) => found + at)
+        self.slice(at, self.length()).indexOf(needle).map(fn(found) => found + at)
     }
 
     /// How many times `needle` occurs, without overlaps: `"aaaa".count("aa")` is
@@ -254,7 +254,7 @@ impl Str {
 fn lastMatch(text: Str, needle: Str, at: Int): Option<Int> {
     if (at < 0) {
         .None
-    } else if (text.slice(at, at + needle.len()) == needle) {
+    } else if (text.slice(at, at + needle.length()) == needle) {
         .Some(at)
     } else {
         lastMatch(text, needle, at - 1)
@@ -264,7 +264,7 @@ fn lastMatch(text: Str, needle: Str, at: Int): Option<Int> {
 fn countFrom(text: Str, needle: Str, at: Int, seen: Int): Int {
     match (text.indexOfFrom(needle, at)) {
         .None => seen,
-        .Some(found) => countFrom(text, needle, found + needle.len(), seen + 1),
+        .Some(found) => countFrom(text, needle, found + needle.length(), seen + 1),
     }
 }
 
@@ -279,12 +279,12 @@ impl Str {
 
     /// `trimAny` at the front only.
     export fn trimStartAny(self, chars: Str): Str {
-        self.slice(leadingAny(self, chars, 0), self.len())
+        self.slice(leadingAny(self, chars, 0), self.length())
     }
 
     /// `trimAny` at the end only.
     export fn trimEndAny(self, chars: Str): Str {
-        self.slice(0, trailingAny(self, chars, self.len()))
+        self.slice(0, trailingAny(self, chars, self.length()))
     }
 
     /// The first index at which one of `chars` occurs.
@@ -353,12 +353,12 @@ impl Str {
     /// not a collation: `"ß"` and `"SS"` are different lengths and this says
     /// no. `caseFold` is the full folding that says yes.
     export fn equalsIgnoreCase(self, other: Str): Bool {
-        self.len() == other.len() && sameFolded(self, other, 0)
+        self.length() == other.length() && sameFolded(self, other, 0)
     }
 
     /// `startsWith` under the same simple folding `equalsIgnoreCase` uses.
     export fn startsWithIgnoreCase(self, prefix: Str): Bool {
-        self.len() >= prefix.len() && sameFolded(self.slice(0, prefix.len()), prefix, 0)
+        self.length() >= prefix.length() && sameFolded(self.slice(0, prefix.length()), prefix, 0)
     }
 }
 
@@ -421,7 +421,7 @@ impl Str {
     /// How many bytes this string takes in UTF-8, which is what `core/bytes`'
     /// `toUtf8` produces and what a `Content-Length` counts.
     ///
-    /// `len` counts scalars, so the two agree only for ASCII.
+    /// `length` counts scalars, so the two agree only for ASCII.
     export fn utf8Length(self): Int {
         utf8From(self, 0, 0)
     }
@@ -429,7 +429,7 @@ impl Str {
     /// How many UTF-16 code units this string takes — the unit a language
     /// server's positions and JavaScript's own `.length` are measured in.
     ///
-    /// One per scalar below U+10000 and two above, so it differs from `len`
+    /// One per scalar below U+10000 and two above, so it differs from `length`
     /// exactly where an astral character appears.
     export fn utf16Length(self): Int {
         utf16From(self, 0, 0)
@@ -480,7 +480,7 @@ impl Str {
         let cut = if (margin < 0) { 0 } else { margin };
         rows
             .map(ctx, fn(row) => {
-                if (row.isBlank()) { "" } else { row.slice(cut, row.len()) }
+                if (row.isBlank()) { "" } else { row.slice(cut, row.length()) }
             })
             .join(ctx, "\n")
     }
@@ -528,7 +528,7 @@ fn limitedFrom<C: Allocator>(
 
 fn wordsFrom<C: Allocator>(ctx: C, text: Str, at: Int, acc: [Str]): [Str] {
     let start = spanSpace(text, at);
-    if (start >= text.len()) {
+    if (start >= text.length()) {
         acc
     } else {
         let end = spanWord(text, start);
@@ -580,7 +580,7 @@ fn wrapFrom<C: Allocator>(
         .Some(word) => {
             if (line.isEmpty()) {
                 wrapFrom(ctx, words, width, at + 1, word, acc)
-            } else if (line.len() + 1 + word.len() <= width) {
+            } else if (line.length() + 1 + word.length() <= width) {
                 let joined = line.concat(ctx, " ").concat(ctx, word);
                 wrapFrom(ctx, words, width, at + 1, joined, acc)
             } else {
@@ -617,16 +617,16 @@ fn wrapFrom<C: Allocator>(
 export fn fromIntGrouped<C: Allocator>(ctx: C, value: Int, separator: Str): Str {
     let text = fromInt(ctx, value);
     let negative = text.startsWith("-");
-    let digits = if (negative) { text.slice(1, text.len()) } else { text };
+    let digits = if (negative) { text.slice(1, text.length()) } else { text };
     let grouped = groupedFrom(ctx, digits, separator, 0, "");
     if (negative) { "-".concat(ctx, grouped) } else { grouped }
 }
 
 fn groupedFrom<C: Allocator>(ctx: C, digits: Str, separator: Str, at: Int, acc: Str): Str {
-    if (at >= digits.len()) {
+    if (at >= digits.length()) {
         acc
     } else {
-        let first = digits.len() % 3;
+        let first = digits.length() % 3;
         let take = if (at > 0) { 3 } else if (first == 0) { 3 } else { first };
         let piece = digits.slice(at, at + take);
         let joined = if (at == 0) {
@@ -675,14 +675,14 @@ export fn fromFloatFixed<C: Allocator>(ctx: C, value: Float, decimals: Int): Str
     let places = if (decimals < 0) { 0 } else { decimals };
     let shown = fromFloat(ctx, value);
     let negative = shown.startsWith("-");
-    let body = if (negative) { shown.slice(1, shown.len()) } else { shown };
+    let body = if (negative) { shown.slice(1, shown.length()) } else { shown };
     if (body.indexWhere(fn(c) => c.isDigit()).isNone()) {
         shown
     } else {
         let parsed = significand(ctx, body);
         let keep = parsed.1 + places;
         let rounded = roundTo(ctx, parsed.0, keep);
-        let point = if (rounded.len() > keep) { parsed.1 + 1 } else { parsed.1 };
+        let point = if (rounded.length() > keep) { parsed.1 + 1 } else { parsed.1 };
         let text = renderFixed(ctx, rounded, point, places);
         if (negative) { "-".concat(ctx, text) } else { text }
     }
@@ -698,7 +698,7 @@ fn significand<C: Allocator>(ctx: C, text: Str): (Str, Int) {
     };
     let exponent = match (marker) {
         .None => 0,
-        .Some(at) => text.slice(at + 1, text.len()).toInt().withDefault(0),
+        .Some(at) => text.slice(at + 1, text.length()).toInt().withDefault(0),
     };
     let dot = mantissa.indexOf(".");
     let whole = match (dot) {
@@ -707,15 +707,15 @@ fn significand<C: Allocator>(ctx: C, text: Str): (Str, Int) {
     };
     let fraction = match (dot) {
         .None => "",
-        .Some(at) => mantissa.slice(at + 1, mantissa.len()),
+        .Some(at) => mantissa.slice(at + 1, mantissa.length()),
     };
-    (whole.concat(ctx, fraction), whole.len() + exponent)
+    (whole.concat(ctx, fraction), whole.length() + exponent)
 }
 
 /// `digits` cut to `keep` of them, rounded half up on the first one dropped.
 /// A carry off the front makes the answer one longer than `keep`.
 fn roundTo<C: Allocator>(ctx: C, digits: Str, keep: Int): Str {
-    if (keep >= digits.len()) {
+    if (keep >= digits.length()) {
         digits
     } else {
         let head = if (keep <= 0) { "" } else { digits.slice(0, keep) };
@@ -724,7 +724,7 @@ fn roundTo<C: Allocator>(ctx: C, digits: Str, keep: Int): Str {
             .None => false,
             .Some(c) => c >= '5',
         };
-        if (up && keep >= 0) { carry(ctx, head, head.len() - 1) } else { head }
+        if (up && keep >= 0) { carry(ctx, head, head.length() - 1) } else { head }
     }
 }
 
@@ -749,7 +749,7 @@ fn writeAt<C: Allocator>(ctx: C, text: Str, at: Int, c: Char): Str {
     text
         .slice(0, at)
         .concat(ctx, fromChars(ctx, [c]))
-        .concat(ctx, text.slice(at + 1, text.len()))
+        .concat(ctx, text.slice(at + 1, text.length()))
 }
 
 /// `0.<digits>` times ten to the `point`, as a plain decimal with `places`
@@ -769,7 +769,7 @@ fn renderFixed<C: Allocator>(ctx: C, digits: Str, point: Int, places: Int): Str 
             ""
         };
         let head = if (point < 0) { 0 } else { point };
-        let rest = digits.slice(head, head + places - zeros.len());
+        let rest = digits.slice(head, head + places - zeros.length());
         let after = zeros.concat(ctx, rest).padEnd(ctx, places, '0');
         whole.concat(ctx, ".").concat(ctx, after)
     }
@@ -793,7 +793,7 @@ fn renderFixed<C: Allocator>(ctx: C, digits: Str, point: Int, places: Int): Str 
 // per scalar, and the allocating three turn each table into a `[Char]` first so
 // a probe is a list index. That is one pass over the tables per call, not per
 // scalar. `graphemeCount` is pure and cannot do it, so it reads the table as
-// text and is the slow one — `graphemes(ctx).len()` is the same answer for less
+// text and is the slow one — `graphemes(ctx).length()` is the same answer for less
 // where a context is at hand.
 
 derive Equal, Show for Normalization;
@@ -830,7 +830,7 @@ impl Str {
     ///         Stdout: host.stdout,
     ///     };
     ///     let text = "👍🏽!";
-    ///     let _ = io.println(ctx, "${text.graphemes(ctx).len()} ${text.len()}").ignore();
+    ///     let _ = io.println(ctx, "${text.graphemes(ctx).length()} ${text.length()}").ignore();
     ///     .Ok(())
     /// }
     /// ```
@@ -861,7 +861,7 @@ impl Str {
 
     /// How many extended grapheme clusters there are, without building them.
     ///
-    /// The same count `graphemes(ctx).len()` gives. It is pure, so it reads the
+    /// The same count `graphemes(ctx).length()` gives. It is pure, so it reads the
     /// break table as text rather than as a list, and that costs a walk of the
     /// table per non-ASCII scalar — use `graphemes` where you have a context.
     export fn graphemeCount(self): Int {
@@ -898,7 +898,7 @@ impl Str {
     ///     let tight = "é";
     ///     let loose = tight.normalize(ctx, .Nfd);
     ///     let back = loose.normalize(ctx, .Nfc) == tight;
-    ///     let _ = io.println(ctx, "${tight.len()} ${loose.len()} ${back}").ignore();
+    ///     let _ = io.println(ctx, "${tight.length()} ${loose.length()} ${back}").ignore();
     ///     .Ok(())
     /// }
     /// ```
@@ -955,7 +955,7 @@ fn normalized<C: Allocator>(ctx: C, cs: [Char], form: Normalization): Str {
     // three jamo runs and arithmetic.
     let classes = COMBINING_CLASS.chars(ctx);
     let pulled = decomposeFrom(ctx, cs, table, jamo, 0, list.empty<Char>());
-    let sorted = reorder(ctx, pulled, classes, pulled.len());
+    let sorted = reorder(ctx, pulled, classes, pulled.length());
     if (composing) {
         let pairs = Composition {
             keys: COMPOSE_KEYS.chars(ctx),
@@ -1157,7 +1157,7 @@ fn clustersFrom<C: Allocator>(
     state: Boundary,
     acc: [Str],
 ): [Str] {
-    if (at >= cs.len()) {
+    if (at >= cs.length()) {
         acc.push(ctx, text.slice(start, at))
     } else {
         let next = classIn(table, codePoint(cs, at));
@@ -1178,7 +1178,7 @@ fn clustersFrom<C: Allocator>(
 }
 
 fn clusterCount(text: Str, at: Int, seen: Int, state: Boundary): Int {
-    if (at >= text.len()) {
+    if (at >= text.length()) {
         seen
     } else {
         let next = classOf(charCode(text, at));
@@ -1226,14 +1226,14 @@ fn asciiClass(cp: Int): Option<Int> {
 fn classIn(table: [Char], cp: Int): Int {
     match (asciiClass(cp)) {
         .Some(known) => known,
-        .None => rangeValue(table, cp, 0, table.len() / 10),
+        .None => rangeValue(table, cp, 0, table.length() / 10),
     }
 }
 
 fn classOf(cp: Int): Int {
     match (asciiClass(cp)) {
         .Some(known) => known,
-        .None => textRangeValue(GRAPHEME_CLASS, cp, 0, GRAPHEME_CLASS.len() / 10),
+        .None => textRangeValue(GRAPHEME_CLASS, cp, 0, GRAPHEME_CLASS.length() / 10),
     }
 }
 
@@ -1241,7 +1241,7 @@ fn combiningClass(classes: [Char], c: Char): Int {
     let cp = c.toU32().toI64();
     // Nothing below U+0300 combines, which is every character a Latin text is
     // made of.
-    if (cp < 0x300) { 0 } else { rangeValue(classes, cp, 0, classes.len() / 10) }
+    if (cp < 0x300) { 0 } else { rangeValue(classes, cp, 0, classes.length() / 10) }
 }
 
 /// The two-digit value of the range `cp` falls in, or zero. An entry is a
@@ -1355,7 +1355,7 @@ fn pairIndex(keys: [Char], a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
 
 /// What `cp` maps to, or `.None` when the table says nothing about it.
 fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: Int): Option<[Char]> {
-    match (keyIndex(table.keys, cp, 0, table.keys.len() / 4)) {
+    match (keyIndex(table.keys, cp, 0, table.keys.length() / 4)) {
         .None => .None,
         .Some(found) => {
             let at = codeIn(table.offsets, found * 4);
@@ -1497,7 +1497,7 @@ fn composeFrom<C: Allocator>(
                     )
                 },
                 .None => {
-                    let next = if (cc == 0) { acc.len() } else { starter };
+                    let next = if (cc == 0) { acc.length() } else { starter };
                     composeFrom(
                         ctx,
                         cs,
@@ -1530,7 +1530,7 @@ fn primaryComposite(pairs: Composition, a: Char, b: Char): Option<Char> {
     ) {
         pairs.jamo.syllables.get(x - 0xac00 + (y - 0x11a7))
     } else {
-        match (pairIndex(pairs.keys, x, y, 0, pairs.keys.len() / 8)) {
+        match (pairIndex(pairs.keys, x, y, 0, pairs.keys.length() / 8)) {
             .None => .None,
             .Some(found) => pairs.values.get(found),
         }

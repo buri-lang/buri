@@ -34,5 +34,5 @@ test "an identifier is a map key" {
     assert.equal(table.get(uuid.zero()), .Some("nil"));
     // A key built the other way round finds the same row.
     assert.equal(table.get(assert.some(uuid.fromBytes(id.0)), .Some("ada"));
-    assert.equal(table.len(), 2);
+    assert.equal(table.length(), 2);
 }

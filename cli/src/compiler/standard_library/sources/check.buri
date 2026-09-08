@@ -112,7 +112,7 @@ export fn forAll<T>(generator: fn(Gen) => (T, Gen), property: fn(T) => Bool): ()
 ///         Allocator: alloc(),
 ///     };
 ///     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
-///         items.sort(c).len() == items.len()
+///         items.sort(c).length() == items.length()
 ///     });
 /// }
 /// ```
@@ -160,7 +160,7 @@ export fn int(low: Int, high: Int): fn(Gen) => (Int, Gen) {
 ///         Allocator: alloc(),
 ///     };
 ///     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 5), fn(_c, items) => {
-///         items.len() <= 5
+///         items.length() <= 5
 ///     });
 /// }
 /// ```

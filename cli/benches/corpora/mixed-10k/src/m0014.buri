@@ -55,7 +55,7 @@ export fn constants14_0(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_0<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants14_0();
-    label14_0(ctx, a, e).len() + b
+    label14_0(ctx, a, e).length() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
@@ -64,14 +64,14 @@ export fn digest14_1<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [8491, 4325, 991, 7096, 4573];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain14_1(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -140,12 +140,12 @@ export fn describeAll14_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric14_4(ns: [Int], ss: [Str]): Int {
-    firstOr14_4<Int>(ns, 0) + firstOr14_4<Str>(ss, "").len()
+    firstOr14_4<Int>(ns, 0) + firstOr14_4<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_4<C: Allocator>(ctx: C): Int {
-    useGeneric14_4([1, 2], ["a"]) + describeAll14_4(ctx, [1, 2]).len()
+    useGeneric14_4([1, 2], ["a"]) + describeAll14_4(ctx, [1, 2]).length()
 }
 
 derive Equal, Show for Rec14_5;
@@ -172,7 +172,7 @@ impl Rec14_5 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_5<C: Allocator>(ctx: C): Int {
     let r = Rec14_5 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -192,7 +192,7 @@ export fn constants14_6(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants14_6();
-    label14_6(ctx, a, e).len() + b
+    label14_6(ctx, a, e).length() + b
 }
 
 derive Equal, Show for State14_7;
@@ -232,7 +232,7 @@ export fn start14_7(ticks: Int): State14_7 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_7<C: Allocator>(ctx: C): Int {
     let s = start14_7(5);
-    rank14_7(s) + s.show(ctx).len()
+    rank14_7(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -297,7 +297,7 @@ export fn start14_9(ticks: Int): State14_9 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_9<C: Allocator>(ctx: C): Int {
     let s = start14_9(5);
-    rank14_9(s) + s.show(ctx).len()
+    rank14_9(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

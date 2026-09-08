@@ -52,12 +52,12 @@ export fn describeAll2_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric2_0(ns: [Int], ss: [Str]): Int {
-    firstOr2_0<Int>(ns, 0) + firstOr2_0<Str>(ss, "").len()
+    firstOr2_0<Int>(ns, 0) + firstOr2_0<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_0<C: Allocator>(ctx: C): Int {
-    useGeneric2_0([1, 2], ["a"]) + describeAll2_0(ctx, [1, 2]).len()
+    useGeneric2_0([1, 2], ["a"]) + describeAll2_0(ctx, [1, 2]).length()
 }
 
 /// A body of 5 bindings over integer arithmetic — the shape most
@@ -112,14 +112,14 @@ export fn digest2_3<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [4713, 6013, 1107, 8949, 5606, 3497];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain2_3(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -150,7 +150,7 @@ impl Rec2_4 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_4<C: Allocator>(ctx: C): Int {
     let r = Rec2_4 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -169,12 +169,12 @@ export fn describeAll2_5<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric2_5(ns: [Int], ss: [Str]): Int {
-    firstOr2_5<Int>(ns, 0) + firstOr2_5<Str>(ss, "").len()
+    firstOr2_5<Int>(ns, 0) + firstOr2_5<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_5<C: Allocator>(ctx: C): Int {
-    useGeneric2_5([1, 2], ["a"]) + describeAll2_5(ctx, [1, 2]).len()
+    useGeneric2_5([1, 2], ["a"]) + describeAll2_5(ctx, [1, 2]).length()
 }
 
 derive Equal, Show for State2_6;
@@ -210,7 +210,7 @@ export fn start2_6(ticks: Int): State2_6 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_6<C: Allocator>(ctx: C): Int {
     let s = start2_6(5);
-    rank2_6(s) + s.show(ctx).len()
+    rank2_6(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -230,7 +230,7 @@ export fn constants2_7(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_7<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants2_7();
-    label2_7(ctx, a, e).len() + b
+    label2_7(ctx, a, e).length() + b
 }
 
 derive Equal, Show for Rec2_8;
@@ -257,7 +257,7 @@ impl Rec2_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_8<C: Allocator>(ctx: C): Int {
     let r = Rec2_8 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -276,12 +276,12 @@ export fn describeAll2_9<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric2_9(ns: [Int], ss: [Str]): Int {
-    firstOr2_9<Int>(ns, 0) + firstOr2_9<Str>(ss, "").len()
+    firstOr2_9<Int>(ns, 0) + firstOr2_9<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_9<C: Allocator>(ctx: C): Int {
-    useGeneric2_9([1, 2], ["a"]) + describeAll2_9(ctx, [1, 2]).len()
+    useGeneric2_9([1, 2], ["a"]) + describeAll2_9(ctx, [1, 2]).length()
 }
 
 /// String building through interpolation, which is a template
@@ -301,7 +301,7 @@ export fn constants2_10(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_10<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants2_10();
-    label2_10(ctx, a, e).len() + b
+    label2_10(ctx, a, e).length() + b
 }
 
 /// Every declaration in this module, reachable from one call, so that

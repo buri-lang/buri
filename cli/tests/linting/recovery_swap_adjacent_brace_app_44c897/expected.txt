@@ -1,19 +1,19 @@
 error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_swap_adjacent_brace_app_44c897/main.buri:19:21
    |
-19 |         .Ok(_written=> ) .Ok(line.len()),
+19 |         .Ok(_written=> ) .Ok(line.length()),
    |                     ^^
    |
   --> lib/recovery_swap_adjacent_brace_app_44c897/main.buri:19:12
    |
-19 |         .Ok(_written=> ) .Ok(line.len()),
+19 |         .Ok(_written=> ) .Ok(line.length()),
    |            ^ opened here
    |
    = fix: write `)` here
 error: a match arm is `pattern => expression` [missing-arrow]
   --> lib/recovery_swap_adjacent_brace_app_44c897/main.buri:19:25
    |
-19 |         .Ok(_written=> ) .Ok(line.len()),
+19 |         .Ok(_written=> ) .Ok(line.length()),
    |                         ^
    |
    = fix: write `=>` here

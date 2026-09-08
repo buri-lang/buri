@@ -23,7 +23,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
     let r = Report { n: 2 };
-    let got = r.above(ctx, [1, 2, 3, 4]).len();
+    let got = r.above(ctx, [1, 2, 3, 4]).length();
     let _ = io.println(ctx, "${got}").ignore();
     .Ok(())
 }

@@ -31,7 +31,7 @@ export fn main(): Result<(), Str> {
     Tasks: host.tasks,
   };
   // A zero the compiler cannot fold: the process was given no arguments.
-  let zero = env.arguments(ctx).len();
+  let zero = env.arguments(ctx).length();
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
       let _ = io.println(c2, "${ratio(12, zero)}").ignore();

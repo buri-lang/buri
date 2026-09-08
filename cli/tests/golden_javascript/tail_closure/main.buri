@@ -38,7 +38,7 @@ export fn main(): Result<(), Str> {
     let fs = adders(ctx, 0, []);
     let gs = scalers(ctx, 7, 0, []);
     let _ = io
-        .println(ctx, "${fs.map(ctx, fn(f) => f(100)).len()} ${sumTo(100, 0)}")
+        .println(ctx, "${fs.map(ctx, fn(f) => f(100)).length()} ${sumTo(100, 0)}")
         .ignore();
     let _ = io
         .println(

@@ -285,7 +285,7 @@ test "a fresh filesystem holds nothing" {
     };
     assert.isTrue(fs.readText(ctx, path.of(ctx, "a")).isErr());
     assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
-    assert.equal(empty.snapshot().len(), 0);
+    assert.equal(empty.snapshot().length(), 0);
 }
 
 test "files contains exactly the entries it was given" {
@@ -345,8 +345,8 @@ test "each call to fs is a filesystem of its own" {
         FileSystemWrite: mine,
     };
     assert.ok(saveText(ctx, "b", "B"));
-    assert.equal(yours.snapshot().len(), 0);
-    assert.equal(mine.snapshot().len(), 2);
+    assert.equal(yours.snapshot().length(), 0);
+    assert.equal(mine.snapshot().length(), 2);
 }
 
 test "files is additive, and the later entry for a path wins" {
@@ -377,8 +377,8 @@ test "filesBytes is the byte twin, and composes with files in either order" {
 test "a builder answers a new filesystem and leaves its receiver alone" {
     let empty = fs();
     let filled = empty.files([("a", "A")]);
-    assert.equal(empty.snapshot().len(), 0);
-    assert.equal(filled.snapshot().len(), 1);
+    assert.equal(empty.snapshot().length(), 0);
+    assert.equal(filled.snapshot().length(), 1);
 }
 
 test "octets a text encoding cannot carry survive a round trip" {
@@ -482,7 +482,7 @@ test "readOnly forwards every read" {
     assert.equal(assert.ok(loadText(ctx, "a")), "A");
     assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
     assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
-    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).len() >= 1);
+    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).length() >= 1);
 }
 
 test "a write through readOnly FAILS" {
@@ -643,7 +643,7 @@ test "snapshot is files only: a directory holds no octets" {
 }
 
 test "an empty filesystem's snapshot is empty" {
-    assert.equal(fs().snapshot().len(), 0);
+    assert.equal(fs().snapshot().length(), 0);
 }
 
 /// The shape the design note is for: an environment declared, a function run,
@@ -825,7 +825,7 @@ test "a responder routes on the path and ignores the rest of the URL" {
 }
 
 test "a responder sees the request body as the octets it was sent" {
-    let server = net().respond(fn(request) => .Ok(http.status(request.body.len())));
+    let server = net().respond(fn(request) => .Ok(http.status(request.body.length())));
     let ctx = context {
         Allocator: alloc(),
         Network: server,
@@ -1107,7 +1107,7 @@ test "a fresh environment has no variables and no arguments" {
         Environment: env(),
     };
     assert.isTrue(env.get(ctx, "HOME").isNone());
-    assert.equal(env.arguments(ctx).len(), 0);
+    assert.equal(env.arguments(ctx).length(), 0);
 }
 
 test "the two builders compose in either order" {
@@ -1151,7 +1151,7 @@ test "an environment holds what it was given and nothing else" {
     assert.equal(assert.some(env.get(ctx, "LANG")), "C");
     assert.isTrue(env.get(ctx, "PATH").isNone());
     let args = env.arguments(ctx);
-    assert.equal(args.len(), 2);
+    assert.equal(args.length(), 2);
     assert.equal(args.join(ctx, " "), "--verbose x");
 }
 
@@ -1287,9 +1287,9 @@ test "reading the environment back is not a call" {
     // rather than asking it anything, so none of the three is in the log.
     let store = fs().files([("a", "A")]);
     let _ = assert.ok(store.read("a"));
-    assert.equal(store.snapshot().len(), 1);
+    assert.equal(store.snapshot().length(), 1);
     assert.equal(store.calls(), []);
-    assert.equal(store.calls().len(), 0);
+    assert.equal(store.calls().length(), 0);
 }
 
 test "a builder answers a new filesystem with a log of its own" {
@@ -1462,7 +1462,7 @@ test "a retry is two calls to the same url, and the log says so" {
     let _ = assert.ok(ping(ctx, "https://example.test/config"));
     let once = http.request(.Get, "https://example.test/config");
     assert.equal(upstream.calls(), [fetch(once), fetch(once)]);
-    assert.equal(upstream.calls().len(), 2);
+    assert.equal(upstream.calls().length(), 2);
 }
 
 // -----------------------------------------------------------------------------
@@ -2243,7 +2243,7 @@ test "anyOrder with no seed is an order the program's own bytes name" {
     // order — every task ran, once each — and that the results are the items'.
     // The failure report is where a reader learns which one it was, and
     // `tasks().seed(n)` is how they replay it.
-    assert.equal(scheduler.calls().len(), 2);
+    assert.equal(scheduler.calls().length(), 2);
 }
 
 test "a seed is the order's own number, counted from zero" {
@@ -2468,11 +2468,11 @@ fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {
             match (message) {
                 .Joined(socket) => {
                     let joined = members.push(c, socket);
-                    Stepped { state: joined, answer: joined.len() }
+                    Stepped { state: joined, answer: joined.length() }
                 },
                 .Left(socket) => {
                     let left = members.filter(c, fn(m) => m != socket);
-                    Stepped { state: left, answer: left.len() }
+                    Stepped { state: left, answer: left.length() }
                 },
                 .Publish(m) => {
                     let _pushed = members.foldCtx(
@@ -2480,7 +2480,7 @@ fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {
                         fn(inner, _sofar, socket) => socket.send(inner, m),
                         (),
                     );
-                    Stepped { state: members, answer: members.len() }
+                    Stepped { state: members, answer: members.length() }
                 },
             }
         },
@@ -2764,7 +2764,7 @@ test "the response that opened the socket reaches onOpen" {
                 c,
                 .Text(str.format(c, "status ${response.status}")),
             );
-            response.headers.len()
+            response.headers.length()
         },
         onMessage: fn(_c, _socket, headers, _message) => headers,
         onClose: fn(_c, _socket, _headers, _reason) => (),
@@ -2809,7 +2809,7 @@ test "a client's state is threaded through a hundred messages" {
     // steps that lost the state would push a hundred ones.
     assert.equal(websocket.connect(ctx, counting("ws://example/socket")), .Ok(.Normal));
     let pushed = s.sent().map(alloc(), fn(one) => one.1);
-    assert.equal(pushed.len(), 100);
+    assert.equal(pushed.length(), 100);
     assert.equal(pushed.get(0), .Some(Message.Text("1")));
     assert.equal(pushed.get(99), .Some(Message.Text("100")));
 }
@@ -2855,7 +2855,7 @@ test "an empty script opens a socket and closes it with nothing between" {
                 c,
                 "open ${response.status} ${response
                     .headers
-                    .len()} ${response.body.len()}",
+                    .length()} ${response.body.length()}",
             );
             let _pushed = socket.send(c, .Text(said));
             0

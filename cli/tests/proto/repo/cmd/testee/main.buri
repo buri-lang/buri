@@ -49,7 +49,7 @@ fn serve<C: Allocator + Stdin + Stdout>(ctx: C): Result<(), Str> {
         .None => .Ok(()),
         .Some(request) => {
             let reply = encodeConformanceResponse(ctx, answer(ctx, request));
-            let _ = io.writeBytes(ctx, littleEndian32(reply.len())).ignore();
+            let _ = io.writeBytes(ctx, littleEndian32(reply.length())).ignore();
             let _ = io.writeBytes(ctx, reply).ignore();
             serve(ctx)
         },
@@ -64,7 +64,7 @@ fn readFrame<C: Allocator + Stdin>(ctx: C): Option<[U8]> {
     match (io.readBytes(ctx, 4)) {
         .None => .None,
         .Some(header) => {
-            if (header.len() < 4) {
+            if (header.length() < 4) {
                 .None
             } else {
                 let n = readLittleEndian32(header);

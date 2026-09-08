@@ -48,7 +48,7 @@ let FULL: Int = bits.shl(1, WORD) - 1;
 
 /// The words, low bits first, and how many bits the set was created to hold.
 ///
-/// You cannot derive `capacity` from `words.len()`: a set of 33 bits and a set
+/// You cannot derive `capacity` from `words.length()`: a set of 33 bits and a set
 /// of 64 both need two words. Membership beyond it is false by definition, so
 /// the set carries the number.
 export struct BitSet {
@@ -177,7 +177,7 @@ impl BitSet {
             let target = index / WORD;
             let mask = bits.shl(1, index % WORD);
             let next = list
-                .range(ctx, 0, words.len())
+                .range(ctx, 0, words.length())
                 .map(ctx, fn(j) => {
                     let w = words.get(j).withDefault(0);
                     if (j == target) { w | mask } else { w }
@@ -195,7 +195,7 @@ impl BitSet {
             let target = index / WORD;
             let mask = bits.shl(1, index % WORD);
             let next = list
-                .range(ctx, 0, words.len())
+                .range(ctx, 0, words.length())
                 .map(ctx, fn(j) => {
                     let w = words.get(j).withDefault(0);
                     if (j == target) { w & ~mask } else { w }
@@ -215,7 +215,7 @@ impl BitSet {
             let target = index / WORD;
             let mask = bits.shl(1, index % WORD);
             let next = list
-                .range(ctx, 0, words.len())
+                .range(ctx, 0, words.length())
                 .map(ctx, fn(j) => {
                     let w = words.get(j).withDefault(0);
                     if (j == target) { w ^ mask } else { w }
@@ -233,7 +233,7 @@ impl BitSet {
         let words = self.words;
         let capacity = self.capacity;
         let next = list
-            .range(ctx, 0, words.len())
+            .range(ctx, 0, words.length())
             .map(ctx, fn(j) => ~words.get(j).withDefault(0) & liveMask(capacity, j));
         BitSet { words: next, capacity: capacity }
     }
@@ -253,7 +253,7 @@ impl BitSet {
             self
         } else {
             let next = list
-                .range(ctx, 0, words.len())
+                .range(ctx, 0, words.length())
                 .map(ctx, fn(j) => {
                     words.get(j).withDefault(0) | rangeMask(low, high, j)
                 });

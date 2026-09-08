@@ -54,7 +54,7 @@ fn compareInts(left: Int, right: Int): Order {
 }
 
 fn width<C: Allocator>(ctx: C, label: Str): Int {
-    label.len()
+    label.length()
 }
 
 fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
@@ -148,8 +148,8 @@ export fn fakeCents<C: Allocator + Stdout>(ctx: C): Cents {
     };
     let counted = ledger.entries
         + width(ctx, depth(5))
-        + spell(7).len()
-        + HEX_DIGITS.len()
+        + spell(7).length()
+        + HEX_DIGITS.length()
         + NANOS_PER_MILLISECOND;
     fromCents(counted)
 }

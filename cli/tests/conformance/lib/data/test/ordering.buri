@@ -61,7 +61,7 @@ test "by nests" {
     };
     let byNameLength = order.by(
         fn(r: Row) => r.name,
-        order.by(fn(s: Str) => s.len(), order.int),
+        order.by(fn(s: Str) => s.length(), order.int),
     );
     let xs = [Row { name: "bbb", score: 0 }, Row { name: "a", score: 0 }];
     assert.equal(names(ctx, xs.sortBy(ctx, byNameLength)), "a bbb");

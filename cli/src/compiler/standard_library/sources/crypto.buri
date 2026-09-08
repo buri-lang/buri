@@ -66,7 +66,7 @@
 //!     };
 //!     let resume = crypto.token(ctx, 32);
 //!     let _ = io
-//!         .println(ctx, "${crypto.randomBytes(ctx, 32).len()} ${resume.len()}")
+//!         .println(ctx, "${crypto.randomBytes(ctx, 32).length()} ${resume.length()}")
 //!         .ignore();
 //!     .Ok(())
 //! }
@@ -194,7 +194,7 @@ fn rotr(x: U32, n: Int): U32 {
 /// The message, padded: a one bit, then zeros, then the length in bits as a
 /// big-endian 64-bit number, to a multiple of 64 bytes.
 fn pad<C: Allocator>(ctx: C, message: [U8]): [U8] {
-    let n = message.len();
+    let n = message.length();
     let bitLength = n * 8;
     // One byte for the `0x80`, eight for the length; zeros to fill the block.
     let zeros = (55 - n % 64 + 64) % 64;
@@ -315,7 +315,7 @@ fn rounds(v: Working, w: [U32], k: [U32], i: Int): Working {
 }
 
 fn blocks<C: Allocator>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
-    if (i >= padded.len()) {
+    if (i >= padded.length()) {
         state
     } else {
         blocks(ctx, padded, compress(ctx, state, padded.slice(ctx, i, i + 64)), i + 64)
@@ -461,7 +461,7 @@ fn rotr64(x: U64, n: Int): U64 {
 /// 128-bit big-endian number whose top eight bytes are always zero — no message
 /// this can hash is 2^64 bits long.
 fn pad512<C: Allocator>(ctx: C, message: [U8]): [U8] {
-    let n = message.len();
+    let n = message.length();
     let bitLength = n * 8;
     let zeros = (111 - n % 128 + 128) % 128;
     let lengthBytes = list
@@ -574,7 +574,7 @@ fn rounds512(v: Working512, w: [U64], k: [U64], i: Int): Working512 {
 }
 
 fn blocks512<C: Allocator>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
-    if (i >= padded.len()) {
+    if (i >= padded.length()) {
         state
     } else {
         blocks512(
@@ -601,7 +601,7 @@ fn blocks512<C: Allocator>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
 ///         Stdout: host.stdout,
 ///     };
 ///     let d = crypto.sha512(ctx, bytes.toUtf8(ctx, "abc"));
-///     let _ = io.println(ctx, "${d.0.len()} ${d.toHex(ctx).slice(0, 16)}").ignore();
+///     let _ = io.println(ctx, "${d.0.length()} ${d.toHex(ctx).slice(0, 16)}").ignore();
 ///     .Ok(())
 /// }
 /// ```
@@ -715,7 +715,7 @@ fn compress1<C: Allocator>(ctx: C, state: [U32], block: [U8]): [U32] {
 }
 
 fn blocks1<C: Allocator>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
-    if (i >= padded.len()) {
+    if (i >= padded.length()) {
         state
     } else {
         blocks1(
@@ -748,8 +748,8 @@ let BLOCK: Int = 64;
 /// A key longer than the block gets hashed first; a shorter one gets padded with
 /// zeros.
 export fn hmacSha256<C: Allocator>(ctx: C, key: [U8], message: [U8]): Digest {
-    let shortened = if (key.len() > BLOCK) { sha256(ctx, key).0 } else { key };
-    let padded = shortened.concat(ctx, list.repeat(ctx, 0, BLOCK - shortened.len()));
+    let shortened = if (key.length() > BLOCK) { sha256(ctx, key).0 } else { key };
+    let padded = shortened.concat(ctx, list.repeat(ctx, 0, BLOCK - shortened.length()));
     let inner = padded.map(ctx, fn(b) => (b.toI64() ^ 54).wrapToU8());
     let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
     let innerDigest = sha256(ctx, inner.concat(ctx, message));
@@ -761,10 +761,10 @@ let BLOCK_512: Int = 128;
 /// HMAC-SHA-512, per RFC 2104. SHA-512's block is 128 bytes rather than 64, and
 /// that is the only difference from `hmacSha256`.
 export fn hmacSha512<C: Allocator>(ctx: C, key: [U8], message: [U8]): Digest {
-    let shortened = if (key.len() > BLOCK_512) { sha512(ctx, key).0 } else { key };
+    let shortened = if (key.length() > BLOCK_512) { sha512(ctx, key).0 } else { key };
     let padded = shortened.concat(
         ctx,
-        list.repeat(ctx, 0, BLOCK_512 - shortened.len()),
+        list.repeat(ctx, 0, BLOCK_512 - shortened.length()),
     );
     let inner = padded.map(ctx, fn(b) => (b.toI64() ^ 54).wrapToU8());
     let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
@@ -809,11 +809,11 @@ export fn token<C: Allocator + Entropy>(ctx: C, octets: Int): Str {
 /// No library can promise constant time under a JIT. What this promises is that
 /// the *algorithm* has no early exit.
 export fn equalsConstantTime(a: [U8], b: [U8]): Bool {
-    if (a.len() != b.len()) { false } else { accumulate(a, b, 0, 0) == 0 }
+    if (a.length() != b.length()) { false } else { accumulate(a, b, 0, 0) == 0 }
 }
 
 fn accumulate(a: [U8], b: [U8], i: Int, acc: Int): Int {
-    if (i >= a.len()) {
+    if (i >= a.length()) {
         acc
     } else {
         let x = a.get(i).withDefault(0).toI64();

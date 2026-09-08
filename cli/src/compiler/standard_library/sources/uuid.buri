@@ -142,7 +142,7 @@ export fn zero(): Uuid {
 /// about the version or the variant is checked: a `Uuid` built this way is
 /// whatever the octets said.
 export fn fromBytes(bytes: [U8]): Option<Uuid> {
-    if (bytes.len() != 16) { .None } else { .Some(Uuid(bytes)) }
+    if (bytes.length() != 16) { .None } else { .Some(Uuid(bytes)) }
 }
 
 /// Reads `550e8400-e29b-41d4-a716-446655440000`, in either case.
@@ -154,7 +154,7 @@ export fn fromBytes(bytes: [U8]): Option<Uuid> {
 /// The version and variant fields are read rather than checked, so the nil
 /// identifier and anything else already written down still parses.
 export fn parse(text: Str): Option<Uuid> {
-    if (text.len() != 36 || !hyphenated(text) || !allHexDigits(text, 0)) {
+    if (text.length() != 36 || !hyphenated(text) || !allHexDigits(text, 0)) {
         .None
     } else {
         .Some(

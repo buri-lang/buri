@@ -123,7 +123,7 @@ access must be parenthesized: `(t.0).1`.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let xs: [Int] = [1, 2, 3];
-let n = list.len(xs);          // pure: no allocation
+let n = list.length(xs);          // pure: no allocation
 let maybe = xs[0];             // Option<Int>, not Int
 ```
 

@@ -830,7 +830,7 @@ fn depth(i: Int): Int { if (i <= 0) { 0 } else { 1 + depth(i - 1) } }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let n = "ab".repeat(ctx, 5000).len();
+  let n = "ab".repeat(ctx, 5000).length();
   let _ = io.println(ctx, "depth ${depth(n)}").ignore();
   .Ok(())
 }
@@ -1132,7 +1132,7 @@ from "core/tasks" import * as tasks;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
-  let _ = io.println(ctx, "${doubled.len()}").ignore();
+  let _ = io.println(ctx, "${doubled.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -1923,7 +1923,7 @@ export fn main(): Result<(), Str> {
   let digits = "a1".chars(ctx).count(fn(c) => c.isDigit());
   let raw = bytes.toUtf8(ctx, "hi");
   let wave = math.sin(1.0);
-  let _ = io.println(ctx, "${nested.len()}${digits}${raw.len()}${wave}").ignore();
+  let _ = io.println(ctx, "${nested.length()}${digits}${raw.length()}${wave}").ignore();
   .Ok(())
 }
 "#,
@@ -2208,7 +2208,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// `str.len` is the number of Unicode **scalars** and not of bytes, with the
+/// `str.length` is the number of Unicode **scalars** and not of bytes, with the
 /// ASCII flag deciding whether that costs a mask or a scan.
 ///
 /// Both halves are exercised: an ASCII literal takes the flag's fast path and
@@ -2222,10 +2222,10 @@ fn str_len_counts_scalars_and_takes_both_paths() {
             r#"
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "ascii ${"hello".len()}").ignore();
-  let _ = io.println(ctx, "wide ${"héllo".len()}").ignore();
-  let _ = io.println(ctx, "astral ${"a😀b".len()}").ignore();
-  let _ = io.println(ctx, "empty ${"".len()}").ignore();
+  let _ = io.println(ctx, "ascii ${"hello".length()}").ignore();
+  let _ = io.println(ctx, "wide ${"héllo".length()}").ignore();
+  let _ = io.println(ctx, "astral ${"a😀b".length()}").ignore();
+  let _ = io.println(ctx, "empty ${"".length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2255,10 +2255,10 @@ export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let joined = "abc".concat(ctx, "def");
   let _ = io.println(ctx, joined).ignore();
-  let _ = io.println(ctx, "${joined.len()}").ignore();
+  let _ = io.println(ctx, "${joined.length()}").ignore();
   let mixed = "ab".concat(ctx, "😀");
   let _ = io.println(ctx, mixed).ignore();
-  let _ = io.println(ctx, "${mixed.len()}").ignore();
+  let _ = io.println(ctx, "${mixed.length()}").ignore();
   let _ = io.println(ctx, "${"".concat(ctx, "x")}").ignore();
   .Ok(())
 }
@@ -2295,7 +2295,7 @@ export fn build(s: Str, i: Int): Str {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let s = build("", 1000);
-  let _ = io.println(ctx, "${s.len()}").ignore();
+  let _ = io.println(ctx, "${s.length()}").ignore();
   let _ = io.println(ctx, s.slice(0, 4)).ignore();
   .Ok(())
 }
@@ -2369,8 +2369,8 @@ export fn main(): Result<(), Str> {
   let base = "ab".concat(ctx, "cd");
   let a = base.concat(ctx, "-one");
   let b = base.concat(ctx, "-two");
-  let _ = io.println(ctx, "${base} ${a} ${b} ${base.len()}").ignore();
-  let _ = io.println(ctx, "${b} ${b.len()}").ignore();
+  let _ = io.println(ctx, "${base} ${a} ${b} ${base.length()}").ignore();
+  let _ = io.println(ctx, "${b} ${b.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2432,7 +2432,7 @@ export fn build(xs: [Int], i: Int): [Int] {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = build([], 2000);
-  let _ = io.println(ctx, "${xs.len()}").ignore();
+  let _ = io.println(ctx, "${xs.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2460,7 +2460,7 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 
 export fn total(xs: [Int], i: Int, acc: Int): Int {
-  if (i == xs.len()) { acc } else {
+  if (i == xs.length()) { acc } else {
     match (xs.get(i)) {
       .Some(v) => total(xs, i + 1, acc + v),
       .None => acc,
@@ -2473,9 +2473,9 @@ export fn main(): Result<(), Str> {
   let xs = [1, 2, 3].push(host.alloc, 4);
   let a = xs.push(host.alloc, 100);
   let b = xs.push(host.alloc, 200);
-  let _ = io.println(ctx, "${xs.len()} ${total(xs, 0, 0)}").ignore();
-  let _ = io.println(ctx, "${a.len()} ${total(a, 0, 0)}").ignore();
-  let _ = io.println(ctx, "${b.len()} ${total(b, 0, 0)}").ignore();
+  let _ = io.println(ctx, "${xs.length()} ${total(xs, 0, 0)}").ignore();
+  let _ = io.println(ctx, "${a.length()} ${total(a, 0, 0)}").ignore();
+  let _ = io.println(ctx, "${b.length()} ${total(b, 0, 0)}").ignore();
   .Ok(())
 }
 "#,
@@ -2508,9 +2508,9 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, "starts ${"abc".startsWith("ab")} ${"abc".endsWith("bc")}").ignore();
   let _ = io.println(ctx, "contains ${"abc".contains("b")} ${"abc".contains("z")}").ignore();
   let parts = "a,b,c".split(ctx, ",");
-  let _ = io.println(ctx, "split ${parts.len()} ${parts.join(ctx, "|")}").ignore();
+  let _ = io.println(ctx, "split ${parts.length()} ${parts.join(ctx, "|")}").ignore();
   let ls = "one\ntwo".lines(ctx);
-  let _ = io.println(ctx, "lines ${ls.len()} ${ls.join(ctx, "/")}").ignore();
+  let _ = io.println(ctx, "lines ${ls.length()} ${ls.join(ctx, "/")}").ignore();
   .Ok(())
 }
 "#,
@@ -2588,22 +2588,22 @@ from "core/list" import * as list;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 4);
-  let _ = io.println(ctx, "range ${xs.len()}").ignore();
+  let _ = io.println(ctx, "range ${xs.length()}").ignore();
   let _ = match (xs.get(2)) { .Some(v) => io.println(ctx, "get ${v}").ignore(), .None => io.println(ctx, "get none").ignore() };
   let _ = match (xs.get(9)) { .Some(v) => io.println(ctx, "get ${v}").ignore(), .None => io.println(ctx, "get none").ignore() };
   let more = xs.push(ctx, 9);
   let _ = match (more.get(4)) { .Some(v) => io.println(ctx, "push ${v}").ignore(), .None => io.println(ctx, "push none").ignore() };
   let both = xs.concat(ctx, more);
-  let _ = io.println(ctx, "concat ${both.len()}").ignore();
+  let _ = io.println(ctx, "concat ${both.length()}").ignore();
   let back = xs.reverse(ctx);
   let _ = match (back.get(0)) { .Some(v) => io.println(ctx, "rev ${v}").ignore(), .None => io.println(ctx, "rev none").ignore() };
   let mid = xs.slice(ctx, 1, 3);
-  let _ = io.println(ctx, "slice ${mid.len()}").ignore();
+  let _ = io.println(ctx, "slice ${mid.length()}").ignore();
   let rep = list.repeat(ctx, 7, 3);
-  let _ = io.println(ctx, "repeat ${rep.len()}").ignore();
+  let _ = io.println(ctx, "repeat ${rep.length()}").ignore();
   let _ = match (rep.get(2)) { .Some(v) => io.println(ctx, "rep ${v}").ignore(), .None => io.println(ctx, "rep none").ignore() };
   let none: [Int] = list.empty<Int>();
-  let _ = io.println(ctx, "empty ${none.len()}").ignore();
+  let _ = io.println(ctx, "empty ${none.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2646,7 +2646,7 @@ export fn main(): Result<(), Str> {
     base.push(ctx, "gamma".concat(ctx, "!")).reverse(ctx)
   };
   let _ = io.println(ctx, kept.join(ctx, ",")).ignore();
-  let _ = io.println(ctx, "${kept.len()}").ignore();
+  let _ = io.println(ctx, "${kept.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2782,11 +2782,11 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, "pad [${"abc".padStart(ctx, 5, '.')}][${"abc".padEnd(ctx, 5, '.')}]").ignore();
   let _ = io.println(ctx, "nopad [${"abc".padStart(ctx, 2, '.')}]").ignore();
   let cs = "abc".chars(ctx);
-  let _ = io.println(ctx, "chars ${cs.len()}").ignore();
+  let _ = io.println(ctx, "chars ${cs.length()}").ignore();
   let _ = io.println(ctx, "from ${str.fromChars(ctx, cs)}").ignore();
   let _ = io.println(ctx, "fromInt ${str.fromInt(ctx, -12)} fromFloat ${str.fromFloat(ctx, 1.25)}").ignore();
   let any = "a1b2c".splitAny(ctx, "12");
-  let _ = io.println(ctx, "splitAny ${any.len()} ${any.join(ctx, "-")}").ignore();
+  let _ = io.println(ctx, "splitAny ${any.length()} ${any.join(ctx, "-")}").ignore();
   let _ = io.println(ctx, "hashEq ${"ab".hash() == "ab".hash()} ${"ab".hash() == "ba".hash()}").ignore();
   .Ok(())
 }
@@ -2868,11 +2868,11 @@ from "core/list" import * as list;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 4);
-  let _ = io.println(ctx, "slice ${xs.slice(ctx, 2, 2).len()}").ignore();
-  let _ = io.println(ctx, "range ${list.range(ctx, 5, 1).len()}").ignore();
-  let _ = io.println(ctx, "repeat ${list.repeat(ctx, 1, 0).len()}").ignore();
-  let _ = io.println(ctx, "reverse ${list.range(ctx, 0, 0).reverse(ctx).len()}").ignore();
-  let _ = io.println(ctx, "chars ${"".chars(ctx).len()}").ignore();
+  let _ = io.println(ctx, "slice ${xs.slice(ctx, 2, 2).length()}").ignore();
+  let _ = io.println(ctx, "range ${list.range(ctx, 5, 1).length()}").ignore();
+  let _ = io.println(ctx, "repeat ${list.repeat(ctx, 1, 0).length()}").ignore();
+  let _ = io.println(ctx, "reverse ${list.range(ctx, 0, 0).reverse(ctx).length()}").ignore();
+  let _ = io.println(ctx, "chars ${"".chars(ctx).length()}").ignore();
   let _ = io.println(ctx, "trim [${"   ".trim()}]").ignore();
   let _ = io.println(ctx, "repeat0 [${"ab".repeat(ctx, 0)}]").ignore();
   let _ = io.println(ctx, "slice0 [${"abc".slice(2, 2)}]").ignore();
@@ -3099,7 +3099,7 @@ export fn main(): Result<(), Str> {{
   };
   let cell = Cell.Pair("p".concat(ctx, "!"), "q".concat(ctx, "!"));
   let held = match (cell) { .Empty => 0, .Text(_t) => 1, .Pair(_a, _b) => 2 };
-  let n = row.tags.len() + held;"#,
+  let n = row.tags.length() + held;"#,
     );
     let without = source(r#"  let n = 2 + 2;"#);
     let a = build_and_run_with("drop-with", &with, Some(LIVE_PROBE));
@@ -3195,9 +3195,9 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, "rep ${"xy".repeat(ctx, 3)}").ignore();
   let _ = io.println(ctx, "rep2 ${"a-b".replace(ctx, "-", "+")}").ignore();
   let parts = "1,2,3".split(ctx, ",");
-  let _ = io.println(ctx, "split ${parts.len()} ${parts.join(ctx, "|")}").ignore();
+  let _ = io.println(ctx, "split ${parts.length()} ${parts.join(ctx, "|")}").ignore();
   let xs = list.range(ctx, 0, 3).push(ctx, 9);
-  let _ = io.println(ctx, "list ${xs.len()}").ignore();
+  let _ = io.println(ctx, "list ${xs.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -3580,7 +3580,7 @@ fn go(n: Int, acc: Int): Int {{
     let p = (h, h);
     let s = str.format(host.alloc, "[${{p.0}}][${{p.1}}]");
     let _ = io.println(host.stdout, "${{n}}").ignore();
-    go(n - 1, acc + s.len())
+    go(n - 1, acc + s.length())
   }}
 }}
 
@@ -3646,12 +3646,12 @@ from "core/list" import * as list;
 struct Wrapper {{ octets: [U8] }}
 
 fn wrapped(held: Option<Wrapper>): Int {{
-  held.withDefault(Wrapper {{ octets: list.empty<U8>() }}).octets.len()
+  held.withDefault(Wrapper {{ octets: list.empty<U8>() }}).octets.length()
 }}
 
 fn go(n: Int, acc: Int): Int {{
   if (n <= 0) {{ acc }} else {{
-    go(n - 1, acc + wrapped(.None) + list.empty<Int>().len())
+    go(n - 1, acc + wrapped(.None) + list.empty<Int>().length())
   }}
 }}
 
@@ -4072,7 +4072,7 @@ test "a memo is lazy, caches, and recomputes when its source changes" {
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
-    assert.equal(log.noted().len(), 0);
+    assert.equal(log.noted().length(), 0);
     let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
     assert.equal(log.noted(), [4]);
     let _ = n.set(ctx, 5);

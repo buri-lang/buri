@@ -11,17 +11,17 @@ from "//lib/two/testing" import { Fixture as Reading };
 test "the writing fixture allocates" {
     let ctx = Writing();
 
-    assert.equal(hold(ctx, 1).len(), 1);
+    assert.equal(hold(ctx, 1).length(), 1);
 }
 
 test "the reading fixture allocates" {
     let ctx = Reading();
 
-    assert.equal(keep(ctx, 2).len(), 1);
+    assert.equal(keep(ctx, 2).length(), 1);
 }
 
 test "the reading fixture allocates again" {
     let ctx = Reading();
 
-    assert.equal(keep(ctx, 3).len(), 1);
+    assert.equal(keep(ctx, 3).length(), 1);
 }

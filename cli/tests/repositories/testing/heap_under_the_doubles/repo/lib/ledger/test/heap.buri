@@ -50,6 +50,6 @@ test "the arguments folded into an accumulator" {
         Environment: env().withArguments(["one", "two", "three"]),
     };
     let end = folded(ctx, environment.arguments(ctx), 0, empty());
-    assert.equal(end.words.len(), 3);
+    assert.equal(end.words.length(), 3);
     assert.equal(end.last, "three");
 }

@@ -1,5 +1,5 @@
 //! `core/str`, natively: the whole of the surface `str.buri` declares without a
-//! body, minus the ones the backends open-code — which is now `str.len` and
+//! body, minus the ones the backends open-code — which is now `str.length` and
 //! `str.format` alone, because [`buri_rt_str_concat`] is here for the
 //! copy-and-patch backend to call (MEMORY.md §5.3).
 //!
@@ -8,7 +8,7 @@
 //! idea of what a string operation should do. Three consequences worth stating
 //! before the code, because each one would otherwise look like a mistake:
 //!
-//! * **Indices are Unicode scalars, offsets are bytes.** `str.len`, `charAt`,
+//! * **Indices are Unicode scalars, offsets are bytes.** `str.length`, `charAt`,
 //!   `slice`, `indexOf` and the two `pad`s all speak in scalar counts
 //!   (`str.buri:18`), while a `BuriStr` is a byte range. Every entry below that
 //!   takes an index converts, and the ASCII flag (VALUE-MODEL.md §3.1) is what
@@ -118,7 +118,7 @@ unsafe fn slice_of(base: *mut u8, ptr: *const u8, len: u64, from: usize, to: usi
 /// end.
 ///
 /// O(1) when the ASCII flag is set, and a walk over the non-continuation bytes
-/// otherwise — the same fast path `str.len` takes.
+/// otherwise — the same fast path `str.length` takes.
 fn byte_offset(bytes: &[u8], ascii: bool, index: usize) -> usize {
     if ascii {
         return index.min(bytes.len());
@@ -473,7 +473,7 @@ pub unsafe extern "C" fn buri_rt_str_split_once(
 /// **Unicode scalar value order**, which for a valid string is exactly UTF-8
 /// byte order — so this is a `memcmp` and a length tie-break, with nothing
 /// decoded. It is what `str::cmp` answers in Rust, `<` answers in Go and `<`
-/// answers in Python, and it is what `str.len()` and `charAt` already count in.
+/// answers in Python, and it is what `str.length()` and `charAt` already count in.
 ///
 /// It used to be UTF-16 code-unit order, transcoding on the fly so that the
 /// answer would match JavaScript's `<`. That parity was real and the order was

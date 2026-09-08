@@ -4,5 +4,5 @@ from "core/effect" import { Allocator };
 /// asks for. `lib.buri` does not publish this name, so every call to it is in
 /// this library and the quick fix can see all of them.
 export fn width<C: Allocator>(ctx: C, label: Str): Int {
-    label.len()
+    label.length()
 }

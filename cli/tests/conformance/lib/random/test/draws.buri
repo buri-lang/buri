@@ -34,7 +34,7 @@ test "a shuffle is a permutation and nothing else" {
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8];
     let (mixed, _) = random.seeded(11).nextShuffle(ctx, items);
-    assert.equal(mixed.len(), items.len());
+    assert.equal(mixed.length(), items.length());
     assert.equal(mixed.sort(ctx), items);
 }
 
@@ -137,8 +137,8 @@ test "nextSample draws without replacement" {
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8];
     let (drawn, _) = random.seeded(9).nextSample(ctx, items, 3);
-    assert.equal(drawn.len(), 3);
-    assert.equal(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
+    assert.equal(drawn.length(), 3);
+    assert.equal(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).length(), 3);
     assert.isEmpty(drawn.filter(ctx, fn(v) => !items.contains(v)));
 }
 
@@ -175,7 +175,7 @@ test "shuffle through a context is a permutation too" {
     };
     let items = [1, 2, 3, 4, 5, 6];
     let mixed = random.shuffle(ctx, items);
-    assert.equal(mixed.len(), items.len());
+    assert.equal(mixed.length(), items.length());
     assert.equal(mixed.sort(ctx), items);
 }
 
@@ -197,8 +197,8 @@ test "sample through a context draws without replacement" {
     };
     let items = [1, 2, 3, 4, 5, 6, 7];
     let drawn = random.sample(ctx, items, 3);
-    assert.equal(drawn.len(), 3);
-    assert.equal(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
+    assert.equal(drawn.length(), 3);
+    assert.equal(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).length(), 3);
     assert.isEmpty(random.sample(ctx, items, -1));
 }
 
@@ -241,7 +241,7 @@ test "shuffle through a context holds at an empty list and at one item" {
     // Two items come back as the two items, in one order or the other.
     let pair = random.shuffle(ctx, [1, 2]);
     assert.equal(pair.sort(ctx), [1, 2]);
-    assert.equal(pair.len(), 2);
+    assert.equal(pair.length(), 2);
 }
 
 test "pick through a context answers the only item there is" {

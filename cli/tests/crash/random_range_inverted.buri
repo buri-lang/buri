@@ -14,7 +14,7 @@ export fn main(): Result<(), Str> {
     Environment: host.env,
     Random: host.rand,
   };
-  let n = env.arguments(ctx).len();
+  let n = env.arguments(ctx).length();
   let _ = io.println(ctx, "${random.int(ctx, n + 10, n)}").ignore();
   .Ok(())
 }

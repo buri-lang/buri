@@ -59,7 +59,7 @@
 //!     };
 //!     let out = ast.print(ctx, tree);
 //!     let _ = io.print(ctx, out.text).ignore();
-//!     let _ = io.println(ctx, "${out.anchors.len()} anchor(s)").ignore();
+//!     let _ = io.println(ctx, "${out.anchors.length()} anchor(s)").ignore();
 //!     .Ok(())
 //! }
 //! ```
@@ -653,10 +653,10 @@ fn raw<C: Allocator>(ctx: C, out: Out, text: Str): Out {
     Out { ..out, pieces: out.pieces.push(ctx, text), at: out.at + byteLen(ctx, text) }
 }
 
-/// The UTF-8 length of `text`. An anchor is a byte range and `Str.len` counts
+/// The UTF-8 length of `text`. An anchor is a byte range and `Str.length` counts
 /// scalar values.
 fn byteLen<C: Allocator>(ctx: C, text: Str): Int {
-    bytes.toUtf8(ctx, text).len()
+    bytes.toUtf8(ctx, text).length()
 }
 
 fn emit<C: Allocator>(ctx: C, out: Out, text: Str): Out {
@@ -751,7 +751,7 @@ fn printModule<C: Allocator>(ctx: C, out: Out, m: Module): Out {
 fn leadingImports(items: [Item]): Int {
     match (items.findIndex(fn(it) => !isImport(it))) {
         .Some(i) => i,
-        .None => items.len(),
+        .None => items.length(),
     }
 }
 
@@ -832,7 +832,7 @@ fn specText<C: Allocator>(ctx: C, spec: ImportSpec): Str {
 /// declaration it is about — which is where the formatter moves it.
 fn printDecls<C: Allocator>(ctx: C, out: Out, items: [Item]): Out {
     let attached = items.map(ctx, fn(it) => attachment(items, it));
-    let indexed = list.range(ctx, 0, items.len());
+    let indexed = list.range(ctx, 0, items.length());
     indexed.foldCtx(
         ctx,
         fn(c, acc, i) => {
@@ -1543,7 +1543,7 @@ fn bracketed<C: Allocator>(ctx: C, out: Out, open: Str, xs: [Expr], close: Str):
 /// An argument list. The last argument **hugs** when it has a shape of its own
 /// to spill into and every argument before it stays on the head line.
 fn callExpr<C: Allocator>(ctx: C, out: Out, args: [Expr]): Out {
-    let last = args.len() - 1;
+    let last = args.length() - 1;
     let earlier = args.take(ctx, number.max(last, 0));
     if (args.isEmpty() || !args.any(fn(e) => forces(e))) {
         emit(ctx, exprList(ctx, emit(ctx, out, "("), args), ")")
@@ -1920,7 +1920,7 @@ fn initForces(f: Init): Bool {
 /// A block of two or more lines has a break in it, and so does an empty one —
 /// its braces go on lines of their own.
 fn blockForces(b: Block): Bool {
-    b.stmts.len() + b.tail.len() != 1
+    b.stmts.length() + b.tail.length() != 1
         || b.stmts.any(fn(s) => stmtForces(s))
         || b.tail.any(fn(e) => forces(e))
 }
@@ -1942,7 +1942,7 @@ fn ifForces(cond: [Expr], then: [Block], otherwise: [Expr]): Bool {
 /// An `if` branch is laid out by the chain rather than as a block expression,
 /// so an empty one does not break the chain the way an empty block does.
 fn branchForces(b: Block): Bool {
-    b.stmts.len() + b.tail.len() > 1
+    b.stmts.length() + b.tail.length() > 1
         || b.stmts.any(fn(s) => stmtForces(s))
         || b.tail.any(fn(e) => forces(e))
 }
@@ -2269,7 +2269,7 @@ export fn tokenize<C: Allocator>(ctx: C, source: Str): [Token] {
 }
 
 fn lexRun<C: Allocator>(ctx: C, lx: Lex): Lex {
-    if (lx.index >= lx.chars.len()) { lx } else { lexRun(ctx, lexStep(ctx, lx)) }
+    if (lx.index >= lx.chars.length()) { lx } else { lexRun(ctx, lexStep(ctx, lx)) }
 }
 
 fn lexStep<C: Allocator>(ctx: C, lx: Lex): Lex {
@@ -2324,7 +2324,7 @@ fn skipChars(lx: Lex, count: Int): Lex {
 }
 
 fn atEnd(lx: Lex): Bool {
-    lx.index >= lx.chars.len()
+    lx.index >= lx.chars.length()
 }
 
 fn pushToken<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind, opened: Lex): Lex {
@@ -2602,7 +2602,7 @@ fn scanText<C: Allocator>(ctx: C, lx: Lex): Lex {
 fn scanCloser<C: Allocator>(ctx: C, lx: Lex): Lex {
     match (lx.modes.last()) {
         .Some(mode) => {
-            let outer = Lex { ..lx, modes: lx.modes.take(ctx, lx.modes.len() - 1) };
+            let outer = Lex { ..lx, modes: lx.modes.take(ctx, lx.modes.length() - 1) };
             if (mode == HOLE) {
                 let (end, hole) = scanStrBody(nextChar(lx));
                 if (hole) {
@@ -2794,7 +2794,7 @@ struct Prep {
 ///             let _ = io.print(ctx, ast.print(ctx, tree).text).ignore();
 ///             .Ok(())
 ///         },
-///         .Err(errors) => .Err(errors.len().show(ctx)),
+///         .Err(errors) => .Err(errors.length().show(ctx)),
 ///     }
 /// }
 /// ```
@@ -2872,8 +2872,8 @@ fn prepare<C: Allocator>(ctx: C, raw: [Token]): Prep {
 /// A doc line without its marker: one leading space taken off, the trailing
 /// whitespace trimmed. What `print` writes back.
 fn docBody(text: Str): Str {
-    let rest = text.slice(3, text.len());
-    let body = if (rest.startsWith(" ")) { rest.slice(1, rest.len()) } else { rest };
+    let rest = text.slice(3, text.length());
+    let body = if (rest.startsWith(" ")) { rest.slice(1, rest.length()) } else { rest };
     body.trimEnd()
 }
 
@@ -2899,7 +2899,7 @@ fn endToken(p: P): Token {
 }
 
 fn isEnd(p: P): Bool {
-    p.index >= p.tokens.len()
+    p.index >= p.tokens.length()
 }
 
 fn advance(p: P): P {
@@ -4421,7 +4421,7 @@ fn parseParenExpr<C: Allocator>(ctx: C, p: P, start: Span): (P, Expr) {
 fn parseTemplate<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
     let head = tokenAt(p, 0).text;
-    let opening = [Part.Text(unescape(ctx, head.slice(1, head.len() - 2)))];
+    let opening = [Part.Text(unescape(ctx, head.slice(1, head.length() - 2)))];
     let (afterParts, parts) = templateParts(ctx, advance(p), opening);
     (afterParts, Expr { kind: .Template(parts), origin: originFrom(afterParts, start) })
 }
@@ -4439,7 +4439,7 @@ fn templateParts<C: Allocator>(ctx: C, p: P, acc: [Part]): (P, [Part]) {
                 advance(afterHole),
                 withHole.push(
                     ctx,
-                    .Text(unescape(ctx, t.text.slice(1, t.text.len() - 2))),
+                    .Text(unescape(ctx, t.text.slice(1, t.text.length() - 2))),
                 ),
             )
         } else if (t.kind == TokenKind.TemplateTail) {
@@ -4447,7 +4447,7 @@ fn templateParts<C: Allocator>(ctx: C, p: P, acc: [Part]): (P, [Part]) {
                 advance(afterHole),
                 withHole.push(
                     ctx,
-                    .Text(unescape(ctx, t.text.slice(1, t.text.len() - 1))),
+                    .Text(unescape(ctx, t.text.slice(1, t.text.length() - 1))),
                 ),
             )
         } else {
@@ -4793,7 +4793,7 @@ fn intOf<C: Allocator>(ctx: C, text: Str): Int {
     } else {
         10
     };
-    let digits = if (radix == 10) { bare } else { bare.slice(2, bare.len()) };
+    let digits = if (radix == 10) { bare } else { bare.slice(2, bare.length()) };
     match (digits.toRadix(radix)) {
         .Some(n) => n,
         .None => 0,
@@ -4809,11 +4809,11 @@ fn floatOf<C: Allocator>(ctx: C, text: Str): Float {
 
 /// The characters between a string literal's quotes, unescaped.
 fn literalText<C: Allocator>(ctx: C, raw: Str): Str {
-    unescape(ctx, raw.slice(1, raw.len() - 1))
+    unescape(ctx, raw.slice(1, raw.length() - 1))
 }
 
 fn charLiteral<C: Allocator>(ctx: C, raw: Str): Char {
-    let body = unescape(ctx, raw.slice(1, raw.len() - 1));
+    let body = unescape(ctx, raw.slice(1, raw.length() - 1));
     match (body.charAt(0)) {
         .Some(c) => c,
         .None => ' ',
@@ -4825,7 +4825,7 @@ fn unescape<C: Allocator>(ctx: C, body: Str): Str {
 }
 
 fn unescapeChars<C: Allocator>(ctx: C, cs: [Char], index: Int, acc: [Char]): [Char] {
-    if (index >= cs.len()) {
+    if (index >= cs.length()) {
         acc
     } else {
         let c = charAtOr(cs, index);
@@ -4866,7 +4866,7 @@ fn escapeOf(c: Char): Char {
 }
 
 fn findCurly(cs: [Char], index: Int): Int {
-    if (index >= cs.len() || charAtOr(cs, index) == '}') {
+    if (index >= cs.length() || charAtOr(cs, index) == '}') {
         index
     } else {
         findCurly(cs, index + 1)

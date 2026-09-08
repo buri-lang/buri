@@ -79,7 +79,7 @@ test "an explicit type argument at a second type" {
 
 test "an explicit type argument on a stdlib generic" {
     let empty: [Int] = list.empty<Int>();
-    assert.equal(empty.len(), 0);
+    assert.equal(empty.length(), 0);
     assert.equal(empty, []);
 }
 

@@ -1,7 +1,7 @@
 error: `(I64, I64)` has no method `len` [no-such-method]
  --> cmd/method_call_on_tuple/main.buri:7:5
   |
-7 |   t.len()
+7 |   t.length()
   |     ^^^
   |
   = tuples, function types, and `Template` have no defining module, so they have no methods

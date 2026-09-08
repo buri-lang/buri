@@ -341,7 +341,7 @@ test "a payload a match arm skips under a field it keeps is given back" {
         Allocator: alloc(),
     };
     let n = match (holder(ctx, "service")) {
-        Holder { label, token: .Word(_) } => label.len(),
+        Holder { label, token: .Word(_) } => label.length(),
         Holder { label: _, token: .End } => 0,
     };
     assert.equal(n, 7);

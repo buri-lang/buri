@@ -11,7 +11,7 @@ from "core/time" import * as time;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
   // The program's own argument count, so nothing here folds to a constant.
-  let zero = env.arguments(ctx).len();
+  let zero = env.arguments(ctx).length();
   let split = time.seconds(10).divide(zero);
   let _ = io.println(ctx, "${split.millis()}").ignore();
   .Ok(())

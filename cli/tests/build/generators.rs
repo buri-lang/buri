@@ -312,7 +312,7 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
          from \"//lib/wire\" import { echoed, size };\n\n\
          export fn main(): Result<(), Str> {\n  \
          let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
-         let _ = io.println(ctx, \"size=${size} echoed=${echoed.len()}\").ignore();\n  \
+         let _ = io.println(ctx, \"size=${size} echoed=${echoed.length()}\").ignore();\n  \
          .Ok(())\n\
          }\n",
     );
@@ -343,7 +343,7 @@ export fn main(): Result<(), Str> {
   let _ = io.eprintln(ctx, "e".repeat(ctx, 100000)).ignore();
   let source = str.format(
     ctx,
-    "export let size: Int = ${text.len()};\nexport let echoed: Str = \"${text}\";\n",
+    "export let size: Int = ${text.length()};\nexport let echoed: Str = \"${text}\";\n",
   );
   let unit: Json = .Object([
     ("name", .Str("units")),

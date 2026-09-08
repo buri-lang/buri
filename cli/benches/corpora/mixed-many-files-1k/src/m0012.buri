@@ -75,7 +75,7 @@ export fn start12_0(ticks: Int): State12_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe12_0<C: Allocator>(ctx: C): Int {
     let s = start12_0(5);
-    rank12_0(s) + s.show(ctx).len()
+    rank12_0(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

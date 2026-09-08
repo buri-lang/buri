@@ -35,7 +35,7 @@
 //!
 //! A program that wants those rows counted charges them itself, which is what
 //! `strBytes` and its neighbours below are for:
-//! `ctx.allocate(alloc.listBytes(xs.len(), 8))` is exactly the model's
+//! `ctx.allocate(alloc.listBytes(xs.length(), 8))` is exactly the model's
 //! `16 + n * stride(T)`.
 //!
 //! ## The counters live outside the values
@@ -106,7 +106,7 @@ from "core/process" import { Output, Spawn };
 /// an effect by handing the context to a function, never by calling a method on
 /// it (SPEC 10.2). Everything else in this module is either an allocator to bind
 /// or arithmetic over the cost model, and the two meet here:
-/// `alloc.allocate(ctx, alloc.listBytes(xs.len(), 8))` is the model's
+/// `alloc.allocate(ctx, alloc.listBytes(xs.length(), 8))` is the model's
 /// `16 + n * stride(T)`, charged.
 export fn allocate<C: Allocator>(ctx: C, bytes: Int): Region {
     ctx.allocate(bytes)
@@ -127,7 +127,7 @@ export let VIEW_BYTES: Int = 0;
 
 /// The charge for a `Str` of `n` UTF-8 bytes: `16 + n`.
 ///
-/// UTF-8 bytes, not scalars — `"é".len()` is 1 and its charge is 18.
+/// UTF-8 bytes, not scalars — `"é".length()` is 1 and its charge is 18.
 export fn strBytes(n: Int): Int {
     HEADER_BYTES + n
 }

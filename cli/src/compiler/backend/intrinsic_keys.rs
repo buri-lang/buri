@@ -526,7 +526,7 @@ mod tests {
             "list.find",
             "list.findIndex",
             "list.count",
-            "list.len",
+            "list.length",
             "str.split",
         ] {
             assert!(!ctx_step_key(key), "{key} is not");

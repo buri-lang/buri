@@ -234,7 +234,7 @@ impl Fuse<'_> {
     /// back in reach of the fusions above, which is where
     /// `range|map|filter|len` gets its traversal deleted.
     fn len_of_filter(&mut self, e: &mut Expr) -> bool {
-        let Some(("list.len", _, args)) = self.key(e) else { return false };
+        let Some(("list.length", _, args)) = self.key(e) else { return false };
         if args.len() != 1 {
             return false;
         }
@@ -782,7 +782,7 @@ mod tests {
             list(),
         );
         let len = call(2, vec![filter], Ty::Unit);
-        let mut p = program(&["list.filter", "list.len"], len);
+        let mut p = program(&["list.filter", "list.length"], len);
         let before = p.funcs.len();
         run(&mut p);
 

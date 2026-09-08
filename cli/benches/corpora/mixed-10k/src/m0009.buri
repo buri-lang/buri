@@ -55,7 +55,7 @@ export fn constants9_0(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe9_0<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants9_0();
-    label9_0(ctx, a, e).len() + b
+    label9_0(ctx, a, e).length() + b
 }
 
 /// String building through interpolation, which is a template
@@ -75,7 +75,7 @@ export fn constants9_1(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe9_1<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants9_1();
-    label9_1(ctx, a, e).len() + b
+    label9_1(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -113,14 +113,14 @@ export fn digest9_3<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [9536, 8707, 7480, 1266, 5100, 4049, 4910];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain9_3(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -159,7 +159,7 @@ export fn start9_4(ticks: Int): State9_4 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe9_4<C: Allocator>(ctx: C): Int {
     let s = start9_4(5);
-    rank9_4(s) + s.show(ctx).len()
+    rank9_4(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -222,7 +222,7 @@ export fn start9_6(ticks: Int): State9_6 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe9_6<C: Allocator>(ctx: C): Int {
     let s = start9_6(5);
-    rank9_6(s) + s.show(ctx).len()
+    rank9_6(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -260,14 +260,14 @@ export fn digest9_8<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [625, 2486, 3681, 9832, 2055, 556, 8130, 4758, 2889];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain9_8(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -314,7 +314,7 @@ export fn start9_9(ticks: Int): State9_9 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe9_9<C: Allocator>(ctx: C): Int {
     let s = start9_9(5);
-    rank9_9(s) + s.show(ctx).len()
+    rank9_9(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

@@ -236,7 +236,7 @@ test "distinct agrees with uniqueBy over two thousand elements" {
     let byHash = set.distinct(ctx, xs);
     let byComparison = xs.uniqueBy(ctx, fn(a: Int, b: Int) => order.int(a, b));
     assert.equal(byHash, byComparison);
-    assert.equal(byHash.len(), 100);
+    assert.equal(byHash.length(), 100);
     // And the ordered one is the third way to the same list.
     assert.equal(orderedset.distinct(ctx, xs), byComparison);
 }
@@ -253,7 +253,7 @@ test "distinctBy agrees with uniqueBy over a key" {
         order.by(key, fn(a: Int, b: Int) => order.int(a, b)),
     );
     assert.equal(byHash, byComparison);
-    assert.equal(byHash.len(), 137);
+    assert.equal(byHash.length(), 137);
     assert.equal(orderedset.distinctBy(ctx, xs, key), byComparison);
 }
 
@@ -305,7 +305,7 @@ test "filter on a set of one, on the empty set, and over a large one" {
     assert.isTrue(one.filter(ctx, fn(_x) => false).isEmpty());
     assert.isTrue(set.empty<Int>().filter(ctx, fn(_x) => true).isEmpty());
     let big = set.of(ctx, list.range(ctx, 0, 300));
-    assert.equal(big.filter(ctx, fn(x) => x % 3 == 0).len(), 100);
+    assert.equal(big.filter(ctx, fn(x) => x % 3 == 0).length(), 100);
     // The ordered one keeps its order through a filter.
     let ordered = orderedset.of(ctx, list.range(ctx, 0, 300));
     assert.equal(ordered.filter(ctx, fn(x) => x % 100 == 0).toList(ctx), [0, 100, 200]);
@@ -351,7 +351,7 @@ test "symmetricDifference over singletons and over three hundred members" {
     let low = set.of(ctx, list.range(ctx, 0, 300));
     let high = set.of(ctx, list.range(ctx, 150, 450));
     let only = low.symmetricDifference(ctx, high);
-    assert.equal(only.len(), 300);
+    assert.equal(only.length(), 300);
     assert.isTrue(only.has(0));
     assert.isFalse(only.has(200));
     assert.isTrue(only.has(449));
@@ -365,9 +365,9 @@ test "distinct and distinctBy over a list of one and a list of the same thing" {
         Allocator: alloc(),
     };
     assert.equal(set.distinct(ctx, ["only"]), ["only"]);
-    assert.equal(set.distinctBy(ctx, ["only"], fn(w: Str) => w.len()), ["only"]);
+    assert.equal(set.distinctBy(ctx, ["only"], fn(w: Str) => w.length()), ["only"]);
     assert.equal(orderedset.distinct(ctx, ["only"]), ["only"]);
-    assert.equal(orderedset.distinctBy(ctx, ["only"], fn(w: Str) => w.len()), ["only"]);
+    assert.equal(orderedset.distinctBy(ctx, ["only"], fn(w: Str) => w.length()), ["only"]);
     // A thousand copies of one element is one element, through all four.
     let same = list.repeat(ctx, 7, 1000);
     assert.equal(set.distinct(ctx, same), [7]);

@@ -81,12 +81,12 @@ export fn describeAll18_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric18_1(ns: [Int], ss: [Str]): Int {
-    firstOr18_1<Int>(ns, 0) + firstOr18_1<Str>(ss, "").len()
+    firstOr18_1<Int>(ns, 0) + firstOr18_1<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_1<C: Allocator>(ctx: C): Int {
-    useGeneric18_1([1, 2], ["a"]) + describeAll18_1(ctx, [1, 2]).len()
+    useGeneric18_1([1, 2], ["a"]) + describeAll18_1(ctx, [1, 2]).length()
 }
 
 /// String building through interpolation, which is a template
@@ -106,7 +106,7 @@ export fn constants18_2(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants18_2();
-    label18_2(ctx, a, e).len() + b
+    label18_2(ctx, a, e).length() + b
 }
 
 derive Equal, Show for Rec18_3;
@@ -134,7 +134,7 @@ impl Rec18_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_3<C: Allocator>(ctx: C): Int {
     let r = Rec18_3 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
@@ -223,14 +223,14 @@ export fn digest18_7<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [7553, 4893, 2474, 774, 701, 7280, 5704, 3186, 7433, 8315, 782];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain18_7(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -271,7 +271,7 @@ export fn start18_8(ticks: Int): State18_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_8<C: Allocator>(ctx: C): Int {
     let s = start18_8(5);
-    rank18_8(s) + s.show(ctx).len()
+    rank18_8(s) + s.show(ctx).length()
 }
 
 derive Equal, Show for Rec18_9;
@@ -299,7 +299,7 @@ impl Rec18_9 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_9<C: Allocator>(ctx: C): Int {
     let r = Rec18_9 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

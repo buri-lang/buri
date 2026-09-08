@@ -68,12 +68,12 @@ export fn describeAll1_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric1_1(ns: [Int], ss: [Str]): Int {
-    firstOr1_1<Int>(ns, 0) + firstOr1_1<Str>(ss, "").len()
+    firstOr1_1<Int>(ns, 0) + firstOr1_1<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_1<C: Allocator>(ctx: C): Int {
-    useGeneric1_1([1, 2], ["a"]) + describeAll1_1(ctx, [1, 2]).len()
+    useGeneric1_1([1, 2], ["a"]) + describeAll1_1(ctx, [1, 2]).length()
 }
 
 derive Equal, Show for Rec1_2;
@@ -99,7 +99,7 @@ impl Rec1_2 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_2<C: Allocator>(ctx: C): Int {
     let r = Rec1_2 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show for Rec1_3;
@@ -125,7 +125,7 @@ impl Rec1_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_3<C: Allocator>(ctx: C): Int {
     let r = Rec1_3 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show for State1_4;
@@ -159,7 +159,7 @@ export fn start1_4(ticks: Int): State1_4 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_4<C: Allocator>(ctx: C): Int {
     let s = start1_4(5);
-    rank1_4(s) + s.show(ctx).len()
+    rank1_4(s) + s.show(ctx).length()
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
@@ -201,7 +201,7 @@ export fn constants1_6(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants1_6();
-    label1_6(ctx, a, e).len() + b
+    label1_6(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -239,14 +239,14 @@ export fn digest1_8<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [6228, 2679, 3193, 8003, 5867, 478, 2483, 9997, 3209, 8644];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain1_8(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -276,7 +276,7 @@ impl Rec1_9 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_9<C: Allocator>(ctx: C): Int {
     let r = Rec1_9 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the

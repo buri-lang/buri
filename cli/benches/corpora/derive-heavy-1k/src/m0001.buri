@@ -70,7 +70,7 @@ export fn start1_0(ticks: Int): State1_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_0<C: Allocator>(ctx: C): Int {
     let s = start1_0(5);
-    rank1_0(s) + s.show(ctx).len()
+    rank1_0(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -126,7 +126,7 @@ impl Rec1_2 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_2<C: Allocator>(ctx: C): Int {
     let r = Rec1_2 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_3;
@@ -168,7 +168,7 @@ export fn start1_3(ticks: Int): State1_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_3<C: Allocator>(ctx: C): Int {
     let s = start1_3(5);
-    rank1_3(s) + s.show(ctx).len()
+    rank1_3(s) + s.show(ctx).length()
 }
 
 derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_4;
@@ -206,7 +206,7 @@ export fn start1_4(ticks: Int): State1_4 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_4<C: Allocator>(ctx: C): Int {
     let s = start1_4(5);
-    rank1_4(s) + s.show(ctx).len()
+    rank1_4(s) + s.show(ctx).length()
 }
 
 /// A body of 9 bindings over integer arithmetic — the shape most
@@ -246,12 +246,12 @@ export fn describeAll1_6<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric1_6(ns: [Int], ss: [Str]): Int {
-    firstOr1_6<Int>(ns, 0) + firstOr1_6<Str>(ss, "").len()
+    firstOr1_6<Int>(ns, 0) + firstOr1_6<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_6<C: Allocator>(ctx: C): Int {
-    useGeneric1_6([1, 2], ["a"]) + describeAll1_6(ctx, [1, 2]).len()
+    useGeneric1_6([1, 2], ["a"]) + describeAll1_6(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -308,7 +308,7 @@ impl Rec1_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe1_8<C: Allocator>(ctx: C): Int {
     let r = Rec1_8 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

@@ -66,7 +66,7 @@ from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
     let letters = [1, 2, 3].map(alloc, fn(n) => "buri".repeat(alloc, n));
-    let _ = io.println(stdout, "${letters.len()}").ignore();
+    let _ = io.println(stdout, "${letters.length()}").ignore();
     .Ok(())
 }
 "#;
@@ -80,7 +80,7 @@ from "core/testing/assert" import * as assert;
 test "a suite that allocates" {
     let ctx = context { Allocator: alloc() };
     let letters = [1, 2, 3].mapCtx(ctx, fn(c, n) => "buri".repeat(c, n));
-    assert.equal(letters.len(), 3);
+    assert.equal(letters.length(), 3);
 }
 "#;
 

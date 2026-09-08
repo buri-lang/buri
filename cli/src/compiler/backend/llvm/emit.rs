@@ -5507,9 +5507,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.set(state, dest, value);
                 true
             }
-            // `list.len()` is the element count, exactly, and always O(1)
+            // `list.length()` is the element count, exactly, and always O(1)
             // (VALUE-MODEL.md §4).
-            "list.len" => {
+            "list.length" => {
                 let Some(a) = args.first().copied() else { return false };
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
                 let value = self.get(state, a);
@@ -5518,11 +5518,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.set(state, dest, len);
                 true
             }
-            // `str.len()` is the number of Unicode *scalars* (§3.1). Bit 63 of
+            // `str.length()` is the number of Unicode *scalars* (§3.1). Bit 63 of
             // the stored length answers what that costs: set means every byte
             // is below 0x80, so the count is the byte count and this is a
             // mask; clear means the runtime counts continuation bytes.
-            "str.len" => self.str_len(state, code, dest, args),
+            "str.length" => self.str_len(state, code, dest, args),
             // `str.format(ctx, template)` is the identity: a `Template` *is* a
             // `Str` (§3.3), and `middle::lower` has already turned the holes
             // into a `str.concat` chain. The context is zero-sized and has
@@ -5682,7 +5682,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// `str.len`, with the ASCII flag's fast path.
+    /// `str.length`, with the ASCII flag's fast path.
     fn str_len(
         &mut self,
         state: &mut Function<'ctx>,
@@ -5739,7 +5739,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_unconditional_branch(join);
 
         self.builder.position_at_end(join);
-        match self.builder.build_phi(word, "str.len") {
+        match self.builder.build_phi(word, "str.length") {
             Ok(phi) => {
                 phi.add_incoming(&[
                     (&bytes as &dyn BasicValue<'ctx>, fast),
@@ -8799,8 +8799,8 @@ fn open_coded_key(key: &str) -> bool {
         key,
         "str.concat"
             | "str.format"
-            | "str.len"
-            | "list.len"
+            | "str.length"
+            | "list.length"
             | "list.empty"
             | "host_testing.alloc"
             | "host_testing.TestAllocator.allocate"

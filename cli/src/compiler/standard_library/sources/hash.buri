@@ -181,7 +181,7 @@ struct State {
 /// true
 /// ```
 export fn siphash24(k0: U64, k1: U64, b: [U8]): U64 {
-    let n = b.len();
+    let n = b.length();
     let whole = n - n % 8;
     let start = State {
         v0: k0 ^ SIP_V0,

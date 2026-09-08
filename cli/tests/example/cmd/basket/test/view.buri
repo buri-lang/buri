@@ -374,7 +374,7 @@ test "a memo recomputes once per change, however many things read it" {
     // One write, one recomputation, two watchers told.
     let _ = ticked.set(ctx, []);
     assert.equal(log.recorded(), ["computed", "computed"]);
-    assert.equal(log.noted().len(), 4);
+    assert.equal(log.noted().length(), 4);
 }
 
 /// One line, built without an allocator so the test above needs no context to

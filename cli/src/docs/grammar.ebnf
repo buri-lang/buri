@@ -195,7 +195,7 @@ ExportableBody  ::= FnDecl
 
 (* A declaration with no body ends in `;` instead of a Block. It is how the
    bundled standard library declares the operations the runtime supplies
-   (`export fn len(self): Int;`, std/str.buri:18) and, as MethodSig below,
+   (`export fn length(self): Int;`, std/str.buri:18) and, as MethodSig below,
    how a trait or an effect states a method.
 
    The two are one production because they are one shape to the parser, which

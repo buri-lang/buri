@@ -12,14 +12,14 @@ from "core/order" import * as order;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
-// --- len / isEmpty ------------------------------------------------------------
+// --- length / isEmpty ------------------------------------------------------------
 
-test "len counts the elements" {
-    assert.equal([1, 2, 3].len(), 3);
+test "length counts the elements" {
+    assert.equal([1, 2, 3].length(), 3);
 }
 
-test "len of the empty list is zero" {
-    assert.equal(list.empty<Int>().len(), 0);
+test "length of the empty list is zero" {
+    assert.equal(list.empty<Int>().length(), 0);
 }
 
 test "isEmpty is true only for the empty list" {
@@ -747,7 +747,7 @@ test "join preserves empty elements" {
 // --- empty / range / repeat ---------------------------------------------------
 
 test "empty produces a list of length zero" {
-    assert.equal(list.empty<Int>().len(), 0);
+    assert.equal(list.empty<Int>().length(), 0);
 }
 
 test "empty lists of the same element type are equal" {
@@ -955,7 +955,7 @@ test "foldResultCtx does not run the step after a failure" {
     let out = [1, 2, 3].foldResultCtx(
         ctx,
         fn(c, acc: [Int], x) => {
-            if (x >= 2) { .Err(acc.len()) } else { .Ok(acc.push(c, x)) }
+            if (x >= 2) { .Err(acc.length()) } else { .Ok(acc.push(c, x)) }
         },
         list.empty<Int>(),
     );
@@ -1091,7 +1091,7 @@ test "an element handed to a callback is not written through" {
     };
     let inner = [1].concat(ctx, [2]);
     let outer = list.empty<[Int]>().push(ctx, inner);
-    let lengths = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9).len());
+    let lengths = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9).length());
     assert.equal(lengths, [3]);
     assert.equal(assert.some(outer.get(0)), [1, 2]);
 }
@@ -1103,7 +1103,7 @@ test "an accumulator grown in a loop answers what a copy would" {
         Allocator: alloc(),
     };
     let xs = grow(ctx, 0, 40, list.empty<Int>());
-    assert.equal(xs.len(), 40);
+    assert.equal(xs.length(), 40);
     assert.equal(assert.some(xs.get(0)), 0);
     assert.equal(assert.some(xs.get(39)), 39);
 }
@@ -1118,7 +1118,7 @@ test "a list zipped into a fresh pair is not written through" {
     let outer = list.empty<[Int]>().push(ctx, inner);
     let pairs = outer.zip(ctx, [10]);
     let grown = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9));
-    assert.equal(pairs.len(), 1);
+    assert.equal(pairs.length(), 1);
     assert.equal(assert.some(grown.get(0)), [1, 2, 9]);
     assert.equal(assert.some(outer.get(0)), [1, 2]);
 }
@@ -1129,7 +1129,7 @@ test "a list put into a tuple beside another use of it is not written through" {
         Allocator: alloc(),
     };
     let xs = [1].concat(ctx, [2]);
-    let pair = (xs, xs.len());
+    let pair = (xs, xs.length());
     let grown = pair.0.push(ctx, 3);
     assert.equal(grown, [1, 2, 3]);
     assert.equal(xs, [1, 2]);
@@ -1314,7 +1314,7 @@ test "uniqueBy is unique by its comparator" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let byLength = order.by(fn(s: Str) => s.len(), order.int);
+    let byLength = order.by(fn(s: Str) => s.length(), order.int);
     assert.equal(["ab", "cd", "e"].uniqueBy(ctx, byLength), ["ab", "e"]);
 }
 
@@ -1362,7 +1362,7 @@ test "maxBy and minBy answer by the comparator" {
     assert.equal(assert.some([3, 1, 2].maxBy(order.int)), 3);
     assert.equal(assert.some([3, 1, 2].minBy(order.int)), 1);
     assert.equal(
-        assert.some(["bb", "a"].maxBy(order.by(fn(s: Str) => s.len(), order.int))),
+        assert.some(["bb", "a"].maxBy(order.by(fn(s: Str) => s.length(), order.int))),
         "bb",
     );
 }
@@ -1375,7 +1375,7 @@ test "maxBy and minBy of the empty list are None" {
 // Ties go to the earlier element, which is what `maximum` does and what makes
 // the answer independent of the sort.
 test "maxBy and minBy keep the first of equal elements" {
-    let byLength = order.by(fn(s: Str) => s.len(), order.int);
+    let byLength = order.by(fn(s: Str) => s.length(), order.int);
     assert.equal(assert.some(["ab", "cd"].maxBy(byLength)), "ab");
     assert.equal(assert.some(["ab", "cd"].minBy(byLength)), "ab");
 }
@@ -1720,7 +1720,7 @@ test "indexed pairs each element with its position" {
         Allocator: alloc(),
     };
     let pairs = ["a", "b"].indexed(ctx);
-    assert.equal(pairs.len(), 2);
+    assert.equal(pairs.length(), 2);
     assert.equal(assert.some(pairs.get(1)).0, 1);
     assert.equal(assert.some(pairs.get(1)).1, "b");
     assert.isEmpty(list.empty<Int>().indexed(ctx));
@@ -1761,7 +1761,7 @@ test "chunks steps by size and the last group is short" {
         Allocator: alloc(),
     };
     let groups = [1, 2, 3, 4, 5].chunks(ctx, 2);
-    assert.equal(groups.len(), 3);
+    assert.equal(groups.length(), 3);
     assert.equal(assert.some(groups.get(0)), [1, 2]);
     assert.equal(assert.some(groups.get(2)), [5]);
 }
@@ -1770,8 +1770,8 @@ test "chunks divides evenly when it can" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal([1, 2, 3, 4].chunks(ctx, 2).len(), 2);
-    assert.equal([1, 2].chunks(ctx, 5).len(), 1);
+    assert.equal([1, 2, 3, 4].chunks(ctx, 2).length(), 2);
+    assert.equal([1, 2].chunks(ctx, 5).length(), 1);
 }
 
 test "chunks of a size at or below zero has no groups" {
@@ -2018,7 +2018,7 @@ test "chunkBy groups neighbours the comparison calls equal" {
         Allocator: alloc(),
     };
     let runs = [1, 1, 2, 1].chunkBy(ctx, fn(a, b) => a == b);
-    assert.equal(runs.len(), 3);
+    assert.equal(runs.length(), 3);
     assert.equal(assert.some(runs.get(0)), [1, 1]);
     assert.equal(assert.some(runs.get(2)), [1]);
     assert.isEmpty(list.empty<Int>().chunkBy(ctx, fn(a, b) => a == b));
@@ -2135,8 +2135,8 @@ test "median is the middle, or the mean of the two middles" {
 }
 
 test "sumOf adds a number read off each element" {
-    assert.equal(["a", "bb"].sumOf(fn(s) => s.len()), 3);
-    assert.equal(list.empty<Str>().sumOf(fn(s) => s.len()), 0);
+    assert.equal(["a", "bb"].sumOf(fn(s) => s.length()), 3);
+    assert.equal(list.empty<Str>().sumOf(fn(s) => s.length()), 0);
 }
 
 // --- The three sizes ------------------------------------------------------------
@@ -2155,17 +2155,17 @@ test "the new verbs on a list of one" {
     assert.equal(one.mapIndexed(ctx, fn(i, n) => i + n), [7]);
     assert.equal(one.foldIndexed(fn(acc, i, n) => acc + i + n, 0), 7);
     assert.equal(one.filterIndexed(ctx, fn(i, _n) => i == 0), [7]);
-    assert.equal(one.indexed(ctx).len(), 1);
+    assert.equal(one.indexed(ctx).length(), 1);
     assert.equal(one.takeWhile(ctx, fn(n) => n < 9), [7]);
     assert.isEmpty(one.dropWhile(ctx, fn(n) => n < 9));
-    assert.equal(one.chunks(ctx, 3).len(), 1);
+    assert.equal(one.chunks(ctx, 3).length(), 1);
     assert.equal(assert.some(one.chunks(ctx, 3).get(0)), [7]);
     let sides = one.partition(ctx, fn(n) => n > 0);
     assert.equal(sides.0, [7]);
     assert.isEmpty(sides.1);
     assert.equal(one.scan(ctx, fn(acc, n) => acc + n, 1), [8]);
     assert.equal(assert.some(one.reduce(fn(a, b) => a + b)), 7);
-    assert.equal(one.chunkBy(ctx, fn(a, b) => a == b).len(), 1);
+    assert.equal(one.chunkBy(ctx, fn(a, b) => a == b).length(), 1);
     assert.equal(one.deduplicateBy(ctx, fn(a, b) => a == b), [7]);
     assert.equal(one.intersperse(ctx, 0), [7]);
     assert.equal(one.zipWith(ctx, [1, 2], fn(a, b) => a + b), [8]);
@@ -2189,24 +2189,24 @@ test "the new verbs on five hundred elements" {
         Allocator: alloc(),
     };
     let xs = list.range(ctx, 0, 500);
-    assert.equal(xs.len(), 500);
-    assert.equal(xs.flatMap(ctx, fn(n) => [n]).len(), 500);
-    assert.equal(xs.flatMap(ctx, fn(n) => if (n % 2 == 0) { [n] } else { [] }).len(), 250);
+    assert.equal(xs.length(), 500);
+    assert.equal(xs.flatMap(ctx, fn(n) => [n]).length(), 500);
+    assert.equal(xs.flatMap(ctx, fn(n) => if (n % 2 == 0) { [n] } else { [] }).length(), 250);
     assert.isTrue(xs.mapIndexed(ctx, fn(i, n) => i - n).all(fn(d) => d == 0));
     assert.equal(xs.foldIndexed(fn(acc, i, n) => acc + i - n, 0), 0);
-    assert.equal(xs.filterIndexed(ctx, fn(i, _n) => i % 2 == 0).len(), 250);
-    assert.equal(xs.indexed(ctx).len(), 500);
-    assert.equal(xs.takeWhile(ctx, fn(n) => n < 300).len(), 300);
-    assert.equal(xs.dropWhile(ctx, fn(n) => n < 300).len(), 200);
+    assert.equal(xs.filterIndexed(ctx, fn(i, _n) => i % 2 == 0).length(), 250);
+    assert.equal(xs.indexed(ctx).length(), 500);
+    assert.equal(xs.takeWhile(ctx, fn(n) => n < 300).length(), 300);
+    assert.equal(xs.dropWhile(ctx, fn(n) => n < 300).length(), 200);
     // Five hundred is not a multiple of seven, so the last group is short.
     let groups = xs.chunks(ctx, 7);
-    assert.equal(groups.len(), 72);
-    assert.equal(assert.some(groups.get(71)).len(), 3);
-    assert.equal(groups.sumOf(fn(g) => g.len()), 500);
+    assert.equal(groups.length(), 72);
+    assert.equal(assert.some(groups.get(71)).length(), 3);
+    assert.equal(groups.sumOf(fn(g) => g.length()), 500);
     let sides = xs.partition(ctx, fn(n) => n % 2 == 0);
-    assert.equal(sides.0.len(), 250);
-    assert.equal(sides.1.len(), 250);
-    assert.equal(xs.insertAt(ctx, 250, -1).len(), 501);
+    assert.equal(sides.0.length(), 250);
+    assert.equal(sides.1.length(), 250);
+    assert.equal(xs.insertAt(ctx, 250, -1).length(), 501);
     assert.equal(xs.insertAt(ctx, 250, -1).get(250), .Some(-1));
     assert.equal(xs.replaceAt(ctx, 499, -1).last(), .Some(-1));
     assert.equal(xs.updateAt(ctx, 0, fn(n) => n + 1000).first(), .Some(1000));
@@ -2225,12 +2225,12 @@ test "the new verbs on five hundred elements" {
     assert.equal(xs.scan(ctx, fn(acc, n) => acc + n, 0).last(), .Some(124750));
     assert.equal(assert.some(xs.reduce(fn(a, b) => a + b)), 124750);
     let halves = xs.splitAt(ctx, 250);
-    assert.equal(halves.0.len(), 250);
-    assert.equal(halves.1.len(), 250);
-    assert.equal(assert.some(xs.splitFirst(ctx)).1.len(), 499);
-    assert.equal(xs.intersperse(ctx, -1).len(), 999);
-    assert.equal(xs.chunkBy(ctx, fn(a, b) => a / 10 == b / 10).len(), 50);
-    assert.equal(xs.deduplicateBy(ctx, fn(a, b) => a / 10 == b / 10).len(), 50);
+    assert.equal(halves.0.length(), 250);
+    assert.equal(halves.1.length(), 250);
+    assert.equal(assert.some(xs.splitFirst(ctx)).1.length(), 499);
+    assert.equal(xs.intersperse(ctx, -1).length(), 999);
+    assert.equal(xs.chunkBy(ctx, fn(a, b) => a / 10 == b / 10).length(), 50);
+    assert.equal(xs.deduplicateBy(ctx, fn(a, b) => a / 10 == b / 10).length(), 50);
     let unzipped = xs.indexed(ctx).unzip(ctx);
     assert.equal(unzipped.0, xs);
     assert.equal(unzipped.1, xs);
@@ -2275,13 +2275,13 @@ test "binarySearch on an unsorted list answers a position, not a promise" {
                 .Ok(i) => i,
                 .Err(i) => i,
             };
-            at < 0 || at > jumbled.len()
+            at < 0 || at > jumbled.length()
         });
     assert.isEmpty(outside);
     // A hit it does report is a real one, even here.
     match (jumbled.binarySearch(7)) {
         .Ok(at) => assert.equal(jumbled.get(at), .Some(7)),
-        .Err(at) => assert.isTrue(at >= 0 && at <= jumbled.len()),
+        .Err(at) => assert.isTrue(at >= 0 && at <= jumbled.length()),
     };
     // The empty list and the singleton are the two shapes with no order to get
     // wrong.
@@ -2320,7 +2320,7 @@ test "unfold is bounded by its step alone" {
     let long = list.unfold(ctx, 0, fn(n) => {
         if (n >= 500) { .None } else { .Some((n * 2, n + 1)) }
     });
-    assert.equal(long.len(), 500);
+    assert.equal(long.length(), 500);
     assert.equal(long.last(), .Some(998));
 }
 
@@ -2329,7 +2329,7 @@ test "unfold is bounded by its step alone" {
 // `insertAt` clamps, `replaceAt` and `updateAt` refuse, `getOr` falls back and
 // `splitAt` gives one whole side. The cases above take each one index past the
 // end; these take them as far as an `Int` goes, because a clamp written as
-// `index > len` and one written as a modulus part company there.
+// `index > length` and one written as a modulus part company there.
 test "the index verbs hold far outside the list" {
     let ctx = context {
         Allocator: alloc(),
@@ -2378,10 +2378,10 @@ test "chunks of one is one group per element, and of the length is one group" {
         Allocator: alloc(),
     };
     let xs = [1, 2, 3];
-    assert.equal(xs.chunks(ctx, 1).len(), 3);
-    assert.equal(xs.chunks(ctx, 3).len(), 1);
+    assert.equal(xs.chunks(ctx, 1).length(), 3);
+    assert.equal(xs.chunks(ctx, 3).length(), 1);
     assert.equal(assert.some(xs.chunks(ctx, 3).get(0)), xs);
-    assert.equal(xs.chunks(ctx, 4).len(), 1);
+    assert.equal(xs.chunks(ctx, 4).length(), 1);
     assert.isEmpty(list.empty<Int>().chunks(ctx, 0));
     assert.isEmpty(list.empty<Int>().chunks(ctx, -3));
 }

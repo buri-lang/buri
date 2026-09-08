@@ -60,7 +60,7 @@ test "a span counts bytes where the text counts scalars" {
     };
     let tokens = ast.tokenize(ctx, "\"😀\" x");
     assert.equal(assert.some(tokens.get(0)).span, Span { start: 0, end: 6 });
-    assert.equal(assert.some(tokens.get(0)).text.len(), 3);
+    assert.equal(assert.some(tokens.get(0)).text.length(), 3);
     assert.equal(assert.some(tokens.get(1)).span, Span { start: 7, end: 8 });
     assert.equal(assert.some(tokens.get(1)).text, "x");
 }
@@ -71,7 +71,7 @@ test "every span is non-empty and they run in order" {
     };
     let source = "export fn f<T: Equal>(self, ctx: C): [T] { \"a\${1}b\" }";
     let tokens = ast.tokenize(ctx, source);
-    assert.gt(tokens.len(), 15);
+    assert.gt(tokens.length(), 15);
     assert.isTrue(tokens.all(fn(t) => t.span.end > t.span.start));
     assert.isTrue(tokens.windows(ctx, 2).all(fn(pair) => inOrder(pair)));
 }
@@ -266,7 +266,7 @@ test "every keyword of the lexical grammar lexes as one" {
         "from if impl import let match self Self struct test trait true type",
     );
     let tokens = ast.tokenize(ctx, all);
-    assert.equal(tokens.len(), 25);
+    assert.equal(tokens.length(), 25);
     assert.isTrue(tokens.all(fn(t) => t.kind == TokenKind.Keyword));
 }
 
@@ -378,6 +378,6 @@ test "an unterminated token still carries a span inside the source" {
         Allocator: alloc(),
     };
     let tokens = ast.tokenize(ctx, "x \"abc");
-    assert.equal(tokens.len(), 2);
+    assert.equal(tokens.length(), 2);
     assert.equal(assert.some(tokens.get(1)).span, Span { start: 2, end: 6 });
 }

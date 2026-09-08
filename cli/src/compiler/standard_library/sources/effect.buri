@@ -897,7 +897,7 @@ impl Request {
             .None => self.url,
         };
         let rooted = match (after.indexOf("/")) {
-            .Some(at) => after.slice(at, after.len()),
+            .Some(at) => after.slice(at, after.length()),
             .None => "/",
         };
         let noQuery = match (rooted.splitOnce("?")) {

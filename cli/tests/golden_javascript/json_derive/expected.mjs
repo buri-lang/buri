@@ -112,7 +112,7 @@ function core_json$stringify$u3rqgv(ctx_0,v_1){
     case 2:
       {
         const s_17=$str_fromFloat(ctx_0,v_1[1]);
-        return $str_endsWith(s_17,'.0')?$str_slice(s_17,0n,$str_len(s_17)-2n):s_17;
+        return $str_endsWith(s_17,'.0')?$str_slice(s_17,0n,$str_length(s_17)-2n):s_17;
       }
     case 3:
       {

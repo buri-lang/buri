@@ -408,7 +408,7 @@ test "a wait at every level of two nested combinators still runs in order" {
     let out = [[1, 2], [3]].mapCtx(ctx, fn(c, xs: [Int]) => {
         let inner = xs.mapCtx(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x))));
         // And the outer step waits too, after its own inner loop has finished.
-        inner.len() + noted(heard.sendMessage(c, .Saw(9)))
+        inner.length() + noted(heard.sendMessage(c, .Saw(9)))
     });
     assert.equal(out, [20, 19]);
     assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 12939);
@@ -444,7 +444,7 @@ test "a waiting mapCtxStep inside a waiting mapCtx still runs" {
     };
     let heard = actor.start(ctx, recorder());
     let out = [[1], [2]].mapCtx(ctx, fn(c, xs: [Int]) => {
-        xs.mapCtxStep(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x)))).len()
+        xs.mapCtxStep(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x)))).length()
             + noted(heard.sendMessage(c, .Saw(8)))
     });
     assert.equal(out, [17, 17]);
@@ -481,7 +481,7 @@ test "a waiting mapCtx inside a parallel step runs before parallel answers" {
     };
     let heard = actor.start(ctx, recorder());
     let out = tasks.parallel(ctx, [1, 2], fn(c, i, x) => {
-        [x, x].mapCtx(c, fn(d, y) => noted(heard.sendMessage(d, .Saw(y)))).len()
+        [x, x].mapCtx(c, fn(d, y) => noted(heard.sendMessage(d, .Saw(y)))).length()
     });
     assert.equal(out, [2, 2]);
     assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 1122);

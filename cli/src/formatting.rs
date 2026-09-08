@@ -3428,7 +3428,7 @@ export trait Weigh {
 impl Weigh for Working {
   fn weighWithEverything<C: Allocator + Stdout>(self, ctx: C, scale: Str, precision: Int): Float {
     // A chain of one operator breaks as a list.
-    let heavy = self.a > 0 && self.b > 0 && self.h > 0 && precision > 0 && scale.len() > 0 && self.a != self.b;
+    let heavy = self.a > 0 && self.b > 0 && self.h > 0 && precision > 0 && scale.length() > 0 && self.a != self.b;
     if (heavy) { 1.0 } else { 0.0 }
   }
 }

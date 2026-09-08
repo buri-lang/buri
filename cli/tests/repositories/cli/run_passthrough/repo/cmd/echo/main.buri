@@ -24,7 +24,7 @@ export fn main(): Result<(), Str> {
     };
     let args = env.arguments(ctx);
     let _ = io
-        .println(ctx, "argc ${args.len()}")
+        .println(ctx, "argc ${args.length()}")
         .mapErr(fn(_e) => "could not write to standard output")?;
     let _ = io
         .println(ctx, "argv ${args.join(ctx, " ")}")

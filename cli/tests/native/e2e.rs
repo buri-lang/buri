@@ -1493,7 +1493,7 @@ fn describe<C: Allocator + FileSystemRead>(ctx: C, at: Path): Str {
     match (fs.readBytesIfExists(ctx, at)) {
         .Err(_e) => "unreadable",
         .Ok(.None) => "absent",
-        .Ok(.Some(body)) => str.format(ctx, "${body.len()} octets"),
+        .Ok(.Some(body)) => str.format(ctx, "${body.length()} octets"),
     }
 }
 
@@ -1921,7 +1921,7 @@ export fn main(): Result<(), Str> {
     let _p11 = io
         .println(
             ctx,
-            "empty ${fs.walk(ctx, empty).map(fn(found) => found.len()).withDefault(0 - 1)} ${refused(fs.walk(ctx, root.join(ctx, "nowhere")))} ${refused(fs.walk(ctx, note))}",
+            "empty ${fs.walk(ctx, empty).map(fn(found) => found.length()).withDefault(0 - 1)} ${refused(fs.walk(ctx, root.join(ctx, "nowhere")))} ${refused(fs.walk(ctx, note))}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -1935,7 +1935,7 @@ export fn main(): Result<(), Str> {
     let _p13 = io
         .println(
             ctx,
-            "window ${past.len()} ${last.len()} ${none.len()} ${refused(fs.readRange(ctx, note, 0 - 1, 2))} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
+            "window ${past.length()} ${last.length()} ${none.length()} ${refused(fs.readRange(ctx, note, 0 - 1, 2))} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -1950,7 +1950,7 @@ export fn main(): Result<(), Str> {
     let _p14 = io
         .println(
             ctx,
-            "copy ${back.len()} ${itself.len()} ${refused(fs.copy(ctx, note, root.join(ctx, "nowhere/x")))} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
+            "copy ${back.length()} ${itself.length()} ${refused(fs.copy(ctx, note, root.join(ctx, "nowhere/x")))} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -2275,13 +2275,13 @@ fn filtered<C: Allocator + Stdin + Stdout>(ctx: C, mode: Str): Result<(), Str> {
     if (mode == "read") {
         let whole = io.readAll(ctx);
         io
-            .println(ctx, "readAll ${whole.len()} ${whole.replace(ctx, "\n", "|")}")
+            .println(ctx, "readAll ${whole.length()} ${whole.replace(ctx, "\n", "|")}")
             .mapErr(fn(_e) => "print")
     } else {
         let body = io.readAllBytes(ctx);
         let sum = body.fold(fn(total, b) => total + b.toI64(), 0);
         io
-            .println(ctx, "readAllBytes ${body.len()} ${sum}")
+            .println(ctx, "readAllBytes ${body.length()} ${sum}")
             .mapErr(fn(_e) => "print")
     }
 }
@@ -2328,7 +2328,7 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
 
     let ran = process.run(ctx, process.command(yes.text(), [])).mapErr(fn(_e) => "true")?;
     let _p2 = io
-        .println(ctx, "true ${ran.code} ${ran.stdout.len()} ${ran.stderr.len()}")
+        .println(ctx, "true ${ran.code} ${ran.stdout.length()} ${ran.stderr.length()}")
         .mapErr(fn(_e) => "print")?;
 
     let failed = process.run(ctx, process.command(no.text(), [])).mapErr(fn(_e) => "false")?;
@@ -2359,7 +2359,7 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
     };
     let all = process.run(ctx, flooded).mapErr(fn(_e) => "cat large")?;
     let _p5 = io
-        .println(ctx, "large ${all.code} ${all.stdout.len()}")
+        .println(ctx, "large ${all.code} ${all.stdout.length()}")
         .mapErr(fn(_e) => "print")?;
 
     // A `cat` of a path that is not there writes to standard error and exits
@@ -2368,7 +2368,7 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         .run(ctx, process.command(cat.text(), ["no-such-file-here"]))
         .mapErr(fn(_e) => "cat missing")?;
     let _p6 = io
-        .println(ctx, "missing ${complained.code != 0} ${complained.stderr.len() > 0}")
+        .println(ctx, "missing ${complained.code != 0} ${complained.stderr.length() > 0}")
         .mapErr(fn(_e) => "print")?;
 
     // A program that is not there never ran at all, and neither did one whose
@@ -2687,8 +2687,8 @@ export fn main(): Result<(), Str> {
     // And the accumulating shape: the replacement is grown out of the field it
     // replaces, which a unique list may answer by writing in place.
     let grown = Basket { ..base, items: base.items.concat(ctx, swapped.items) };
-    let _ = io.println(ctx, "${base.items.len()} ${swapped.items.len()}").ignore();
-    let _ = io.println(ctx, "${renamed.label.len()} ${grown.items.len()}").ignore();
+    let _ = io.println(ctx, "${base.items.length()} ${swapped.items.length()}").ignore();
+    let _ = io.println(ctx, "${renamed.label.length()} ${grown.items.length()}").ignore();
     .Ok(())
 }
 "#,
@@ -2823,7 +2823,7 @@ fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Note, Noted> {
 
 fn size(answered: Result<Noted, Stopped>): Int {
     match (answered) {
-        .Ok(.Held(s)) => s.len(),
+        .Ok(.Held(s)) => s.length(),
         .Ok(.Stored) => -1,
         .Err(_gone) => -1,
     }
@@ -2936,8 +2936,8 @@ fn identity<T>(value: T): T { value }
 
 export fn main(): Result<(), Str> {
     let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-    let held = identity(outer(ctx, 3)).inner.lines.len();
-    let joined = identity(outer(ctx, 4)).inner.lines.join(ctx, ",").len();
+    let held = identity(outer(ctx, 3)).inner.lines.length();
+    let joined = identity(outer(ctx, 4)).inner.lines.join(ctx, ",").length();
     let _ = io.println(ctx, "held ${held} joined ${joined}").ignore();
     .Ok(())
 }
@@ -2967,7 +2967,7 @@ fn payload<C: Allocator>(ctx: C, n: Int): [U8] {
 }
 
 fn size(held: Option<Wrapper>, fallback: Wrapper): Int {
-    held.withDefault(fallback).octets.len()
+    held.withDefault(fallback).octets.length()
 }
 
 export fn main(): Result<(), Str> {
@@ -3092,7 +3092,7 @@ fn through_an_arm<C: Allocator>(ctx: C, seed: Str, at: Int): Result<Int, Str> {
         .None => .Err("none"),
         .Some(temp) => {
             let n = refused(at)?;
-            .Ok(n + temp.len())
+            .Ok(n + temp.length())
         },
     }
 }
@@ -3141,7 +3141,7 @@ export fn main(): Result<(), Str> {
     // And discarded after a `match` handed it out of a value it consumed.
     let _ = taken(.Ok(made(ctx, "b")), "");
     let kept = made(ctx, "c");
-    let _ = io.println(ctx, "kept ${kept.len()}").ignore();
+    let _ = io.println(ctx, "kept ${kept.length()}").ignore();
     .Ok(())
 }
 "#,
@@ -3887,8 +3887,8 @@ fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str, large: Int)
         },
         onMessage: fn(c, socket, seen, message) => {
             let _said = match (message) {
-                .Text(text) => io.println(c, "text ${text.len()} ${text}").ignore(),
-                .Binary(data) => io.println(c, "binary ${data.len()}").ignore(),
+                .Text(text) => io.println(c, "text ${text.length()} ${text}").ignore(),
+                .Binary(data) => io.println(c, "binary ${data.length()}").ignore(),
             };
             let next = seen + 1;
             // The seventh is the last the far side sends, and this end hangs up
@@ -4111,7 +4111,7 @@ export fn main(): Result<(), Str> {
         WebSocketClient: host.websocketClient,
     };
     let port = env.withArguments(ctx).first().withDefault("0");
-    let zero = port.len() - port.len();
+    let zero = port.length() - port.length();
     let dialled = websocket.connect(ctx, Client {
         url: str.format(ctx, "ws://127.0.0.1:${port}/socket"),
         onOpen: fn(c, _socket, _response) => {

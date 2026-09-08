@@ -40,7 +40,7 @@ weight in a decision. Links only.
 
 - ECMA-262, *Number::toString* (§6.1.6.1.20) — the float presentation rule
   `cli/runtime/fmt.rs` hand-writes: <https://tc39.es/ecma262/#sec-numeric-types-number-tostring>
-- Unicode 6.0.0 ch. 3, conformance — scalar counting for `str.len`:
+- Unicode 6.0.0 ch. 3, conformance — scalar counting for `str.length`:
   <http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf>
 - Protocol Buffers language guide and conformance suite — the proto3/editions
   presence rules `cli/src/docs/build/proto.md` covers:

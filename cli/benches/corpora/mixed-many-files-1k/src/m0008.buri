@@ -54,12 +54,12 @@ export fn describeAll8_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric8_0(ns: [Int], ss: [Str]): Int {
-    firstOr8_0<Int>(ns, 0) + firstOr8_0<Str>(ss, "").len()
+    firstOr8_0<Int>(ns, 0) + firstOr8_0<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe8_0<C: Allocator>(ctx: C): Int {
-    useGeneric8_0([1, 2], ["a"]) + describeAll8_0(ctx, [1, 2]).len()
+    useGeneric8_0([1, 2], ["a"]) + describeAll8_0(ctx, [1, 2]).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

@@ -156,7 +156,7 @@ test "the double records a spawned task the way it records any other" {
         Tasks: scheduler,
     };
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
-    assert.equal(scheduler.calls().len(), 3);
+    assert.equal(scheduler.calls().length(), 3);
 }
 
 /// Three tasks, spawned in a written order, each saying which it is.

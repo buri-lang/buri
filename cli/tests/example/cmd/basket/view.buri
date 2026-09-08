@@ -254,7 +254,7 @@ fn summary<C: Ui>(ctx: C, state: State): Node<C> {
                 ),
             ]),
             ui.spacer(),
-            pill(.Computed(fn(scope) => "${state.ticked.get(scope).len()} settled")),
+            pill(.Computed(fn(scope) => "${state.ticked.get(scope).length()} settled")),
         ]),
         meter(settled),
     ])

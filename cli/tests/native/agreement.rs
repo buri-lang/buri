@@ -1071,11 +1071,11 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let a = "abc".len();
-  let b = "\u{1F600}".len();
-  let c = "e\u{301}".len();
-  let d = "".len();
-  let e = "\u{1F600}\u{1F600}ab".len();
+  let a = "abc".length();
+  let b = "\u{1F600}".length();
+  let c = "e\u{301}".length();
+  let d = "".length();
+  let e = "\u{1F600}\u{1F600}ab".length();
   let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
   .Ok(())
 }
@@ -1367,7 +1367,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(stdout, a.show(alloc)).ignore();
   let _ = io.println(stdout, b.show(alloc)).ignore();
   let _ = io.println(stdout, d.show(alloc)).ignore();
-  let _ = io.println(stdout, "${a.s.len()} ${b.s.len()} ${a.b} ${b.b}").ignore();
+  let _ = io.println(stdout, "${a.s.length()} ${b.s.length()} ${a.b} ${b.b}").ignore();
   .Ok(())
 }
 "#,
@@ -1751,7 +1751,7 @@ export struct Wrapper(Holder);
 
 impl Ordered for Wrapper {
   fn compare(self, other: Wrapper): Order {
-    if ((self.0).octets.len() < (other.0).octets.len()) { .Less } else { .Greater }
+    if ((self.0).octets.length() < (other.0).octets.length()) { .Less } else { .Greater }
   }
 }
 
@@ -1983,7 +1983,7 @@ from "core/io" import * as io;
 fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
-  let zero = "".len();
+  let zero = "".length();
   let _ = io.println(stdout, "before").ignore();
   let _ = io.println(stdout, "${ratio(10, zero)}").ignore();
   .Ok(())
@@ -2001,7 +2001,7 @@ from "core/io" import * as io;
 fn rest(a: Int, b: Int): Int { a % b }
 
 export fn main(): Result<(), Str> {
-  let zero = "".len();
+  let zero = "".length();
   let _ = io.println(stdout, "${rest(10, zero)}").ignore();
   .Ok(())
 }
@@ -2026,7 +2026,7 @@ from "core/io" import * as io;
 fn push(x: U8, n: Int): U8 { bits.shlU8(x, n) }
 
 export fn main(): Result<(), Str> {
-  let width = 8 + "".len();
+  let width = 8 + "".length();
   let _ = io.println(stdout, "${push(1, width)}").ignore();
   .Ok(())
 }
@@ -2412,7 +2412,7 @@ export fn main(): Result<(), Str> {
   let ns = [1, 2, 3, 4];
   let doubledStep = ns.mapCtxStep(alloc, fn(c, n) => n * 2);
   let doubledLoop = ns.mapCtx(alloc, fn(c, n) => n * 2);
-  let _ = io.println(stdout, "${doubledStep.len()} ${doubledLoop.len()}").ignore();
+  let _ = io.println(stdout, "${doubledStep.length()} ${doubledLoop.length()}").ignore();
   let _ = io.println(stdout, "${show(doubledStep.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
   let _ = io.println(stdout, "${show(doubledLoop.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
 
@@ -2431,11 +2431,11 @@ export fn main(): Result<(), Str> {
   let _ = io.println(stdout, show(pairs.mapCtx(alloc, fn(c, p) => str.format(c, "${p.0}^${p.1}")))).ignore();
 
   // Nested: a step that is itself a call site.
-  let nested = ns.mapCtx(alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).len());
-  let _ = io.println(stdout, "${nested.len()} ${nested[0].withDefault(0)}").ignore();
+  let nested = ns.mapCtx(alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).length());
+  let _ = io.println(stdout, "${nested.length()} ${nested[0].withDefault(0)}").ignore();
 
   let empty: [Int] = [];
-  let _ = io.println(stdout, "${empty.mapCtxStep(alloc, fn(c, n) => n + 1).len()}").ignore();
+  let _ = io.println(stdout, "${empty.mapCtxStep(alloc, fn(c, n) => n + 1).length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2533,7 +2533,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, show(ctx, nested.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)))).ignore();
 
   let empty: [Int] = [];
-  let _ = io.println(ctx, "${tasks.parallel(ctx, empty, fn(c, i, n) => n + 1).len()}").ignore();
+  let _ = io.println(ctx, "${tasks.parallel(ctx, empty, fn(c, i, n) => n + 1).length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2614,7 +2614,7 @@ export fn main(): Result<(), Str> {
   let seen = tasks.parallel(ctx, ns, fn(c, i, n) => {
     let _ = time.sleepMs(c, 20);
     let each = spin.mapCtx(c, fn(d, k) => shared.join(d, ""));
-    str.format(c, "${n}:${each.len()}:${each.join(c, "|").len()}")
+    str.format(c, "${n}:${each.length()}:${each.join(c, "|").length()}")
   });
   let _ = io.println(ctx, seen.join(ctx, " ")).ignore();
 
@@ -3298,7 +3298,7 @@ export fn main(): Result<(), Str> {
   // again — so the last line is the first line only if the answer was copied.
   let churn = alloc.scoped(ctx, fn(c) => built(c, "q", 4096));
   let more = alloc.scoped(ctx, fn(c) => [built(c, "r", 2048)]);
-  let _ = io.println(ctx, "${churn.len()} ${more.len()}").ignore();
+  let _ = io.println(ctx, "${churn.length()} ${more.length()}").ignore();
   let _ = io.println(ctx, flatten(ctx, nested)).ignore();
   .Ok(())
 }
@@ -3342,7 +3342,7 @@ export fn main(): Result<(), Str> {
   let out = tasks.parallel(ctx, ns, fn(c, i, n) =>
     alloc.scoped(c, fn(d) => "-".repeat(d, n + 1)));
   let _ = io.println(ctx, out.join(ctx, ",")).ignore();
-  let _ = io.println(ctx, "${out.len()}").ignore();
+  let _ = io.println(ctx, "${out.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -3449,10 +3449,10 @@ let LOOSE: Int = 70000;
 /// behind is one this allocator is entitled to hand out again.
 fn churn<C: Allocator>(ctx: C): Int {
   let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
-    alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
+    alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).length())
   });
-  let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).len());
-  small.len() + large
+  let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).length());
+  small.length() + large
 }
 
 export fn main(): Result<(), Str> {
@@ -3467,10 +3467,10 @@ export fn main(): Result<(), Str> {
     let built = alloc.scoped(c, fn(d) => {
       let big = "s".repeat(d, LOOSE);
       let _ = tasks.spawn(d, here, fn(e) => {
-        let _ = io.println(e, "the task read ${big.len()}").ignore();
+        let _ = io.println(e, "the task read ${big.length()}").ignore();
         ()
       });
-      big.len()
+      big.length()
     });
     let _ = churn(c);
     io.println(c, "the arena built ${built}").ignore()
@@ -3967,7 +3967,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "before").ignore();
   let answers = tasks.parallel(ctx, [4, 2, 0], fn(c, i, n) => ratio(8, n));
-  let _ = io.println(ctx, "${answers.len()}").ignore();
+  let _ = io.println(ctx, "${answers.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -4397,10 +4397,10 @@ fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
     state: [],
     step: fn(c, held, message) => {
       match (message) {
-        .Fill(next) => Stepped { state: next, answer: .Kept(next.len()) },
+        .Fill(next) => Stepped { state: next, answer: .Kept(next.length()) },
         .Push(n) => {
           let grown = held.push(c, n);
-          Stepped { state: grown, answer: .Kept(grown.len()) }
+          Stepped { state: grown, answer: .Kept(grown.length()) }
         },
         .Drain => Stepped { state: [], answer: .Held(held) },
       }
@@ -4410,7 +4410,7 @@ fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
 
 fn drained(r: Result<Bagged, Stopped>): Int {
   match (r) {
-    .Ok(.Held(xs)) => xs.len(),
+    .Ok(.Held(xs)) => xs.length(),
     .Ok(.Kept(n)) => n,
     .Err(_e) => -1,
   }
@@ -4431,7 +4431,7 @@ fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
     state: initial,
     step: fn(c, held, message) => {
       match (message) {
-        .Say(next) => Stepped { state: next, answer: .Scalars(next.len()) },
+        .Say(next) => Stepped { state: next, answer: .Scalars(next.length()) },
         .Read => Stepped { state: held, answer: .Text(held) },
       }
     },
@@ -4449,7 +4449,7 @@ fn told(r: Result<Said, Stopped>): Str {
 fn counted(r: Result<Said, Stopped>): Int {
   match (r) {
     .Ok(.Scalars(n)) => n,
-    .Ok(.Text(s)) => s.len(),
+    .Ok(.Text(s)) => s.length(),
     .Err(_e) => -1,
   }
 }
@@ -4505,7 +4505,7 @@ fn shown<C: Allocator>(ctx: C, r: Result<Filed, Stopped>): Str {
       };
       str.format(
         ctx,
-        "${rec.label.name}/${rec.label.tags.len()}/${rec.counts.len()}/${note}",
+        "${rec.label.name}/${rec.label.tags.length()}/${rec.counts.length()}/${note}",
       )
     },
     .Err(_e) => "gone",
@@ -4751,10 +4751,10 @@ export fn main(): Result<(), Str> {
   // Scopes that map and release pages of their own. Small ones first: those
   // are the ones that draw a pooled block.
   let churned = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
-    alloc.scoped(k, fn(s) => "z".repeat(s, 40 + n).len())
+    alloc.scoped(k, fn(s) => "z".repeat(s, 40 + n).length())
   });
-  let large = alloc.scoped(ctx, fn(s) => "y".repeat(s, 70000).len());
-  let _ = io.println(ctx, "churned ${churned.len()} ${large}").ignore();
+  let large = alloc.scoped(ctx, fn(s) => "y".repeat(s, 70000).length());
+  let _ = io.println(ctx, "churned ${churned.length()} ${large}").ignore();
 
   let answered = out.address.sendMessage(out.scope, .Get);
   let want = big(ctx, "m");
@@ -4831,10 +4831,10 @@ fn outer(): Outer {
 fn identity<T>(value: T): T { value }
 
 export fn main(): Result<(), Str> {
-  let a = identity(outer()).inner.items.len();
+  let a = identity(outer()).inner.items.length();
   let plain = identity(outer()).plain;
   let inner = identity(outer()).inner;
-  let _ = io.println(stdout, "${a} ${plain.items.len()} ${inner.items.len()}").ignore();
+  let _ = io.println(stdout, "${a} ${plain.items.length()} ${inner.items.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -4953,7 +4953,7 @@ struct Walk { seen: [Int], total: Int }
 
 fn walk(octets: [U8], at: Int): Result<Int, Fault> {
   let walked = walkFrom(octets, at, Walk { seen: list.empty<Int>(), total: 0 })?;
-  .Ok(walked.total + walked.seen.len())
+  .Ok(walked.total + walked.seen.length())
 }
 
 fn walkFrom(octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
@@ -5029,18 +5029,18 @@ from "core/list" import * as list;
 
 struct Wrapper { octets: [U8] }
 
-fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).len() }
+fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).length() }
 
 fn matched(held: Option<[U8]>): Int {
-  match (held) { .None => 0, .Some(raw) => raw.len() }
+  match (held) { .None => 0, .Some(raw) => raw.length() }
 }
 
 fn wrapped(held: Option<Wrapper>): Int {
-  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.len()
+  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.length()
 }
 
 fn wrappedMatch(held: Option<Wrapper>): Int {
-  match (held) { .None => 0, .Some(w) => w.octets.len() }
+  match (held) { .None => 0, .Some(w) => w.octets.length() }
 }
 
 fn built(): [U8] { [1, 2, 3].map(alloc, fn(n) => n.wrapToU8()) }
@@ -5271,13 +5271,13 @@ fn writing(i: Int, n: Int, acc: (Out, Bool)): Out {
   if (i >= n) { acc.0 } else { writing(i + 1, n, (wrote(acc.0, i), true)) }
 }
 
-fn shown(xs: [Int]): Str { str.format(alloc, "${xs.len()}:${xs.sum()}") }
+fn shown(xs: [Int]): Str { str.format(alloc, "${xs.length()}:${xs.sum()}") }
 
 export fn main(): Result<(), Str> {
   // One closure, called four times, over a list the program grew.
   let xs = grown(3);
-  let sliced = list.range(alloc, 0, 4).mapCtx(alloc, fn(c, i) => xs.slice(c, 0, i).len());
-  let kept = Held { run: fn(c, i) => xs.drop(c, i).len() };
+  let sliced = list.range(alloc, 0, 4).mapCtx(alloc, fn(c, i) => xs.slice(c, 0, i).length());
+  let kept = Held { run: fn(c, i) => xs.drop(c, i).length() };
   let call = kept.run;
   let _ = io.println(stdout, "captured ${shown(sliced)} ${call(alloc, 1)} ${shown(xs)}").ignore();
 
@@ -5384,7 +5384,7 @@ export fn main(): Result<(), Str> {
   let again = match (whole) {
     .Only(nest) => nest.tag,
   };
-  let _ = io.println(stdout, "twice ${tag} ${rest.len()} ${again}").ignore();
+  let _ = io.println(stdout, "twice ${tag} ${rest.length()} ${again}").ignore();
   .Ok(())
 }
 "#,
@@ -5453,7 +5453,7 @@ fn built(i: Int, n: Int, acc: Chain): Chain {
 fn size(t: Tree): Int {
   match (t) {
     .Tip => 0,
-    .Branch(f) => 1 + size(f.left) + size(f.right) + f.mark.len(),
+    .Branch(f) => 1 + size(f.left) + size(f.right) + f.mark.length(),
   }
 }
 

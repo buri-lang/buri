@@ -37,7 +37,7 @@ test "a combining mark stays with the letter it is on" {
     let text = "éa";
     assert.equal(text.graphemes(ctx), ["é", "a"]);
     assert.equal(text.graphemeCount(), 2);
-    assert.equal(text.len(), 3);
+    assert.equal(text.length(), 3);
 }
 
 // GB3: a carriage return and a line feed are one cluster, and everything else
@@ -109,7 +109,7 @@ test "graphemeCount agrees with graphemes" {
         Allocator: alloc(),
     };
     let text = "á🇬🇧👨‍👩z";
-    assert.equal(text.graphemeCount(), text.graphemes(ctx).len());
+    assert.equal(text.graphemeCount(), text.graphemes(ctx).length());
     assert.equal(text.graphemeCount(), 4);
 }
 
@@ -240,7 +240,7 @@ test "caseFold has no locale, so the Turkish dotted capital keeps its dot" {
         Allocator: alloc(),
     };
     assert.equal("İ".caseFold(ctx), "i̇");
-    assert.equal("İ".caseFold(ctx).len(), 2);
+    assert.equal("İ".caseFold(ctx).length(), 2);
     assert.equal("I".caseFold(ctx), "i");
     // The dotless lowercase folds to itself, so `I` and `ı` stay apart.
     assert.equal("ı".caseFold(ctx), "ı");
@@ -270,7 +270,7 @@ test "caseFold is not toLower" {
     assert.equal("ﬄ".caseFold(ctx), "ffl");
     assert.equal("ẛ".caseFold(ctx), "ṡ");
     assert.equal("ΐ".caseFold(ctx), "ΐ");
-    assert.equal("ΐ".caseFold(ctx).len(), 3);
+    assert.equal("ΐ".caseFold(ctx).length(), 3);
     // The Kelvin sign and the ohm sign fold onto the ordinary letters.
     assert.equal("K".caseFold(ctx), "k");
     assert.equal("Ω".caseFold(ctx), "ω");
@@ -292,7 +292,7 @@ fn breaks<C: Allocator>(ctx: C, clusters: [[Char]]): () {
     let want = clusters.mapCtx(ctx, fn(c, cs) => str.fromChars(c, cs));
     let text = want.join(ctx, "");
     assert.equal(text.graphemes(ctx), want);
-    assert.equal(text.graphemeCount(), want.len());
+    assert.equal(text.graphemeCount(), want.length());
 }
 
 test "grapheme break vectors, 0 to 60" {

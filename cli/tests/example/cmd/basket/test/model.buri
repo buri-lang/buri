@@ -25,7 +25,7 @@ test "a recorded response becomes entries" {
         Allocator: alloc(),
     };
     let lines = entriesFrom(ctx, RECORDED);
-    assert.equal(lines.len(), 3);
+    assert.equal(lines.length(), 3);
     assert.equal(lines, [
         entry("coffee", fromCents(450)),
         entry("books", fromCents(3200)),
@@ -43,7 +43,7 @@ test "a line nobody can read is dropped, and the rest survive" {
         ctx,
         "coffee 4.50\nnonsense\ntram not-a-number\nbooks 32.00\n",
     );
-    assert.equal(lines.len(), 2);
+    assert.equal(lines.length(), 2);
     assert.equal(lines, [
         entry("coffee", fromCents(450)),
         entry("books", fromCents(3200)),

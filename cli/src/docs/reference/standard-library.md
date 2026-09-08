@@ -20,7 +20,7 @@ applied:
 
 | Tier | Shape | Example |
 |---|---|---|
-| **Pure** | no `ctx` parameter | `xs.len()`, `date.weekday(d)`, `v.dot(o)` |
+| **Pure** | no `ctx` parameter | `xs.length()`, `date.weekday(d)`, `v.dot(o)` |
 | **Deterministic** | `ctx` bounded by `Allocator` only | `xs.map(ctx, f)`, `json.stringify(ctx, v)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)`, `time.now(ctx)` |
 
@@ -132,7 +132,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   `core/char` — and a program that never calls these carries none of them.
   Everything here walks the string and probes a table per scalar; the three that
   take a context unpack each table once per call, and `graphemeCount` is pure
-  and cannot, so `graphemes(ctx).len()` is the cheaper count where a context is
+  and cannot, so `graphemes(ctx).length()` is the cheaper count where a context is
   at hand.
 
 - **`core/char`** — one scalar's own questions. `isDigit`, `isAlpha` and

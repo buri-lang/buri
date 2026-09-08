@@ -59,7 +59,7 @@ test "setHeader on a name that is not there is an append" {
     };
     let reply = http.status(204).setHeader(ctx, "x-made-by", "buri");
     assert.equal(reply.header("x-made-by"), .Some("buri"));
-    assert.equal(reply.headers.len(), 1);
+    assert.equal(reply.headers.length(), 1);
 }
 
 // --- The bound a request carries ---------------------------------------------
@@ -453,7 +453,7 @@ test "an encoded plus, a literal plus and a null byte" {
     let fields = assert.ok(http.formBody(ctx, ask.body));
     assert.equal(fields.get(0), .Some(("a", "+")));
     assert.equal(fields.get(1), .Some(("b", " ")));
-    assert.equal(assert.some(fields.get(2)).1.len(), 1);
+    assert.equal(assert.some(fields.get(2)).1.length(), 1);
 }
 
 test "an empty value, a field with no equals, and an empty pair" {

@@ -20,7 +20,7 @@ test "a field type that names nothing is reported where it is written" {
     };
     let text = [HEAD, "message M { Missing x = 1; }\n"].join(ctx, "");
     let out = generated(ctx, text);
-    assert.len(out.diagnostics, 1);
+    assert.length(out.diagnostics, 1);
     let d = assert.some(out.diagnostics.first());
     assert.equal(d.code, "proto-unknown-type");
     assert.equal(d.message, "`Missing` names no message or enum");

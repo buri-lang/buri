@@ -109,7 +109,7 @@ fn meld<T: Ordered, C: Allocator>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
 /// per pair would be n/2 frames deep.
 fn mergePairs<T: Ordered, C: Allocator>(ctx: C, children: [Tree<T>]): Tree<T> {
     let paired = list
-        .range(ctx, 0, (children.len() + 1) / 2)
+        .range(ctx, 0, (children.length() + 1) / 2)
         .mapCtx(ctx, fn(c, i) => {
             let first = children.get(i * 2).withDefault(.Empty);
             let second = children.get(i * 2 + 1).withDefault(.Empty);

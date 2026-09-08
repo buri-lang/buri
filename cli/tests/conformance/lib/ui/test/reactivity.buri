@@ -187,7 +187,7 @@ test "a memo nothing reads never runs" {
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
     let _ = n.set(ctx, 3);
-    assert.equal(log.noted().len(), 0);
+    assert.equal(log.noted().length(), 0);
 }
 
 test "reading a memo twice in one computation runs it once" {

@@ -9,7 +9,7 @@ fn describe(xs: [Int]): Template {
         [] => "empty",
         [only] => "one: ${only}",
         [a, b] => "two: ${a},${b}",
-        [head, ..rest] => "head ${head} and ${rest.len()} more",
+        [head, ..rest] => "head ${head} and ${rest.length()} more",
     }
 }
 

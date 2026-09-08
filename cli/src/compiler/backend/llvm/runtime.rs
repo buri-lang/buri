@@ -13,7 +13,7 @@
 //! `buri_rt_` followed by `snake_case`", so `host.HostFileSystem.readFile` is
 //! `buri_rt_host_fs_read_file` — and a fifteen-line mangler would produce that
 //! string. It would also produce `buri_rt_str_concat` for `str.concat` and
-//! `buri_rt_list_len` for `list.len`, **neither of which exists**: the archive
+//! `buri_rt_list_len` for `list.length`, **neither of which exists**: the archive
 //! is deliberately not the whole of the 203-function intrinsic surface
 //! (`cli/runtime/lib.rs` §0), and what is not in it is either generated code —
 //! `str.concat` is an allocation and two copies — or a later wave.
@@ -248,7 +248,7 @@ pub const BURI_OK: i64 = -1;
 /// What is deliberately still out, and why, so that a reader looking for one of
 /// these finds the reason rather than an absence:
 ///
-///  * **`str.concat`, `str.format`, `str.len`, `list.len`.** Open-coded in
+///  * **`str.concat`, `str.format`, `str.length`, `list.length`.** Open-coded in
 ///    [`super::emit::Unit::open_coded`]: each is an allocation and two copies,
 ///    a no-op, a masked load, or a word this backend already has the address
 ///    of, and a call would cost more than the sequence it stands for.
@@ -2299,7 +2299,7 @@ pub const I128_CHECKED_ENTRY: Entry = Entry {
 };
 
 /// `buri_rt_str_scalar_len(ptr, byte_len) -> u64` — the slow half of
-/// `str.len`, called only where the ASCII flag is clear.
+/// `str.length`, called only where the ASCII flag is clear.
 pub const STR_SCALAR_LEN: &str = "buri_rt_str_scalar_len";
 
 // -- rendering: a template hole, and `derivePrimShow` ------------------------
@@ -2472,7 +2472,7 @@ mod tests {
     /// these ever gains a symbol, this test is the reminder to add its shape
     /// rather than to let the mangler invent it.
     ///
-    /// `str.concat`, `str.format`, `str.len`, `list.len` and `list.empty` are
+    /// `str.concat`, `str.format`, `str.length`, `list.length` and `list.empty` are
     /// open-coded; `derivePrimShow` and `derivePrimHash` arrive qualified by
     /// their primitive (`derivePrimShow.U8`) and so have no key of their own;
     /// `json.decode` and every `list.*` entry taking a closure are outside the
@@ -2482,8 +2482,8 @@ mod tests {
         for absent in [
             "str.concat",
             "str.format",
-            "str.len",
-            "list.len",
+            "str.length",
+            "list.length",
             "json.decode",
             "derivePrimShow",
             "derivePrimHash",

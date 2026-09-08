@@ -52,12 +52,12 @@ export fn describeAll9_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric9_0(ns: [Int], ss: [Str]): Int {
-    firstOr9_0<Int>(ns, 0) + firstOr9_0<Str>(ss, "").len()
+    firstOr9_0<Int>(ns, 0) + firstOr9_0<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe9_0<C: Allocator>(ctx: C): Int {
-    useGeneric9_0([1, 2], ["a"]) + describeAll9_0(ctx, [1, 2]).len()
+    useGeneric9_0([1, 2], ["a"]) + describeAll9_0(ctx, [1, 2]).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

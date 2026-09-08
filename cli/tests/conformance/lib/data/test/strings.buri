@@ -12,32 +12,32 @@ from "core/order" import * as order;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
-// --- len ----------------------------------------------------------------------
+// --- length ----------------------------------------------------------------------
 
-test "len counts characters in ASCII" {
-    assert.equal("hello".len(), 5);
+test "length counts characters in ASCII" {
+    assert.equal("hello".length(), 5);
 }
 
-test "len of the empty string is zero" {
-    assert.equal("".len(), 0);
+test "length of the empty string is zero" {
+    assert.equal("".length(), 0);
 }
 
-test "len counts scalar values, not UTF-8 bytes" {
+test "length counts scalar values, not UTF-8 bytes" {
     // "é" is two UTF-8 bytes and one scalar value.
-    assert.equal("é".len(), 1);
+    assert.equal("é".length(), 1);
 }
 
-test "len counts a non-BMP character as one, not two" {
+test "length counts a non-BMP character as one, not two" {
     // U+1F600 is four UTF-8 bytes and two UTF-16 code units. It is one scalar.
-    assert.equal("😀".len(), 1);
+    assert.equal("😀".length(), 1);
 }
 
-test "len of a mixed string counts scalar values" {
-    assert.equal("a😀b".len(), 3);
+test "length of a mixed string counts scalar values" {
+    assert.equal("a😀b".length(), 3);
 }
 
-test "len of a string of only non-BMP characters" {
-    assert.equal("😀😁😂".len(), 3);
+test "length of a string of only non-BMP characters" {
+    assert.equal("😀😁😂".length(), 3);
 }
 
 test "isEmpty is true only for the empty string" {
@@ -287,7 +287,7 @@ test "compare orders the empty string first" {
 }
 
 // The order is **Unicode scalar value**, which for a valid string is UTF-8 byte
-// order — the unit `len` counts and `charAt` hands back. Every case above is
+// order — the unit `length` counts and `charAt` hands back. Every case above is
 // ASCII, where all three candidate orders agree; these are the ones that
 // discriminate, and they are the whole of what `core/str`'s `compare` promises
 // beyond "lexicographic".
@@ -675,11 +675,11 @@ test "chars yields one element per non-BMP character" {
     assert.equal("a😀".chars(ctx), ['a', '😀']);
 }
 
-test "chars length agrees with len" {
+test "chars length agrees with length" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal("a😀b".chars(ctx).len(), "a😀b".len());
+    assert.equal("a😀b".chars(ctx).length(), "a😀b".length());
 }
 
 test "fromChars rebuilds a string" {
@@ -863,11 +863,11 @@ test "format escapes a literal dollar sign" {
 }
 
 test "a ZWJ emoji sequence counts as its scalar values" {
-    assert.equal("👨‍👩‍👦".len(), 5);
+    assert.equal("👨‍👩‍👦".length(), 5);
 }
 
 test "a combining mark is its own scalar value" {
-    assert.equal("é".len(), 2);
+    assert.equal("é".length(), 2);
 }
 
 test "chars reversed and rebuilt reverses by scalar value" {
@@ -1285,10 +1285,10 @@ test "utf8Length counts the bytes UTF-8 would write" {
     assert.equal("".utf8Length(), 0);
 }
 
-test "utf16Length counts code units, and len counts scalars" {
+test "utf16Length counts code units, and length counts scalars" {
     assert.equal("abc".utf16Length(), 3);
     assert.equal("😀".utf16Length(), 2);
-    assert.equal("😀".len(), 1);
+    assert.equal("😀".length(), 1);
     assert.equal("a😀b".utf16Length(), 4);
     assert.equal("".utf16Length(), 0);
 }
@@ -1428,7 +1428,7 @@ test "fromFloatFixed hands back what has no digits" {
 
 // A width of one leaves no room for a gap, so no two words ever share a line —
 // and a word of one character still gets its own line rather than being
-// packed. `line.len() + 1 + word.len() <= width` is the sum that decides it,
+// packed. `line.length() + 1 + word.length() <= width` is the sum that decides it,
 // and one is the smallest width where the `+ 1` is the whole of the answer.
 test "wrap at a width of one is one word per line" {
     let ctx = context {
@@ -1672,25 +1672,25 @@ test "the searching and counting verbs over eight hundred scalars" {
         Allocator: alloc(),
     };
     let text = "ab".repeat(ctx, 400);
-    assert.equal(text.len(), 800);
+    assert.equal(text.length(), 800);
     assert.equal(text.count("ab"), 400);
     assert.equal(text.count("ba"), 399);
     assert.equal(assert.some(text.lastIndexOf("ab")), 798);
     assert.equal(assert.some(text.indexOfFrom("b", 700)), 701);
-    assert.equal(assert.some(text.stripPrefix("ab")).len(), 798);
-    assert.equal(assert.some(text.stripSuffix("ab")).len(), 798);
+    assert.equal(assert.some(text.stripPrefix("ab")).length(), 798);
+    assert.equal(assert.some(text.stripSuffix("ab")).length(), 798);
     assert.equal(text.utf8Length(), 800);
     assert.equal(text.utf16Length(), 800);
     assert.equal(text.reverse(ctx), "ba".repeat(ctx, 400));
-    assert.equal(text.splitLimit(ctx, "a", 3).len(), 3);
-    assert.equal(text.replaceFirst(ctx, "ab", "").len(), 798);
+    assert.equal(text.splitLimit(ctx, "a", 3).length(), 3);
+    assert.equal(text.replaceFirst(ctx, "ab", "").length(), 798);
     assert.isFalse(text.isBlank());
     assert.equal(assert.some(text.indexWhere(fn(c) => c == 'b')), 1);
     // And a long block of lines through the layout verbs.
     let block = "  line\n".repeat(ctx, 200);
-    assert.equal(block.dedent(ctx).lines(ctx).len(), 201);
-    assert.equal(block.indent(ctx, "> ").lines(ctx).len(), 201);
-    assert.equal("word ".repeat(ctx, 100).wrap(ctx, 9).len(), 50);
+    assert.equal(block.dedent(ctx).lines(ctx).length(), 201);
+    assert.equal(block.indent(ctx, "> ").lines(ctx).length(), 201);
+    assert.equal("word ".repeat(ctx, 100).wrap(ctx, 9).length(), 50);
 }
 
 // --- fromIntGrouped and fromFloatFixed at their ends -------------------------------

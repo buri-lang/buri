@@ -53,12 +53,12 @@ export fn describeAll2_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric2_0(ns: [Int], ss: [Str]): Int {
-    firstOr2_0<Int>(ns, 0) + firstOr2_0<Str>(ss, "").len()
+    firstOr2_0<Int>(ns, 0) + firstOr2_0<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_0<C: Allocator>(ctx: C): Int {
-    useGeneric2_0([1, 2], ["a"]) + describeAll2_0(ctx, [1, 2]).len()
+    useGeneric2_0([1, 2], ["a"]) + describeAll2_0(ctx, [1, 2]).length()
 }
 
 derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec2_1;
@@ -86,7 +86,7 @@ impl Rec2_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_1<C: Allocator>(ctx: C): Int {
     let r = Rec2_1 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A body of 7 bindings over integer arithmetic — the shape most
@@ -124,12 +124,12 @@ export fn describeAll2_3<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric2_3(ns: [Int], ss: [Str]): Int {
-    firstOr2_3<Int>(ns, 0) + firstOr2_3<Str>(ss, "").len()
+    firstOr2_3<Int>(ns, 0) + firstOr2_3<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_3<C: Allocator>(ctx: C): Int {
-    useGeneric2_3([1, 2], ["a"]) + describeAll2_3(ctx, [1, 2]).len()
+    useGeneric2_3([1, 2], ["a"]) + describeAll2_3(ctx, [1, 2]).length()
 }
 
 derive Equal, Show, Ordered, Hash, ToJson, FromJson for State2_4;
@@ -167,7 +167,7 @@ export fn start2_4(ticks: Int): State2_4 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_4<C: Allocator>(ctx: C): Int {
     let s = start2_4(5);
-    rank2_4(s) + s.show(ctx).len()
+    rank2_4(s) + s.show(ctx).length()
 }
 
 derive Equal, Show, Ordered, Hash, ToJson, FromJson for State2_5;
@@ -209,7 +209,7 @@ export fn start2_5(ticks: Int): State2_5 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_5<C: Allocator>(ctx: C): Int {
     let s = start2_5(5);
-    rank2_5(s) + s.show(ctx).len()
+    rank2_5(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -264,7 +264,7 @@ impl Rec2_7 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_7<C: Allocator>(ctx: C): Int {
     let r = Rec2_7 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show, Ordered, Hash, ToJson, FromJson for State2_8;
@@ -302,7 +302,7 @@ export fn start2_8(ticks: Int): State2_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe2_8<C: Allocator>(ctx: C): Int {
     let s = start2_8(5);
-    rank2_8(s) + s.show(ctx).len()
+    rank2_8(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

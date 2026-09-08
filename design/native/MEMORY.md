@@ -289,7 +289,7 @@ The analysis is a fixpoint over the call graph, which is exact
 (`monomorphize.rs`), so the answer is a fact rather than the conservative
 approximation a language with dynamic dispatch would get. Every pure,
 non-constructing operation in the standard library — `xs.fold(f, init)`,
-`xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.len()` — borrows
+`xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.length()` — borrows
 everything and touches no reference count at all.
 
 On top of that, three local rules:
@@ -372,7 +372,7 @@ because they are the shape the next one will have. A local scrutinized by
 **two** consuming `match`es was dropped by each of them, because the first one
 erased it from the liveness the second computed. And a **borrowed local handed
 to a construct beside a sibling holding its last mention** — `f(s, g(s))`, or
-`"${s} … ${s.len()}"` — was dropped after the sibling, while the construct was
+`"${s} … ${s.length()}"` — was dropped after the sibling, while the construct was
 still holding uncounted words copied out of it. Neither was visible to the
 balance checker, which counts operations rather than orders them; both were
 visible the moment an allocation reused the freed block.
@@ -647,7 +647,7 @@ false:
    body against the enclosing `owned` set read `xs` as dying at the closure
    that captured it, emitted no mark, and let `$list_slice` truncate `xs` in
    place on the first call —
-   `mapCtx(fn(c, i) => xs.slice(c, 0, i).len())` answered `0, 0, 0` where the
+   `mapCtx(fn(c, i) => xs.slice(c, 0, i).length())` answered `0, 0, 0` where the
    answer is `0, 1, 2`. `Scan::enter_lambda` narrows the set to the body's own
    `let` bindings and parameters, which is what leaves the `foldCtx`
    accumulator writing through. `cli/tests/conformance/lib/memory/test/captures.buri`

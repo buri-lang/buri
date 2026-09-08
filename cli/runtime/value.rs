@@ -10,7 +10,7 @@ use crate::memory::buri_rt_alloc;
 /// Bit 63 of `BuriStr::len`, set when every byte in the view is below `0x80`.
 ///
 /// VALUE-MODEL.md §3.1. The low 63 bits are the **byte** length; the flag says
-/// what `str.len()` — which is a count of Unicode scalar values, not of bytes
+/// what `str.length()` — which is a count of Unicode scalar values, not of bytes
 /// (`str.buri:17-18`) — costs. Set, and the scalar count *is* the byte count
 /// and `len()` is a mask; clear, and it is a scan for bytes with
 /// `(b & 0xC0) != 0x80`.
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn buri_rt_str_ascii_flag(bytes: *const u8, len: u64) -> u
     ascii_flag(unsafe { std::slice::from_raw_parts(bytes, len as usize) })
 }
 
-/// The number of Unicode scalar values in a view — `str.len()`.
+/// The number of Unicode scalar values in a view — `str.length()`.
 ///
 /// A mask when the ASCII flag is set, and a scan for non-continuation bytes
 /// otherwise (VALUE-MODEL.md §3.1). O(1) on the input that matters, which is

@@ -393,11 +393,11 @@ fn parameter<C: Allocator>(ctx: C, one: Str): Option<(Str, Str)> {
         .None => .None,
         .Some((name, value)) => {
             let trimmed = value.trim();
-            let quoted = trimmed.len() >= 2
+            let quoted = trimmed.length() >= 2
                 && trimmed.startsWith("\"")
                 && trimmed.endsWith("\"");
             let bare = if (quoted) {
-                trimmed.slice(1, trimmed.len() - 1)
+                trimmed.slice(1, trimmed.length() - 1)
             } else {
                 trimmed
             };

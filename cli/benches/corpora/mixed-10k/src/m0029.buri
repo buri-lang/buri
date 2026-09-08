@@ -111,7 +111,7 @@ impl Rec29_2 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe29_2<C: Allocator>(ctx: C): Int {
     let r = Rec29_2 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
@@ -120,14 +120,14 @@ export fn digest29_3<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [8326, 2497, 1820, 3308, 2187, 4833, 9815, 8798, 771, 7880];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain29_3(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -151,12 +151,12 @@ export fn describeAll29_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric29_4(ns: [Int], ss: [Str]): Int {
-    firstOr29_4<Int>(ns, 0) + firstOr29_4<Str>(ss, "").len()
+    firstOr29_4<Int>(ns, 0) + firstOr29_4<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe29_4<C: Allocator>(ctx: C): Int {
-    useGeneric29_4([1, 2], ["a"]) + describeAll29_4(ctx, [1, 2]).len()
+    useGeneric29_4([1, 2], ["a"]) + describeAll29_4(ctx, [1, 2]).length()
 }
 
 /// String building through interpolation, which is a template
@@ -176,7 +176,7 @@ export fn constants29_5(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe29_5<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants29_5();
-    label29_5(ctx, a, e).len() + b
+    label29_5(ctx, a, e).length() + b
 }
 
 derive Equal, Show for Rec29_6;
@@ -201,7 +201,7 @@ impl Rec29_6 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe29_6<C: Allocator>(ctx: C): Int {
     let r = Rec29_6 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -220,12 +220,12 @@ export fn describeAll29_7<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric29_7(ns: [Int], ss: [Str]): Int {
-    firstOr29_7<Int>(ns, 0) + firstOr29_7<Str>(ss, "").len()
+    firstOr29_7<Int>(ns, 0) + firstOr29_7<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe29_7<C: Allocator>(ctx: C): Int {
-    useGeneric29_7([1, 2], ["a"]) + describeAll29_7(ctx, [1, 2]).len()
+    useGeneric29_7([1, 2], ["a"]) + describeAll29_7(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -263,14 +263,14 @@ export fn digest29_9<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [8048, 9739, 4889, 7807, 8539, 5344, 7213, 3977, 4985, 6115, 8161];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain29_9(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -303,7 +303,7 @@ impl Rec29_10 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe29_10<C: Allocator>(ctx: C): Int {
     let r = Rec29_10 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

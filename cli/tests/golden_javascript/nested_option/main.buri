@@ -69,7 +69,7 @@ export fn main(): Result<(), Str> {
     // Options, indexed.
     let opts: [Option<Int>] = [.Some(1), .None, .Some(3)];
     let got = opts.get(1);
-    let _ = io.println(ctx, "${label(got)} ${opts.len()}").ignore();
+    let _ = io.println(ctx, "${label(got)} ${opts.length()}").ignore();
 
     // Derived Equal, Ordered and Show over a struct holding an Option.
     let a = Holder { inner: .Some(2) };

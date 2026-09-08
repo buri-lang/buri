@@ -21,7 +21,7 @@ test "DropZero removes zero-amount entries" {
         Allocator: alloc(),
     };
     let kept = apply(ctx, sample(), Rule.DropZero);
-    assert.equal(kept.len(), 2);
+    assert.equal(kept.length(), 2);
     assert.equal(total(kept, fromCents(3650));
 }
 
@@ -30,5 +30,5 @@ test "MemoPrefix keeps matching memos" {
         Allocator: alloc(),
     };
     let kept = apply(ctx, sample(), Rule.MemoPrefix { prefix: "co" });
-    assert.equal(kept.len(), 1);
+    assert.equal(kept.length(), 1);
 }

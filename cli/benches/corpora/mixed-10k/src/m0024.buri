@@ -52,12 +52,12 @@ export fn describeAll24_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric24_0(ns: [Int], ss: [Str]): Int {
-    firstOr24_0<Int>(ns, 0) + firstOr24_0<Str>(ss, "").len()
+    firstOr24_0<Int>(ns, 0) + firstOr24_0<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe24_0<C: Allocator>(ctx: C): Int {
-    useGeneric24_0([1, 2], ["a"]) + describeAll24_0(ctx, [1, 2]).len()
+    useGeneric24_0([1, 2], ["a"]) + describeAll24_0(ctx, [1, 2]).length()
 }
 
 /// A body of 11 bindings over integer arithmetic — the shape most
@@ -116,7 +116,7 @@ export fn start24_2(ticks: Int): State24_2 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe24_2<C: Allocator>(ctx: C): Int {
     let s = start24_2(5);
-    rank24_2(s) + s.show(ctx).len()
+    rank24_2(s) + s.show(ctx).length()
 }
 
 derive Equal, Show for State24_3;
@@ -152,7 +152,7 @@ export fn start24_3(ticks: Int): State24_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe24_3<C: Allocator>(ctx: C): Int {
     let s = start24_3(5);
-    rank24_3(s) + s.show(ctx).len()
+    rank24_3(s) + s.show(ctx).length()
 }
 
 derive Equal, Show for State24_4;
@@ -186,7 +186,7 @@ export fn start24_4(ticks: Int): State24_4 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe24_4<C: Allocator>(ctx: C): Int {
     let s = start24_4(5);
-    rank24_4(s) + s.show(ctx).len()
+    rank24_4(s) + s.show(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -205,12 +205,12 @@ export fn describeAll24_5<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric24_5(ns: [Int], ss: [Str]): Int {
-    firstOr24_5<Int>(ns, 0) + firstOr24_5<Str>(ss, "").len()
+    firstOr24_5<Int>(ns, 0) + firstOr24_5<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe24_5<C: Allocator>(ctx: C): Int {
-    useGeneric24_5([1, 2], ["a"]) + describeAll24_5(ctx, [1, 2]).len()
+    useGeneric24_5([1, 2], ["a"]) + describeAll24_5(ctx, [1, 2]).length()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
@@ -219,14 +219,14 @@ export fn digest24_6<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [2354, 9580, 7882, 9372];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain24_6(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -300,7 +300,7 @@ export fn start24_8(ticks: Int): State24_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe24_8<C: Allocator>(ctx: C): Int {
     let s = start24_8(5);
-    rank24_8(s) + s.show(ctx).len()
+    rank24_8(s) + s.show(ctx).length()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
@@ -309,14 +309,14 @@ export fn digest24_9<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [4309, 3895, 9211, 3021, 3949];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain24_9(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
