@@ -7,6 +7,11 @@
 # exactly the situation the check exists to catch. The loop itself is driven in
 # `cli/tests/build/watch.rs`, headlessly, with the terminal flag injected.
 #
+# The terminal check is `buri test`'s alone. `buri run --watch` on a page blocks
+# with or without the flag — it is a server — so asking whether anybody is
+# watching the loop answers nothing there, and `build::serving` drives the real
+# command down a pipe.
+#
 # The order the checks are written in is part of the contract: a flag
 # combination is a mistake a person can fix by reading, so it is reported ahead
 # of the terminal check rather than behind it. Without that, both of these would
@@ -48,8 +53,10 @@ run {
   stream: ERR
 }
 
-# `--watch` belongs to `buri test` and to nothing else, and the command table is
-# what enforces that: no code in `build` had to know the flag exists.
+# `--watch` belongs to the two commands that have a loop — `buri test`, and the
+# page `buri run` serves — and to nothing else. The command table is what
+# enforces that: no code in `build` had to know the flag exists, and the
+# refusal names both takers rather than a memory of one.
 run {
   args: ["build", "//lib/money", "--watch"]
   exit: 2
