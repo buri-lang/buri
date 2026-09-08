@@ -114,7 +114,9 @@ so the run that fixes it happens by itself.
 Two combinations are refused before anything opens, each with the reason.
 `--force`, because forcing turns every cache hit into a run, and the cache is
 what makes a loop this cheap. And no terminal on standard output, because a
-watch loop nobody is watching is a hung job.
+watch loop nobody is watching is a hung job. The terminal rule is this command's
+alone: [`buri run`](./run.md) on a page blocks either way, because it is a
+server.
 
 Interrupting the loop is how it ends, and the shell reports the interrupt rather
 than a verdict. Use plain `buri test` when you want a status to branch on.

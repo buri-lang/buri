@@ -301,6 +301,27 @@ error: `location` implements `Location`, which is not allowed on the CLOUDFLARE_
    = fix: drop `Location` from the context, or build this target for a platform that grants it: WEB
 ```
 
+## Look at it locally
+
+`buri run` builds the page and serves it, so there is nothing to write and
+nothing to install:
+
+```text
+$ buri run //cmd/site
+serving //cmd/site on http://127.0.0.1:4000/
+```
+
+Files under the artifact directory are answered as themselves and every other
+path is answered with the entry shell — so `/about` arrives with `/about` in the
+address bar, and the match above sees it. `--watch` rebuilds on a save, and
+nothing is cached, so a reload is the new build.
+[`buri run`](../reference/cli/run.md) has the port, the flags and the rest.
+
+What it serves is the shell the compiler wrote, not the document `fetch`
+renders. A `main` that resumes therefore finds markup no `shell` wrote and says
+so: this is how you look at a page that *mounts*. The resumed page is the
+worker's, and the worker runs on its platform's own local runner.
+
 ## Next
 
 - [User interfaces](./user-interfaces.md) — the tree, signals, styles and

@@ -3,6 +3,13 @@
 //! Builds exactly one binary and executes it outside the sandbox, with the
 //! real environment and the real filesystem. That is the point of the command:
 //! it is the one that produces a program with authority.
+//!
+//! **A page is the one output with no process to start**, and it is the one
+//! output a person most wants to look at. So `run` builds it and serves it on
+//! a local port, answering the files under the artifact directory as themselves
+//! and the shell for every other path — which is what lets the page's own
+//! router see the address the reader typed. `commands/serve.rs` is that server;
+//! this file is where the command decides it is what `run` means here.
 #![allow(
     clippy::print_stderr,
     reason = "a `buri run` that has nothing to run is a complaint about the \
@@ -11,10 +18,13 @@
 )]
 
 use crate::build::actions;
-use crate::build::buildfile::Platform;
+use crate::build::buildfile::{Output, Platform};
 use crate::build::session;
-use crate::build::workspace::RuleKind;
+use crate::build::session::Session;
+use crate::build::workspace::{RuleKind, TargetId};
 use crate::commands::arguments;
+use crate::commands::serve;
+use crate::commands::watch;
 
 pub fn command_run(args: &arguments::Args) -> i32 {
     let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
@@ -73,10 +83,37 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         );
         return 2;
     };
+    // A page has no process to start, so `run` serves it instead.
+    if output.platform() == Platform::Web {
+        return serve_page(session, target, &output, args);
+    }
+    // And the two flags that belong to that server are refused on everything
+    // else, before a line is compiled: each is about the invocation rather
+    // than about the code, and a flag quietly ignored is a loop that never
+    // happened with nothing said about it.
+    let serving_flag =
+        if args.flags.watch { Some("watch") } else { args.flags.port.map(|_| "port") };
+    if let Some(flag) = serving_flag {
+        eprintln!(
+            "error: `buri run` takes `--{flag}` only for a page, and {} runs its {} output as a \
+             process",
+            session.workspace.label(target),
+            output.platform().slug()
+        );
+        eprintln!(
+            "  = a page is served over HTTP, so a rebuild is what the next request answers from; \
+             a program with a process of its own is started once"
+        );
+        eprintln!(
+            "  = fix: drop `--{flag}`, or name a page — `--output=web` picks one where a binary \
+             declares a page beside a native output"
+        );
+        return 2;
+    }
+
     // What follows this asks whether the artifact is a process or a module a
-    // JavaScript runtime is handed, and a WEB artifact is the latter: it runs
-    // headlessly under `bun` and `node`, which is what makes `buri run` on a
-    // page mean something rather than being refused.
+    // JavaScript runtime is handed, and everything that reaches here is one or
+    // the other.
     let native = output.platform().is_native();
 
     let artifact = match actions::build_target(&mut session, target, &output, &args.flags) {
@@ -116,6 +153,154 @@ pub fn command_run(args: &arguments::Args) -> i32 {
                 eprintln!("  = `buri run` needs a JavaScript runtime; install bun, or set BURI_JS");
             }
             2
+        }
+    }
+}
+
+/// Builds the page and answers requests for it until the process is stopped.
+///
+/// The order is the contract. **The port is taken before anything is
+/// compiled**, so a port that is already in use is a refusal a reader gets at
+/// once rather than after a build; **the address is printed once, before
+/// anything blocks**, so a script and a person both know when to open it. Under
+/// `--watch` it is printed from the loop's arming callback instead, which is
+/// the instant the declared set has been stamped — an edit made after reading
+/// that line is therefore an edit the next pass sees, rather than one racing
+/// the stamp.
+fn serve_page(
+    mut session: Session,
+    target: TargetId,
+    output: &Output,
+    args: &arguments::Args,
+) -> i32 {
+    let asked = args.flags.port.unwrap_or(serve::DEFAULT_PORT);
+    let listener = match serve::bind(asked) {
+        Ok(listener) => listener,
+        Err(why) => {
+            eprintln!("error: {why}");
+            eprintln!(
+                "  = fix: stop what is holding it, or name another with `--port=<port>`; \
+                 `--port=0` takes whatever is free"
+            );
+            return 2;
+        }
+    };
+    // What `--port=0` resolved to. Asking the listener rather than remembering
+    // what was requested is the whole reason a test can use it.
+    let port = listener.local_addr().map_or(asked, |address| address.port());
+
+    let artifact = match actions::build_target(&mut session, target, output, &args.flags) {
+        Ok(artifact) => artifact,
+        Err(diagnostics) => {
+            session.print(&diagnostics);
+            return 1;
+        }
+    };
+    let label = session.workspace.label(target);
+    let page = match serve::Page::beside(&artifact.path) {
+        Ok(page) => std::sync::Arc::new(page),
+        Err(why) => {
+            eprintln!("error: {label} has no page to serve: {why}");
+            eprintln!("  = fix: build it again with `buri build {label}`");
+            return 2;
+        }
+    };
+
+    if !args.flags.watch {
+        serve::announce(&label, port);
+        serve::serve(&listener, &page);
+        return 0;
+    }
+
+    // The set this build's keys were computed from, which is the loop's
+    // opening set: the pass that produced it has already run, so pass 1 is the
+    // one that hands it over and says nothing.
+    let opening = watch::inputs(&session, &[target]);
+    let root = session.root.clone();
+    drop(session);
+    let mut sources = crate::build::sources::Sources::at(&root, args.flags.clone());
+    let mut listener = Some(listener);
+    let serving = std::sync::Arc::clone(&page);
+    watch::Watch::on(root, args.flags.explain).drive_armed(
+        |trigger| {
+            if trigger.pass == 1 {
+                return watch::Pass {
+                    code: 0,
+                    inputs: opening.clone(),
+                    output: String::new(),
+                    quiet: true,
+                };
+            }
+            rebuild(&mut sources, args, &page)
+        },
+        |pass| {
+            if pass != 1 {
+                return;
+            }
+            serve::announce(&label, port);
+            if let Some(listener) = listener.take() {
+                let page = std::sync::Arc::clone(&serving);
+                std::thread::spawn(move || serve::serve(&listener, &page));
+            }
+        },
+    )
+}
+
+/// One pass of the watch loop: build the page again, into the same directory
+/// the server is answering out of.
+///
+/// The lock is held across the rebuild, so a request that lands in the middle
+/// of one waits for it rather than reading a file half written — and what it
+/// then gets is the new page rather than the old one, which is the answer a
+/// reader who just saved wanted anyway. A rebuild that fails leaves the
+/// previous artifact where it was and says why: a page you can still reload is
+/// better than a blank one.
+///
+/// A pass served entirely from the cache is silent, which is `buri test
+/// --watch`'s rule and the same one: an edit that changed no key changed
+/// nothing a reader could reload for.
+fn rebuild(
+    sources: &mut crate::build::sources::Sources,
+    args: &arguments::Args,
+    page: &std::sync::Arc<serve::Page>,
+) -> watch::Pass {
+    // A pass that could not get as far as a build: it says so, and it hands
+    // back no input set, which is what makes the loop keep watching the one it
+    // already had — including the file whose repair is what it is waiting for.
+    let stalled =
+        |code| watch::Pass { code, inputs: Vec::new(), output: String::new(), quiet: false };
+    sources.begin_round();
+    let Ok(opened) = session::resume_or_exit(sources) else { return stalled(2) };
+    let Ok((mut session, targets)) = session::resolve_in(opened, &args.targets) else {
+        return stalled(2);
+    };
+    let binaries: Vec<_> = targets.iter().copied().filter(|t| t.kind == RuleKind::Binary).collect();
+    // The same choice `command_run` made, made again: a `BUILD.buri` is a
+    // declared input, so an edit to one can take the page away — and a loop
+    // that kept building whatever it found would serve something nobody asked
+    // for out of the directory a page was in.
+    let still_a_page = match binaries.as_slice() {
+        &[target] => choose(&actions::selected_outputs(&session, target, &args.flags), &args.flags)
+            .filter(|output| output.platform() == Platform::Web)
+            .map(|output| (target, output)),
+        _ => None,
+    };
+    let Some((target, output)) = still_a_page else {
+        eprintln!("error: this no longer names one page; the last build is still being served");
+        return stalled(2);
+    };
+    let inputs = watch::inputs(&session, &[target]);
+    let built = {
+        let _writing = page.building();
+        actions::build_target(&mut session, target, &output, &args.flags)
+    };
+    match built {
+        Ok(artifact) => {
+            watch::Pass { code: 0, inputs, output: String::new(), quiet: artifact.cached }
+        }
+        Err(diagnostics) => {
+            session.print(&diagnostics);
+            watch::Pass { code: 1, inputs, output: String::new(), quiet: false }
         }
     }
 }

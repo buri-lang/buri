@@ -86,14 +86,13 @@ run {
   exit: 0
 }
 
-# `buri run` starts a program, so a binary with a page and a worker runs the
-# page: it mounts into the document the runtime supplies and prints nothing.
-run {
-  args: ["run", "//cmd/site"]
-  exit: 0
-}
-
-# And a binary that is only a worker has nothing to start at all. The refusal
+# A binary with a page and a worker runs the page, and `buri run` on a page is
+# a server — so that claim moved to a tier that can talk to one:
+# `build::serving::a_binary_with_a_worker_beside_its_page_serves_the_page`
+# starts this same shape and reads the shell back off a socket. It used to be a
+# row here, exiting 0 with nothing to show for it.
+#
+# A binary that is only a worker has nothing to start at all. The refusal
 # says why rather than handing a JavaScript runtime a module that would sit
 # there exporting a `fetch` nobody calls.
 run {
