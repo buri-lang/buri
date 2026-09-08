@@ -48,5 +48,5 @@ test "a fraction track takes its share of what is left" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "grid-fractions", fractions(), .Hover);
+    snapshot(ctx, "grid-fractions", fractions(), .Hover, []);
 }
