@@ -71,5 +71,5 @@ test "a list is marked only where it asked to be" {
         marked(.Disc),
         marked(.Decimal),
     ]);
-    snapshot(ctx, "lists", tree, .Hover);
+    snapshot(ctx, "lists", tree, .Hover, []);
 }
