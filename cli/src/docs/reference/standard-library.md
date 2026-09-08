@@ -700,7 +700,11 @@ fn page<C>(path: Prop<Str>): Node<C> {
 }
 
 fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
-    http.html(ctx, web.shell(ctx, path, web.render(page(.Const(path))), state))
+    let document = web.Document { ..web.defaultDocument(), title: "Buri" };
+    http.html(
+        ctx,
+        web.shell(ctx, path, document, web.render(page(.Const(path))), state),
+    )
 }
 ```
 
@@ -708,7 +712,11 @@ fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
 unbounded in `C`, so nothing in a tree can act while it is being written out.
 `shell` puts the state in an inert `<script id="buri-state">`, the path it
 rendered for on that script as `data-path`, and the compiler's stylesheet in the
-head.
+head. `web.Document` is the rest of that head: `title` names the tab and `lang`
+names the language, both escaped. `defaultDocument` is the one to write over,
+so a page names the fields it differs in and nothing else. Routing is a match,
+so a page's title is one too. The client-rendered `.html` has the same two
+fields in its build rule, as `binary { web { title lang } }`.
 
 On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
 takes the document over. It creates no element and no run of text — the renderer
