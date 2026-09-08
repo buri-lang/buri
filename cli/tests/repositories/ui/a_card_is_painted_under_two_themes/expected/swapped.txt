@@ -1,0 +1,8 @@
+FAIL //lib/cardlib  test/card.buri  "the card, light"
+  the snapshot "card-light" changed: see test/__snapshots__/card-light.diff.png
+  --> lib/cardlib/test/card.buri:30:1
+FAIL //lib/cardlib  test/card.buri  "the card, dark"
+  the snapshot "card-dark" changed: see test/__snapshots__/card-dark.diff.png
+  --> lib/cardlib/test/card.buri:38:1
+
+0 passed, 2 failed, 0 skipped (0.0s)

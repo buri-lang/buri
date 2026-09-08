@@ -1178,6 +1178,11 @@ pub const ENTRIES: &[Entry] = &[
     // there is nothing on this side to render into. That is what still holds
     // `ui/tree.buri` and `ui/theme.buri` out of the native conformance set.
     //
+    // A snapshot's **themes** are here, though, and they are not a document:
+    // `ui/theme`'s `document` flattens the list to text under its own
+    // `rootScope`, and `installThemes` hands that text over for the paint that
+    // follows. Two rows, both monomorphic, and a `Theme` never crosses.
+    //
     // Three of them are generic and each carries §2 rule 4's pair. The type is
     // a bare `T` rather than a `[T]`'s element, which is what
     // `stencil/rtcall.rs`'s `element_ty` widened for: `signal` and `write` name
@@ -1193,6 +1198,13 @@ pub const ENTRIES: &[Entry] = &[
     // value comes back through a pointer at every instantiation rather than in
     // a register at some of them.
     e("ui_node.rootScope", "buri_rt_ui_node_root_scope", Ret::Out),
+    // `ui/theme`'s own untracked scope, for the walk that flattens a theme
+    // list to the document a snapshot's painter reads. A second row rather
+    // than a second name for `ui_node.rootScope`, because the symbol a key
+    // produces is the key's own (§1's rule) — and a private one per module is
+    // what keeps a `Scope`, which grants reading the graph, out of any public
+    // signature.
+    e("ui_theme.rootScope", "buri_rt_ui_theme_root_scope", Ret::Out),
     el("ui_effect.Scope.read", "buri_rt_ui_effect_scope_read", Ret::Out),
     e("ui_testing.headless", "buri_rt_ui_testing_headless", Ret::Out),
     eo("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1),
@@ -1202,6 +1214,7 @@ pub const ENTRIES: &[Entry] = &[
     eo("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2),
     ec("ui_testing.Headless.memo", "buri_rt_ui_testing_headless_memo", Ret::Scalar),
     ec("ui_testing.Headless.watch", "buri_rt_ui_testing_headless_watch", Ret::Void),
+    e("ui_testing.installThemes", "buri_rt_ui_testing_install_themes", Ret::Void),
     e("ui_testing.paint", "buri_rt_ui_testing_paint", Ret::Void),
     // The recorder: how a computation says that it ran. A reactive body holds
     // a `Scope`, which grants reading the graph and nothing else, so it cannot

@@ -13,7 +13,7 @@ test "an empty tree is a page with nothing on it" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "empty", ui.nothing(), .Hover);
+    snapshot(ctx, "empty", ui.nothing(), .Hover, []);
 }
 
 test "a tree of one run of text" {
@@ -21,7 +21,7 @@ test "a tree of one run of text" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "one-run-of-text", ui.text(.Const("Ada")), .Hover);
+    snapshot(ctx, "one-run-of-text", ui.text(.Const("Ada")), .Hover, []);
 }
 
 test "a hundred stacks deep" {
@@ -29,7 +29,7 @@ test "a hundred stacks deep" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "a-hundred-deep", deep(100), .Hover);
+    snapshot(ctx, "a-hundred-deep", deep(100), .Hover, []);
 }
 
 test "a thousand siblings" {
@@ -37,5 +37,5 @@ test "a thousand siblings" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "a-thousand-siblings", siblings(ctx, 1000), .Hover);
+    snapshot(ctx, "a-thousand-siblings", siblings(ctx, 1000), .Hover, []);
 }

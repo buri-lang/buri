@@ -4550,6 +4550,13 @@ function $ui_node_rootScope() {
   return [-1];
 }
 
+// `ui/theme`'s own, for the walk that flattens a theme list to the document a
+// snapshot's painter reads. The same untracked scope under a second name,
+// because the symbol an intrinsic key produces is the key's own.
+function $ui_theme_rootScope() {
+  return [-1];
+}
+
 // --- The headless user-interface platform ------------------------------------
 //
 // The same graph, with no document attached: `ui/testing` is about what the
@@ -4597,6 +4604,12 @@ function $ui_testing_variables() {
 // tiny-skia, in `cli/runtime/paint.rs` — and there is no painter here. A suite
 // that declares `platforms: [JS]` and calls `snapshot` therefore fails rather
 // than passing without having painted anything.
+// A snapshot's themes, for a painter this side does not have. `paint` below
+// fails the block whatever was installed, so there is nothing here to keep.
+function $ui_testing_installThemes(document) {
+  return 0;
+}
+
 function $ui_testing_paint(name, scene, state) {
   $testing_assert_failWith(
     'the snapshot "' + name + '" was not painted: snapshots run natively, and this suite is JS',

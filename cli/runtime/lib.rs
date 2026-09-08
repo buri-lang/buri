@@ -654,7 +654,8 @@ pub mod rt;
 #[cfg(feature = "net")]
 mod switch;
 /// `ui/testing`'s `snapshot`: paint the scene `ui/node`'s `describe` wrote,
-/// then compare it against the golden or record it. Three `Str`s in and
+/// then compare it against the golden or record it. Four `Str`s in — the last
+/// is the flattened theme document, which says what each token is worth — and
 /// nothing out, and a changed snapshot is reported as a failed assertion
 /// rather than as a toolchain fault. Behind `paint` because the painter is.
 #[cfg(feature = "paint")]
