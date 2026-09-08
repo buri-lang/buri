@@ -9,6 +9,7 @@ library {
             "test/evaluation.buri",
             "test/variance.buri",
             "test/elision.buri",
+            "test/lambdas.buri",
             "test/anonymous.buri",
             "test/host_testing.buri",
             "test/http.buri",

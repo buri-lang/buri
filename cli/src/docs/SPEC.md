@@ -1220,7 +1220,10 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ```
 
 Lambdas begin with `fn` so that `(x)` is never ambiguous with a parameter list.
-You may omit parameter types and the return type where they are inferable.
+You may omit parameter types and the return type where they are inferable. An
+omitted return type is not an unchecked one — the body has to answer whatever the
+position wants, so `let f: fn(Int) => Str = fn(_x) => 5` is a `type-mismatch` at
+the `5`.
 
 A lambda body extends as far right as possible, so a lambda cannot appear as a
 bare operand of a binary operator (`design/grammar-rationale.md` 12.11). `2 * fn(x) => x` is a parse
