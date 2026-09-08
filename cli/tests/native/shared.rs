@@ -289,58 +289,54 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// promises, and the thing a test could not assert if a server could only ever
 /// be killed.
 ///
-/// **The eight kilobytes of padding are load-bearing**, and their reason is a
-/// gap rather than a trick. The port has to reach the test *while the server is
-/// still running*, and a native Buri program has exactly one channel out of
-/// itself: `cli/runtime/host.rs` buffers standard output until eight kilobytes
-/// or exit. A file and an environment variable are both unavailable — neither
-/// `host.HostFileSystem.*` nor `host.HostEnvironment.*` has a row in either runtime table — so
-/// filling that buffer is what makes the first line readable now rather than at
-/// exit. The day one of those families gets a row this becomes two lines and a
-/// path.
+/// **The port line reaches the test while the server is still running**, which
+/// is the runtime's promise and not this fixture's trick: standard output is
+/// buffered, and `cli/runtime/host.rs`'s `about_to_block` empties that buffer
+/// before the program waits — here, before the `listenAccept` under `run`.
+/// Until buri-lang/buri#66 it did not, and this fixture padded the line with
+/// eight kilobytes of `x` to force the buffer through. The padding is gone, so
+/// this row reads a line only that flush could have delivered.
 ///
 /// The alternative, letting the *test* pick a port and compiling it in, was
 /// rejected: seconds pass between the pick and the bind, and a port taken in
 /// between is a flake rather than a failure.
 pub fn one_shot_server() -> String {
-    format!(
-        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
+    String::from(
+        r#"from "core/effect" import { Allocator, Listen, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {{
-  let ctx = context {{
+export fn main(): Result<(), Str> {
+  let ctx = context {
     Allocator: host.alloc,
     Listen: host.listen,
     Stdout: host.stdout,
     Tasks: host.tasks,
-  }};
-  let plan = server.Server {{
+  };
+  let plan = server.Server {
     port: 0,
     onRequest: fn(c, request) => http.text(c, request.path()),
     requestLimit: .Some(1),
     idleTimeout: .Some(time.milliseconds(20000)),
-  }};
-  match (server.bind(ctx, plan)) {{
+  };
+  match (server.bind(ctx, plan)) {
     .Err(e) => .Err(server.errorText(e)),
-    .Ok(listener) => {{
-      let pad = "x".repeat(ctx, {pad});
-      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
-      match (server.run(ctx, listener, plan)) {{
+    .Ok(listener) => {
+      let _ = io.println(ctx, "port ${listener.port}").ignore();
+      match (server.run(ctx, listener, plan)) {
         .Err(e) => .Err(server.errorText(e)),
-        .Ok(_ok) => {{
+        .Ok(_ok) => {
           let _ = io.println(ctx, "served").ignore();
           .Ok(())
-        }},
-      }}
-    }},
-  }}
-}}
-"#,
-        pad = STDOUT_BUFFER
+        },
+      }
+    },
+  }
+}
+"#
     )
 }
 
@@ -387,8 +383,7 @@ export fn main(): Result<(), Str> {{
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
     .Ok(listener) => {{
-      let pad = "x".repeat(ctx, {pad});
-      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+      let _ = io.println(ctx, "port ${{listener.port}}").ignore();
       match (server.run(ctx, listener, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
         .Ok(_ok) => {{
@@ -402,17 +397,8 @@ export fn main(): Result<(), Str> {{
 "#,
         requests = requests,
         sleep = sleep_milliseconds,
-        pad = STDOUT_BUFFER
     )
 }
-
-/// `cli/runtime/host.rs`'s `FLUSH_AT`, from the other side of the C ABI.
-///
-/// Transcribed rather than exported, because it is a buffering policy and not a
-/// contract: a runtime that flushed on every newline would make the padding
-/// above harmless rather than wrong, and one that buffered *more* would make
-/// this test hang — which is why the wait for the first line is bounded.
-pub const STDOUT_BUFFER: usize = 8 * 1024;
 
 /// Run a server binary, take the port off its first line of output, make one
 /// HTTP/1.1 request, and answer `(what the program said, what came back)`.
@@ -489,8 +475,7 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
     }
     let ran = Ran {
         status: status.code().unwrap_or(-1),
-        // The first line's padding is dropped: it is the buffer's price and not
-        // anything the program meant to say.
+        // The first line is the port line, kept to the two words it is.
         stdout: format!("{}\n{rest}", first.split_whitespace().take(2).collect::<Vec<_>>().join(" ")),
         stderr,
     };
@@ -684,8 +669,6 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(c, request) => {{
       let _handling = io.println(c, "handling").ignore();
-      let flush = "x".repeat(c, {pad});
-      let _flushed = io.println(c, flush).ignore();
       let _slept = time.sleep(c, time.milliseconds({sleep}));
       http.text(c, request.path())
     }},
@@ -694,8 +677,7 @@ export fn main(): Result<(), Str> {{
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
     .Ok(listener) => {{
-      let pad = "x".repeat(ctx, {pad});
-      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+      let _ = io.println(ctx, "port ${{listener.port}}").ignore();
       match (server.run(ctx, listener, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
         .Ok(_ok) => {{
@@ -708,7 +690,6 @@ export fn main(): Result<(), Str> {{
 }}
 "#,
         sleep = sleep_milliseconds,
-        pad = STDOUT_BUFFER
     )
 }
 
@@ -741,15 +722,9 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
         let mut lines: Vec<String> = Vec::new();
         for line in reader.lines() {
             let Ok(line) = line else { break };
-            // The padding is the output buffer's price and not anything the
-            // program meant to say, so it is dropped here rather than carried
-            // through every assertion below.
-            let short: String = line
-                .split_whitespace()
-                .take(2)
-                .filter(|token| !token.starts_with("xxxx"))
-                .collect::<Vec<_>>()
-                .join(" ");
+            // Two words is every line these fixtures print: `port <n>`,
+            // `handling`, `served`.
+            let short: String = line.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
             if short.is_empty() {
                 continue;
             }
@@ -832,8 +807,7 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
 /// would see `-1` for both and could not tell a drain that failed from a
 /// process that was killed, which is the whole distinction being asserted.
 pub struct Stopped {
-    /// Every line the child said, in order, with the output buffer's padding
-    /// dropped.
+    /// Every line the child said, in order, each kept to its first two words.
     pub said: String,
     /// The status `main` returned with, where it returned at all.
     pub code: Option<i32>,
@@ -879,12 +853,7 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
         let mut lines: Vec<String> = Vec::new();
         for line in reader.lines() {
             let Ok(line) = line else { break };
-            let short: String = line
-                .split_whitespace()
-                .take(2)
-                .filter(|token| !token.starts_with("xxxx"))
-                .collect::<Vec<_>>()
-                .join(" ");
+            let short: String = line.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
             if short.is_empty() {
                 continue;
             }
@@ -1263,10 +1232,10 @@ pub fn conformance_corpus() -> PathBuf {
 /// the last one answered, and `onClose` stops it. Nothing keys anything by
 /// socket.
 pub fn counting_socket_server() -> String {
-    format!(
+    String::from(
         r#"from "core/actor" import * as actor;
-from "core/actor" import {{ Actor, Stepped }};
-from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+from "core/actor" import { Actor, Stepped };
+from "core/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -1274,67 +1243,65 @@ from "core/net/server" import * as server;
 from "core/str" import * as str;
 from "core/time" import * as time;
 
-enum Counting {{
+enum Counting {
   Increment,
-}}
+}
 
-fn counter<C: Allocator + Tasks>(): Actor<C, Int, Counting, Int> {{
-  Actor {{
+fn counter<C: Allocator + Tasks>(): Actor<C, Int, Counting, Int> {
+  Actor {
     state: 0,
-    step: fn(c, count, message) => {{
-      match (message) {{
-        .Increment => Stepped {{ state: count + 1, answer: count + 1 }},
-      }}
-    }},
-  }}
-}}
+    step: fn(c, count, message) => {
+      match (message) {
+        .Increment => Stepped { state: count + 1, answer: count + 1 },
+      }
+    },
+  }
+}
 
-export fn main(): Result<(), Str> {{
-  let ctx = context {{
+export fn main(): Result<(), Str> {
+  let ctx = context {
     Allocator: host.alloc,
     Listen: host.listen,
     Sockets: host.sockets,
     Stdout: host.stdout,
     Tasks: host.tasks,
-  }};
-  let plan = server.Server {{
+  };
+  let plan = server.Server {
     port: 0,
     onRequest: fn(_c, _request) => http.status(404),
     requestLimit: .Some(1),
     idleTimeout: .Some(time.milliseconds(20000)),
-    websocket: .Some(server.WebSocket {{
+    websocket: .Some(server.WebSocket {
       path: "/socket",
       onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
-      onMessage: fn(c, socket, counted, _message) => {{
+      onMessage: fn(c, socket, counted, _message) => {
         let count = counted.sendMessage(c, .Increment).withDefault(0);
-        let said = str.format(c, "messages so far: ${{count}}");
+        let said = str.format(c, "messages so far: ${count}");
         let _sent = socket.send(c, .Text(said));
         counted
-      }},
-      onClose: fn(c, _socket, counted, reason) => {{
+      },
+      onClose: fn(c, _socket, counted, reason) => {
         let _stopped = counted.stop(c);
-        let _said = io.println(c, "closed ${{reason.show(c)}}").ignore();
+        let _said = io.println(c, "closed ${reason.show(c)}").ignore();
         ()
-      }},
-    }}),
-  }};
-  match (server.bind(ctx, plan)) {{
+      },
+    }),
+  };
+  match (server.bind(ctx, plan)) {
     .Err(e) => .Err(server.errorText(e)),
-    .Ok(listener) => {{
-      let pad = "x".repeat(ctx, {pad});
-      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
-      match (server.run(ctx, listener, plan)) {{
+    .Ok(listener) => {
+      let _ = io.println(ctx, "port ${listener.port}").ignore();
+      match (server.run(ctx, listener, plan)) {
         .Err(e) => .Err(server.errorText(e)),
-        .Ok(_ok) => {{
+        .Ok(_ok) => {
           let _ = io.println(ctx, "served").ignore();
           .Ok(())
-        }},
-      }}
-    }},
-  }}
-}}
-"#,
-        pad = STDOUT_BUFFER
+        },
+      }
+    },
+  }
+}
+"#
     )
 }
 
@@ -1437,8 +1404,7 @@ export fn main(): Result<(), Str> {{
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
     .Ok(listener) => {{
-      let pad = "x".repeat(ctx, {pad});
-      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+      let _ = io.println(ctx, "port ${{listener.port}}").ignore();
       let outcome = server.run(ctx, listener, plan);
       let _stopped = members.stop(ctx);
       match (outcome) {{
@@ -1453,7 +1419,6 @@ export fn main(): Result<(), Str> {{
 }}
 "#,
         members = members,
-        pad = STDOUT_BUFFER
     )
 }
 
@@ -1467,6 +1432,14 @@ export fn main(): Result<(), Str> {{
 type Announced = (std::process::Child, std::thread::JoinHandle<(String, String)>, u16);
 
 /// Start a server binary and read the port off its first line, bounded.
+///
+/// **The line arrives because the runtime empties its output buffer before the
+/// program waits** (`cli/runtime/host.rs`'s `about_to_block`), and every reader
+/// in this file rests on that. Until buri-lang/buri#66 it did not, so each of
+/// these fixtures padded its port line with eight kilobytes of `x` to force the
+/// buffer through; the padding is gone and the wait is still bounded, so a
+/// runtime that went back to withholding the line fails these rows with a
+/// sentence rather than hanging.
 pub fn announced(binary: &Path) -> Announced {
     use std::io::{BufRead, Read};
     let mut child = Command::new(binary)

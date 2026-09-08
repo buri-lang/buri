@@ -1,0 +1,12 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:56:37
+   |
+56 |     let hooks = Hooks { label: fn(x => "n=${x}", tick: fn(_x) => () };
+   |                                     ^^
+   |
+  --> main.buri:56:34
+   |
+56 |     let hooks = Hooks { label: fn(x => "n=${x}", tick: fn(_x) => () };
+   |                                  ^ opened here
+   |
+   = fix: write `)` here

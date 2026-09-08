@@ -1576,6 +1576,20 @@ const $host = {
   },
 };
 
+// **What was printed goes out before the program waits.** The buffer above
+// batches a *run of consecutive prints* and nothing longer: a sleep, a read of
+// standard input, a `fetch`, a mailbox with no room and a child being waited on
+// are each a moment somebody reading a redirected log is entitled to what the
+// program has already said. Without it a server's "listening" line sat in the
+// buffer for the whole life of the process (buri-lang/buri#66).
+//
+// `cli/runtime/host.rs`'s `about_to_block` is the same rule on the native
+// backend, kept at the same places, which is what keeps the two backends'
+// output one promise rather than two.
+function $aboutToBlock() {
+  $host.flush();
+}
+
 // **Synchronous, wherever the platform has a descriptor to write to.** Every
 // asynchronous writer a JavaScript host offers — `Bun.stdout.write`,
 // `process.stdout.write` on a pipe — hands the text to the event loop and
@@ -1972,6 +1986,7 @@ function $stdinNewline() {
 // half of what the spin cost: a reader that has to see end of input before it
 // answers its first line cannot hold up one end of a conversation.
 async function $host_HostStdin_readLine(self) {
+  $aboutToBlock();
   for (;;) {
     const at = $stdinNewline();
     if (at >= 0) {
@@ -1991,6 +2006,7 @@ async function $host_HostStdin_readLine(self) {
 // Exactly `n` octets, waiting until they arrive. A short read at end of input
 // yields what it got, or nothing at all.
 async function $host_HostStdin_readBytes(self, want) {
+  $aboutToBlock();
   const n = Number(want);
   if (n <= 0) return [];
   while ($stdin.size < n && !$stdin.ended) await $stdinPull();
@@ -2308,6 +2324,7 @@ function $httpResponseHeaders(response) {
 // runs on and the static is not, and what an expired request has to answer is
 // `.Timeout` either way rather than the `AbortError` the platform throws.
 async function $host_HostNetwork_fetch(self, request) {
+  $aboutToBlock();
   const method = $HTTP_METHOD[Number(request[0])] || "GET";
   const url = request[1];
   const headers = request[2];
@@ -2397,6 +2414,7 @@ function $host_HostClock_nowMilliseconds(self) {
 // `setTimeout` is universal — node, Bun and every browser — so there is
 // nothing to split on here.
 async function $host_HostClock_sleepMilliseconds(self, ms) {
+  $aboutToBlock();
   const n = Number(ms);
   await new Promise((wake) => setTimeout(wake, n > 0 ? n : 0));
   return 0;
@@ -2521,6 +2539,7 @@ function $signalNumber(name) {
 // value alternating and used only when `replace` says so: the encoding
 // `core/proc`'s `run` writes and `effect Spawn` argues for.
 async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, input) {
+  $aboutToBlock();
   const cp = $childProcessOrNull();
   if (cp === null) return $err([6, "this platform cannot start a process"]);
   const program = plan.length > 0 ? plan[0] : "";
@@ -2604,6 +2623,7 @@ async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, in
 // are empty — and were not on the day a context bound a stateful double, which
 // is how passing the wrong one stayed invisible.
 async function $host_HostTasks_parallel(self, ctx, xs, f) {
+  $aboutToBlock();
   const out = await Promise.all(xs.map((x, i) => f(ctx, BigInt(i), $share(x))));
   return $own(out);
 }
@@ -2827,6 +2847,7 @@ function $host_HostSockets_socketClose(self, socket, code, reason) {
 // two `addEventListener` calls. Before the socket is open an `error` or a
 // `close` is the handshake failing; after it, both are the socket ending.
 async function $host_HostWebSocketClient_connectSocket(self, url) {
+  $aboutToBlock();
   if (typeof globalThis.WebSocket !== "function") {
     return $err([
       $SERVE_UNSUPPORTED,
@@ -2899,6 +2920,7 @@ async function $host_HostWebSocketClient_connectSocket(self, url) {
 // A ping and a pong never reach here: the browser answers them and a page
 // cannot see one, which is why `Frame` has three variants and not five.
 async function $host_HostWebSocketClient_connectReceive(self, socket) {
+  $aboutToBlock();
   const key = Number(socket);
   const row = $wsLive.get(key);
   if (row === undefined) return $err([$SERVE_CLOSED, "this socket has already gone"]);
@@ -2959,6 +2981,7 @@ async function $actor_mailboxPush(c, handle, message) {
   const a = $actorAt(handle);
   if (a === undefined || a.closed) return undefined;
   while (a.queue.length >= a.bound) {
+    $aboutToBlock();
     await new Promise((resolve) => a.room.push(resolve));
     if (a.closed) return undefined;
   }
@@ -2981,6 +3004,7 @@ async function $actor_mailboxClose(c, handle) {
   a.closed = true;
   for (const wake of a.room.splice(0)) wake();
   while (!a.baton) {
+    $aboutToBlock();
     await new Promise((resolve) => a.free.push(resolve));
   }
   // Kept, never given back: the baton is what a `stateTake` needs, so holding
@@ -3668,6 +3692,8 @@ const $TREE_TEXT_ALIGNMENTS = [
 
 const $TREE_CURSORS = ["default", "pointer", "text", "not-allowed"];
 
+const $TREE_LIST_MARKERS = ["none", "disc", "decimal"];
+
 // Logical edges, so a right-to-left page is right by construction.
 const $TREE_EDGES = ["block-start", "block-end", "inline-start", "inline-end"];
 
@@ -3695,7 +3721,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all forty-five properties
+// `$tree_declare` below is the run-time lowering of all forty-six properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -3959,8 +3985,10 @@ function $tree_declare(style, out) {
       out.set("-webkit-line-clamp", "none");
       out.set("overflow", "visible");
     }
-  } else {
+  } else if (tag === 50) {
     out.set("cursor", $TREE_CURSORS[value]);
+  } else {
+    out.set("list-style-type", $TREE_LIST_MARKERS[value]);
   }
 }
 

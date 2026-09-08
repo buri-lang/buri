@@ -1,0 +1,10 @@
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+
+/// Source text in, source text out.
+export fn roundTrip<C: Allocator>(ctx: C, source: Str): Str {
+    match (ast.parse(ctx, "in.buri", source)) {
+        .Ok(tree) => ast.print(ctx, tree).text,
+        .Err(_e) => "",
+    }
+}

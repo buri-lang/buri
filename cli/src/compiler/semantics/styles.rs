@@ -79,6 +79,11 @@ const NODE_BUTTON: usize = 5;
 const NODE_LINK: usize = 6;
 const NODE_FIELD: usize = 8;
 
+/// `ui/node`'s `Role::List`, the one role that lowers to an element a browser
+/// marks and indents by itself. A role is written at the call site rather than
+/// inside `region`, so this is the literal the walk looks for.
+const ROLE_LIST: usize = 7;
+
 /// One rule in the emitted stylesheet.
 ///
 /// Carries what it is scoped to as well as its text, because the sheet is
@@ -681,8 +686,8 @@ fn resolve_conflicts(atoms: Vec<Atom>) -> Vec<Atom> {
 ///   decides. `ui/style` declares the narrower one later for exactly this.
 /// * **By class name within a property**, so the sheet is a stable text.
 ///
-/// [`Controls`] opens it, where the program has one of those elements.
-pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Controls) -> String {
+/// A [`Reset`] opens it, where the program builds one of those elements.
+pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> String {
     let mut unique: Vec<&StyleRule> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::default();
     for rule in rules {
@@ -722,9 +727,10 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Controls) 
     out
 }
 
-/// Everything a browser paints on a control that no atomic class can get
-/// under: the bevel on a button, the blue underline on a link, the border and
-/// the inner shadow on a field.
+/// Everything a browser paints on an element by itself that no atomic class
+/// can get under: the bevel on a button, the blue underline on a link, the
+/// border and the inner shadow on a field, the disc and the forty-pixel indent
+/// on a list.
 ///
 /// A class says what one property is and nothing about the rest, so the sheet
 /// has to say it once, up front, for the elements the program actually builds.
@@ -732,14 +738,15 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Controls) 
 /// cascade — every class beats it, whatever order they land in.
 ///
 /// What comes out is also what the headless painter already draws: no padding
-/// nobody asked for, and the surrounding font. A toggle's box is deliberately
-/// left alone. `appearance:none` on a checkbox erases the tick, and this
-/// vocabulary has nothing to draw a new one with.
+/// nobody asked for, the surrounding font, and no marker beside a list item. A
+/// toggle's box is deliberately left alone. `appearance:none` on a checkbox
+/// erases the tick, and this vocabulary has nothing to draw a new one with.
 #[derive(Clone, Copy, Default, Debug)]
-pub struct Controls {
+pub struct Reset {
     pub button: bool,
     pub link: bool,
     pub field: bool,
+    pub list: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -748,7 +755,7 @@ pub struct Controls {
 const CONTROL_RESET: &str =
     "appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit";
 
-impl Controls {
+impl Reset {
     fn rules(self) -> String {
         let mut out = String::new();
         if self.button {
@@ -764,16 +771,28 @@ impl Controls {
                 ":where(input:not([type=checkbox]),textarea){{{CONTROL_RESET}}}\n"
             ));
         }
+        if self.list {
+            // `ListMarker` is how a list asks for a marker back, and it is a
+            // class, so it beats this wherever the two meet.
+            out.push_str(":where(ul,ol){margin:0;padding:0;list-style:none}\n");
+        }
         out
     }
 }
 
-/// Which interactive elements an expression builds.
+/// Which of those elements an expression builds.
 ///
 /// The same question as [`builds_a_theme`] and asked the same way: `NodeKind`
 /// is `ui/node`'s private enum, so a literal of it was written inside that
-/// module's own constructors and nowhere else.
-pub fn controls_in(e: &mut typed::Expr, node_con: TyConId, out: &mut Controls) {
+/// module's own constructors and nowhere else. A list is the exception —
+/// `region` takes its role as a parameter, so what names one is a `Role::List`
+/// literal, and that is written at the call site.
+pub fn reset_in(
+    e: &mut typed::Expr,
+    node_con: TyConId,
+    role_con: Option<TyConId>,
+    out: &mut Reset,
+) {
     if let ExprKind::EnumLit { con, variant, .. } = &e.kind {
         if *con == node_con {
             match *variant {
@@ -783,8 +802,11 @@ pub fn controls_in(e: &mut typed::Expr, node_con: TyConId, out: &mut Controls) {
                 _ => {}
             }
         }
+        if Some(*con) == role_con && *variant == ROLE_LIST {
+            out.list = true;
+        }
     }
-    typed::children_mut(e, &mut |child| controls_in(child, node_con, out));
+    typed::children_mut(e, &mut |child| reset_in(child, node_con, role_con, out));
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,6 +1087,15 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             .get(which)
             .copied()?;
             Some(("cur", key.into(), one("cursor", css)))
+        }
+
+        // lists
+        51 => {
+            let (which, _) = first?.as_variant()?;
+            let css = ["none", "disc", "decimal"].get(which)?;
+            // The type, not the shorthand: the reset already cleared the
+            // indent, and a marker asked for here must not put it back.
+            Some(("lm", (*css).into(), one("list-style-type", css)))
         }
         _ => None,
     }

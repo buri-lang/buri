@@ -924,6 +924,13 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
 /// exit code, and neither looks wrong in isolation.
 const COLLAPSED: &[&str] = &["failed to compile", "0 passed, 0 failed"];
 
+/// `shape` is in `text` as its own count, so a run of twenty tests
+/// ("20 passed, 0 failed") is not a run of none.
+fn collapsed_into(text: &str, shape: &str) -> bool {
+    text.match_indices(shape)
+        .any(|(at, _)| !text[..at].ends_with(|c: char| c.is_ascii_digit()))
+}
+
 /// No golden in this corpus has collapsed into a run that asserted nothing,
 /// and every case that is *supposed* to record one still does.
 ///
@@ -940,7 +947,7 @@ pub fn no_golden_has_collapsed(dir: &Path, what: &str) {
         let Ok(entries) = std::fs::read_dir(case.join("expected")) else { continue };
         for entry in entries.filter_map(Result::ok) {
             let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-            if COLLAPSED.iter().any(|shape| text.contains(shape)) {
+            if COLLAPSED.iter().any(|shape| collapsed_into(&text, shape)) {
                 found.push(format!("{what}/{name}"));
                 break;
             }

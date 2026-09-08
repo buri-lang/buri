@@ -627,7 +627,7 @@ test "listDir sees the entries" {
 //
 // Every block here runs against `TestFileSystem`, and `cli/tests/native/runtime.rs`'s
 // `wal` mode runs the same sequence against a real filesystem through
-// `buri_rt_host_fs_*`. That the two agree is the point of the fake.
+// `buri_rt_host_file_system_*`. That the two agree is the point of the fake.
 // -----------------------------------------------------------------------------
 
 test "writeBytes and readBytes carry octets a text encoding cannot" {

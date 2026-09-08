@@ -27,12 +27,23 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Fifty-eight of the eighty files are in it** — the number the harness
-//! prints, re-derived from it rather than incremented by hand, and one the
-//! prose has drifted from more than once. The ordinals in the paragraphs below
+//! **Ninety-five of the hundred and four files are in it** — the number the
+//! harness prints, re-derived from it rather than incremented by hand, and one
+//! the prose has drifted from more than once. The seventeen newest are
+//! `core/buri/ast` and everything downstream of it — the five `buri_ast/`
+//! files, the two `generators/` and the five `proto_gen/` — plus the five the
+//! inexact conversions were holding: `numbers/conversions.buri`,
+//! `text/json.buri`, `proto/json.buri`, `calendar/fractions.buri` and
+//! `vectors/convert.buri`. Two refusals went to let them in, and both are in
+//! design/native/DECISIONS.md: a frame is measured for the element its own
+//! `[T]` loops stage rather than reserving a fixed 320 bytes for one
+//! (buri-lang/buri#48), and `emit.rs`'s `convert_checked` has the other three
+//! shapes SPEC 6.2.1 gives an inexact conversion — a float source, `U32 ->
+//! Char`, and `F64 -> F32` (buri-lang/buri#43).
+//! The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
 //! `crypto/sha512.buri`, `calendar/timestamps.buri` and `uuid/uuid.buri` are
-//! the latest, and their own entries say why they are in.
+//! the latest of the older ones, and their own entries say why they are in.
 //! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
@@ -46,19 +57,13 @@
 //! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
 //! `Scan::short_circuit`, which is linear now. What is actually
-//! *refused* is three things:
+//! *refused* is four things:
 //!
-//!  1. **An inexact numeric conversion.** `x.toT()` where not every value fits
-//!     answers `Result<T, RangeError>` (SPEC 6.2.1), and `RangeError` is a
-//!     *struct of two `Str`s* — the source value rendered and the target's
-//!     name. That is a different shape from the runtime `Result` of
-//!     `cli/runtime/lib.rs` §2.1, which names an error by a variant index or
-//!     writes it through a pointer: here the backend has to *build* the two
-//!     strings. `numbers/conversions.buri`, `text/json.buri` (one call:
-//!     `number.U32.toChar`) and `proto/json.buri` (`number.F64.toI64`) are the three
-//!     files, and `numbers/conversions.buri` carries a second problem behind
-//!     the first — two of its blocks assert the JavaScript *bound*, which
-//!     VALUE-MODEL.md §12 row 2 has already ruled is not the native one.
+//!  1. **`deriveArrayHash`** — the one derive leaf over an array this backend
+//!     has no body for. `bignum/hashing.buri` and `uuid/hashing.buri`, each of
+//!     them a `derive Hash` whose field is a `[T]`. An inexact numeric
+//!     conversion was this row and is not any more: all four shapes SPEC 6.2.1
+//!     gives one are compiled, `RangeError`'s two `Str`s included.
 //!  2. **`json.*`, and `ToJson::toJson` at a primitive.** `json.decode` is a
 //!     descriptor-driven walker, which is what `runtime.js` does.
 //!     `json/decoding.buri` and `json/encoding.buri`. `derivePrimJson` was the
@@ -100,7 +105,9 @@
 //! `text/json.buri`, excluded for `core/math`'s transcendentals and for
 //! `number.U32.toChar`; neither reason was ever about the testing context.
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run at
-//! every step and still reports each of them.
+//! every step and still reported each of them. Three of the five are in the
+//! set now, and none of them moved for a context: what let them in was the
+//! inexact conversions landing.
 //!
 //! That is the honest report: the migration removed the pressure the
 //! exclusions named, and no excluded file was waiting on it. The historical
@@ -295,67 +302,43 @@ const PACKAGES: &[Case] = &[
     //
     // `core/buri/ast` and `core/codegen` are ordinary Buri over lists, strings
     // and tuples, with no host effect anywhere in them, so every assertion
-    // here is an answer rather than something a platform decides. All six are
-    // out anyway, and for a backend limit rather than a platform one: an
-    // `ast.Item` is 448 bytes and the stencil backend stages a `[T]` element
-    // in 320. Every one of these files holds a `[Item]`, because that is what
-    // a module is. They run on the reference backend, and they come back here
-    // when the frame grows.
-    // The exception among them, and it is in: `tokenize` answers a `[Token]`,
-    // whose element is a small enum, a `Str` and two `Int`s. Nothing in this
-    // file builds a declaration, so the frame limit below does not reach it —
-    // and running it here is what says a lexer that a generator depends on
-    // reads the same bytes under both backends, spans and all.
+    // here is an answer rather than something a platform decides. All seven
+    // are in, and six of them were out for a backend limit rather than a
+    // platform one: an `ast.Item` is 448 bytes and the stencil backend staged
+    // a `[T]` element in a fixed 320 (buri-lang/buri#48). Every one of these
+    // files holds a `[Item]`, because that is what a module is. The frame is
+    // measured for the element its own loops stage now
+    // (`jit.rs::staged`), so the room follows the type instead of the type
+    // having to fit the room, and it costs a frame that stages nothing wide
+    // nothing at all.
+    //
+    // `buri_ast/tokens.buri` was the exception that was already in: `tokenize`
+    // answers a `[Token]`, whose element is a small enum, a `Str` and two
+    // `Int`s, and nothing in that file builds a declaration. Running it here
+    // is what said a lexer a generator depends on reads the same bytes under
+    // both backends, spans and all; the other six say the same of the parser
+    // and the printer.
     included("buri_ast/tokens.buri"),
-    excluded(
-        "buri_ast/anchors.buri",
-        "an `ast.Item` is 448 bytes and the stencil backend stages a `[T]` \
-             element in 320, so an array of declarations is past what a frame \
-             here can hold",
-    ),
-    excluded(
-        "buri_ast/expressions.buri",
-        "the same 448-byte element: an expression tree is arrays of nodes",
-    ),
-    excluded(
-        "buri_ast/items.buri",
-        "the same 448-byte element, one declaration form per case",
-    ),
-    excluded(
-        "buri_ast/module.buri",
-        "the same 448-byte element, over a whole printed module",
-    ),
-    excluded(
-        "buri_ast/parsing.buri",
-        "the same 448-byte element: `parse` builds the declarations \
-             `buri_ast/items.buri` builds by hand",
-    ),
-    excluded(
-        "generators/wire.buri",
-        "it prints a module, so it carries the 448-byte `ast.Item` too, and \
-             `core/json`'s unescaping reaches `number.U32.toChar`, which this \
-             backend does not compile yet",
-    ),
-    excluded(
-        "generators/failure.buri",
-        "the same two: a printed module's element width, and `toChar`",
-    ),
+    included("buri_ast/anchors.buri"),
+    included("buri_ast/expressions.buri"),
+    included("buri_ast/items.buri"),
+    included("buri_ast/module.buri"),
+    included("buri_ast/parsing.buri"),
+    included("generators/wire.buri"),
+    included("generators/failure.buri"),
     //
     // The `.proto` generator, ported to Buri. The reader is ordinary parsing
     // over `[Char]` and this backend compiles it; the emitter builds
     // `core/buri/ast` nodes, so it carries the same 448-byte `ast.Item` — and
-    // three narrower ones — that keeps `buri_ast/` out above.
+    // three narrower ones — that kept `buri_ast/` out above, and it came in
+    // with them.
     included("proto_schema/reading.buri"),
     included("proto_schema/refusals.buri"),
-    excluded(
-        "proto_gen/codecs.buri",
-        "it builds `ast` nodes, whose widest element is 448 bytes against the \
-             320 a frame stages a `[T]` element in",
-    ),
-    excluded("proto_gen/entry.buri", "the same element width, through `emit`"),
-    excluded("proto_gen/failures.buri", "the same element width"),
-    excluded("proto_gen/mapping.buri", "the same element width"),
-    excluded("proto_gen/origins.buri", "the same element width"),
+    included("proto_gen/codecs.buri"),
+    included("proto_gen/entry.buri"),
+    included("proto_gen/failures.buri"),
+    included("proto_gen/mapping.buri"),
+    included("proto_gen/origins.buri"),
     //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
@@ -445,13 +428,11 @@ const PACKAGES: &[Case] = &[
     // `padStart`, and the test platform's clock — all of it surface this
     // backend already had, so the file was in from the day it was written.
     included("calendar/duration.buri"),
-    excluded(
-        "calendar/fractions.buri",
-        "a conversion from `F64` — `time.secondsFloat` turns a count of seconds \
-             into nanoseconds, which is the same gap that holds \
-             `numbers/conversions.buri` out. The rest of `Duration` is in \
-             `calendar/duration.buri` and reads on both backends",
-    ),
+    // `time.secondsFloat` turns a count of seconds into nanoseconds, which is
+    // a conversion whose source is a float — the shape that held five files
+    // out until `emit.rs`'s `convert_checked` grew the other three arms SPEC
+    // 6.2.1 names (buri-lang/buri#43).
+    included("calendar/fractions.buri"),
     // RFC 3339, RFC 9110 dates and `Zoned`, on `calendar/date.buri`'s terms:
     // integer calendar arithmetic and `core/str`, with the clock appearing
     // nowhere. Every answer is a timestamp somebody else wrote down.
@@ -562,6 +543,7 @@ const PACKAGES: &[Case] = &[
     // a context binding a filesystem whether a test read a file or not.
     included("semantics/effects.buri"),
     included("semantics/evaluation.buri"),
+    included("semantics/lambdas.buri"),
     included("semantics/traits.buri"),
     // `Either.Right(1)` names neither `Left`'s type nor a value of it, and the
     // fourth file is full of that shape. It was excluded while such a parameter
@@ -596,6 +578,13 @@ const PACKAGES: &[Case] = &[
     // holding a `[Header]` and a `[U8]`, its derived `Equal` and `Show`, and the
     // `core/bytes` pair underneath the text constructors.
     included("semantics/http.buri"),
+    // The tenth: an enum reached through a namespace import. The alias is
+    // resolved away by the checker, so what reaches a backend is the same
+    // variant construction and the same decision tree as any other file here —
+    // which is the point. If the native set ever disagreed with the reference
+    // one on `ns.Enum.Variant`, the disagreement would be about the spelling
+    // rather than about the value, and no backend gets to see the spelling.
+    included("semantics/namespaces.buri"),
     // `core/cli`, driven end to end through `run` — which means the
     // environment double, two captured streams, and a handler reached through
     // a `fn(C, Arguments)` stored in a struct field. Nothing in it is an
@@ -606,22 +595,21 @@ const PACKAGES: &[Case] = &[
     // the shape `codegen/step_trampoline.buri` pilots, and a command's `run`
     // is that shape in a library.
     included("cli/arguments.buri"),
+    // Every conversion SPEC 6.2.1 defines, in one file, and it is the file the
+    // inexact ones were written against: a float source with `NaN`, the
+    // infinities and a fractional value to answer for, `U32 -> Char` where the
+    // target is a set of scalar values rather than a range, `F64 -> F32`, and
+    // the integer narrowings that were compiled all along. Every `.Err` in it
+    // is a `RangeError`, which is two `Str`s the backend builds — the value
+    // rendered and the target named — so this is also the file that says the
+    // two backends render a refused value the same way.
+    included("numbers/conversions.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`
     // before a byte of code is generated, which is what that hook is for,
     // and `the_excluded_packages_are_excluded_for_the_stated_reason`
     // checks that the reason is still true.
-    excluded(
-        "numbers/conversions.buri",
-        "the two inexact conversions whose *source* is not an integer: \
-             `F64 -> I64`, where `NaN` and the infinities are outside every \
-             range rather than at one end of it, and `U32 -> Char`, where the \
-             target is a set of scalar values and not a range at all. The \
-             integer narrowings are compiled — `stencil::emit`'s \
-             `convert_checked` builds the `Result<T, RangeError>` — as are \
-             every widening and every `wrapTo*`",
-    ),
     excluded(
         "json/decoding.buri",
         "`json.decode`, and core/character's classifiers",
@@ -645,12 +633,14 @@ const PACKAGES: &[Case] = &[
     // right-nests, one link per field of a generated message. About 280
     // seconds then, about three now.
     included("proto/binary.buri"),
-    excluded(
-        "proto/json.buri",
-        "`number.F64.toI64` — an inexact conversion, so it answers \
-             `Result<Int, RangeError>`. `core/character`'s classifiers and \
-             `core/bytes` are emitted now",
-    ),
+    // The proto3 JSON mapping. Held out for `number.F64.toI64` — a JSON number
+    // reaches a generated decoder as an `F64` and every integer field converts
+    // — which is buri-lang/buri#43 exactly, and
+    // `cli/tests/repositories/proto/json_codec_natively` is that issue's own
+    // repository under `buri test`. Its repeated fields are also what found
+    // `rc.rs`'s `x?.method(…)` leak: the list a `?` unwrapped and handed to a
+    // borrowing loop had nobody to release it.
+    included("proto/json.buri"),
     // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.
@@ -702,13 +692,9 @@ const PACKAGES: &[Case] = &[
              `Hash` bottoms out at the one derive leaf over an array this \
              backend has no body for. Nothing else in the module reaches it",
     ),
-    excluded(
-        "vectors/convert.buri",
-        "`F32x4.toInt`, which truncates a `Float` into an `Int` — a conversion \
-             whose *source* is a float, which is what holds \
-             `numbers/conversions.buri` out. The rest of `core/simd` needs no \
-             such conversion",
-    ),
+    // `F32x4.toInt`, which truncates a `Float` into an `Int`. A conversion
+    // whose source is a float, so it came in with the other four.
+    included("vectors/convert.buri"),
     // `core/uuid`, over the two seeded doubles. Native on `crypto/entropy.buri`'s
     // terms — `TestEntropy` and `TestClock` are both `cli/runtime/testing.rs`
     // slots, so the identifiers this file writes down are the ones both backends
@@ -783,13 +769,10 @@ const PACKAGES: &[Case] = &[
     // transcendental: it is division by zero, `signum`, the three classifiers,
     // `squareRoot`, `floor`, `ceiling`, `absoluteFloat` and rendering, each of them exact.
     included("numbers/special_floats.buri"),
-    excluded(
-        "text/json.buri",
-        "`number.U32.toChar` — an *inexact* conversion, so it answers \
-             `Result<Char, RangeError>`. `core/character`'s classifiers and \
-             `list.find` are emitted now, and this one call is the whole of \
-             what is left",
-    ),
+    // `core/json`'s unescaping reaches `number.U32.toChar` — an *inexact*
+    // conversion, because not every `U32` is a Unicode scalar value — and that
+    // one call was the whole of what held this file out.
+    included("text/json.buri"),
     // The two below are excluded for a reason no later wave of this backend
     // retires: the reactive graph is a *runtime* — a mutable dependency graph
     // with a scheduler — and it lives in the JavaScript runtime alone. There

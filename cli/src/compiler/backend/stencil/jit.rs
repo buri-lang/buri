@@ -539,31 +539,65 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
     for f in &prog.funcs {
         let mut fs = FrameSig::default();
         let mut at = 0u32;
+        let mut stage = 0u32;
         for t in &f.sig.rets {
             fs.ret.push(at);
             at += round8(width(&mut layouts, *t)).max(8);
+            staged(&mut layouts, prog, *t, &mut stage);
         }
         fs.ret_size = at;
         for t in &f.sig.params {
             fs.params.push(at);
             at += round8(width(&mut layouts, *t)).max(8);
+            staged(&mut layouts, prog, *t, &mut stage);
         }
         fs.param_end = at;
         if let ir::Body::Code(code) = &f.body {
             let entry_params: Vec<u32> =
                 code.get(ir::BlockId(0)).params.iter().map(|v| v.0).collect();
             for v in 0..code.values() {
+                let t = code.ty_of(ir::ValueId(v as u32));
+                staged(&mut layouts, prog, t, &mut stage);
                 if entry_params.contains(&(v as u32)) {
                     continue;
                 }
-                at += round8(width(&mut layouts, code.ty_of(ir::ValueId(v as u32)))).max(8);
+                at += round8(width(&mut layouts, t)).max(8);
             }
         }
         at += SCRATCH_WORDS as u32 * 8;
+        // What the open-coded list loops stage, past the room every frame has
+        // for nothing. Zero for almost every function in a program.
+        at += stage.saturating_sub(super::lists::BASE_STAGE_ROOM);
         fs.size = (at + 15) & !15;
         out.push(fs);
     }
     out
+}
+
+/// The widest thing `lists.rs`'s loops could stage while compiling a function
+/// that names this type, folded into `need`.
+///
+/// Everything those loops put in the staging area is either a value of the
+/// function's own — a `fold`'s accumulator — or the element of a `[T]` it
+/// holds, one level in for `flatten`, which is why this walks down through
+/// nested arrays. Measuring it is what lets a wide element through: an
+/// `ast.Item` is 448 bytes, and a fixed reserve that held one would have cost
+/// every frame in the program those bytes (buri-lang/buri#48).
+///
+/// It is an over-estimate rather than an exact answer — a `[T]` a function
+/// merely holds buys the room whether or not a loop over it is open-coded — and
+/// that is the safe direction. The exact direction is `lists.rs::stage`, which
+/// still measures the frame it was given and refuses what does not fit.
+/// Only aggregates are asked. Every register shape is sixteen bytes or fewer,
+/// which is inside the room a frame has for nothing.
+fn staged(layouts: &mut Layouts, prog: &ir::Program, t: ir::Type, need: &mut u32) {
+    let ir::Type::Agg(id) = t else { return };
+    let mut ty = prog.type_info(id).ty.clone();
+    *need = (*need).max(round8(layouts.of(ty.clone()).size));
+    while let Ty::Array(elem) = ty {
+        ty = *elem;
+        *need = (*need).max(layouts.of(ty.clone()).size);
+    }
 }
 
 /// Words of scratch past the last local, inside every frame.

@@ -229,6 +229,27 @@ impl<'a, 'b> Infer<'a, 'b> {
         matches!(self.resolve_ref(ty), Ty::Con(id, _) if self.c.result_con.as_ref() == Some(id))
     }
 
+    /// Whether a lambda body of type `body` may stand where `want` is the
+    /// expected return type without answering it — the whole of the leniency
+    /// [`Infer::check_lambda`] grants, in the order the cases have to be read.
+    ///
+    /// A dropped `Result` is refused first, because the `()` case would
+    /// otherwise swallow it and a `Result` is the one value the language
+    /// promises was consumed.
+    fn lenient_lambda_return(&self, body: &Ty, want: &Ty) -> bool {
+        if self.is_known_result(body) && !self.is_known_result(want) {
+            return false;
+        }
+        // A value where `()` is wanted: the reactive callbacks in `ui/`, whose
+        // value is discarded.
+        if matches!(self.resolve_ref(want), Ty::Unit) {
+            return true;
+        }
+        // A `Template` where a `Str` is wanted: SPEC §3.3, there is no
+        // `Template` at run time.
+        self.as_prim(want) == Some(Prim::Str) && self.as_prim(body) == Some(Prim::Template)
+    }
+
     /// Whether `ty` is the `Option` the prelude registered under that name —
     /// nominal, for the reason [`Infer::is_known_result`] gives.
     fn is_known_option(&self, ty: &Ty) -> bool {
@@ -678,8 +699,17 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// The `Field` case on its own, so that `check_field` can ask the question
     /// without building the field node it would otherwise have to hand
     /// `static_ref` — its first act is to require the base to be an identifier
-    /// and give up otherwise.
+    /// or a namespaced type name, and give up otherwise.
     fn static_ref_field(&mut self, base: ExprId, name: &str) -> Option<Static> {
+        // `shapes.Shape.Circle` — a variant qualified through a namespace
+        // import. The base is a path of its own rather than an identifier, so
+        // it is asked for the type it names before the one-identifier cases
+        // below. A namespace qualifies an enum the way it qualifies anything
+        // else, so the variants of that enum are reached the same way.
+        if let Some(con) = self.namespaced_tycon(base) {
+            let index = self.c.tables.variant_index(con, name)?;
+            return Some(Static::Variant(con, index));
+        }
         let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
         if self.lookup_local(head).is_some() {
             return None;
@@ -700,6 +730,24 @@ impl<'a, 'b> Infer<'a, 'b> {
             return Some(Static::Variant(con, index));
         }
         None
+    }
+
+    /// The type `ns.Name` names, where `ns` is a namespace import. `None` for
+    /// anything else, including a `ns` that a local shadows and a member the
+    /// module does not export — the caller carries on to whatever the
+    /// expression is instead, and `namespace_member_missing` reports the
+    /// member.
+    fn namespaced_tycon(&mut self, e: ExprId) -> Option<TyConId> {
+        let V::Field { base, name, .. } = self.tree().expr(e) else { return None };
+        let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
+        if self.lookup_local(head).is_some() {
+            return None;
+        }
+        let ns = self.c.scope(self.module).namespaces.get(head).copied()?;
+        match self.c.lookup_export(ns, name)? {
+            Sym::Ty(con) => Some(con),
+            _ => None,
+        }
     }
 
     /// A tuple struct's name is also its constructor, and `struct Meters(F64)`
@@ -2797,52 +2845,44 @@ impl<'a, 'b> Infer<'a, 'b> {
             let body_span = self.tree().span(body);
             self.unify_at(body_span, &body_hir.ty.clone(), r, "the declared return type");
         }
-        // A lambda whose body answers a `Result` the callback's own return
-        // type is not, reported — because `ret_ty` below would otherwise take
-        // the *expected* type and throw the body's away, and a `Result` thrown
-        // away is the one thing the language says can never happen.
+        // An unannotated lambda's body is checked against the return type the
+        // position wants, exactly as an annotated one is checked against the
+        // type it declares. Without this `ret_ty` below takes the *expected*
+        // type and throws the body's away, so the lambda claims a type its
+        // body never had and nothing downstream can see through the claim:
+        // the argument check compares the lie against `fn(A) => B` and agrees.
         //
-        // `xs.map(ctx, fn(n) => n.toU8())` is the case that named this: `[B]`
-        // is unified with the expected `[U8]` before the argument is visited,
-        // so `want_ret` is already `U8` when the body is, the expectation
-        // `check_expr` carries is a hint a mismatch does not disturb, and the
-        // lambda then claimed `fn(I64) => U8` while its body built a
-        // `Result<U8, RangeError>`. Nothing downstream could see through that
-        // claim: the argument check compared the lie against `fn(A) => B` and
-        // agreed, and the program ran with a byte read out of a value that was
-        // never one — every `.toU8()` silently a zero.
+        // Two shapes found it. `xs.map(ctx, fn(n) => n.toU8())` claimed
+        // `fn(I64) => U8` over a body that built a `Result<U8, RangeError>`,
+        // and the program then read a byte out of a value that was never one —
+        // every `.toU8()` silently a zero. `let f: fn(Int) => Str = fn(_x) => 5`
+        // claimed `fn(Int) => Str` over an `Int`, and `f(1).len()` called a
+        // `Str` method on it. A hook record's field is the same expectation one
+        // layer in, which is where it hurt: `onDone: fn(Int) => Str` took a
+        // lambda answering `5` and linked clean.
         //
-        // Stated over the *must-use* family rather than over every mismatch,
-        // and deliberately: a lambda body is still allowed to answer a
-        // `Template` where a `Str` is wanted (§3.3 — there is no `Template` at
-        // run time) and to answer a value where `()` is wanted (the reactive
-        // callbacks in `ui/`, whose value is discarded). Those two are the
-        // leniency this position has always had, they cost nothing at run
-        // time, and neither is a value the language promises was consumed.
-        // Dropping a `Result` is, so it is the one this refuses.
+        // Two mismatches stay allowed, and only these two, in
+        // [`Infer::lenient_lambda_return`]: a body may answer a `Template`
+        // where a `Str` is wanted (§3.3 — there is no `Template` at run time)
+        // and a value where `()` is wanted (the reactive callbacks in `ui/`,
+        // whose value is discarded). They cost nothing at run time, and neither
+        // is a value the language promises was consumed. Dropping a `Result`
+        // is, so a `Result` is refused even where a `()` is wanted.
         //
-        // The other half of the same rule is the case where the expectation is
-        // not an expectation at all. `map.of(ctx, xs.map(ctx, fn(i) => (i, i)))`
-        // gives `list.map`'s result element the type `(K, V)` out of `map.of`'s
-        // signature before the lambda is visited, so `want_ret` is `(K, V)` with
-        // **both variables still unbound** — the hole this body is here to fill.
-        // Taking it as the answer threw the body's `(Int, Int)` away, nothing
-        // else in the program mentioned `K` or `V`, and
+        // An expectation that is not one yet takes the same unification for a
+        // different reason. `map.of(ctx, xs.map(ctx, fn(i) => (i, i)))` gives
+        // `list.map`'s result element the type `(K, V)` out of `map.of`'s
+        // signature before the lambda is visited, so `want_ret` is `(K, V)`
+        // with **both variables still unbound** — the hole this body is here to
+        // fill. Taking it as the answer threw the body's `(Int, Int)` away,
+        // nothing else in the program mentioned `K` or `V`, and
         // `Subst::default_unconstrained` made both `()`: every key then hashed
-        // alike and `map.of` answered a map of one entry. So a `want_ret` that
-        // still holds a variable is **unified with the body**. That is what the
-        // bare-variable case below already did by handing the body's type back
-        // for the caller to unify; this is the same rule one layer down, where
-        // handing the type back cannot reach the variable.
-        //
-        // A concrete expectation keeps the leniency above: `Str`, `()` and `U8`
-        // hold no variable, so a `Template` for a `Str` and a value for a `()`
-        // are as free as they were.
+        // alike and `map.of` answered a map of one entry. So an unsettled
+        // `want_ret` is unified whatever it looks like, with no leniency to
+        // read, because there is nothing there to be lenient about.
         if declared_ret.is_none() {
             if let Some(r) = want_ret.clone() {
-                if !self.is_settled(&r)
-                    || (self.is_known_result(&body_hir.ty) && !self.is_known_result(&r))
-                {
+                if !self.is_settled(&r) || !self.lenient_lambda_return(&body_hir.ty, &r) {
                     let body_span = self.tree().span(body);
                     self.unify_at(
                         body_span,

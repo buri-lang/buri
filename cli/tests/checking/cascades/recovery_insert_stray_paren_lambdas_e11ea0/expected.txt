@@ -1,0 +1,30 @@
+error: expected `(`, found `,` [unexpected-token]
+  --> main.buri:29:20
+   |
+29 | fn runHook(hook: fn, (Int) => (), times: Int): Int {
+   |                    ^
+   |
+   = expected: `(`
+   = actual: `,`
+   = fix: write `(` here
+error: there is nothing named `runHook` in scope [unresolved-name]
+  --> main.buri:72:18
+   |
+72 |     assert.equal(runHook(fn(x) => x * 2, 4), 4);
+   |                  ^^^^^^^
+   |
+   = fix: declare `runHook`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `runHook` in scope [unresolved-name]
+  --> main.buri:77:18
+   |
+77 |     assert.equal(runHook(f, 5), 5);
+   |                  ^^^^^^^
+   |
+   = fix: declare `runHook`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `runHook` in scope [unresolved-name]
+  --> main.buri:82:18
+   |
+82 |     assert.equal(runHook(hooks.tick, 6), 6);
+   |                  ^^^^^^^
+   |
+   = fix: declare `runHook`, or import it — a name is in scope only from this module's own declarations and its imports
