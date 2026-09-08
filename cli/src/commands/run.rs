@@ -102,7 +102,14 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         c
     };
     match command.args(&args.passthrough).status() {
-        Ok(st) => st.code().unwrap_or(1),
+        Ok(st) => {
+            // A signal spends the artifact's identity, and the next `buri run`
+            // in this repository would be killed before it started.
+            if crate::build::link::killed_by_signal(&st) {
+                crate::build::link::spend_identity(&artifact.path);
+            }
+            st.code().unwrap_or(1)
+        }
         Err(e) => {
             eprintln!("error: cannot execute the artifact: {e}");
             if !native {

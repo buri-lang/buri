@@ -3352,9 +3352,10 @@ const FS_CALL_NAMES: [&str; 16] = [
 //     was. A binary run by hand is unchanged by any of this.
 //   * [`buri_rt_test_enter`] — before each block, answering whether to run it.
 //   * one line on standard output when a block aborts, naming its index, the
-//     message, and both rendered values where the assertion had them. A block
-//     that returns writes nothing, so a passing suite pays one call per test
-//     and no I/O at all.
+//     message, and both rendered values where the assertion had them — and one
+//     when a block *returns*, naming its index and nothing else
+//     ([`note_left`]). The second is what makes a death this protocol cannot
+//     report attributable: the block that died is the first one with no line.
 //
 // A test cannot reach real standard output — every effect it has is one the
 // runner supplied, and `core/host` has no name inside a test source — so the
@@ -3493,6 +3494,7 @@ static WATERMARK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsiz
 /// leave open, answered in the direction that keeps each run's promise its own.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_test_leave(index: i64) {
+    note_left(index);
     let unconsumed = unconsumed_since(WATERMARK.load(std::sync::atomic::Ordering::Relaxed));
     if unconsumed.is_empty() {
         return;
@@ -3586,6 +3588,33 @@ fn stash(actual: &[u8], expected: &[u8]) {
     let (actual, expected) =
         (String::from_utf8_lossy(actual).into_owned(), String::from_utf8_lossy(expected).into_owned());
     runner().shown = Some((actual, expected));
+}
+
+/// The line a block that **returned** writes: it reached the end.
+///
+/// One line and a flush per block, and it is what lets the runner tell a
+/// process that died *inside* a block from one that died outside every block.
+/// A binary killed by a signal writes nothing on its own, so without this the
+/// runner could only guess which block it was in — and it guessed the one it
+/// had asked the process to start at. A suite whose binary died in its second
+/// block therefore reported its first, which had passed, as
+/// `the run exited -1`, and reported every block after it the same way.
+///
+/// The record shares [`note_failure`]'s stream and shape and is told apart by
+/// carrying **no `message`**, which is what `commands/test.rs`'s
+/// `noted_failure` reads. A block that ran more than once —
+/// `TestTasks.everyOrder` — writes one line per run, and the runner takes the
+/// last index it sees.
+fn note_left(index: i64) {
+    if resume_at().is_none() || index < 0 {
+        return;
+    }
+    use std::io::Write;
+    let line = format!("{{\"i\":{index},\"left\":1}}\n");
+    let stream = std::io::stdout();
+    let mut stream = stream.lock();
+    let _ = stream.write_all(line.as_bytes());
+    let _ = stream.flush();
 }
 
 /// The line an aborting block writes, from `abort::die` and from nowhere else.

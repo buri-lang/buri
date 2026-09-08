@@ -1,0 +1,47 @@
+# A signal whose value is a list, driven the way a person drives one: a package
+# holding a store of cells, a suite beside it, and one `buri` command.
+#
+# **The claim is that `Signal<[T]>` is a cell like any other.** A cell holds one
+# whole value and the runtime is told how wide it is and how to take a reference
+# on it (`cli/runtime/lib.rs` §2 rule 4). When that value is itself a list, the
+# question "which type is `T`" has two readings that no argument list can tell
+# apart — the list the call carries, and the list's element — and both backends
+# used to answer with the element. So a `Signal<[Int]>` was stored eight bytes
+# wide instead of sixteen and read back empty, and a `Signal<[Account]>` was
+# retained by a walk over a type it did not hold.
+#
+# Three widths, because the wrong answer is wrong in a different direction at
+# each: an element narrower than the list value truncates it, one wider reads
+# and writes past it, and one holding a counted pointer walks a value that is
+# not there.
+#
+# The first block names no store at all. It is here because the defect this case
+# pins reached the *process*: a store built anywhere in the binary could leave
+# the allocator holding a corrupted free list, and every block in the suite —
+# that one included — then came back as `the run exited -1`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a cell whose value is a list holds the list, at three element widths, and through a write"
+
+run {
+  args: ["test", "//lib/store", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# The negative twin. One number of one assertion, and the run fails at the block
+# that made it — a suite whose cells could not be read wrongly would be a suite
+# that never looked in one.
+edit {
+  file: "lib/store/test/store.buri"
+  replace: "assert.length(store.labels.get(ctx), 2);"
+  with: "assert.length(store.labels.get(ctx), 9);"
+}
+
+run {
+  args: ["test", "//lib/store", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

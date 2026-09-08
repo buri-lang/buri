@@ -1,0 +1,9 @@
+/// Recursion with work left to do after the call, so it is a frame per step
+/// rather than a loop, and it walks off the end of the Buri stack into the
+/// guard page the entry point installed above it.
+///
+/// The edit at the bottom of `CASE.textproto` gives it the base case it is
+/// missing, which is the whole difference between the two runs recorded there.
+export fn deep(n: Int): Int {
+    if (n == 0) { 0 } else { deep(n + 1) + 1 }
+}

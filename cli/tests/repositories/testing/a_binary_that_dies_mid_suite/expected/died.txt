@@ -1,0 +1,5 @@
+FAIL //lib/deep  test/deep.buri  "the block that ends the process"
+  the run was killed by a signal
+  --> lib/deep/test/deep.buri:10:1
+
+2 passed, 1 failed, 0 skipped (0.0s)
