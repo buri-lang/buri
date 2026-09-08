@@ -2515,7 +2515,7 @@ fn page<C>(
                             ),
                         ],
                     ),
-                    ui.button(label, onPress),
+                    ui.button(label, [], onPress),
                 ],
             ),
             ui.computed(fn(scope) => at(path.read(scope))),
@@ -2759,7 +2759,7 @@ from "ui/signal" import { Signal };
 /// inert buys — neither carries a context, so a lambda may hold both.
 fn page<C: Alloc + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>): Node<C> {
     ui.column([], [
-        ui.button(.Const("open"), fn(c, event) => {
+        ui.button(.Const("open"), [], fn(c, event) => {
             let _ = tasks.spawn(c, here, fn(c2) => {
                 let _ = time.sleepMs(c2, 20);
                 let _ = status.set(c2, "the socket opened");

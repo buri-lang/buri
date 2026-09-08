@@ -1,7 +1,7 @@
 error: `HostFs` implements `FsRead` or `FsWrite`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/counter/main.buri:29:17
+  --> cmd/counter/main.buri:31:17
    |
-29 |         FsRead: host.HostFs {},
+31 |         FsRead: host.HostFs {},
    |                 ^^^^^^^^^^^
    |
    = a platform is the set of effects its host exports; neither a page nor a worker has a filesystem to read
