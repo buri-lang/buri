@@ -247,13 +247,15 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let written = round_dir.join(&package_path).join(&artifact);
             let mut files: Vec<(String, String)> =
                 vec![(artifact.clone(), compiled.module.clone())];
-            for (companion, text) in
-                actions::web_companions(&written, &output, &compiled.stylesheet)
-                    .into_iter()
-                    // A `core/lazy` chunk is a file this build wrote, and the
-                    // module fetches it by name at run time — so it is as much
-                    // a part of "the artifact" as the stylesheet is.
-                    .chain(actions::chunk_paths(&written, &compiled.chunks))
+            let web = actions::web_rule(&session, target);
+            let pages =
+                actions::web_companions(&written, &output, &compiled.stylesheet, &web);
+            for (companion, text) in pages
+                .into_iter()
+                // A `core/lazy` chunk is a file this build wrote, and the
+                // module fetches it by name at run time — so it is as much
+                // a part of "the artifact" as the stylesheet is.
+                .chain(actions::chunk_paths(&written, &compiled.chunks))
             {
                 let name = companion
                     .file_name()

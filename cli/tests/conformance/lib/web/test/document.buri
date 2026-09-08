@@ -42,6 +42,25 @@ fn tree<C>(): Node<C> {
     ])
 }
 
+/// A document named `title`, which is all the tests below say about their head.
+fn named(title: Str): web.Document {
+    web.Document { ..web.defaultDocument(), title }
+}
+
+/// The head a document opens with, up to the stylesheet the compiler extracted
+/// — which is this artifact's own and not this package's to pin.
+fn head(document: Str): Str {
+    match (document.splitOnce("<style>")) {
+        .Some(pair) => pair.0,
+        .None => {
+            match (document.splitOnce("</head>")) {
+                .None => "",
+                .Some(pair) => pair.0,
+            }
+        },
+    }
+}
+
 /// The body of a document, without the state the page resumes from.
 fn body(document: Str): Str {
     match (document.splitOnce("<body>")) {
@@ -248,10 +267,50 @@ test "the document carries the body and the state beside it" {
         Allocator: alloc(),
     };
     let state = Reading { title: "Titles", note: "plain" };
-    let document = web.shell(ctx, "/", web.render(tree()), state.toJson(ctx));
+    let document = web.shell(
+        ctx,
+        "/",
+        named("Titles"),
+        web.render(tree()),
+        state.toJson(ctx),
+    );
     assert.isTrue(document.startsWith("<!doctype html>"));
     assert.equal(body(document), "<main><h1>Titles</h1>and text</main>");
     assert.equal(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
+}
+
+test "the document names the tab and the language it is in" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let document = web.shell(
+        ctx,
+        "/",
+        web.Document { ..web.defaultDocument(), title: "Buri Design" },
+        "",
+        .Null,
+    );
+    assert.equal(
+        head(document),
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><title>Buri Design</title>",
+    );
+}
+
+test "a title cannot write markup, and a lang cannot end the attribute" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let document = web.shell(
+        ctx,
+        "/",
+        web.Document { title: "<b>Tom & Jerry</b>", lang: "en\"><script>" },
+        "",
+        .Null,
+    );
+    assert.equal(
+        head(document),
+        "<!doctype html>\n<html lang=\"en&quot;&gt;&lt;script&gt;\">\n<head><meta charset=\"utf-8\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><title>&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;</title>",
+    );
 }
 
 test "a state that ends the script it sits in closes nothing" {
@@ -259,7 +318,7 @@ test "a state that ends the script it sits in closes nothing" {
         Allocator: alloc(),
     };
     let state = Reading { title: "Titles", note: "</script><b>" };
-    let document = web.shell(ctx, "/", "", state.toJson(ctx));
+    let document = web.shell(ctx, "/", named("Titles"), "", state.toJson(ctx));
     assert.isFalse(embedded(document).contains("</script>"));
     // And it is still the state, because a JSON reader reads the escape back.
     let read: Result<Reading, DecodeError> = json.decode(
@@ -288,7 +347,7 @@ test "the state crosses as every shape JSON has" {
         ("no items", .Array([])),
         ("items", .Array([.Num(1.0), .Str("two"), .Object([("deep", .Bool(true))])])),
     ]);
-    let document = web.shell(ctx, "/", "", shapes);
+    let document = web.shell(ctx, "/", named("Titles"), "", shapes);
     assert.equal(
         embedded(document),
         "{\"nothing\":null,\"yes\":true,\"no\":false,\"whole\":7,\"fraction\":0.5,\"negative\":-2,\"text\":\"héllo ✓ 𝄞\",\"no fields\":{},\"no items\":[],\"items\":[1,\"two\",{\"deep\":true}]}",
@@ -302,15 +361,15 @@ test "a state with no fields at all still crosses" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(embedded(web.shell(ctx, "/", "", .Object([]))), "{}");
-    assert.equal(embedded(web.shell(ctx, "/", "", .Null)), "null");
+    assert.equal(embedded(web.shell(ctx, "/", named("Titles"), "", .Object([]))), "{}");
+    assert.equal(embedded(web.shell(ctx, "/", named("Titles"), "", .Null)), "null");
 }
 
 test "an empty body is still a whole document" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let document = web.shell(ctx, "/", "", .Object([]));
+    let document = web.shell(ctx, "/", named("Titles"), "", .Object([]));
     assert.isTrue(document.startsWith("<!doctype html>"));
     assert.equal(body(document), "");
     assert.isTrue(document.endsWith("</body>\n</html>\n"));
@@ -324,6 +383,7 @@ test "the document says which address it was rendered for" {
     let document = web.shell(
         ctx,
         "/guide/routing",
+        named("Titles"),
         web.render(tree()),
         state.toJson(ctx),
     );
@@ -338,7 +398,7 @@ test "a path that could end the attribute it sits in ends nothing" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let document = web.shell(ctx, "/a\"><b>&x", "", .Object([]));
+    let document = web.shell(ctx, "/a\"><b>&x", named("Titles"), "", .Object([]));
     assert.equal(renderedAt(document), "/a&quot;&gt;&lt;b&gt;&amp;x");
     // And the state after it is still the state, so the tag was not cut short.
     assert.equal(embedded(document), "{}");

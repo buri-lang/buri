@@ -141,6 +141,7 @@ export fn fetch(request: Request): Response {
         web.shell(
             ctx,
             request.path(),
+            web.Document { ..web.defaultDocument(), title: state.title },
             web.render(
                 page(
                     .Const(request.path()),
@@ -162,8 +163,8 @@ export fn fetch(request: Request): Response {
 
 ```html
 <!doctype html>
-<html>
-<head><meta charset="utf-8" /></head>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Buri</title></head>
 <body><main><h1>Buri</h1>visitors: 3<button type="button">say thanks</button></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
 </html>
 ```
@@ -181,6 +182,43 @@ what comes back is text.
 was rendered for rides on the same script as `data-path`, and the stylesheet the
 compiler extracted goes in the head, so the page the reader sees first is already
 styled.
+
+## The head is a value
+
+`web.Document` is what the head says: `title` names the tab and `lang` names the
+language. Build one from `defaultDocument` and write the fields this page
+differs in. Routing is a match, so a page's title is a match too:
+
+```buri
+# from "ui/web" import * as web;
+
+fn document(path: Str): web.Document {
+    let title = match (path) {
+        "/about" => "About — Buri",
+        _other => "Buri",
+    };
+    web.Document { ..web.defaultDocument(), title }
+}
+```
+
+Hand that to `shell` beside the tree the same match built, and each route names
+its own tab.
+
+The `.html` the WEB output writes has a head as well, and the build file names
+it — the same two fields, on the binary rule:
+
+```textproto schema=build
+# cmd/site/BUILD.buri
+binary {
+    web {
+        title: "Buri"
+        lang: "en"
+    }
+}
+```
+
+Without the block the title is the artifact's name, which is the package's
+directory name.
 
 ## Routing is a match
 

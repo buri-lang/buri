@@ -2609,6 +2609,7 @@ export fn fetch(request: Request): Response {
         web.shell(
             ctx,
             request.path(),
+            web.Document { ..web.defaultDocument(), title: "Edges" },
             web.render(
                 page(.Const(request.path()), state, .Const("press me"), fn(_c, _event) => ()),
             ),
