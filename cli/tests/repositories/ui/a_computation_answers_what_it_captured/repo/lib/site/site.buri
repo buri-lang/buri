@@ -1,0 +1,28 @@
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// `n` pages, one string built per page.
+///
+/// Built rather than written out, because a string literal is interned and a
+/// block that can never be freed cannot be freed early either — the shape below
+/// only fails on a page whose text the runtime allocated.
+fn pages<C: Alloc>(ctx: C, n: Int, at: Int, acc: [Node<C>]): [Node<C>] {
+    if (at >= n) {
+        acc
+    } else {
+        let name = str.format(ctx, "page ${at}");
+        pages(ctx, n, at + 1, acc.concat(ctx, [ui.text(.Const(name))]))
+    }
+}
+
+/// Every page, reached only through the computation that captured them.
+///
+/// The tree is inside the closure's environment and nowhere else, so a walk
+/// that releases the node holding the closure before calling it is walking
+/// freed memory.
+export fn site<C: Alloc>(ctx: C, n: Int): Node<C> {
+    let all = pages(ctx, n, 0, []);
+    ui.computed(fn(_scope) => ui.column([], all))
+}
