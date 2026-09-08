@@ -254,9 +254,16 @@ fn the_host_on_node() {
 /// a comparison cannot be made; the invocation — `buri test` with no target at
 /// all — that puts two packages' suites in one binary; and the platform, where
 /// a `platforms: [JS]` suite runs the graph and is refused the picture.
+///
+/// A sixth is a tree rather than a picture: `describe` under both backends,
+/// with JavaScript as the oracle, over a tree that exists only inside the
+/// closure `ui.computed` captured. It is here because it is the same corpus's
+/// subject — a `ui/node` tree, through `buri test` — and because the tier
+/// below it cannot ask the question: `conformance/lib/ui` is `platforms: [JS]`,
+/// so a divergence between the two backends is invisible there.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 5);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 6);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
