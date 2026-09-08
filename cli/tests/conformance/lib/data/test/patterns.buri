@@ -450,7 +450,7 @@ test "a nested or-pattern covers an array element" {
         match (xs) {
             [] => 0,
             [true | false] => 1,
-            [_, ..rest] => 2 + rest.len(),
+            [_, ..rest] => 2 + rest.length(),
         }
     };
     assert.equal(describe([]), 0);
@@ -733,7 +733,7 @@ test "a rest pattern binds a tail of the right length" {
         [_, ..tail] => tail,
         [] => list.empty<Int>(),
     };
-    assert.equal(rest.len(), 4);
+    assert.equal(rest.length(), 4);
     assert.equal(rest, [2, 3, 4, 5]);
 }
 
@@ -743,7 +743,7 @@ test "a rest pattern binds an empty tail for a singleton" {
         [] => [0],
     };
     assert.equal(rest, list.empty<Int>());
-    assert.equal(rest.len(), 0);
+    assert.equal(rest.length(), 0);
 }
 
 test "a rest pattern does not match the empty list" {
@@ -840,7 +840,7 @@ test "a guard may use several bindings from its pattern" {
 
 test "a guard on an array pattern" {
     let out = match ([1, 2, 3]) {
-        [_, ..rest] if rest.len() == 2 => "tail of two",
+        [_, ..rest] if rest.length() == 2 => "tail of two",
         [_, ..rest] => "other tail",
         [] => "empty",
     };

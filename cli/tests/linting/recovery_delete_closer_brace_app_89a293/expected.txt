@@ -9,7 +9,7 @@ error: this `match` does not cover `.Err(_)` [match-not-exhaustive]
 error: `Ok` holds 1 values, but 2 were given [wrong-value-count]
   --> lib/recovery_delete_closer_brace_app_89a293/main.buri:19:26
    |
-19 |         .Ok(_written) => .Ok(line.len(),
+19 |         .Ok(_written) => .Ok(line.length(),
    |                          ^^^
    |
    = expected: 1
@@ -30,7 +30,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |
   --> lib/recovery_delete_closer_brace_app_89a293/main.buri:19:29
    |
-19 |         .Ok(_written) => .Ok(line.len(),
+19 |         .Ok(_written) => .Ok(line.length(),
    |                             ^ opened here
    |
    = fix: write `)` here

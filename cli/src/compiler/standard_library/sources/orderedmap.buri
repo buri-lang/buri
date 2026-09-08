@@ -50,7 +50,7 @@
 //!     // Key order, whatever order the entries arrived in.
 //!     let names = scores.keys(ctx).join(ctx, " ");
 //!     // Half-open: "alice" and "bob" are in the scan, "carol" is not.
-//!     let scanned = scores.range(ctx, "alice", "carol").len();
+//!     let scanned = scores.range(ctx, "alice", "carol").length();
 //!     let _ = io.println(ctx, "${names}: ${scanned} in [alice, carol)").ignore();
 //!     .Ok(())
 //! }
@@ -82,7 +82,7 @@ enum Node<K, V> {
 
 /// An ordered map, as a value.
 ///
-/// `size` is carried rather than walked: callers ask `len` far more often than
+/// `size` is carried rather than walked: callers ask `length` far more often than
 /// the tree changes.
 export struct OrderedMap<K, V> {
     root: Node<K, V>,
@@ -260,10 +260,10 @@ fn leftmost<K, V>(n: Node<K, V>): Option<(K, V)> {
 
 fn rightmost<K, V>(n: Node<K, V>): Option<(K, V)> {
     let children = childrenOf(n);
-    match (children.get(children.len() - 1)) {
+    match (children.get(children.length() - 1)) {
         .None => {
             let entries = entriesOf(n);
-            entries.get(entries.len() - 1)
+            entries.get(entries.length() - 1)
         },
         .Some(child) => rightmost(child),
     }
@@ -289,10 +289,10 @@ fn overfull<K, V, C: Allocator>(
     entries: [(K, V)],
     children: [Node<K, V>],
 ): Grown<K, V> {
-    if (entries.len() <= MAX_ENTRIES) {
+    if (entries.length() <= MAX_ENTRIES) {
         .Fit(node(entries, children))
     } else {
-        let half = entries.len() / 2;
+        let half = entries.length() / 2;
         match (entries.get(half)) {
             .None => .Fit(node(entries, children)),
             .Some(mid) => {
@@ -368,7 +368,7 @@ fn fixChild<K: Ordered, V, C: Allocator>(
     at: Int,
     child: Node<K, V>,
 ): Node<K, V> {
-    if (entriesOf(child).len() >= MIN_ENTRIES) {
+    if (entriesOf(child).length() >= MIN_ENTRIES) {
         node(entries, replaceAt(ctx, children, at, child))
     } else if (at > 0) {
         match (children.get(at - 1)) {
@@ -418,8 +418,8 @@ fn fixWithLeft<K: Ordered, V, C: Allocator>(
 ): Node<K, V> {
     let leftEntries = entriesOf(left);
     let leftChildren = childrenOf(left);
-    let last = leftEntries.len() - 1;
-    if (leftEntries.len() > MIN_ENTRIES) {
+    let last = leftEntries.length() - 1;
+    if (leftEntries.length() > MIN_ENTRIES) {
         match (leftEntries.get(last)) {
             .None => node(entries, replaceAt(ctx, children, at, child)),
             .Some(up) => {
@@ -465,7 +465,7 @@ fn fixWithRight<K: Ordered, V, C: Allocator>(
 ): Node<K, V> {
     let rightEntries = entriesOf(right);
     let rightChildren = childrenOf(right);
-    if (rightEntries.len() > MIN_ENTRIES) {
+    if (rightEntries.length() > MIN_ENTRIES) {
         match (rightEntries.get(0)) {
             .None => node(entries, replaceAt(ctx, children, at, child)),
             .Some(up) => {
@@ -577,10 +577,10 @@ fn takeFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V)
 fn takeLast<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
     let entries = entriesOf(n);
     let children = childrenOf(n);
-    let at = children.len() - 1;
+    let at = children.length() - 1;
     match (children.get(at)) {
         .None => {
-            let last = entries.len() - 1;
+            let last = entries.length() - 1;
             match (entries.get(last)) {
                 .None => .None,
                 .Some(e) => .Some((e, .Leaf(removeAt(ctx, entries, last)))),
@@ -725,7 +725,7 @@ fn rangeFrom<K: Ordered, V, C: Allocator>(
 // -----------------------------------------------------------------------------
 
 impl<K: Ordered, V> OrderedMap<K, V> {
-    export fn len(self): Int {
+    export fn length(self): Int {
         self.size
     }
 
@@ -847,7 +847,7 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     ///         .Some(taken) => {
     ///             let (entry, rest) = taken;
     ///             let (_at, name) = entry;
-    ///             (name, rest.len())
+    ///             (name, rest.length())
     ///         },
     ///     };
     ///     let _ = io.println(ctx, "${what}, ${left} left").ignore();

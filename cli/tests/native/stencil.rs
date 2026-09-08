@@ -309,7 +309,7 @@ export fn main(): Result<(), Str> {
         values: list.range(c, 0, 3).map(c, fn(j) => i * j),
     });
     let sum = rows.fold(fn(acc, r) => acc + r.values.sum(), 0);
-    let kept = rows.filter(ctx, fn(r) => r.values.len() == 3);
+    let kept = rows.filter(ctx, fn(r) => r.values.length() == 3);
     let keys = kept.map(ctx, fn(r) => r.key).join(ctx, ",");
     let walked = total(tree);
     let _ = io.println(stdout, str.format(ctx, "${walked} ${sum} ${keys}")).ignore();
@@ -500,7 +500,7 @@ fn many_functions(n: usize) -> String {
         s.push_str(&format!(
             "fn f{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    \
              let xs = [\"a{i}\", \"b\"];\n    \
-             xs.map(ctx, fn (t: Str) => t.len()).len() + x + {i}\n}}\n"
+             xs.map(ctx, fn (t: Str) => t.length()).length() + x + {i}\n}}\n"
         ));
     }
     s.push_str(
@@ -818,7 +818,7 @@ export fn main(): Result<(), Str> {
   let c = "é";
   let ascii = str.format(ctx, "${a}${b}");
   let wide = str.format(ctx, "${a}${c}");
-  let _ = io.println(stdout, "${ascii} ${wide} ${ascii.len()} ${wide.len()}").ignore();
+  let _ = io.println(stdout, "${ascii} ${wide} ${ascii.length()} ${wide.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -1119,7 +1119,7 @@ test "a memo is lazy, caches, and recomputes when its source changes" {
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
-    assert.equal(log.noted().len(), 0);
+    assert.equal(log.noted().length(), 0);
     let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
     assert.equal(log.noted(), [4]);
     let _ = n.set(ctx, 5);
@@ -1369,7 +1369,7 @@ export fn main(): Result<(), Str> {
   // blocks it made die with the arena and none of them is the answer.
   let n = alloc.scoped(ctx, fn(c) => {
     let churn = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(c, fn(d, i) => built(d, "q", i * 64));
-    churn.len()
+    churn.length()
   });
 
   let shown = match (answer) {
@@ -1440,7 +1440,7 @@ export fn main(): Result<(), Str> {
   let more = names.push(ctx, str.format(ctx, "d${4}"));
   let row = Row { names: more };
   let t = Tree.Node(Tree.Node(Tree.Leaf, str.format(ctx, "x${1}")), "y");
-  let _ = io.println(stdout, "${row.show(ctx)} ${depth(t)} ${row.names.len()}").ignore();
+  let _ = io.println(stdout, "${row.show(ctx)} ${depth(t)} ${row.names.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -1595,7 +1595,7 @@ export fn main(): Result<(), Str> {
   let flat = [["p", "q"], [], ["r"]].flatten(ctx).join(ctx, "");
   let sum = [1, 2, 3].foldResult(fn(acc, x) => .Ok(acc + x), 0).withDefault(-1);
   let stop = [1, 9, 3].foldResult(fn(acc, x) => if (x == 9) { .Err(-2) } else { .Ok(acc + x) }, 0).withDefault(-1);
-  let _ = io.println(stdout, "${tags} ${found} ${at} ${pairs.len()} ${flat} ${sum} ${stop}").ignore();
+  let _ = io.println(stdout, "${tags} ${found} ${at} ${pairs.length()} ${flat} ${sum} ${stop}").ignore();
   .Ok(())
 }
 "#,
@@ -1678,7 +1678,7 @@ export fn build(s: Str, i: Int): Str {
 
 export fn main(): Result<(), Str> {
   let s = build("", 1000);
-  let _ = io.println(stdout, "${s.len()} ${s.slice(0, 4)}").ignore();
+  let _ = io.println(stdout, "${s.length()} ${s.slice(0, 4)}").ignore();
   .Ok(())
 }
 "#,
@@ -1781,8 +1781,8 @@ export fn main(): Result<(), Str> {
   let base = "ab".concat(alloc, "cd");
   let a = base.concat(alloc, "-one");
   let b = base.concat(alloc, "-two");
-  let _ = io.println(stdout, "${base} ${a} ${b} ${base.len()}").ignore();
-  let _ = io.println(stdout, "${b} ${b.len()}").ignore();
+  let _ = io.println(stdout, "${base} ${a} ${b} ${base.length()}").ignore();
+  let _ = io.println(stdout, "${b} ${b.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -4144,7 +4144,7 @@ fn go(n: Int, acc: Int): Int {{
     let p = (h, h);
     let s = str.format(alloc, "[${{p.0}}][${{p.1}}]");
     let _ = io.println(stdout, "${{n}}").ignore();
-    go(n - 1, acc + s.len())
+    go(n - 1, acc + s.length())
   }}
 }}
 
@@ -4198,7 +4198,7 @@ fn go(n: Int, acc: Int): Int {{
   if (n <= 0) {{ acc }} else {{
     let t = Tag {{ id: n, name: "ab".repeat(alloc, 3) }};
     let s = str.format(alloc, "[${{t}}]");
-    go(n - 1, acc + s.len())
+    go(n - 1, acc + s.length())
   }}
 }}
 

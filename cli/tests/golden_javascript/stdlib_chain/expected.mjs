@@ -14,7 +14,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_14=String($str_len(trimmed_2))+' '+String($list_len(words_3))+' '+$str($str_contains(joined_7,'QUICK'));
+  const text_14=String($str_length(trimmed_2))+' '+String($list_length(words_3))+' '+$str($str_contains(joined_7,'QUICK'));
   const self_15=$host_HostStdout_println(ctx_0[1],text_14);
   let $t3;
   if(self_15[0]===0){

@@ -164,7 +164,7 @@ literal string is three immediate constants and touches no allocator.
 
 ### 3.1 `len` is scalars, and the top bit of `len` says how much that costs
 
-`str.len()` is "the number of Unicode scalar values, not the number of UTF-8
+`str.length()` is "the number of Unicode scalar values, not the number of UTF-8
 bytes" (`str.buri`), so the byte length in the value and the number the language
 reports are different numbers and one of them has to be computed.
 
@@ -174,7 +174,7 @@ below 0x80, so the scalar count equals the byte count and `len()` is a mask.
 Clear means counting bytes with `(b & 0xC0) != 0x80` — a loop that vectorizes to
 one compare and one popcount per 16 or 32 bytes.
 
-This mirrors the JavaScript backend, whose `$str_len` is
+This mirrors the JavaScript backend, whose `$str_length` is
 `$wide(s) ? $chars(s).length : s.length` (`runtime.js`). The boundary is drawn in
 a different place — JavaScript's fast path is "no astral characters", ours is "no
 non-ASCII" — but no program's asymptotics change between backends on the input
@@ -219,7 +219,7 @@ because unlike `Str` a list is **never a view**: every one of `slice`, `take`,
 always a payload start and 16 bytes suffice.
 
 `len` is the element count, exactly. There is no ASCII-flag equivalent because
-`list.len()` is the element count and always O(1) (`list.buri`).
+`list.length()` is the element count and always O(1) (`list.buri`).
 
 ### 4.1 A flat array, not a persistent vector
 
@@ -643,7 +643,7 @@ reads this table and fails if a row names a test that is not there.
 | 3 | `wrappingMultiply` at 64 bits | exact | exact, native | Must agree, at every width. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else; at 64 and 128 the operands are `BigInt`s and the wrap is one `asIntN`. Natively `wrapping*` **is** the machine's own add, subtract and multiply, because §3.4 emits no `nsw`/`nuw`. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
 | 4 | `I128`/`U128` arithmetic | exact | exact | **Must agree, and does.** Both are `BigInt`s (buri-lang/buri#4). `I128` is the escape hatch the language offers when 64 bits are not enough, and an escape hatch that rounds is not one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
 | 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | **Must agree, and does**, at any nesting depth, through `match`, `Equal` or `Show`. | `row_05_nested_option_is_distinct` |
-| 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
+| 6 | `str.length()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
 | 7 | `str.slice` past the end | clamps (`runtime.js`) | clamps | Must agree. Pinned on the boundary cases. | `row_07_str_slice_clamps` |
 | 8 | Float rendering | JS `Number#toString` | shortest round-trip (SPEC §6.2) | Must agree, character for character. The runtime implements Ryū rather than trusting a libc `printf`. The exhaustive corpus is `native/float_parity.rs`'s 3.8 million doubles; the row here is the end-to-end variant. | `row_08_float_rendering` |
 | 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Equal`, `Ordered` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
@@ -686,8 +686,8 @@ two types, so a `match` whose arms are a string literal and an interpolation —
 shape of every function that returns a message — did not verify natively at all;
 §3.3 says the two *are* one type and the interner now says so too. And
 `cli/tests/crash/` cannot be run through this file as it stands, because every
-case there makes its divisor opaque with `env.arguments(ctx).len()` and
-`host.HostEnvironment.arguments` has no native body; the rows here use `"".len()` instead.
+case there makes its divisor opaque with `env.arguments(ctx).length()` and
+`host.HostEnvironment.arguments` has no native body; the rows here use `"".length()` instead.
 
 **A third, fixed by a ruling rather than by a fifteenth row.** A struct holding
 `NaN` compared with **itself** used to answer `true` on JavaScript and `false` on

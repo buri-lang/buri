@@ -15,7 +15,7 @@ from "core/list" import * as list;
 
 // `&&`: the shape of `all`.
 fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
-    if (i >= xs.len()) {
+    if (i >= xs.length()) {
         true
     } else {
         xs.get(i).withDefault(0) < limit && allBelow(xs, limit, i + 1)
@@ -24,7 +24,7 @@ fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
 
 // `||`: the mirror image, the shape of `any`.
 fn anyAtLeast(xs: [Int], limit: Int, i: Int): Bool {
-    if (i >= xs.len()) {
+    if (i >= xs.length()) {
         false
     } else {
         xs.get(i).withDefault(0) >= limit || anyAtLeast(xs, limit, i + 1)

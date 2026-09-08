@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
         BuriStr s;
         buri_rt_show_f64(x, &s);
         fprintf(out, "%016llx ", (unsigned long long)bits);
-        fwrite(s.ptr, 1, (size_t)(s.len & STR_LEN_MASK), out);
+        fwrite(s.ptr, 1, (size_t)(s.length & STR_LEN_MASK), out);
         fputc('\n', out);
     }
     fclose(in);

@@ -11,7 +11,7 @@ from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
-  let zero = env.arguments(ctx).len();
+  let zero = env.arguments(ctx).length();
   let _ = io.println(ctx, "${number.divideEuclidean(-7, zero)}").ignore();
   .Ok(())
 }

@@ -158,7 +158,7 @@ export fn constants5_4(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe5_4<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants5_4();
-    label5_4(ctx, a, e).len() + b
+    label5_4(ctx, a, e).length() + b
 }
 
 derive Equal, Show for Rec5_5;
@@ -185,7 +185,7 @@ impl Rec5_5 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe5_5<C: Allocator>(ctx: C): Int {
     let r = Rec5_5 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -205,7 +205,7 @@ export fn constants5_6(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe5_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants5_6();
-    label5_6(ctx, a, e).len() + b
+    label5_6(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -243,14 +243,14 @@ export fn digest5_8<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [7196, 7732, 9383, 2836];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain5_8(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.

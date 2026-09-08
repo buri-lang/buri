@@ -176,7 +176,7 @@ export struct Loose {
 
 impl Equal for Loose {
     fn equal(self, other: Loose): Bool {
-        self.word.len() == other.word.len()
+        self.word.length() == other.word.length()
     }
 }
 
@@ -1543,7 +1543,7 @@ impl<C: Allocator> Allocator for Logged<C> {
 /// context it wraps and then stands in for it.
 export fn loggedWith<C: Allocator>(ctx: C, into: [Int]): [Int] {
     let wrapped = Logged { inner: ctx, prefix: "ab".concat(ctx, "cd") };
-    into.push(wrapped, wrapped.prefix.len())
+    into.push(wrapped, wrapped.prefix.length())
 }
 
 /// One value satisfying **two** effects, which is what makes `C: Allocator + Clock`
@@ -1688,7 +1688,7 @@ export enum Widget<C> {
 export fn render<C: Allocator>(ctx: C, root: Widget<C>): Str {
     match (root) {
         .Label(text) => text,
-        .Press(label, press) => press(ctx, label.len()),
+        .Press(label, press) => press(ctx, label.length()),
         .Group(children) => {
             children.mapCtx(ctx, fn(c, child) => render(c, child)).join(ctx, "+")
         },
@@ -1705,7 +1705,7 @@ export fn eachRow<C: Allocator, T>(
 ): Str {
     // `count` first: `[T]` is a type the lambda may not close over, because an
     // unbounded `T` stands for a context type too (SPEC 10.6). An `Int` is not.
-    let count = items.len();
+    let count = items.length();
     items.mapCtx(ctx, fn(c, item) => render(c, row(c, item, count))).join(ctx, ",")
 }
 

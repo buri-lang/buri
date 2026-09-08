@@ -21,7 +21,7 @@ export fn main(): Result<(), Str> {
         Tasks: host.tasks,
     };
     let sizes = tasks.parallel(ctx, ["alpha", "be", "gamma"], fn(c, index, word) => {
-        str.format(c, "${index}:${word.len()}")
+        str.format(c, "${index}:${word.length()}")
     });
     let _ = io.println(ctx, sizes.join(ctx, " ")).ignore();
     .Ok(())

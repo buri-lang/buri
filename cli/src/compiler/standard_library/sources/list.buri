@@ -2,7 +2,7 @@
 //!
 //! One split runs through this file, the one SPEC 10.5 draws: an operation
 //! whose result size is fixed is pure, and an operation whose result size
-//! depends on runtime data names `Allocator`. `len` and `fold` are pure. `map` and
+//! depends on runtime data names `Allocator`. `length` and `fold` are pure. `map` and
 //! `filter` are not, and their signatures say so.
 //!
 //! Everything here takes its collection as `self`, so you can call it as a
@@ -15,10 +15,10 @@ from "core/order" import { Ordered, Order };
 // --- Pure: no context parameter at all --------------------------------------
 
 impl<T> [T] {
-    export fn len(self): Int;
+    export fn length(self): Int;
 
     export fn isEmpty(self): Bool {
-        self.len() == 0
+        self.length() == 0
     }
 
     /// Indexing yields `Option<T>`. There is no way to index out of bounds and
@@ -30,7 +30,7 @@ impl<T> [T] {
     }
 
     export fn last(self): Option<T> {
-        self.get(self.len() - 1)
+        self.get(self.length() - 1)
     }
 
     /// A fold produces one value rather than a new collection, so it allocates
@@ -215,7 +215,7 @@ impl<A> [A] {
     ///     let doubled = [1, 2, 3].mapResult(ctx, small);
     ///     let refused = [1, 20, 3].mapResult(ctx, small);
     ///     let shown = match ((doubled, refused)) {
-    ///         (.Ok(xs), .Err(n)) => "${xs.len()} doubled, and then ${n}",
+    ///         (.Ok(xs), .Err(n)) => "${xs.length()} doubled, and then ${n}",
     ///         _ => "unreachable",
     ///     };
     ///     let _ = io.println(ctx, shown).ignore();
@@ -406,7 +406,7 @@ impl<T> [T] {
 /// Tail-recursive rather than a `map` over indices, because the lambda would
 /// have to capture the list (SPEC 10.6).
 fn windowsFrom<T, C: Allocator>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
-    if (at + size > xs.len()) {
+    if (at + size > xs.length()) {
         acc
     } else {
         windowsFrom(ctx, xs, size, at + 1, acc.push(ctx, xs.slice(ctx, at, at + size)))
@@ -528,7 +528,7 @@ impl<A> [A] {
     ///         Stdout: host.stdout,
     ///     };
     ///     let doubled = [1, 2, 3].flatMap(ctx, fn(n) => [n, n]);
-    ///     let _ = io.println(ctx, "${doubled.len()}").ignore();
+    ///     let _ = io.println(ctx, "${doubled.length()}").ignore();
     ///     .Ok(())
     /// }
     /// ```
@@ -635,7 +635,7 @@ impl<T> [T] {
     ///     };
     ///     let groups = [1, 2, 3, 4, 5].chunks(ctx, 2);
     ///     let last: [Int] = groups.last().withDefault([]);
-    ///     let _ = io.println(ctx, "${groups.len()} ${last.len()}").ignore();
+    ///     let _ = io.println(ctx, "${groups.length()} ${last.length()}").ignore();
     ///     .Ok(())
     /// }
     /// ```
@@ -661,14 +661,14 @@ impl<T> [T] {
     /// An `index` past the end appends and one below zero prepends, so there is
     /// no way to insert into a hole.
     export fn insertAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T] {
-        let at = clampIndex(index, self.len());
+        let at = clampIndex(index, self.length());
         self.take(ctx, at).push(ctx, item).concat(ctx, self.drop(ctx, at))
     }
 
     /// The list with the element at `index` exchanged for `item`. An index
     /// outside the list changes nothing, which is `removeAt`'s rule.
     export fn replaceAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T] {
-        if (index < 0 || index >= self.len()) {
+        if (index < 0 || index >= self.length()) {
             self
         } else {
             self.take(ctx, index).push(ctx, item).concat(ctx, self.drop(ctx, index + 1))
@@ -737,7 +737,7 @@ fn runLength<T>(xs: [T], keep: fn(T) => Bool, at: Int): Int {
 }
 
 fn chunksFrom<T, C: Allocator>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
-    if (at >= xs.len()) {
+    if (at >= xs.length()) {
         acc
     } else {
         let piece = xs.slice(ctx, at, at + size);
@@ -765,8 +765,8 @@ fn partitionFrom<T, C: Allocator>(
     }
 }
 
-fn clampIndex(index: Int, len: Int): Int {
-    if (index < 0) { 0 } else { if (index > len) { len } else { index } }
+fn clampIndex(index: Int, length: Int): Int {
+    if (index < 0) { 0 } else { if (index > length) { length } else { index } }
 }
 
 // --- Searching a list that is already in order ---------------------------------
@@ -805,7 +805,7 @@ impl<T> [T] {
     /// 1 2
     /// ```
     export fn binarySearchBy(self, probe: fn(T) => Order): Result<Int, Int> {
-        searchBy(self, probe, 0, self.len())
+        searchBy(self, probe, 0, self.length())
     }
 
     /// How many elements at the front the predicate accepts, found in O(log n)
@@ -815,7 +815,7 @@ impl<T> [T] {
     /// accepts before every element it refuses — which is what makes halving
     /// sound. On a list that is not, `takeWhile` is the honest answer.
     export fn partitionPoint(self, predicate: fn(T) => Bool): Int {
-        pointFrom(self, predicate, 0, self.len())
+        pointFrom(self, predicate, 0, self.length())
     }
 
     /// The last element the predicate accepts, searching from the end.
@@ -828,7 +828,7 @@ impl<T> [T] {
 
     /// The index of the last element the predicate accepts.
     export fn findLastIndex(self, predicate: fn(T) => Bool): Option<Int> {
-        lastFrom(self, predicate, self.len() - 1)
+        lastFrom(self, predicate, self.length() - 1)
     }
 }
 
@@ -883,7 +883,7 @@ impl<T: Ordered> [T] {
     /// `binarySearchBy` with the type's own order. The list has to be sorted by
     /// it, which is what `sort` leaves behind.
     export fn binarySearch(self, needle: T): Result<Int, Int> {
-        searchOrd(self, needle, 0, self.len())
+        searchOrd(self, needle, 0, self.length())
     }
 }
 
@@ -925,7 +925,7 @@ impl<T: Equal> [T] {
 
     /// Whether the list ends with `suffix`. Every list ends with the empty one.
     export fn endsWith(self, suffix: [T]): Bool {
-        matchesAt(self, suffix, self.len() - suffix.len(), 0)
+        matchesAt(self, suffix, self.length() - suffix.length(), 0)
     }
 }
 
@@ -1177,7 +1177,7 @@ fn zippedFrom<A, B, R, C: Allocator>(
 ///     let halves = list.unfold(ctx, 8, fn(n) => {
 ///         if (n == 0) { .None } else { .Some((n, n / 2)) }
 ///     });
-///     let _ = io.println(ctx, "${halves.len()}").ignore();
+///     let _ = io.println(ctx, "${halves.length()}").ignore();
 ///     .Ok(())
 /// }
 /// ```
@@ -1234,7 +1234,7 @@ impl [Int] {
         if (self.isEmpty()) {
             .None
         } else {
-            .Some(self.sum().toF64() / self.len().toF64())
+            .Some(self.sum().toF64() / self.length().toF64())
         }
     }
 }
@@ -1250,7 +1250,7 @@ impl [Float] {
         if (self.isEmpty()) {
             .None
         } else {
-            .Some(self.sumFloat() / self.len().toF64())
+            .Some(self.sumFloat() / self.length().toF64())
         }
     }
 
@@ -1261,7 +1261,7 @@ impl [Float] {
     /// list leaves the order undefined and the answer with it.
     export fn median<C: Allocator>(self, ctx: C): Option<Float> {
         let sorted = self.sort(ctx);
-        let n = sorted.len();
+        let n = sorted.length();
         if (n == 0) {
             .None
         } else {

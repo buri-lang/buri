@@ -39,26 +39,26 @@ fn respond<C: Allocator>(ctx: C, inputs: [(Str, Str)]): Json {
                     (
                         "text",
                         .Str(
-                            str.format(ctx, "export let edge: Int = ${text.len()};\n"),
+                            str.format(ctx, "export let edge: Int = ${text.length()};\n"),
                         ),
                     ),
                     ("anchors", .Array(list.empty())),
                 ]),
             ]),
         ),
-        ("diagnostics", .Array(edges(ctx, first, text.len()))),
+        ("diagnostics", .Array(edges(ctx, first, text.length()))),
     ])
 }
 
 /// One diagnostic per edge. The offsets are written down rather than found, so
 /// that what the case records is what the toolchain does with each of them.
-fn edges<C: Allocator>(ctx: C, path: Str, len: Int): [Json] {
-    let last = if (len == 0) { 0 } else { len - 1 };
+fn edges<C: Allocator>(ctx: C, path: Str, length: Int): [Json] {
+    let last = if (length == 0) { 0 } else { length - 1 };
     [
         at(ctx, "the first byte", path, 0, 1),
-        at(ctx, "the last byte", path, last, len),
-        at(ctx, "a span that begins where the file ends", path, len, len + 8),
-        at(ctx, "a span well past the end", path, len + 40, len + 48),
+        at(ctx, "the last byte", path, last, length),
+        at(ctx, "a span that begins where the file ends", path, length, length + 8),
+        at(ctx, "a span well past the end", path, length + 40, length + 48),
         at(ctx, "a file this repository does not have", "cmd/app/nowhere.txt", 0, 4),
     ]
 }

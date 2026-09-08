@@ -80,8 +80,8 @@ test "a block-like expression heading a chain takes parentheses" {
         .If([id("a")], [block([], [id("b")])], [ex(.Block(block([], [id("c")])))]),
     );
     assert.equal(
-        ast.print(ctx, letOf(call(field(branch, "len"), []))).text,
-        "let X: Int = (if (a) { b } else { c }).len();\n",
+        ast.print(ctx, letOf(call(field(branch, "length"), []))).text,
+        "let X: Int = (if (a) { b } else { c }).length();\n",
     );
 }
 

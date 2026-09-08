@@ -47,7 +47,7 @@ FAIL //lib/asserts  test/asserts.buri  "notEmpty"
   assert.notEmpty failed: the list is empty
   --> lib/asserts/test/asserts.buri:56:1
 FAIL //lib/asserts  test/asserts.buri  "len"
-  assert.len failed
+  assert.length failed
     actual:   3
     expected: 2
   --> lib/asserts/test/asserts.buri:60:1

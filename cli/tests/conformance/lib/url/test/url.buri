@@ -454,8 +454,8 @@ test "a two-byte, a three-byte and a four-byte character, and back again" {
 
 test "a null byte survives both directions" {
     assert.equal(encodeOne("\0"), "%00");
-    assert.equal(assert.ok(decodeOne("%00")).len(), 1);
-    assert.equal(assert.ok(decodeOne("a%00b")).len(), 3);
+    assert.equal(assert.ok(decodeOne("%00")).length(), 1);
+    assert.equal(assert.ok(decodeOne("a%00b")).length(), 3);
 }
 
 test "an escape reads in either case, and comes back uppercase" {
@@ -481,7 +481,7 @@ test "a query pair with more than one equals keeps the rest of the value" {
 }
 
 test "a query holding a null byte and a multi-byte character" {
-    assert.equal(query("a=%00").len(), 1);
+    assert.equal(query("a=%00").length(), 1);
     assert.equal(query("q=%F0%9F%98%80"), [("q", "😀")]);
 }
 

@@ -2766,11 +2766,11 @@ impl<'a> Jit<'a> {
             }
             return;
         }
-        // `str.len` is the number of Unicode scalar values (VALUE-MODEL.md
+        // `str.length` is the number of Unicode scalar values (VALUE-MODEL.md
         // §3.1), which `cli/runtime/text.rs` answers for both the ASCII and the
         // multibyte case. Not in the table because it has no `Ret` shape of its
         // own: the count comes straight back in a register.
-        if key == "str.len" {
+        if key == "str.length" {
             let (sp, sl) = self.str_arg(p(0), fs.param_end);
             match self.c_call("buri_rt_str_scalar_len", st, &[sp, sl], &[], ret0, "i") {
                 Ok(()) => self.emit("ret", &[]),
@@ -2791,7 +2791,7 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if key == "list.len" {
+        if key == "list.length" {
             self.mv(ret0, p(0) + 8, 8);
             self.emit("ret", &[]);
             return;
@@ -4062,12 +4062,12 @@ pub fn implemented(key: &str) -> bool {
 fn open_coded_key(key: &str) -> bool {
     matches!(
         key,
-        "list.len"
+        "list.length"
             | "list.empty"
             | "str.concat"
             | "host_testing.alloc"
             | "host_testing.TestAllocator.allocate"
-            | "str.len"
+            | "str.length"
             | "str.format"
             | "str.equal"
             | "str.compare"
@@ -4126,7 +4126,7 @@ fn list_closure_key(key: &str) -> bool {
 ///   to the `Body::Runtime` function, whose body reaches the same loop through
 ///   the closure's thunk — so inlining those would replace a working fallback
 ///   with a refusal.
-/// * A key with no row is `str.len`, `number.<T>.<op>` and the rest, whose bodies
+/// * A key with no row is `str.length`, `number.<T>.<op>` and the rest, whose bodies
 ///   `runtime_body` generates from the signature; those keys reach a backend
 ///   only as a method, never as an `Inst::CallIntrinsic`, so there is no
 ///   call-site emitter for them to be inlined by.

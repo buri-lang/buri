@@ -309,7 +309,7 @@ test "a heap keeps elements a custom Ordered calls equal" {
     };
     let h = heap.of(ctx, [Highest(5), Highest(5), Highest(5)]);
     assert.equal(h.length(), 3);
-    assert.equal(h.toSortedList(ctx).len(), 3);
+    assert.equal(h.toSortedList(ctx).length(), 3);
     let (_first, rest) = assert.some(h.pop(ctx));
     assert.equal(rest.length(), 2);
 }

@@ -83,12 +83,12 @@ export fn describeAll19_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric19_1(ns: [Int], ss: [Str]): Int {
-    firstOr19_1<Int>(ns, 0) + firstOr19_1<Str>(ss, "").len()
+    firstOr19_1<Int>(ns, 0) + firstOr19_1<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe19_1<C: Allocator>(ctx: C): Int {
-    useGeneric19_1([1, 2], ["a"]) + describeAll19_1(ctx, [1, 2]).len()
+    useGeneric19_1([1, 2], ["a"]) + describeAll19_1(ctx, [1, 2]).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -107,12 +107,12 @@ export fn describeAll19_2<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric19_2(ns: [Int], ss: [Str]): Int {
-    firstOr19_2<Int>(ns, 0) + firstOr19_2<Str>(ss, "").len()
+    firstOr19_2<Int>(ns, 0) + firstOr19_2<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe19_2<C: Allocator>(ctx: C): Int {
-    useGeneric19_2([1, 2], ["a"]) + describeAll19_2(ctx, [1, 2]).len()
+    useGeneric19_2([1, 2], ["a"]) + describeAll19_2(ctx, [1, 2]).length()
 }
 
 derive Equal, Show for State19_3;
@@ -148,7 +148,7 @@ export fn start19_3(ticks: Int): State19_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe19_3<C: Allocator>(ctx: C): Int {
     let s = start19_3(5);
-    rank19_3(s) + s.show(ctx).len()
+    rank19_3(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -168,7 +168,7 @@ export fn constants19_4(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe19_4<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants19_4();
-    label19_4(ctx, a, e).len() + b
+    label19_4(ctx, a, e).length() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
@@ -177,14 +177,14 @@ export fn digest19_5<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [6549, 8708, 5270, 5066, 6686, 8195, 5541, 9886, 3021, 3721, 6129];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain19_5(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -254,7 +254,7 @@ export fn start19_7(ticks: Int): State19_7 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe19_7<C: Allocator>(ctx: C): Int {
     let s = start19_7(5);
-    rank19_7(s) + s.show(ctx).len()
+    rank19_7(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -274,7 +274,7 @@ export fn constants19_8(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe19_8<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants19_8();
-    label19_8(ctx, a, e).len() + b
+    label19_8(ctx, a, e).length() + b
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -293,12 +293,12 @@ export fn describeAll19_9<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric19_9(ns: [Int], ss: [Str]): Int {
-    firstOr19_9<Int>(ns, 0) + firstOr19_9<Str>(ss, "").len()
+    firstOr19_9<Int>(ns, 0) + firstOr19_9<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe19_9<C: Allocator>(ctx: C): Int {
-    useGeneric19_9([1, 2], ["a"]) + describeAll19_9(ctx, [1, 2]).len()
+    useGeneric19_9([1, 2], ["a"]) + describeAll19_9(ctx, [1, 2]).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

@@ -87,8 +87,8 @@ test "a SHA-512 digest is sixty-four bytes" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.len(crypto.sha512(ctx, list.empty<U8>()).0, 64);
-    assert.equal(crypto.sha512(ctx, list.empty<U8>()).toHex(ctx).len(), 128);
+    assert.length(crypto.sha512(ctx, list.empty<U8>()).0, 64);
+    assert.equal(crypto.sha512(ctx, list.empty<U8>()).toHex(ctx).length(), 128);
 }
 
 test "the byte form and the text form agree" {
@@ -167,7 +167,7 @@ test "an empty key and an empty message still make a digest" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.len(crypto.hmacSha512(ctx, list.empty<U8>(), list.empty<U8>()).0, 64);
+    assert.length(crypto.hmacSha512(ctx, list.empty<U8>(), list.empty<U8>()).0, 64);
 }
 
 test "HMAC-SHA-512 is not SHA-512 of the same bytes" {
@@ -225,7 +225,7 @@ test "a SHA-1 digest is twenty bytes, and the three functions differ" {
         Allocator: alloc(),
     };
     let message = bytes.toUtf8(ctx, "abc");
-    assert.len(crypto.sha1(ctx, message).0, 20);
+    assert.length(crypto.sha1(ctx, message).0, 20);
     assert.notEq(crypto.sha1(ctx, message), crypto.sha256(ctx, message));
     assert.notEq(crypto.sha512(ctx, message), crypto.sha256(ctx, message));
 }

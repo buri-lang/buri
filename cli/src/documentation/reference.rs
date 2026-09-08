@@ -556,7 +556,7 @@ mod tests {
         assert!(map_fn.signature.contains("map<B, C: Allocator>"), "{}", map_fn.signature);
         assert_eq!(map_fn.api.effects(), ["Allocator".to_string()], "map allocates and says so");
 
-        let (_, len) = find_item(&modules, "core/list.len").expect("core/list.len");
+        let (_, len) = find_item(&modules, "core/list.length").expect("core/list.length");
         assert!(len.api.effects().is_empty(), "len is pure");
 
         let (_, alloc) = find_item(&modules, "core/effect.Allocator").expect("core/effect.Allocator");

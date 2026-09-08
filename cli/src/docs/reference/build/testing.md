@@ -47,7 +47,7 @@ way.
 
 | Function | Answers |
 |---|---|
-| `assert.equal`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.len`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | `()`, so the call stands alone as a statement |
+| `assert.equal`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.length`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | `()`, so the call stands alone as a statement |
 | `assert.ok`, `assert.err`, `assert.some` | The unwrapped value |
 
 The statement rule asks for the type, not the shape. Any expression of type `()`

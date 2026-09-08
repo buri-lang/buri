@@ -21,7 +21,7 @@ export fn main(): Result<(), Str> {
 
     let _ = io.println(ctx, "${joined}").ignore();
     let _ = io
-        .println(ctx, "${trimmed.len()} ${words.len()} ${joined.contains("QUICK")}")
+        .println(ctx, "${trimmed.length()} ${words.length()} ${joined.contains("QUICK")}")
         .ignore();
     let _ = io
         .println(ctx, "${trimmed.startsWith("the")} ${trimmed.endsWith("fox")}")

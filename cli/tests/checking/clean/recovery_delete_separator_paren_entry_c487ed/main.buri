@@ -50,7 +50,7 @@ test "a schema the reader refuses answers its diagnostics and no module" {
     };
     let out = proto.emit(ctx, request);
     assert.equal(out.diagnostics.map(ctx fn(d) => d.code), ["proto-syntax-declaration"]);
-    assert.len(out.modules, 1);
+    assert.length(out.modules, 1);
     // The module is still answered, because a schema always comes back: one
     // bad declaration must not hide what the rest of the file says.
     assert.equal(assert.some(out.modules.first()).0, "old.proto");

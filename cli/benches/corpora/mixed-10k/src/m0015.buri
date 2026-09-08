@@ -63,7 +63,7 @@ impl Rec15_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_0<C: Allocator>(ctx: C): Int {
     let r = Rec15_0 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show for State15_1;
@@ -101,7 +101,7 @@ export fn start15_1(ticks: Int): State15_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_1<C: Allocator>(ctx: C): Int {
     let s = start15_1(5);
-    rank15_1(s) + s.show(ctx).len()
+    rank15_1(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -121,7 +121,7 @@ export fn constants15_2(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants15_2();
-    label15_2(ctx, a, e).len() + b
+    label15_2(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -170,7 +170,7 @@ export fn constants15_4(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_4<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants15_4();
-    label15_4(ctx, a, e).len() + b
+    label15_4(ctx, a, e).length() + b
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -189,12 +189,12 @@ export fn describeAll15_5<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric15_5(ns: [Int], ss: [Str]): Int {
-    firstOr15_5<Int>(ns, 0) + firstOr15_5<Str>(ss, "").len()
+    firstOr15_5<Int>(ns, 0) + firstOr15_5<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_5<C: Allocator>(ctx: C): Int {
-    useGeneric15_5([1, 2], ["a"]) + describeAll15_5(ctx, [1, 2]).len()
+    useGeneric15_5([1, 2], ["a"]) + describeAll15_5(ctx, [1, 2]).length()
 }
 
 derive Equal, Show for State15_6;
@@ -236,7 +236,7 @@ export fn start15_6(ticks: Int): State15_6 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_6<C: Allocator>(ctx: C): Int {
     let s = start15_6(5);
-    rank15_6(s) + s.show(ctx).len()
+    rank15_6(s) + s.show(ctx).length()
 }
 
 derive Equal, Show for Rec15_7;
@@ -263,7 +263,7 @@ impl Rec15_7 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_7<C: Allocator>(ctx: C): Int {
     let r = Rec15_7 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show for Rec15_8;
@@ -291,7 +291,7 @@ impl Rec15_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe15_8<C: Allocator>(ctx: C): Int {
     let r = Rec15_8 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the

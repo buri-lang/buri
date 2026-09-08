@@ -52,7 +52,7 @@ test "a captured list slices the same way on every call" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len()), [
+    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).length()), [
         0,
         1,
         2,
@@ -65,7 +65,7 @@ test "a captured list takes the same way on every call" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.take(c, i).len()), [
+    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.take(c, i).length()), [
         0,
         1,
         2,
@@ -78,7 +78,7 @@ test "a captured list drops the same way on every call" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.drop(c, i).len()), [
+    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.drop(c, i).length()), [
         3,
         2,
         1,
@@ -91,7 +91,7 @@ test "a captured list is not grown in place by the closure that pushes to it" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 2);
-    assert.equal(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.push(c, i).len()), [
+    assert.equal(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.push(c, i).length()), [
         3,
         3,
         3,
@@ -104,7 +104,7 @@ test "a captured list is not extended in place by the closure that concatenates 
     };
     let xs = grown(ctx, 2);
     let ys = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, _i) => xs.concat(c, ys).len()), [
+    assert.equal(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, _i) => xs.concat(c, ys).length()), [
         5,
         5,
         5,
@@ -135,7 +135,7 @@ test "a list a closure sliced is the list it was" {
     let xs = grown(ctx, 3);
     let lengths = list
         .range(ctx, 0, 3)
-        .mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len());
+        .mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).length());
     assert.equal(lengths, [0, 1, 2]);
     assert.equal(xs, [0, 1, 2]);
 }
@@ -151,7 +151,7 @@ test "a closure that runs twice reads the same capture twice" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 4);
-    assert.equal(twice(ctx, fn(c, n) => xs.drop(c, n).len()), [3, 3]);
+    assert.equal(twice(ctx, fn(c, n) => xs.drop(c, n).length()), [3, 3]);
 }
 
 // -----------------------------------------------------------------------------
@@ -164,7 +164,7 @@ test "a closure that runs twice reads the same capture twice" {
 /// body, which is what made it look like a monomorphization bug rather than an
 /// ownership one.
 fn prefixLen<C: Allocator, T>(ctx: C, ps: [T], i: Int): Int {
-    ps.slice(ctx, 0, i).len()
+    ps.slice(ctx, 0, i).length()
 }
 
 test "two instantiations of one helper read two captures" {
@@ -245,7 +245,7 @@ test "a captured struct's list is not written through by the closure that pushes
     let basket = Basket { label: "b", items: grown(ctx, 2) };
     let sizes = over(ctx, 3, fn(c, i) => {
         let out = Basket { ..basket, items: basket.items.push(c, i) };
-        out.items.len()
+        out.items.length()
     });
     assert.equal(sizes, [3, 3, 3]);
 }
@@ -256,7 +256,7 @@ test "a captured tuple's two lists are not written through" {
     };
     let pair = (grown(ctx, 2), grownText(ctx, 2));
     let sizes = over(ctx, 3, fn(c, i) => {
-        pair.0.push(c, i).len() + pair.1.push(c, "y").len()
+        pair.0.push(c, i).length() + pair.1.push(c, "y").length()
     });
     assert.equal(sizes, [6, 6, 6]);
 }
@@ -266,7 +266,7 @@ test "a captured variant's payload is not written through" {
         Allocator: alloc(),
     };
     let load = Load.Full(grown(ctx, 2));
-    let sizes = over(ctx, 3, fn(c, i) => inside(load).push(c, i).len());
+    let sizes = over(ctx, 3, fn(c, i) => inside(load).push(c, i).length());
     assert.equal(sizes, [3, 3, 3]);
 }
 
@@ -277,7 +277,7 @@ test "a captured list of lists is not written through at either level" {
     let rows = list.empty<[Int]>().push(ctx, grown(ctx, 2));
     let sizes = over(ctx, 3, fn(c, i) => {
         let row = rows.get(0).withDefault(list.empty<Int>());
-        rows.push(c, list.empty<Int>()).len() + row.push(c, i).len()
+        rows.push(c, list.empty<Int>()).length() + row.push(c, i).length()
     });
     assert.equal(sizes, [5, 5, 5]);
 }
@@ -287,7 +287,7 @@ test "a captured string is not extended in place" {
         Allocator: alloc(),
     };
     let word = grownWord(ctx, 3);
-    let sizes = over(ctx, 3, fn(c, _i) => word.concat(c, "!").len());
+    let sizes = over(ctx, 3, fn(c, _i) => word.concat(c, "!").length());
     assert.equal(sizes, [4, 4, 4]);
 }
 
@@ -302,7 +302,7 @@ test "a struct a closure pushed through is the struct it was" {
     let basket = Basket { label: "b", items: grown(ctx, 2) };
     let sizes = over(ctx, 2, fn(c, i) => {
         let out = Basket { ..basket, items: basket.items.push(c, i) };
-        out.items.len()
+        out.items.length()
     });
     assert.equal(sizes, [3, 3]);
     assert.equal(basket, Basket { label: "b", items: [0, 1] });
@@ -315,10 +315,10 @@ test "a list of lists a closure pushed through is the list it was" {
     let rows = list.empty<[Int]>().push(ctx, grown(ctx, 2));
     let sizes = over(ctx, 2, fn(c, i) => {
         let row = rows.get(0).withDefault(list.empty<Int>());
-        rows.push(c, list.empty<Int>()).len() + row.push(c, i).len()
+        rows.push(c, list.empty<Int>()).length() + row.push(c, i).length()
     });
     assert.equal(sizes, [5, 5]);
-    assert.equal(rows.len(), 1);
+    assert.equal(rows.length(), 1);
     assert.equal(rows.get(0).withDefault(list.empty<Int>()), [0, 1]);
 }
 
@@ -336,7 +336,7 @@ test "a capture read by a lambda inside a lambda is read the same way every time
     let sums = list
         .range(ctx, 0, 3)
         .mapCtx(ctx, fn(c, i) => {
-            list.range(c, 0, 2).mapCtx(c, fn(d, _k) => xs.slice(d, 0, i).len()).sum()
+            list.range(c, 0, 2).mapCtx(c, fn(d, _k) => xs.slice(d, 0, i).length()).sum()
         });
     assert.equal(sums, [0, 2, 4]);
 }
@@ -349,7 +349,7 @@ test "a lambda kept in a struct reads its capture on every later call" {
     // The closure is built once, stored, and called three times afterwards —
     // so the call that reads the capture is nowhere near the scope that made
     // it.
-    let held = Step { run: fn(c, i) => xs.drop(c, i).len() };
+    let held = Step { run: fn(c, i) => xs.drop(c, i).length() };
     let call = held.run;
     assert.equal([call(ctx, 0), call(ctx, 1), call(ctx, 2)], [3, 2, 1]);
 }
@@ -361,8 +361,8 @@ test "a list of closures each reads its own capture" {
     let short = grown(ctx, 2);
     let long = grown(ctx, 4);
     let held = [
-        Step { run: fn(c, i) => short.drop(c, i).len() },
-        Step { run: fn(c, i) => long.drop(c, i).len() },
+        Step { run: fn(c, i) => short.drop(c, i).length() },
+        Step { run: fn(c, i) => long.drop(c, i).length() },
     ];
     let first = assert.some(held.get(0)).run;
     let second = assert.some(held.get(1)).run;
@@ -380,7 +380,7 @@ test "a capture read from the bottom of a recursion is read the same way every f
     // `drop` rather than `take`, because the frames count down: a `take` that
     // wrote through would answer the same three numbers, and a `drop` that did
     // would answer `0, 0, 0`.
-    assert.equal(down(ctx, 3, fn(c, i) => xs.drop(c, i).len(), list.empty<Int>()), [
+    assert.equal(down(ctx, 3, fn(c, i) => xs.drop(c, i).length(), list.empty<Int>()), [
         0,
         1,
         2,
@@ -394,7 +394,7 @@ test "a closure that reads one capture twice reads it twice every call" {
     let xs = grown(ctx, 4);
     // `take(i)` and `drop(i)` between them are the whole list, whatever `i`
     // is — which stops being true the moment either writes through.
-    assert.equal(over(ctx, 3, fn(c, i) => xs.take(c, i).len() + xs.drop(c, i).len()), [
+    assert.equal(over(ctx, 3, fn(c, i) => xs.take(c, i).length() + xs.drop(c, i).length()), [
         4,
         4,
         4,
@@ -406,7 +406,7 @@ test "a closure nobody calls leaves its capture alone" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
-    let none = list.empty<Int>().mapCtx(ctx, fn(c, i) => xs.push(c, i).len());
+    let none = list.empty<Int>().mapCtx(ctx, fn(c, i) => xs.push(c, i).length());
     assert.equal(none, list.empty<Int>());
     assert.equal(xs, [0, 1, 2]);
 }
@@ -431,7 +431,7 @@ test "a list a closure grew itself is the closure's own" {
         let mine = list
             .range(c, 0, 4)
             .foldCtx(c, fn(d, acc: [Int], k) => acc.push(d, k + i), list.empty<Int>());
-        mine.push(c, i).len() + xs.len()
+        mine.push(c, i).length() + xs.length()
     });
     assert.equal(sizes, [7, 7, 7]);
 }
@@ -447,7 +447,7 @@ test "an accumulator threaded through a closure is still written through" {
         .range(ctx, 0, 4)
         .foldCtx(
             ctx,
-            fn(c, acc: [Int], i) => acc.push(c, xs.take(c, i).len()),
+            fn(c, acc: [Int], i) => acc.push(c, xs.take(c, i).length()),
             list.empty<Int>(),
         );
     assert.equal(built, [0, 1, 2, 3]);

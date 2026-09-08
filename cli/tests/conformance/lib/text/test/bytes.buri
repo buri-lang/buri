@@ -20,7 +20,7 @@ test "ASCII is one byte per character" {
         Allocator: alloc(),
     };
     assert.equal(bytes.toUtf8(ctx, "abc"), [97, 98, 99]);
-    assert.equal(bytes.toUtf8(ctx, "").len(), 0);
+    assert.equal(bytes.toUtf8(ctx, "").length(), 0);
 }
 
 test "the encoding widths" {
@@ -92,7 +92,7 @@ test "hex round trips, and reads either case" {
     };
     assert.equal(assert.ok(bytes.fromHex(ctx, "000f10ff")), [0, 15, 16, 255]);
     assert.equal(assert.ok(bytes.fromHex(ctx, "000F10FF")), [0, 15, 16, 255]);
-    assert.equal(assert.ok(bytes.fromHex(ctx, "")).len(), 0);
+    assert.equal(assert.ok(bytes.fromHex(ctx, "")).length(), 0);
 }
 
 test "hex refuses an odd length or a character that is not a digit" {
@@ -416,10 +416,10 @@ test "a truncated sequence costs one replacement, not one per byte" {
         Allocator: alloc(),
     };
     // The euro sign is e2 82 ac; two thirds of it is one bad character.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [104, 105, 226, 130]).len(), 3);
-    assert.equal(bytes.fromUtf8Lossy(ctx, [226, 130]).len(), 1);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [104, 105, 226, 130]).length(), 3);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [226, 130]).length(), 1);
     // And what follows it is read normally.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [226, 130, 33]).len(), 2);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [226, 130, 33]).length(), 2);
 }
 
 test "an overlong encoding, a surrogate and a stray continuation each replace" {
@@ -427,14 +427,14 @@ test "an overlong encoding, a surrogate and a stray continuation each replace" {
         Allocator: alloc(),
     };
     // c0 af is an overlong `/`: the lead byte leads nothing at all.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [192, 175]).len(), 2);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [192, 175]).length(), 2);
     // ed a0 80 is a lone surrogate: the second byte is out of range for ed, so
     // all three bytes replace separately.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [237, 160, 128]).len(), 3);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [237, 160, 128]).length(), 3);
     // A continuation byte with no lead.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [128]).len(), 1);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [128]).length(), 1);
     // f5 and up is past U+10FFFF.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [245, 128, 128, 128]).len(), 4);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [245, 128, 128, 128]).length(), 4);
 }
 
 test "lossy and strict agree on every input strict accepts" {
@@ -591,7 +591,7 @@ test "base64url writes every length from nothing to twelve octets" {
         "----AP8BgH9AyA_w",
     ]);
     // Three octets to four characters, and no `=` at any remainder.
-    let widths = written.map(ctx, fn(text) => text.len());
+    let widths = written.map(ctx, fn(text) => text.length());
     assert.equal(widths, [0, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16]);
     assert.isTrue(written.all(fn(text) => !text.contains("=")));
 }
@@ -606,7 +606,7 @@ test "base64url reads every length back, padded or not" {
             let raw = SAMPLE.take(c, n);
             let unpadded = bytes.toBase64Url(c, raw);
             // The padded spelling of the same thing: `=` up to a group of four.
-            let short = unpadded.len() % 4;
+            let short = unpadded.length() % 4;
             let padded = if (short == 0) {
                 unpadded
             } else {
@@ -696,7 +696,7 @@ test "the widest and narrowest sequence of every width decodes whole" {
         [0xf0, 0x90, 0x80, 0x80],
         [0xf4, 0x8f, 0xbf, 0xbf],
     ];
-    let lengths = edges.mapCtx(ctx, fn(c, raw) => bytes.fromUtf8Lossy(c, raw).len());
+    let lengths = edges.mapCtx(ctx, fn(c, raw) => bytes.fromUtf8Lossy(c, raw).length());
     assert.equal(lengths, list.repeat(ctx, 1, 10));
     // None of them replaced anything, so lossy and strict agree on all ten.
     let same = edges.mapCtx(ctx, fn(c, raw) => {
@@ -715,10 +715,10 @@ test "an overlong encoding replaces one character per byte" {
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xc1, 0xbf]), str.format(ctx, "${BAD}${BAD}"));
     // The three- and four-byte overlongs are caught by the narrowed range for
     // the *second* byte, before a code point is ever assembled.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xe0, 0x80, 0xaf]).len(), 3);
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xe0, 0x9f, 0xbf]).len(), 3);
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf0, 0x80, 0x80, 0xaf]).len(), 4);
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf0, 0x8f, 0xbf, 0xbf]).len(), 4);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xe0, 0x80, 0xaf]).length(), 3);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xe0, 0x9f, 0xbf]).length(), 3);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf0, 0x80, 0x80, 0xaf]).length(), 4);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf0, 0x8f, 0xbf, 0xbf]).length(), 4);
     // And `fromUtf8` refuses every one of them rather than reading a character.
     let overlongs: [[U8]] = [
         [0xc0, 0x80],
@@ -741,20 +741,20 @@ test "a surrogate and a code point past the end each replace" {
     };
     // The whole surrogate range: `ed` may lead, but not with a second byte
     // above `9f`.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0x80]).len(), 3);
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xbf, 0xbf]).len(), 3);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0x80]).length(), 3);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xbf, 0xbf]).length(), 3);
     // A surrogate *pair* written as two sequences is six replacements, not one
     // character.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80]).len(), 6);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80]).length(), 6);
     // One past U+10FFFF, caught by `f4`'s narrowed second byte.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf4, 0x90, 0x80, 0x80]).len(), 4);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf4, 0x90, 0x80, 0x80]).length(), 4);
     // And the lead bytes that lead nothing at all.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf5, 0x80, 0x80, 0x80]).len(), 4);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xf5, 0x80, 0x80, 0x80]).length(), 4);
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xf8]), BAD);
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xfe]), BAD);
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xff]), BAD);
     // A run of continuation bytes with nothing leading them.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0x80, 0x80, 0x80]).len(), 3);
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0x80, 0x80, 0x80]).length(), 3);
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xbf]), BAD);
 }
 
@@ -772,7 +772,7 @@ test "a sequence cut short costs one replacement wherever it was cut" {
         [0xf0, 0x9f],
         [0xf0, 0x9f, 0x98],
     ];
-    let lengths = cut.mapCtx(ctx, fn(c, raw) => bytes.fromUtf8Lossy(c, raw).len());
+    let lengths = cut.mapCtx(ctx, fn(c, raw) => bytes.fromUtf8Lossy(c, raw).length());
     assert.equal(lengths, list.repeat(ctx, 1, 6));
     // The same cuts with a plain letter after them: one replacement, then the
     // letter, because the byte that ended the subpart is read on its own terms.

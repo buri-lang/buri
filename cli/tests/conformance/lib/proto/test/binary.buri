@@ -476,7 +476,7 @@ test "a field this schema does not know is skipped" {
     // Four unknown fields, one of each wire type, around a known one:
     //   field 100 varint  -> (100 << 3) | 0 = 800 -> a0 06, then 01
     //   field 101 i64     -> (101 << 3) | 1 = 809 -> a9 06, then eight bytes
-    //   field 102 len     -> (102 << 3) | 2 = 818 -> b2 06, then 02 and two bytes
+    //   field 102 length     -> (102 << 3) | 2 = 818 -> b2 06, then 02 and two bytes
     //   field 103 i32     -> (103 << 3) | 5 = 829 -> bd 06, then four bytes
     let noise = raw(ctx, "a00601a9060102030405060708b20602aabbbd0611223344");
     let known = raw(ctx, "0a03416461");

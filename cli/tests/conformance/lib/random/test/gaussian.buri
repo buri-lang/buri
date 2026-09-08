@@ -102,7 +102,7 @@ test "two thousand draws have the mean and the deviation of a standard normal" {
         Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(20260907), 2000, []);
-    assert.equal(draws.len(), 2000);
+    assert.equal(draws.length(), 2000);
     let mean = draws.sumFloat() / 2000.0;
     // The standard error of a mean of two thousand unit draws is 0.022, so this
     // band is four and a half of them.

@@ -37,7 +37,7 @@ export trait Weigh {
 
 impl Weigh for Working {
     fn grams<C: Allocator + Stdout>(self ctx: C, scale: Str): Float {
-        let heavy = self.a > 0 && self.b > 0 && self.h > 0 && scale.len() > 0;
+        let heavy = self.a > 0 && self.b > 0 && self.h > 0 && scale.length() > 0;
         if (heavy) { 1.0 } else { 0.0 }
     }
 }

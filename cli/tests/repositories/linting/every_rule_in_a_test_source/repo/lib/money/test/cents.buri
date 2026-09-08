@@ -41,7 +41,7 @@ fn compareInts(left: Int, right: Int): Order {
 }
 
 fn width<C: Allocator>(ctx: C, label: Str): Int {
-    label.len()
+    label.length()
 }
 
 fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
@@ -137,7 +137,7 @@ test "the suite is held to every rule the library is" {
     assert.equal(width(ctx, "abc"), 3);
     assert.equal(depth(5), "small");
     assert.equal(spell(7), "seven");
-    assert.equal(HEX_DIGITS.len(), 16);
+    assert.equal(HEX_DIGITS.length(), 16);
     assert.equal(NANOS_PER_MILLISECOND, 1_000_000);
     assert.equal(fromCents(1), Cents(1));
     match (shade) {

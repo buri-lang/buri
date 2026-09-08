@@ -55,7 +55,7 @@ export fn constants22_0(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe22_0<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants22_0();
-    label22_0(ctx, a, e).len() + b
+    label22_0(ctx, a, e).length() + b
 }
 
 derive Equal, Show for State22_1;
@@ -93,7 +93,7 @@ export fn start22_1(ticks: Int): State22_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe22_1<C: Allocator>(ctx: C): Int {
     let s = start22_1(5);
-    rank22_1(s) + s.show(ctx).len()
+    rank22_1(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -113,7 +113,7 @@ export fn constants22_2(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe22_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants22_2();
-    label22_2(ctx, a, e).len() + b
+    label22_2(ctx, a, e).length() + b
 }
 
 derive Equal, Show for Rec22_3;
@@ -139,7 +139,7 @@ impl Rec22_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe22_3<C: Allocator>(ctx: C): Int {
     let r = Rec22_3 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -224,7 +224,7 @@ impl Rec22_6 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe22_6<C: Allocator>(ctx: C): Int {
     let r = Rec22_6 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show for Rec22_7;
@@ -249,7 +249,7 @@ impl Rec22_7 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe22_7<C: Allocator>(ctx: C): Int {
     let r = Rec22_7 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -268,12 +268,12 @@ export fn describeAll22_8<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric22_8(ns: [Int], ss: [Str]): Int {
-    firstOr22_8<Int>(ns, 0) + firstOr22_8<Str>(ss, "").len()
+    firstOr22_8<Int>(ns, 0) + firstOr22_8<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe22_8<C: Allocator>(ctx: C): Int {
-    useGeneric22_8([1, 2], ["a"]) + describeAll22_8(ctx, [1, 2]).len()
+    useGeneric22_8([1, 2], ["a"]) + describeAll22_8(ctx, [1, 2]).length()
 }
 
 /// A body of 7 bindings over integer arithmetic — the shape most

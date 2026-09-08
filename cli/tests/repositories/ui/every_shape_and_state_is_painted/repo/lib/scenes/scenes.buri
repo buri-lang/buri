@@ -37,27 +37,27 @@ export fn tinted<C>(shade: Int, child: Node<C>): Node<C> {
     ui.stack([.Padding(.Px(6)), .Background(.Rgb(shade, 255 - shade, 128))], [child])
 }
 
-/// One box per family of properties the painter honours, each carrying `len`
+/// One box per family of properties the painter honours, each carrying `length`
 /// wherever a length goes and `factor` wherever a multiple does.
 ///
 /// Painted twice — at zero and at the viewport's own size — so every property
 /// is a picture at both ends of its range.
-export fn plate<C>(len: Length, factor: Float): Node<C> {
+export fn plate<C>(length: Length, factor: Float): Node<C> {
     // The frame around each family is fixed, and both halves of that are
     // deliberate. A viewport-wide padding *here* would push every family off
     // the page and leave a blank picture asserting nothing; a family that grew
     // to a viewport-wide gap would push the six below it off in the same way.
     // So each one gets a band of its own to be big inside, clipped. Padding and
-    // the gaps are `len` where they are the subject, inside `spacing` and
+    // the gaps are `length` where they are the subject, inside `spacing` and
     // `arrangement`.
     ui.column([.Gap(.Px(4)), .Padding(.Px(4))], [
-        band(arrangement(len)),
-        band(sizing(len, factor)),
-        band(spacing(len)),
-        band(grid(len)),
-        band(surface(len)),
-        band(lettering(len, factor)),
-        band(flow(len)),
+        band(arrangement(length)),
+        band(sizing(length, factor)),
+        band(spacing(length)),
+        band(grid(length)),
+        band(surface(length)),
+        band(lettering(length, factor)),
+        band(flow(length)),
     ])
 }
 
@@ -67,16 +67,16 @@ fn band<C>(child: Node<C>): Node<C> {
 }
 
 /// Direction, alignment, wrapping, the gaps and the scroll axes.
-fn arrangement<C>(len: Length): Node<C> {
+fn arrangement<C>(length: Length): Node<C> {
     ui.stack(
         [
             .Layout(.Row),
             .AlignMain(.SpaceBetween),
             .AlignCross(.End),
             .Wrap(true),
-            .Gap(len),
-            .GapX(len),
-            .GapY(len),
+            .Gap(length),
+            .GapX(length),
+            .GapY(length),
             .Scroll(.Both),
             .Background(.Rgb(220, 235, 220)),
         ],
@@ -85,13 +85,13 @@ fn arrangement<C>(len: Length): Node<C> {
 }
 
 /// The six sizing properties and the aspect ratio.
-fn sizing<C>(len: Length, factor: Float): Node<C> {
+fn sizing<C>(length: Length, factor: Float): Node<C> {
     ui.stack(
         [
-            .Width(len),
-            .Height(len),
-            .MinWidth(len),
-            .MinHeight(len),
+            .Width(length),
+            .Height(length),
+            .MinWidth(length),
+            .MinHeight(length),
             .MaxWidth(.Px(800)),
             .MaxHeight(.Px(600)),
             .AspectRatio(factor),
@@ -102,16 +102,16 @@ fn sizing<C>(len: Length, factor: Float): Node<C> {
 }
 
 /// Every padding shorthand and every edge of the long one.
-fn spacing<C>(len: Length): Node<C> {
+fn spacing<C>(length: Length): Node<C> {
     ui.stack(
         [
-            .Padding(len),
-            .PaddingX(len),
-            .PaddingY(len),
-            .PaddingEdge(.Top, len),
-            .PaddingEdge(.Bottom, len),
-            .PaddingEdge(.Start, len),
-            .PaddingEdge(.End, len),
+            .Padding(length),
+            .PaddingX(length),
+            .PaddingY(length),
+            .PaddingEdge(.Top, length),
+            .PaddingEdge(.Bottom, length),
+            .PaddingEdge(.Start, length),
+            .PaddingEdge(.End, length),
             .Background(.Rgb(60, 60, 200)),
             .Foreground(.Rgb(255, 255, 255)),
         ],
@@ -120,8 +120,8 @@ fn spacing<C>(len: Length): Node<C> {
 }
 
 /// The three kinds of track, and a child that spans two of them.
-fn grid<C>(len: Length): Node<C> {
-    ui.stack([.Layout(.Grid([.Fraction(1), .Fixed(len), .Auto])), .Gap(len)], [
+fn grid<C>(length: Length): Node<C> {
+    ui.stack([.Layout(.Grid([.Fraction(1), .Fixed(length), .Auto])), .Gap(length)], [
         ui.stack([.Span(2), .Background(.Rgb(240, 200, 120))], [
             ui.text(.Const("two")),
         ]),
@@ -130,20 +130,20 @@ fn grid<C>(len: Length): Node<C> {
 }
 
 /// Background, border, radius, opacity and a shadow.
-fn surface<C>(len: Length): Node<C> {
+fn surface<C>(length: Length): Node<C> {
     ui.stack(
         [
             .Background(.Rgba(20, 120, 90, 0.75)),
-            .BorderWidth(len),
+            .BorderWidth(length),
             .BorderColor(.Rgb(10, 10, 10)),
             .BorderStyle(.Dashed),
-            .Radius(len),
+            .Radius(length),
             .Opacity(0.6),
             .Shadow(Shadow {
-                x: len,
-                y: len,
-                blur: len,
-                spread: len,
+                x: length,
+                y: length,
+                blur: length,
+                spread: length,
                 color: .Rgb(0, 0, 0),
             }),
         ],
@@ -152,15 +152,15 @@ fn surface<C>(len: Length): Node<C> {
 }
 
 /// Every text property, including the two the painter reads and draws itself.
-fn lettering<C>(len: Length, factor: Float): Node<C> {
+fn lettering<C>(length: Length, factor: Float): Node<C> {
     ui.stack(
         [
             .FontFamily(.Mono),
-            .FontSize(len),
+            .FontSize(length),
             .FontWeight(.Bold),
             .Italic(true),
             .LineHeight(factor),
-            .LetterSpacing(len),
+            .LetterSpacing(length),
             .TextAlign(.Center),
             .TextCase(.Upper),
             .TextLine(.Underline),
@@ -174,9 +174,9 @@ fn lettering<C>(len: Length, factor: Float): Node<C> {
 
 /// A pinned child measured against the box around it, and a grown one beside
 /// it.
-fn flow<C>(len: Length): Node<C> {
+fn flow<C>(length: Length): Node<C> {
     ui.stack([.Position(.Flow), .Background(.Rgb(245, 245, 210)), .Height(.Px(60))], [
-        ui.stack([.Pin(.Start, len), .Pin(.Top, len), .Background(.Rgb(0, 0, 0))], [
+        ui.stack([.Pin(.Start, length), .Pin(.Top, length), .Background(.Rgb(0, 0, 0))], [
             ui.text(.Const("pinned")),
         ]),
         ui.stack([.Grow(1), .Shrink(0), .AlignSelf(.Center)], [

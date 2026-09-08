@@ -100,7 +100,7 @@ export fn f32Field<C: Allocator>(ctx: C, field: Int, x: Float): [U8] {
 /// A length-delimited field: `bytes`, an embedded message, and a packed
 /// repeated field, which are one encoding wearing three names.
 export fn bytesField<C: Allocator>(ctx: C, field: Int, body: [U8]): [U8] {
-    tag(ctx, field, LEN).concat(ctx, bytes.toVarint(ctx, body.len())).concat(ctx, body)
+    tag(ctx, field, LEN).concat(ctx, bytes.toVarint(ctx, body.length())).concat(ctx, body)
 }
 
 /// A `string` field. UTF-8 is what the format says a string is.
@@ -191,7 +191,7 @@ export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
 
 /// Four little-endian bytes, read as unsigned.
 export fn readFixed32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-    if (at + 4 > b.len()) {
+    if (at + 4 > b.length()) {
         .Err(.Truncated(at))
     } else {
         .Ok(
@@ -212,7 +212,7 @@ export fn readFixed32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
 export fn readFixed64(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
     // This checks the length once, up front, so a short input reports at the
     // byte the field began rather than four bytes into it.
-    if (at + 8 > b.len()) {
+    if (at + 8 > b.length()) {
         .Err(.Truncated(at))
     } else {
         let (lo, mid) = readFixed32(b, at)?;
@@ -251,11 +251,11 @@ export fn readBytes<C: Allocator>(
     b: [U8],
     at: Int,
 ): Result<([U8], Int), ProtoError> {
-    let (len, next) = readVarint(b, at)?;
-    if (len < 0 || next + len > b.len()) {
+    let (length, next) = readVarint(b, at)?;
+    if (length < 0 || next + length > b.length()) {
         .Err(.Truncated(at))
     } else {
-        .Ok((b.slice(ctx, next, next + len), next + len))
+        .Ok((b.slice(ctx, next, next + length), next + length))
     }
 }
 
@@ -280,15 +280,15 @@ export fn skip(b: [U8], at: Int, wire: Int): Result<Int, ProtoError> {
         let (_v, next) = readVarint(b, at)?;
         .Ok(next)
     } else if (wire == I64) {
-        if (at + 8 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 8) }
+        if (at + 8 > b.length()) { .Err(.Truncated(at)) } else { .Ok(at + 8) }
     } else if (wire == I32) {
-        if (at + 4 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 4) }
+        if (at + 4 > b.length()) { .Err(.Truncated(at)) } else { .Ok(at + 4) }
     } else if (wire == LEN) {
-        let (len, next) = readVarint(b, at)?;
-        if (len < 0 || next + len > b.len()) {
+        let (length, next) = readVarint(b, at)?;
+        if (length < 0 || next + length > b.length()) {
             .Err(.Truncated(at))
         } else {
-            .Ok(next + len)
+            .Ok(next + length)
         }
     } else {
         .Err(.BadWireType { field: 0, wire: wire })
@@ -317,7 +317,7 @@ fn packedVarintsAt<C: Allocator>(
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readVarint(b, at)?;
@@ -336,7 +336,7 @@ fn packedVarints32At<C: Allocator>(
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readVarint32(b, at)?;
@@ -354,7 +354,7 @@ fn packedFixed32At<C: Allocator>(
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readFixed32(b, at)?;
@@ -372,7 +372,7 @@ fn packedFixed64At<C: Allocator>(
     at: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readFixed64(b, at)?;
@@ -390,7 +390,7 @@ fn packedF64At<C: Allocator>(
     at: Int,
     acc: [Float],
 ): Result<[Float], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readF64(b, at)?;
@@ -408,7 +408,7 @@ fn packedF32At<C: Allocator>(
     at: Int,
     acc: [Float],
 ): Result<[Float], ProtoError> {
-    if (at >= b.len()) {
+    if (at >= b.length()) {
         .Ok(acc)
     } else {
         let (v, next) = readF32(b, at)?;
@@ -525,7 +525,7 @@ fn numericText(s: Str): Option<Float> {
 /// integer part that is `0` or begins with a non-zero digit, then whatever a
 /// fraction and an exponent are made of.
 fn wellFormedNumber(s: Str): Bool {
-    let body = if (s.startsWith("-")) { s.slice(1, s.len()) } else { s };
+    let body = if (s.startsWith("-")) { s.slice(1, s.length()) } else { s };
     match ((body.charAt(0), body.charAt(1))) {
         (.None, _) => false,
         (.Some('0'), .Some(c)) => {
@@ -629,7 +629,7 @@ export fn asBytes<C: Allocator>(ctx: C, doc: Json, path: Str): Result<[U8], Prot
             let standard = s.replace(ctx, "-", "+").replace(ctx, "_", "/");
             let padded = standard.concat(
                 ctx,
-                PAD.slice(0, (4 - standard.len() % 4) % 4),
+                PAD.slice(0, (4 - standard.length() % 4) % 4),
             );
             match (bytes.fromBase64(ctx, padded)) {
                 .Ok(b) => .Ok(b),

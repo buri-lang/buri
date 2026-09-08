@@ -106,10 +106,10 @@ fn churn<C: Allocator>(ctx: C): Int {
     // Small scopes first: these are the ones that draw a *pooled* block, so a
     // carrier that outlived its arena is written over rather than merely stale.
     let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
-        alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
+        alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).length())
     });
-    let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).len());
-    small.len() + large
+    let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).length());
+    small.length() + large
 }
 
 // -----------------------------------------------------------------------------

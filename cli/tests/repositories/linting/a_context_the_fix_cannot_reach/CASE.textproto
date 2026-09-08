@@ -39,8 +39,8 @@ edit {
 
 edit {
   file: "cmd/app/main.buri"
-  replace: "  label.len()\n"
-  with: "  str.format(ctx, \"${label}\").len()\n"
+  replace: "  label.length()\n"
+  with: "  str.format(ctx, \"${label}\").length()\n"
 }
 
 # `stamp` can, once somebody has decided the signature is not part of what the

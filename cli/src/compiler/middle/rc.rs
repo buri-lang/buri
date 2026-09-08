@@ -3772,7 +3772,7 @@ from "core/tasks" import * as tasks;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
-  let _ = io.println(ctx, str.format(ctx, "${doubled.len()}")).ignore();
+  let _ = io.println(ctx, str.format(ctx, "${doubled.length()}")).ignore();
   .Ok(())
 }
 "#,
@@ -4254,7 +4254,7 @@ enum Tree { Leaf, Node(Str, [Tree]) }
 export fn label(t: Tree, other: Str): Str {
   match (t) {
     .Leaf => other,
-    .Node(name, kids) => if (kids.len() > 0) { name } else { other },
+    .Node(name, kids) => if (kids.length() > 0) { name } else { other },
   }
 }
 
@@ -4294,7 +4294,7 @@ export fn main(): Result<(), Str> {
   let n = size(p);
   let xs = wrap(p);
   let ys = twice("b");
-  let _ = io.println(ctx, "${n} ${xs.len()} ${ys.len()}").ignore();
+  let _ = io.println(ctx, "${n} ${xs.length()} ${ys.length()}").ignore();
   .Ok(())
 }
 "#;
@@ -4334,7 +4334,7 @@ export fn churn<C: Allocator>(ctx: C, n: Int, acc: [Str]): [Str] {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = churn(ctx, 3, []);
-  let _ = io.println(ctx, "${out.len()}").ignore();
+  let _ = io.println(ctx, "${out.length()}").ignore();
   .Ok(())
 }
 "#;
@@ -4394,7 +4394,7 @@ export fn drain<C: Allocator>(ctx: C, xs: [Int], acc: [Int]): [Int] {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = drain(ctx, [1, 2, 3, 4], []);
-  let _ = io.println(ctx, "${out.len()}").ignore();
+  let _ = io.println(ctx, "${out.length()}").ignore();
   .Ok(())
 }
 "#;
@@ -4491,7 +4491,7 @@ from "core/str" import * as str;
 export fn tell<C: Allocator>(ctx: C, xs: [Str]): Int {
   match (xs) {
     [] => 0,
-    [_h, ..rest] => rest.len() + xs.len(),
+    [_h, ..rest] => rest.length() + xs.length(),
   }
 }
 
@@ -4504,7 +4504,7 @@ export fn take<C: Allocator>(ctx: C, xs: [Str]): [Str] {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${tell(ctx, ["a", "b"])} ${take(ctx, ["a", "b"]).len()}").ignore();
+  let _ = io.println(ctx, "${tell(ctx, ["a", "b"])} ${take(ctx, ["a", "b"]).length()}").ignore();
   .Ok(())
 }
 "#;
@@ -4612,7 +4612,7 @@ export fn projected(pair: Pair): Int {
 /// after it.
 export fn aliased(tags: [Str]): Int {
   let stale = tags;
-  tags.len()
+  tags.length()
 }
 
 export fn main(): Result<(), Str> {
@@ -4725,7 +4725,7 @@ export fn tag<C: Allocator>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = tag(ctx, 2, "p", ["a"]);
-  let _ = io.println(ctx, "${out.len()}").ignore();
+  let _ = io.println(ctx, "${out.length()}").ignore();
   .Ok(())
 }
 "#;
@@ -4839,8 +4839,8 @@ export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 3)
     .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty());
-  let lengths = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len());
-  io.println(ctx, str.format(ctx, "${lengths.len()}")).mapErr(fn(_e) => "no")
+  let lengths = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).length());
+  io.println(ctx, str.format(ctx, "${lengths.length()}")).mapErr(fn(_e) => "no")
 }
 "#,
         );
@@ -4951,7 +4951,7 @@ export fn main(): Result<(), Str> {
   let o: Option<Str> = .Some("s".concat(ctx, "x"));
   let flag = 1 < 2;
   let ok = flag && match (o) {
-    .Some(s) => s.len() > 0,
+    .Some(s) => s.length() > 0,
     .None => false,
   };
   let _ = io.println(ctx, "${ok}").ignore();
@@ -5042,8 +5042,8 @@ export fn main(): Result<(), Str> {
         const SRC: &str = r#"
 struct Pair { a: [Int], b: [Int] }
 
-fn one(xs: [Int]): Int { xs.len() }
-fn two(n: Int, ys: [Int]): Int { n + ys.len() }
+fn one(xs: [Int]): Int { xs.length() }
+fn two(n: Int, ys: [Int]): Int { n + ys.length() }
 
 export fn main(): Result<(), Str> {
   let p = Pair { a: [1], b: [2, 3] };
@@ -5130,7 +5130,7 @@ fn two<C: Allocator>(ctx: C, n: Int): ([Int], [Int]) {
 
 export fn sizes<C: Allocator>(ctx: C, n: Int): Int {
   match (two(ctx, n)) {
-    (a, b) => a.len() + b.len(),
+    (a, b) => a.length() + b.length(),
   }
 }
 
@@ -5164,7 +5164,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-fn size(s: Str): Int { s.len() }
+fn size(s: Str): Int { s.length() }
 
 export fn shown<C: Allocator>(ctx: C, n: Int): Int {
   size(if (n > 0) { str.format(ctx, "v${n}") } else { str.format(ctx, "z") })
@@ -5216,7 +5216,7 @@ export fn main(): Result<(), Str> {
     .Some(r) => r.name,
     .None => "none",
   };
-  let total = rows.fold(fn(acc: Int, r: Row) => acc + r.tags.len(), 0);
+  let total = rows.fold(fn(acc: Int, r: Row) => acc + r.tags.length(), 0);
   let _ = io.println(ctx, "${joined} ${shown} ${total}").ignore();
   .Ok(())
 }
@@ -5532,7 +5532,7 @@ export fn drain<C: Allocator>(ctx: C, xs: [Int], acc: [Int]): [Int] {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${drain(ctx, [1, 2], []).len()}").ignore();
+  let _ = io.println(ctx, "${drain(ctx, [1, 2], []).length()}").ignore();
   .Ok(())
 }
 "#;
@@ -5652,13 +5652,13 @@ struct Pair { a: [Str], b: [Str] }
 
 fn mk<C: Allocator>(ctx: C): Pair { Pair { a: ["x".repeat(ctx, 8)], b: ["y".repeat(ctx, 8)] } }
 
-export fn firstLen<C: Allocator>(ctx: C): Int { mk(ctx).a.len() }
+export fn firstLen<C: Allocator>(ctx: C): Int { mk(ctx).a.length() }
 
 export fn keep<C: Allocator>(ctx: C): [Str] { mk(ctx).a }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${firstLen(ctx)} ${keep(ctx).len()}").ignore();
+  let _ = io.println(ctx, "${firstLen(ctx)} ${keep(ctx).length()}").ignore();
   .Ok(())
 }
 "#;

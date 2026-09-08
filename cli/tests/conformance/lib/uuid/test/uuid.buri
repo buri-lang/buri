@@ -62,7 +62,7 @@ test "text is thirty-six characters with hyphens in four places" {
         Allocator: alloc(),
     };
     let rendered = uuid.zero().text(ctx);
-    assert.equal(rendered.len(), 36);
+    assert.equal(rendered.length(), 36);
     assert.equal(rendered.charAt(8), .Some('-'));
     assert.equal(rendered.charAt(13), .Some('-'));
     assert.equal(rendered.charAt(18), .Some('-'));
@@ -142,7 +142,7 @@ test "every version 4 identifier has the version and variant RFC 9562 fixes" {
     });
     assert.isTrue(stamped.all(fn(ok) => ok));
     // The generator is drawn down rather than restarted, so no two are equal.
-    assert.equal(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 8);
+    assert.equal(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).length(), 8);
 }
 
 /// The variant nibble is `8`, `9`, `a` or `b` — the top two bits of octet 8 set
@@ -203,7 +203,7 @@ test "a version 7 identifier carries the version and variant too" {
     let rendered = uuid.version7(ctx).text(ctx);
     assert.equal(rendered.charAt(14), .Some('7'));
     assert.isTrue(isVariant(rendered.charAt(19)));
-    assert.equal(rendered.len(), 36);
+    assert.equal(rendered.length(), 36);
 }
 
 test "a minted identifier reads back" {
@@ -264,8 +264,8 @@ test "the version and the variant are octets, not just characters" {
     assert.equal(octet(seven, 6) / 16, 7);
     assert.equal(octet(seven, 8) / 64, 2);
     // Sixteen octets and no more, from either generator.
-    assert.len(four.0, 16);
-    assert.len(seven.0, 16);
+    assert.length(four.0, 16);
+    assert.length(seven.0, 16);
     // The nil identifier has neither field, which is why no generator makes it.
     assert.equal(octet(uuid.zero(), 6) / 16, 0);
     assert.equal(octet(uuid.zero(), 8) / 64, 0);
@@ -292,7 +292,7 @@ test "every identifier a run of either generator makes carries both fields" {
     );
     // Thirty-two draws off one generator, and no two of them the same.
     let all = fours.concat(ctx, sevens);
-    assert.equal(all.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 32);
+    assert.equal(all.uniqueBy(ctx, fn(a, b) => a.compare(b)).length(), 32);
 }
 
 // --- what one millisecond buys, and what it does not ------------------------------------
@@ -311,7 +311,7 @@ test "identifiers made inside one millisecond share their timestamp and nothing 
     assert.equal(stamps, list.repeat(ctx, first.0.take(ctx, 6), 8));
     // Only the random tail separates them, which RFC 9562 says is all one
     // millisecond promises: they are distinct, and they are *not* in order.
-    assert.equal(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 8);
+    assert.equal(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).length(), 8);
     assert.isFalse(ids.isSortedBy(fn(a, b) => a.compare(b)));
 }
 
@@ -330,7 +330,7 @@ test "identifiers made in different milliseconds come out in order" {
             uuid.version7(c)
         });
     assert.isTrue(ids.isSortedBy(fn(a, b) => a.compare(b)));
-    assert.equal(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 10);
+    assert.equal(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).length(), 10);
     // The canonical spelling sorts the same way the octets do, which is what
     // makes one usable as a key in a text column too.
     let texts = ids.mapCtx(ctx, fn(c, id) => id.text(c));

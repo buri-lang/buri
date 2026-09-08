@@ -73,7 +73,7 @@ export fn start21_0(ticks: Int): State21_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe21_0<C: Allocator>(ctx: C): Int {
     let s = start21_0(5);
-    rank21_0(s) + s.show(ctx).len()
+    rank21_0(s) + s.show(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -92,12 +92,12 @@ export fn describeAll21_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric21_1(ns: [Int], ss: [Str]): Int {
-    firstOr21_1<Int>(ns, 0) + firstOr21_1<Str>(ss, "").len()
+    firstOr21_1<Int>(ns, 0) + firstOr21_1<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe21_1<C: Allocator>(ctx: C): Int {
-    useGeneric21_1([1, 2], ["a"]) + describeAll21_1(ctx, [1, 2]).len()
+    useGeneric21_1([1, 2], ["a"]) + describeAll21_1(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -146,7 +146,7 @@ export fn constants21_3(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe21_3<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_3();
-    label21_3(ctx, a, e).len() + b
+    label21_3(ctx, a, e).length() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
@@ -155,14 +155,14 @@ export fn digest21_4<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [1369, 8272, 4205, 6661, 6600, 9595, 9959];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain21_4(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -210,7 +210,7 @@ export fn constants21_6(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe21_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_6();
-    label21_6(ctx, a, e).len() + b
+    label21_6(ctx, a, e).length() + b
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
@@ -252,7 +252,7 @@ export fn constants21_8(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe21_8<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_8();
-    label21_8(ctx, a, e).len() + b
+    label21_8(ctx, a, e).length() + b
 }
 
 /// String building through interpolation, which is a template
@@ -272,7 +272,7 @@ export fn constants21_9(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe21_9<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_9();
-    label21_9(ctx, a, e).len() + b
+    label21_9(ctx, a, e).length() + b
 }
 
 /// A body of 4 bindings over integer arithmetic — the shape most
@@ -307,12 +307,12 @@ export fn describeAll21_11<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric21_11(ns: [Int], ss: [Str]): Int {
-    firstOr21_11<Int>(ns, 0) + firstOr21_11<Str>(ss, "").len()
+    firstOr21_11<Int>(ns, 0) + firstOr21_11<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe21_11<C: Allocator>(ctx: C): Int {
-    useGeneric21_11([1, 2], ["a"]) + describeAll21_11(ctx, [1, 2]).len()
+    useGeneric21_11([1, 2], ["a"]) + describeAll21_11(ctx, [1, 2]).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

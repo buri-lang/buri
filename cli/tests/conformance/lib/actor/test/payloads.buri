@@ -86,10 +86,10 @@ fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
         state: [],
         step: fn(c, held, message) => {
             match (message) {
-                .Fill(next) => Stepped { state: next, answer: .Kept(next.len()) },
+                .Fill(next) => Stepped { state: next, answer: .Kept(next.length()) },
                 .Push(n) => {
                     let grown = held.push(c, n);
-                    Stepped { state: grown, answer: .Kept(grown.len()) }
+                    Stepped { state: grown, answer: .Kept(grown.length()) }
                 },
                 .Drain => Stepped { state: [], answer: .Held(held) },
             }
@@ -130,7 +130,7 @@ fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
         state: initial,
         step: fn(c, held, message) => {
             match (message) {
-                .Say(next) => Stepped { state: next, answer: .Scalars(next.len()) },
+                .Say(next) => Stepped { state: next, answer: .Scalars(next.length()) },
                 .Read => Stepped { state: held, answer: .Text(held) },
             }
         },

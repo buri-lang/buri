@@ -51,7 +51,7 @@ export fn constants8_0(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe8_0<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants8_0();
-    label8_0(ctx, a, e).len() + b
+    label8_0(ctx, a, e).length() + b
 }
 
 derive Equal, Show for State8_1;
@@ -87,7 +87,7 @@ export fn start8_1(ticks: Int): State8_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe8_1<C: Allocator>(ctx: C): Int {
     let s = start8_1(5);
-    rank8_1(s) + s.show(ctx).len()
+    rank8_1(s) + s.show(ctx).length()
 }
 
 derive Equal, Show for State8_2;
@@ -121,7 +121,7 @@ export fn start8_2(ticks: Int): State8_2 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe8_2<C: Allocator>(ctx: C): Int {
     let s = start8_2(5);
-    rank8_2(s) + s.show(ctx).len()
+    rank8_2(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -159,14 +159,14 @@ export fn digest8_4<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [6478, 6773, 5722, 2617, 8210, 4372, 7739, 3987, 118, 2187, 9003];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain8_4(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -191,7 +191,7 @@ export fn constants8_5(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe8_5<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants8_5();
-    label8_5(ctx, a, e).len() + b
+    label8_5(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -240,7 +240,7 @@ export fn constants8_7(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe8_7<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants8_7();
-    label8_7(ctx, a, e).len() + b
+    label8_7(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -297,7 +297,7 @@ impl Rec8_9 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe8_9<C: Allocator>(ctx: C): Int {
     let r = Rec8_9 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

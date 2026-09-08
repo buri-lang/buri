@@ -13,7 +13,7 @@ fn checkAll<C: Allocator + FileSystemRead>(ctx: C, paths: [Path]): [Bool] {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, FileSystemRead: host.fs, Stdout: host.stdout };
-  let found = checkAll(ctx, [filepath.of(ctx, "a")]).len();
+  let found = checkAll(ctx, [filepath.of(ctx, "a")]).length();
   let _ = io.println(ctx, "${found}").ignore();
   .Ok(())
 }

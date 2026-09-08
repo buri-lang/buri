@@ -55,8 +55,8 @@
 //!     let parsed = schema.parse(ctx, text, "lib/wire/person.proto");
 //!     let first = parsed.schema.messages.get(0);
 //!     let name = first.map(fn(m) => m.name).withDefault("?");
-//!     let fields = first.map(fn(m) => m.fields.len()).withDefault(0);
-//!     let said = parsed.errors.len();
+//!     let fields = first.map(fn(m) => m.fields.length()).withDefault(0);
+//!     let said = parsed.errors.length();
 //!     let _ = io.println(ctx, "${name}: ${fields} field, ${said} diagnostics").ignore();
 //!     .Ok(())
 //! }
@@ -432,7 +432,7 @@ fn unsupported<C: Allocator>(
 }
 
 fn capped<C: Allocator>(ctx: C, p: P, d: codegen.Diagnostic): P {
-    if (p.errors.len() >= LIMIT) { p } else { record(ctx, p, d) }
+    if (p.errors.length() >= LIMIT) { p } else { record(ctx, p, d) }
 }
 
 /// A diagnostic the limit does not apply to. Every file gets to hear about its
@@ -444,7 +444,7 @@ fn record<C: Allocator>(ctx: C, p: P, d: codegen.Diagnostic): P {
 // --- the lexer ----------------------------------------------------------------
 
 fn skipTrivia<C: Allocator>(ctx: C, p: P): P {
-    if (p.at >= p.cs.len()) {
+    if (p.at >= p.cs.length()) {
         p
     } else {
         let c = charAt(p, p.at);
@@ -462,12 +462,12 @@ fn skipTrivia<C: Allocator>(ctx: C, p: P): P {
 }
 
 fn skipLine(p: P): P {
-    if (p.at >= p.cs.len() || charAt(p, p.at) == '\n') { p } else { skipLine(step(p)) }
+    if (p.at >= p.cs.length() || charAt(p, p.at) == '\n') { p } else { skipLine(step(p)) }
 }
 
 fn skipBlock<C: Allocator>(ctx: C, p: P, start: Int): P {
-    if (p.at + 1 >= p.cs.len()) {
-        let ended = P { ..p, at: p.cs.len() };
+    if (p.at + 1 >= p.cs.length()) {
+        let ended = P { ..p, at: p.cs.length() };
         err(
             ctx,
             ended,
@@ -505,7 +505,7 @@ fn isWordPart(c: Char): Bool {
 /// The next token, consuming it.
 fn nextToken<C: Allocator>(ctx: C, p0: P): (P, Token) {
     let p = skipTrivia(ctx, p0);
-    if (p.at >= p.cs.len()) {
+    if (p.at >= p.cs.length()) {
         (p, Token.End)
     } else {
         let c = charAt(p, p.at);
@@ -563,7 +563,7 @@ fn number<C: Allocator>(ctx: C, p: P): (P, Token) {
 
 fn readInt(raw: Str): Option<Int> {
     if (raw.startsWith("0x") || raw.startsWith("0X")) {
-        raw.slice(2, raw.len()).toRadix(16)
+        raw.slice(2, raw.length()).toRadix(16)
     } else {
         raw.toInt()
     }
@@ -571,7 +571,7 @@ fn readInt(raw: Str): Option<Int> {
 
 /// The rest of a quoted string, from just past its opening quote.
 fn quoted<C: Allocator>(ctx: C, p: P, quote: Char, start: Int, acc: [Char]): (P, Token) {
-    if (p.at >= p.cs.len() || charAt(p, p.at) == '\n') {
+    if (p.at >= p.cs.length() || charAt(p, p.at) == '\n') {
         let q = err(
             ctx,
             p,
@@ -753,7 +753,7 @@ fn featureOption<C: Allocator>(ctx: C, p0: P): (P, Option<Features>) {
             if (name == "features") {
                 featureBlock(ctx, p1, start)
             } else if (name.startsWith("features.")) {
-                featureAssignment(ctx, p1, start, name.slice(9, name.len()))
+                featureAssignment(ctx, p1, start, name.slice(9, name.length()))
             } else {
                 (skipStatement(ctx, P { ..p1, at: start }), .None)
             }
@@ -957,7 +957,7 @@ fn nearest<C: Allocator>(ctx: C, word: Str, known: [Str]): Option<Str> {
         ctx,
         fn(c, acc: Option<(Int, Str)>, k) => {
             let distance = editDistance(c, word, k);
-            let longest = if (word.len() > k.len()) { word.len() } else { k.len() };
+            let longest = if (word.length() > k.length()) { word.length() } else { k.length() };
             let third = longest / 3;
             let limit = if (third > 1) { third } else { 1 } + 1;
             if (distance > limit) {
@@ -980,7 +980,7 @@ fn nearest<C: Allocator>(ctx: C, word: Str, known: [Str]): Option<Str> {
 
 fn editDistance<C: Allocator>(ctx: C, a: Str, b: Str): Int {
     let bs = b.chars(ctx);
-    let first = list.range(ctx, 0, bs.len() + 1);
+    let first = list.range(ctx, 0, bs.length() + 1);
     let last = a
         .chars(ctx)
         .foldCtx(ctx, fn(c, prev: [Int], ca) => nextRow(c, prev, bs, ca), first);
@@ -991,7 +991,7 @@ fn editDistance<C: Allocator>(ctx: C, a: Str, b: Str): Int {
 fn nextRow<C: Allocator>(ctx: C, prev: [Int], bs: [Char], ca: Char): [Int] {
     let start: [Int] = [prev.get(0).withDefault(0) + 1];
     list
-        .range(ctx, 0, bs.len())
+        .range(ctx, 0, bs.length())
         .foldCtx(
             ctx,
             fn(c, cur: [Int], j) => {
@@ -1703,7 +1703,7 @@ fn fieldOption<C: Allocator>(ctx: C, p0: P, features: Features): (P, Features) {
                     let (p5, f) = feature(
                         ctx,
                         p4,
-                        w.slice(9, w.len()),
+                        w.slice(9, w.length()),
                         shown,
                         span(p4, at, p4.at),
                     );

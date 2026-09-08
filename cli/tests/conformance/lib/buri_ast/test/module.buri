@@ -118,9 +118,9 @@ fn signStmt(): ast.Stmt {
     st(.Let(pat(.Bind(n("sign"), [])), [], branch))
 }
 
-/// `let lengths = parts.map(ctx, fn(s) => s.len());`
+/// `let lengths = parts.map(ctx, fn(s) => s.length());`
 fn lengthsStmt(): ast.Stmt {
-    let body = call(field(id("s"), "len"), []);
+    let body = call(field(id("s"), "length"), []);
     let f = ex(.Lambda([ast.LambdaParam { name: n("s"), ty: [] }], [], [body]));
     let mapped = call(field(id("parts"), "map"), [ex(.Ctx), f]);
     st(.Let(pat(.Bind(n("lengths"), [])), [], mapped))
@@ -154,7 +154,7 @@ fn describe(): ast.Item {
         .Template([
             .Hole(id("first")),
             .Hole(field(id("here"), "x")),
-            .Hole(call(field(id("lengths"), "len"), [])),
+            .Hole(call(field(id("lengths"), "length"), [])),
         ]),
     );
     let tail = call(ex(.DotVariant(n("Ok"))), [rendered]);
@@ -180,7 +180,7 @@ fn okLine<C: Allocator>(ctx: C): Str {
     "    .Ok(\""
         .concat(ctx, hole(ctx, "first"))
         .concat(ctx, hole(ctx, "here.x"))
-        .concat(ctx, hole(ctx, "lengths.len()"))
+        .concat(ctx, hole(ctx, "lengths.length()"))
         .concat(ctx, "\")")
 }
 
@@ -212,7 +212,7 @@ fn expected<C: Allocator>(ctx: C): Str {
         "    let scaled = (p.x + p.y) * 2;",
         "    let sign = if (scaled > 0) { \"+\" } else { \"-\" };",
         "    let parts = [label, sign];",
-        "    let lengths = parts.map(ctx, fn(s) => s.len());",
+        "    let lengths = parts.map(ctx, fn(s) => s.length());",
         "    let here = Point { x: scaled, y: 0 };",
         "    let first = parts.first().okOr(\"empty\")?;",
         okLine(ctx),

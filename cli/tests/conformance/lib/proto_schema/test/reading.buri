@@ -58,11 +58,11 @@ test "a schema reads as the declarations it makes" {
     assert.isEmpty(parsed.errors);
     let s = parsed.schema;
     assert.equal(s.package.withDefault("?"), "example.v1");
-    assert.len(s.imports, 2);
+    assert.length(s.imports, 2);
     assert.equal(assert.some(s.imports.get(0)).path, "proto/address.proto");
     assert.equal(assert.some(s.imports.get(1)).path, "proto/other.proto");
-    assert.len(s.enums, 1);
-    assert.len(s.messages, 1);
+    assert.length(s.enums, 1);
+    assert.length(s.messages, 1);
 }
 
 test "an enum keeps its values, in order, with their numbers" {
@@ -71,7 +71,7 @@ test "an enum keeps its values, in order, with their numbers" {
     };
     let colour = assert.some(read(ctx, everything(ctx)).schema.enums.get(0));
     assert.equal(colour.name, "Colour");
-    assert.len(colour.values, 2);
+    assert.length(colour.values, 2);
     assert.equal(assert.some(colour.values.get(0)).name, "COLOUR_UNSPECIFIED");
     assert.equal(assert.some(colour.values.get(0)).number, 0);
     assert.equal(assert.some(colour.values.get(1)).name, "RED");
@@ -84,7 +84,7 @@ test "a message keeps the fields that are not in a oneof, in order" {
     };
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
     assert.equal(person.name, "Person");
-    assert.len(person.fields, 5);
+    assert.length(person.fields, 5);
 
     let name = assert.some(person.fields.get(0));
     assert.equal(name.name, "name");
@@ -115,10 +115,10 @@ test "a oneof keeps its cases, and a case carries no label" {
         Allocator: alloc(),
     };
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
-    assert.len(person.oneofs, 1);
+    assert.length(person.oneofs, 1);
     let contact = assert.some(person.oneofs.get(0));
     assert.equal(contact.name, "contact");
-    assert.len(contact.cases, 2);
+    assert.length(contact.cases, 2);
     assert.equal(assert.some(contact.cases.get(0)).name, "phone");
     assert.equal(assert.some(contact.cases.get(0)).number, 6);
     assert.equal(assert.some(contact.cases.get(0)).ty, TypeRef.Scalar(Scalar.Str));
@@ -130,11 +130,11 @@ test "a nested message and a nested enum sit inside the message that declared th
         Allocator: alloc(),
     };
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
-    assert.len(person.messages, 1);
+    assert.length(person.messages, 1);
     let nickname = assert.some(person.messages.get(0));
     assert.equal(nickname.name, "Nickname");
-    assert.len(nickname.fields, 1);
-    assert.len(person.enums, 1);
+    assert.length(nickname.fields, 1);
+    assert.length(person.enums, 1);
     assert.equal(assert.some(person.enums.get(0)).name, "Kind");
 }
 
@@ -209,7 +209,7 @@ test "comments of both kinds are trivia, wherever they fall" {
     );
     let parsed = read(ctx, text);
     assert.isEmpty(parsed.errors);
-    assert.len(assert.some(parsed.schema.messages.get(0)).fields, 1);
+    assert.length(assert.some(parsed.schema.messages.get(0)).fields, 1);
 }
 
 test "option and reserved are skipped rather than refused" {
@@ -231,7 +231,7 @@ test "option and reserved are skipped rather than refused" {
     let parsed = read(ctx, text);
     assert.isEmpty(parsed.errors);
     let m = assert.some(parsed.schema.messages.get(0));
-    assert.len(m.fields, 1);
+    assert.length(m.fields, 1);
     assert.equal(assert.some(m.fields.get(0)).name, "x");
 }
 
@@ -263,10 +263,10 @@ test "reserved is skipped in all three scopes it may be written in" {
     assert.isEmpty(parsed.errors);
     let e = assert.some(parsed.schema.enums.get(0));
     assert.equal(e.name, "Colour");
-    assert.len(e.values, 2);
+    assert.length(e.values, 2);
     let m = assert.some(parsed.schema.messages.get(0));
     assert.equal(m.name, "M");
-    assert.len(m.fields, 1);
+    assert.length(m.fields, 1);
 }
 
 test "a source-only feature is read past, so a schema can opt out of the naming lint" {
@@ -283,7 +283,7 @@ test "a source-only feature is read past, so a schema can opt out of the naming 
     );
     let parsed = read(ctx, text);
     assert.isEmpty(parsed.errors);
-    assert.len(assert.some(parsed.schema.messages.get(0)).fields, 1);
+    assert.length(assert.some(parsed.schema.messages.get(0)).fields, 1);
 }
 
 test "a malformed field does not swallow the rest of the file" {
@@ -294,7 +294,7 @@ test "a malformed field does not swallow the rest of the file" {
     let parsed = read(ctx, text);
     assert.notEmpty(parsed.errors);
     let m = assert.some(parsed.schema.messages.get(0));
-    assert.len(m.fields, 1);
+    assert.length(m.fields, 1);
     assert.equal(assert.some(m.fields.get(0)).name, "ok");
 }
 
@@ -358,7 +358,7 @@ test "the shapes the vendored conformance schema is made of read clean" {
     assert.isEmpty(parsed.errors);
     let m = assert.some(parsed.schema.messages.get(0));
     assert.equal(m.name, "TestAllTypesProto3");
-    assert.len(m.fields, 5);
+    assert.length(m.fields, 5);
     // A message field of the enclosing message's own type.
     let nested = assert.some(m.messages.get(0));
     assert.equal(
@@ -370,6 +370,6 @@ test "the shapes the vendored conformance schema is made of read clean" {
     assert.equal(assert.some(e.values.get(2)).number, -1);
     // `option allow_alias` inside an enum is skipped, and an alias is not the
     // reader's business.
-    assert.len(assert.some(m.enums.get(1)).values, 3);
-    assert.len(assert.some(m.oneofs.get(0)).cases, 3);
+    assert.length(assert.some(m.enums.get(1)).values, 3);
+    assert.length(assert.some(m.oneofs.get(0)).cases, 3);
 }

@@ -19,5 +19,5 @@ export fn broadcast<C: Allocator + Sockets>(ctx: C, room: [Socket], message: Mes
         let _sent = socket.send(c, message);
         0
     });
-    room.len()
+    room.length()
 }

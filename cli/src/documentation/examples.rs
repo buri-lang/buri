@@ -1228,7 +1228,7 @@ mod tests {
     fn a_builtin_impl_cannot_be_documented_as_a_compilable_block() {
         let doc = "```buri sig\n\
                    # impl<T> [T] {\n\
-                   export fn len(self): Int;\n\
+                   export fn length(self): Int;\n\
                    # }\n\
                    ```\n";
         assert!(check(doc).contains("defining module of `[T]` is `core/list`"));

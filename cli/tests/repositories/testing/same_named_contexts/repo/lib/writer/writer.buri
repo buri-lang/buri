@@ -2,5 +2,5 @@ from "core/effect" import { Allocator };
 from "//lib/one" import { hold };
 
 export fn written<C: Allocator>(ctx: C, n: I64): I64 {
-    hold(ctx, n).len()
+    hold(ctx, n).length()
 }

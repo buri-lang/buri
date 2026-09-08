@@ -321,7 +321,7 @@ fn load<C: Allocator + FileSystemRead>(ctx: C, at: Path, n: Int): Int {
     0
   } else {
     let head = fs.readText(ctx, at).withDefault(\"\");
-    head.len() + load(ctx, at, n - 1)
+    head.length() + load(ctx, at, n - 1)
   }
 }
 
@@ -856,7 +856,7 @@ export fn main(): Result<(), Str> {
     x * 2
   });
   let fast = [1, 2, 3].mapCtx(ctx, fn(c, x) => str.fromInt(c, x + 1));
-  let _ = io.println(ctx, \"${slow.len()} ${fast.join(ctx, \",\")}\").ignore();
+  let _ = io.println(ctx, \"${slow.length()} ${fast.join(ctx, \",\")}\").ignore();
   .Ok(())
 }
 ";

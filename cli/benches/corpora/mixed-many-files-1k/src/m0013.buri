@@ -59,7 +59,7 @@ export fn constants13_0(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe13_0<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants13_0();
-    label13_0(ctx, a, e).len() + b
+    label13_0(ctx, a, e).length() + b
 }
 
 /// Every declaration in this module, reachable from one call, so that

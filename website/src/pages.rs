@@ -1042,7 +1042,7 @@ mod tests {
         let pure = ApiItem {
             api: Api::Function { effects: Vec::new() },
             name: "len".to_string(),
-            signature: "fn len(self): Int".to_string(),
+            signature: "fn length(self): Int".to_string(),
             docs: Vec::new(),
         };
         assert!(item_markdown(&pure).contains("\nPure.\n"));

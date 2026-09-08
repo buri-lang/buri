@@ -25,7 +25,7 @@ error: this statement has type `_1`, not `()` [statement-not-unit]
 error: `_1` is not an enum [not-an-enum]
   --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:19:26
    |
-19 |         .Ok(_written) => .Ok(line.len()),
+19 |         .Ok(_written) => .Ok(line.length()),
    |                          ^^^
    |
    = fix: the dot form names an enum variant; write the value another way

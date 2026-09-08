@@ -20,7 +20,7 @@
 //! behaviour has to say so rather than guess.
 //!
 //! Anchors count **UTF-8 bytes**, which is the unit the protocol fixes and not
-//! the unit `Str.len` counts — so a line is measured through `core/bytes`
+//! the unit `Str.length` counts — so a line is measured through `core/bytes`
 //! rather than by character, and an input written in more than ASCII lands
 //! where it was written.
 
@@ -101,7 +101,7 @@ fn piece<C: Allocator>(ctx: C, path: Str, line: Str, at: Int): Option<Piece> {
         .None
     } else if (line.startsWith("~")) {
         .Some(Piece {
-            text: str.format(ctx, "${line.slice(1, line.len())}\n"),
+            text: str.format(ctx, "${line.slice(1, line.length())}\n"),
             file: "",
             start: 0,
             end: 0,
@@ -156,11 +156,11 @@ fn span(start: Int, end: Int): Json {
     .Object([("start", .Num(start.toF64())), ("end", .Num(end.toF64()))])
 }
 
-/// UTF-8 bytes, which is what an anchor counts. `Str.len` counts scalar values,
+/// UTF-8 bytes, which is what an anchor counts. `Str.length` counts scalar values,
 /// and the two differ exactly where a wrong answer is invisible in a golden
 /// written in ASCII.
 fn byteLen<C: Allocator>(ctx: C, s: Str): Int {
-    bytes.toUtf8(ctx, s).len()
+    bytes.toUtf8(ctx, s).length()
 }
 
 fn allInputs<C: Allocator>(ctx: C, request: Json): Option<[(Str, Str)]> {

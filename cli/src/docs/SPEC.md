@@ -526,7 +526,7 @@ access must be parenthesized: `(t.0).1`.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let xs: [Int] = [1, 2, 3];
-let n = list.len(xs);          // pure: no allocation
+let n = list.length(xs);          // pure: no allocation
 let maybe = xs[0];             // Option<Int>, not Int
 ```
 
@@ -2240,7 +2240,7 @@ Every function in the library sits in one of the three purity tiers of Section
 **deterministic** takes one bounded by `Allocator` alone, and **effectful** takes one
 bounded by anything else. Size decides: an operation whose result size is fixed
 is pure, and one whose result size depends on runtime data names `Allocator`. So
-`xs.len()` and `s.trim()` are pure, `xs.map(ctx, f)` is deterministic, and
+`xs.length()` and `s.trim()` are pure, `xs.map(ctx, f)` is deterministic, and
 `fs.readText(ctx, p)` is effectful.
 
 Two conventions run through the whole library. **Receiver first, context second**
@@ -2340,7 +2340,7 @@ from "core/testing/assert" import * as assert;
 | `assert.isTrue(b)` / `assert.isFalse(b)` | On a `Bool`. |
 | `assert.contains(xs, x)` | Fails unless `x` is an element of `xs`. |
 | `assert.isEmpty(xs)` / `assert.notEmpty(xs)` | On a list. |
-| `assert.len(xs, n)` | Fails unless `xs` holds exactly `n` elements. |
+| `assert.length(xs, n)` | Fails unless `xs` holds exactly `n` elements. |
 | `assert.gt(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ordered`. |
 | `assert.approxEq(a, b, tolerance)` | On `Float`, within an absolute tolerance. |
 | `assert.ok(r)` | Fails unless `r` is `.Ok`; **returns the wrapped value**. |

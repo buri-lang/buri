@@ -24,14 +24,14 @@ test "contains finds an element at either end and in the middle" {
     assert.contains([1, 2, 3], 1);
     assert.contains([1, 2, 3], 2);
     assert.contains([1, 2, 3], 3);
-    assert.equal([1, 2, 3].len(), 3);
+    assert.equal([1, 2, 3].length(), 3);
 }
 
 test "contains works at any Equal element type" {
     assert.contains(["a", "b"], "b");
     assert.contains([true], true);
     assert.contains([[1, 2], [3]], [3]);
-    assert.equal([[1, 2], [3]].len(), 2);
+    assert.equal([[1, 2], [3]].length(), 2);
 }
 
 // --- isEmpty / notEmpty -------------------------------------------------------------
@@ -42,22 +42,22 @@ test "isEmpty holds for the empty list however it was built" {
     };
     assert.isEmpty(list.empty<Int>());
     assert.isEmpty([1].filter(ctx, fn(x) => x > 9));
-    assert.equal(list.empty<Int>().len(), 0);
+    assert.equal(list.empty<Int>().length(), 0);
 }
 
 test "notEmpty holds for a list of one" {
     assert.notEmpty([1]);
     assert.notEmpty(["a", "b"]);
-    assert.equal([1].len(), 1);
+    assert.equal([1].length(), 1);
 }
 
-// --- len ------------------------------------------------------------------------
+// --- length ------------------------------------------------------------------------
 
-test "len holds at zero and at the length the list has" {
-    assert.len(list.empty<Int>(), 0);
-    assert.len([1], 1);
-    assert.len([1, 2, 3], 3);
-    assert.equal([1, 2, 3].len(), 3);
+test "length holds at zero and at the length the list has" {
+    assert.length(list.empty<Int>(), 0);
+    assert.length([1], 1);
+    assert.length([1, 2, 3], 3);
+    assert.equal([1, 2, 3].length(), 3);
 }
 
 // --- gt / ge / lt / le --------------------------------------------------------------
@@ -116,7 +116,7 @@ test "eqWith compares two maps built in different orders" {
     let one = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
     let two = map.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
     assert.eqWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
-    assert.equal(one.len(), 2);
+    assert.equal(one.length(), 2);
 }
 
 test "eqWith holds for two empty maps and for two empty sets" {
@@ -129,7 +129,7 @@ test "eqWith holds for two empty maps and for two empty sets" {
     assert.eqWith(ctx, set.empty<Int>(), set.empty<Int>(), fn(c, a, b) => {
         a.equals(c, b)
     });
-    assert.equal(map.empty<Str, Int>().len(), 0);
+    assert.equal(map.empty<Str, Int>().length(), 0);
 }
 
 test "eqWith takes any comparison, not only a collection's equals" {
@@ -147,14 +147,14 @@ test "containsText finds the needle at the start, the end and the middle" {
     assert.containsText("hello, world", "hello");
     assert.containsText("hello, world", ", w");
     assert.containsText("hello, world", "world");
-    assert.equal("hello, world".len(), 12);
+    assert.equal("hello, world".length(), 12);
 }
 
 test "containsText holds for the empty needle and for the whole string" {
     assert.containsText("abc", "");
     assert.containsText("abc", "abc");
     assert.containsText("", "");
-    assert.equal("".len(), 0);
+    assert.equal("".length(), 0);
 }
 
 // --- startsWith ------------------------------------------------------------------------
@@ -164,7 +164,7 @@ test "startsWith holds for a prefix, the whole string and the empty one" {
     assert.startsWith("abc", "abc");
     assert.startsWith("abc", "");
     assert.startsWith("", "");
-    assert.equal("abc".len(), 3);
+    assert.equal("abc".length(), 3);
 }
 
 // --- unordered -------------------------------------------------------------------------
@@ -176,7 +176,7 @@ test "unordered holds however the two lists are arranged" {
     assert.unordered(ctx, [3, 1, 2], [1, 2, 3]);
     assert.unordered(ctx, [1, 2, 3], [1, 2, 3]);
     assert.unordered(ctx, [3, 2, 1], [1, 2, 3]);
-    assert.equal([3, 1, 2].len(), 3);
+    assert.equal([3, 1, 2].length(), 3);
 }
 
 test "unordered counts duplicates and holds for two empty lists" {
@@ -186,7 +186,7 @@ test "unordered counts duplicates and holds for two empty lists" {
     assert.unordered(ctx, [1, 1, 2], [2, 1, 1]);
     assert.unordered(ctx, list.empty<Int>(), list.empty<Int>());
     assert.unordered(ctx, ["b", "a"], ["a", "b"]);
-    assert.equal([1, 1, 2].len(), 3);
+    assert.equal([1, 1, 2].length(), 3);
 }
 
 // --- eqWith over the collections that have no Equal of their own -------------------------
@@ -203,7 +203,7 @@ test "eqWith takes each collection that answers equals rather than deriving Equa
     assert.eqWith(ctx, setOne, setTwo, fn(c, a, b) => a.equals(c, b));
     let queued = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
     assert.eqWith(ctx, queued, queued, fn(c, a, b) => a.equals(c, b));
-    assert.equal(sortedOne.len(), 2);
+    assert.equal(sortedOne.length(), 2);
 }
 
 test "eqWith holds for a value against itself whatever the comparison" {
@@ -212,9 +212,9 @@ test "eqWith holds for a value against itself whatever the comparison" {
     };
     assert.eqWith(ctx, "text", "text", fn(_c, a, b) => a == b);
     assert.eqWith(ctx, list.empty<Int>(), list.empty<Int>(), fn(_c, a, b) => {
-        a.len() == b.len()
+        a.length() == b.length()
     });
-    assert.equal("text".len(), 4);
+    assert.equal("text".length(), 4);
 }
 
 // --- containsText and startsWith, where a scalar is more than one byte ----------------
@@ -224,14 +224,14 @@ test "containsText and startsWith measure in scalars, not bytes" {
     assert.containsText("héllo", "é");
     assert.startsWith("😀 first", "😀");
     assert.startsWith("héllo", "hé");
-    assert.equal("a😀b".len(), 3);
+    assert.equal("a😀b".length(), 3);
 }
 
 test "a needle as long as the haystack, and one at the very end" {
     assert.containsText("abc", "c");
     assert.containsText("abc", "bc");
     assert.startsWith("abc", "a");
-    assert.equal("abc".len(), 3);
+    assert.equal("abc".length(), 3);
 }
 
 // --- unordered, at its edges -----------------------------------------------------------
@@ -243,7 +243,7 @@ test "unordered holds for one element and for a list against itself" {
     assert.unordered(ctx, [7], [7]);
     let items = [5, 3, 5, 1];
     assert.unordered(ctx, items, items);
-    assert.equal(items.len(), 4);
+    assert.equal(items.length(), 4);
 }
 
 test "unordered is the type's own Ordered, so text and characters sort too" {
@@ -253,7 +253,7 @@ test "unordered is the type's own Ordered, so text and characters sort too" {
     assert.unordered(ctx, ["b", "a", "b"], ["b", "b", "a"]);
     assert.unordered(ctx, ['z', 'a'], ['a', 'z']);
     assert.unordered(ctx, [true, false], [false, true]);
-    assert.equal(["b", "a", "b"].len(), 3);
+    assert.equal(["b", "a", "b"].length(), 3);
 }
 
 // --- approxEqRelative at the tolerance exactly ---------------------------------------------

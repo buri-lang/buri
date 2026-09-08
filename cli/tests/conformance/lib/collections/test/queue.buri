@@ -10,11 +10,11 @@ from "core/list" import * as list;
 from "core/queue" import * as queue;
 from "core/testing/assert" import * as assert;
 
-// --- empty / len / isEmpty ---------------------------------------------------
+// --- empty / length / isEmpty ---------------------------------------------------
 
 test "an empty queue has no elements" {
     let q = queue.empty<Int>();
-    assert.equal(q.len(), 0);
+    assert.equal(q.length(), 0);
     assert.isTrue(q.isEmpty());
 }
 
@@ -23,7 +23,7 @@ test "of builds a queue from a list" {
         Allocator: alloc(),
     };
     let q = queue.of([1, 2, 3]);
-    assert.equal(q.len(), 3);
+    assert.equal(q.length(), 3);
     assert.equal(q.toList(ctx), [1, 2, 3]);
 }
 
@@ -50,7 +50,7 @@ test "peek is the first element and does not remove it" {
     };
     let q = queue.of([7, 8]);
     assert.equal(assert.some(q.peek()), 7);
-    assert.equal(q.len(), 2);
+    assert.equal(q.length(), 2);
 }
 
 test "peekBack is the last element" {

@@ -85,7 +85,7 @@ impl Rec23_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe23_1<C: Allocator>(ctx: C): Int {
     let r = Rec23_1 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -105,7 +105,7 @@ export fn constants23_2(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe23_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants23_2();
-    label23_2(ctx, a, e).len() + b
+    label23_2(ctx, a, e).length() + b
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -124,12 +124,12 @@ export fn describeAll23_3<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric23_3(ns: [Int], ss: [Str]): Int {
-    firstOr23_3<Int>(ns, 0) + firstOr23_3<Str>(ss, "").len()
+    firstOr23_3<Int>(ns, 0) + firstOr23_3<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe23_3<C: Allocator>(ctx: C): Int {
-    useGeneric23_3([1, 2], ["a"]) + describeAll23_3(ctx, [1, 2]).len()
+    useGeneric23_3([1, 2], ["a"]) + describeAll23_3(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -183,7 +183,7 @@ impl Rec23_5 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe23_5<C: Allocator>(ctx: C): Int {
     let r = Rec23_5 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A body of 8 bindings over integer arithmetic — the shape most
@@ -212,14 +212,14 @@ export fn digest23_7<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [5374, 1299, 1143, 3469, 2874, 5552];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain23_7(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -262,7 +262,7 @@ export fn start23_8(ticks: Int): State23_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe23_8<C: Allocator>(ctx: C): Int {
     let s = start23_8(5);
-    rank23_8(s) + s.show(ctx).len()
+    rank23_8(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -282,7 +282,7 @@ export fn constants23_9(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe23_9<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants23_9();
-    label23_9(ctx, a, e).len() + b
+    label23_9(ctx, a, e).length() + b
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -301,12 +301,12 @@ export fn describeAll23_10<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric23_10(ns: [Int], ss: [Str]): Int {
-    firstOr23_10<Int>(ns, 0) + firstOr23_10<Str>(ss, "").len()
+    firstOr23_10<Int>(ns, 0) + firstOr23_10<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe23_10<C: Allocator>(ctx: C): Int {
-    useGeneric23_10([1, 2], ["a"]) + describeAll23_10(ctx, [1, 2]).len()
+    useGeneric23_10([1, 2], ["a"]) + describeAll23_10(ctx, [1, 2]).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

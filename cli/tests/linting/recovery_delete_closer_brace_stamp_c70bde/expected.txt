@@ -14,7 +14,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
   |
  --> lib/recovery_delete_closer_brace_stamp_c70bde/lib.buri:8:14
   |
-8 |     label.len(
+8 |     label.length(
   |              ^ opened here
   |
   = fix: write `)` here

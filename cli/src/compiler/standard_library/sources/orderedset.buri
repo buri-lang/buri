@@ -27,7 +27,7 @@
 //!         .toList(ctx)
 //!         .mapCtx(ctx, fn(c, i) => str.fromInt(c, i))
 //!         .join(ctx, " ");
-//!     let _ = io.println(ctx, "${ids.len()} unique: ${shown}").ignore();
+//!     let _ = io.println(ctx, "${ids.length()} unique: ${shown}").ignore();
 //!     .Ok(())
 //! }
 //! ```
@@ -62,8 +62,8 @@ fn memberOf<T>(entry: (T, ())): T {
 }
 
 impl<T: Ordered> OrderedSet<T> {
-    export fn len(self): Int {
-        self.members.len()
+    export fn length(self): Int {
+        self.members.length()
     }
 
     export fn isEmpty(self): Bool {
@@ -140,7 +140,7 @@ impl<T: Ordered> OrderedSet<T> {
     /// whole intersection to ask a yes-or-no question. It walks the smaller
     /// side and stops at the first member the other one holds.
     export fn isDisjointFrom<C: Allocator>(self, ctx: C, other: OrderedSet<T>): Bool {
-        if (self.len() <= other.len()) {
+        if (self.length() <= other.length()) {
             let theirs = other;
             self.toList(ctx).all(fn(x) => !theirs.has(x))
         } else {
@@ -169,7 +169,7 @@ impl<T: Ordered> OrderedSet<T> {
 
     /// Same members, whatever order either was built in.
     export fn equals<C: Allocator>(self, ctx: C, other: OrderedSet<T>): Bool {
-        self.len() == other.len() && self.isSubsetOf(ctx, other)
+        self.length() == other.length() && self.isSubsetOf(ctx, other)
     }
 }
 

@@ -618,7 +618,7 @@ test "listDir sees the entries" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).len() >= 1);
+    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).length() >= 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -2028,7 +2028,7 @@ test "every cause has a sentence, and errorText needs no context to say it" {
         ServeFailure.Closed,
         ServeFailure.Transport,
     ].map(ctx, fn(cause) => server.errorText(ServeError { cause: cause, detail: "" }));
-    assert.equal(said.len(), 7);
+    assert.equal(said.length(), 7);
     assert.isTrue(said.all(fn(line) => line != ""));
 }
 

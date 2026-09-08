@@ -103,7 +103,7 @@ test "expressions" {
     same(ctx, "fn f(): Int {\n    (1 + 2) * 3\n}\n");
     same(ctx, "fn f(): Bool {\n    a == b && c != d\n}\n");
     same(ctx, "fn f(): Int {\n    -x\n}\n");
-    same(ctx, "fn f(): Int {\n    xs.len()\n}\n");
+    same(ctx, "fn f(): Int {\n    xs.length()\n}\n");
     same(ctx, "fn f(): Int {\n    pair.0\n}\n");
     same(ctx, "fn f(): Int {\n    xs[0]\n}\n");
     same(ctx, "fn f(): Int {\n    g()?\n}\n");
@@ -204,7 +204,7 @@ test "a source that does not parse says where" {
     match (ast.parse(ctx, "probe.buri", "export type = Int;\n")) {
         .Ok(_m) => assert.isTrue(false),
         .Err(errors) => {
-            assert.equal(errors.len(), 1);
+            assert.equal(errors.length(), 1);
             assert.equal(
                 assert.some(errors.first()).message,
                 "expected an identifier, found `=`",
@@ -246,7 +246,7 @@ test "a printed module anchors the nodes it read" {
     let tree = assert.ok(ast.parse(ctx, "rows.buri", "type Id = Int;\n"));
     let printed = ast.print(ctx, tree);
     assert.equal(printed.text, "type Id = Int;\n");
-    assert.gt(printed.anchors.len(), 0);
+    assert.gt(printed.anchors.length(), 0);
 }
 
 // --- what it refuses ------------------------------------------------------------------

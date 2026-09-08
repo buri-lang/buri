@@ -53,7 +53,7 @@ test "fromDigit inverts toDigit over every base-36 digit" {
                 .Some(c) => c.toDigit(36) != .Some(n),
             }
         });
-    assert.equal(mismatched.len(), 0);
+    assert.equal(mismatched.length(), 0);
 }
 
 // --- character.isHexDigit ----------------------------------------------------
@@ -211,7 +211,7 @@ test "toRadix reads back what toHex wrote" {
     let broken = values.filterCtx(ctx, fn(c, v) => {
         number.toHex(c, v, 0).toRadix(16) != .Some(v)
     });
-    assert.equal(broken.len(), 0);
+    assert.equal(broken.length(), 0);
 }
 
 // --- bytes.toHex and bytes.fromHex ----------------------------------------------
@@ -234,7 +234,7 @@ test "toHex of one byte is toHex of the number at width two" {
         .filterCtx(ctx, fn(c, n) => {
             bytes.toHex(c, [n.wrapToU8()]) != number.toHex(c, n, 2)
         });
-    assert.equal(disagreed.len(), 0);
+    assert.equal(disagreed.length(), 0);
 }
 
 test "fromHex reads back every byte toHex wrote" {

@@ -89,7 +89,7 @@ export fn start32_1(ticks: Int): State32_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe32_1<C: Allocator>(ctx: C): Int {
     let s = start32_1(5);
-    rank32_1(s) + s.show(ctx).len()
+    rank32_1(s) + s.show(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -109,7 +109,7 @@ export fn constants32_2(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe32_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants32_2();
-    label32_2(ctx, a, e).len() + b
+    label32_2(ctx, a, e).length() + b
 }
 
 derive Equal, Show for State32_3;
@@ -151,7 +151,7 @@ export fn start32_3(ticks: Int): State32_3 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe32_3<C: Allocator>(ctx: C): Int {
     let s = start32_3(5);
-    rank32_3(s) + s.show(ctx).len()
+    rank32_3(s) + s.show(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -170,12 +170,12 @@ export fn describeAll32_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric32_4(ns: [Int], ss: [Str]): Int {
-    firstOr32_4<Int>(ns, 0) + firstOr32_4<Str>(ss, "").len()
+    firstOr32_4<Int>(ns, 0) + firstOr32_4<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe32_4<C: Allocator>(ctx: C): Int {
-    useGeneric32_4([1, 2], ["a"]) + describeAll32_4(ctx, [1, 2]).len()
+    useGeneric32_4([1, 2], ["a"]) + describeAll32_4(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -223,12 +223,12 @@ export fn describeAll32_6<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric32_6(ns: [Int], ss: [Str]): Int {
-    firstOr32_6<Int>(ns, 0) + firstOr32_6<Str>(ss, "").len()
+    firstOr32_6<Int>(ns, 0) + firstOr32_6<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe32_6<C: Allocator>(ctx: C): Int {
-    useGeneric32_6([1, 2], ["a"]) + describeAll32_6(ctx, [1, 2]).len()
+    useGeneric32_6([1, 2], ["a"]) + describeAll32_6(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -299,7 +299,7 @@ export fn start32_8(ticks: Int): State32_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe32_8<C: Allocator>(ctx: C): Int {
     let s = start32_8(5);
-    rank32_8(s) + s.show(ctx).len()
+    rank32_8(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

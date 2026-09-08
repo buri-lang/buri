@@ -219,7 +219,7 @@ That is the purity theorem in usable form.
 
 | Tier | Shape | Example |
 |---|---|---|
-| **Pure** | no `ctx` | `xs.len()`, `s.trim()`, `xs.fold(f, z)` |
+| **Pure** | no `ctx` | `xs.length()`, `s.trim()`, `xs.fold(f, z)` |
 | **Deterministic** | `ctx` bounded by `Allocator` alone | `xs.map(ctx, f)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)` |
 

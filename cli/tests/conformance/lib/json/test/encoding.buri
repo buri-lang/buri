@@ -255,5 +255,5 @@ test "recursion is not a fixed depth" {
     // Deep enough that a walker that unrolled a fixed number of levels, or that
     // built a descriptor per level, would be visible.
     let deep = rose(60);
-    assert.isTrue(text(ctx, deep).len() > 1000);
+    assert.isTrue(text(ctx, deep).length() > 1000);
 }

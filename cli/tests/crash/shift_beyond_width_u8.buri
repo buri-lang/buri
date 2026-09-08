@@ -9,7 +9,7 @@ fn push(x: U8, n: Int): U8 { bits.shlU8(x, n) }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
-  let width = 8 + env.arguments(ctx).len();
+  let width = 8 + env.arguments(ctx).length();
   let _ = io.println(ctx, "${push(1, width)}").ignore();
   .Ok(())
 }

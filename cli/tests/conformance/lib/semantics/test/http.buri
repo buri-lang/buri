@@ -31,7 +31,7 @@ test "every method is its own value" {
         Method.Delete,
         Method.Options,
     ];
-    assert.equal(all.len(), 7);
+    assert.equal(all.length(), 7);
     assert.equal(all.get(0), .Some(.Get));
     assert.equal(all.get(6), .Some(.Options));
     assert.notEq(Method.Get, Method.Head);
@@ -88,7 +88,7 @@ test "a text request encodes its body as UTF-8" {
     let r = http.textRequest(ctx, .Put, "http://example.com/x", "hi €");
     assert.equal(r.method, .Put);
     assert.equal(r.body, bytes.toUtf8(ctx, "hi €"));
-    assert.equal(r.body.len(), 6);
+    assert.equal(r.body.length(), 6);
 }
 
 test "a request literal and a constructed request are equal" {

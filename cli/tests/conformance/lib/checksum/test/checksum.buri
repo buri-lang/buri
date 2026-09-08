@@ -162,6 +162,6 @@ test "the key is part of the answer" {
 // values, so two inputs sharing one is a coincidence rather than a scandal.
 // This is the test that says the module knows what it is.
 test "a checksum is four octets wide and says so" {
-    assert.equal(bytes.fromU32Be(hash.crc32c(octets("x"))).len(), 4);
-    assert.equal(bytes.fromU64Be(hash.fnv1a64(octets("x"))).len(), 8);
+    assert.equal(bytes.fromU32Be(hash.crc32c(octets("x"))).length(), 4);
+    assert.equal(bytes.fromU64Be(hash.fnv1a64(octets("x"))).length(), 8);
 }

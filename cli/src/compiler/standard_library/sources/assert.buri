@@ -142,8 +142,8 @@ export fn notEmpty<T>(xs: [T]): () {
 
 /// Fails unless `xs` holds exactly `expected` elements. The report compares the
 /// two lengths.
-export fn len<T>(xs: [T], expected: Int): () {
-    report(xs.len() == expected, "len", xs.len(), expected)
+export fn length<T>(xs: [T], expected: Int): () {
+    report(xs.length() == expected, "length", xs.length(), expected)
 }
 
 /// Fails unless the two lists hold the same elements in any order. Duplicates

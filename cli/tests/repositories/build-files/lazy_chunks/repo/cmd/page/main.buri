@@ -34,5 +34,5 @@ export fn fetch(request: Request): Response {
         Allocator: host.alloc,
     };
     let write = lazy.load(markTheChunk);
-    http.text(ctx, write(ctx, request.path().len()))
+    http.text(ctx, write(ctx, request.path().length()))
 }

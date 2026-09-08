@@ -71,7 +71,7 @@ test "arrays parse and index" {
     assert.equal(assert.some(a.at(0)), Json.Num(1.0));
     assert.equal(assert.some(a.at(2)), Json.Num(3.0));
     assert.isTrue(a.at(3).isNone());
-    assert.equal(assert.some(a.asArray()).len(), 3);
+    assert.equal(assert.some(a.asArray()).length(), 3);
 }
 
 test "objects parse and look up" {
@@ -277,8 +277,8 @@ test "asInt takes a whole number and refuses everything else" {
 
 test "asObject is asArray's twin" {
     let doc = parsed("{\"a\":1,\"b\":2}");
-    assert.len(assert.some(doc.asObject()), 2);
-    assert.equal(assert.some(parsed("{}").asObject()).len(), 0);
+    assert.length(assert.some(doc.asObject()), 2);
+    assert.equal(assert.some(parsed("{}").asObject()).length(), 0);
     assert.equal(parsed("[1]").asObject(), .None);
     assert.equal(parsed("1").asObject(), .None);
 }

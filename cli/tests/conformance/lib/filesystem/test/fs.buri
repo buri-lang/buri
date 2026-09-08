@@ -507,7 +507,7 @@ test "a temporary directory is under TMPDIR and exists once it is made" {
     assert.isTrue(made.startsWith(path.of(ctx, "/scratch")));
     assert.isTrue(fs.exists(ctx, made));
     // The prefix, then sixteen hex characters: `crypto.token(ctx, 8)`.
-    assert.equal(assert.some(made.fileName()).len(), 22);
+    assert.equal(assert.some(made.fileName()).length(), 22);
 }
 
 test "two temporary directories are two directories" {
@@ -535,7 +535,7 @@ test "an empty prefix is a name of sixteen hex characters and nothing else" {
         FileSystemWrite: files,
     };
     let made = assert.ok(fs.makeTemporaryDirectory(ctx, ""));
-    assert.equal(assert.some(made.fileName()).len(), 16);
+    assert.equal(assert.some(made.fileName()).length(), 16);
     assert.equal(assert.some(made.parent()), path.of(ctx, "/tmp"));
 }
 

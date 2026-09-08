@@ -306,7 +306,7 @@ fn scaled<C: Allocator>(
 /// Pure: `slice` is a view, so this walks back without copying.
 fn withoutTrailingZeros(text: Str): Str {
     if (text.endsWith("0")) {
-        withoutTrailingZeros(text.slice(0, text.len() - 1))
+        withoutTrailingZeros(text.slice(0, text.length() - 1))
     } else {
         text
     }

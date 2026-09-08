@@ -52,7 +52,7 @@ test "listOf never draws past its bound" {
         Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 5), fn(_c, items) => {
-        items.len() <= 5
+        items.length() <= 5
     });
     assert.equal(5 <= 5, true);
 }
@@ -64,7 +64,7 @@ test "listOf holds every element to the item generator's range" {
     check.forAllCtx(ctx, check.listOf(ctx, check.int(3, 6), 4), fn(_c, items) => {
         items.all(fn(x) => x >= 3 && x < 6)
     });
-    assert.equal([3, 4, 5].len(), 3);
+    assert.equal([3, 4, 5].length(), 3);
 }
 
 test "listOf at zero and below draws the empty list" {
@@ -83,8 +83,8 @@ test "listOf draws a list of the length it said it would" {
         Allocator: alloc(),
     };
     let (drawn, _) = check.listOf(ctx, check.int(0, 100), 6)(ctx, random.seeded(11));
-    assert.le(drawn.len(), 6);
-    assert.ge(drawn.len(), 0);
+    assert.le(drawn.length(), 6);
+    assert.ge(drawn.length(), 0);
     // Nothing outside the item generator's range got in.
     assert.isTrue(drawn.all(fn(x) => x >= 0 && x < 100));
 }
@@ -114,7 +114,7 @@ test "reversing twice gives the list back" {
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 100), 8), fn(c, items) => {
         items.reverse(c).reverse(c).compare(items) == .Equal
     });
-    assert.equal([1, 2].len(), 2);
+    assert.equal([1, 2].length(), 2);
 }
 
 test "sorting keeps the length and the elements" {
@@ -122,12 +122,12 @@ test "sorting keeps the length and the elements" {
         Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
-        items.sort(c).len() == items.len()
+        items.sort(c).length() == items.length()
     });
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
         items.sort(c).isSortedBy(fn(a, b) => a.compare(b))
     });
-    assert.equal([1, 2, 3].len(), 3);
+    assert.equal([1, 2, 3].length(), 3);
 }
 
 // --- the hundredth case, and the seed a report would name -----------------------------

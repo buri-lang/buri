@@ -26,7 +26,7 @@
 //!     // deliberately not something to rely on.
 //!     let all = a.union(ctx, b).toList(ctx).sort(ctx);
 //!     let shown = all.mapCtx(ctx, fn(c, i) => str.fromInt(c, i)).join(ctx, " ");
-//!     let _ = io.println(ctx, "${a.len()} unique, union ${shown}").ignore();
+//!     let _ = io.println(ctx, "${a.length()} unique, union ${shown}").ignore();
 //!     .Ok(())
 //! }
 //! ```
@@ -55,8 +55,8 @@ export fn of<T: Hash + Equal, C: Allocator>(ctx: C, items: [T]): Set<T> {
 }
 
 impl<T: Hash + Equal> Set<T> {
-    export fn len(self): Int {
-        self.entries.len()
+    export fn length(self): Int {
+        self.entries.length()
     }
 
     export fn isEmpty(self): Bool {
@@ -120,7 +120,7 @@ impl<T: Hash + Equal> Set<T> {
     /// stops at the first member the other one holds.
     export fn isDisjointFrom<C: Allocator>(self, ctx: C, other: Set<T>): Bool {
         // Walk the shorter list against the other's constant-time membership.
-        if (self.len() <= other.len()) {
+        if (self.length() <= other.length()) {
             let theirs = other;
             self.toList(ctx).all(fn(x) => !theirs.has(x))
         } else {
@@ -136,7 +136,7 @@ impl<T: Hash + Equal> Set<T> {
 
     /// Same members, whatever order either was built in.
     export fn equals<C: Allocator>(self, ctx: C, other: Set<T>): Bool {
-        self.len() == other.len() && self.isSubsetOf(ctx, other)
+        self.length() == other.length() && self.isSubsetOf(ctx, other)
     }
 }
 

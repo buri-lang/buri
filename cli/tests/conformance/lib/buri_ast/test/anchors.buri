@@ -33,7 +33,7 @@ test "a node with an origin gets an anchor over its own printed text" {
     let out = ast.print(ctx, m);
     assert.equal(out.text, "export type Id = Int;\n");
     let a = assert.some(out.anchors.get(0));
-    assert.len(out.anchors, 1);
+    assert.length(out.anchors, 1);
     assert.equal(out.text.slice(a.start, a.end), "export type Id = Int;");
     assert.equal(a.origin, ast.origin(FILE, 3, 9));
 }
@@ -93,7 +93,7 @@ test "an anchor counts UTF-8 bytes, not scalar values" {
     let a = assert.some(out.anchors.get(0));
     // 17 scalar values on the first line, 18 bytes, and then the two breaks a
     // pair of declarations is parted by.
-    assert.equal(out.text.slice(0, 17).len(), 17);
+    assert.equal(out.text.slice(0, 17).length(), 17);
     assert.equal(a.start, 20);
     assert.equal(a.end, 33);
 }
@@ -129,11 +129,11 @@ test "every node kind that carries an origin records one" {
     let out = ast.print(ctx, m);
     assert.equal(out.text, "export struct Point {\n    export x: Int,\n}\n");
     // The declaration, its name, the field, and the field's name.
-    assert.len(out.anchors, 4);
+    assert.length(out.anchors, 4);
     let decl = assert.some(out.anchors.get(0));
     assert.equal(
         out.text.slice(decl.start, decl.end),
-        out.text.slice(0, out.text.len() - 1),
+        out.text.slice(0, out.text.length() - 1),
     );
     let name = assert.some(out.anchors.get(1));
     assert.equal(out.text.slice(name.start, name.end), "Point");

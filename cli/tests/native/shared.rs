@@ -1380,11 +1380,11 @@ fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
       match (message) {{
         .Joined(socket) => {{
           let joined = members.push(c, socket);
-          Stepped {{ state: joined, answer: joined.len() }}
+          Stepped {{ state: joined, answer: joined.length() }}
         }},
         .Left(socket) => {{
           let left = members.filter(c, fn(m) => m != socket);
-          Stepped {{ state: left, answer: left.len() }}
+          Stepped {{ state: left, answer: left.length() }}
         }},
         .Publish(m) => {{
           let _pushed = members.foldCtx(
@@ -1392,7 +1392,7 @@ fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
             fn(inner, _sofar, socket) => socket.send(inner, m),
             (),
           );
-          Stepped {{ state: members, answer: members.len() }}
+          Stepped {{ state: members, answer: members.length() }}
         }},
       }}
     }},

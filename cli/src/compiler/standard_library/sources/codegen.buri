@@ -191,7 +191,7 @@ fn pair(bad: Str, item: Json): Result<(Str, Str), Str> {
     match (item.asArray()) {
         .None => .Err(bad),
         .Some(parts) => {
-            if (parts.len() != 2) {
+            if (parts.length() != 2) {
                 .Err(bad)
             } else {
                 match (parts.get(0).andThen(fn(v) => v.asStr())) {

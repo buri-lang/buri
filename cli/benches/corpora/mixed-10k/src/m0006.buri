@@ -40,14 +40,14 @@ export fn digest6_0<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [3296, 612, 1095, 1626, 1950, 6721, 5564];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain6_0(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -94,7 +94,7 @@ export fn start6_1(ticks: Int): State6_1 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_1<C: Allocator>(ctx: C): Int {
     let s = start6_1(5);
-    rank6_1(s) + s.show(ctx).len()
+    rank6_1(s) + s.show(ctx).length()
 }
 
 derive Equal, Show for Rec6_2;
@@ -122,7 +122,7 @@ impl Rec6_2 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_2<C: Allocator>(ctx: C): Int {
     let r = Rec6_2 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// String building through interpolation, which is a template
@@ -142,7 +142,7 @@ export fn constants6_3(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_3<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants6_3();
-    label6_3(ctx, a, e).len() + b
+    label6_3(ctx, a, e).length() + b
 }
 
 /// A body of 5 bindings over integer arithmetic — the shape most
@@ -201,7 +201,7 @@ export fn start6_5(ticks: Int): State6_5 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_5<C: Allocator>(ctx: C): Int {
     let s = start6_5(5);
-    rank6_5(s) + s.show(ctx).len()
+    rank6_5(s) + s.show(ctx).length()
 }
 
 /// A body of 5 bindings over integer arithmetic — the shape most
@@ -258,12 +258,12 @@ export fn describeAll6_8<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric6_8(ns: [Int], ss: [Str]): Int {
-    firstOr6_8<Int>(ns, 0) + firstOr6_8<Str>(ss, "").len()
+    firstOr6_8<Int>(ns, 0) + firstOr6_8<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_8<C: Allocator>(ctx: C): Int {
-    useGeneric6_8([1, 2], ["a"]) + describeAll6_8(ctx, [1, 2]).len()
+    useGeneric6_8([1, 2], ["a"]) + describeAll6_8(ctx, [1, 2]).length()
 }
 
 /// A body of 4 bindings over integer arithmetic — the shape most

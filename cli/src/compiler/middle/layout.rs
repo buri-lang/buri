@@ -157,7 +157,7 @@ pub const IMMORTAL: u64 = u64::MAX;
 pub const GROWTH_FLOOR: u64 = 64;
 
 /// Bit 63 of `Str::len`: set means every byte of the view is below `0x80`, so
-/// the scalar count is the byte count and `str.len()` is a mask
+/// the scalar count is the byte count and `str.length()` is a mask
 /// (VALUE-MODEL.md §3.1).
 pub const STR_ASCII_FLAG: u64 = 1 << 63;
 
@@ -174,7 +174,7 @@ pub const STR_LEN: usize = 2;
 
 /// Field indices into a `[T]`'s [`Layout::fields`].
 pub const LIST_PTR: usize = 0;
-/// Element count, exactly — no flag, because `list.len()` is always O(1).
+/// Element count, exactly — no flag, because `list.length()` is always O(1).
 pub const LIST_LEN: usize = 1;
 
 /// Field indices into a closure's [`Layout::fields`].

@@ -126,7 +126,7 @@ test "toList of an empty set is empty" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(bitset.empty(ctx, 32).toList(ctx).len(), 0);
+    assert.equal(bitset.empty(ctx, 32).toList(ctx).length(), 0);
 }
 
 // --- the set algebra ----------------------------------------------------------
@@ -510,13 +510,13 @@ test "the scan agrees with toList over a thousand bits" {
     let members = list.range(ctx, 0, 1000).filterCtx(ctx, fn(_c, i) => i % 37 == 0);
     let s = bitset.of(ctx, 1000, members);
     assert.equal(s.toList(ctx), members);
-    assert.equal(s.count(), members.len());
+    assert.equal(s.count(), members.length());
     assert.equal(s.firstSet(), members.first());
     // Every member's successor is the next one in the list, and the last has none.
     assert.isTrue(members.all(fn(m) => s.nextSet(m) == members.find(fn(x) => x > m)));
     assert.isTrue(s.nextSet(999).isNone());
     // The complement is everything else, and toggling every member empties it.
-    assert.equal(s.complement(ctx).count(), 1000 - members.len());
+    assert.equal(s.complement(ctx).count(), 1000 - members.length());
     let cleared = members.foldCtx(ctx, fn(c, acc: BitSet, m) => acc.toggle(c, m), s);
     assert.isTrue(cleared.isEmpty());
 }

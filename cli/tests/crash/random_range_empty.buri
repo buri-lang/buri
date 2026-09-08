@@ -15,7 +15,7 @@ export fn main(): Result<(), Str> {
     Random: host.rand,
   };
   // Opaque to the compiler, so the call is really made.
-  let hi = env.arguments(ctx).len();
+  let hi = env.arguments(ctx).length();
   let _ = io.println(ctx, "${random.int(ctx, hi, hi)}").ignore();
   .Ok(())
 }

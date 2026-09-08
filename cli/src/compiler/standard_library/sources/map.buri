@@ -23,7 +23,7 @@
 //!     let counts = map.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 9);
 //!     // Inserting an existing key replaces its value and leaves the size alone.
 //!     let a = counts.get("a").withDefault(0);
-//!     let _ = io.println(ctx, "a=${a}, ${counts.len()} entries").ignore();
+//!     let _ = io.println(ctx, "a=${a}, ${counts.length()} entries").ignore();
 //!     .Ok(())
 //! }
 //! ```
@@ -39,7 +39,7 @@ from "core/list" import * as list;
 /// The buckets, and how many entries are spread across them.
 ///
 /// The map carries `size` rather than summing the buckets, which would make
-/// `len` O(b).
+/// `length` O(b).
 export struct Map<K, V> {
     buckets: [[(K, V)]],
     export size: Int,
@@ -86,7 +86,7 @@ export fn empty<K, V>(): Map<K, V> {
 }
 
 impl<K: Hash + Equal, V> Map<K, V> {
-    export fn len(self): Int {
+    export fn length(self): Int {
         self.size
     }
 
@@ -98,7 +98,7 @@ impl<K: Hash + Equal, V> Map<K, V> {
     export fn get(self, key: K): Option<V> {
         let buckets = self.buckets;
         let b = buckets
-            .get(bucketOf(key.hash(), buckets.len()))
+            .get(bucketOf(key.hash(), buckets.length()))
             .withDefault(list.empty<(K, V)>());
         b
             .find(fn(e) => {
@@ -117,13 +117,13 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// Stores `value` under `key`, replacing whatever was there.
     export fn insert<C: Allocator>(self, ctx: C, key: K, value: V): Map<K, V> {
-        let grown = if (self.size + 1 > self.buckets.len() * LOAD) {
+        let grown = if (self.size + 1 > self.buckets.length() * LOAD) {
             self.grow(ctx)
         } else {
             self
         };
         let buckets = grown.buckets;
-        let target = bucketOf(key.hash(), buckets.len());
+        let target = bucketOf(key.hash(), buckets.length());
         let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
         let replaced = existing.any(fn(e) => {
             let (k, _v) = e;
@@ -147,13 +147,13 @@ impl<K: Hash + Equal, V> Map<K, V> {
     /// Removes `key`, if it is there. Removing what is absent is not an error.
     export fn remove<C: Allocator>(self, ctx: C, key: K): Map<K, V> {
         let buckets = self.buckets;
-        let target = bucketOf(key.hash(), buckets.len());
+        let target = bucketOf(key.hash(), buckets.length());
         let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
         let kept = existing.filterCtx(ctx, fn(_c, e) => {
             let (k, _v) = e;
             k != key
         });
-        if (kept.len() == existing.len()) {
+        if (kept.length() == existing.length()) {
             self
         } else {
             let next = replaceAt(ctx, buckets, target, kept);
@@ -396,10 +396,10 @@ impl<K: Hash + Equal, V> Map<K, V> {
     /// stays expected-constant.
     fn grow<C: Allocator>(self, ctx: C): Map<K, V> {
         // From nothing, the initial size; otherwise twice what there was.
-        let count = if (self.buckets.len() == 0) {
+        let count = if (self.buckets.length() == 0) {
             INITIAL
         } else {
-            self.buckets.len() * 2
+            self.buckets.length() * 2
         };
         let all = self.buckets.flatten(ctx);
         // One pass over the entries, each dropped into its new bucket. A fold

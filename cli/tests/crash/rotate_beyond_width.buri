@@ -11,7 +11,7 @@ fn spin(x: Int, n: Int): Int { bits.rotateLeft(x, n) }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
-  let count = 65 + env.arguments(ctx).len();
+  let count = 65 + env.arguments(ctx).length();
   let _ = io.println(ctx, "${spin(1, count)}").ignore();
   .Ok(())
 }

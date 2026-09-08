@@ -247,7 +247,7 @@ test "a oneof case takes no label, and the case is kept so the rest is still rea
     let cases = assert
         .some(assert.some(parsed.schema.messages.get(0)).oneofs.get(0))
         .cases;
-    assert.len(cases, 2);
+    assert.length(cases, 2);
     assert.equal(assert.some(cases.get(0)).name, "a");
 }
 

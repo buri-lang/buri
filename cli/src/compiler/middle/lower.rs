@@ -2112,11 +2112,11 @@ mod tests {
              \x20 }\n\
              }\n\n\
              fn used<C: Allocator>(ctx: C, label: Str, names: [Str]): Int {\n\
-             \x20 label.len() + names.map(ctx, fn(s) => s.len()).len()\n\
+             \x20 label.length() + names.map(ctx, fn(s) => s.length()).length()\n\
              }\n\n\
              export fn projected<C: Allocator>(ctx: C): Int {\n\
              \x20 let inner = identity(make(ctx)).inner;\n\
-             \x20 inner.items.len()\n\
+             \x20 inner.items.length()\n\
              }\n\n\
              export fn armed<C: Allocator>(ctx: C): Int {\n\
              \x20 let h = holder(ctx);\n\
@@ -2326,7 +2326,7 @@ export fn quarter(n: Int): Option<Int> {
     fn a_lowered_program_names_one_unit_per_module() {
         let p = lower_plain(&program(
             "export fn id(n: Int): Int { n }",
-            "  let _ = id([1, 2].len());",
+            "  let _ = id([1, 2].length());",
         ));
         assert!(p.units.iter().any(|u| u == "test"), "{:?}", p.units);
         assert!(p.units.iter().any(|u| u.starts_with("core_")), "{:?}", p.units);
@@ -2338,10 +2338,10 @@ export fn quarter(n: Int): Option<Int> {
 
     #[test]
     fn an_intrinsic_is_a_runtime_symbol_and_not_a_body() {
-        let p = lower(&program("", "  let _ = [1, 2].len();"));
+        let p = lower(&program("", "  let _ = [1, 2].length();"));
         let runtime: Vec<&str> = p.funcs.iter().filter_map(|f| f.intrinsic_key()).collect();
         assert!(
-            runtime.contains(&"list.len"),
+            runtime.contains(&"list.length"),
             "`len` is supplied by the runtime, by key: {runtime:?}"
         );
         for f in &p.funcs {
@@ -2379,7 +2379,7 @@ export fn head(xs: [Int]): Int {
   match (xs) {
     [] => 0,
     [a] => a,
-    [a, b, ..rest] => a + b + rest.len(),
+    [a, b, ..rest] => a + b + rest.length(),
   }
 }
 

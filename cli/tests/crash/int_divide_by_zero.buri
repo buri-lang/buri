@@ -8,7 +8,7 @@ fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
-  let zero = env.arguments(ctx).len();
+  let zero = env.arguments(ctx).length();
   let _ = io.println(ctx, "${ratio(10, zero)}").ignore();
   .Ok(())
 }

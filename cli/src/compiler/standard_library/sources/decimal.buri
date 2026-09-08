@@ -137,7 +137,7 @@ export fn of(units: Int, scale: Int): Decimal {
 export fn parse(text: Str): Option<Decimal> {
     let negative = text.startsWith("-");
     let start = if (negative) { 1 } else { 0 };
-    if (text.len() <= start) {
+    if (text.length() <= start) {
         .None
     } else {
         // Accumulated below zero, so that `minValue`'s digits parse and
@@ -280,8 +280,8 @@ impl Decimal {
             let digits = str
                 .fromChars(ctx, countDown(ctx, below, []))
                 .padStart(ctx, self.scale + 1, '0');
-            let whole = digits.slice(0, digits.len() - self.scale);
-            let fraction = digits.slice(digits.len() - self.scale, digits.len());
+            let whole = digits.slice(0, digits.length() - self.scale);
+            let fraction = digits.slice(digits.length() - self.scale, digits.length());
             let sign = if (self.units < 0) { "-" } else { "" };
             str.format(ctx, "${sign}${whole}.${fraction}")
         }

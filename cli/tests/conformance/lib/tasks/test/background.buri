@@ -91,8 +91,8 @@ test "a scope waits for as many tasks as were spawned into it" {
     // arrives — so the number here is only large enough that a drain which
     // stopped early would leave a line out.
     let _ = tasks.scope(ctx, fn(c, here) => spawnMany(c, here, 32));
-    assert.equal(out.captured().split(ctx, "\n").len(), 33);
-    assert.equal(scheduler.calls().len(), 32);
+    assert.equal(out.captured().split(ctx, "\n").length(), 33);
+    assert.equal(scheduler.calls().length(), 32);
 }
 
 /// Spawns `n` tasks, each saying which it is.
@@ -171,7 +171,7 @@ test "anyOrder runs every spawned task once, in an order the program names" {
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
     // *Which* order is the suite's own bytes to name (`core/host/testing`), so
     // what is pinned is that it is an order: three tasks, each run once.
-    assert.equal(scheduler.calls().len(), 3);
+    assert.equal(scheduler.calls().length(), 3);
 }
 
 test "everyOrder runs the body once per order of the tasks it spawned" {

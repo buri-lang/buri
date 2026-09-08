@@ -490,7 +490,7 @@ impl TestFileSystem {
     /// this call's position among the matching entries `calls()` will report. An
     /// empty plan is answered without reading the log at all.
     fn planned(self, call: FsCall): Option<IoError> {
-        if (self.plan.len() == 0) {
+        if (self.plan.length() == 0) {
             .None
         } else {
             let nth = countingFsCalls(fsCalls(self.handle), call, 0) + 1;
@@ -858,7 +858,7 @@ impl TestNetwork {
     /// `TestFileSystem::planned`, for the other double: the log counts the matching
     /// requests, and an empty plan is answered without reading it.
     fn planned(self, call: NetCall): Option<NetError> {
-        if (self.plan.len() == 0) {
+        if (self.plan.length() == 0) {
             .None
         } else {
             let nth = countingNetCalls(netCalls(self.handle), call, 0) + 1;
@@ -1491,7 +1491,7 @@ export fn fetch(request: Request): NetCall {
 ///         .Ok(dialled) => {
 ///             match (dialled.read(ctx, 4)) {
 ///                 .Err(_e) => 0,
-///                 .Ok(got) => got.len(),
+///                 .Ok(got) => got.length(),
 ///             }
 ///         },
 ///     }

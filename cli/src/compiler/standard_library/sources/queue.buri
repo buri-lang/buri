@@ -29,7 +29,7 @@
 //!     let message = match (q.pop(ctx)) {
 //!         .Some(taken) => {
 //!             let (head, rest) = taken;
-//!             str.format(ctx, "${head}, then ${rest.len()} left")
+//!             str.format(ctx, "${head}, then ${rest.length()} left")
 //!         },
 //!         .None => "the queue was empty",
 //!     };
@@ -70,12 +70,12 @@ export fn of<T>(items: [T]): Queue<T> {
 }
 
 impl<T> Queue<T> {
-    export fn len(self): Int {
-        self.front.len() + self.back.len()
+    export fn length(self): Int {
+        self.front.length() + self.back.length()
     }
 
     export fn isEmpty(self): Bool {
-        self.len() == 0
+        self.length() == 0
     }
 
     /// Adds to the back.
@@ -108,7 +108,7 @@ impl<T> Queue<T> {
     export fn pop<C: Allocator>(self, ctx: C): Option<(T, Queue<T>)> {
         match (self.front.last()) {
             .Some(v) => {
-                let rest = self.front.take(ctx, self.front.len() - 1);
+                let rest = self.front.take(ctx, self.front.length() - 1);
                 .Some((v, Queue { front: rest, back: self.back }))
             },
             // The front is spent, so the back becomes the front, reversed. This is
@@ -129,7 +129,7 @@ impl<T> Queue<T> {
     export fn popBack<C: Allocator>(self, ctx: C): Option<(T, Queue<T>)> {
         match (self.back.last()) {
             .Some(v) => {
-                let rest = self.back.take(ctx, self.back.len() - 1);
+                let rest = self.back.take(ctx, self.back.length() - 1);
                 .Some((v, Queue { front: self.front, back: rest }))
             },
             .None => {
@@ -157,10 +157,10 @@ impl<T: Equal> Queue<T> {
     export fn equals<C: Allocator>(self, ctx: C, other: Queue<T>): Bool {
         let a = self.toList(ctx);
         let b = other.toList(ctx);
-        if (a.len() != b.len()) {
+        if (a.length() != b.length()) {
             false
         } else {
-            list.range(ctx, 0, a.len()).all(fn(i) => a.get(i) == b.get(i))
+            list.range(ctx, 0, a.length()).all(fn(i) => a.get(i) == b.get(i))
         }
     }
 }

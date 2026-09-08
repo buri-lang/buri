@@ -12,7 +12,7 @@
 //     as two;
 //   * a string mixing all of them, where the fast path must not be taken.
 //
-// The answers here are what `len` meant before there was a fast path, so this
+// The answers here are what `length` meant before there was a fast path, so this
 // is the test that the two agree.
 
 from "core/effect" import { Allocator };
@@ -21,31 +21,31 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
-// --- len ---------------------------------------------------------------------------
+// --- length ---------------------------------------------------------------------------
 
-test "len counts scalars in strings with no surrogate" {
-    assert.equal("".len(), 0);
-    assert.equal("abc".len(), 3);
-    assert.equal("héllo".len(), 5);
-    assert.equal("日本語".len(), 3);
-    assert.equal("  spaced  ".len(), 10);
+test "length counts scalars in strings with no surrogate" {
+    assert.equal("".length(), 0);
+    assert.equal("abc".length(), 3);
+    assert.equal("héllo".length(), 5);
+    assert.equal("日本語".length(), 3);
+    assert.equal("  spaced  ".length(), 10);
 }
 
-test "len counts an astral scalar once, not twice" {
+test "length counts an astral scalar once, not twice" {
     // A surrogate pair is one scalar. Counting UTF-16 code units would say 2.
-    assert.equal("😀".len(), 1);
-    assert.equal("😀😁😂".len(), 3);
-    assert.equal("a😀b".len(), 3);
+    assert.equal("😀".length(), 1);
+    assert.equal("😀😁😂".length(), 3);
+    assert.equal("a😀b".length(), 3);
 }
 
-test "len counts a combining mark as its own scalar" {
+test "length counts a combining mark as its own scalar" {
     // `e` followed by U+0301, which renders as one glyph and is two scalars.
-    assert.equal("é".len(), 2);
-    assert.equal("é".len(), 1);
+    assert.equal("é".length(), 2);
+    assert.equal("é".length(), 1);
 }
 
-test "len counts a mixed string one scalar at a time" {
-    assert.equal("mix日😀éd".len(), 7);
+test "length counts a mixed string one scalar at a time" {
+    assert.equal("mix日😀éd".length(), 7);
 }
 
 // --- charAt ------------------------------------------------------------------------
@@ -128,13 +128,13 @@ test "padding counts an astral scalar as one wide" {
 
 // --- chars -------------------------------------------------------------------------
 
-test "chars agrees with len and charAt" {
+test "chars agrees with length and charAt" {
     let ctx = context {
         Allocator: alloc(),
     };
     let mixed = "mix日😀éd";
-    assert.equal(mixed.chars(ctx).len(), mixed.len());
+    assert.equal(mixed.chars(ctx).length(), mixed.length());
     assert.equal(mixed.chars(ctx).get(3), mixed.charAt(3));
     assert.equal(mixed.chars(ctx).get(4), mixed.charAt(4));
-    assert.equal("".chars(ctx).len(), 0);
+    assert.equal("".chars(ctx).length(), 0);
 }

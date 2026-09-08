@@ -25,7 +25,7 @@ fn probeCtx<C: Allocator>(ctx: C): [U8] {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let total = probe(ctx).len() + probeCtx(ctx).len();
+  let total = probe(ctx).length() + probeCtx(ctx).length();
   let _ = io.println(ctx, "${total}").ignore();
   .Ok(())
 }

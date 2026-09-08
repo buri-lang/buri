@@ -60,7 +60,7 @@ impl Char {
     /// the set. A binary search over a range table, so it is a few reads rather
     /// than a comparison.
     export fn isPunctuation(self): Bool {
-        inRanges(PUNCTUATION, self.toU32().toI64(), 0, PUNCTUATION.len() / 8)
+        inRanges(PUNCTUATION, self.toU32().toI64(), 0, PUNCTUATION.length() / 8)
     }
 
     /// Whether this scalar has a visible shape of its own — everything outside
@@ -71,7 +71,7 @@ impl Char {
     /// `' '` is. That is Python's `str.isprintable`, and it is the useful
     /// division: what you can put in a diagnostic and read back.
     export fn isPrintable(self): Bool {
-        inRanges(PRINTABLE, self.toU32().toI64(), 0, PRINTABLE.len() / 8)
+        inRanges(PRINTABLE, self.toU32().toI64(), 0, PRINTABLE.length() / 8)
     }
 
     /// Whether a line ends here: LF, VT, FF, CR, NEL, and the line and

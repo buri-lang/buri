@@ -65,7 +65,7 @@ export fn start0_0(ticks: Int): State0_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe0_0<C: Allocator>(ctx: C): Int {
     let s = start0_0(5);
-    rank0_0(s) + s.show(ctx).len()
+    rank0_0(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

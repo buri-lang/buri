@@ -71,7 +71,7 @@ fn declaration<C: Allocator>(ctx: C, path: Str, whole: Str, line: Str): Option<R
         file: path,
         text: str.format(ctx, "export let ${split.0}: Int = ${value};\n"),
         start: start,
-        end: start + trimmed.len(),
+        end: start + trimmed.length(),
     })
 }
 
@@ -87,7 +87,7 @@ fn anchorsOf<C: Allocator>(ctx: C, reads: [Read]): [Json] {
     reads.foldCtx(
         ctx,
         fn(c, acc: (Int, [Json]), r) => {
-            (acc.0 + r.text.len(), acc.1.push(c, anchor(r, acc.0)))
+            (acc.0 + r.text.length(), acc.1.push(c, anchor(r, acc.0)))
         },
         (0, list.empty()),
     ).1
@@ -96,7 +96,7 @@ fn anchorsOf<C: Allocator>(ctx: C, reads: [Read]): [Json] {
 fn anchor(r: Read, start: Int): Json {
     .Object([
         ("start", .Num(start.toF64())),
-        ("end", .Num((start + r.text.len()).toF64())),
+        ("end", .Num((start + r.text.length()).toF64())),
         ("file", .Str(r.file)),
         ("span", span(r.start, r.end)),
     ])
@@ -122,7 +122,7 @@ fn badLines<C: Allocator>(ctx: C, path: Str, text: Str): [Json] {
                         str.format(c, "`${trimmed}` is not `name value`"),
                         .Object([
                             ("file", .Str(path)),
-                            ("span", span(start, start + trimmed.len())),
+                            ("span", span(start, start + trimmed.length())),
                         ]),
                     ),
                 )

@@ -9,7 +9,7 @@ warning: `ctx` is not used; the function is pure [unused-context]
 error: this function body is missing its closing `}` [unclosed-delimiter]
  --> lib/recovery_insert_stray_brace_stamp_8a619f/lib.buri:8:14
   |
-8 |     label.len, ()
+8 |     label.length, ()
   |              ^
   |
  --> lib/recovery_insert_stray_brace_stamp_8a619f/lib.buri:7:52

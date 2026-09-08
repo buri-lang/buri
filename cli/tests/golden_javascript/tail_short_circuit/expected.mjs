@@ -36,7 +36,7 @@ function __cmd_x_main_buri$main(){
 }
 function __cmd_x_main_buri$allBelow(xs_0,limit_1,i_2){
   while(true){
-    if(i_2>=$list_len(xs_0)){
+    if(i_2>=$list_length(xs_0)){
       return true;
     }else{
       const self_3=$list_get(xs_0,i_2);
@@ -59,7 +59,7 @@ function __cmd_x_main_buri$allBelow(xs_0,limit_1,i_2){
 }
 function __cmd_x_main_buri$anyAtLeast(xs_0,limit_1,i_2){
   while(true){
-    if(i_2>=$list_len(xs_0)){
+    if(i_2>=$list_length(xs_0)){
       return false;
     }else{
       const self_3=$list_get(xs_0,i_2);

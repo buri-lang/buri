@@ -5,5 +5,5 @@ export fn f(): Int {
         Allocator: System(),
     };
     let total: , [Int] = [1, 2, 3];
-    total.len()
+    total.length()
 }

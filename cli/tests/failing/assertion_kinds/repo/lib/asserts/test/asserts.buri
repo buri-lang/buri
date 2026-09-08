@@ -1,7 +1,7 @@
 // Every entry point `core/testing/assert` exports, failing, in the order the
 // module declares them. Twenty-two functions, twenty-two reports: `equal`,
 // `eqWith`, `notEq`, `isTrue`, `isFalse`, `contains`, `containsText`,
-// `startsWith`, `isEmpty`, `len`, `unordered`, `gt`, `ge`, `lt`, `le`,
+// `startsWith`, `isEmpty`, `length`, `unordered`, `gt`, `ge`, `lt`, `le`,
 // `approxEq` and `approxEqRelative` go through `report`, `notEmpty` through
 // `failWith`, and `ok`, `err`, `some` and `none` through `failExpected`, which
 // renders the *expected* side as a variant name rather than as a value.
@@ -57,8 +57,8 @@ test "notEmpty" {
     assert.notEmpty(list.empty<Int>());
 }
 
-test "len" {
-    assert.len([1, 2, 3], 2);
+test "length" {
+    assert.length([1, 2, 3], 2);
 }
 
 test "unordered" {

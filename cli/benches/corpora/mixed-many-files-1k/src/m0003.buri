@@ -61,7 +61,7 @@ impl Rec3_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe3_0<C: Allocator>(ctx: C): Int {
     let r = Rec3_0 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

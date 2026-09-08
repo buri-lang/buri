@@ -489,7 +489,7 @@ test "six kilobytes there and back, through both wrappers" {
 
 test "and it actually compresses" {
     let raw = large();
-    assert.lt(packed(raw).len(), raw.len() / 3);
+    assert.lt(packed(raw).length(), raw.length() / 3);
 }
 
 // gzip again, with the extra field, the file name, the comment and the header
@@ -627,7 +627,7 @@ test "an input of nothing but zeroes" {
     assert.equal(assert.ok(unpacked(packed(zeroes))), zeroes);
     assert.equal(assert.ok(unwrapped(wrapped(zeroes))), zeroes);
     // One run: this is the case a back-reference is for.
-    assert.lt(packed(zeroes).len(), 64);
+    assert.lt(packed(zeroes).length(), 64);
 }
 
 test "an input nothing can compress still round-trips" {
@@ -639,7 +639,7 @@ test "an input nothing can compress still round-trips" {
     assert.equal(assert.ok(unwrapped(wrapped(noise))), noise);
     // A fixed-Huffman block over eight-bit noise costs about a bit a byte, and
     // this pins that it does not run away.
-    assert.lt(packed(noise).len(), noise.len() * 3 / 2);
+    assert.lt(packed(noise).length(), noise.length() * 3 / 2);
 }
 
 // --- Inputs past the window and past the stored-block limit -------------------------
@@ -663,11 +663,11 @@ test "a match at the window's last distance is taken, and one past it is not" {
     let tooFar = spanning(32759);
     let atTheEdge = packed(reachable);
     let pastIt = packed(tooFar);
-    assert.equal(reachable.len(), 32778);
+    assert.equal(reachable.length(), 32778);
     assert.equal(assert.ok(unpacked(atTheEdge)), reachable);
     assert.equal(assert.ok(unpacked(pastIt)), tooFar);
     // The one that could reach back is the smaller stream.
-    assert.lt(atTheEdge.len(), pastIt.len());
+    assert.lt(atTheEdge.length(), pastIt.length());
 }
 
 test "a stored block reaches its 65535-byte limit and the next one carries the rest" {

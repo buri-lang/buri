@@ -77,7 +77,7 @@ export fn pairs<C: Allocator>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) =
 
 /// `&&`: recurses while the guard holds, and the answer says how it left.
 export fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
-    if (i >= xs.len()) {
+    if (i >= xs.length()) {
         true
     } else {
         xs.get(i).withDefault(0) < limit && allBelow(xs, limit, i + 1)

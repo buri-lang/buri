@@ -73,12 +73,12 @@ test "the count is the number of octets, and zero is the empty list" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    assert.equal(crypto.randomBytes(ctx, 0).len(), 0);
-    assert.equal(crypto.randomBytes(ctx, 1).len(), 1);
-    assert.equal(crypto.randomBytes(ctx, 32).len(), 32);
+    assert.equal(crypto.randomBytes(ctx, 0).length(), 0);
+    assert.equal(crypto.randomBytes(ctx, 1).length(), 1);
+    assert.equal(crypto.randomBytes(ctx, 32).length(), 32);
     // 65536 is WebCrypto's per-call quota, so this is the length that crosses
     // it. The window is the runtime's business and not the caller's.
-    assert.equal(crypto.randomBytes(ctx, 65537).len(), 65537);
+    assert.equal(crypto.randomBytes(ctx, 65537).length(), 65537);
 }
 
 test "a token is hex, twice as long as the entropy it carries" {
@@ -87,10 +87,10 @@ test "a token is hex, twice as long as the entropy it carries" {
         Entropy: entropy().seed(7),
     };
     let t = crypto.token(ctx, 16);
-    assert.equal(t.len(), 32);
+    assert.equal(t.length(), 32);
     assert.equal(t, "e7074345ff94ba57af0afde4a8fe4535");
     // Written down as hex and read back as the octets it was made of.
-    assert.equal(bytes.fromHex(ctx, t).withDefault([]).len(), 16);
+    assert.equal(bytes.fromHex(ctx, t).withDefault([]).length(), 16);
 }
 
 test "a token of no octets is the empty string" {
@@ -126,7 +126,7 @@ test "core/random answers octets of its own, and a negative count is empty" {
         Allocator: alloc(),
         Random: rand(),
     };
-    assert.equal(random.bytes(ctx, 4).len(), 4);
-    assert.equal(random.bytes(ctx, 0).len(), 0);
-    assert.equal(random.bytes(ctx, -1).len(), 0);
+    assert.equal(random.bytes(ctx, 4).length(), 4);
+    assert.equal(random.bytes(ctx, 0).length(), 0);
+    assert.equal(random.bytes(ctx, -1).length(), 0);
 }

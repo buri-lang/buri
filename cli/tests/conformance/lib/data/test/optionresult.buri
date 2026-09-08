@@ -286,17 +286,17 @@ test "result map may change the Ok type" {
 
 test "mapErr applies to Err" {
     let r: Result<Int, Str> = .Err("boom");
-    assert.equal(assert.err(r.mapErr(fn(e) => e.len())), 4);
+    assert.equal(assert.err(r.mapErr(fn(e) => e.length())), 4);
 }
 
 test "mapErr leaves Ok alone" {
     let r: Result<Int, Str> = .Ok(3);
-    assert.equal(assert.ok(r.mapErr(fn(e) => e.len())), 3);
+    assert.equal(assert.ok(r.mapErr(fn(e) => e.length())), 3);
 }
 
 test "mapErr is how an error crosses a boundary between error types" {
     let r: Result<Int, Str> = .Err("nope");
-    let mapped: Result<Int, Int> = r.mapErr(fn(e) => e.len());
+    let mapped: Result<Int, Int> = r.mapErr(fn(e) => e.length());
     assert.equal(assert.err(mapped), 4);
 }
 
@@ -341,7 +341,7 @@ test "mapErrCtx may change the error type" {
     };
     let r: Result<Int, Str> = .Err("nope");
     let mapped: Result<Int, Int> = r.mapErrCtx(ctx, fn(c, e) => {
-        str.format(c, "e: ${e}").len()
+        str.format(c, "e: ${e}").length()
     });
     assert.equal(assert.err(mapped), 7);
 }
@@ -657,7 +657,7 @@ test "mapping a parse over a list yields Options in order" {
         Allocator: alloc(),
     };
     let parsed = ["1", "x", "3"].map(ctx, fn(s) => s.toInt());
-    assert.equal(parsed.len(), 3);
+    assert.equal(parsed.length(), 3);
     assert.equal(assert.some(assert.some(parsed.get(0))), 1);
     assert.none(assert.some(parsed.get(1)));
     assert.equal(assert.some(assert.some(parsed.get(2))), 3);
@@ -779,8 +779,8 @@ test "orElseCtx takes the context instead of capturing it" {
 test "withDefaultWith builds the fallback from the error" {
     let ok: Result<Int, Str> = .Ok(2);
     let bad: Result<Int, Str> = .Err("no");
-    assert.equal(ok.withDefaultWith(fn(e) => e.len()), 2);
-    assert.equal(bad.withDefaultWith(fn(e) => e.len()), 2);
+    assert.equal(ok.withDefaultWith(fn(e) => e.length()), 2);
+    assert.equal(bad.withDefaultWith(fn(e) => e.length()), 2);
 }
 
 test "fold takes both halves onto one type" {
@@ -938,10 +938,10 @@ test "zip and toList over the shapes a caller actually holds" {
     // `toList` and `zip` agree about how many values there are.
     let some: Option<Int> = .Some(1);
     let none: Option<Int> = .None;
-    assert.equal(some.toList(ctx).len(), 1);
-    assert.equal(none.toList(ctx).len(), 0);
-    assert.equal(option.zip(some, some).toList(ctx).len(), 1);
-    assert.equal(option.zip(some, none).toList(ctx).len(), 0);
+    assert.equal(some.toList(ctx).length(), 1);
+    assert.equal(none.toList(ctx).length(), 0);
+    assert.equal(option.zip(some, some).toList(ctx).length(), 1);
+    assert.equal(option.zip(some, none).toList(ctx).length(), 0);
     // A list of Options collapses through `toList` into the values that are there.
     let holes: [Option<Int>] = [.Some(1), .None, .Some(3)];
     assert.equal(holes.flatMapCtx(ctx, fn(c, o) => o.toList(c)), [1, 3]);

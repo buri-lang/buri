@@ -115,7 +115,7 @@ export fn settledFraction(items: [Entry], ticked: [Str]): Float {
     if (items.isEmpty()) {
         0.0
     } else {
-        items.count(fn(e) => ticked.contains(e.memo)).toF64() / items.len().toF64()
+        items.count(fn(e) => ticked.contains(e.memo)).toF64() / items.length().toF64()
     }
 }
 

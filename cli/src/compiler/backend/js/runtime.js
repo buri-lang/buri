@@ -621,7 +621,7 @@ function $val(x) {
   return x;
 }
 
-function $list_len(xs) {
+function $list_length(xs) {
   return BigInt(xs.length);
 }
 
@@ -920,7 +920,7 @@ function $chars(s) {
 //
 // That is worth testing for, because `$chars` allocates an array as long as the
 // string: without this, `len` was O(n) *with an allocation*, and the ordinary
-// `for i in 0..s.len() { s.charAt(i) }` scan was O(n²) with n allocations. The
+// `for i in 0..s.length() { s.charAt(i) }` scan was O(n²) with n allocations. The
 // scan is still quadratic here — the fix for that is to iterate `chars()`
 // rather than to index — but the constant is about a hundred times smaller.
 //
@@ -932,7 +932,7 @@ function $wide(s) {
   return $surrogate.test(s);
 }
 
-function $str_len(s) {
+function $str_length(s) {
   return BigInt($wide(s) ? $chars(s).length : s.length);
 }
 
@@ -1112,12 +1112,12 @@ function $str_fromFloat(c, x) {
 }
 
 function $str_padStart(s, c, w, fill) {
-  const n = Number(w) - Number($str_len(s));
+  const n = Number(w) - Number($str_length(s));
   return n > 0 ? fill.repeat(n) + s : s;
 }
 
 function $str_padEnd(s, c, w, fill) {
-  const n = Number(w) - Number($str_len(s));
+  const n = Number(w) - Number($str_length(s));
   return n > 0 ? s + fill.repeat(n) : s;
 }
 

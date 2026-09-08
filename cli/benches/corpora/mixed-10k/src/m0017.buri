@@ -73,7 +73,7 @@ export fn start17_0(ticks: Int): State17_0 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe17_0<C: Allocator>(ctx: C): Int {
     let s = start17_0(5);
-    rank17_0(s) + s.show(ctx).len()
+    rank17_0(s) + s.show(ctx).length()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
@@ -82,14 +82,14 @@ export fn digest17_1<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [725, 556, 5860, 4125, 8038, 1489];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain17_1(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
@@ -132,7 +132,7 @@ export fn start17_2(ticks: Int): State17_2 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe17_2<C: Allocator>(ctx: C): Int {
     let s = start17_2(5);
-    rank17_2(s) + s.show(ctx).len()
+    rank17_2(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -204,7 +204,7 @@ export fn constants17_5(): (Int, Int, Float, Char, Str) {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe17_5<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants17_5();
-    label17_5(ctx, a, e).len() + b
+    label17_5(ctx, a, e).length() + b
 }
 
 derive Equal, Show for Rec17_6;
@@ -230,7 +230,7 @@ impl Rec17_6 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe17_6<C: Allocator>(ctx: C): Int {
     let r = Rec17_6 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -249,12 +249,12 @@ export fn describeAll17_7<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric17_7(ns: [Int], ss: [Str]): Int {
-    firstOr17_7<Int>(ns, 0) + firstOr17_7<Str>(ss, "").len()
+    firstOr17_7<Int>(ns, 0) + firstOr17_7<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe17_7<C: Allocator>(ctx: C): Int {
-    useGeneric17_7([1, 2], ["a"]) + describeAll17_7(ctx, [1, 2]).len()
+    useGeneric17_7([1, 2], ["a"]) + describeAll17_7(ctx, [1, 2]).length()
 }
 
 derive Equal, Show for Rec17_8;
@@ -282,7 +282,7 @@ impl Rec17_8 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe17_8<C: Allocator>(ctx: C): Int {
     let r = Rec17_8 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 derive Equal, Show for State17_9;
@@ -318,7 +318,7 @@ export fn start17_9(ticks: Int): State17_9 {
 /// Reaches everything above from one call. See `reach` below.
 export fn probe17_9<C: Allocator>(ctx: C): Int {
     let s = start17_9(5);
-    rank17_9(s) + s.show(ctx).len()
+    rank17_9(s) + s.show(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that

@@ -1145,8 +1145,8 @@ fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(): Client<C, Int> {
     },
     onMessage: fn(c, _socket, seen, message) => {
       let _said = match (message) {
-        .Text(text) => io.println(c, "page heard text ${text.len()} ${text}").ignore(),
-        .Binary(data) => io.println(c, "page heard binary ${data.len()}").ignore(),
+        .Text(text) => io.println(c, "page heard text ${text.length()} ${text}").ignore(),
+        .Binary(data) => io.println(c, "page heard binary ${data.length()}").ignore(),
       };
       seen + 1
     },
@@ -1478,8 +1478,8 @@ fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(
     },
     onMessage: fn(c, socket, seen, message) => {
       let _said = match (message) {
-        .Text(text) => io.println(c, "text ${text.len()} ${text}").ignore(),
-        .Binary(data) => io.println(c, "binary ${data.len()}").ignore(),
+        .Text(text) => io.println(c, "text ${text.length()} ${text}").ignore(),
+        .Binary(data) => io.println(c, "binary ${data.length()}").ignore(),
       };
       let next = seen + 1;
       let _closed = if (next == hangUpAt) { socket.close(c, saying) } else { () };
@@ -1719,8 +1719,8 @@ fn relaying<C: Allocator + Sockets + WebSocketClient>(path: Str): Client<C, Int>
     },
     onMessage: fn(c, socket, seen, message) => {
       let said = match (message) {
-        .Text(text) => str.format(c, "heard text ${text.len()}:${text}"),
-        .Binary(data) => str.format(c, "heard binary ${data.len()}"),
+        .Text(text) => str.format(c, "heard text ${text.length()}:${text}"),
+        .Binary(data) => str.format(c, "heard binary ${data.length()}"),
       };
       let _sent = socket.send(c, .Text(said));
       seen + 1
@@ -2591,7 +2591,7 @@ export fn main(): Result<(), Str> {
             let _ = io.println(ctx, "after ${after}").ignore();
             let _ = io.println(ctx, "at ${web.path(ctx)} ${twice}").ignore();
             let open = lazy.load(summary);
-            match (io.println(ctx, open(ctx, state.rows.len()))) {
+            match (io.println(ctx, open(ctx, state.rows.length()))) {
                 .Ok(_written) => .Ok(()),
                 .Err(_e) => .Err("the page has nowhere to print"),
             }
