@@ -115,6 +115,10 @@ pub struct Checked {
     /// tell whether a program can build one at all, which is what lets the
     /// backend leave the theme half of the runtime out of one that cannot.
     pub theme_con: Option<TyConId>,
+    /// `ui/node`'s `NodeKind`, when this compilation loaded it. The link step
+    /// needs it to tell which interactive elements a program builds, which is
+    /// what decides the reset the stylesheet opens with.
+    pub node_con: Option<TyConId>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `dead-code` needs it to
     /// ask the opposite question — what is exported and reaches nobody.
@@ -359,17 +363,11 @@ impl<'a> Checker<'a> {
         // up `Style`: by module path in the loaded set, then by name in that
         // module's own scope. `None` for every compilation that did not load
         // the module, which is every program that is not a user interface.
-        let theme_con = self
-            .loaded
-            .modules
-            .iter()
-            .position(|m| m.path == "ui/theme")
-            .and_then(|i| self.scopes.get(i))
-            .and_then(|s| s.own.get("Theme"))
-            .and_then(|s| match s {
-                Sym::Ty(id) => Some(*id),
-                _ => None,
-            });
+        let theme_con = self.own_type("ui/theme", "Theme");
+        // `ui/node`'s private tree enum, looked up the same way. Private is no
+        // obstacle: this is the module's own scope, which is what a name is
+        // declared into before anything is exported.
+        let node_con = self.own_type("ui/node", "NodeKind");
         Checked {
             tables: self.tables,
             scopes: self.scopes,
@@ -381,8 +379,21 @@ impl<'a> Checker<'a> {
             styles,
             style_con,
             theme_con,
+            node_con,
             surfaces: self.surfaces,
             ctx_rebindings: self.ctx_rebindings,
+        }
+    }
+
+    /// One module's own type, by name, when this compilation loaded the module.
+    ///
+    /// `None` for every compilation that did not, which is every program that
+    /// is not a user interface.
+    fn own_type(&self, module: &str, name: &str) -> Option<TyConId> {
+        let index = self.loaded.modules.iter().position(|m| m.path == module)?;
+        match self.scopes.get(index)?.own.get(name)? {
+            Sym::Ty(id) => Some(*id),
+            _ => None,
         }
     }
 
