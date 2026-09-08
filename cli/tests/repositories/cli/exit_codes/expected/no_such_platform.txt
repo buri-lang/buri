@@ -1,0 +1,3 @@
+error: no platform matches `--output=nonsense`
+  = a suite runs on one of: linux, macos, js, web, cloudflare-worker
+  = fix: name one of them, as in `--output=js`
