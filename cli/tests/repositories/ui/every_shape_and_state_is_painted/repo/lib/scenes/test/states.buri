@@ -4,6 +4,7 @@
 
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -75,4 +76,15 @@ test "on" {
         Ui: headless(),
     };
     snapshot(ctx, "state-checked", badge(), .Checked);
+}
+
+test "the state a snapshot is taken in reaches the document" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    // Five pictures of one tree are five pictures because the documents behind
+    // them are five documents. A tree whose only difference is an `On(...)`
+    // group used to resolve to one, and every state golden was a copy.
+    assert.notEq(ui.describe(ctx, badge(), .Hover), ui.describe(ctx, badge(), .Checked));
 }
