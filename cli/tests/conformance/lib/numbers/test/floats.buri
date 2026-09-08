@@ -58,7 +58,7 @@ test "negating a float" {
 }
 
 test "F64 carries binary floating point rounding, not decimal arithmetic" {
-    assert.notEq(0.1 + 0.2, 0.3);
+    assert.notEqual(0.1 + 0.2, 0.3);
     assert.equal(0.1 + 0.2, 0.30000000000000004);
     assert.equal(0.1 + 0.4, 0.5);
 }
@@ -172,26 +172,26 @@ test "isNan, isInfinite and isFinite classify a float" {
 // --- core/math -------------------------------------------------------------------------
 
 test "sqrt" {
-    assert.equal(math.sqrt(9.0), 3.0);
-    assert.equal(math.sqrt(0.0), 0.0);
-    assert.equal(math.sqrt(2.0), 1.4142135623730951);
-    assert.equal(math.sqrt(0.25), 0.5);
-    assert.isTrue(math.isNan(math.sqrt(-1.0)));
-    assert.equal(math.sqrt(math.INFINITY), math.INFINITY);
+    assert.equal(math.squareRoot(9.0), 3.0);
+    assert.equal(math.squareRoot(0.0), 0.0);
+    assert.equal(math.squareRoot(2.0), 1.4142135623730951);
+    assert.equal(math.squareRoot(0.25), 0.5);
+    assert.isTrue(math.isNan(math.squareRoot(-1.0)));
+    assert.equal(math.squareRoot(math.INFINITY), math.INFINITY);
 }
 
-test "cbrt" {
-    assert.equal(math.cbrt(27.0), 3.0);
-    assert.equal(math.cbrt(-8.0), -2.0);
-    assert.equal(math.cbrt(0.0), 0.0);
+test "cubeRoot" {
+    assert.equal(math.cubeRoot(27.0), 3.0);
+    assert.equal(math.cubeRoot(-8.0), -2.0);
+    assert.equal(math.cubeRoot(0.0), 0.0);
 }
 
 test "pow" {
-    assert.equal(math.pow(2.0, 10.0), 1024.0);
-    assert.equal(math.pow(2.0, 0.0), 1.0);
-    assert.equal(math.pow(2.0, -1.0), 0.5);
-    assert.equal(math.pow(9.0, 0.5), 3.0);
-    assert.equal(math.pow(-2.0, 3.0), -8.0);
+    assert.equal(math.power(2.0, 10.0), 1024.0);
+    assert.equal(math.power(2.0, 0.0), 1.0);
+    assert.equal(math.power(2.0, -1.0), 0.5);
+    assert.equal(math.power(9.0, 0.5), 3.0);
+    assert.equal(math.power(-2.0, 3.0), -8.0);
 }
 
 test "floor rounds toward negative infinity" {
@@ -202,17 +202,17 @@ test "floor rounds toward negative infinity" {
 }
 
 test "ceil rounds toward positive infinity" {
-    assert.equal(math.ceil(2.1), 3.0);
-    assert.equal(math.ceil(2.0), 2.0);
-    assert.equal(math.ceil(-2.7), -2.0);
-    assert.equal(math.ceil(-2.0), -2.0);
+    assert.equal(math.ceiling(2.1), 3.0);
+    assert.equal(math.ceiling(2.0), 2.0);
+    assert.equal(math.ceiling(-2.7), -2.0);
+    assert.equal(math.ceiling(-2.0), -2.0);
 }
 
 test "trunc rounds toward zero" {
-    assert.equal(math.trunc(2.7), 2.0);
-    assert.equal(math.trunc(-2.7), -2.0);
-    assert.equal(math.trunc(0.9), 0.0);
-    assert.equal(math.trunc(-0.9), 0.0);
+    assert.equal(math.truncate(2.7), 2.0);
+    assert.equal(math.truncate(-2.7), -2.0);
+    assert.equal(math.truncate(0.9), 0.0);
+    assert.equal(math.truncate(-0.9), 0.0);
 }
 
 test "round goes to the nearer whole number" {
@@ -223,13 +223,13 @@ test "round goes to the nearer whole number" {
     assert.equal(math.round(2.0), 2.0);
 }
 
-test "absFloat and the abs method agree" {
+test "absoluteFloat and the abs method agree" {
     let a: F64 = -2.5;
-    assert.equal(math.absFloat(-2.5), 2.5);
-    assert.equal(math.absFloat(2.5), 2.5);
-    assert.equal(math.absFloat(0.0), 0.0);
+    assert.equal(math.absoluteFloat(-2.5), 2.5);
+    assert.equal(math.absoluteFloat(2.5), 2.5);
+    assert.equal(math.absoluteFloat(0.0), 0.0);
     assert.equal(a.abs(), 2.5);
-    assert.equal(math.absFloat(negInf()), inf());
+    assert.equal(math.absoluteFloat(negInf()), inf());
 }
 
 test "exp and ln invert each other" {
@@ -400,7 +400,7 @@ test "Float is F64, not a type of its own" {
     let b: F64 = 1.5;
     assert.equal(a, b);
     assert.equal(a + b, 3.0);
-    assert.equal(math.sqrt(b), math.sqrt(a));
+    assert.equal(math.squareRoot(b), math.squareRoot(a));
 }
 
 test "the comparison operators on F64" {

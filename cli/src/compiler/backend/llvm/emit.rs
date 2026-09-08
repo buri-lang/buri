@@ -5756,9 +5756,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// Every one of the fourteen is a machine operation, and the interesting
     /// part is the operand widths, which are not the same as the *declared*
-    /// ones. `bits.shr(x: Int, n)` is a **logical** right shift — `runtime.js`
+    /// ones. `bits.shiftRight(x: Int, n)` is a **logical** right shift — `runtime.js`
     /// reinterprets the pattern as unsigned, shifts, and narrows back — while
-    /// `bits.sar` is the arithmetic one; that they differ is the whole reason
+    /// `bits.shiftRightArithmetic` is the arithmetic one; that they differ is the whole reason
     /// `core/bits` names both. The `U8`, `U32` and `U64` families operate at
     /// their own width, and the shift count is an `Int` at every one of them, so
     /// it is truncated after the range check rather than before.
@@ -5807,8 +5807,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return false;
         };
         let bits = match op {
-            "shlU8" | "shrU8" | "rotateLeftU8" | "rotateRightU8" => 8,
-            "shlU32" | "shrU32" | "rotateLeftU32" | "rotateRightU32" => 32,
+            "shiftLeftU8" | "shiftRightU8" | "rotateLeftU8" | "rotateRightU8" => 8,
+            "shiftLeftU32" | "shiftRightU32" | "rotateLeftU32" | "rotateRightU32" => 32,
             _ => 64,
         };
         self.shift_guard(state, n, bits);
@@ -5818,12 +5818,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .build_int_truncate_or_bit_cast(n, want, "sh.n")
             .unwrap_or(n);
         let value = match op {
-            "shl" | "shlU8" | "shlU32" | "shlU64" => {
+            "shl" | "shiftLeftU8" | "shiftLeftU32" | "shiftLeftU64" => {
                 self.builder.build_left_shift(x, count, "sh").map(Into::into)
             }
-            // Logical, at every width: `shr` reinterprets as unsigned and the
+            // Logical, at every width: `shiftRight` reinterprets as unsigned and the
             // `U*` families are unsigned already.
-            "shr" | "shrU8" | "shrU32" | "shrU64" => {
+            "shr" | "shiftRightU8" | "shiftRightU32" | "shiftRightU64" => {
                 self.builder.build_right_shift(x, count, false, "sh").map(Into::into)
             }
             "sar" => self.builder.build_right_shift(x, count, true, "sar").map(Into::into),

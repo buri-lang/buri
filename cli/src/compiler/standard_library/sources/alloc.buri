@@ -603,8 +603,8 @@ impl<C: Clock> Clock for Scoped<C> {
         self.0.nowMilliseconds()
     }
 
-    fn sleepMilliseconds(self, millis: Int): () {
-        self.0.sleepMilliseconds(millis)
+    fn sleepMilliseconds(self, milliseconds: Int): () {
+        self.0.sleepMilliseconds(milliseconds)
     }
 
     fn monotonicNanoseconds(self): I64 {
@@ -682,9 +682,9 @@ impl<C: Listen> Listen for Scoped<C> {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
-        self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
+        self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMilliseconds)
     }
 
     fn listenAccept(self, handle: Int): Result<Int, ServeError> {

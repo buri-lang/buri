@@ -24,7 +24,7 @@
 //! shape and are already here for the same reason.
 //!
 //! `alloc()` and `TestAllocator::allocate` are the exception and are deliberately
-//! **not** here: `$host_testing_TestAlloc_allocate` answers the byte count it
+//! **not** here: `$host_testing_TestAllocator_allocate` answers the byte count it
 //! was handed and reads no state at all, so both backends open-code it and the
 //! handle names nothing.
 //!
@@ -576,7 +576,7 @@ fn next(handle: i64) -> u32 {
 //     `rand()` is at seed zero; a test that wants another says so with a
 //     builder.
 //   * **A builder answers a new handle.** `at`, `seed`, `variables` and
-//     `arguments` each `install` rather than editing the slot they were called
+//     `withArguments` each `install` rather than editing the slot they were called
 //     on, so the value a test already holds is unchanged and two clocks built
 //     from one are two clocks. That is what makes
 //     `let base = env(); base.withArguments([..])` safe to write twice.
@@ -1575,7 +1575,7 @@ pub extern "C" fn buri_rt_host_testing_test_rand_next_int(handle: i64, lo: i64, 
     lo.wrapping_add(i64::from(next(handle)) % span)
 }
 
-/// `TestRandom::nextFloat` — `x / 2^32`, as `$host_testing_TestRand_nextFloat`.
+/// `TestRandom::nextFloat` — `x / 2^32`, as `$host_testing_TestRandom_nextFloat`.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_test_rand_next_float(handle: i64) -> f64 {
     f64::from(next(handle)) / 4294967296.0

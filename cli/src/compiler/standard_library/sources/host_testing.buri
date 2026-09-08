@@ -938,7 +938,7 @@ export struct TestClock(I64);
 impl Clock for TestClock {
     fn nowMilliseconds(self): I64;
 
-    fn sleepMilliseconds(self, millis: Int): ();
+    fn sleepMilliseconds(self, milliseconds: Int): ();
 
     fn monotonicNanoseconds(self): I64;
 }
@@ -948,7 +948,7 @@ export fn clock(): TestClock;
 impl TestClock {
     /// A **new** clock, at that instant. The one it was called on is untouched,
     /// so a test holding both holds two independent clocks.
-    export fn at(self, millis: Int): TestClock;
+    export fn at(self, milliseconds: Int): TestClock;
 }
 
 // --- Randomness ---------------------------------------------------------------

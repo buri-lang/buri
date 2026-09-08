@@ -57,5 +57,5 @@ test "Bool" {
 }
 
 test "unit" {
-    assert.notEq((), ());
+    assert.notEqual((), ());
 }

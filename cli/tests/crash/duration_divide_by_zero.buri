@@ -13,6 +13,6 @@ export fn main(): Result<(), Str> {
   // The program's own argument count, so nothing here folds to a constant.
   let zero = env.arguments(ctx).length();
   let split = time.seconds(10).divide(zero);
-  let _ = io.println(ctx, "${split.millis()}").ignore();
+  let _ = io.println(ctx, "${split.milliseconds()}").ignore();
   .Ok(())
 }

@@ -255,7 +255,7 @@ test "an accessor for the wrong shape is None rather than an error" {
     assert.isTrue(n.asArray().isNone());
     assert.isTrue(n.get("a").isNone());
     assert.isTrue(n.at(0).isNone());
-    assert.equal(assert.some(n.asNum()), 1.0);
+    assert.equal(assert.some(n.asNumber()), 1.0);
 }
 
 // --- asInt, asObject, keys and path ---------------------------------------------
@@ -362,7 +362,7 @@ test "sorting keys makes two orderings of one document render the same" {
     };
     let one = parsed("{\"b\":1,\"a\":2}");
     let other = parsed("{\"a\":2,\"b\":1}");
-    assert.notEq(json.stringify(ctx, one), json.stringify(ctx, other));
+    assert.notEqual(json.stringify(ctx, one), json.stringify(ctx, other));
     assert.equal(json.stringifySorted(ctx, one), json.stringifySorted(ctx, other));
     assert.equal(json.stringifySorted(ctx, one), "{\"a\":2,\"b\":1}");
 }

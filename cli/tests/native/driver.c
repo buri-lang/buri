@@ -135,7 +135,7 @@ extern int64_t buri_rt_net_capabilities(void);
 extern int32_t buri_rt_net_available(void);
 extern int32_t buri_rt_net_h3_available(void);
 extern int64_t buri_rt_host_clock_now_milliseconds(void);
-extern void buri_rt_host_clock_sleep_milliseconds(int64_t millis);
+extern void buri_rt_host_clock_sleep_milliseconds(int64_t milliseconds);
 extern int64_t buri_rt_host_rand_next_int(int64_t lo, int64_t hi);
 extern void buri_rt_host_entropy_bytes(int64_t count, BuriList *out);
 extern double buri_rt_host_rand_next_float(void);

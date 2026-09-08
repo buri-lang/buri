@@ -13,7 +13,7 @@ from "//lib/money" import { Cents, fromCents };
 
 let HEX_DIGITS: Str = "0123456789abcdef";
 
-let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
 
 struct Ledger {
     entries: I64,
@@ -150,6 +150,6 @@ export fn fakeCents<C: Allocator + Stdout>(ctx: C): Cents {
         + width(ctx, depth(5))
         + spell(7).length()
         + HEX_DIGITS.length()
-        + NANOS_PER_MILLISECOND;
+        + NANOSECONDS_PER_MILLISECOND;
     fromCents(counted)
 }

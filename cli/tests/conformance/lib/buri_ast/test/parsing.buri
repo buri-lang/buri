@@ -246,7 +246,7 @@ test "a printed module anchors the nodes it read" {
     let tree = assert.ok(ast.parse(ctx, "rows.buri", "type Id = Int;\n"));
     let printed = ast.print(ctx, tree);
     assert.equal(printed.text, "type Id = Int;\n");
-    assert.gt(printed.anchors.length(), 0);
+    assert.greaterThan(printed.anchors.length(), 0);
 }
 
 // --- what it refuses ------------------------------------------------------------------

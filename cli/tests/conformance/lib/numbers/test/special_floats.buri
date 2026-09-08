@@ -15,7 +15,7 @@
 // and a constant being the same value on both backends is the entire point of
 // the spelling, so it has to be asserted somewhere both backends read. Nothing
 // below reaches a transcendental: division by zero, the sign, the three
-// classifiers, `sqrt`, `floor`, `ceil` and `absFloat` are each exactly
+// classifiers, `squareRoot`, `floor`, `ceiling` and `absoluteFloat` are each exactly
 // specified, and every rendering here is a name rather than a digit.
 
 from "core/effect" import { Allocator };
@@ -68,7 +68,7 @@ test "the two infinities are each other's negation" {
     assert.equal(-math.NEG_INFINITY, math.INFINITY);
     assert.isTrue(math.NEG_INFINITY < math.INFINITY);
     assert.isFalse(math.INFINITY == math.NEG_INFINITY);
-    assert.equal(math.absFloat(math.NEG_INFINITY), math.INFINITY);
+    assert.equal(math.absoluteFloat(math.NEG_INFINITY), math.INFINITY);
 }
 
 test "NAN is a NaN" {
@@ -119,11 +119,11 @@ test "arithmetic on the three lands where IEEE-754 says" {
 }
 
 test "the exactly-specified half of core/math agrees with the three" {
-    assert.equal(math.sqrt(math.INFINITY), math.INFINITY);
-    assert.isTrue(math.isNan(math.sqrt(math.NAN)));
+    assert.equal(math.squareRoot(math.INFINITY), math.INFINITY);
+    assert.isTrue(math.isNan(math.squareRoot(math.NAN)));
     assert.equal(math.floor(math.INFINITY), math.INFINITY);
-    assert.equal(math.ceil(math.NEG_INFINITY), math.NEG_INFINITY);
-    assert.equal(math.absFloat(math.INFINITY), math.INFINITY);
+    assert.equal(math.ceiling(math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.equal(math.absoluteFloat(math.INFINITY), math.INFINITY);
 }
 
 test "number's free functions order the three the way the operators do" {
@@ -167,7 +167,7 @@ test "the three render the same in a hole as they do through show" {
 
 // --- The exact half of core/math's new surface -------------------------------------
 //
-// Everything below is `+ - * /`, `sqrt` and the comparisons, all of which
+// Everything below is `+ - * /`, `squareRoot` and the comparisons, all of which
 // IEEE-754 fixes exactly — so each answers the same bits on every backend, and
 // each belongs here rather than in `floats.buri` with the transcendentals.
 
@@ -351,7 +351,7 @@ test "isCloseRelative holds at a scale where a fixed tolerance says nothing" {
 // for range; and the **largest finite value**, above which there is only
 // infinity.
 //
-// Every function reached here is written out of `+ - * /`, `sqrt` and the
+// Every function reached here is written out of `+ - * /`, `squareRoot` and the
 // comparisons, all of which IEEE 754 fixes exactly — so these are the same bits
 // on every backend, which is why they are in this file and not in `floats.buri`.
 

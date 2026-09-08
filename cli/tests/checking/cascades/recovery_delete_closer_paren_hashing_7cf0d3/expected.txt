@@ -1,7 +1,7 @@
-error: `notEq` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `notEqual` takes 2 arguments, but 1 were given [wrong-argument-count]
   --> main.buri:37:5
    |
-37 |     assert.notEq(bigint.of(42.hash(), bigint.of(-42).hash());
+37 |     assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 2
@@ -10,7 +10,7 @@ error: `notEq` takes 2 arguments, but 1 were given [wrong-argument-count]
 error: `of` takes 1 arguments, but 2 were given [wrong-argument-count]
   --> main.buri:37:18
    |
-37 |     assert.notEq(bigint.of(42.hash(), bigint.of(-42).hash());
+37 |     assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 1
@@ -19,7 +19,7 @@ error: `of` takes 1 arguments, but 2 were given [wrong-argument-count]
 error: expected `I64`, found `U64` [type-mismatch]
   --> main.buri:37:28
    |
-37 |     assert.notEq(bigint.of(42.hash(), bigint.of(-42).hash());
+37 |     assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());
    |                            ^^^^^^^^^ the parameter type is `I64`
    |
    = expected: `I64`
@@ -29,12 +29,12 @@ error: expected `I64`, found `U64` [type-mismatch]
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:37:61
    |
-37 |     assert.notEq(bigint.of(42.hash(), bigint.of(-42).hash());
+37 |     assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());
    |                                                             ^
    |
   --> main.buri:37:17
    |
-37 |     assert.notEq(bigint.of(42.hash(), bigint.of(-42).hash());
+37 |     assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());
    |                 ^ opened here
    |
    = fix: write `)` here

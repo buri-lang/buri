@@ -472,11 +472,11 @@ pub const ENTRIES: &[Entry] = &[
     // not here, and the short version is that IEEE 754 does not fix a
     // transcendental's answer, so V8 and the platform libm differ in the last
     // bit — which a rendered `Float` shows.
-    e("math.sqrt", "buri_rt_math_sqrt", Ret::Scalar),
-    e("math.absFloat", "buri_rt_math_abs_float", Ret::Scalar),
+    e("math.squareRoot", "buri_rt_math_sqrt", Ret::Scalar),
+    e("math.absoluteFloat", "buri_rt_math_abs_float", Ret::Scalar),
     e("math.floor", "buri_rt_math_floor", Ret::Scalar),
-    e("math.ceil", "buri_rt_math_ceil", Ret::Scalar),
-    e("math.trunc", "buri_rt_math_trunc", Ret::Scalar),
+    e("math.ceiling", "buri_rt_math_ceil", Ret::Scalar),
+    e("math.truncate", "buri_rt_math_trunc", Ret::Scalar),
     e("math.round", "buri_rt_math_round", Ret::Scalar),
     e("math.isNan", "buri_rt_math_is_nan", Ret::Scalar),
     e("math.isInfinite", "buri_rt_math_is_infinite", Ret::Scalar),

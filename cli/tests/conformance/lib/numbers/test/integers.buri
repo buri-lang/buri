@@ -159,10 +159,10 @@ test "I128 adds, subtracts, multiplies and divides inside its range" {
 // low digits are the ones that carry the meaning (buri-lang/buri#4).
 test "I128 keeps the low digits of a nanosecond timestamp" {
     let seconds: I128 = 1700000000;
-    let nanos: I128 = seconds * 1000000000 + 123456789;
-    assert.equal(nanos, 1700000000123456789);
-    assert.equal(nanos % 1000000000, 123456789);
-    assert.equal(assert.ok(nanos.toI64()), 1700000000123456789);
+    let nanoseconds: I128 = seconds * 1000000000 + 123456789;
+    assert.equal(nanoseconds, 1700000000123456789);
+    assert.equal(nanoseconds % 1000000000, 123456789);
+    assert.equal(assert.ok(nanoseconds.toI64()), 1700000000123456789);
 }
 
 test "U8 adds, subtracts, multiplies and divides inside its range" {
@@ -510,87 +510,87 @@ test "zero divided by anything is zero, at both representations" {
 
 // --- Floor division and the Euclidean remainder ------------------------------------
 //
-// `number.divFloor` and `number.remEuclid` are the other rounding, the one `/` and
+// `number.divideFloor` and `number.remainderEuclidean` are the other rounding, the one `/` and
 // `%` deliberately do not do. Every assertion below is at `Int`, because that
 // is the only type they take, and the zero-divisor case is not here: it aborts,
 // which ends the process, so it lives in `cli/tests/crash/`.
 
-test "divFloor rounds toward negative infinity where division truncates" {
+test "divideFloor rounds toward negative infinity where division truncates" {
     // The pair that shows the difference: `/` rounds toward zero from both
     // sides, so its quotient jumps by one across the origin.
     assert.equal(7 / 2, 3);
-    assert.equal(number.divFloor(7, 2), 3);
+    assert.equal(number.divideFloor(7, 2), 3);
     assert.equal(-7 / 2, -3);
-    assert.equal(number.divFloor(-7, 2), -4);
-    assert.equal(number.divFloor(-1, 2), -1);
-    assert.equal(number.divFloor(1, 2), 0);
+    assert.equal(number.divideFloor(-7, 2), -4);
+    assert.equal(number.divideFloor(-1, 2), -1);
+    assert.equal(number.divideFloor(1, 2), 0);
 }
 
-test "divFloor follows the sign of the divisor" {
-    assert.equal(number.divFloor(7, -2), -4);
-    assert.equal(number.divFloor(-7, -2), 3);
-    assert.equal(number.divFloor(1, -2), -1);
-    assert.equal(number.divFloor(-1, -2), 0);
+test "divideFloor follows the sign of the divisor" {
+    assert.equal(number.divideFloor(7, -2), -4);
+    assert.equal(number.divideFloor(-7, -2), 3);
+    assert.equal(number.divideFloor(1, -2), -1);
+    assert.equal(number.divideFloor(-1, -2), 0);
 }
 
-test "divFloor is division wherever the division is exact" {
-    assert.equal(number.divFloor(8, 2), 4);
-    assert.equal(number.divFloor(-8, 2), -4);
-    assert.equal(number.divFloor(8, -2), -4);
-    assert.equal(number.divFloor(-8, -2), 4);
-    assert.equal(number.divFloor(0, 5), 0);
-    assert.equal(number.divFloor(0, -5), 0);
-    assert.equal(number.divFloor(5, 1), 5);
-    assert.equal(number.divFloor(-5, 1), -5);
+test "divideFloor is division wherever the division is exact" {
+    assert.equal(number.divideFloor(8, 2), 4);
+    assert.equal(number.divideFloor(-8, 2), -4);
+    assert.equal(number.divideFloor(8, -2), -4);
+    assert.equal(number.divideFloor(-8, -2), 4);
+    assert.equal(number.divideFloor(0, 5), 0);
+    assert.equal(number.divideFloor(0, -5), 0);
+    assert.equal(number.divideFloor(5, 1), 5);
+    assert.equal(number.divideFloor(-5, 1), -5);
 }
 
-test "remEuclid is never negative, where the remainder takes the dividend's sign" {
+test "remainderEuclidean is never negative, where the remainder takes the dividend's sign" {
     assert.equal(-7 % 2, -1);
-    assert.equal(number.remEuclid(-7, 2), 1);
-    assert.equal(number.remEuclid(7, 2), 1);
-    assert.equal(number.remEuclid(-1, 2), 1);
-    assert.equal(number.remEuclid(0, 2), 0);
-    assert.equal(number.remEuclid(-8, 2), 0);
+    assert.equal(number.remainderEuclidean(-7, 2), 1);
+    assert.equal(number.remainderEuclidean(7, 2), 1);
+    assert.equal(number.remainderEuclidean(-1, 2), 1);
+    assert.equal(number.remainderEuclidean(0, 2), 0);
+    assert.equal(number.remainderEuclidean(-8, 2), 0);
 }
 
-test "remEuclid is never negative for a negative divisor either" {
+test "remainderEuclidean is never negative for a negative divisor either" {
     // `(x % n + n) % n`, the idiom this replaces, answers `-1` for these.
-    assert.equal(number.remEuclid(7, -3), 1);
-    assert.equal(number.remEuclid(-7, -3), 2);
-    assert.equal(number.remEuclid(-1, -3), 2);
-    assert.equal(number.remEuclid(0, -3), 0);
+    assert.equal(number.remainderEuclidean(7, -3), 1);
+    assert.equal(number.remainderEuclidean(-7, -3), 2);
+    assert.equal(number.remainderEuclidean(-1, -3), 2);
+    assert.equal(number.remainderEuclidean(0, -3), 0);
 }
 
-test "divFloor and remEuclid reconstruct the dividend for a positive divisor" {
+test "divideFloor and remainderEuclidean reconstruct the dividend for a positive divisor" {
     // The law that makes the pair usable, and it is stated for `b > 0` only:
-    // below zero `divFloor` follows the divisor's sign and `remEuclid` does
+    // below zero `divideFloor` follows the divisor's sign and `remainderEuclidean` does
     // not, so the two are not a matching quotient and remainder there.
-    assert.equal(number.divFloor(7, 3) * 3 + number.remEuclid(7, 3), 7);
-    assert.equal(number.divFloor(-7, 3) * 3 + number.remEuclid(-7, 3), -7);
-    assert.equal(number.divFloor(0, 3) * 3 + number.remEuclid(0, 3), 0);
-    assert.equal(number.divFloor(-1, 7) * 7 + number.remEuclid(-1, 7), -1);
+    assert.equal(number.divideFloor(7, 3) * 3 + number.remainderEuclidean(7, 3), 7);
+    assert.equal(number.divideFloor(-7, 3) * 3 + number.remainderEuclidean(-7, 3), -7);
+    assert.equal(number.divideFloor(0, 3) * 3 + number.remainderEuclidean(0, 3), 0);
+    assert.equal(number.divideFloor(-1, 7) * 7 + number.remainderEuclidean(-1, 7), -1);
     assert.equal(
-        number.divFloor(86399999, 86400000) * 86400000 + number.remEuclid(86399999, 86400000),
+        number.divideFloor(86399999, 86400000) * 86400000 + number.remainderEuclidean(86399999, 86400000),
         86399999,
     );
     assert.equal(
-        number.divFloor(-86400001, 86400000) * 86400000
-            + number.remEuclid(-86400001, 86400000),
+        number.divideFloor(-86400001, 86400000) * 86400000
+            + number.remainderEuclidean(-86400001, 86400000),
         -86400001,
     );
 }
 
-test "divFloor and remEuclid hold at the far end of I64" {
+test "divideFloor and remainderEuclidean hold at the far end of I64" {
     // Both are `Int`, which is `I64`, so the values a calendar actually reaches
     // are nowhere near the top — these are here because the JavaScript backend
     // holds an `I64` as a `BigInt` and the native one as a register, and a
     // number past 2^53 is where those two would part if they were going to.
-    assert.equal(number.divFloor(9007199254740993, 2), 4503599627370496);
-    assert.equal(number.remEuclid(9007199254740993, 2), 1);
-    assert.equal(number.divFloor(-9007199254740993, 2), -4503599627370497);
-    assert.equal(number.remEuclid(-9007199254740993, 2), 1);
-    assert.equal(number.divFloor(9223372036854775807, 1000), 9223372036854775);
-    assert.equal(number.remEuclid(-9223372036854775807, 1000), 193);
+    assert.equal(number.divideFloor(9007199254740993, 2), 4503599627370496);
+    assert.equal(number.remainderEuclidean(9007199254740993, 2), 1);
+    assert.equal(number.divideFloor(-9007199254740993, 2), -4503599627370497);
+    assert.equal(number.remainderEuclidean(-9007199254740993, 2), 1);
+    assert.equal(number.divideFloor(9223372036854775807, 1000), 9223372036854775);
+    assert.equal(number.remainderEuclidean(-9223372036854775807, 1000), 193);
 }
 
 // --- Literals -------------------------------------------------------------------
@@ -1293,7 +1293,7 @@ test "the product of the two is the product of the arguments" {
     assert.equal(number.leastCommonMultiple(a, b).map(fn(l) => l * g), .Some(a * b));
 }
 
-test "divideEuclidean pairs with remEuclid at either sign of divisor" {
+test "divideEuclidean pairs with remainderEuclidean at either sign of divisor" {
     assert.equal(number.divideEuclidean(7, 2), 3);
     assert.equal(number.divideEuclidean(-7, 2), -4);
     assert.equal(number.divideEuclidean(7, -2), -3);
@@ -1302,11 +1302,11 @@ test "divideEuclidean pairs with remEuclid at either sign of divisor" {
     assert.equal(number.divideEuclidean(0, 3), 0);
 }
 
-test "divideEuclidean times the divisor plus remEuclid is the dividend" {
-    assert.equal(number.divideEuclidean(-7, 2) * 2 + number.remEuclid(-7, 2), -7);
-    assert.equal(number.divideEuclidean(-7, -2) * -2 + number.remEuclid(-7, -2), -7);
-    assert.equal(number.divideEuclidean(7, -2) * -2 + number.remEuclid(7, -2), 7);
-    assert.equal(number.divideEuclidean(123, 7) * 7 + number.remEuclid(123, 7), 123);
+test "divideEuclidean times the divisor plus remainderEuclidean is the dividend" {
+    assert.equal(number.divideEuclidean(-7, 2) * 2 + number.remainderEuclidean(-7, 2), -7);
+    assert.equal(number.divideEuclidean(-7, -2) * -2 + number.remainderEuclidean(-7, -2), -7);
+    assert.equal(number.divideEuclidean(7, -2) * -2 + number.remainderEuclidean(7, -2), 7);
+    assert.equal(number.divideEuclidean(123, 7) * 7 + number.remainderEuclidean(123, 7), 123);
 }
 
 test "divideCeiling rounds toward positive infinity" {
@@ -1339,7 +1339,7 @@ test "the quotient times the divisor plus the remainder is the dividend" {
     assert.equal(q * 89 + r, 1234567);
 }
 
-test "integerSquareRoot is exact where math.sqrt is not" {
+test "integerSquareRoot is exact where math.squareRoot is not" {
     assert.equal(number.integerSquareRoot(0), .Some(0));
     assert.equal(number.integerSquareRoot(1), .Some(1));
     assert.equal(number.integerSquareRoot(2), .Some(1));
@@ -1511,16 +1511,16 @@ test "divideEuclidean at every sign of dividend and divisor" {
     assert.equal(number.divideEuclidean(-1, -2), 1);
 }
 
-test "divideEuclidean and remEuclid still pair up at the ends of Int" {
+test "divideEuclidean and remainderEuclidean still pair up at the ends of Int" {
     let top = number.maxValue<I64>();
     let bottom = number.minValue<I64>();
     assert.equal(number.divideEuclidean(top, 1), top);
     assert.equal(number.divideEuclidean(bottom, 1), bottom);
     assert.equal(number.divideEuclidean(top, -1), 0 - top);
     assert.equal(number.divideEuclidean(bottom, 2), -4611686018427387904);
-    assert.equal(number.divideEuclidean(bottom, 2) * 2 + number.remEuclid(bottom, 2), bottom);
-    assert.equal(number.divideEuclidean(top, 3) * 3 + number.remEuclid(top, 3), top);
-    assert.equal(number.divideEuclidean(bottom, -3) * -3 + number.remEuclid(bottom, -3), bottom);
+    assert.equal(number.divideEuclidean(bottom, 2) * 2 + number.remainderEuclidean(bottom, 2), bottom);
+    assert.equal(number.divideEuclidean(top, 3) * 3 + number.remainderEuclidean(top, 3), top);
+    assert.equal(number.divideEuclidean(bottom, -3) * -3 + number.remainderEuclidean(bottom, -3), bottom);
 }
 
 test "quotientRemainder at every sign, and at both ends" {

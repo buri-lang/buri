@@ -1,6 +1,6 @@
 // CRASH: division by zero
 //
-// `number.divideCeiling` rounds the other way from `divFloor` and stops the same
+// `number.divideCeiling` rounds the other way from `divideFloor` and stops the same
 // way: a zero divisor is `/`'s abort, not a rounded answer (`number.buri`,
 // SPEC 6.2).
 from "core/effect" import { Allocator, Stdout, Environment };

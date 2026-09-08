@@ -34,7 +34,7 @@ FAIL //lib/shapes  test/shapes.buri  "a struct with positional fields"
     expected: Pair(2, "b")
   --> lib/shapes/test/shapes.buri:33:1
 FAIL //lib/shapes  test/shapes.buri  "a struct with no fields"
-  assert.notEq failed
+  assert.notEqual failed
     actual:   Hollow {}
     expected: Hollow {}
   --> lib/shapes/test/shapes.buri:37:1

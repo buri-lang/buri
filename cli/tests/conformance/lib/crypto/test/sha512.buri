@@ -102,7 +102,7 @@ test "the byte form and the text form agree" {
 }
 
 test "one bit of input changes the whole digest" {
-    assert.notEq(hex("abc"), hex("abd"));
+    assert.notEqual(hex("abc"), hex("abd"));
 }
 
 // --- HMAC-SHA-512, RFC 4231 --------------------------------------------------------
@@ -176,7 +176,7 @@ test "HMAC-SHA-512 is not SHA-512 of the same bytes" {
     };
     let key = bytes.toUtf8(ctx, "k");
     let message = bytes.toUtf8(ctx, "m");
-    assert.notEq(
+    assert.notEqual(
         crypto.hmacSha512(ctx, key, message),
         crypto.sha512(ctx, key.concat(ctx, message)),
     );
@@ -226,8 +226,8 @@ test "a SHA-1 digest is twenty bytes, and the three functions differ" {
     };
     let message = bytes.toUtf8(ctx, "abc");
     assert.length(crypto.sha1(ctx, message).0, 20);
-    assert.notEq(crypto.sha1(ctx, message), crypto.sha256(ctx, message));
-    assert.notEq(crypto.sha512(ctx, message), crypto.sha256(ctx, message));
+    assert.notEqual(crypto.sha1(ctx, message), crypto.sha256(ctx, message));
+    assert.notEqual(crypto.sha512(ctx, message), crypto.sha256(ctx, message));
 }
 
 // --- the rest of the NIST and RFC vectors --------------------------------------------
@@ -343,11 +343,11 @@ test "a key of exactly the block width is neither padded nor hashed" {
     let exact = list.repeat(ctx, 170, 128);
     let over = list.repeat(ctx, 170, 129);
     let message = bytes.toUtf8(ctx, "boundary");
-    assert.notEq(mac(exact, message), mac(over, message));
+    assert.notEqual(mac(exact, message), mac(over, message));
     // And the one that gets hashed is the same as passing the digest as the
     // key, which is what the rule says happens.
     assert.equal(mac(over, message), mac(crypto.sha512(ctx, over).0, message));
     // A key of 64 bytes is short here and would be exact for SHA-256, which is
     // the mistake carrying the constant over would make.
-    assert.notEq(mac(list.repeat(ctx, 170, 64), message), mac(exact, message));
+    assert.notEqual(mac(list.repeat(ctx, 170, 64), message), mac(exact, message));
 }

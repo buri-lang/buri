@@ -1,10 +1,10 @@
 warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
   --> lib/recovery_delete_closer_module_app_e85038/main.buri:10:5
    |
-10 | let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+10 | let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
    |     ^^^^^^^^^^^^^^^^^^^^^
    |
-   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
 warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
   --> lib/recovery_delete_closer_module_app_e85038/main.buri:17:20
@@ -12,12 +12,12 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
 17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
 error: an expression statement is legal only in a test source [expression-statement]
   --> lib/recovery_delete_closer_module_app_e85038/main.buri:21:5
    |
-21 |     nanos / NANOS_PER_MILLISECOND
+21 |     nanoseconds / NANOSECONDS_PER_MILLISECOND
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = a block is `let`s followed by a result expression
@@ -25,7 +25,7 @@ error: an expression statement is legal only in a test source [expression-statem
 error: this statement has type `I64`, not `()` [statement-not-unit]
   --> lib/recovery_delete_closer_module_app_e85038/main.buri:21:5
    |
-21 |     nanos / NANOS_PER_MILLISECOND
+21 |     nanoseconds / NANOSECONDS_PER_MILLISECOND
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = only an expression whose type is `()` may stand alone; bind anything else
@@ -33,7 +33,7 @@ error: this statement has type `I64`, not `()` [statement-not-unit]
 error: a statement ends with `;` [missing-terminator]
   --> lib/recovery_delete_closer_module_app_e85038/main.buri:21:34
    |
-21 |     nanos / NANOS_PER_MILLISECOND
+21 |     nanoseconds / NANOSECONDS_PER_MILLISECOND
    |                                  ^
    |
    = fix: write `;` here
@@ -54,7 +54,7 @@ error: this function body is missing its closing `}` [unclosed-delimiter]
    |
   --> lib/recovery_delete_closer_module_app_e85038/main.buri:20:35
    |
-20 | fn elapsedMillis(nanos: I64): I64 {
+20 | fn elapsedMillis(nanoseconds: I64): I64 {
    |                                   ^ opened here
    |
    = fix: write `}` here

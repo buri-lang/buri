@@ -243,7 +243,7 @@ fn staying<C: Clock + Sockets + WebSocketClient>(
     match (websocket.connect(ctx, client)) {
         .Err(never) => .Err(never),
         .Ok(_ended) => {
-            let _slept = time.sleepMs(ctx, waitMs);
+            let _slept = time.sleep(ctx, time.milliseconds(waitMs));
             staying(ctx, client, waitMs * 2)
         },
     }

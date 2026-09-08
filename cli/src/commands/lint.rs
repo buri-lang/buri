@@ -1233,7 +1233,7 @@ fn check_time_unit_conversions(session: &Session, m: &ModuleData, diagnostics: &
     let count = lexed.tokens.len();
     let mut found: Vec<(Span, String)> = Vec::new();
     for at in 0..count {
-        // `let NANOS_PER_MILLISECOND = ...`: the name is the conversion, and
+        // `let NANOSECONDS_PER_MILLISECOND = ...`: the name is the conversion, and
         // `core/time` exports that constant under that name already.
         if lexed.tokens.kind(at) == TokenKind::KeywordLet
             && at + 1 < count
@@ -1281,7 +1281,7 @@ fn is_a_million(tokens: &crate::parsing::lexer::Tokens<'_>, at: usize) -> bool {
 /// The conversion a name spells, as "<from> to <to>", or `None` where the name
 /// is not `<UNIT>_PER_<UNIT>`.
 ///
-/// `NANOS_PER_MILLISECOND` is how many nanoseconds one millisecond holds, so it
+/// `NANOSECONDS_PER_MILLISECOND` is how many nanoseconds one millisecond holds, so it
 /// converts milliseconds *to* nanoseconds: the half after `_PER_` is what a
 /// caller has, and the half before it is what the multiply gives back.
 fn conversion_named(name: &str) -> Option<String> {

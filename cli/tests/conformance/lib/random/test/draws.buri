@@ -1,7 +1,7 @@
 // core/random — the three draws from a list, at both doors.
 //
 // `shuffle`, `pick` and `sample` are the module header's own examples of what a
-// generator is for. Each has a `Gen` method that is the whole algorithm and a
+// generator is for. Each has a `Generator` method that is the whole algorithm and a
 // `Random` function that is that method over a generator the effect seeded, so
 // what is asserted here is both halves: the exact sequence a seed replays, and
 // the properties that hold whatever the seed was.
@@ -13,7 +13,7 @@ from "core/effect" import { Allocator, Random };
 from "core/host/testing" import { alloc, rand };
 from "core/list" import * as list;
 from "core/random" import * as random;
-from "core/random" import { Gen };
+from "core/random" import { Generator };
 from "core/testing/assert" import * as assert;
 
 // --- nextShuffle ---------------------------------------------------------------
@@ -45,7 +45,7 @@ test "two seeds reach two permutations" {
     let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let (a, _) = random.seeded(1).nextShuffle(ctx, items);
     let (b, _) = random.seeded(2).nextShuffle(ctx, items);
-    assert.notEq(a, b);
+    assert.notEqual(a, b);
 }
 
 test "a shuffle steps the generator, and a short list does not" {
@@ -54,7 +54,7 @@ test "a shuffle steps the generator, and a short list does not" {
     };
     let g = random.seeded(3);
     let (_, after) = g.nextShuffle(ctx, [1, 2, 3, 4]);
-    assert.notEq(after, g);
+    assert.notEqual(after, g);
     // Nothing to permute, so nothing is drawn.
     let (one, still) = g.nextShuffle(ctx, [9]);
     assert.equal(one, [9]);
@@ -110,7 +110,7 @@ test "nextPick on an empty list answers .None and does not step" {
 test "nextPick on one item is that item" {
     let (picked, after) = random.seeded(4).nextPick([42]);
     assert.equal(picked, .Some(42));
-    assert.notEq(after, random.seeded(4));
+    assert.notEqual(after, random.seeded(4));
 }
 
 test "nextPick reaches every position given enough seeds" {
@@ -257,7 +257,7 @@ test "the same seed gives the same shuffle, sample and pick, every time" {
         Allocator: alloc(),
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    // Four draws from one seed, taken twice: a `Gen` is a value, so replaying a
+    // Four draws from one seed, taken twice: a `Generator` is a value, so replaying a
     // seed replays the run rather than continuing it.
     let (firstShuffle, afterOne) = random.seeded(1234).nextShuffle(ctx, items);
     let (againShuffle, afterTwo) = random.seeded(1234).nextShuffle(ctx, items);

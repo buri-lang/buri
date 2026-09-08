@@ -24,7 +24,7 @@ error: there is nothing named `assert` in scope [unresolved-name]
 error: there is nothing named `assert` in scope [unresolved-name]
   --> main.buri:21:5
    |
-21 |     assert.equal(simd.ZERO_F.toInt(), simd.ZERO_I);
+21 |     assert.equal(simd.ZERO_FLOAT.toInt(), simd.ZERO_INT);
    |     ^^^^^^
    |
    = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports

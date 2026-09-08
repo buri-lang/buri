@@ -1,7 +1,7 @@
 error: expected `U64`, found `BigInt` [type-mismatch]
   --> main.buri:38:39
    |
-38 |     assert.notEq(bigint.of(1).hash(), bigint.of(2.hash());
+38 |     assert.notEqual(bigint.of(1).hash(), bigint.of(2.hash());
    |                                       ^^^^^^^^^^^^^^^^^^^ the parameter type is `U64`
    |
    = expected: `U64`
@@ -10,7 +10,7 @@ error: expected `U64`, found `BigInt` [type-mismatch]
 error: expected `I64`, found `U64` [type-mismatch]
   --> main.buri:38:49
    |
-38 |     assert.notEq(bigint.of(1).hash(), bigint.of(2.hash());
+38 |     assert.notEqual(bigint.of(1).hash(), bigint.of(2.hash());
    |                                                 ^^^^^^^^ the parameter type is `I64`
    |
    = expected: `I64`
@@ -20,12 +20,12 @@ error: expected `I64`, found `U64` [type-mismatch]
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:38:58
    |
-38 |     assert.notEq(bigint.of(1).hash(), bigint.of(2.hash());
+38 |     assert.notEqual(bigint.of(1).hash(), bigint.of(2.hash());
    |                                                          ^
    |
   --> main.buri:38:17
    |
-38 |     assert.notEq(bigint.of(1).hash(), bigint.of(2.hash());
+38 |     assert.notEqual(bigint.of(1).hash(), bigint.of(2.hash());
    |                 ^ opened here
    |
    = fix: write `)` here

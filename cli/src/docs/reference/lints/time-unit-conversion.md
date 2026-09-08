@@ -2,11 +2,11 @@
 title: A length of time is a `Duration`, not an integer and a factor
 severity: warning
 message: this spells the {units} conversion out in integers
-note: "`core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past"
+note: "`core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past"
 fix: build a `Duration` and let the unit live in the type rather than in the name
 ---
 A count of milliseconds in an `I64` means something only because of what you
-called it — `IDLE_TIMEOUT_MILLIS`, `nanos`, `elapsedMs` — and every boundary
+called it — `IDLE_TIMEOUT_MILLIS`, `nanoseconds`, `elapsedMs` — and every boundary
 between two units is a multiply somebody wrote out by hand. Every one is a place
 the unit can be dropped, doubled or overflowed with the type system saying
 nothing.
@@ -19,10 +19,10 @@ let deadline = started.plus(idle);
 if (now.hasPassed(deadline)) { … }
 ```
 
-`seconds`, `millis`, `micros`, `nanos`, `minutes` and `hours` are the
+`seconds`, `milliseconds`, `microseconds`, `nanoseconds`, `minutes` and `hours` are the
 constructors; `add`, `subtract`, `multiply`, `negate` and `abs` are the arithmetic;
-`nanos()`, `millis()` and the rest read a length back out in whatever unit the
-caller wants. The conversion factors are exported too — `NANOS_PER_MILLISECOND`
+`nanoseconds()`, `milliseconds()` and the rest read a length back out in whatever unit the
+caller wants. The conversion factors are exported too — `NANOSECONDS_PER_MILLISECOND`
 and its siblings — for the one case that really is arithmetic on a raw count.
 
 Two things come with the type, and they are why this is a lint rather than a
@@ -35,7 +35,7 @@ style note:
   different types on purpose: a length can be added to a point, two points make
   a length, and two points added together are a type error.
 
-This rule fires on a constant *named* as a conversion — `NANOS_PER_MILLISECOND`,
-`MILLIS_PER_SECOND` — and on a count of milliseconds multiplied by a million in
+This rule fires on a constant *named* as a conversion — `NANOSECONDS_PER_MILLISECOND`,
+`MILLISECONDS_PER_SECOND` — and on a count of milliseconds multiplied by a million in
 place. A million that is not named as milliseconds is not a finding: parts per
 million is a real number, and this rule does not guess.

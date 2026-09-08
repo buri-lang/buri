@@ -99,7 +99,7 @@ test "stats are a value, and compare as one" {
     };
     let _ = alloc.allocate(ctx, 16);
     assert.equal(gp.stats(), Stats { allocations: 1, bytes: 16 });
-    assert.notEq(gp.stats(), Stats { allocations: 1, bytes: 17 });
+    assert.notEqual(gp.stats(), Stats { allocations: 1, bytes: 17 });
 }
 
 test "stats render" {

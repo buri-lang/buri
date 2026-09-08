@@ -1,7 +1,7 @@
-error: `notEq` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `notEqual` takes 2 arguments, but 1 were given [wrong-argument-count]
   --> main.buri:36:5
    |
-36 |     assert.notEq(bigint.of(42, bigint.of(-42));
+36 |     assert.notEqual(bigint.of(42, bigint.of(-42));
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 2
@@ -10,7 +10,7 @@ error: `notEq` takes 2 arguments, but 1 were given [wrong-argument-count]
 error: `of` takes 1 arguments, but 2 were given [wrong-argument-count]
   --> main.buri:36:18
    |
-36 |     assert.notEq(bigint.of(42, bigint.of(-42));
+36 |     assert.notEqual(bigint.of(42, bigint.of(-42));
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 1
@@ -19,12 +19,12 @@ error: `of` takes 1 arguments, but 2 were given [wrong-argument-count]
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:36:47
    |
-36 |     assert.notEq(bigint.of(42, bigint.of(-42));
+36 |     assert.notEqual(bigint.of(42, bigint.of(-42));
    |                                               ^
    |
   --> main.buri:36:17
    |
-36 |     assert.notEq(bigint.of(42, bigint.of(-42));
+36 |     assert.notEqual(bigint.of(42, bigint.of(-42));
    |                 ^ opened here
    |
    = fix: write `)` here

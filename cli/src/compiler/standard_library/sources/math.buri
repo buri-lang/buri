@@ -3,11 +3,11 @@
 //! Free functions rather than methods, because `F64`'s methods live in
 //! `core/number` and a type's operations must be declared in its defining module.
 
-export fn sqrt(x: Float): Float;
+export fn squareRoot(x: Float): Float;
 
-export fn cbrt(x: Float): Float;
+export fn cubeRoot(x: Float): Float;
 
-export fn pow(x: Float, y: Float): Float;
+export fn power(x: Float, y: Float): Float;
 
 export fn exp(x: Float): Float;
 
@@ -33,13 +33,13 @@ export fn atan2(y: Float, x: Float): Float;
 
 export fn floor(x: Float): Float;
 
-export fn ceil(x: Float): Float;
+export fn ceiling(x: Float): Float;
 
 export fn round(x: Float): Float;
 
-export fn trunc(x: Float): Float;
+export fn truncate(x: Float): Float;
 
-export fn absFloat(x: Float): Float;
+export fn absoluteFloat(x: Float): Float;
 
 export fn isNan(x: Float): Bool;
 
@@ -102,16 +102,16 @@ export let MIN_POSITIVE: Float = 2.2250738585072014e-308;
 export let TAU: Float = 6.283185307179586;
 
 /// `ln(2)`, which the two inverse hyperbolic functions need where their
-/// argument is large enough that `x + sqrt(x*x - 1)` is just `2x`.
+/// argument is large enough that `x + squareRoot(x*x - 1)` is just `2x`.
 let LN2: Float = 0.6931471805599453;
 
 // --- Exact, on every backend ------------------------------------------------------
 //
-// Everything down to `logBase` is built out of `+`, `-`, `*`, `/`, `sqrt` and
+// Everything down to `logBase` is built out of `+`, `-`, `*`, `/`, `squareRoot` and
 // the comparisons, all of which IEEE 754 fixes exactly. So each answers the
 // same bits on every backend, and each runs wherever Buri does.
 
-/// `sqrt(x*x + y*y)`, the length of a right triangle's hypotenuse, computed so
+/// `squareRoot(x*x + y*y)`, the length of a right triangle's hypotenuse, computed so
 /// that a large `x` does not overflow on the way.
 ///
 /// ```buri
@@ -128,8 +128,8 @@ let LN2: Float = 0.6931471805599453;
 /// Accurate to about two units in the last place. The scaling costs a division
 /// and a multiply that the naive form does not.
 export fn hypotenuse(x: Float, y: Float): Float {
-    let a = absFloat(x);
-    let b = absFloat(y);
+    let a = absoluteFloat(x);
+    let b = absoluteFloat(y);
     if (isInfinite(a) || isInfinite(b)) {
         INFINITY
     } else {
@@ -140,7 +140,7 @@ export fn hypotenuse(x: Float, y: Float): Float {
             big
         } else {
             let ratio = small / big;
-            big * sqrt(1.0 + ratio * ratio)
+            big * squareRoot(1.0 + ratio * ratio)
         }
     }
 }
@@ -158,7 +158,7 @@ export fn hypotenuse(x: Float, y: Float): Float {
 /// A `NaN` `sign` counts as positive: Buri's `NaN` carries no sign, because a
 /// payload is not part of its value.
 export fn copySign(magnitude: Float, sign: Float): Float {
-    let size = absFloat(magnitude);
+    let size = absoluteFloat(magnitude);
     if (isBelowZero(sign)) { -size } else { size }
 }
 
@@ -214,13 +214,13 @@ export fn toDegrees(radians: Float): Float {
 ///
 /// The sign survives: `roundEven(-0.4)` is `-0.0`.
 export fn roundEven(x: Float): Float {
-    let whole = trunc(x);
-    let part = absFloat(x - whole);
+    let whole = truncate(x);
+    let part = absoluteFloat(x - whole);
     if (part < 0.5) {
         whole
     } else if (part > 0.5) {
         whole + copySign(1.0, x)
-    } else if (trunc(whole / 2.0) * 2.0 == whole) {
+    } else if (truncate(whole / 2.0) * 2.0 == whole) {
         // The even neighbour. `whole % 2.0 == 0.0` says the same thing, and a
         // float remainder is a runtime call where this is two instructions.
         whole
@@ -287,7 +287,7 @@ fn tenUp(n: Int, acc: Float): Float {
 /// A fixed tolerance stops meaning anything once the numbers are large. Use
 /// `isCloseRelative` there.
 export fn isCloseAbsolute(a: Float, b: Float, tolerance: Float): Bool {
-    a == b || absFloat(a - b) <= absFloat(tolerance)
+    a == b || absoluteFloat(a - b) <= absoluteFloat(tolerance)
 }
 
 /// Whether two numbers are within `tolerance` of each other, measured as a
@@ -308,8 +308,8 @@ export fn isCloseAbsolute(a: Float, b: Float, tolerance: Float): Bool {
 /// so is a pair of infinities. A zero against anything else is not, whatever the
 /// tolerance — nothing is a fraction of nothing.
 export fn isCloseRelative(a: Float, b: Float, tolerance: Float): Bool {
-    let scale = if (absFloat(a) > absFloat(b)) { absFloat(a) } else { absFloat(b) };
-    a == b || absFloat(a - b) <= absFloat(tolerance) * scale
+    let scale = if (absoluteFloat(a) > absoluteFloat(b)) { absoluteFloat(a) } else { absoluteFloat(b) };
+    a == b || absoluteFloat(a - b) <= absoluteFloat(tolerance) * scale
 }
 
 // --- Built on `exp` and `ln` -------------------------------------------------------
@@ -421,7 +421,7 @@ export fn logBase(x: Float, base: Float): Float {
 /// Odd, so the sign of `x` is the sign of the answer and `sinh(-0.0)` is
 /// `-0.0`. It overflows to infinity past about `710.5`.
 export fn sinh(x: Float): Float {
-    let a = absFloat(x);
+    let a = absoluteFloat(x);
     if (a < 1.0) {
         // `(t + t / (t + 1)) / 2` where `t` is `e^a - 1`: the same value, with
         // no cancellation as `a` approaches zero.
@@ -451,7 +451,7 @@ export fn sinh(x: Float): Float {
 /// Even, so `cosh(-x)` is `cosh(x)`, and never below `1.0`. It overflows to
 /// infinity past about `710.5`.
 export fn cosh(x: Float): Float {
-    let a = absFloat(x);
+    let a = absoluteFloat(x);
     if (a < 0.5) {
         // `1 + t*t / (2 * (1 + t))` where `t` is `e^a - 1`, which keeps the
         // leading `1` exact instead of adding two halves that nearly cancel.
@@ -479,7 +479,7 @@ export fn cosh(x: Float): Float {
 /// Odd, and always between `-1.0` and `1.0`. Past `22.0` the answer is `1.0` to
 /// the last bit, so it is answered directly rather than computed.
 export fn tanh(x: Float): Float {
-    let a = absFloat(x);
+    let a = absoluteFloat(x);
     if (a > 22.0) {
         copySign(1.0, x)
     } else {
@@ -490,7 +490,7 @@ export fn tanh(x: Float): Float {
     }
 }
 
-/// The inverse hyperbolic sine, `ln(x + sqrt(x*x + 1))`.
+/// The inverse hyperbolic sine, `ln(x + squareRoot(x*x + 1))`.
 ///
 /// ```buri
 /// from "core/math" import * as math;
@@ -501,22 +501,22 @@ export fn tanh(x: Float): Float {
 /// ```
 ///
 /// Defined for every `Float`, and odd. Written in three pieces so that neither
-/// `x*x` overflowing nor `x + sqrt(...)` cancelling can reach the answer.
+/// `x*x` overflowing nor `x + squareRoot(...)` cancelling can reach the answer.
 export fn asinh(x: Float): Float {
-    let a = absFloat(x);
+    let a = absoluteFloat(x);
     let size = if (a >= 1.0e10) {
-        // `sqrt(a*a + 1)` is `a`, so the argument is `2a` and `a*a` never
+        // `squareRoot(a*a + 1)` is `a`, so the argument is `2a` and `a*a` never
         // has to be computed.
         ln(a) + LN2
     } else if (a > 1.0) {
-        ln(2.0 * a + 1.0 / (sqrt(a * a + 1.0) + a))
+        ln(2.0 * a + 1.0 / (squareRoot(a * a + 1.0) + a))
     } else {
-        lnOnePlus(a + a * a / (1.0 + sqrt(a * a + 1.0)))
+        lnOnePlus(a + a * a / (1.0 + squareRoot(a * a + 1.0)))
     };
     copySign(size, x)
 }
 
-/// The inverse hyperbolic cosine, `ln(x + sqrt(x*x - 1))`.
+/// The inverse hyperbolic cosine, `ln(x + squareRoot(x*x - 1))`.
 ///
 /// ```buri
 /// from "core/math" import * as math;
@@ -536,10 +536,10 @@ export fn acosh(x: Float): Float {
     } else if (x >= 1.0e10) {
         ln(x) + LN2
     } else if (x > 2.0) {
-        ln(2.0 * x - 1.0 / (x + sqrt(x * x - 1.0)))
+        ln(2.0 * x - 1.0 / (x + squareRoot(x * x - 1.0)))
     } else {
         let t = x - 1.0;
-        lnOnePlus(t + sqrt(2.0 * t + t * t))
+        lnOnePlus(t + squareRoot(2.0 * t + t * t))
     }
 }
 
@@ -556,7 +556,7 @@ export fn acosh(x: Float): Float {
 /// `NaN` outside `-1.0` to `1.0`, and an infinity of the matching sign at each
 /// end. Odd, so `atanh(-0.0)` is `-0.0`.
 export fn atanh(x: Float): Float {
-    let a = absFloat(x);
+    let a = absoluteFloat(x);
     if (a > 1.0) {
         NAN
     } else if (a == 1.0) {

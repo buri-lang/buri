@@ -26,7 +26,7 @@ Comparison is non-associative: `a < b < c` is a parse error.
 Bitwise operators bind tighter than comparison (as in Rust), so `a & MASK == 0`
 means `(a & MASK) == 0`.
 
-There is no `<<` or `>>`. Use `bits.shl(x, n)` and `bits.shr(x, n)`. See
+There is no `<<` or `>>`. Use `bits.shiftLeft(x, n)` and `bits.shiftRight(x, n)`. See
 `design/grammar-rationale.md` 12.6.
 
 ### 6.2 Arithmetic
@@ -170,7 +170,7 @@ the checker reports that as an error wherever a block may stand.
 let hypotenuse = {
   let a2 = a * a;
   let b2 = b * b;
-  math.sqrt(a2 + b2)
+  math.squareRoot(a2 + b2)
 };
 ```
 

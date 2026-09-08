@@ -76,14 +76,14 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
 warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
   --> lib/money/testing/fakes.buri:16:5
    |
-16 | let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+16 | let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
    |     ^^^^^^^^^^^^^^^^^^^^^
    |
-   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
 
      A count of milliseconds in an I64 means something only because of what you
-     called it — IDLE_TIMEOUT_MILLIS, nanos, elapsedMs — and every boundary
+     called it — IDLE_TIMEOUT_MILLIS, nanoseconds, elapsedMs — and every boundary
      between two units is a multiply somebody wrote out by hand. Every one is a
      place the unit can be dropped, doubled or overflowed with the type system
      saying nothing.
@@ -94,10 +94,10 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
        let deadline = started.plus(idle);
        if (now.hasPassed(deadline)) { … }
 
-     seconds, millis, micros, nanos, minutes and hours are the constructors;
-     add, sub, mul, negate and abs are the arithmetic; nanos(), millis() and the
+     seconds, milliseconds, microseconds, nanoseconds, minutes and hours are the constructors;
+     add, sub, mul, negate and abs are the arithmetic; nanoseconds(), milliseconds() and the
      rest read a length back out in whatever unit the caller wants. The
-     conversion factors are exported too — NANOS_PER_MILLISECOND and its
+     conversion factors are exported too — NANOSECONDS_PER_MILLISECOND and its
      siblings — for the one case that really is arithmetic on a raw count.
 
      Two things come with the type, and they are why this is a lint rather than
@@ -112,7 +112,7 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
      make a length, and two points added together are a type error.
 
      This rule fires on a constant *named* as a conversion —
-     NANOS_PER_MILLISECOND, MILLIS_PER_SECOND — and on a count of milliseconds
+     NANOSECONDS_PER_MILLISECOND, MILLISECONDS_PER_SECOND — and on a count of milliseconds
      multiplied by a million in place. A million that is not named as
      milliseconds is not a finding: parts per million is a real number, and this
      rule does not guess.

@@ -157,7 +157,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
         Tcp: host.tcp,
     };
-    let port = env.withArguments(ctx).first().andThen(fn(a) => a.toInt()).withDefault(0);
+    let port = env.arguments(ctx).first().andThen(fn(a) => a.toInt()).withDefault(0);
     match (tcp.connect(ctx, "127.0.0.1", port)) {
         .Err(_e) => .Err("the dial failed"),
         .Ok(stream) => exchange(ctx, stream),
@@ -228,6 +228,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
@@ -239,7 +240,7 @@ export fn main(): Result<(), Str> {
         port: 0,
         onRequest: fn(_c, _request) => http.status(204),
         protocols: .Some([.Http3]),
-        idleTimeoutMillis: .Some(200),
+        idleTimeout: .Some(time.milliseconds(200)),
     };
     match (server.bind(ctx, plan)) {
         .Err(e) => {
@@ -255,7 +256,7 @@ export fn main(): Result<(), Str> {
 
 /// A TLS server that keeps its port open until it is told to stop.
 ///
-/// No `requestLimit` and no `idleTimeoutMillis`, for `shared::draining_server`'s
+/// No `requestLimit` and no `idleTimeoutMilliseconds`, for `shared::draining_server`'s
 /// reason: the probes below never complete a request — they cannot, there is no
 /// TLS client here to complete one with — so a limit would never be spent and a
 /// deadline would decide how long every row waited. A signal ends it, which
@@ -268,6 +269,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
@@ -281,7 +283,7 @@ export fn main(): Result<(), Str> {{
         onRequest: fn(c, request) => http.text(c, request.path()),
         protocols: .Some([.Http2, .Http1]),
         tls: .Some(server.Tls {{ certificate: "{certificate}", key: "{key}" }}),
-        drainMillis: .Some(5000),
+        drain: .Some(time.milliseconds(5000)),
     }};
     match (server.bind(ctx, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
@@ -321,6 +323,7 @@ from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
@@ -334,7 +337,7 @@ export fn main(): Result<(), Str> {{
         port: 0,
         onRequest: fn(c, request) => http.text(c, str.format(c, "handled ${{request.path()}}")),
         requestLimit: .Some(2),
-        idleTimeoutMillis: .Some(20000),
+        idleTimeout: .Some(time.milliseconds(20000)),
         websocket: .Some(server.WebSocket {{
             path: "/socket",
             onOpen: fn(c, _socket, request) => {{
@@ -389,6 +392,7 @@ from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
@@ -401,7 +405,7 @@ export fn main(): Result<(), Str> {{
         port: 0,
         onRequest: fn(c, request) => http.text(c, str.format(c, "no sockets here: ${{request.path()}}")),
         requestLimit: .Some(1),
-        idleTimeoutMillis: .Some(20000),
+        idleTimeout: .Some(time.milliseconds(20000)),
     }};
     match (server.bind(ctx, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
@@ -452,6 +456,7 @@ from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/net/server" import {{ Socket }};
+from "core/time" import * as time;
 
 fn flood<C: Sockets>(ctx: C, socket: Socket, left: Int): Int {{
     if (left <= 0) {{
@@ -474,7 +479,7 @@ export fn main(): Result<(), Str> {{
         port: 0,
         onRequest: fn(_c, _request) => http.status(404),
         requestLimit: .Some(1),
-        idleTimeoutMillis: .Some(20000),
+        idleTimeout: .Some(time.milliseconds(20000)),
         socketBuffer: .Some(1),
         websocket: .Some(server.WebSocket {{
             path: "/socket",
@@ -537,6 +542,7 @@ from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/net/server" import {{ Message, Socket }};
 from "core/str" import * as str;
+from "core/time" import * as time;
 
 /// The answer, wherever it is asked for.
 fn answer<C: Allocator>(ctx: C, question: Str): Str {{
@@ -588,7 +594,7 @@ export fn main(): Result<(), Str> {{
         port: 0,
         onRequest: fn(_c, _request) => http.status(404),
         requestLimit: .Some(1),
-        idleTimeoutMillis: .Some(20000),
+        idleTimeout: .Some(time.milliseconds(20000)),
         websocket: .Some(server.WebSocket {{
             path: "/socket",
             onOpen: fn(_c, _socket, _request) => 0,
@@ -1442,7 +1448,7 @@ export fn main(): Result<(), Str> {
     let _p1 = io.println(ctx, "read ${body}").mapErr(fn(_e) => "print")?;
     let names = fs.listDir(ctx, run).mapErr(fn(_e) => "listDir")?;
     let _p2 = io.println(ctx, "dir ${names.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
-    let args = env.withArguments(ctx);
+    let args = env.arguments(ctx);
     let _p3 = io.println(ctx, "args ${args.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
     let seen = match (env.get(ctx, "BURI_E2E_VARIABLE")) {
         .Some(value) => value,
@@ -1564,8 +1570,8 @@ fn a_native_binary_writes_atomically_and_reads_what_may_not_be_there() {
 ///
 /// buri-lang/buri#36 and buri-lang/buri#38 in one process. Before them, this
 /// program did not compile at all for a native output: `buri build` refused it
-/// with *"the stencil backend has no implementation of host.HostEnv.args,
-/// host.HostFs.makeDir, …"* — nine operations in one line — while the same
+/// with *"the stencil backend has no implementation of host.HostEnvironment.args,
+/// host.HostFileSystem.makeDir, …"* — nine operations in one line — while the same
 /// source ran on JavaScript. `cli/runtime/host.rs` had a body for every one of
 /// them; what was missing was the row, and behind the row the one shape
 /// `Result<T, IoError>` needed (`cli/runtime/lib.rs` §2.1's message).
@@ -2308,7 +2314,7 @@ export fn main(): Result<(), Str> {
 
     // The harness runs this binary four times: once for the children, twice for
     // the two whole-input readers, and once with a `PATH` of its own.
-    let mode = env.withArguments(ctx).get(0).withDefault("");
+    let mode = env.arguments(ctx).get(0).withDefault("");
     if (mode == "read" || mode == "bytes") {
         filtered(ctx, mode)
     } else if (mode == "path") {
@@ -3215,6 +3221,7 @@ from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
@@ -3228,7 +3235,7 @@ export fn main(): Result<(), Str> {{
         port: 0,
         onRequest: fn(_c, _request) => http.status(404),
         requestLimit: .Some({sockets}),
-        idleTimeoutMillis: .Some(20000),
+        idleTimeout: .Some(time.milliseconds(20000)),
         websocket: .Some(server.WebSocket {{
             path: "/socket",
             onOpen: fn(c, _socket, _request) => {{
@@ -3300,7 +3307,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let port = env.withArguments(ctx).first().withDefault("0");
+    let port = env.arguments(ctx).first().withDefault("0");
     let dialled = websocket.connect(ctx, Client {
         url: str.format(ctx, "ws://127.0.0.1:${port}/socket"),
         onOpen: fn(c, socket, response) => {
@@ -3580,7 +3587,7 @@ fn a_client_handed_a_signature_for_another_handshake_refuses_it() {
 ///
 /// **The loop `core/net/websocket` documents instead of a knob.** `connect`
 /// returns when the socket closes, so a second socket is a second call — with
-/// `time.sleepMs` between the tries, which is the whole of what a backoff is
+/// `time.sleep` between the tries, which is the whole of what a backoff is
 /// here. The session number is threaded through the recursion, so the two lines
 /// out say which session heard what.
 fn reconnecting_client() -> String {
@@ -3637,7 +3644,7 @@ fn following<C: Allocator + Clock + Sockets + Stdout + WebSocketClient>(
             if (left <= 1) {
                 session
             } else {
-                let _slept = time.sleepMs(ctx, 50);
+                let _slept = time.sleep(ctx, time.milliseconds(50));
                 following(ctx, url, session + 1, left - 1)
             }
         },
@@ -3653,7 +3660,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let port = env.withArguments(ctx).first().withDefault("0");
+    let port = env.arguments(ctx).first().withDefault("0");
     let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
     let sessions = following(ctx, url, 1, 2);
     let _said = io.println(ctx, "reconnected ${sessions}").ignore();
@@ -3778,7 +3785,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let args = env.withArguments(ctx);
+    let args = env.arguments(ctx);
     let port = args.get(0).withDefault("0");
     let rounds = args.get(1).withDefault("0").toInt().withDefault(0);
     let _ran = dialling(ctx, str.format(ctx, "ws://127.0.0.1:${port}/socket"), rounds);
@@ -3911,7 +3918,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let args = env.withArguments(ctx);
+    let args = env.arguments(ctx);
     let port = args.get(0).withDefault("0");
     // Past 125 and past 65535, which are the two points where a frame's length
     // stops fitting where it was. Given on the command line so the number is
@@ -4110,7 +4117,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let port = env.withArguments(ctx).first().withDefault("0");
+    let port = env.arguments(ctx).first().withDefault("0");
     let zero = port.length() - port.length();
     let dialled = websocket.connect(ctx, Client {
         url: str.format(ctx, "ws://127.0.0.1:${port}/socket"),

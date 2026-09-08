@@ -478,7 +478,7 @@ pub const H2_NEEDS_TLS: &str =
 //
 // **Every wait is bounded except the one a server is for.** Reads and writes
 // carry `SO_RCVTIMEO`/`SO_SNDTIMEO` from `headerTimeoutMillis`; the wait for a
-// connection carries `idleTimeoutMillis` when the caller set one. A caller that
+// connection carries `idleTimeoutMilliseconds` when the caller set one. A caller that
 // sets neither gets a server that waits for a client indefinitely and reads
 // with a thirty-second deadline, which is what a server is; a *test* sets both,
 // and every test in this repository does.
@@ -4153,7 +4153,7 @@ union BuriServePayload {
     /// `.Speak` — a payload-free enum is a bare integer (§6's first niche), so
     /// `Protocol`'s payload *is* its variant index in one byte.
     protocol: i8,
-    /// `.DrainMillis` — an `Int`, which is eight bytes at the payload area's
+    /// `.DrainMilliseconds` — an `Int`, which is eight bytes at the payload area's
     /// own offset. It changes nothing about the size: a `Str` was already the
     /// widest thing here, and F4's argument that the whole is 32 bytes is what
     /// a fifth variant would have to move rather than a fourth.
@@ -4199,7 +4199,7 @@ unsafe fn plan_of(ptr: *const u8, len: u64) -> Result<ServePlan, ServeErr> {
                 plan.drain = (millis >= 0).then(|| Duration::from_millis(millis as u64));
             }
             // SAFETY: the tag says the payload area holds an `Int`. Zero and
-            // below are read as "chose nothing" for `.DrainMillis`'s reason and
+            // below are read as "chose nothing" for `.DrainMilliseconds`'s reason and
             // for one of its own: a socket whose buffer holds no messages is a
             // socket that closes on its first `send`, which is a configuration
             // nobody means.
@@ -5001,7 +5001,7 @@ mod tests {
         assert_eq!(std::mem::offset_of!(BuriConnected, body), 32);
 
         // `Serve { Speak(Protocol), Certificate(Str), PrivateKey(Str),
-        // DrainMillis(Int), SocketBuffer(Int) }` — §6's `tag ++ payload`, and
+        // DrainMilliseconds(Int), SocketBuffer(Int) }` — §6's `tag ++ payload`, and
         // the first
         // payload-carrying enum this runtime reads. The tag is one byte because
         // four variants fit in one; the payload area starts at 8 because a

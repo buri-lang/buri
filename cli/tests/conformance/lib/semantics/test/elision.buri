@@ -39,11 +39,11 @@ test "a written value is not disturbed by the omission of another" {
 }
 
 test "an omitted field is not equal to a written `.Some`" {
-    assert.notEq(World { hi: "hi" }, World { hi: "hi", hello: .Some("there") });
+    assert.notEqual(World { hi: "hi" }, World { hi: "hi", hello: .Some("there") });
 }
 
 test "a required field of another type still decides equality" {
-    assert.notEq(World { hi: "hi" }, World { hi: "bye" });
+    assert.notEqual(World { hi: "hi" }, World { hi: "bye" });
 }
 
 // -----------------------------------------------------------------------------
@@ -146,7 +146,7 @@ test "a derived `Show` still distinguishes an omission from a value" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.notEq(
+    assert.notEqual(
         World { hi: "hi" }.show(ctx),
         World { hi: "hi", hello: .Some("there") }.show(ctx),
     );

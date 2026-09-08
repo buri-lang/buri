@@ -35,7 +35,7 @@ test "a struct with positional fields" {
 }
 
 test "a struct with no fields" {
-    assert.notEq(Hollow { }, Hollow { });
+    assert.notEqual(Hollow { }, Hollow { });
 }
 
 test "an enum whose variants carry nothing" {

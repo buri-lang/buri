@@ -58,8 +58,8 @@
 //! | `protocols` | no `.Speak` in the plan | speaks HTTP/1.1 |
 //! | `tls` | no `.Certificate` in the plan | serves cleartext |
 //! | `requestLimit` | `-1` | answers until the listener is closed |
-//! | `idleTimeoutMillis` | `-1` | waits for a connection indefinitely |
-//! | `drainMillis` | no `.DrainMillis` in the plan | waits ten seconds for the requests in flight |
+//! | `idleTimeout` | `-1` | waits for a connection indefinitely |
+//! | `drain` | no `.DrainMilliseconds` in the plan | waits ten seconds for the requests in flight |
 //! | `websocket` | nothing at all — the plan never mentions it | never upgrades, so an upgrade request is an ordinary one |
 //! | `socketBuffer` | no `.SocketBuffer` in the plan | holds sixty-four messages per socket |
 //!
@@ -153,7 +153,7 @@
 //! asks it to stop, and whatever the program does after `serve` — flush a log,
 //! close a database, print a line — happens.
 //!
-//! `drainMillis` is how long step 2 may take. It bounds the *waiting*, not the
+//! `drain` is how long step 2 may take. It bounds the *waiting*, not the
 //! handlers: a handler still running when it expires still answers the request
 //! it was given. What runs out is the patience of the workers with nothing left
 //! to do.
@@ -275,6 +275,7 @@ from "core/effect" import {
     ServeFailure, Sockets, Tasks,
 };
 from "core/list" import * as list;
+from "core/time" import { Duration };
 from "core/tasks" import * as tasks;
 
 from "core/effect" export {
@@ -321,14 +322,14 @@ export struct Server<C, S> {
     /// Give up waiting for a connection after this long, and return
     /// `.Err(.Timeout)`. `.None` waits indefinitely, which is what an ordinary
     /// server does.
-    export idleTimeoutMillis: Option<Int>,
+    export idleTimeout: Option<Duration>,
     /// How long a shutdown may wait for the requests already in flight.
     /// `.None` leaves the number to the runtime.
     ///
     /// A deployment sets this one: a supervisor that sends `SIGTERM` and then
     /// `SIGKILL` ten seconds later is asking a question this field answers. It
     /// bounds the middle step of the drain the module header writes out.
-    export drainMillis: Option<Int>,
+    export drain: Option<Duration>,
     /// The certificate this server presents, and therefore whether it speaks
     /// TLS at all. `.None` is a cleartext server.
     ///
@@ -416,7 +417,10 @@ export fn bind<C: Allocator + Listen, S>(
         server.port,
         planned(ctx, server),
         server.requestLimit.withDefault(-1),
-        server.idleTimeoutMillis.withDefault(-1),
+        match (server.idleTimeout) {
+            .None => -1,
+            .Some(limit) => limit.milliseconds(),
+        },
     )
 }
 
@@ -427,7 +431,7 @@ export fn bind<C: Allocator + Listen, S>(
 /// buffer — the order the acceptor reads them in.
 ///
 /// **An absent option is an absent element.** There is no "unset"
-/// `.DrainMillis` to render, because a plan that does not mention the drain
+/// `.DrainMilliseconds` to render, because a plan that does not mention the drain
 /// already says the program chose none. An empty list is a caller who chose
 /// nothing at all.
 fn planned<C: Allocator, S>(ctx: C, server: Server<C, S>): [Serve] {
@@ -438,9 +442,9 @@ fn planned<C: Allocator, S>(ctx: C, server: Server<C, S>): [Serve] {
             spoken.concat(ctx, [.Certificate(tls.certificate), .PrivateKey(tls.key)])
         },
     };
-    let drained: [Serve] = match (server.drainMillis) {
+    let drained: [Serve] = match (server.drain) {
         .None => secured,
-        .Some(millis) => secured.concat(ctx, [.DrainMillis(millis)]),
+        .Some(limit) => secured.concat(ctx, [.DrainMilliseconds(limit.milliseconds())]),
     };
     match (server.socketBuffer) {
         .None => drained,

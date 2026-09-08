@@ -37,7 +37,7 @@ test "a trailing zero is absorbed into the scale" {
     assert.equal(decimal.of(1000, 3), decimal.of(1, 0));
     assert.equal(decimal.of(0, 9), decimal.of(0, 0));
     // The zeros before the point stay, because the scale cannot absorb them.
-    assert.notEq(decimal.of(100, 0), decimal.of(10, 0));
+    assert.notEqual(decimal.of(100, 0), decimal.of(10, 0));
 }
 
 test "a negative scale is read as zero" {
@@ -54,7 +54,7 @@ test "equality is numeric because the shape is canonical" {
     assert.equal(decimal.of(10, 1), decimal.of(1, 0));
     assert.equal(decimal.of(10, 1).hash(), decimal.of(1, 0).hash());
     assert.equal(decimal.of(0, 0).hash(), decimal.of(0, 7).hash());
-    assert.notEq(decimal.of(1, 1), decimal.of(1, 0));
+    assert.notEqual(decimal.of(1, 1), decimal.of(1, 0));
 }
 
 // --- parse --------------------------------------------------------------------------
@@ -131,7 +131,7 @@ test "the sum a Float gets wrong" {
         Allocator: alloc(),
     };
     // `0.1 + 0.2` is `0.30000000000000004` as doubles.
-    assert.notEq(0.1 + 0.2, 0.3);
+    assert.notEqual(0.1 + 0.2, 0.3);
     let sum = assert.some(decimal.of(1, 1).add(decimal.of(2, 1)));
     assert.equal(sum.text(ctx), "0.3");
     assert.equal(sum, decimal.of(3, 1));
@@ -283,7 +283,7 @@ test "toFloat is where the exactness stops" {
     // A tenth is not a binary fraction, which is the whole reason this type
     // exists — so three tenths added as doubles and as decimals differ.
     let asFloats = decimal.of(1, 1).toFloat() + decimal.of(2, 1).toFloat();
-    assert.notEq(asFloats, decimal.of(3, 1).toFloat());
+    assert.notEqual(asFloats, decimal.of(3, 1).toFloat());
     assert.isTrue(math.isCloseAbsolute(asFloats, 0.3, 1.0e-15));
 }
 

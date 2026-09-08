@@ -907,7 +907,7 @@ TEMPLATE_TAIL   ::= "}"  StrChar* '"'
 (* --- Punctuation and operators ---------------------------------------------
    Longest-match wins. Note the deliberate absences:
      * there is no ">>" or "<<" token, so `Map<Str, List<Int>>` never
-       mis-lexes; use bits.shl / bits.shr instead.
+       mis-lexes; use bits.shiftLeft / bits.shiftRight instead.
      * there is no "?." token, so `x?.field` is `x` `?` `.` `field`.
      * there is no "..." token; "``..``" serves in patterns and struct
        spreads alike.                                                        *)

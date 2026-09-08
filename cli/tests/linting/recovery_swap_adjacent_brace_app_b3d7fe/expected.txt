@@ -1,10 +1,10 @@
 warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
   --> lib/recovery_swap_adjacent_brace_app_b3d7fe/main.buri:10:5
    |
-10 | let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+10 | let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
    |     ^^^^^^^^^^^^^^^^^^^^^
    |
-   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
 error: expected an expression, found `*` [unexpected-token]
   --> lib/recovery_swap_adjacent_brace_app_b3d7fe/main.buri:17:20

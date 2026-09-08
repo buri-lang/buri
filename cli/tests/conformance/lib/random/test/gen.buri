@@ -1,7 +1,7 @@
-// core/random — `Gen`, the generator that is a value.
+// core/random — `Generator`, the generator that is a value.
 //
 // Every number here is a literal in the file, which is only possible because
-// `Gen` performs nothing: splitmix64 over a seed, the same sequence on every
+// `Generator` performs nothing: splitmix64 over a seed, the same sequence on every
 // backend, in every process, forever. That is the claim, and a file full of
 // literals is the only form the claim has.
 //
@@ -15,7 +15,7 @@ from "core/bytes" import * as bytes;
 from "core/effect" import { Allocator, Random };
 from "core/host/testing" import { alloc, rand };
 from "core/random" import * as random;
-from "core/random" import { Gen };
+from "core/random" import { Generator };
 from "core/testing/assert" import * as assert;
 
 // --- the sequence ---------------------------------------------------------------
@@ -31,7 +31,7 @@ test "a seed replays its own sequence" {
 
 test "a draw is a function of the generator it was handed" {
     let g = random.seeded(7);
-    // The point of a generator that is a value: two calls on one `Gen` are two
+    // The point of a generator that is a value: two calls on one `Generator` are two
     // calls on one value, so they answer the same thing. Nothing is hidden and
     // nothing is stepped behind the caller's back.
     assert.equal(g.nextInt(1, 7).0, g.nextInt(1, 7).0);
@@ -119,8 +119,8 @@ test "a bounded draw stays inside its range over three thousand of them" {
 test "split answers a new stream and this one, advanced" {
     let g = random.seeded(99);
     let (child, parent) = g.split();
-    assert.equal(child, Gen(4824385676517010403));
-    assert.equal(parent, Gen(11400714819323198584));
+    assert.equal(child, Generator(4824385676517010403));
+    assert.equal(parent, Generator(11400714819323198584));
     // Two streams, drawn independently, and neither is the one `g` would have
     // produced by itself.
     assert.equal(child.nextInt(0, 1000000).0, 32678);
@@ -143,11 +143,11 @@ test "a generator seeded from Random is assembled the same way on both backends"
     let ctx = context {
         Random: rand(),
     };
-    let g = random.gen(ctx);
+    let g = random.generator(ctx);
     // Four sixteen-bit draws, low half first. The literal is what pins the
     // assembly: a backend that took the draws in the other order, or that lost
     // bits to a wider range, answers a different state here.
-    assert.equal(g, Gen(11047233975125876769));
+    assert.equal(g, Generator(11047233975125876769));
     assert.equal(g.nextInt(0, 1000).0, 96);
 }
 
@@ -159,13 +159,13 @@ test "core/random's own bytes are the Random door, not this one" {
         Random: rand(),
     };
     // One draw per octet through the effect, which is a different sequence from
-    // `Gen.nextBytes`'s eight-to-a-draw and is meant to be: the two doors are
+    // `Generator.nextBytes`'s eight-to-a-draw and is meant to be: the two doors are
     // two generators.
     assert.equal(random.bytes(ctx, 4), [33, 1, 197, 79]);
 }
 
 /// Three buckets over `n` draws, tail-recursively, so the loop costs one frame.
-fn tally(g: Gen, n: Int, zero: Int, one: Int, two: Int): (Int, Int, Int) {
+fn tally(g: Generator, n: Int, zero: Int, one: Int, two: Int): (Int, Int, Int) {
     if (n <= 0) {
         (zero, one, two)
     } else {

@@ -34,8 +34,8 @@ test "every method is its own value" {
     assert.equal(all.length(), 7);
     assert.equal(all.get(0), .Some(.Get));
     assert.equal(all.get(6), .Some(.Options));
-    assert.notEq(Method.Get, Method.Head);
-    assert.notEq(Method.Post, Method.Put);
+    assert.notEqual(Method.Get, Method.Head);
+    assert.notEqual(Method.Post, Method.Put);
 }
 
 test "a method shows as its Buri name, not its wire name" {
@@ -55,7 +55,7 @@ test "a header is a name and a value" {
     assert.equal(h.name, "content-type");
     assert.equal(h.value, "text/plain");
     assert.equal(h, Header { name: "content-type", value: "text/plain" });
-    assert.notEq(h, Header { name: "content-type", value: "text/html" });
+    assert.notEqual(h, Header { name: "content-type", value: "text/html" });
 }
 
 test "a header shows both of its fields" {
@@ -99,7 +99,7 @@ test "a request literal and a constructed request are equal" {
         body: [],
         timeoutMillis: 0,
     });
-    assert.notEq(
+    assert.notEqual(
         http.request(.Get, "http://example.com/"),
         http.request(.Head, "http://example.com/"),
     );
@@ -254,9 +254,9 @@ test "two responses are equal exactly when all three fields are" {
         Allocator: alloc(),
     };
     assert.equal(http.text(ctx, "pong"), http.text(ctx, "pong"));
-    assert.notEq(http.text(ctx, "pong"), http.text(ctx, "ping"));
-    assert.notEq(http.text(ctx, "pong"), http.ok(ctx, "pong"));
-    assert.notEq(http.status(200), http.status(404));
+    assert.notEqual(http.text(ctx, "pong"), http.text(ctx, "ping"));
+    assert.notEqual(http.text(ctx, "pong"), http.ok(ctx, "pong"));
+    assert.notEqual(http.status(200), http.status(404));
 }
 
 // -----------------------------------------------------------------------------
@@ -299,6 +299,6 @@ test "NetError names five reasons, Aborted among them" {
     assert.equal(http.errorText(.Aborted), "the request was called off");
     // `Aborted` is its own reason: a caller that retries a `Timeout` must be
     // able to tell it apart from a request its own side called off.
-    assert.notEq(NetError.Aborted, NetError.Timeout);
+    assert.notEqual(NetError.Aborted, NetError.Timeout);
     assert.equal(NetError.Aborted.show(ctx), ".Aborted");
 }

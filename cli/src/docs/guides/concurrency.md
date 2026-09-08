@@ -79,7 +79,7 @@ export fn main(): Result<(), Str> {
     };
     let _ = tasks.scope(ctx, fn(c, here) => {
         tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 5);
+            let _ = time.sleep(c2, time.milliseconds(5));
             let _ = io.println(c2, "the timer fired").ignore();
             ()
         })
@@ -95,7 +95,7 @@ the scope is closed
 ```
 
 **A timer is a task that sleeps.** There is no `Timer` type and no
-`setTimeout` — `sleepMs` already waits, and a task is already the thing that
+`setTimeout` — `sleep` already waits, and a task is already the thing that
 waits without holding up the code around it.
 
 **`Scope` is inert.** It holds no context, so a lambda may capture one, and an

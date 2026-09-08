@@ -1,6 +1,6 @@
 // CRASH: division by zero
 //
-// `number.remEuclid` is written in terms of `%`, and `%` by zero aborts with the
+// `number.remainderEuclidean` is written in terms of `%`, and `%` by zero aborts with the
 // same message `/` does (`int_remainder_by_zero.buri`): there is no remainder
 // to give either.
 from "core/effect" import { Allocator, Stdout, Environment };
@@ -12,6 +12,6 @@ from "core/number" import * as number;
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
   let zero = env.arguments(ctx).length();
-  let _ = io.println(ctx, "${number.remEuclid(-7, zero)}").ignore();
+  let _ = io.println(ctx, "${number.remainderEuclidean(-7, zero)}").ignore();
   .Ok(())
 }

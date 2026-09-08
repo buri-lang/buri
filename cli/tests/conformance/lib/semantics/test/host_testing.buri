@@ -63,7 +63,7 @@ fn shout<C: Stderr>(ctx: C, what: Str): () {
 
 fn elapsed<C: Clock>(ctx: C, waiting: Int): I64 {
     let before = time.now(ctx).0;
-    let _ = time.sleepMs(ctx, waiting);
+    let _ = time.sleep(ctx, time.milliseconds(waiting));
     time.now(ctx).0 - before
 }
 
@@ -848,7 +848,7 @@ test "a responder may answer .Err, payload and all" {
     };
     let failed = http.send(ctx, http.request(.Get, "/x"));
     assert.equal(failed, .Err(.Transport("socket closed")));
-    assert.notEq(failed, .Err(.Transport("socket open")));
+    assert.notEqual(failed, .Err(.Transport("socket open")));
     assert.equal(http.errorText(assert.err(failed)), "the transport failed");
 }
 
@@ -1005,7 +1005,7 @@ test "at answers a new clock and leaves the one it was called on alone" {
     let b = context {
         Clock: later,
     };
-    let _ = time.sleepMs(b, 7);
+    let _ = time.sleep(b, time.milliseconds(7));
     assert.equal(time.now(b).0, 1007);
     assert.equal(time.now(a).0, 0);
 }
@@ -1279,7 +1279,7 @@ test "octets are logged as the text they spell, as snapshot reads them back" {
     assert.equal(store.calls(), [writeFileBytes("b", hi), writeFileBytes("c", raw)]);
     // And what it spells is the text `writeFile` would have been given, so the
     // two methods stay two calls rather than one written twice.
-    assert.notEq(writeFileBytes("b", hi), writeFile("b", "hi"));
+    assert.notEqual(writeFileBytes("b", hi), writeFile("b", "hi"));
 }
 
 test "reading the environment back is not a call" {
@@ -1405,7 +1405,7 @@ test "two requests that differ only in a header are two different calls" {
     let signed = plain.withHeader(ctx, "x-api-key", "secret");
     let _ = assert.ok(http.send(ctx, signed));
     assert.equal(upstream.calls(), [fetch(signed)]);
-    assert.notEq(upstream.calls(), [fetch(plain)]);
+    assert.notEqual(upstream.calls(), [fetch(plain)]);
 }
 
 test "every Method variant crosses the log unchanged" {
@@ -1510,11 +1510,11 @@ test "a stdin builder answers a new stream with a log of its own" {
 // -----------------------------------------------------------------------------
 
 test "two calls to one method with different arguments are DIFFERENT" {
-    assert.notEq(readFile("a"), readFile("b"));
-    assert.notEq(writeFile("a", "one"), writeFile("a", "two"));
-    assert.notEq(renameFile("a", "b"), renameFile("b", "a"));
-    assert.notEq(readBytes(1), readBytes(2));
-    assert.notEq(fetch(http.request(.Get, "/a")), fetch(http.request(.Get, "/b")));
+    assert.notEqual(readFile("a"), readFile("b"));
+    assert.notEqual(writeFile("a", "one"), writeFile("a", "two"));
+    assert.notEqual(renameFile("a", "b"), renameFile("b", "a"));
+    assert.notEqual(readBytes(1), readBytes(2));
+    assert.notEqual(fetch(http.request(.Get, "/a")), fetch(http.request(.Get, "/b")));
 }
 
 test "two calls to one method with the same arguments are the same call" {
@@ -1527,9 +1527,9 @@ test "two calls to one method with the same arguments are the same call" {
 test "two methods over the same path are different calls" {
     // The name is part of the call: a program that asked for octets asked
     // something different from one that asked for text.
-    assert.notEq(readFile("a"), readFileBytes("a"));
-    assert.notEq(removeFile("a"), syncFile("a"));
-    assert.notEq(readLine(), readBytes(0));
+    assert.notEqual(readFile("a"), readFileBytes("a"));
+    assert.notEqual(removeFile("a"), syncFile("a"));
+    assert.notEqual(readLine(), readBytes(0));
 }
 
 test "a call is compared by its arguments and not by where it came from" {
@@ -1543,7 +1543,7 @@ test "a call is compared by its arguments and not by where it came from" {
     };
     let _ = assert.ok(loadText(ctx, "a"));
     assert.equal(store.calls(), [readFile("a")]);
-    assert.notEq(store.calls(), [readFile("b")]);
+    assert.notEqual(store.calls(), [readFile("b")]);
 }
 
 derive Equal, Show for Configuration;
@@ -2493,7 +2493,7 @@ test "a socket this double minted is open, and two of them differ" {
     let second = s.open();
     assert.isTrue(s.isOpen(first));
     assert.isTrue(s.isOpen(second));
-    assert.notEq(first, second);
+    assert.notEqual(first, second);
     // Nothing was pushed, so there is nothing to read back — a double is born
     // empty, exactly as `fs()` and `stdin()` are.
     assert.equal(s.sent(), []);
@@ -2716,7 +2716,7 @@ fn following<C: Clock + Sockets + WebSocketClient>(
             if (left <= 1) {
                 left
             } else {
-                let _slept = time.sleepMs(ctx, 1000);
+                let _slept = time.sleep(ctx, time.milliseconds(1000));
                 following(ctx, client, left - 1)
             }
         },
@@ -2746,8 +2746,8 @@ test "reconnecting is a loop around connect, and each dial is a socket of its ow
     // comparison between two of this double's own sockets, never as a number: a
     // socket's handle comes from a counter the whole suite shares.
     let pushes = s.sent().map(alloc(), fn(one) => one.0);
-    assert.notEq(pushes.get(0), pushes.get(2));
-    assert.notEq(pushes.get(2), pushes.get(4));
+    assert.notEqual(pushes.get(0), pushes.get(2));
+    assert.notEqual(pushes.get(2), pushes.get(4));
 }
 
 test "the response that opened the socket reaches onOpen" {
@@ -2897,7 +2897,7 @@ test "two clients on one double are two sockets writing into one log" {
     // And they are two sockets rather than one client dialled twice. Asked as a
     // comparison between this double's own sockets, never as a number.
     let held = s.sent().map(alloc(), fn(one) => one.0);
-    assert.notEq(held.get(0), held.get(2));
+    assert.notEqual(held.get(0), held.get(2));
 }
 
 /// An actor whose step dials, so a socket's whole life happens inside one

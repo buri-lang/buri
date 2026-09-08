@@ -18,7 +18,7 @@ test "equal identifiers hash alike, and different ones do not" {
     let other = assert.some(extra uuid.parse("550E8400-E29B-41D4-A716-446655440000"));
     assert.equal(one.hash(), other.hash());
     assert.equal(uuid.zero().hash(), uuid.zero().hash());
-    assert.notEq(one.hash(), uuid.zero().hash());
+    assert.notEqual(one.hash(), uuid.zero().hash());
 }
 
 test "an identifier is a map key" {

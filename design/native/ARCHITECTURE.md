@@ -221,7 +221,7 @@ pub trait Backend {
     /// question asked per backend.
     ///
     /// It takes `&Tables` because deciding whether a key has a body goes through
-    /// the same code the emission does — `Gen::intrinsic`, which resolves
+    /// the same code the emission does — `Generator::intrinsic`, which resolves
     /// `number.*` through the *type* of the function it is implementing — and that
     /// needs the type table. A version without it would be a second
     /// implementation of the question, and the two would drift.

@@ -151,16 +151,16 @@ export fn clamp<T: Ordered>(lo: T, hi: T, x: T): T {
 // and that is what those do (SPEC 6.2).
 
 /// `a / b` rounded toward negative infinity rather than toward zero, so the
-/// quotient does not jump at the origin: `divFloor(-1, 2)` is `-1` where
+/// quotient does not jump at the origin: `divideFloor(-1, 2)` is `-1` where
 /// `-1 / 2` is `0`.
 ///
-/// **Pairs with `remEuclid` only for a positive `b`.** The two round differently
-/// below zero — `divFloor` follows the sign of the divisor and `remEuclid` is
-/// never negative — so `divFloor(a, b) * b + remEuclid(a, b)` is `a` when
+/// **Pairs with `remainderEuclidean` only for a positive `b`.** The two round differently
+/// below zero — `divideFloor` follows the sign of the divisor and `remainderEuclidean` is
+/// never negative — so `divideFloor(a, b) * b + remainderEuclidean(a, b)` is `a` when
 /// `b > 0` and need not be when `b < 0`.
 ///
 /// Aborts if `b` is zero, exactly as `a / b` does.
-export fn divFloor(a: Int, b: Int): Int {
+export fn divideFloor(a: Int, b: Int): Int {
     let q = a / b;
     let r = a % b;
     // `%` takes the sign of the dividend, so a non-zero remainder whose sign
@@ -176,7 +176,7 @@ export fn divFloor(a: Int, b: Int): Int {
     }
 }
 
-/// The remainder that is never negative: `remEuclid(a, b)` is at least zero and
+/// The remainder that is never negative: `remainderEuclidean(a, b)` is at least zero and
 /// less than `b.abs()` for every non-zero `b`, where `a % b` takes the sign of
 /// `a`.
 ///
@@ -184,7 +184,7 @@ export fn divFloor(a: Int, b: Int): Int {
 /// well, which that idiom is not.
 ///
 /// Aborts if `b` is zero, exactly as `a % b` does.
-export fn remEuclid(a: Int, b: Int): Int {
+export fn remainderEuclidean(a: Int, b: Int): Int {
     let r = a % b;
     if (r >= 0) { r } else if (b < 0) { r - b } else { r + b }
 }
@@ -219,11 +219,11 @@ export fn toHex<C: Allocator>(ctx: C, x: Int, width: Int): Str {
             .map(ctx, fn(i) => {
                 let shift = (digits - 1 - i) * 4;
                 // Past the width of the type there is nothing left but the padding,
-                // and `shr` at or beyond 64 has no answer to give.
+                // and `shiftRight` at or beyond 64 has no answer to give.
                 let nibble = if (shift >= 64) {
                     0
                 } else {
-                    lowNibble(bits.shr(x, shift))
+                    lowNibble(bits.shiftRight(x, shift))
                 };
                 character.fromDigit(nibble, 16).withDefault('0')
             }),
@@ -234,7 +234,7 @@ export fn toHex<C: Allocator>(ctx: C, x: Int, width: Int): Str {
 /// back rather than `% 16`, because the input is a logical shift of a possibly
 /// negative `Int` and `%` keeps the sign.
 fn lowNibble(x: Int): Int {
-    bits.shr(bits.shl(x, 60), 60)
+    bits.shiftRight(bits.shiftLeft(x, 60), 60)
 }
 
 /// How many hexadecimal digits `x` needs, counting down from `upper` — 16 for
@@ -242,7 +242,7 @@ fn lowNibble(x: Int): Int {
 fn significantNibbles(x: Int, upper: Int): Int {
     if (upper <= 1) {
         1
-    } else if (bits.shr(x, (upper - 1) * 4) != 0) {
+    } else if (bits.shiftRight(x, (upper - 1) * 4) != 0) {
         upper
     } else {
         significantNibbles(x, upper - 1)
@@ -251,7 +251,7 @@ fn significantNibbles(x: Int, upper: Int): Int {
 
 // --- Integer arithmetic ----------------------------------------------------------
 //
-// `Int` only, and every one written out of `/`, `%` and `Checked`. `math.pow`
+// `Int` only, and every one written out of `/`, `%` and `Checked`. `math.power`
 // is the `Float` answer to `power` and rounds; these do not.
 
 /// `base` raised to `exponent`, or `.None` when the answer is not an `Int`.
@@ -361,9 +361,9 @@ export fn leastCommonMultiple(a: Int, b: Int): Option<Int> {
     }
 }
 
-/// The quotient that pairs with `remEuclid`, so
-/// `divideEuclidean(a, b) * b + remEuclid(a, b)` is `a` for every non-zero `b`
-/// — a negative one included, where `divFloor` and `remEuclid` part company.
+/// The quotient that pairs with `remainderEuclidean`, so
+/// `divideEuclidean(a, b) * b + remainderEuclidean(a, b)` is `a` for every non-zero `b`
+/// — a negative one included, where `divideFloor` and `remainderEuclidean` part company.
 ///
 /// ```buri
 /// from "core/number" import * as number;
@@ -423,7 +423,7 @@ export fn quotientRemainder(dividend: Int, divisor: Int): (Int, Int) {
 /// }
 /// ```
 ///
-/// Exact, which `math.sqrt(x.toF64())` stops being above `2^53`.
+/// Exact, which `math.squareRoot(x.toF64())` stops being above `2^53`.
 ///
 /// Newton's method from a power of two above the answer: about six divisions
 /// for a small number and never more than thirty-three.
@@ -435,7 +435,7 @@ export fn integerSquareRoot(value: Int): Option<Int> {
     } else {
         // Half the bit length, rounded up. At or above the root for every
         // `value`, and at most `2^32`, so `x + value / x` stays inside `Int`.
-        .Some(newton(value, bits.shl(1, (65 - bits.leadingZeros(value)) / 2)))
+        .Some(newton(value, bits.shiftLeft(1, (65 - bits.leadingZeros(value)) / 2)))
     }
 }
 

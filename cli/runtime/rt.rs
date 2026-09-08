@@ -2392,7 +2392,7 @@ mod tests {
 
         // A duration that is not positive returns at once, exactly as before.
         // A second is a very loose bound and it is the right one: the failure
-        // this guards against is the `millis > 0` test going away, and then
+        // this guards against is the `milliseconds > 0` test going away, and then
         // `-5` widens to a `u64` of eighteen quintillion milliseconds and the
         // process never comes back. A tight bound would buy nothing and would
         // fail on a loaded machine.

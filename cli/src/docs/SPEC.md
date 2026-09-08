@@ -1015,7 +1015,7 @@ Comparison is non-associative: `a < b < c` is a parse error.
 Bitwise operators bind tighter than comparison (as in Rust), so `a & MASK == 0`
 means `(a & MASK) == 0`.
 
-There is no `<<` or `>>`. Use `bits.shl(x, n)` and `bits.shr(x, n)`. See
+There is no `<<` or `>>`. Use `bits.shiftLeft(x, n)` and `bits.shiftRight(x, n)`. See
 `design/grammar-rationale.md` 12.6.
 
 ### 6.2 Arithmetic
@@ -1159,7 +1159,7 @@ the checker reports that as an error wherever a block may stand.
 let hypotenuse = {
   let a2 = a * a;
   let b2 = b * b;
-  math.sqrt(a2 + b2)
+  math.squareRoot(a2 + b2)
 };
 ```
 
@@ -2336,13 +2336,13 @@ from "core/testing/assert" import * as assert;
 | Function | Meaning |
 |---|---|
 | `assert.equal(a, b)` | Fails unless `a == b`. Requires `Equal`, and `Show` for the message. |
-| `assert.notEq(a, b)` | The negation. |
+| `assert.notEqual(a, b)` | The negation. |
 | `assert.isTrue(b)` / `assert.isFalse(b)` | On a `Bool`. |
 | `assert.contains(xs, x)` | Fails unless `x` is an element of `xs`. |
 | `assert.isEmpty(xs)` / `assert.notEmpty(xs)` | On a list. |
 | `assert.length(xs, n)` | Fails unless `xs` holds exactly `n` elements. |
-| `assert.gt(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ordered`. |
-| `assert.approxEq(a, b, tolerance)` | On `Float`, within an absolute tolerance. |
+| `assert.greaterThan(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ordered`. |
+| `assert.approximatelyEqual(a, b, tolerance)` | On `Float`, within an absolute tolerance. |
 | `assert.ok(r)` | Fails unless `r` is `.Ok`; **returns the wrapped value**. |
 | `assert.err(r)` | Fails unless `r` is `.Err`; returns the error. |
 | `assert.some(o)` | Fails unless `o` is `.Some`; returns the wrapped value. |

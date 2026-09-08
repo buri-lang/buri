@@ -2,11 +2,11 @@
 # message each produces is recorded rather than assumed. The twenty-two of them
 # take three shapes:
 #
-#   * `equal`, `eqWith`, `notEq`, `contains`, `containsText`, `startsWith`,
-#     `isEmpty`, `len`, `unordered`, `gt`, `ge`, `lt`, `le`, `approxEq` and
-#     `approxEqRelative` render both sides — which is what the widened set is
+#   * `equal`, `equalWith`, `notEqual`, `contains`, `containsText`, `startsWith`,
+#     `isEmpty`, `len`, `unordered`, `gt`, `ge`, `lt`, `le`, `approximatelyEqual` and
+#     `approximatelyEqualRelative` render both sides — which is what the widened set is
 #     *for*: `isTrue(xs.contains(x))` printed "expected true, got false" and
-#     named neither the list nor the element. `eqWith` is the one whose values
+#     named neither the list nor the element. `equalWith` is the one whose values
 #     have no `Equal` between them at all, and `unordered` the one that reports the
 #     sorted pair rather than the pair it was handed;
 #   * `isTrue`, `isFalse`, `ok`, `err`, `some` and `none` render the value they

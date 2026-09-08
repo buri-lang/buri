@@ -115,7 +115,7 @@ export struct HostClock {}
 impl Clock for HostClock {
     fn nowMilliseconds(self): I64;
 
-    fn sleepMilliseconds(self, millis: Int): ();
+    fn sleepMilliseconds(self, milliseconds: Int): ();
 
     fn monotonicNanoseconds(self): I64;
 }
@@ -212,7 +212,7 @@ impl Listen for HostListen {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError>;
 
     fn listenAccept(self, handle: Int): Result<Int, ServeError>;

@@ -17,14 +17,14 @@ fn hex32(x: U32): Str {
     let ctx = context {
         Allocator: alloc(),
     };
-    bytes.toHex(ctx, bytes.fromU32Be(x))
+    bytes.toHex(ctx, bytes.fromU32BigEndian(x))
 }
 
 fn hex64(x: U64): Str {
     let ctx = context {
         Allocator: alloc(),
     };
-    bytes.toHex(ctx, bytes.fromU64Be(x))
+    bytes.toHex(ctx, bytes.fromU64BigEndian(x))
 }
 
 fn octets(text: Str): [U8] {
@@ -82,8 +82,8 @@ test "stepping one octet at a time is the same hash" {
 // A hash that ignored an octet, or folded them in the wrong order, would still
 // pass every vector above if the vectors were all it had.
 test "order and content both matter" {
-    assert.notEq(hash.fnv1a32(octets("ab")), hash.fnv1a32(octets("ba")));
-    assert.notEq(hash.fnv1a64(octets("ab")), hash.fnv1a64(octets("ba")));
+    assert.notEqual(hash.fnv1a32(octets("ab")), hash.fnv1a32(octets("ba")));
+    assert.notEqual(hash.fnv1a64(octets("ab")), hash.fnv1a64(octets("ba")));
 }
 
 // --- CRC-32C ------------------------------------------------------------------------
@@ -147,13 +147,13 @@ test "the SipHash-2-4 reference vectors" {
 // same input with a zero on the end are not the same hash. Without that byte
 // they would be.
 test "trailing zeros are not free" {
-    assert.notEq(hash.siphash24(K0, K1, [0]), hash.siphash24(K0, K1, [0, 0]));
+    assert.notEqual(hash.siphash24(K0, K1, [0]), hash.siphash24(K0, K1, [0, 0]));
 }
 
 test "the key is part of the answer" {
     let body = octets("foobar");
-    assert.notEq(hash.siphash24(K0, K1, body), hash.siphash24(K1, K0, body));
-    assert.notEq(hash.siphash24(K0, K1, body), hash.siphash24(0, 0, body));
+    assert.notEqual(hash.siphash24(K0, K1, body), hash.siphash24(K1, K0, body));
+    assert.notEqual(hash.siphash24(K0, K1, body), hash.siphash24(0, 0, body));
 }
 
 // --- Nothing here is a digest -------------------------------------------------------
@@ -162,6 +162,6 @@ test "the key is part of the answer" {
 // values, so two inputs sharing one is a coincidence rather than a scandal.
 // This is the test that says the module knows what it is.
 test "a checksum is four octets wide and says so" {
-    assert.equal(bytes.fromU32Be(hash.crc32c(octets("x"))).length(), 4);
-    assert.equal(bytes.fromU64Be(hash.fnv1a64(octets("x"))).length(), 8);
+    assert.equal(bytes.fromU32BigEndian(hash.crc32c(octets("x"))).length(), 4);
+    assert.equal(bytes.fromU64BigEndian(hash.fnv1a64(octets("x"))).length(), 8);
 }

@@ -93,7 +93,7 @@ test "toDays and fromDays are inverses" {
     assert.isTrue(cases.all(fn(c) => date.fromDays(date.toDays(c)) == c));
 }
 
-// The era of Hinnant's algorithm is `number.divFloor(y, 400)`, and the branch that
+// The era of Hinnant's algorithm is `number.divideFloor(y, 400)`, and the branch that
 // matters is the one below year zero: a truncating `/` there puts the date in
 // the wrong era and every answer that follows it is wrong by a day or more. The
 // calendar is proleptic Gregorian, so these years exist and have answers.
@@ -195,7 +195,7 @@ test "an instant well before the epoch lands on the right day and time" {
     assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.hour, 23);
     assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.minute, 59);
     assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.second, 59);
-    assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.milli, 999);
+    assert.equal(date.fromInstant(Instant(-dayMillis - 1)).time.millisecond, 999);
     // And the round trip, which is what the two of them together promise.
     let dt = DateTime { date: d(1900, 3, 1), time: assert.some(date.time(0, 0, 0, 1)) };
     assert.equal(date.fromInstant(date.toInstant(dt)), dt);
@@ -212,7 +212,7 @@ test "an instant carries the time of day" {
     assert.equal(dt.time.hour, 13);
     assert.equal(dt.time.minute, 45);
     assert.equal(dt.time.second, 1);
-    assert.equal(dt.time.milli, 500);
+    assert.equal(dt.time.millisecond, 500);
 }
 
 // Before the epoch the division has to floor rather than truncate, or the date
@@ -220,7 +220,7 @@ test "an instant carries the time of day" {
 test "an instant before the epoch lands on the right day" {
     assert.equal(date.fromInstant(Instant(-1)).date, d(1969, 12, 31));
     assert.equal(date.fromInstant(Instant(-1)).time.hour, 23);
-    assert.equal(date.fromInstant(Instant(-1)).time.milli, 999);
+    assert.equal(date.fromInstant(Instant(-1)).time.millisecond, 999);
 }
 
 test "instants and date-times are inverses" {
@@ -239,15 +239,15 @@ test "durations are lengths and instants are points" {
     assert.equal(date.between(a, b).minutes(), 1);
     assert.equal(date.between(b, a), time.seconds(-90));
     assert.equal(date.plus(a, time.seconds(90)), b);
-    assert.equal(time.millis(date.MILLIS_PER_DAY).days(), 1);
-    assert.equal(time.millis(date.MILLIS_PER_HOUR).hours(), 1);
+    assert.equal(time.milliseconds(date.MILLISECONDS_PER_DAY).days(), 1);
+    assert.equal(time.milliseconds(date.MILLISECONDS_PER_HOUR).hours(), 1);
 }
 
 test "the calendar's Duration is core/time's, re-exported and not a copy" {
     // Imported here from `core/date` and there from `core/time`: one type, so
     // a value built by one module's constructor is read by the other's getter.
     let borrowed: Duration = time.seconds(1);
-    assert.equal(borrowed.millis(), 1000);
+    assert.equal(borrowed.milliseconds(), 1000);
     assert.equal(date.between(Instant(0), Instant(1000)), borrowed);
 }
 

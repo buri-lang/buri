@@ -27,25 +27,25 @@ test "a struct literal equals the same struct built by a function" {
 }
 
 test "a difference in the last field is still a difference" {
-    assert.notEq(version(1, 2, 3), version(1, 2, 4));
+    assert.notEqual(version(1, 2, 3), version(1, 2, 4));
 }
 
 test "a difference in the first field is a difference" {
-    assert.notEq(version(1, 2, 3), version(9, 2, 3));
+    assert.notEqual(version(1, 2, 3), version(9, 2, 3));
 }
 
 test "derived Equal on a payload-free enum variant" {
     assert.equal(Level.Medium, Level.Medium);
-    assert.notEq(Level.Medium, Level.High);
+    assert.notEqual(Level.Medium, Level.High);
 }
 
 test "derived Equal on an enum recurses into the payload" {
     assert.equal(Shape.Circle(2.0), Shape.Circle(2.0));
-    assert.notEq(Shape.Circle(2.0), Shape.Circle(2.5));
+    assert.notEqual(Shape.Circle(2.0), Shape.Circle(2.5));
 }
 
 test "derived Equal distinguishes variants with the same shape of payload" {
-    assert.notEq(Shape.Circle(2.0), Shape.Empty);
+    assert.notEqual(Shape.Circle(2.0), Shape.Empty);
 }
 
 test "derived Equal on a record-payload variant compares fields" {
@@ -53,7 +53,7 @@ test "derived Equal on a record-payload variant compares fields" {
         width: 2.0,
         height: 3.0,
     });
-    assert.notEq(Shape.Rect { width: 2.0, height: 3.0 }, Shape.Rect {
+    assert.notEqual(Shape.Rect { width: 2.0, height: 3.0 }, Shape.Rect {
         width: 3.0,
         height: 2.0,
     });
@@ -160,7 +160,7 @@ test "derived Show is a function of the value" {
         Allocator: alloc(),
     };
     assert.equal(version(1, 2, 3).show(ctx), version(1, 2, 3).show(ctx));
-    assert.notEq(version(1, 2, 3).show(ctx), version(1, 2, 4).show(ctx));
+    assert.notEqual(version(1, 2, 3).show(ctx), version(1, 2, 4).show(ctx));
 }
 
 // -----------------------------------------------------------------------------
@@ -271,17 +271,17 @@ test "derived Hash agrees on equal values" {
 }
 
 test "derived Hash separates values that differ in one field" {
-    assert.notEq(version(4, 5, 6).hash(), version(4, 5, 7).hash());
+    assert.notEqual(version(4, 5, 6).hash(), version(4, 5, 7).hash());
 }
 
 test "derived Hash on an enum separates variants" {
     assert.equal(Level.Low.hash(), Level.Low.hash());
-    assert.notEq(Level.Low.hash(), Level.High.hash());
+    assert.notEqual(Level.Low.hash(), Level.High.hash());
 }
 
 test "derived Hash on a newtype is stable" {
     assert.equal(Count(17).hash(), Count(17).hash());
-    assert.notEq(Count(17).hash(), Count(18).hash());
+    assert.notEqual(Count(17).hash(), Count(18).hash());
 }
 
 // -----------------------------------------------------------------------------
@@ -406,7 +406,7 @@ test "the hand-written enum Ordered sorts into bridge order" {
 
 test "a hand-written enum Equal is what == uses" {
     assert.equal(Suit.Hearts, Suit.Hearts);
-    assert.notEq(Suit.Hearts, Suit.Spades);
+    assert.notEqual(Suit.Hearts, Suit.Spades);
 }
 
 test "a hand-written Show on an enum replaces the structural one" {
@@ -426,7 +426,7 @@ test "a hand-written Equal may ignore a field entirely" {
 }
 
 test "a hand-written Equal decides what != means too" {
-    assert.notEq(Loose { word: "abc", ignored: 1 }, Loose { word: "abcd", ignored: 1 });
+    assert.notEqual(Loose { word: "abc", ignored: 1 }, Loose { word: "abcd", ignored: 1 });
 }
 
 test "assert.equal goes through the type's own Equal" {
@@ -540,10 +540,10 @@ test "area matches on all three payload shapes" {
 
 test "a type that recurses through a list can be compared" {
     assert.equal(Rose.Leaf(1), Rose.Leaf(1));
-    assert.notEq(Rose.Leaf(1), Rose.Leaf(2));
+    assert.notEqual(Rose.Leaf(1), Rose.Leaf(2));
     assert.equal(Rose.Branch([Rose.Leaf(1)]), Rose.Branch([Rose.Leaf(1)]));
-    assert.notEq(Rose.Branch([Rose.Leaf(1)]), Rose.Branch([Rose.Leaf(2)]));
-    assert.notEq(Rose.Branch([]), Rose.Leaf(0));
+    assert.notEqual(Rose.Branch([Rose.Leaf(1)]), Rose.Branch([Rose.Leaf(2)]));
+    assert.notEqual(Rose.Branch([]), Rose.Leaf(0));
 }
 
 test "a type that recurses through a list can be rendered" {

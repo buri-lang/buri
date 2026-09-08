@@ -16,7 +16,7 @@ from "//lib/money" import { Cents, fromCents };
 
 let HEX_DIGITS: Str = "0123456789abcdef";
 
-let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
 
 struct Ledger {
     entries: I64,
@@ -138,7 +138,7 @@ test "the suite is held to every rule the library is" {
     assert.equal(depth(5), "small");
     assert.equal(spell(7), "seven");
     assert.equal(HEX_DIGITS.length(), 16);
-    assert.equal(NANOS_PER_MILLISECOND, 1_000_000);
+    assert.equal(NANOSECONDS_PER_MILLISECOND, 1_000_000);
     assert.equal(fromCents(1), Cents(1));
     match (shade) {
         _ => (),

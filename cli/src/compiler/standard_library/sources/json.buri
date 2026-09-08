@@ -608,7 +608,7 @@ impl Json {
         }
     }
 
-    export fn asNum(self): Option<Float> {
+    export fn asNumber(self): Option<Float> {
         match (self) {
             .Num(x) => .Some(x),
             _ => .None,

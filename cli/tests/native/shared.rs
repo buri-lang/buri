@@ -309,6 +309,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
@@ -321,7 +322,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(c, request) => http.text(c, request.path()),
     requestLimit: .Some(1),
-    idleTimeoutMillis: .Some(20000),
+    idleTimeout: .Some(time.milliseconds(20000)),
   }};
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
@@ -377,11 +378,11 @@ export fn main(): Result<(), Str> {{
   let plan = server.Server {{
     port: 0,
     onRequest: fn(c, request) => {{
-      let _slept = time.sleepMs(c, {sleep});
+      let _slept = time.sleep(c, time.milliseconds({sleep}));
       http.text(c, request.path())
     }},
     requestLimit: .Some({requests}),
-    idleTimeoutMillis: .Some(60000),
+    idleTimeout: .Some(time.milliseconds(60000)),
   }};
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
@@ -649,7 +650,7 @@ unsafe extern "C" {
 /// A Buri server that **cannot stop on its own**, so that the only thing that
 /// can end it is a signal.
 ///
-/// No `requestLimit` and no `idleTimeoutMillis`: the two fields that let every
+/// No `requestLimit` and no `idleTimeoutMilliseconds`: the two fields that let every
 /// other server fixture in this file finish are deliberately absent, so a
 /// `.Ok(())` out of `serve` — which is what "served" on the last line reports —
 /// can only have come from the drain. A shutdown that did not work leaves a
@@ -685,10 +686,10 @@ export fn main(): Result<(), Str> {{
       let _handling = io.println(c, "handling").ignore();
       let flush = "x".repeat(c, {pad});
       let _flushed = io.println(c, flush).ignore();
-      let _slept = time.sleepMs(c, {sleep});
+      let _slept = time.sleep(c, time.milliseconds({sleep}));
       http.text(c, request.path())
     }},
-    drainMillis: .Some(10000),
+    drain: .Some(time.milliseconds(10000)),
   }};
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
@@ -1129,6 +1130,7 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
@@ -1141,7 +1143,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(_c, _request) => http.status(204),
     protocols: .Some([.Http2]),
-    idleTimeoutMillis: .Some(200),
+    idleTimeout: .Some(time.milliseconds(200)),
   }};
   let _h2 = match (server.bind(ctx, h2)) {{
     .Err(e) => io.println(ctx, "h2 ${{e.detail}}").ignore(),
@@ -1151,7 +1153,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(_c, _request) => http.status(204),
     tls: .Some(server.Tls {{ certificate: "{absent}", key: "{key}" }}),
-    idleTimeoutMillis: .Some(200),
+    idleTimeout: .Some(time.milliseconds(200)),
   }};
   let _missing = match (server.bind(ctx, missing)) {{
     .Err(e) => io.println(ctx, "missing ${{e.detail}}").ignore(),
@@ -1162,7 +1164,7 @@ export fn main(): Result<(), Str> {{
     onRequest: fn(_c, _request) => http.status(204),
     protocols: .Some([.Http1, .Http2]),
     tls: .Some(server.Tls {{ certificate: "{certificate}", key: "{key}" }}),
-    idleTimeoutMillis: .Some(200),
+    idleTimeout: .Some(time.milliseconds(200)),
   }};
   match (server.bind(ctx, secured)) {{
     .Err(e) => .Err(server.errorText(e)),
@@ -1270,6 +1272,7 @@ from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
+from "core/time" import * as time;
 
 enum Counting {{
   Increment,
@@ -1298,7 +1301,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(_c, _request) => http.status(404),
     requestLimit: .Some(1),
-    idleTimeoutMillis: .Some(20000),
+    idleTimeout: .Some(time.milliseconds(20000)),
     websocket: .Some(server.WebSocket {{
       path: "/socket",
       onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
@@ -1366,6 +1369,7 @@ from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/net/server" import {{ Message, Socket }};
+from "core/time" import * as time;
 
 enum Room {{
   Joined(Socket),
@@ -1412,7 +1416,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(_c, _request) => http.status(404),
     requestLimit: .Some({members}),
-    idleTimeoutMillis: .Some(20000),
+    idleTimeout: .Some(time.milliseconds(20000)),
     websocket: .Some(server.WebSocket {{
       path: "/socket",
       onOpen: fn(c, socket, _request) => {{

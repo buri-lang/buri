@@ -998,7 +998,7 @@ test "chars compare by code point" {
     assert.isTrue('a' < 'b');
     assert.isTrue('A' < 'a');
     assert.equal('a', 'a');
-    assert.notEq('a', 'b');
+    assert.notEqual('a', 'b');
 }
 
 // A `Char` is a Unicode scalar value, so `<` on one is its integer order —
@@ -1033,7 +1033,7 @@ test "two separately built strings with equal contents are equal" {
 }
 
 test "string equality is case sensitive" {
-    assert.notEq("abc", "ABC");
+    assert.notEqual("abc", "ABC");
 }
 
 test "strings compare with the relational operators" {

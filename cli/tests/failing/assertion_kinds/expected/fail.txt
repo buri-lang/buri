@@ -3,13 +3,13 @@ FAIL //lib/asserts  test/asserts.buri  "eq"
     actual:   1
     expected: 2
   --> lib/asserts/test/asserts.buri:15:1
-FAIL //lib/asserts  test/asserts.buri  "eqWith"
-  assert.eqWith failed
+FAIL //lib/asserts  test/asserts.buri  "equalWith"
+  assert.equalWith failed
     actual:   Map { buckets: [[], [], [], [], [], [], [("a", 1)], []], size: 1 }
     expected: Map { buckets: [[], [], [], [], [], [], [("a", 2)], []], size: 1 }
   --> lib/asserts/test/asserts.buri:19:1
-FAIL //lib/asserts  test/asserts.buri  "notEq"
-  assert.notEq failed
+FAIL //lib/asserts  test/asserts.buri  "notEqual"
+  assert.notEqual failed
     actual:   5
     expected: 5
   --> lib/asserts/test/asserts.buri:28:1
@@ -57,32 +57,32 @@ FAIL //lib/asserts  test/asserts.buri  "unordered"
     expected: [1, 2, 4]
   --> lib/asserts/test/asserts.buri:64:1
 FAIL //lib/asserts  test/asserts.buri  "gt"
-  assert.gt failed
+  assert.greaterThan failed
     actual:   3
     expected: 5
   --> lib/asserts/test/asserts.buri:71:1
 FAIL //lib/asserts  test/asserts.buri  "ge"
-  assert.ge failed
+  assert.greaterOrEqual failed
     actual:   3
     expected: 5
   --> lib/asserts/test/asserts.buri:75:1
 FAIL //lib/asserts  test/asserts.buri  "lt"
-  assert.lt failed
+  assert.lessThan failed
     actual:   5
     expected: 3
   --> lib/asserts/test/asserts.buri:79:1
 FAIL //lib/asserts  test/asserts.buri  "le"
-  assert.le failed
+  assert.lessOrEqual failed
     actual:   5
     expected: 3
   --> lib/asserts/test/asserts.buri:83:1
-FAIL //lib/asserts  test/asserts.buri  "approxEq"
-  assert.approxEq failed
+FAIL //lib/asserts  test/asserts.buri  "approximatelyEqual"
+  assert.approximatelyEqual failed
     actual:   1.0
     expected: 1.5
   --> lib/asserts/test/asserts.buri:87:1
-FAIL //lib/asserts  test/asserts.buri  "approxEqRelative"
-  assert.approxEqRelative failed
+FAIL //lib/asserts  test/asserts.buri  "approximatelyEqualRelative"
+  assert.approximatelyEqualRelative failed
     actual:   1000000.0
     expected: 1001000.0
   --> lib/asserts/test/asserts.buri:91:1

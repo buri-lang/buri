@@ -7,7 +7,7 @@ from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-fn push(x: U32, n: Int): U32 { bits.shlU32(x, n) }
+fn push(x: U32, n: Int): U32 { bits.shiftLeftU32(x, n) }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };

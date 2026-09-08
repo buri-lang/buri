@@ -95,7 +95,7 @@ test "derived `Hash` agrees with derived `Equal` across the two spellings" {
 
 test "a difference in a field is still a difference" {
     let anon: World = { hi: "hi" };
-    assert.notEq(anon, World { hi: "bye" });
+    assert.notEqual(anon, World { hi: "bye" });
 }
 
 // -----------------------------------------------------------------------------

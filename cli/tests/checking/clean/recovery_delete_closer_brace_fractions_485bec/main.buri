@@ -16,11 +16,11 @@ from "core/time" import * as time;
 from "core/time" import { Duration };
 
 test "secondsFloat takes a fraction of a second" {
-    assert.equal(time.secondsFloat(0.25), time.millis(250));
-    assert.equal(time.secondsFloat(1.5), time.millis(1500));
+    assert.equal(time.secondsFloat(0.25), time.milliseconds(250));
+    assert.equal(time.secondsFloat(1.5), time.milliseconds(1500));
     assert.equal(time.secondsFloat(0.0), time.ZERO);
-    assert.equal(time.secondsFloat(0.0 - 0.25), time.millis(0 - 250));
-    assert.equal(time.secondsFloat(1e-9), time.nanos(1));
+    assert.equal(time.secondsFloat(0.0 - 0.25), time.milliseconds(0 - 250));
+    assert.equal(time.secondsFloat(1e-9), time.nanoseconds(1));
     // Finer than a nanosecond truncates toward zero.
     assert.equal(time.secondsFloat(1e-10), time.ZERO);
 }
@@ -32,11 +32,11 @@ test "a fraction no Duration can hold saturates, and a NaN is nothing" {
     assert.equal(time.secondsFloat(0.0 - 1.0 / 0.0), Duration(number.minValue<I64>()));
     assert.equal(time.secondsFloat(0.0 / 0.0), time.ZERO);
     // A count of seconds whose nanoseconds are not exact still converts.
-    assert.equal(time.secondsFloat(0.1), time.millis(100));
+    assert.equal(time.secondsFloat(0.1), time.milliseconds(100));
 }
 
 test "secondsFloat and asSecondsFloat invert each other" {
-    assert.approxEq(time.secondsFloat(0.125).asSecondsFloat(), 0.125, 1e-9;
-    assert.approxEq(time.secondsFloat(3.0).asSecondsFloat(), 3.0, 1e-9);
-    assert.approxEq(time.secondsFloat(0.0 - 1.5).asSecondsFloat(), 0.0 - 1.5, 1e-9);
+    assert.approximatelyEqual(time.secondsFloat(0.125).asSecondsFloat(), 0.125, 1e-9;
+    assert.approximatelyEqual(time.secondsFloat(3.0).asSecondsFloat(), 3.0, 1e-9);
+    assert.approximatelyEqual(time.secondsFloat(0.0 - 1.5).asSecondsFloat(), 0.0 - 1.5, 1e-9);
 }

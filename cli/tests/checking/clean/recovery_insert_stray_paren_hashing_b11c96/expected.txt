@@ -1,7 +1,7 @@
 error: expected an expression, found `,` [unexpected-token]
   --> main.buri:21:30
    |
-21 |     assert.notEq(one.hash(), , uuid.zero().hash());
+21 |     assert.notEqual(one.hash(), , uuid.zero().hash());
    |                              ^
    |
    = expected: an expression

@@ -1,6 +1,6 @@
 // Bit manipulation — `core/bits`.
 //
-// `shl` and `shr` are functions rather than operators because there is no `<<`
+// `shiftLeft` and `shiftRight` are functions rather than operators because there is no `<<`
 // or `>>` token (design/grammar-rationale.md 12.6), so the whole of this file
 // is ordinary calls. The wide operations work on `Int`, which is `I64`; the
 // `U8`, `U32` and `U64` forms are named separately because a method's receiver,
@@ -16,73 +16,73 @@ from "core/testing/assert" import * as assert;
 // --- shl ---------------------------------------------------------------------------
 
 test "shl shifts toward the high bits" {
-    assert.equal(bits.shl(1, 0), 1);
-    assert.equal(bits.shl(1, 1), 2);
-    assert.equal(bits.shl(1, 10), 1024);
-    assert.equal(bits.shl(3, 4), 48);
-    assert.equal(bits.shl(0, 17), 0);
+    assert.equal(bits.shiftLeft(1, 0), 1);
+    assert.equal(bits.shiftLeft(1, 1), 2);
+    assert.equal(bits.shiftLeft(1, 10), 1024);
+    assert.equal(bits.shiftLeft(3, 4), 48);
+    assert.equal(bits.shiftLeft(0, 17), 0);
 }
 
 test "shl is multiplication by a power of two while the product fits" {
-    assert.equal(bits.shl(5, 3), 5 * 8);
-    assert.equal(bits.shl(-5, 3), -5 * 8);
-    assert.equal(bits.shl(1234567, 10), 1234567 * 1024);
+    assert.equal(bits.shiftLeft(5, 3), 5 * 8);
+    assert.equal(bits.shiftLeft(-5, 3), -5 * 8);
+    assert.equal(bits.shiftLeft(1234567, 10), 1234567 * 1024);
 }
 
 test "shl by sixty-three lands on the sign bit" {
-    assert.equal(bits.shl(1, 63), number.minValue<I64>());
-    assert.equal(bits.shl(1, 62), 4611686018427387904);
+    assert.equal(bits.shiftLeft(1, 63), number.minValue<I64>());
+    assert.equal(bits.shiftLeft(1, 62), 4611686018427387904);
 }
 
 // --- shr and sar ----------------------------------------------------------------------
 
 test "shr shifts toward the low bits" {
-    assert.equal(bits.shr(1024, 3), 128);
-    assert.equal(bits.shr(1, 1), 0);
-    assert.equal(bits.shr(255, 4), 15);
-    assert.equal(bits.shr(0, 5), 0);
-    assert.equal(bits.shr(1024, 0), 1024);
+    assert.equal(bits.shiftRight(1024, 3), 128);
+    assert.equal(bits.shiftRight(1, 1), 0);
+    assert.equal(bits.shiftRight(255, 4), 15);
+    assert.equal(bits.shiftRight(0, 5), 0);
+    assert.equal(bits.shiftRight(1024, 0), 1024);
 }
 
 test "shr is division by a power of two for a non-negative value" {
-    assert.equal(bits.shr(1000, 3), 1000 / 8);
-    assert.equal(bits.shr(9007199254740992, 10), 9007199254740992 / 1024);
+    assert.equal(bits.shiftRight(1000, 3), 1000 / 8);
+    assert.equal(bits.shiftRight(9007199254740992, 10), 9007199254740992 / 1024);
 }
 
 test "shr fills with zeros rather than with the sign bit" {
-    assert.equal(bits.shr(-1, 1), number.maxValue<I64>());
-    assert.equal(bits.shr(number.minValue<I64>(), 63), 1);
+    assert.equal(bits.shiftRight(-1, 1), number.maxValue<I64>());
+    assert.equal(bits.shiftRight(number.minValue<I64>(), 63), 1);
 }
 
 test "shr by zero is the identity, on a negative value too" {
     // Whatever a logical shift means for a negative `Int`, a shift by zero
     // returns the value, and the result has to be an `Int`.
-    assert.equal(bits.shr(-1, 0), -1);
-    assert.equal(bits.shr(number.minValue<I64>(), 0), number.minValue<I64>());
+    assert.equal(bits.shiftRight(-1, 0), -1);
+    assert.equal(bits.shiftRight(number.minValue<I64>(), 0), number.minValue<I64>());
 }
 
 test "sar replicates the sign bit" {
-    assert.equal(bits.sar(-8, 1), -4);
-    assert.equal(bits.sar(-1, 1), -1);
-    assert.equal(bits.sar(-1, 63), -1);
-    assert.equal(bits.sar(number.minValue<I64>(), 63), -1);
-    assert.equal(bits.sar(-1024, 3), -128);
+    assert.equal(bits.shiftRightArithmetic(-8, 1), -4);
+    assert.equal(bits.shiftRightArithmetic(-1, 1), -1);
+    assert.equal(bits.shiftRightArithmetic(-1, 63), -1);
+    assert.equal(bits.shiftRightArithmetic(number.minValue<I64>(), 63), -1);
+    assert.equal(bits.shiftRightArithmetic(-1024, 3), -128);
 }
 
 test "sar rounds toward negative infinity, unlike division" {
-    assert.equal(bits.sar(-7, 1), -4);
+    assert.equal(bits.shiftRightArithmetic(-7, 1), -4);
     assert.equal(-7 / 2, -3);
 }
 
 test "shr and sar agree on a non-negative value" {
-    assert.equal(bits.shr(1024, 3), bits.sar(1024, 3));
-    assert.equal(bits.shr(12345, 7), bits.sar(12345, 7));
-    assert.equal(bits.shr(number.maxValue<I64>(), 1), bits.sar(number.maxValue<I64>(), 1));
+    assert.equal(bits.shiftRight(1024, 3), bits.shiftRightArithmetic(1024, 3));
+    assert.equal(bits.shiftRight(12345, 7), bits.shiftRightArithmetic(12345, 7));
+    assert.equal(bits.shiftRight(number.maxValue<I64>(), 1), bits.shiftRightArithmetic(number.maxValue<I64>(), 1));
 }
 
 test "a value survives a shift left and back when nothing falls off" {
-    assert.equal(bits.shr(bits.shl(12345, 10), 10), 12345);
-    assert.equal(bits.sar(bits.shl(1, 40), 40), 1);
+    assert.equal(bits.shiftRight(bits.shiftLeft(12345, 10), 10), 12345);
+    assert.equal(bits.shiftRightArithmetic(bits.shiftLeft(1, 40), 40), 1);
 }
 
 // --- Counting bits ------------------------------------------------------------------------
@@ -92,7 +92,7 @@ test "popCount counts the one bits" {
     assert.equal(bits.popCount(1), 1);
     assert.equal(bits.popCount(255), 8);
     assert.equal(bits.popCount(0b1010_0110), 4);
-    assert.equal(bits.popCount(bits.shl(1, 63)), 1);
+    assert.equal(bits.popCount(bits.shiftLeft(1, 63)), 1);
 }
 
 // `popCount` reads the bit pattern, so it is exact even where the value is
@@ -124,14 +124,14 @@ test "trailingZeros counts from the bottom" {
 
 test "leadingZeros and trailingZeros bracket a single bit" {
     assert.equal(
-        bits.leadingZeros(bits.shl(1, 20)) + bits.trailingZeros(bits.shl(1, 20)),
+        bits.leadingZeros(bits.shiftLeft(1, 20)) + bits.trailingZeros(bits.shiftLeft(1, 20)),
         63,
     );
     assert.equal(
-        bits.leadingZeros(bits.shl(1, 40)) + bits.trailingZeros(bits.shl(1, 40)),
+        bits.leadingZeros(bits.shiftLeft(1, 40)) + bits.trailingZeros(bits.shiftLeft(1, 40)),
         63,
     );
-    assert.equal(bits.popCount(bits.shl(1, 40)), 1);
+    assert.equal(bits.popCount(bits.shiftLeft(1, 40)), 1);
 }
 
 // --- Rotation --------------------------------------------------------------------------------
@@ -178,55 +178,55 @@ test "a rotation by the whole width less n is the other rotation by n" {
 
 // --- The fixed-width forms ------------------------------------------------------------------------
 
-test "shlU8 and shrU8 work inside eight bits" {
-    assert.equal(bits.shlU8(1, 0), 1);
-    assert.equal(bits.shlU8(1, 7), 128);
-    assert.equal(bits.shlU8(3, 2), 12);
-    assert.equal(bits.shrU8(255, 4), 15);
-    assert.equal(bits.shrU8(128, 7), 1);
-    assert.equal(bits.shrU8(1, 1), 0);
+test "shiftLeftU8 and shiftRightU8 work inside eight bits" {
+    assert.equal(bits.shiftLeftU8(1, 0), 1);
+    assert.equal(bits.shiftLeftU8(1, 7), 128);
+    assert.equal(bits.shiftLeftU8(3, 2), 12);
+    assert.equal(bits.shiftRightU8(255, 4), 15);
+    assert.equal(bits.shiftRightU8(128, 7), 1);
+    assert.equal(bits.shiftRightU8(1, 1), 0);
 }
 
-test "shlU8 drops the bits that leave the byte" {
-    assert.equal(bits.shlU8(255, 1), 254);
-    assert.equal(bits.shlU8(255, 7), 128);
-    assert.equal(bits.shlU8(128, 1), 0);
-    assert.equal(bits.shlU8(number.maxValue<U8>(), 4), 240);
+test "shiftLeftU8 drops the bits that leave the byte" {
+    assert.equal(bits.shiftLeftU8(255, 1), 254);
+    assert.equal(bits.shiftLeftU8(255, 7), 128);
+    assert.equal(bits.shiftLeftU8(128, 1), 0);
+    assert.equal(bits.shiftLeftU8(number.maxValue<U8>(), 4), 240);
 }
 
-test "shlU32 and shrU32 work inside thirty-two bits" {
-    assert.equal(bits.shlU32(1, 31), 2147483648);
-    assert.equal(bits.shlU32(1, 0), 1);
-    assert.equal(bits.shlU32(4294967295, 1), 4294967294);
-    assert.equal(bits.shrU32(4294967295, 16), 65535);
-    assert.equal(bits.shrU32(number.maxValue<U32>(), 31), 1);
-    assert.equal(bits.shrU32(2147483648, 31), 1);
+test "shiftLeftU32 and shiftRightU32 work inside thirty-two bits" {
+    assert.equal(bits.shiftLeftU32(1, 31), 2147483648);
+    assert.equal(bits.shiftLeftU32(1, 0), 1);
+    assert.equal(bits.shiftLeftU32(4294967295, 1), 4294967294);
+    assert.equal(bits.shiftRightU32(4294967295, 16), 65535);
+    assert.equal(bits.shiftRightU32(number.maxValue<U32>(), 31), 1);
+    assert.equal(bits.shiftRightU32(2147483648, 31), 1);
 }
 
 // Shifting right is the direction that stays representable: it can only make
 // the value smaller.
-test "shlU64 and shrU64 work inside sixty-four bits" {
-    assert.equal(bits.shlU64(1, 52), 4503599627370496);
-    assert.equal(bits.shlU64(1, 0), 1);
-    assert.equal(bits.shlU64(9007199254740991, 0), 9007199254740991);
-    assert.equal(bits.shrU64(9007199254740991, 32), 2097151);
-    assert.equal(bits.shrU64(9223372036854775808, 63), 1);
+test "shiftLeftU64 and shiftRightU64 work inside sixty-four bits" {
+    assert.equal(bits.shiftLeftU64(1, 52), 4503599627370496);
+    assert.equal(bits.shiftLeftU64(1, 0), 1);
+    assert.equal(bits.shiftLeftU64(9007199254740991, 0), 9007199254740991);
+    assert.equal(bits.shiftRightU64(9007199254740991, 32), 2097151);
+    assert.equal(bits.shiftRightU64(9223372036854775808, 63), 1);
 }
 
 test "the unsigned and the signed shifts agree on a value that fits both" {
-    assert.equal(bits.shlU64(1024, 5).wrapToI64(), bits.shl(1024, 5));
-    assert.equal(bits.shrU64(1024, 5).wrapToI64(), bits.shr(1024, 5));
-    assert.equal(bits.shlU32(1024, 5).toI64(), bits.shl(1024, 5));
-    assert.equal(bits.shlU8(3, 5).toI64(), bits.shl(3, 5));
+    assert.equal(bits.shiftLeftU64(1024, 5).wrapToI64(), bits.shiftLeft(1024, 5));
+    assert.equal(bits.shiftRightU64(1024, 5).wrapToI64(), bits.shiftRight(1024, 5));
+    assert.equal(bits.shiftLeftU32(1024, 5).toI64(), bits.shiftLeft(1024, 5));
+    assert.equal(bits.shiftLeftU8(3, 5).toI64(), bits.shiftLeft(3, 5));
 }
 
 test "shifting by zero changes nothing at any width" {
-    assert.equal(bits.shl(-12345, 0), -12345);
-    assert.equal(bits.shr(12345, 0), 12345);
-    assert.equal(bits.sar(-12345, 0), -12345);
-    assert.equal(bits.shlU8(200, 0), 200);
-    assert.equal(bits.shrU32(4294967295, 0), 4294967295);
-    assert.equal(bits.shlU64(9007199254740991, 0), 9007199254740991);
+    assert.equal(bits.shiftLeft(-12345, 0), -12345);
+    assert.equal(bits.shiftRight(12345, 0), 12345);
+    assert.equal(bits.shiftRightArithmetic(-12345, 0), -12345);
+    assert.equal(bits.shiftLeftU8(200, 0), 200);
+    assert.equal(bits.shiftRightU32(4294967295, 0), 4294967295);
+    assert.equal(bits.shiftLeftU64(9007199254740991, 0), 9007199254740991);
 }
 
 // --- the bitwise operators are 64-bit ------------------------------------------------
@@ -237,18 +237,18 @@ test "shifting by zero changes nothing at any width" {
 // `core/bitset` walked into it.
 
 test "or keeps bits above 31" {
-    assert.equal(0 | bits.shl(1, 31), 2147483648);
-    assert.equal(0 | bits.shl(1, 40), 1099511627776);
+    assert.equal(0 | bits.shiftLeft(1, 31), 2147483648);
+    assert.equal(0 | bits.shiftLeft(1, 40), 1099511627776);
 }
 
 test "and keeps bits above 31" {
-    assert.equal(bits.shl(1, 40) & bits.shl(1, 40), bits.shl(1, 40));
-    assert.equal(bits.shl(1, 31) & bits.shl(1, 31), 2147483648);
+    assert.equal(bits.shiftLeft(1, 40) & bits.shiftLeft(1, 40), bits.shiftLeft(1, 40));
+    assert.equal(bits.shiftLeft(1, 31) & bits.shiftLeft(1, 31), 2147483648);
 }
 
 test "xor keeps bits above 31" {
-    assert.equal(bits.shl(1, 40) ^ 0, 1099511627776);
-    assert.equal(bits.shl(1, 40) ^ bits.shl(1, 40), 0);
+    assert.equal(bits.shiftLeft(1, 40) ^ 0, 1099511627776);
+    assert.equal(bits.shiftLeft(1, 40) ^ bits.shiftLeft(1, 40), 0);
 }
 
 test "not is the 64-bit complement" {
@@ -259,7 +259,7 @@ test "not is the 64-bit complement" {
     assert.equal(~zero, -1);
     assert.equal(~minusOne, 0);
     // Two's complement: ~x == -x - 1, which only holds if the width is right.
-    assert.equal(~bits.shl(1, 40), -bits.shl(1, 40) - 1);
+    assert.equal(~bits.shiftLeft(1, 40), -bits.shiftLeft(1, 40) - 1);
 }
 
 // The same defect one width down: the native operators return a *signed*
@@ -283,8 +283,8 @@ test "a narrow unsigned complement stays inside its width" {
 }
 
 test "the operators agree with popCount about how many bits there are" {
-    assert.equal(bits.popCount(0 | bits.shl(1, 31)), 1);
-    assert.equal(bits.popCount(bits.shl(1, 40) | bits.shl(1, 20)), 2);
+    assert.equal(bits.popCount(0 | bits.shiftLeft(1, 31)), 1);
+    assert.equal(bits.popCount(bits.shiftLeft(1, 40) | bits.shiftLeft(1, 20)), 2);
     let zero: Int = 0;
     assert.equal(bits.popCount(~zero), 64);
 }
@@ -344,16 +344,16 @@ test "rotateRightU64 is rotateLeftU64's inverse" {
 test "a rotate at every width agrees with the shift pair it is written out of" {
     // `x << n | x >> (w - n)`, spelled with the shifts this module already had.
     let byte: U8 = 203;
-    assert.equal(bits.rotateLeftU8(byte, 3), bits.shlU8(byte, 3) | bits.shrU8(byte, 5));
+    assert.equal(bits.rotateLeftU8(byte, 3), bits.shiftLeftU8(byte, 3) | bits.shiftRightU8(byte, 5));
     let word: U32 = 3735928559;
     assert.equal(
         bits.rotateLeftU32(word, 11),
-        bits.shlU32(word, 11) | bits.shrU32(word, 21),
+        bits.shiftLeftU32(word, 11) | bits.shiftRightU32(word, 21),
     );
     let wide: U64 = 1311768467463790320;
     assert.equal(
         bits.rotateLeftU64(wide, 20),
-        bits.shlU64(wide, 20) | bits.shrU64(wide, 44),
+        bits.shiftLeftU64(wide, 20) | bits.shiftRightU64(wide, 44),
     );
 }
 

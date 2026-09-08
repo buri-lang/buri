@@ -70,7 +70,7 @@ export struct Time {
     export hour: Int,
     export minute: Int,
     export second: Int,
-    export milli: Int,
+    export millisecond: Int,
 }
 
 derive Equal, Ordered, Show, Hash for DateTime;
@@ -98,13 +98,13 @@ export enum Weekday {
     Sunday,
 }
 
-export let MILLIS_PER_SECOND: Int = 1000;
+export let MILLISECONDS_PER_SECOND: Int = 1000;
 
-export let MILLIS_PER_MINUTE: Int = 60000;
+export let MILLISECONDS_PER_MINUTE: Int = 60000;
 
-export let MILLIS_PER_HOUR: Int = 3600000;
+export let MILLISECONDS_PER_HOUR: Int = 3600000;
 
-export let MILLIS_PER_DAY: Int = 86400000;
+export let MILLISECONDS_PER_DAY: Int = 86400000;
 
 // -----------------------------------------------------------------------------
 // The calendar
@@ -146,7 +146,7 @@ export fn date(year: Int, month: Int, day: Int): Option<Date> {
     }
 }
 
-export fn time(hour: Int, minute: Int, second: Int, milli: Int): Option<Time> {
+export fn time(hour: Int, minute: Int, second: Int, millisecond: Int): Option<Time> {
     if (
         hour < 0
             || hour > 23
@@ -154,18 +154,18 @@ export fn time(hour: Int, minute: Int, second: Int, milli: Int): Option<Time> {
             || minute > 59
             || second < 0
             || second > 59
-            || milli < 0
-            || milli > 999
+            || millisecond < 0
+            || millisecond > 999
     ) {
         .None
     } else {
-        .Some(Time { hour: hour, minute: minute, second: second, milli: milli })
+        .Some(Time { hour: hour, minute: minute, second: second, millisecond: millisecond })
     }
 }
 
 /// Midnight, which every date has.
 export fn midnight(d: Date): DateTime {
-    DateTime { date: d, time: Time { hour: 0, minute: 0, second: 0, milli: 0 } }
+    DateTime { date: d, time: Time { hour: 0, minute: 0, second: 0, millisecond: 0 } }
 }
 
 // --- days since the epoch -------------------------------------------------------
@@ -177,7 +177,7 @@ export fn midnight(d: Date): DateTime {
 /// Days from 1970-01-01 to this date. Negative before it.
 export fn toDays(d: Date): Int {
     let y = if (d.month <= 2) { d.year - 1 } else { d.year };
-    let era = number.divFloor(y, 400);
+    let era = number.divideFloor(y, 400);
     let yoe = y - era * 400;
     let mp = (d.month + 9) % 12;
     let doy = (153 * mp + 2) / 5 + d.day - 1;
@@ -188,7 +188,7 @@ export fn toDays(d: Date): Int {
 /// The inverse.
 export fn fromDays(days: Int): Date {
     let z = days + 719468;
-    let era = number.divFloor(z, 146097);
+    let era = number.divideFloor(z, 146097);
     let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe + era * 400;
@@ -201,7 +201,7 @@ export fn fromDays(days: Int): Date {
 
 /// 1970-01-01 was a Thursday, which is what anchors this.
 export fn weekday(d: Date): Weekday {
-    let n = number.remEuclid(toDays(d) + 3, 7);
+    let n = number.remainderEuclidean(toDays(d) + 3, 7);
     if (n == 0) {
         .Monday
     } else if (n == 1) {
@@ -239,8 +239,8 @@ impl Date {
     /// March.
     export fn addMonths(self, n: Int): Date {
         let total = self.year * 12 + (self.month - 1) + n;
-        let year = number.divFloor(total, 12);
-        let month = number.remEuclid(total, 12) + 1;
+        let year = number.divideFloor(total, 12);
+        let month = number.remainderEuclidean(total, 12) + 1;
         let last = daysInMonth(year, month);
         Date {
             year: year,
@@ -330,7 +330,7 @@ export fn isoWeek(date: Date): (Int, Int) {
 
 /// Monday is 1 and Sunday is 7, which is the numbering ISO 8601 uses.
 fn isoWeekday(d: Date): Int {
-    number.remEuclid(toDays(d) + 3, 7) + 1
+    number.remainderEuclidean(toDays(d) + 3, 7) + 1
 }
 
 // -----------------------------------------------------------------------------
@@ -339,18 +339,18 @@ fn isoWeekday(d: Date): Int {
 
 /// The UTC date-time an instant names.
 export fn fromInstant(i: Instant): DateTime {
-    let millis = i.0;
+    let milliseconds = i.0;
     // Floor division and a never-negative remainder, so an instant before the
     // epoch lands on the right day at a real time of day.
-    let days = number.divFloor(millis, MILLIS_PER_DAY);
-    let rest = number.remEuclid(millis, MILLIS_PER_DAY);
+    let days = number.divideFloor(milliseconds, MILLISECONDS_PER_DAY);
+    let rest = number.remainderEuclidean(milliseconds, MILLISECONDS_PER_DAY);
     DateTime {
         date: fromDays(days),
         time: Time {
-            hour: rest / MILLIS_PER_HOUR,
-            minute: rest % MILLIS_PER_HOUR / MILLIS_PER_MINUTE,
-            second: rest % MILLIS_PER_MINUTE / MILLIS_PER_SECOND,
-            milli: rest % MILLIS_PER_SECOND,
+            hour: rest / MILLISECONDS_PER_HOUR,
+            minute: rest % MILLISECONDS_PER_HOUR / MILLISECONDS_PER_MINUTE,
+            second: rest % MILLISECONDS_PER_MINUTE / MILLISECONDS_PER_SECOND,
+            millisecond: rest % MILLISECONDS_PER_SECOND,
         },
     }
 }
@@ -358,11 +358,11 @@ export fn fromInstant(i: Instant): DateTime {
 /// The inverse, reading the date-time as UTC.
 export fn toInstant(dt: DateTime): Instant {
     Instant(
-        toDays(dt.date) * MILLIS_PER_DAY
-            + dt.time.hour * MILLIS_PER_HOUR
-            + dt.time.minute * MILLIS_PER_MINUTE
-            + dt.time.second * MILLIS_PER_SECOND
-            + dt.time.milli,
+        toDays(dt.date) * MILLISECONDS_PER_DAY
+            + dt.time.hour * MILLISECONDS_PER_HOUR
+            + dt.time.minute * MILLISECONDS_PER_MINUTE
+            + dt.time.second * MILLISECONDS_PER_SECOND
+            + dt.time.millisecond,
     )
 }
 
@@ -398,7 +398,7 @@ export fn formatTime<C: Allocator>(ctx: C, time: Time): Str {
     let h = pad(ctx, time.hour, 2);
     let mi = pad(ctx, time.minute, 2);
     let s = pad(ctx, time.second, 2);
-    let ms = pad(ctx, time.milli, 3);
+    let ms = pad(ctx, time.millisecond, 3);
     str.format(ctx, "${h}:${mi}:${s}.${ms}")
 }
 
@@ -468,14 +468,14 @@ fn milliOf(fraction: Str): Option<Int> {
     }
 }
 
-fn hourMinuteSecond<C: Allocator>(ctx: C, clock: Str, milli: Option<Int>): Option<Time> {
+fn hourMinuteSecond<C: Allocator>(ctx: C, clock: Str, millisecond: Option<Int>): Option<Time> {
     let parts = clock.split(ctx, ":");
     if (parts.length() != 3) {
         .None
     } else {
         match ((twoDigits(parts.get(0)), twoDigits(parts.get(1)))) {
             (.Some(h), .Some(m)) => {
-                match ((twoDigits(parts.get(2)), milli)) {
+                match ((twoDigits(parts.get(2)), millisecond)) {
                     (.Some(s), .Some(ms)) => time(h, m, s, ms),
                     _ => .None,
                 }
@@ -622,14 +622,14 @@ fn offsetOf<C: Allocator>(ctx: C, text: Str): Option<Int> {
 /// UTC-05:00 writes it.
 export fn zoned(instant: Instant, offsetMinutes: Int): Zoned {
     Zoned {
-        at: fromInstant(Instant(instant.0 + offsetMinutes * MILLIS_PER_MINUTE)),
+        at: fromInstant(Instant(instant.0 + offsetMinutes * MILLISECONDS_PER_MINUTE)),
         offsetMinutes: offsetMinutes,
     }
 }
 
 /// Back to the moment: the civil time, less its offset.
 export fn zonedToInstant(zoned: Zoned): Instant {
-    Instant(toInstant(zoned.at).0 - zoned.offsetMinutes * MILLIS_PER_MINUTE)
+    Instant(toInstant(zoned.at).0 - zoned.offsetMinutes * MILLISECONDS_PER_MINUTE)
 }
 
 /// `2026-08-15T13:45:00.000+02:00`, and `Z` for an offset of zero — which makes

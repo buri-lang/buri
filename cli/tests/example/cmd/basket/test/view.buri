@@ -224,7 +224,7 @@ test "what changes about a settled row is its class and nothing else" {
 
     // Both branches of the style's `When` were extracted at compile time; what
     // happened here is that the runtime chose the other precomputed class.
-    assert.notEq(before, after);
+    assert.notEqual(before, after);
     assert.isTrue(seen.text().contains("coffee"));
     assert.isTrue(seen.text().contains("1 settled"));
 
@@ -322,7 +322,7 @@ test "dark mode rewrites the values and changes no class" {
     // The custom properties are different, and every class on every element is
     // the same. That is the claim dark mode makes here, and it is why it is one
     // block of values rather than a second stylesheet.
-    assert.notEq(variables(), installed);
+    assert.notEqual(variables(), installed);
     // The one thing in the document that did change is the box the reader
     // ticked. Take that back out and the page is character for character what it
     // was: no class was recomputed, no rule was written, and no element moved.
