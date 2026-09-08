@@ -173,6 +173,13 @@ pub fn findings_for_target(
 
 /// The whole front end over one target's closure, as the rules below ask about
 /// it: no output, and the tests included.
+///
+/// The standard library's own bodies are not checked
+/// (`driver::analyze_program`). Every rule below asks about a file the
+/// repository wrote — the report names a line a person can open — so a body
+/// that ships inside this binary was never going to appear in one. The
+/// language server's lint pass rides the same analysis, which is what keeps
+/// the two reports the same set.
 pub fn analysis_of(
     session: &mut Session,
     target: TargetId,
@@ -180,7 +187,7 @@ pub fn analysis_of(
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
-    crate::compiler::driver::analyze(
+    crate::compiler::driver::analyze_program(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
@@ -3223,7 +3230,7 @@ fn discards_by_hand(analysis: &crate::compiler::driver::Analysis, e: &typed::Exp
 /// `test-without-assertion`. Read syntactically — "the body contains no
 /// `assert`" — this fires on every test that asserts through a helper, which
 /// is most of the ones worth writing. So it is transitive: a test passes if
-/// anything reachable from it calls into `core/testing/assert`.
+/// anything reachable from it calls something that can fail the test.
 fn check_tests_assert(
     own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
@@ -3232,13 +3239,22 @@ fn check_tests_assert(
 ) {
     let mine = modules_of(analysis, own);
 
+    // What fails a test, named by the module that owns it and the name that
+    // module gives it rather than by the spelling at the call, so a local alias
+    // or a re-export is the same function. `core/testing/assert` counts whole:
+    // every function it exports is an assertion. `ui/testing`'s `snapshot` is
+    // the one function outside it, because a golden that differs — or one that
+    // is not there yet — fails the test exactly as `assert.equal` does.
+    // `core/testing/check`'s `forAll` needs no entry: it reports through
+    // `assert.none`, so the walk below reaches the assert module on its own.
     let asserts = |f: FnId| -> bool {
         let info = analysis.checked.tables.fn_info(f);
-        analysis
-            .loaded
-            .modules
-            .get(info.module.index())
-            .is_some_and(|m| m.path == "core/testing/assert")
+        let Some(module) = analysis.loaded.modules.get(info.module.index()) else { return false };
+        match module.path.as_str() {
+            "core/testing/assert" => true,
+            "ui/testing" => info.name == "snapshot",
+            _ => false,
+        }
     };
 
     for case in &analysis.checked.tests {

@@ -1441,7 +1441,7 @@ impl<'a> Jit<'a> {
         // "materialised" and "not an immediate", which is what a value with no
         // `Const` definition is.
         let lb = if folded(st, rhs) { Loc::Imm } else { st.loc(rhs) };
-        let ld = st.loc(dest);
+        let ld = st.home(dest);
         let key = format!("bin/{name}/{tag}/{}{}/{}", la.tag(), lb.tag(), ld.tag());
         if self.has(&key) {
             let k = constant(st, rhs);
@@ -1537,7 +1537,7 @@ impl<'a> Jit<'a> {
             // miscompile: the stencil wrote the frame while the consumer read
             // the register.
             let key =
-                format!("un/lnot/b/{}/{}", st.loc(arg).tag(), st.loc(dest).tag());
+                format!("un/lnot/b/{}/{}", st.loc(arg).tag(), st.home(dest).tag());
             return self.emit(
                 &key,
                 &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
@@ -1547,14 +1547,14 @@ impl<'a> Jit<'a> {
             return self.unsupported(format!("Unary at {prim:?}"));
         };
         let name = if op == UnOp::Neg { "neg" } else { "bnot" };
-        let key = format!("un/{name}/{tag}/{}/{}", st.loc(arg).tag(), st.loc(dest).tag());
+        let key = format!("un/{name}/{tag}/{}/{}", st.loc(arg).tag(), st.home(dest).tag());
         if self.has(&key) {
             return self.emit(
                 &key,
                 &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
             );
         }
-        if st.loc(arg) != Loc::Frame || st.loc(dest) != Loc::Frame {
+        if st.loc(arg) != Loc::Frame || st.home(dest) != Loc::Frame {
             return self.unsupported(format!("Unary {name} at {tag} with no register variant"));
         }
         let key = format!("un/{name}/{tag}/f/f");
@@ -2271,7 +2271,7 @@ impl<'a> Jit<'a> {
             return false;
         }
         let params = code.get(t.block).params.clone();
-        if params.iter().any(|p| matches!(st.loc(*p), Loc::Reg(_))) {
+        if params.iter().any(|p| matches!(st.home(*p), Loc::Reg(_))) {
             return false;
         }
         let mut pairs: Vec<(u32, u32)> = Vec::new();
@@ -2317,7 +2317,10 @@ impl<'a> Jit<'a> {
         let params = code.get(t.block).params.clone();
         let mut pend: Vec<(u8, bool, RSrc)> = Vec::new();
         for (p, a) in params.iter().zip(t.args.iter()) {
-            let Loc::Reg(k) = st.loc(*p) else { continue };
+            // The *home* of the target's parameter: the edge lands where the
+            // parameter lives, and the block it lives in is the region's
+            // header however far outside the region this edge starts.
+            let Loc::Reg(k) = st.home(*p) else { continue };
             let src = match st.loc(*a) {
                 Loc::Reg(j) if j == k => {
                     // The definition wrote the register in place; the frame
@@ -2383,7 +2386,7 @@ impl<'a> Jit<'a> {
         }
         let mut pending: Vec<(u32, u32, u32)> = Vec::new();
         for (p, a) in params.iter().zip(t.args.iter()) {
-            if let Loc::Reg(k) = st.loc(*p) {
+            if let Loc::Reg(k) = st.home(*p) {
                 // Written back above, or not written at all.
                 if !write_through(st, *p) || st.loc(*a) == Loc::Reg(k) {
                     continue;

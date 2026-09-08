@@ -137,11 +137,12 @@ ui.heading(level: Int, content: Prop<Str>): Node<C>
 
 // widgets — interactive behaviour, not roles. Accessibility-critical
 // parameters (alt, dest, label) are required, not attributes.
-ui.button(label: Prop<Str>, onPress: fn(C, Event) => ()): Node<C>
-ui.link(dest: Prop<Str>, children: [Node<C>]): Node<C>
+// The styles land on the control itself, so a state rule fires on it.
+ui.button(label: Prop<Str>, styles, onPress: fn(C, Event) => ()): Node<C>
+ui.link(dest: Prop<Str>, styles, children: [Node<C>]): Node<C>
 ui.image(source: Prop<Str>, alt: Prop<Str>): Node<C>
-ui.field(label: Prop<Str>, kind: FieldKind, value: Signal<Str>): Node<C>
-ui.toggle(label: Prop<Str>, value: Signal<Bool>): Node<C>
+ui.field(label: Prop<Str>, kind: FieldKind, styles, value: Signal<Str>): Node<C>
+ui.toggle(label: Prop<Str>, styles, value: Signal<Bool>): Node<C>
 ui.form(onSubmit: fn(C, Event) => (), styles, children): Node<C>
 
 // reactivity in the tree
@@ -266,12 +267,13 @@ Conflicts resolve per property, last one wins, whether the compiler settled it
 or a runtime scan did — the scan only ever *chooses between* classes the
 compiler already emitted. A style that arrives as a *parameter* (the
 overridable-component case) resolves at runtime by a linear scan over
-compiler-assigned `(slot, class)` pairs. A slot is the property **and its
-condition**: `Padding` and `On(.Hover, [Padding])` are different slots, and
-"per property" stopped being enough the moment `On` existed. Two *different*
-properties that touch the same underlying declaration — `Padding` and
-`PaddingX`, `BorderWidth` and `BorderStyle` — are settled by the declaration
-order of the variants, because the sheet is written in that order and
+compiler-assigned `(slot, class)` pairs. A slot is the property, **its
+condition**, and **the edge** where the property names one: `Padding` and
+`On(.Hover, [Padding])` are different slots, so are `Pin(.Top, ...)` and
+`Pin(.Bottom, ...)`, and "per property" stopped being enough the moment `On`
+existed. Two *different* properties that touch the same underlying declaration
+— `Padding` and `PaddingX`, `BorderWidth` and `BorderStyle` — are settled by the
+declaration order of the variants, because the sheet is written in that order and
 equal-specificity rules resolve by position. **The variant order is part of the
 vocabulary's contract**, not an implementation detail, and the narrower property
 always comes after the broader one.
@@ -417,7 +419,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
   let count = signal(ctx, 0);
 
   ui.column([], [
-    ui.button(.Const(label), fn(c, e) => count.update(c, fn(n) => n + 1)),
+    ui.button(.Const(label), [], fn(c, e) => count.update(c, fn(n) => n + 1)),
     badge(.Const(label), .Cell(count)),
     badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
   ])
@@ -599,6 +601,7 @@ this document's first draft, with the reason.
 | `ui.each(ctx, items, row)` | `each(items, key, row)` | a list is a description, so it needs no context; and keying by position corrupts a reordered list silently |
 | `ui.field(value)` | `field(label, kind, value)` | this document's own rule — an accessibility-critical parameter is a parameter — and an unlabelled input has no visual fallback |
 | `Role::Form` | `ui.form`, a widget | submission is behaviour, not meaning |
+| A control with no styles of its own | `styles` on all four, plus a reset | a wrapper is not what a browser hovers, focuses or disables, so `On(...)` on one never fired — and the browser's own chrome sat under whatever the wrapper painted |
 | Rule 1 as an assertion | a variance-aware predicate | three of the APIs above did not compile without it; "occurs only in argument position" is now something the compiler computes |
 | Rule 5 over `Signal<T>` | over `Prop<T>` | `Signal` is phantom in `T` and carries nothing; `Prop` stores its `T` |
 | Style literals "cached with the module" | a `Vec` on `Checked` | the machinery it named does not exist: test cases are not cached, verdicts are |

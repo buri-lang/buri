@@ -7,22 +7,31 @@ from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/style" import { Style };
 from "ui/testing" import { headless, snapshot };
 
-/// A box with something to say in every state a `State` can name.
+/// Every state a `State` can name, on one box.
+let states: [Style] = [
+    .On(.Hover, [.Background(.Rgb(220, 40, 40))]),
+    .On(.Focus, [.Background(.Rgb(40, 180, 40))]),
+    .On(.Active, [.Background(.Rgb(40, 40, 220))]),
+    .On(.Disabled, [.Background(.Rgb(120, 120, 120)), .Opacity(0.4)]),
+    .On(.Checked, [.Background(.Rgb(230, 210, 40)), .BorderWidth(.Px(6))]),
+];
+
+/// A box with something to say in every state, and a button saying the same
+/// thing beside it — a control's styles are the control's own, so the button
+/// paints them itself rather than sitting inside something else that does.
 fn badge<C>(): Node<C> {
     ui.column([.Padding(.Px(24)), .Gap(.Px(8))], [
         ui.stack(
-            [
-                .Padding(.Px(20)),
-                .Background(.Rgb(230, 230, 230)),
-                .On(.Hover, [.Background(.Rgb(220, 40, 40))]),
-                .On(.Focus, [.Background(.Rgb(40, 180, 40))]),
-                .On(.Active, [.Background(.Rgb(40, 40, 220))]),
-                .On(.Disabled, [.Background(.Rgb(120, 120, 120)), .Opacity(0.4)]),
-                .On(.Checked, [.Background(.Rgb(230, 210, 40)), .BorderWidth(.Px(6))]),
-            ],
+            [.Padding(.Px(20)), .Background(.Rgb(230, 230, 230)), .Group(states)],
             [ui.text(.Const("badge"))],
+        ),
+        ui.button(
+            .Const("press"),
+            [.Padding(.Px(12)), .Background(.Rgb(200, 200, 245)), .Group(states)],
+            fn(_c, _e) => (),
         ),
         ui.text(.Const("beside it")),
     ])

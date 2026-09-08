@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a test from which nothing reachable calls assert: test-without-assertion, and the test asserting through a helper that must not fire"
+doc: "a test from which nothing reachable calls assert: test-without-assertion, and the two that must not fire — one asserting through a helper, one whose whole check is a snapshot"
 
 run {
   args: ["lint", "//lib/money"]
@@ -28,4 +28,26 @@ run {
   args: ["lint", "//..."]
   exit: 0
   golden: "clean.txt"
+}
+
+# A snapshot is the assertion, so the rule stays quiet above. Swap it for
+# `render`, which paints the same tree and decides nothing about it, and the
+# test is reported — the twin that says the quiet was about `snapshot` and not
+# about `ui/testing`.
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "import { headless, snapshot };"
+  with: "import { headless, render };"
+}
+
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "    snapshot(ctx, \"price\", ui.text(.Const(\"150c\")), .Hover);"
+  with: "    let _ = render(ctx, ui.text(.Const(\"150c\")));"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "rendered.txt"
 }

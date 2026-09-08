@@ -7,7 +7,9 @@ reserved module roots. `core/*` is a deliberately small set of essentials.
 
 **The reference for a module is the module.** `buri docs core/list` renders it
 from the source the compiler checked, so a signature on the page is a signature
-that exists. `buri docs core/list.map` renders one item of it. `buri docs` lists
+that exists. Every conformance is on it too, `derive Equal, Ordered, Show for Instant;`
+reading as `Instant.equal — via Equal` beside the methods somebody wrote by hand.
+`buri docs core/list.map` renders one item of it. `buri docs` lists
 [every module](../../compiler/standard_library/sources/). This page maps over
 the top of that: which modules there are, what each one costs, and what is
 deliberately absent.
@@ -665,6 +667,12 @@ millisecond. A bearer token is [`crypto.token`](#cryptography).
 second reserved root. They have a page of their own:
 [user interfaces](../guides/user-interfaces.md).
 
+`button`, `link`, `field` and `toggle` take a `[Style]` like every container
+does, and it lands on the control itself — so a hover, focus or disabled rule
+fires on the thing that is hovered, focused or disabled. The stylesheet opens by
+dropping the chrome a browser paints on one of those, so what is left is what
+the styles say.
+
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it
@@ -795,7 +803,7 @@ so a value with a space or a `;` in it is one argument and never a second
 command. `run` reads both streams while the child runs, so a child that writes
 more than a pipe holds does not deadlock.
 
-`core/env` and `core/cli` are the two halves of a command line. `env.arguments(ctx)`
+`core/env` and `core/cli` are the two halves of a command line. `env.withArguments(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 `argv[0]`, and you have to *tell* a help page what to call the program.
 `env.all(ctx)` is every variable as `(name, value)` pairs, in the platform's own

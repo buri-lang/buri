@@ -104,8 +104,22 @@ pub enum Api {
     Const,
     Context,
     /// A method: the type it hangs off, and the trait it satisfies if any.
-    Method { owner: String, via_trait: Option<String>, effects: Vec<String> },
+    Method { owner: String, via: Option<Via>, effects: Vec<String> },
     Function { effects: Vec<String> },
+}
+
+/// A trait a method satisfies, and how the type opted in.
+///
+/// The two travel together because the second means nothing without the first:
+/// there is no such thing as a derived method that satisfies no trait. A
+/// `derive` also has no prose of its own — the sentence explaining what `equal`
+/// means is on `Equal` — which is the fact `documentation::module_entries` reads
+/// this for.
+#[derive(Clone)]
+pub struct Via {
+    pub trait_name: String,
+    /// Written as `derive Equal for Instant;` rather than as an `impl` block.
+    pub derived: bool,
 }
 
 impl Api {
@@ -127,6 +141,14 @@ impl Api {
     pub fn owner(&self) -> Option<&str> {
         match self {
             Api::Method { owner, .. } => Some(owner),
+            _ => None,
+        }
+    }
+
+    /// The trait a method satisfies, and how it came by it.
+    pub fn via(&self) -> Option<&Via> {
+        match self {
+            Api::Method { via, .. } => via.as_ref(),
             _ => None,
         }
     }
@@ -194,17 +216,21 @@ pub struct ApiModule {
 /// items it re-exports, not the two `from ... export` lines, because the
 /// re-export list *is* the API and a reader wants the API.
 pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<ApiModule> {
+    // Every trait in the compilation, because a `derive` line names one and
+    // stops there — see `Traits`.
+    let traits = Traits::of(loaded);
+
     // Every module's own items first, so a re-export can be resolved against a
     // module the filter excluded — which is the normal case, since the modules
     // behind a surface are internal.
     let mut owned: Vec<(String, Vec<ApiItem>)> = Vec::new();
     for m in &loaded.modules {
-        owned.push((m.path.clone(), items_of(&m.ast)));
+        owned.push((m.path.clone(), items_of(&m.ast, &m.path, &traits)));
     }
 
     let mut out: Vec<ApiModule> = Vec::new();
     for m in loaded.modules.iter().filter(|m| keep(m)) {
-        let mut items = items_of(&m.ast);
+        let mut items = items_of(&m.ast, &m.path, &traits);
         for item in &m.ast.items {
             let Item::ReExport(r) = item else { continue };
             let Some((_, from)) = owned.iter().find(|(p, _)| *p == r.path) else { continue };
@@ -239,12 +265,61 @@ pub fn std_filter(m: &ModuleData) -> bool {
         && crate::compiler::standard_library::is_std_path(&m.path)
 }
 
-fn items_of(module: &tree::Module) -> Vec<ApiItem> {
+/// Every `trait` declared anywhere in a compilation, so a `derive` can be
+/// rendered as the methods it puts on a type.
+///
+/// A `derive` line names a trait and a type and stops there — the methods are
+/// the trait's, and the trait is nearly always declared somewhere else.
+/// `derive Equal, Ordered, Show for Instant;` in `core/time` reaches three
+/// declarations in `core/order` through the prelude, without an import to
+/// follow. So expanding one takes the whole compilation, which is what
+/// `from_loaded` has and one module's AST does not.
+struct Traits<'a> {
+    entries: Vec<TraitEntry<'a>>,
+}
+
+struct TraitEntry<'a> {
+    module: &'a str,
+    name: &'a str,
+    decl: &'a tree::TraitDecl,
+    tree: &'a crate::parsing::flat::Tree,
+}
+
+impl<'a> Traits<'a> {
+    fn of(loaded: &'a Loaded) -> Traits<'a> {
+        let mut entries = Vec::new();
+        for m in &loaded.modules {
+            for item in &m.ast.items {
+                let Item::Trait(d) = item else { continue };
+                entries.push(TraitEntry {
+                    module: &m.path,
+                    name: m.ast.tree.name(d.name),
+                    decl: d,
+                    tree: &m.ast.tree,
+                });
+            }
+        }
+        Traits { entries }
+    }
+
+    /// The trait a `derive` in `module` named. The module's own declaration
+    /// wins, the way it does in the checker's scope; otherwise the name is
+    /// enough, because the derivable traits are the standard library's and
+    /// their names are its own.
+    fn find(&self, module: &str, name: &str) -> Option<&TraitEntry<'a>> {
+        self.entries
+            .iter()
+            .find(|e| e.name == name && e.module == module)
+            .or_else(|| self.entries.iter().find(|e| e.name == name))
+    }
+}
+
+fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> {
     let t = &module.tree;
     let mut out = Vec::new();
     for item in &module.items {
         match item {
-            Item::Fn(d) if d.exported => out.push(function(t, d, None, None)),
+            Item::Fn(d) if d.exported => out.push(function(t, d, None)),
             Item::Struct(d) if d.exported => out.push(structure(t, d)),
             Item::Enum(d) if d.exported => out.push(enumeration(t, d)),
             Item::Trait(d) if d.exported => out.push(trait_or_effect(t, d)),
@@ -268,13 +343,34 @@ fn items_of(module: &tree::Module) -> Vec<ApiItem> {
             }),
             Item::Impl(d) => {
                 let owner = formatting::type_text(t, d.self_ty);
-                let via = d.trait_ty.map(|x| formatting::type_text(t, x));
+                let via = d.trait_ty.map(|x| Via {
+                    trait_name: formatting::type_text(t, x),
+                    derived: false,
+                });
                 for m in &d.methods {
                     // A trait's methods are visible wherever the type is, so
                     // conformance methods are listed even though they carry no
                     // `export` of their own.
                     if m.exported || via.is_some() {
-                        out.push(function(t, m, Some(owner.clone()), via.clone()));
+                        out.push(function(t, m, Some((owner.clone(), via.clone()))));
+                    }
+                }
+            }
+            // A `derive` is a conformance with no body to read, so the methods
+            // come from the trait's own declaration. Without this a derived
+            // type looked like a type that satisfied nothing — which is a
+            // reader planning a hand-written `impl` they do not need.
+            Item::Derive(d) => {
+                let Some(owner) = derived_owner(module, d.self_ty) else { continue };
+                for ty in t.type_list(d.traits) {
+                    let written = formatting::type_text(t, *ty);
+                    // `Equal` and `order.Eq` name the same trait, and only the
+                    // last segment is the name.
+                    let name = written.rsplit('.').next().unwrap_or(written.as_str());
+                    let Some(found) = traits.find(path, name) else { continue };
+                    let via = Via { trait_name: name.to_string(), derived: true };
+                    for m in &found.decl.methods {
+                        out.push(function(found.tree, m, Some((owner.clone(), Some(via.clone())))));
                     }
                 }
             }
@@ -283,6 +379,43 @@ fn items_of(module: &tree::Module) -> Vec<ApiItem> {
     }
     out.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
     out
+}
+
+/// The receiver a derived method hangs off, written the way a hand-written
+/// `impl` head writes it: `Instant`, and `Option<T>` rather than `Option`.
+///
+/// A `derive` names the type *constructor*, so the parameters are read off the
+/// declaration — which sits wherever the author put it, as often below the
+/// `derive` as above it. `None` when the type is not one this module exports,
+/// because a page lists what is exported and nothing else.
+fn derived_owner(module: &tree::Module, self_ty: crate::parsing::flat::TypeId) -> Option<String> {
+    let t = &module.tree;
+    let written = formatting::type_text(t, self_ty);
+    let head = written.split('<').next().unwrap_or(&written).trim();
+    let head = head.rsplit('.').next().unwrap_or(head);
+    for item in &module.items {
+        match item {
+            Item::Struct(d) if d.exported && t.name(d.name) == head => {
+                return Some(format!("{head}{}", parameters(t, &d.generics)));
+            }
+            Item::Enum(d) if d.exported && t.name(d.name) == head => {
+                return Some(format!("{head}{}", parameters(t, &d.generics)));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `<K, V>` — the parameters a type was declared with, named and nothing else.
+/// `formatting::generics` prints a declaration's bounds too, and a receiver is
+/// a use of the type rather than a declaration of it.
+fn parameters(t: &crate::parsing::flat::Tree, g: &[tree::GenericParam]) -> String {
+    if g.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = g.iter().map(|p| t.name(p.name)).collect();
+    format!("<{}>", names.join(", "))
 }
 
 /// A reference lists what a type *is* before what it can do, then by receiver,
@@ -299,13 +432,12 @@ fn sort_key(i: &ApiItem) -> (u8, Option<&str>, &str) {
 fn function(
     t: &crate::parsing::flat::Tree,
     d: &tree::FnDecl,
-    owner: Option<String>,
-    via_trait: Option<String>,
+    receiver: Option<(String, Option<Via>)>,
 ) -> ApiItem {
     let effects = effects_of(t, d);
     ApiItem {
-        api: match owner {
-            Some(owner) => Api::Method { owner, via_trait, effects },
+        api: match receiver {
+            Some((owner, via)) => Api::Method { owner, via, effects },
             None => Api::Function { effects },
         },
         name: t.name(d.name).to_string(),
@@ -454,10 +586,10 @@ pub fn render(m: &ApiModule) -> String {
 
 fn write_item(out: &mut String, item: &ApiItem) {
     let title = match &item.api {
-        Api::Method { owner, via_trait: Some(via), .. } => {
-            format!("{owner}.{} — via {via}", item.name)
+        Api::Method { owner, via: Some(via), .. } => {
+            format!("{owner}.{} — via {}", item.name, via.trait_name)
         }
-        Api::Method { owner, via_trait: None, .. } => format!("{owner}.{}", item.name),
+        Api::Method { owner, via: None, .. } => format!("{owner}.{}", item.name),
         _ => item.name.clone(),
     };
     let _ = writeln!(out, "### {title}\n");
