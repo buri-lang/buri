@@ -87,12 +87,12 @@ fn at<C>(
     match (path) {
         "/" => {
             ui.region(.Main, [], [
-                ui.heading(1, .Const(title)),
+                ui.heading(1, [], .Const(title)),
                 ui.text(.Const(visitors)),
                 ui.button(label, [], onPress),
             ])
         },
-        "/about" => ui.region(.Main, [], [ui.heading(1, .Const("About"))]),
+        "/about" => ui.region(.Main, [], [ui.heading(1, [], .Const("About"))]),
         _other => ui.region(.Main, [], [ui.text(.Const("no page here"))]),
     }
 }

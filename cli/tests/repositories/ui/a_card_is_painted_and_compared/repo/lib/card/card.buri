@@ -12,6 +12,6 @@ export fn card<C>(name: Prop<Str>): Node<C> {
             .Radius(.Px(8)),
             .Gap(.Px(8)),
         ],
-        [ui.heading(2, .Const("Card")), ui.text(name)],
+        [ui.heading(2, [], .Const("Card")), ui.text(name)],
     )
 }
