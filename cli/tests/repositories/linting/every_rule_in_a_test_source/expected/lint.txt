@@ -231,6 +231,11 @@ warning: `total` takes 6 parameters [too-many-parameters]
      entity carries a domain name and no call site still passes its fields
      loose.
 
+     If the signature is not yours — a wire format, a protocol, an API somebody
+     else specified — name the declaration in REPO.buri's lint { allow { … } }
+     block. The rule stays on everywhere else, and every report says which
+     declaration it was not asked about.
+
 warning: this is `order.int`, written out [hand-rolled-comparator]
   --> lib/money/test/cents.buri:39:4
    |

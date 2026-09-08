@@ -458,6 +458,41 @@ pub struct LintConfig {
     pub fail_on_finding: bool,
     /// Which of the catalogue's rules this repository listens to.
     pub rules: LintRules,
+    /// The declarations this repository has exempted from a rule, one rule at
+    /// a time.
+    pub allow: LintAllow,
+}
+
+/// `lint { allow { … } }`: the declarations this repository has argued about
+/// once and exempted from one rule, by name.
+///
+/// The rule stays on everywhere else, which is the whole difference between
+/// this and writing it `false` in `rules`. Which rules have a field, and what
+/// it takes to earn one, is
+/// [`crate::documentation::lints::is_exemptable`].
+#[derive(Clone, Debug, Default)]
+pub struct LintAllow {
+    /// Labels, keyed by **code** for [`LintRules::overrides`]'s reason. Each
+    /// label is `//package:name` — the package the declaration is in, and the
+    /// name the finding prints.
+    pub declarations: std::collections::BTreeMap<&'static str, Vec<String>>,
+}
+
+impl LintAllow {
+    /// Whether this repository has exempted one declaration from one rule.
+    pub fn exempt(&self, code: &str, label: &str) -> bool {
+        self.declarations.get(code).is_some_and(|l| l.iter().any(|w| w == label))
+    }
+
+    /// Every exemption written here, as `(code, label)` pairs in catalogue
+    /// order and then in the order the file wrote them.
+    pub fn each(&self) -> Vec<(&'static str, &str)> {
+        crate::documentation::lints::LINTS
+            .iter()
+            .filter_map(|l| self.declarations.get_key_value(l.code))
+            .flat_map(|(code, labels)| labels.iter().map(|label| (*code, label.as_str())))
+            .collect()
+    }
 }
 
 /// What a rule the `rules` block does not name is.
@@ -791,6 +826,36 @@ impl Reader {
         rules
     }
 
+    /// An `allow` block: one list of declaration labels per rule that can have
+    /// one.
+    ///
+    /// The field set is `documentation::lints`' own, so a rule the catalogue
+    /// cannot exempt — every rule whose finding sits inside a body — is the
+    /// `unknown-field` any other undeclared field gets. The label's *shape* is
+    /// checked here too, because an exemption that could never match is one a
+    /// reader would take for a rule that is off.
+    fn lint_allow(&mut self, message: &Message) -> LintAllow {
+        use crate::documentation::lints;
+        self.check_known(message, textproto::schema_order("allow"), &[], "an `allow` block");
+        let mut allow = LintAllow::default();
+        for code in lints::LINTS.iter().map(|l| l.code).filter(|c| lints::is_exemptable(c)) {
+            let field = lints::rule_field(code);
+            let mut labels = Vec::new();
+            for written in self.strings(message, &field) {
+                if !is_declaration_label(&written.value) {
+                    self.templated("allow-not-a-declaration", written.span)
+                        .bind("written", written.value.clone());
+                    continue;
+                }
+                labels.push(written.value);
+            }
+            if !labels.is_empty() {
+                allow.declarations.insert(code, labels);
+            }
+        }
+        allow
+    }
+
     fn sub_message<'a>(&mut self, message: &'a Message, name: &str) -> Option<(&'a Message, Span)> {
         let f = message.get(name)?;
         match &f.value {
@@ -1036,6 +1101,26 @@ impl Reader {
     }
 }
 
+/// Whether a string is a declaration label: a package label, a colon, and one
+/// declaration name — `//lib/wire:encode`, or `//:encode` in the package at the
+/// repository root.
+///
+/// Shape only. Whether the package exists and whether it holds a declaration by
+/// that name are questions this file cannot ask, and it does not need to: an
+/// exemption that names nothing exempts nothing, so the finding it was written
+/// for is reported and the stale label is on the screen beside it.
+pub fn is_declaration_label(written: &str) -> bool {
+    let Some(rest) = written.strip_prefix("//") else { return false };
+    let Some((package, name)) = rest.split_once(':') else { return false };
+    let segments = || package.split('/').all(|s| !s.is_empty() && s.chars().all(is_label_char));
+    let named = !name.is_empty() && name.chars().all(is_label_char);
+    named && (package.is_empty() || segments())
+}
+
+fn is_label_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
+}
+
 /// Levenshtein-nearest known name, for "did you mean" notes.
 ///
 /// `known` usually arrives from a hash map, so ties are broken by name rather
@@ -1244,6 +1329,9 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         lint.fail_on_finding = reader.bool_field(m, "fail_on_finding").unwrap_or(false);
         if let Some((rules, _)) = reader.sub_message(m, "rules") {
             lint.rules = reader.lint_rules(rules);
+        }
+        if let Some((allow, _)) = reader.sub_message(m, "allow") {
+            lint.allow = reader.lint_allow(allow);
         }
     }
 
@@ -1531,6 +1619,51 @@ library {
                 assert!(read.value.lint.rules.enabled(l.code), "{src:?}: {}", l.code);
             }
         }
+    }
+
+    /// `allow` names declarations, one list per rule that can have one.
+    #[test]
+    fn reads_an_allow_block() {
+        let src = "lint {\n  allow {\n    too_many_parameters: [\"//lib/wire:encode\"]\n  }\n}\n";
+        let read = read_repo_config(src, FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let allow = &read.value.lint.allow;
+        assert!(allow.exempt("too-many-parameters", "//lib/wire:encode"));
+        assert!(!allow.exempt("too-many-parameters", "//lib/wire:decode"));
+        assert!(!allow.exempt("oversized-function", "//lib/wire:encode"));
+        assert_eq!(allow.each(), [("too-many-parameters", "//lib/wire:encode")]);
+        // The rule itself is untouched: `allow` takes it off one declaration,
+        // not off the repository.
+        assert!(read.value.lint.rules.everything_runs());
+    }
+
+    /// A rule whose finding sits inside a body has no field, so naming one is
+    /// the closed-field refusal rather than an exemption that never matches.
+    #[test]
+    fn a_rule_with_no_exemption_is_an_unknown_field() {
+        let read =
+            read_repo_config("lint { allow { unused_variable: [\"//lib:x\"] } }\n", FileId(0));
+        let d = read.errors.first().expect("`unused_variable` cannot be exempted");
+        assert_eq!(d.message, "unknown field `unused_variable` in an `allow` block");
+        assert!(read.value.lint.allow.each().is_empty());
+    }
+
+    /// A label is a package label, a colon, and one name. Anything else is a
+    /// file that does not read.
+    #[test]
+    fn an_exemption_names_a_declaration() {
+        for good in ["//lib/wire:encode", "//:encode", "//lib:a_b-c.d"] {
+            assert!(is_declaration_label(good), "{good}");
+        }
+        for bad in ["lib/wire:encode", "//lib/wire", "//lib/wire:", "//:", "//lib//wire:encode"] {
+            assert!(!is_declaration_label(bad), "{bad}");
+        }
+
+        let src = "lint { allow { too_many_parameters: [\"lib/wire:encode\"] } }\n";
+        let read = read_repo_config(src, FileId(0));
+        let d = read.errors.first().expect("`lib/wire:encode` is not a label");
+        assert_eq!(d.code.as_deref(), Some("allow-not-a-declaration"));
+        assert!(read.value.lint.allow.each().is_empty());
     }
 
     /// A misspelled rule is the same closed-field refusal every other block

@@ -21,16 +21,19 @@ block](../build/repo-config.md#lint). `check_during_build` runs these checks
 during `buri build` and `buri test`. `fail_on_finding` makes what they report
 fail the command. [`rules`](../build/repo-config.md#rules) turns a rule off by
 the name the finding prints: `enabled(rule) = override.unwrap_or(default)`, and
-`default: DISABLED` gives you an allow list. There is no per-rule severity, no
-per-directory exemption and no per-file suppression comment, so one file answers
-"is this rule on here".
+`default: DISABLED` gives you an allow list.
+[`allow`](../build/repo-config.md#allow) is the smaller move: one named
+declaration a rule is not asked about, with the rule still on everywhere else.
+There is no per-rule severity, no per-directory exemption and no per-file
+suppression comment, so one file answers "is this rule on here".
 
 Turning a rule off drops it from the report rather than downgrading it, and
-never quietly. Whenever this repository runs less than the whole catalogue, the
-report says so:
+never quietly. Whenever this repository runs less than the whole catalogue over
+the whole of its code, the report says so:
 
 ```
 REPO.buri turns off 2 of 25 lint rules: discarded-result, hex-digit-table
+REPO.buri exempts 1 declaration: too-many-parameters on //lib/wire:encode
 no findings
 ```
 
