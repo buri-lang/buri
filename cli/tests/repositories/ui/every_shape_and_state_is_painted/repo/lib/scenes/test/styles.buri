@@ -18,7 +18,7 @@ test "every property at zero" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "styles-at-zero", plate(.Px(0), 0.0), .Hover);
+    snapshot(ctx, "styles-at-zero", plate(.Px(0), 0.0), .Hover, []);
 }
 
 test "every property at the size of the page" {
@@ -26,7 +26,7 @@ test "every property at the size of the page" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "styles-at-the-viewport", plate(.Px(800), 3.0), .Hover);
+    snapshot(ctx, "styles-at-the-viewport", plate(.Px(800), 3.0), .Hover, []);
 }
 
 test "a style the compiler could not fold still paints" {
@@ -43,6 +43,7 @@ test "a style the compiler could not fold still paints" {
             tinted(255, ui.text(.Const("full"))),
         ]),
         .Hover,
+        [],
     );
 }
 
@@ -51,7 +52,7 @@ test "a fraction track takes its share of what is left" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "grid-fractions", fractions(), .Hover);
+    snapshot(ctx, "grid-fractions", fractions(), .Hover, []);
 }
 
 test "a heading is the size its styles say, not the size a browser picked" {
@@ -72,5 +73,6 @@ test "a heading is the size its styles say, not the size a browser picked" {
             ui.text(.Const("beside them")),
         ]),
         .Hover,
+        [],
     );
 }

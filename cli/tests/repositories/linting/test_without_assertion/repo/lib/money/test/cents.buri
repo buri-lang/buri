@@ -33,5 +33,5 @@ test "the price paints" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "price", ui.text(.Const("150c")), .Hover);
+    snapshot(ctx, "price", ui.text(.Const("150c")), .Hover, []);
 }

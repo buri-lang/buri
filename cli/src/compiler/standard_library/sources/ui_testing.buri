@@ -22,6 +22,7 @@ from "ui/effect" import { Scope, Ui, Watch };
 from "ui/node" import * as node;
 from "ui/node" import { Node };
 from "ui/style" import { State };
+from "ui/theme" import * as theme;
 from "ui/theme" import { Theme };
 
 /// Creates and writes signals, and runs computations, with no rendering.
@@ -138,6 +139,11 @@ export fn stylesheet(): Str;
 /// This is how a test asserts what a token is *worth*: the stylesheet says only
 /// that a class reads `var(--cardlib-surface)`. A chain resolves here once, the
 /// way it resolves at mount.
+///
+/// It installs into the document `render` builds, so it belongs to a suite that
+/// declares `platforms: [JS]` — a native run has no document and `buri test`
+/// says so by name. A **snapshot** needs no installing at all: `snapshot` takes
+/// its themes the way `mount` does.
 export fn install(themes: [Theme]): Str;
 
 /// The custom-property block installed right now.
@@ -146,10 +152,11 @@ export fn install(themes: [Theme]): Str;
 /// again: that is how a test sees a theme switch.
 export fn variables(): Str;
 
-/// Paints `root` and compares it against `test/__snapshots__/<name>.png`.
+/// Paints `root` under `themes` and compares it against
+/// `test/__snapshots__/<name>.png`.
 ///
 /// ```text
-/// snapshot(ctx, "card", card(ctx, "Ada"), .Hover);
+/// snapshot(ctx, "card", card(ctx, "Ada"), .Hover, [cardlib.themed(light)]);
 /// ```
 ///
 /// Fails the test when the bytes differ, and writes
@@ -161,6 +168,12 @@ export fn variables(): Str;
 /// paint in, so a hovered card and a resting one are two snapshots of one
 /// tree.
 ///
+/// `themes` is `mount`'s parameter, in the same place in the sentence and
+/// meaning the same thing: one theme per package whose design tokens this tree
+/// uses, and where a chain of tokens resolves into the values the painter
+/// reads. That is how a component is snapshotted light and dark — two calls,
+/// two theme lists, two pictures. A tree with no tokens passes the empty list.
+///
 /// The name is a file name and nothing more. It may not be empty and may not
 /// hold a path separator.
 export fn snapshot<C: Allocator + Ui>(
@@ -168,9 +181,18 @@ export fn snapshot<C: Allocator + Ui>(
     name: Str,
     root: Node<C>,
     state: State,
+    themes: [Theme],
 ): () {
+    let _ = installThemes(theme.document(ctx, themes));
     paint(name, node.describe(ctx, root, state), stateName(state))
 }
+
+/// The runner's side: what each token is worth, for the paint that follows.
+///
+/// A call of its own rather than a fifth argument to `paint`, because four
+/// `Str`s is twelve machine words and a runtime call is ten
+/// (`stencil/abi.rs`'s `MAX_INT_ARGS`).
+fn installThemes(document: Str): ();
 
 /// The runner's side: paint the scene, then compare or record.
 fn paint(name: Str, scene: Str, state: Str): ();

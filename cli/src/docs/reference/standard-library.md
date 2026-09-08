@@ -678,7 +678,8 @@ say. `ListMarker` puts a list's marks back.
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it
-itself, so neither needs a browser.
+itself, so neither needs a browser. `snapshot` takes a `[Theme]` where `mount`
+does, which is how a component gets a light golden and a dark one.
 
 `ui/web` is the same tree on a server. A worker renders it to HTML and sends
 the state it rendered from with it; the page reads that state back, builds the

@@ -30,5 +30,6 @@ test "the panel" {
         "panel",
         ui.column([.Padding(.Px(16))], [ui.heading(2, [], .Const("panel"))]),
         .Hover,
+        [],
     );
 }

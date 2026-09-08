@@ -1,0 +1,44 @@
+// One card, two themes, two pictures.
+//
+// The card holds no colour of its own — every one of its pixels comes from a
+// token — so the only thing that separates the two goldens is the theme list
+// each `snapshot` was handed.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/style" import { Color };
+from "ui/testing" import { headless, snapshot };
+from "//lib/cardlib" import { card, themedBy, Token };
+
+/// The app's light mapping.
+fn light(t: Token): Color {
+    match (t) {
+        .Surface => .Rgb(250, 250, 252),
+        .Ink => .Rgb(20, 20, 24),
+    }
+}
+
+/// And its dark one.
+fn dark(t: Token): Color {
+    match (t) {
+        .Surface => .Rgb(24, 24, 28),
+        .Ink => .Rgb(240, 240, 245),
+    }
+}
+
+test "the card, light" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "card-light", card(), .Hover, [themedBy(light)]);
+}
+
+test "the card, dark" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "card-dark", card(), .Hover, [themedBy(dark)]);
+}

@@ -1,0 +1,78 @@
+# The graph and the tree walk, driven the way a person drives them: a package,
+# a suite beside it, one `buri` command, and no `platforms` anywhere.
+#
+# The user-interfaces guide says `signal`, `memo`, `watch` and the `Recorder`
+# are all native, so a suite that reads and writes signals needs no
+# `platforms: [JS]`. Two bugs said otherwise by aborting the binary with no
+# message at all, and an abort with no message is the worst report a runner can
+# give: it names no facility, it points at no line, and it takes the verdicts of
+# every other block in the same binary down with it.
+#
+# Four steps.
+#
+# **The graph, and the tree over it.** The first three blocks are the guide's
+# sentence, one block each. The fourth is `ui.choose` nested inside an `ui.each`
+# row builder — the ordinary way to leave a row out, because a row builder holds
+# a `Scope` and a `Scope` cannot allocate. `describe` walks that tree in tail
+# position, and the walk used to release the row it was about to read
+# (buri-lang/buri#58).
+#
+# **The negative twin the corpus rule asks for.** One word of the filter
+# changes, the row that should have been left out is in the scene, and the
+# report names the block and the line.
+#
+# **And the facility that is missing.** `install` has no native implementation,
+# and what a suite reaching it gets is a diagnostic naming it — `buri test`
+# refuses the run and says which key it cannot compile, rather than linking a
+# binary that aborts when it arrives there (buri-lang/buri#54's "Expected").
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the reactive graph and the tree walk run natively with no platforms declared, a wrong filter is reported against its block, and a native facility that is missing is named"
+
+run {
+  args: ["test", "//lib/graph", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# The negative twin: the filter keeps the row the assertion says is gone.
+edit {
+  file: "lib/graph/test/graph.buri"
+  replace: "options([\"a\", \"b\", \"c\"], \"b\")"
+  with: "options([\"a\", \"b\", \"c\"], \"a\")"
+}
+
+run {
+  args: ["test", "//lib/graph", "--force"]
+  exit: 1
+  golden: "filtered.txt"
+}
+
+# And back, so the last step is about the facility and nothing else.
+edit {
+  file: "lib/graph/test/graph.buri"
+  replace: "options([\"a\", \"b\", \"c\"], \"a\")"
+  with: "options([\"a\", \"b\", \"c\"], \"b\")"
+}
+
+# `install` is `ui/testing`'s theme installer and there is no native body for
+# it. A suite that reaches it is refused by name.
+edit {
+  file: "lib/graph/test/graph.buri"
+  replace: "from \"ui/testing\" import { headless, observer, recorder };"
+  with: "from \"ui/testing\" import { headless, install, observer, recorder };"
+}
+
+edit {
+  file: "lib/graph/test/graph.buri"
+  replace: "    let cell = signal(ctx, 1);"
+  with: "    let _ = install([]);\n    let cell = signal(ctx, 1);"
+}
+
+run {
+  args: ["test", "//lib/graph", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}

@@ -12,7 +12,7 @@ test "a name with a path separator in it" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "elsewhere/card", ui.text(.Const("Ada")), .Hover);
+    snapshot(ctx, "elsewhere/card", ui.text(.Const("Ada")), .Hover, []);
 }
 
 test "a name that is empty" {
@@ -20,7 +20,7 @@ test "a name that is empty" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "", ui.text(.Const("Ada")), .Hover);
+    snapshot(ctx, "", ui.text(.Const("Ada")), .Hover, []);
 }
 
 test "a name that could climb out of the directory" {
@@ -28,5 +28,5 @@ test "a name that could climb out of the directory" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "..", ui.text(.Const("Ada")), .Hover);
+    snapshot(ctx, "..", ui.text(.Const("Ada")), .Hover, []);
 }

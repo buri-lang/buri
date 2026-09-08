@@ -43,7 +43,7 @@ test "hovered" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "state-hover", badge(), .Hover);
+    snapshot(ctx, "state-hover", badge(), .Hover, []);
 }
 
 test "focused" {
@@ -51,7 +51,7 @@ test "focused" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "state-focus", badge(), .Focus);
+    snapshot(ctx, "state-focus", badge(), .Focus, []);
 }
 
 test "pressed" {
@@ -59,7 +59,7 @@ test "pressed" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "state-active", badge(), .Active);
+    snapshot(ctx, "state-active", badge(), .Active, []);
 }
 
 test "refusing input" {
@@ -67,7 +67,7 @@ test "refusing input" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "state-disabled", badge(), .Disabled);
+    snapshot(ctx, "state-disabled", badge(), .Disabled, []);
 }
 
 test "on" {
@@ -75,7 +75,7 @@ test "on" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "state-checked", badge(), .Checked);
+    snapshot(ctx, "state-checked", badge(), .Checked, []);
 }
 
 test "the state a snapshot is taken in reaches the document" {

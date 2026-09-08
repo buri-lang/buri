@@ -859,7 +859,11 @@ fn resolve<'a>(bindings: &'a [(String, Bound)], start: &'a Bound) -> Option<Stri
 /// The whole custom-property text: one `:root` block per theme, in the order
 /// they were passed — a theme *is* a block of values, so reading the installed
 /// text shows which package each variable came from.
-fn render(doc: &str) -> String {
+///
+/// `crate::snapshot` resolves a snapshot's themes through here too, and it
+/// installs nothing: a picture is painted once, so what it needs is the values,
+/// not a document to leave them in.
+pub(crate) fn render(doc: &str) -> String {
     let blocks = parse(doc);
     // Every binding, in declaration order, a later one for the same token
     // replacing an earlier one. This is what a chain is followed through.
@@ -916,6 +920,19 @@ pub unsafe extern "C" fn buri_rt_ui_theme_install(doc: *const u8, len: usize, ou
     *theme_lock() = text;
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(answer) };
+}
+
+/// `ui/theme`'s `rootScope()` — an untracked scope, which is `-1`.
+///
+/// The walk that flattens a theme list reads a `switching` theme's condition
+/// through this, and a read through an untracked scope subscribes nothing.
+///
+/// # Safety
+/// `out` is writable and aligned for eight bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_theme_root_scope(out: *mut i64) {
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(-1) };
 }
 
 /// The block installed right now.

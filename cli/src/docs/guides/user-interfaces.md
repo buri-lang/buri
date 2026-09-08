@@ -302,9 +302,14 @@ test "the card" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "card", card(.Const("Ada")), .Hover);
+    snapshot(ctx, "card", card(.Const("Ada")), .Hover, []);
 }
 ```
+
+The last argument is `mount`'s, and it means the same thing: one theme per
+package whose tokens the tree uses. The painter resolves them before it puts a
+colour anywhere, so two calls with two theme lists give a component a light
+golden and a dark one.
 
 ```sh
 buri test //lib/cardlib --update    record test/__snapshots__/card.png
