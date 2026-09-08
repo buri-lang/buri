@@ -1028,7 +1028,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let recv = self.check_expr(base, None);
         // A literal that reaches a method call with nothing else constraining
         // it takes its default — `Int` for an integer literal, `Float` for a
-        // float — so `5.abs()` resolves in `core/num` (SPEC 5.1.1).
+        // float — so `5.abs()` resolves in `core/number` (SPEC 5.1.1).
         let recv_ty = self.default_numeric_receiver(&recv.ty);
 
         // A field of function type is called as `(x.f)(...)`.

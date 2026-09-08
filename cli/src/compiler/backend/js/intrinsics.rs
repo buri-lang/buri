@@ -1,7 +1,7 @@
 //! The bodies of the operations the standard library declares without one.
 //!
 //! Most are a call into the runtime: the key `list.map` becomes `$list_map`.
-//! The exceptions are the numeric methods of `core/num`, which are mechanical
+//! The exceptions are the numeric methods of `core/number`, which are mechanical
 //! enough to emit inline — there is one conversion per source-and-target pair
 //! (SPEC 6.2.1), and generating `Number(x)` beats calling a runtime function
 //! that does the same.
@@ -28,8 +28,8 @@ impl<'a> Gen<'a> {
     ) -> Option<Expr> {
         let parts: Vec<&str> = key.split('.').collect();
         match parts.as_slice() {
-            ["num", ty, name] => return self.numeric(ty, name, args),
-            ["num", name] => return self.numeric_free(name, f),
+            ["number", ty, name] => return self.numeric(ty, name, args),
+            ["number", name] => return self.numeric_free(name, f),
             _ => {}
         }
         // `json.decode` is asked for a type rather than handed one, so what it
@@ -90,7 +90,7 @@ impl<'a> Gen<'a> {
         }
     }
 
-    /// `Bounded`'s methods take no `self`, so `num.minValue<U8>()` reaches
+    /// `Bounded`'s methods take no `self`, so `number.minValue<U8>()` reaches
     /// them through the return type.
     fn numeric_free(&mut self, name: &str, f: &Func) -> Option<Expr> {
         let p = self.prim_of(&f.ret)?;

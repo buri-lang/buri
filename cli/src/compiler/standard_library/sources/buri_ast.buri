@@ -73,7 +73,7 @@
 from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/order" import * as order;
 from "core/str" import * as str;
 
@@ -1544,7 +1544,7 @@ fn bracketed<C: Alloc>(ctx: C, out: Out, open: Str, xs: [Expr], close: Str): Out
 /// to spill into and every argument before it stays on the head line.
 fn callExpr<C: Alloc>(ctx: C, out: Out, args: [Expr]): Out {
     let last = args.len() - 1;
-    let earlier = args.take(ctx, num.max(last, 0));
+    let earlier = args.take(ctx, number.max(last, 0));
     if (args.isEmpty() || !args.any(fn(e) => forces(e))) {
         emit(ctx, exprList(ctx, emit(ctx, out, "("), args), ")")
     } else if (!earlier.any(fn(e) => forces(e)) && args.any(fn(e) => huggable(e))) {
@@ -2122,7 +2122,7 @@ fn escapeChar<C: Alloc>(ctx: C, ch: Char): Str {
     } else if (ch == '\0') {
         "\\0"
     } else if (isControl(ch)) {
-        let digits = num.toHex(ctx, ch.toU32().toI64(), 1);
+        let digits = number.toHex(ctx, ch.toU32().toI64(), 1);
         str.format(ctx, "\\u{${digits}}")
     } else {
         str.fromChars(ctx, [ch])
@@ -2159,7 +2159,7 @@ fn quoteChar<C: Alloc>(ctx: C, ch: Char): Str {
     } else if (ch == '\0') {
         "'\\0'"
     } else if (isControl(ch)) {
-        let digits = num.toHex(ctx, ch.toU32().toI64(), 1);
+        let digits = number.toHex(ctx, ch.toU32().toI64(), 1);
         str.format(ctx, "'\\u{${digits}}'")
     } else {
         str.format(ctx, "'${str.fromChars(ctx, [ch])}'")

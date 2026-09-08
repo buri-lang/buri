@@ -5,7 +5,7 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
    |     ^^^
    |
    = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
-   = fix: delete the table, and reach for `character.fromDigit`, `num.toHex` or `bytes.toHex`
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
 error: expected an identifier, found `.` [unexpected-token]
   --> lib/recovery_delete_closer_brace_app_d8d4ab/main.buri:34:9
    |

@@ -93,7 +93,7 @@ test "toDays and fromDays are inverses" {
     assert.isTrue(cases.all(fn(c) => date.fromDays(date.toDays(c)) == c));
 }
 
-// The era of Hinnant's algorithm is `num.divFloor(y, 400)`, and the branch that
+// The era of Hinnant's algorithm is `number.divFloor(y, 400)`, and the branch that
 // matters is the one below year zero: a truncating `/` there puts the date in
 // the wrong era and every answer that follows it is wrong by a day or more. The
 // calendar is proleptic Gregorian, so these years exist and have answers.

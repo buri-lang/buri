@@ -40,7 +40,7 @@ pub enum Sym {
     /// A `import * as list` namespace.
     Namespace(ModuleId),
     /// Several methods of that name exist on different types. Usable as a
-    /// method, ambiguous as a free function — which is the shape `core/num`'s
+    /// method, ambiguous as a free function — which is the shape `core/number`'s
     /// per-type conversions would have if they were written out.
     Overloaded(Vec<FnId>),
     /// A method declared in an `impl` block, carrying its receiver type as
@@ -641,7 +641,7 @@ impl<'a> Checker<'a> {
         let scope = self.scope_mut(module);
         if let Some(existing) = scope.own.get(text) {
             // Two methods of the same name on different types are the shape
-            // `core/num`'s conversions have; anything else is a redeclaration.
+            // `core/number`'s conversions have; anything else is a redeclaration.
             if let (Sym::Fn(a), Sym::Fn(b)) = (existing.clone(), &sym) {
                 scope.own.insert(text.to_string(), Sym::Overloaded(vec![a, *b]));
                 if exported {

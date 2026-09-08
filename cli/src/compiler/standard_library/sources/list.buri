@@ -396,7 +396,7 @@ impl<T> [T] {
     ///
     /// O(n²) comparisons, because keeping the first occurrence means asking
     /// about every element already kept. For a large list, `sortBy` and a walk
-    /// over neighbours is the O(n log n) answer, and `core/ordset` is the one
+    /// over neighbours is the O(n log n) answer, and `core/orderedset` is the one
     /// that also answers membership.
     export fn uniqueBy<C: Alloc>(self, ctx: C, cmp: fn(T, T) => Order): [T] {
         uniqueFrom(ctx, self, cmp, 0, empty<T>())

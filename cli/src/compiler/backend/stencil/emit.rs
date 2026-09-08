@@ -2527,8 +2527,8 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if let Some(t) = key.strip_prefix("num.").and_then(|k| k.strip_suffix(".show")) {
-            match prim_of_name(t).ok_or_else(|| format!("num.{t}.show"))
+        if let Some(t) = key.strip_prefix("number.").and_then(|k| k.strip_suffix(".show")) {
+            match prim_of_name(t).ok_or_else(|| format!("number.{t}.show"))
                 .and_then(|prim| self.show_prim(st, prim, p(0), ret0, true))
             {
                 Ok(()) => self.emit("ret", &[]),
@@ -2536,9 +2536,9 @@ impl<'a> Jit<'a> {
             }
             return;
         }
-        // `num.<T>.<op>`, which the native backends open-code.
+        // `number.<T>.<op>`, which the native backends open-code.
         let parts: Vec<&str> = key.split('.').collect();
-        if let ["num", tname, op] = *parts.as_slice() {
+        if let ["number", tname, op] = *parts.as_slice() {
             if let Some(prim) = prim_of_name(tname) {
                 // `Bounded::minValue` and `Bounded::maxValue`. The type comes
                 // from the key — `middle::lower`'s `bounded_key` puts it there,
@@ -2617,7 +2617,7 @@ impl<'a> Jit<'a> {
                     return;
                 }
                 // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`,
-                // which `core/num` declares without a body and every backend
+                // which `core/number` declares without a body and every backend
                 // open-codes. `llvm/emit.rs::numeric` is the twin, and the
                 // bound each one checks is the **type's own range** — SPEC
                 // 6.2.2 and VALUE-MODEL.md §12 row 2.
@@ -3215,7 +3215,7 @@ impl Jit<'_> {
         src: u32,
         dest: u32,
     ) -> Result<(), String> {
-        let refuse = || format!("Body::Runtime num.{}.to{}", from.name(), to.name());
+        let refuse = || format!("Body::Runtime number.{}.to{}", from.name(), to.name());
         // Integers only. A float source has `NaN` and the infinities to answer
         // for, and `Char` is a set of scalar values rather than a range.
         if !from.is_integer() || !to.is_integer() {
@@ -4106,7 +4106,7 @@ fn list_closure_key(key: &str) -> bool {
 ///   to the `Body::Runtime` function, whose body reaches the same loop through
 ///   the closure's thunk — so inlining those would replace a working fallback
 ///   with a refusal.
-/// * A key with no row is `str.len`, `num.<T>.<op>` and the rest, whose bodies
+/// * A key with no row is `str.len`, `number.<T>.<op>` and the rest, whose bodies
 ///   `runtime_body` generates from the signature; those keys reach a backend
 ///   only as a method, never as an `Inst::CallIntrinsic`, so there is no
 ///   call-site emitter for them to be inlined by.
@@ -4116,7 +4116,7 @@ fn inline_runtime_key(key: &str) -> bool {
         && !matches!(key, "deriveArrayEq" | "deriveArrayShow")
 }
 
-/// `num.<T>.<op>`, for the operations `Lower::runtime_body` turns into an
+/// `number.<T>.<op>`, for the operations `Lower::runtime_body` turns into an
 /// arithmetic stencil or an immediate.
 ///
 /// `missing_intrinsics` is asked of the *monomorphized* program, before
@@ -4124,16 +4124,16 @@ fn inline_runtime_key(key: &str) -> bool {
 /// the time the body is emitted. Both spellings answer yes, because both
 /// describe an operation this backend compiles.
 ///
-/// The list is what `runtime_body` actually dispatches on and not `num.*`:
+/// The list is what `runtime_body` actually dispatches on and not `number.*`:
 /// claiming a key with no body would turn a diagnostic that names the operation
-/// into one that names an IR shape. `toJson` is the operation `core/num`
+/// into one that names an IR shape. `toJson` is the operation `core/number`
 /// declares that this does not answer.
 fn numeric_key(key: &str) -> bool {
-    if key == "num.minValue" || key == "num.maxValue" {
+    if key == "number.minValue" || key == "number.maxValue" {
         return true;
     }
     let mut parts = key.split('.');
-    if parts.next() != Some("num") {
+    if parts.next() != Some("number") {
         return false;
     }
     let (Some(t), Some(op)) = (parts.next(), parts.next()) else { return false };

@@ -55,7 +55,7 @@ impl Str {
     /// a prefix of another sorts before it.
     ///
     /// `<`, `<=`, `>`, `>=`, `[Str].sort`, `core/order.str` and an
-    /// `OrdMap<Str, _>`'s key order all answer this order, because every one of
+    /// `OrderedMap<Str, _>`'s key order all answer this order, because every one of
     /// them reaches this method through `Ord`.
     ///
     /// This is *not* UTF-16 code-unit order, which is what JavaScript's `<` on a

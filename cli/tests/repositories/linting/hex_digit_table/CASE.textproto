@@ -16,7 +16,7 @@ run {
 }
 
 # What the diagnostic names: the table goes, and so does everything that
-# was written to index into it. Two digits of a byte is `num.toHex` at a
+# was written to index into it. Two digits of a byte is `number.toHex` at a
 # width of two.
 
 edit {
@@ -28,13 +28,13 @@ edit {
 edit {
   file: "cmd/app/main.buri"
   replace: "fn nibble(value: Int, shift: Int): Char {\n    match (HEX_DIGITS[value / shift % 16]) {\n        .Some(digit) => digit,\n        .None => '0',\n    }\n}\n\nfn hexByte<C: Alloc>(ctx: C, octet: Int): Str {\n    str.fromChars(ctx, [nibble(octet, 16), nibble(octet, 1)])\n}\n"
-  with: "fn hexByte<C: Alloc>(ctx: C, octet: Int): Str {\n    num.toHex(ctx, octet, 2)\n}\n"
+  with: "fn hexByte<C: Alloc>(ctx: C, octet: Int): Str {\n    number.toHex(ctx, octet, 2)\n}\n"
 }
 
 edit {
   file: "cmd/app/main.buri"
   replace: "from \"core/str\" import * as str;\n"
-  with: "from \"core/num\" import * as num;\n"
+  with: "from \"core/number\" import * as number;\n"
 }
 
 run {

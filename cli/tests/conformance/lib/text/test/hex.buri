@@ -1,18 +1,18 @@
 // Hexadecimal, and the general radix underneath it: `character.fromDigit` and
-// `character.isHexDigit`, `num.toHex`, `str.toRadix`, and `core/bytes`' pair.
+// `character.isHexDigit`, `number.toHex`, `str.toRadix`, and `core/bytes`' pair.
 //
 // One file, because these are four modules answering one question and the
 // interesting assertions are the ones that cross between them: a number
-// rendered by `num.toHex` and read back by `str.toRadix`, and a byte string
+// rendered by `number.toHex` and read back by `str.toRadix`, and a byte string
 // rendered by `bytes.toHex` two digits at a time that has to agree with
-// `num.toHex` at a width of two.
+// `number.toHex` at a width of two.
 
 from "core/bytes" import * as bytes;
 from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 
 // --- character.fromDigit -----------------------------------------------------
@@ -75,51 +75,51 @@ test "isHexDigit refuses what is not a hexadecimal digit" {
     assert.isFalse('-'.isHexDigit());
 }
 
-// --- num.toHex ----------------------------------------------------------------
+// --- number.toHex ----------------------------------------------------------------
 
 test "toHex renders the shortest form when no width is asked for" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toHex(ctx, 0, 0), "0");
-    assert.eq(num.toHex(ctx, 15, 0), "f");
-    assert.eq(num.toHex(ctx, 255, 0), "ff");
-    assert.eq(num.toHex(ctx, 4886718345, 0), "123456789");
+    assert.eq(number.toHex(ctx, 0, 0), "0");
+    assert.eq(number.toHex(ctx, 15, 0), "f");
+    assert.eq(number.toHex(ctx, 255, 0), "ff");
+    assert.eq(number.toHex(ctx, 4886718345, 0), "123456789");
 }
 
 test "toHex pads to the width and never truncates past it" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toHex(ctx, 255, 4), "00ff");
-    assert.eq(num.toHex(ctx, 0, 8), "00000000");
+    assert.eq(number.toHex(ctx, 255, 4), "00ff");
+    assert.eq(number.toHex(ctx, 0, 8), "00000000");
     // The width is a floor: nine digits of value do not fit in four.
-    assert.eq(num.toHex(ctx, 4886718345, 4), "123456789");
-    assert.eq(num.toHex(ctx, 255, -3), "ff");
+    assert.eq(number.toHex(ctx, 4886718345, 4), "123456789");
+    assert.eq(number.toHex(ctx, 255, -3), "ff");
 }
 
 test "toHex renders a negative number as its two's complement" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toHex(ctx, -1, 0), "ffffffffffffffff");
-    assert.eq(num.toHex(ctx, -1, 4), "ffffffffffffffff");
-    assert.eq(num.toHex(ctx, -256, 0), "ffffffffffffff00");
+    assert.eq(number.toHex(ctx, -1, 0), "ffffffffffffffff");
+    assert.eq(number.toHex(ctx, -1, 4), "ffffffffffffffff");
+    assert.eq(number.toHex(ctx, -256, 0), "ffffffffffffff00");
 }
 
 test "toHex reaches both ends of the range" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toHex(ctx, num.maxValue<I64>(), 16), "7fffffffffffffff");
-    assert.eq(num.toHex(ctx, num.minValue<I64>(), 16), "8000000000000000");
+    assert.eq(number.toHex(ctx, number.maxValue<I64>(), 16), "7fffffffffffffff");
+    assert.eq(number.toHex(ctx, number.minValue<I64>(), 16), "8000000000000000");
 }
 
 test "toHex pads wider than the type is" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toHex(ctx, 255, 20), "000000000000000000ff");
+    assert.eq(number.toHex(ctx, 255, 20), "000000000000000000ff");
 }
 
 test "sixteen digits of a U64 is toHex at a width of sixteen" {
@@ -133,9 +133,9 @@ test "sixteen digits of a U64 is toHex at a width of sixteen" {
     let big: U64 = 18446744073709551615;
     let half: U64 = 9223372036854775808;
     let small: U64 = 291;
-    assert.eq(num.toHex(ctx, big.wrapToI64(), 16), "ffffffffffffffff");
-    assert.eq(num.toHex(ctx, half.wrapToI64(), 16), "8000000000000000");
-    assert.eq(num.toHex(ctx, small.wrapToI64(), 16), "0000000000000123");
+    assert.eq(number.toHex(ctx, big.wrapToI64(), 16), "ffffffffffffffff");
+    assert.eq(number.toHex(ctx, half.wrapToI64(), 16), "8000000000000000");
+    assert.eq(number.toHex(ctx, small.wrapToI64(), 16), "0000000000000123");
 }
 
 // --- str.toRadix --------------------------------------------------------------
@@ -186,8 +186,8 @@ test "toRadix refuses a radix outside 2 to 36" {
 }
 
 test "toRadix answers None rather than a value Int cannot hold" {
-    assert.eq(assert.some("7fffffffffffffff".toRadix(16)), num.maxValue<I64>());
-    assert.eq(assert.some("-8000000000000000".toRadix(16)), num.minValue<I64>());
+    assert.eq(assert.some("7fffffffffffffff".toRadix(16)), number.maxValue<I64>());
+    assert.eq(assert.some("-8000000000000000".toRadix(16)), number.minValue<I64>());
     assert.none("8000000000000000".toRadix(16));
     assert.none("-8000000000000001".toRadix(16));
     assert.none("ffffffffffffffff".toRadix(16));
@@ -207,9 +207,9 @@ test "toRadix reads back what toHex wrote" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let values = [0, 1, 15, 16, 255, 4886718345, num.maxValue<I64>()];
+    let values = [0, 1, 15, 16, 255, 4886718345, number.maxValue<I64>()];
     let broken = values.filterCtx(ctx, fn(c, v) => {
-        num.toHex(c, v, 0).toRadix(16) != .Some(v)
+        number.toHex(c, v, 0).toRadix(16) != .Some(v)
     });
     assert.eq(broken.len(), 0);
 }
@@ -232,7 +232,7 @@ test "toHex of one byte is toHex of the number at width two" {
     let disagreed = list
         .range(ctx, 0, 256)
         .filterCtx(ctx, fn(c, n) => {
-            bytes.toHex(c, [n.wrapToU8()]) != num.toHex(c, n, 2)
+            bytes.toHex(c, [n.wrapToU8()]) != number.toHex(c, n, 2)
         });
     assert.eq(disagreed.len(), 0);
 }
@@ -252,7 +252,7 @@ test "fromHex reads uppercase too" {
     assert.eq(assert.ok(bytes.fromHex(ctx, "ABCD")), [171, 205]);
 }
 
-// --- num.toRadix -------------------------------------------------------------------
+// --- number.toRadix -------------------------------------------------------------------
 //
 // `toHex` renders a bit pattern; this renders a signed numeral, in any base
 // from 2 to 36. `str.toRadix` reads back exactly what it writes, which is the
@@ -262,33 +262,33 @@ test "toRadix writes the digits of a base" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toRadix(ctx, 0, 10), "0");
-    assert.eq(num.toRadix(ctx, 255, 16), "ff");
-    assert.eq(num.toRadix(ctx, 255, 2), "11111111");
-    assert.eq(num.toRadix(ctx, 8, 8), "10");
-    assert.eq(num.toRadix(ctx, 1234567890, 10), "1234567890");
-    assert.eq(num.toRadix(ctx, 35, 36), "z");
-    assert.eq(num.toRadix(ctx, 1295, 36), "zz");
+    assert.eq(number.toRadix(ctx, 0, 10), "0");
+    assert.eq(number.toRadix(ctx, 255, 16), "ff");
+    assert.eq(number.toRadix(ctx, 255, 2), "11111111");
+    assert.eq(number.toRadix(ctx, 8, 8), "10");
+    assert.eq(number.toRadix(ctx, 1234567890, 10), "1234567890");
+    assert.eq(number.toRadix(ctx, 35, 36), "z");
+    assert.eq(number.toRadix(ctx, 1295, 36), "zz");
 }
 
 test "toRadix writes a sign rather than a two's complement" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toRadix(ctx, -5, 2), "-101");
-    assert.eq(num.toRadix(ctx, -255, 16), "-ff");
-    assert.eq(num.toRadix(ctx, -1, 10), "-1");
+    assert.eq(number.toRadix(ctx, -5, 2), "-101");
+    assert.eq(number.toRadix(ctx, -255, 16), "-ff");
+    assert.eq(number.toRadix(ctx, -1, 10), "-1");
     // Where `toHex` says the whole sixty-four-bit pattern.
-    assert.eq(num.toHex(ctx, -1, 0), "ffffffffffffffff");
+    assert.eq(number.toHex(ctx, -1, 0), "ffffffffffffffff");
 }
 
 test "toRadix reaches both ends of Int" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(num.toRadix(ctx, num.maxValue<I64>(), 10), "9223372036854775807");
-    assert.eq(num.toRadix(ctx, num.minValue<I64>(), 10), "-9223372036854775808");
-    assert.eq(num.toRadix(ctx, num.minValue<I64>(), 16), "-8000000000000000");
+    assert.eq(number.toRadix(ctx, number.maxValue<I64>(), 10), "9223372036854775807");
+    assert.eq(number.toRadix(ctx, number.minValue<I64>(), 10), "-9223372036854775808");
+    assert.eq(number.toRadix(ctx, number.minValue<I64>(), 16), "-8000000000000000");
 }
 
 test "toRadix clamps a radix it has no alphabet for" {
@@ -296,33 +296,33 @@ test "toRadix clamps a radix it has no alphabet for" {
         Alloc: alloc(),
     };
     // Below two is read as two, above thirty-six as thirty-six.
-    assert.eq(num.toRadix(ctx, 5, 1), "101");
-    assert.eq(num.toRadix(ctx, 5, 1), num.toRadix(ctx, 5, 2));
-    assert.eq(num.toRadix(ctx, 5, 0), num.toRadix(ctx, 5, 2));
-    assert.eq(num.toRadix(ctx, 5, -10), num.toRadix(ctx, 5, 2));
-    assert.eq(num.toRadix(ctx, 5, num.minValue<I64>()), num.toRadix(ctx, 5, 2));
+    assert.eq(number.toRadix(ctx, 5, 1), "101");
+    assert.eq(number.toRadix(ctx, 5, 1), number.toRadix(ctx, 5, 2));
+    assert.eq(number.toRadix(ctx, 5, 0), number.toRadix(ctx, 5, 2));
+    assert.eq(number.toRadix(ctx, 5, -10), number.toRadix(ctx, 5, 2));
+    assert.eq(number.toRadix(ctx, 5, number.minValue<I64>()), number.toRadix(ctx, 5, 2));
     // Thirty-six is the last base there is an alphabet for; thirty-seven is the
     // first one there is not.
-    assert.eq(num.toRadix(ctx, 40, 36), "14");
-    assert.eq(num.toRadix(ctx, 40, 37), num.toRadix(ctx, 40, 36));
-    assert.eq(num.toRadix(ctx, 40, 99), num.toRadix(ctx, 40, 36));
-    assert.eq(num.toRadix(ctx, 40, num.maxValue<I64>()), num.toRadix(ctx, 40, 36));
+    assert.eq(number.toRadix(ctx, 40, 36), "14");
+    assert.eq(number.toRadix(ctx, 40, 37), number.toRadix(ctx, 40, 36));
+    assert.eq(number.toRadix(ctx, 40, 99), number.toRadix(ctx, 40, 36));
+    assert.eq(number.toRadix(ctx, 40, number.maxValue<I64>()), number.toRadix(ctx, 40, 36));
     // A negative value keeps its sign at either end of the clamp.
-    assert.eq(num.toRadix(ctx, -5, 1), "-101");
-    assert.eq(num.toRadix(ctx, -40, 37), "-14");
+    assert.eq(number.toRadix(ctx, -5, 1), "-101");
+    assert.eq(number.toRadix(ctx, -40, 37), "-14");
     // And zero is one digit in every base, clamped or not.
-    assert.eq(num.toRadix(ctx, 0, 1), "0");
-    assert.eq(num.toRadix(ctx, 0, 37), "0");
-    assert.eq(num.toRadix(ctx, 0, -3), "0");
+    assert.eq(number.toRadix(ctx, 0, 1), "0");
+    assert.eq(number.toRadix(ctx, 0, 37), "0");
+    assert.eq(number.toRadix(ctx, 0, -3), "0");
 }
 
-test "str.toRadix reads back what num.toRadix wrote" {
+test "str.toRadix reads back what number.toRadix wrote" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let values = [0, 1, -1, 7, -7, 255, -256, 1234567890, num.maxValue<I64>()];
+    let values = [0, 1, -1, 7, -7, 255, -256, 1234567890, number.maxValue<I64>()];
     let broken = values.filterCtx(ctx, fn(c, v) => {
-        let written = num.toRadix(c, v, 7);
+        let written = number.toRadix(c, v, 7);
         written.toRadix(7) != .Some(v)
     });
     assert.isEmpty(broken);

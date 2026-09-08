@@ -54,7 +54,7 @@
 from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/math" import * as math;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/order" import { Eq, Hash, Ord, Order, Show };
 from "core/str" import * as str;
 
@@ -113,7 +113,7 @@ impl Show for Decimal {
 /// point, so there is no such thing as a negative one: `of(5, -2)` is `5`.
 /// Multiply by `of(100, 0)` where you wanted `500`.
 export fn of(units: Int, scale: Int): Decimal {
-    canonical(units, num.max(scale, 0))
+    canonical(units, number.max(scale, 0))
 }
 
 /// The number this text spells, or `.None` when it does not spell one.
@@ -228,7 +228,7 @@ impl Decimal {
     /// This is the only method here that loses a digit, and it never fails: the
     /// answer is always smaller than what it came from.
     export fn roundTo(self, scale: Int): Decimal {
-        let target = num.max(scale, 0);
+        let target = number.max(scale, 0);
         if (target >= self.scale) {
             self
         } else {
@@ -330,7 +330,7 @@ fn canonical(units: Int, scale: Int): Decimal {
 
 /// `add` and `sub`, which differ only in the operation at the common scale.
 fn together(a: Decimal, b: Decimal, adding: Bool): Option<Decimal> {
-    let scale = num.max(a.scale, b.scale);
+    let scale = number.max(a.scale, b.scale);
     scaleUp(a.units, scale - a.scale).andThen(fn(left) => {
         scaleUp(b.units, scale - b.scale).andThen(fn(right) => {
             let sum = if (adding) {
@@ -435,7 +435,7 @@ fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, In
             if (digits <= 0 || places == 0) {
                 .None
             } else {
-                .Some((acc, num.max(places, 0)))
+                .Some((acc, number.max(places, 0)))
             }
         },
         .Some(c) => {

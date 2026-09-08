@@ -65,7 +65,7 @@ carries the edit that removes the `::`.
 methods do with none: the receiver's type resolves a conversion, which is the
 same lookup either way (Section 6.2.1). Dropping them also let the fallible
 conversions return `Result` instead of encoding failure in the choice of
-operator. *Cost:* `core/num` carries one method per source-and-target pair.
+operator. *Cost:* `core/number` carries one method per source-and-target pair.
 
 **12.6 There is no `<<` or `>>` token.**
 Longest-match lexing would turn `Map<Str, [Int]>>` into a shift. Dropping the

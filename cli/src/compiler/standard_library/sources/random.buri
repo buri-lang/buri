@@ -49,9 +49,9 @@ from "core/bits" import * as bits;
 from "core/effect" import { Alloc, Rand };
 from "core/list" import * as list;
 from "core/math" import * as math;
-from "core/num" import * as num;
-from "core/ordmap" import * as ordmap;
-from "core/ordmap" import { OrdMap };
+from "core/number" import * as number;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
 
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.
@@ -229,7 +229,7 @@ fn gather<C: Alloc>(ctx: C, g: Gen, remaining: Int, acc: [U8]): ([U8], Gen) {
         (acc, g)
     } else {
         let (x, next) = step(g);
-        let take = num.min(8, remaining);
+        let take = number.min(8, remaining);
         let chunk = list
             .range(ctx, 0, take)
             .map(ctx, fn(i) => bits.shrU64(x, i * 8).wrapToU8());
@@ -254,7 +254,7 @@ fn gather<C: Alloc>(ctx: C, g: Gen, remaining: Int, acc: [U8]): ([U8], Gen) {
 /// }
 /// ```
 ///
-/// Every permutation is equally likely. Fisher-Yates over an `OrdMap<Int, T>`,
+/// Every permutation is equally likely. Fisher-Yates over an `OrderedMap<Int, T>`,
 /// so it costs `O(n log n)` — a `[T]` has no `O(1)` write for the textbook
 /// array version to use.
 export fn shuffle<T, C: Alloc + Rand>(ctx: C, items: [T]): [T] {
@@ -313,13 +313,13 @@ impl Gen {
     /// uniformly chosen position at or below it. Every permutation is equally
     /// likely, and the same seed replays the same one on every backend.
     ///
-    /// `O(n log n)`, because the positions live in an `OrdMap<Int, T>` — a
+    /// `O(n log n)`, because the positions live in an `OrderedMap<Int, T>` — a
     /// `[T]` has no write that costs less than a copy.
     export fn nextShuffle<T, C: Alloc>(self, ctx: C, items: [T]): ([T], Gen) {
         if (items.len() < 2) {
             (items, self)
         } else {
-            let numbered = ordmap.of(
+            let numbered = orderedmap.of(
                 ctx,
                 list.range(ctx, 0, items.len()).zip(ctx, items),
             );
@@ -411,9 +411,9 @@ impl Gen {
 fn yates<T, C: Alloc>(
     ctx: C,
     g: Gen,
-    numbered: OrdMap<Int, T>,
+    numbered: OrderedMap<Int, T>,
     at: Int,
-): (OrdMap<Int, T>, Gen) {
+): (OrderedMap<Int, T>, Gen) {
     if (at <= 0) {
         (numbered, g)
     } else {
@@ -426,10 +426,10 @@ fn yates<T, C: Alloc>(
 /// alone, which cannot happen: both come from the range the map was built over.
 fn exchange<T, C: Alloc>(
     ctx: C,
-    numbered: OrdMap<Int, T>,
+    numbered: OrderedMap<Int, T>,
     here: Int,
     there: Int,
-): OrdMap<Int, T> {
+): OrderedMap<Int, T> {
     match (numbered.get(here)) {
         .None => numbered,
         .Some(a) => {

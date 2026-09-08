@@ -240,7 +240,7 @@ impl BitSet {
 
     /// Sets every bit from `start` up to but not including `end`.
     ///
-    /// Half-open, like `ordmap.range`, and clamped to the capacity at both
+    /// Half-open, like `orderedmap.range`, and clamped to the capacity at both
     /// ends: a range that starts below zero or runs past the capacity sets the
     /// part that fits and no more. O(n/32), because it fills whole words rather
     /// than looping over the indices.

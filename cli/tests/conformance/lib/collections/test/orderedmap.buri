@@ -1,4 +1,4 @@
-// core/ordmap and core/ordset — the persistent B-tree, and the set over it.
+// core/orderedmap and core/orderedset — the persistent B-tree, and the set over it.
 //
 // The cases worth writing are the ones that make the *structure* work rather
 // than the interface. A node holds seven entries, so nothing below eight keys
@@ -11,10 +11,10 @@ from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import { Eq, Hash };
-from "core/ordmap" import * as ordmap;
-from "core/ordmap" import { OrdMap };
-from "core/ordset" import * as ordset;
-from "core/ordset" import { OrdSet };
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/orderedset" import * as orderedset;
+from "core/orderedset" import { OrderedSet };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
@@ -32,23 +32,23 @@ fn textOf<V>(entry: (Str, V)): Str {
 /// A map of `count` keys, inserted in an order that is not the key order —
 /// which is what makes the tree split and rebalance rather than grow to one
 /// side.
-fn scattered<C: Alloc>(ctx: C, count: Int): OrdMap<Int, Int> {
+fn scattered<C: Alloc>(ctx: C, count: Int): OrderedMap<Int, Int> {
     list
         .range(ctx, 0, count)
         .foldCtx(
             ctx,
-            fn(c, acc: OrdMap<Int, Int>, i) => {
+            fn(c, acc: OrderedMap<Int, Int>, i) => {
                 let key = i * 137 % count;
                 acc.insert(c, key, key * 2)
             },
-            ordmap.empty<Int, Int>(),
+            orderedmap.empty<Int, Int>(),
         )
 }
 
 // --- empty ----------------------------------------------------------------------
 
 test "an empty map holds nothing" {
-    let m = ordmap.empty<Str, Int>();
+    let m = orderedmap.empty<Str, Int>();
     assert.eq(m.len(), 0);
     assert.isTrue(m.isEmpty());
     assert.isTrue(m.get("nothing").isNone());
@@ -61,7 +61,7 @@ test "an empty map iterates to nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.empty<Str, Int>();
+    let m = orderedmap.empty<Str, Int>();
     assert.eq(m.entries(ctx).len(), 0);
     assert.eq(m.keys(ctx), list.empty<Str>());
     assert.eq(m.range(ctx, "a", "z").len(), 0);
@@ -74,7 +74,7 @@ test "insert then get" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
+    let m = orderedmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
     assert.eq(assert.some(m.get("a")), 1);
     assert.eq(assert.some(m.get("b")), 2);
     assert.eq(m.len(), 2);
@@ -85,7 +85,7 @@ test "inserting the same key replaces the value and does not change the size" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 99);
+    let m = orderedmap.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 99);
     assert.eq(assert.some(m.get("a")), 99);
     assert.eq(m.len(), 2);
 }
@@ -94,7 +94,7 @@ test "of holds every entry, later ones winning" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
+    let m = orderedmap.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
     assert.eq(m.len(), 2);
     assert.eq(assert.some(m.get("a")), 3);
 }
@@ -105,7 +105,7 @@ test "entries come out in key order whatever order they went in" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("delta", 4), ("alpha", 1), ("charlie", 3), ("bravo", 2)]);
+    let m = orderedmap.of(ctx, [("delta", 4), ("alpha", 1), ("charlie", 3), ("bravo", 2)]);
     let names = m.entries(ctx).map(ctx, fn(e) => textOf(e));
     assert.eq(m.keys(ctx), ["alpha", "bravo", "charlie", "delta"]);
     assert.eq(m.values(ctx), [1, 2, 3, 4]);
@@ -137,7 +137,7 @@ test "remove takes a key out" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
+    let m = orderedmap.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
     assert.isTrue(m.get("a").isNone());
     assert.eq(assert.some(m.get("b")), 2);
     assert.eq(m.len(), 1);
@@ -147,7 +147,7 @@ test "removing a key that is not there changes nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("a", 1)]);
+    let m = orderedmap.of(ctx, [("a", 1)]);
     assert.eq(m.remove(ctx, "zzz").len(), 1);
     assert.eq(assert.some(m.remove(ctx, "zzz").get("a")), 1);
 }
@@ -161,7 +161,7 @@ test "removing every other key of two hundred leaves the rest in order" {
     let odds = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, k) => k % 2 == 1);
     let left = evens.foldCtx(
         ctx,
-        fn(c, acc: OrdMap<Int, Int>, k) => acc.remove(c, k),
+        fn(c, acc: OrderedMap<Int, Int>, k) => acc.remove(c, k),
         m,
     );
     assert.eq(left.len(), 100);
@@ -180,7 +180,7 @@ test "removing every key of two hundred empties the map" {
     let order = list.range(ctx, 0, 200).map(ctx, fn(i) => i * 91 % 200);
     let gone = order.foldCtx(
         ctx,
-        fn(c, acc: OrdMap<Int, Int>, k) => acc.remove(c, k),
+        fn(c, acc: OrderedMap<Int, Int>, k) => acc.remove(c, k),
         m,
     );
     assert.eq(gone.len(), 0);
@@ -195,7 +195,7 @@ test "a map is a value: inserting produces a new one" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let before = ordmap.of(ctx, [("a", 1)]);
+    let before = orderedmap.of(ctx, [("a", 1)]);
     let after = before.insert(ctx, "b", 2);
     assert.eq(before.len(), 1);
     assert.eq(after.len(), 2);
@@ -209,9 +209,9 @@ test "the version a write shares its nodes with is unchanged" {
     let base = scattered(ctx, 120);
     // Enough writes to copy paths through most of the tree; `base` shares every
     // node none of them touched, and must still answer for all 120 keys.
-    let insert = fn(c, acc: OrdMap<Int, Int>, k) => acc.insert(c, k, k * 2);
+    let insert = fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, k, k * 2);
     let grown = list.range(ctx, 120, 200).foldCtx(ctx, insert, base);
-    let drop = fn(c, acc: OrdMap<Int, Int>, k) => acc.remove(c, k);
+    let drop = fn(c, acc: OrderedMap<Int, Int>, k) => acc.remove(c, k);
     let shrunk = list.range(ctx, 0, 60).foldCtx(ctx, drop, base);
     assert.eq(base.len(), 120);
     assert.eq(base.keys(ctx), list.range(ctx, 0, 120));
@@ -275,7 +275,7 @@ test "prefix answers the keys that begin with it, in order" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [
+    let m = orderedmap.of(ctx, [
         ("a", 1),
         ("ab", 2),
         ("abc", 3),
@@ -297,7 +297,7 @@ test "the empty prefix is every entry and an absent one is none" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("a", 1), ("ab", 2), ("b", 3)]);
+    let m = orderedmap.of(ctx, [("a", 1), ("ab", 2), ("b", 3)]);
     assert.eq(m.prefix(ctx, "").len(), 3);
     assert.eq(m.prefix(ctx, "zz").len(), 0);
     assert.eq(m.prefix(ctx, "abc").len(), 0);
@@ -310,8 +310,8 @@ test "a prefix over a large map answers the same as filtering it" {
     let keys = list
         .range(ctx, 0, 300)
         .mapCtx(ctx, fn(c, i) => str.format(c, "key${i * 173 % 300}"));
-    let insert = fn(c, acc: OrdMap<Str, Int>, k: Str) => acc.insert(c, k, k.len());
-    let m = keys.foldCtx(ctx, insert, ordmap.empty<Str, Int>());
+    let insert = fn(c, acc: OrderedMap<Str, Int>, k: Str) => acc.insert(c, k, k.len());
+    let m = keys.foldCtx(ctx, insert, orderedmap.empty<Str, Int>());
     assert.eq(m.len(), 300);
     let scanned = m.prefix(ctx, "key1").map(ctx, fn(e) => textOf(e));
     let filtered = m.keys(ctx).filterCtx(ctx, fn(_c, k) => k.startsWith("key1"));
@@ -326,10 +326,10 @@ test "two maps with the same entries are equal whatever order they were built in
     let ctx = context {
         Alloc: alloc(),
     };
-    let up = fn(c, acc: OrdMap<Int, Int>, k) => acc.insert(c, k, k);
-    let down = fn(c, acc: OrdMap<Int, Int>, k) => acc.insert(c, 39 - k, 39 - k);
-    let forwards = list.range(ctx, 0, 40).foldCtx(ctx, up, ordmap.empty<Int, Int>());
-    let backwards = list.range(ctx, 0, 40).foldCtx(ctx, down, ordmap.empty<Int, Int>());
+    let up = fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, k, k);
+    let down = fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, 39 - k, 39 - k);
+    let forwards = list.range(ctx, 0, 40).foldCtx(ctx, up, orderedmap.empty<Int, Int>());
+    let backwards = list.range(ctx, 0, 40).foldCtx(ctx, down, orderedmap.empty<Int, Int>());
     assert.isTrue(forwards.equals(ctx, backwards));
     assert.isFalse(forwards.equals(ctx, backwards.remove(ctx, 7)));
     assert.isFalse(forwards.equals(ctx, backwards.insert(ctx, 7, 700)));
@@ -341,7 +341,7 @@ test "alter inserts where there was nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap
+    let m = orderedmap
         .empty<Str, Int>()
         .alter(ctx, "a", fn(v) => .Some(v.withDefault(0) + 1));
     assert.eq(assert.some(m.get("a")), 1);
@@ -352,7 +352,7 @@ test "alter replaces what was there" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap
+    let m = orderedmap
         .of(ctx, [("a", 1)])
         .alter(ctx, "a", fn(v) => .Some(v.withDefault(0) + 1));
     assert.eq(assert.some(m.get("a")), 2);
@@ -365,7 +365,7 @@ test "alter removes when it answers None" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).alter(ctx, "a", fn(_v) => .None);
+    let m = orderedmap.of(ctx, [("a", 1), ("b", 2)]).alter(ctx, "a", fn(_v) => .None);
     assert.isTrue(m.get("a").isNone());
     assert.eq(m.keys(ctx), ["b"]);
     assert.eq(m.len(), 1);
@@ -375,7 +375,7 @@ test "alter answering None for a key that is not there changes nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let before = ordmap.of(ctx, [("a", 1)]);
+    let before = orderedmap.of(ctx, [("a", 1)]);
     let after = before.alter(ctx, "z", fn(_v) => .None);
     assert.eq(after.len(), 1);
     assert.isTrue(after.equals(ctx, before));
@@ -388,10 +388,10 @@ test "alter is handed the stored value" {
     };
     let counts = ["a", "b", "a", "a"].foldCtx(
         ctx,
-        fn(c, acc: OrdMap<Str, Int>, w) => {
+        fn(c, acc: OrderedMap<Str, Int>, w) => {
             acc.alter(c, w, fn(v) => .Some(v.withDefault(0) + 1))
         },
-        ordmap.empty<Str, Int>(),
+        orderedmap.empty<Str, Int>(),
     );
     assert.eq(assert.some(counts.get("a")), 3);
     assert.eq(assert.some(counts.get("b")), 1);
@@ -401,7 +401,7 @@ test "mapValues keeps the keys and their order" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap
+    let m = orderedmap
         .of(ctx, [("b", 2), ("a", 1), ("c", 3)])
         .mapValues(ctx, fn(v) => v * 10);
     assert.eq(m.keys(ctx), ["a", "b", "c"]);
@@ -413,7 +413,7 @@ test "mapValues may change the value type" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).mapValues(ctx, fn(v) => v > 1);
+    let m = orderedmap.of(ctx, [("a", 1), ("b", 2)]).mapValues(ctx, fn(v) => v > 1);
     assert.eq(m.values(ctx), [false, true]);
 }
 
@@ -421,7 +421,7 @@ test "mapValues of the empty map is empty" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.empty<Str, Int>().mapValues(ctx, fn(v) => v + 1);
+    let m = orderedmap.empty<Str, Int>().mapValues(ctx, fn(v) => v + 1);
     assert.isTrue(m.isEmpty());
 }
 
@@ -432,7 +432,7 @@ test "groupBy collects by key, in key order" {
         Alloc: alloc(),
     };
     let words = ["ant", "bee", "ape", "bat"];
-    let m = ordmap.groupBy(ctx, words, fn(w: Str) => w.slice(0, 1));
+    let m = orderedmap.groupBy(ctx, words, fn(w: Str) => w.slice(0, 1));
     assert.eq(m.keys(ctx), ["a", "b"]);
     assert.eq(assert.some(m.get("a")), ["ant", "ape"]);
     assert.eq(assert.some(m.get("b")), ["bee", "bat"]);
@@ -442,14 +442,14 @@ test "groupBy of the empty list is the empty map" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.isTrue(ordmap.groupBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
+    assert.isTrue(orderedmap.groupBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
 }
 
 test "indexBy keeps one element per key, the last one winning" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.indexBy(ctx, ["ant", "bee", "ape"], fn(w: Str) => w.slice(0, 1));
+    let m = orderedmap.indexBy(ctx, ["ant", "bee", "ape"], fn(w: Str) => w.slice(0, 1));
     assert.eq(m.keys(ctx), ["a", "b"]);
     assert.eq(assert.some(m.get("a")), "ape");
 }
@@ -461,9 +461,9 @@ test "indexBy keeps one element per key, the last one winning" {
 /// model at once.
 fn step<C: Alloc>(
     ctx: C,
-    state: (OrdMap<Int, Int>, [Int], Int),
+    state: (OrderedMap<Int, Int>, [Int], Int),
     _i: Int,
-): (OrdMap<Int, Int>, [Int], Int) {
+): (OrderedMap<Int, Int>, [Int], Int) {
     let (m, model, seed) = state;
     let next = (seed * 1103515245 + 12345) % 2147483648;
     // The high bits, because a linear congruential generator's low ones have
@@ -485,8 +485,8 @@ test "a thousand mixed operations agree with a sorted list" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let start = (ordmap.empty<Int, Int>(), list.empty<Int>(), 7);
-    let run = fn(c, acc: (OrdMap<Int, Int>, [Int], Int), i) => step(c, acc, i);
+    let start = (orderedmap.empty<Int, Int>(), list.empty<Int>(), 7);
+    let run = fn(c, acc: (OrderedMap<Int, Int>, [Int], Int), i) => step(c, acc, i);
     let (m, model, _) = list.range(ctx, 0, 1000).foldCtx(ctx, run, start);
     // The comparison is worth making only if the run built a tree several levels
     // deep, so the size it settles at is asserted rather than assumed.
@@ -507,7 +507,7 @@ test "an empty set holds nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let s = ordset.empty<Int>();
+    let s = orderedset.empty<Int>();
     assert.eq(s.len(), 0);
     assert.isTrue(s.isEmpty());
     assert.isFalse(s.has(1));
@@ -520,7 +520,7 @@ test "a set collapses duplicates and iterates in order" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let s = ordset.of(ctx, [5, 1, 3, 1, 5]);
+    let s = orderedset.of(ctx, [5, 1, 3, 1, 5]);
     assert.eq(s.len(), 3);
     assert.eq(s.toList(ctx), [1, 3, 5]);
     assert.eq(assert.some(s.first()), 1);
@@ -533,7 +533,7 @@ test "insert and remove on a set" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let s = ordset.of(ctx, [1, 3]).insert(ctx, 2).insert(ctx, 3);
+    let s = orderedset.of(ctx, [1, 3]).insert(ctx, 2).insert(ctx, 3);
     assert.eq(s.toList(ctx), [1, 2, 3]);
     assert.eq(s.remove(ctx, 2).toList(ctx), [1, 3]);
     assert.eq(s.remove(ctx, 99).len(), 3);
@@ -543,7 +543,7 @@ test "a set range is half open" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let s = ordset.of(ctx, list.range(ctx, 0, 60));
+    let s = orderedset.of(ctx, list.range(ctx, 0, 60));
     assert.eq(s.range(ctx, 10, 14), [10, 11, 12, 13]);
     assert.eq(s.range(ctx, 10, 10).len(), 0);
 }
@@ -552,14 +552,14 @@ test "the set operations" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let a = ordset.of(ctx, [1, 3, 5]);
-    let b = ordset.of(ctx, [3, 7]);
+    let a = orderedset.of(ctx, [1, 3, 5]);
+    let b = orderedset.of(ctx, [3, 7]);
     assert.eq(a.union(ctx, b).toList(ctx), [1, 3, 5, 7]);
     assert.eq(a.intersect(ctx, b).toList(ctx), [3]);
     assert.eq(a.difference(ctx, b).toList(ctx), [1, 5]);
-    assert.isTrue(ordset.of(ctx, [1, 5]).isSubsetOf(ctx, a));
+    assert.isTrue(orderedset.of(ctx, [1, 5]).isSubsetOf(ctx, a));
     assert.isFalse(b.isSubsetOf(ctx, a));
-    assert.isTrue(a.equals(ctx, ordset.of(ctx, [5, 3, 1])));
+    assert.isTrue(a.equals(ctx, orderedset.of(ctx, [5, 3, 1])));
     assert.isFalse(a.equals(ctx, b));
 }
 
@@ -568,13 +568,13 @@ test "a set of two hundred members survives insert and remove" {
         Alloc: alloc(),
     };
     let members = list.range(ctx, 0, 200).map(ctx, fn(i) => i * 137 % 200);
-    let add = fn(c, acc: OrdSet<Int>, x) => acc.insert(c, x);
-    let s = members.foldCtx(ctx, add, ordset.empty<Int>());
+    let add = fn(c, acc: OrderedSet<Int>, x) => acc.insert(c, x);
+    let s = members.foldCtx(ctx, add, orderedset.empty<Int>());
     assert.eq(s.len(), 200);
     assert.eq(s.toList(ctx), list.range(ctx, 0, 200));
     let evens = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, k) => k % 2 == 0);
     let odds = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, k) => k % 2 == 1);
-    let left = evens.foldCtx(ctx, fn(c, acc: OrdSet<Int>, x) => acc.remove(c, x), s);
+    let left = evens.foldCtx(ctx, fn(c, acc: OrderedSet<Int>, x) => acc.remove(c, x), s);
     assert.eq(left.toList(ctx), odds);
     // The set it came from is untouched: the removals copied paths and shared
     // everything else.
@@ -585,7 +585,7 @@ test "a set of strings scans by prefix" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let s = ordset.of(ctx, ["ac", "ab", "abc", "b", "a"]);
+    let s = orderedset.of(ctx, ["ac", "ab", "abc", "b", "a"]);
     assert.eq(s.prefix(ctx, "ab"), ["ab", "abc"]);
     assert.eq(s.prefix(ctx, ""), ["a", "ab", "abc", "ac", "b"]);
     assert.eq(s.prefix(ctx, "z").len(), 0);
@@ -597,20 +597,20 @@ test "pop answers the value and the map without it" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [(1, "a"), (2, "b")]);
+    let m = orderedmap.of(ctx, [(1, "a"), (2, "b")]);
     let (v, rest) = assert.some(m.pop(ctx, 1));
     assert.eq(v, "a");
     assert.eq(rest.keys(ctx), [2]);
     assert.eq(m.len(), 2);
     assert.isTrue(m.pop(ctx, 99).isNone());
-    assert.isTrue(ordmap.empty<Int, Str>().pop(ctx, 1).isNone());
+    assert.isTrue(orderedmap.empty<Int, Str>().pop(ctx, 1).isNone());
 }
 
 test "popFirst and popLast take the ends" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [(30, "c"), (10, "a"), (20, "b")]);
+    let m = orderedmap.of(ctx, [(30, "c"), (10, "a"), (20, "b")]);
     let (first, withoutFirst) = assert.some(m.popFirst(ctx));
     assert.eq(first, (10, "a"));
     assert.eq(withoutFirst.keys(ctx), [20, 30]);
@@ -625,15 +625,15 @@ test "popping the ends of an empty map is nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.isTrue(ordmap.empty<Int, Str>().popFirst(ctx).isNone());
-    assert.isTrue(ordmap.empty<Int, Str>().popLast(ctx).isNone());
+    assert.isTrue(orderedmap.empty<Int, Str>().popFirst(ctx).isNone());
+    assert.isTrue(orderedmap.empty<Int, Str>().popLast(ctx).isNone());
 }
 
 test "popping the last entry leaves the empty map" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let one = ordmap.of(ctx, [(5, "e")]);
+    let one = orderedmap.of(ctx, [(5, "e")]);
     let (entry, rest) = assert.some(one.popFirst(ctx));
     assert.eq(entry, (5, "e"));
     assert.eq(rest.len(), 0);
@@ -651,7 +651,7 @@ test "draining with popFirst answers key order and keeps the tree honest" {
         Alloc: alloc(),
     };
     let shuffled = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 173 % 300);
-    let m = ordmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k * 2)));
+    let m = orderedmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k * 2)));
     let drained = drainFirst(ctx, m, list.empty<Int>());
     assert.eq(drained, list.range(ctx, 0, 300));
 }
@@ -661,7 +661,7 @@ test "draining with popLast answers reverse key order" {
         Alloc: alloc(),
     };
     let shuffled = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 173 % 300);
-    let m = ordmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k * 2)));
+    let m = orderedmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k * 2)));
     let drained = drainLast(ctx, m, list.empty<Int>());
     assert.eq(drained, list.range(ctx, 0, 300).reverse(ctx));
 }
@@ -675,12 +675,12 @@ test "popFirst agrees with first and remove, all the way down" {
         Alloc: alloc(),
     };
     let shuffled = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 91 % 300);
-    let m = ordmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k)));
+    let m = orderedmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k)));
     assert.isTrue(popsAgree(ctx, m));
 }
 
 /// Every key, taken from the front one at a time.
-fn drainFirst<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
+fn drainFirst<C: Alloc>(ctx: C, m: OrderedMap<Int, Int>, acc: [Int]): [Int] {
     match (m.popFirst(ctx)) {
         .None => acc,
         .Some(taken) => {
@@ -696,7 +696,7 @@ fn drainFirst<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
 }
 
 /// Every key, taken from the back one at a time.
-fn drainLast<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
+fn drainLast<C: Alloc>(ctx: C, m: OrderedMap<Int, Int>, acc: [Int]): [Int] {
     match (m.popLast(ctx)) {
         .None => acc,
         .Some(taken) => {
@@ -710,7 +710,7 @@ fn drainLast<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
 
 /// Whether `popFirst` and `first` followed by `remove` answer the same map, at
 /// every step down to empty.
-fn popsAgree<C: Alloc>(ctx: C, m: OrdMap<Int, Int>): Bool {
+fn popsAgree<C: Alloc>(ctx: C, m: OrderedMap<Int, Int>): Bool {
     match (m.popFirst(ctx)) {
         .None => m.isEmpty(),
         .Some(taken) => {
@@ -750,7 +750,7 @@ test "floor and ceiling answer the nearest entry on each side" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let bands = ordmap.of(ctx, [(0, "cold"), (10, "mild"), (25, "hot")]);
+    let bands = orderedmap.of(ctx, [(0, "cold"), (10, "mild"), (25, "hot")]);
     assert.eq(assert.some(bands.floor(17)), (10, "mild"));
     assert.eq(assert.some(bands.ceiling(17)), (25, "hot"));
     // An exact key is its own floor and its own ceiling.
@@ -762,13 +762,13 @@ test "floor below everything and ceiling above everything are nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [(10, "a"), (20, "b")]);
+    let m = orderedmap.of(ctx, [(10, "a"), (20, "b")]);
     assert.isTrue(m.floor(9).isNone());
     assert.isTrue(m.ceiling(21).isNone());
     assert.eq(assert.some(m.floor(10)), (10, "a"));
     assert.eq(assert.some(m.ceiling(20)), (20, "b"));
-    assert.isTrue(ordmap.empty<Int, Str>().floor(0).isNone());
-    assert.isTrue(ordmap.empty<Int, Str>().ceiling(0).isNone());
+    assert.isTrue(orderedmap.empty<Int, Str>().floor(0).isNone());
+    assert.isTrue(orderedmap.empty<Int, Str>().ceiling(0).isNone());
 }
 
 // A tree of three hundred keys is several nodes deep, so the answer for a key
@@ -779,7 +779,7 @@ test "floor and ceiling agree with a scan over every key" {
         Alloc: alloc(),
     };
     let evens = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 2);
-    let m = ordmap.of(ctx, evens.map(ctx, fn(k) => (k, k)));
+    let m = orderedmap.of(ctx, evens.map(ctx, fn(k) => (k, k)));
     // Every odd key falls between two even ones, and every even key is its own
     // answer on both sides.
     let probes = list.range(ctx, 0, 598);
@@ -790,13 +790,13 @@ test "floor and ceiling agree with a scan over every key" {
 }
 
 /// The floor of `p` in a map of the even numbers: `p` rounded down.
-fn floorIsRight(m: OrdMap<Int, Int>, p: Int): Bool {
+fn floorIsRight(m: OrderedMap<Int, Int>, p: Int): Bool {
     let wanted = p - p % 2;
     m.floor(p) == .Some((wanted, wanted))
 }
 
 /// The ceiling of `p` in a map of the even numbers: `p` rounded up.
-fn ceilingIsRight(m: OrdMap<Int, Int>, p: Int): Bool {
+fn ceilingIsRight(m: OrderedMap<Int, Int>, p: Int): Bool {
     let wanted = p + p % 2;
     m.ceiling(p) == .Some((wanted, wanted))
 }
@@ -807,21 +807,21 @@ test "merge is right-biased and keeps key order" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let a = ordmap.of(ctx, [(1, "a"), (3, "c")]);
-    let b = ordmap.of(ctx, [(2, "B"), (3, "C")]);
+    let a = orderedmap.of(ctx, [(1, "a"), (3, "c")]);
+    let b = orderedmap.of(ctx, [(2, "B"), (3, "C")]);
     let both = a.merge(ctx, b);
     assert.eq(both.keys(ctx), [1, 2, 3]);
     assert.eq(assert.some(both.get(3)), "C");
-    assert.isTrue(a.merge(ctx, ordmap.empty<Int, Str>()).equals(ctx, a));
-    assert.isTrue(ordmap.empty<Int, Str>().merge(ctx, a).equals(ctx, a));
+    assert.isTrue(a.merge(ctx, orderedmap.empty<Int, Str>()).equals(ctx, a));
+    assert.isTrue(orderedmap.empty<Int, Str>().merge(ctx, a).equals(ctx, a));
 }
 
 test "mergeWith combines only the keys in both" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let a = ordmap.of(ctx, [(1, 2), (3, 1)]);
-    let b = ordmap.of(ctx, [(1, 3), (5, 5)]);
+    let a = orderedmap.of(ctx, [(1, 2), (3, 1)]);
+    let b = orderedmap.of(ctx, [(1, 3), (5, 5)]);
     let total = a.mergeWith(ctx, b, fn(x, y) => x * 100 + y);
     assert.eq(total.keys(ctx), [1, 3, 5]);
     assert.eq(assert.some(total.get(1)), 203);
@@ -835,8 +835,8 @@ test "merging two hundred keys either way keeps them all" {
     };
     let evens = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, i) => i % 2 == 0);
     let odds = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, i) => i % 2 == 1);
-    let a = ordmap.of(ctx, evens.map(ctx, fn(i) => (i, i)));
-    let b = ordmap.of(ctx, odds.map(ctx, fn(i) => (i, i)));
+    let a = orderedmap.of(ctx, evens.map(ctx, fn(i) => (i, i)));
+    let b = orderedmap.of(ctx, odds.map(ctx, fn(i) => (i, i)));
     assert.eq(a.merge(ctx, b).keys(ctx), list.range(ctx, 0, 200));
     assert.eq(a.mergeWith(ctx, b, fn(x, _y) => x).len(), 200);
 }
@@ -845,24 +845,24 @@ test "filter keeps what the predicate keeps, in order" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [(1, "a"), (2, "bb"), (3, "c")]);
+    let m = orderedmap.of(ctx, [(1, "a"), (2, "bb"), (3, "c")]);
     assert.eq(m.filter(ctx, fn(_k, v) => v.len() == 1).keys(ctx), [1, 3]);
     assert.eq(m.filter(ctx, fn(k, _v) => k > 1).keys(ctx), [2, 3]);
     assert.isTrue(m.filter(ctx, fn(_k, _v) => false).isEmpty());
     assert.isTrue(m.filter(ctx, fn(_k, _v) => true).equals(ctx, m));
-    assert.isTrue(ordmap.empty<Int, Str>().filter(ctx, fn(_k, _v) => true).isEmpty());
+    assert.isTrue(orderedmap.empty<Int, Str>().filter(ctx, fn(_k, _v) => true).isEmpty());
 }
 
 test "countBy counts the elements under each key, in key order" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let counts = ordmap.countBy(ctx, list.range(ctx, 0, 10), fn(n: Int) => n % 3);
+    let counts = orderedmap.countBy(ctx, list.range(ctx, 0, 10), fn(n: Int) => n % 3);
     assert.eq(counts.keys(ctx), [0, 1, 2]);
     assert.eq(assert.some(counts.get(0)), 4);
     assert.eq(assert.some(counts.get(1)), 3);
     assert.eq(assert.some(counts.get(2)), 3);
-    assert.isTrue(ordmap.countBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
+    assert.isTrue(orderedmap.countBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
 }
 
 // --- Where the combiner does not run ------------------------------------------------
@@ -878,8 +878,8 @@ test "an ordered mergeWith over disjoint keys never combines anything" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let a = ordmap.of(ctx, [(1, 1), (3, 3)]);
-    let b = ordmap.of(ctx, [(2, 2), (4, 4)]);
+    let a = orderedmap.of(ctx, [(1, 1), (3, 3)]);
+    let b = orderedmap.of(ctx, [(2, 2), (4, 4)]);
     let both = a.mergeWith(ctx, b, neverCombined);
     assert.eq(both.keys(ctx), [1, 2, 3, 4]);
     assert.eq(assert.some(both.get(4)), 4);
@@ -889,8 +889,8 @@ test "an ordered mergeWith with the empty map on either side combines nothing" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let m = ordmap.of(ctx, [(1, 1)]);
-    let none = ordmap.empty<Int, Int>();
+    let m = orderedmap.of(ctx, [(1, 1)]);
+    let none = orderedmap.empty<Int, Int>();
     assert.isTrue(m.mergeWith(ctx, none, neverCombined).equals(ctx, m));
     assert.isTrue(none.mergeWith(ctx, m, neverCombined).equals(ctx, m));
     assert.isTrue(none.mergeWith(ctx, none, neverCombined).isEmpty());
@@ -902,7 +902,7 @@ test "popFirst and popLast on a map of one answer it and the empty map" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let one = ordmap.of(ctx, [(5, "e")]);
+    let one = orderedmap.of(ctx, [(5, "e")]);
     let (first, without) = assert.some(one.popFirst(ctx));
     assert.eq(first, (5, "e"));
     assert.isTrue(without.isEmpty());
@@ -912,7 +912,7 @@ test "popFirst and popLast on a map of one answer it and the empty map" {
     // Neither moved the map they were called on.
     assert.eq(one.len(), 1);
     // And on the empty map both are nothing, whichever end is asked.
-    let none = ordmap.empty<Int, Str>();
+    let none = orderedmap.empty<Int, Str>();
     assert.isTrue(none.popFirst(ctx).isNone());
     assert.isTrue(none.popLast(ctx).isNone());
 }
@@ -935,7 +935,7 @@ test "draining from both ends meets in the middle" {
 }
 
 /// Takes the smallest key, then the largest, until nothing is left.
-fn fromBothEnds<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
+fn fromBothEnds<C: Alloc>(ctx: C, m: OrderedMap<Int, Int>, acc: [Int]): [Int] {
     match (m.popFirst(ctx)) {
         .None => acc,
         .Some((low, withoutLow)) => {
@@ -955,7 +955,7 @@ test "floor and ceiling on a map of one" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let one = ordmap.of(ctx, [(10, "a")]);
+    let one = orderedmap.of(ctx, [(10, "a")]);
     assert.eq(assert.some(one.floor(10)), (10, "a"));
     assert.eq(assert.some(one.ceiling(10)), (10, "a"));
     assert.eq(assert.some(one.floor(11)), (10, "a"));
@@ -987,10 +987,10 @@ test "an ordered filter on a map of one, and on one that keeps everything" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let one = ordmap.of(ctx, [(1, "a")]);
+    let one = orderedmap.of(ctx, [(1, "a")]);
     assert.isTrue(one.filter(ctx, fn(_k, _v) => true).equals(ctx, one));
     assert.isTrue(one.filter(ctx, fn(_k, _v) => false).isEmpty());
-    assert.isTrue(ordmap.empty<Int, Str>().filter(ctx, fn(_k, _v) => true).isEmpty());
+    assert.isTrue(orderedmap.empty<Int, Str>().filter(ctx, fn(_k, _v) => true).isEmpty());
     let m = scattered(ctx, 200);
     assert.eq(m.filter(ctx, fn(k, _v) => k % 2 == 0).len(), 100);
     assert.eq(m.filter(ctx, fn(k, _v) => k % 2 == 0).keys(ctx).get(0), .Some(0));
@@ -1000,44 +1000,44 @@ test "an ordered countBy over one element and over three hundred" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let one = ordmap.countBy(ctx, ["ant"], fn(w: Str) => w.len());
+    let one = orderedmap.countBy(ctx, ["ant"], fn(w: Str) => w.len());
     assert.eq(one.keys(ctx), [3]);
     assert.eq(assert.some(one.get(3)), 1);
-    let many = ordmap.countBy(ctx, list.range(ctx, 0, 900), fn(i: Int) => i % 300);
+    let many = orderedmap.countBy(ctx, list.range(ctx, 0, 900), fn(i: Int) => i % 300);
     assert.eq(many.keys(ctx), list.range(ctx, 0, 300));
     assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => many.get(k) == .Some(3)));
 }
 
 // --- a list built inside the call that folds it -------------------------------
 //
-// The `map.of` rule, one module over: `ordmap.of(ctx, xs.map(ctx, f))` gives
-// `list.map`'s result element the type `(K, V)` out of `ordmap.of`'s signature
+// The `map.of` rule, one module over: `orderedmap.of(ctx, xs.map(ctx, f))` gives
+// `list.map`'s result element the type `(K, V)` out of `orderedmap.of`'s signature
 // before the lambda is looked at, so the lambda's body is the only thing that
 // says what `K` and `V` are. Sizes only, for the reason
 // `collections/map.buri` gives at the same case.
 
-test "ordmap.of over a list mapped inside the call keeps every entry" {
+test "orderedmap.of over a list mapped inside the call keeps every entry" {
     let ctx = context {
         Alloc: alloc(),
     };
     assert.eq(
-        ordmap.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
+        orderedmap.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
         40,
     );
     assert.eq(
-        ordmap.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
+        orderedmap.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
         40,
     );
     let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
-    assert.eq(ordmap.of(ctx, named).len(), 40);
+    assert.eq(orderedmap.of(ctx, named).len(), 40);
 }
 
-test "ordset.of over a list mapped inside the call keeps every item" {
+test "orderedset.of over a list mapped inside the call keeps every item" {
     let ctx = context {
         Alloc: alloc(),
     };
     assert.eq(
-        ordset.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
+        orderedset.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
         40,
     );
 }

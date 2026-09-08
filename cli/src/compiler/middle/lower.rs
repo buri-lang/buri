@@ -1855,23 +1855,23 @@ impl FnLower<'_> {
 /// The intrinsic key, with the *return* type's primitive appended where the
 /// operation is one of `Bounded`'s two.
 ///
-/// `num.minValue` and `num.maxValue` take no argument at all: `Bounded`'s
+/// `number.minValue` and `number.maxValue` take no argument at all: `Bounded`'s
 /// methods reach their type through the return type (`js/intrinsics.rs`'s
 /// `numeric_free` says the same thing on the other backend). By the time a
 /// backend sees the call, that type is an IR scalar — `I8`, which is `I8` and
 /// `U8` alike — and the two answers differ by 128.
 ///
 /// So the key gains it, and becomes the three-segment form every other numeric
-/// operation already has: `num.U8.minValue`. That is the same trick
+/// operation already has: `number.U8.minValue`. That is the same trick
 /// [`qualified_key`] plays for `derivePrimShow`, for the same reason, and it is
 /// applied here rather than in `monomorphize` because only `middle::lower`'s
 /// output — which is the native backends' input and nothing else's — needs it.
 fn bounded_key(tables: &Tables, key: &str, ret: &Ty) -> String {
-    if !matches!(key, "num.minValue" | "num.maxValue") {
+    if !matches!(key, "number.minValue" | "number.maxValue") {
         return key.to_string();
     }
     match tables.as_prim(ret) {
-        Some(p) => format!("num.{}.{}", p.name(), key.trim_start_matches("num.")),
+        Some(p) => format!("number.{}.{}", p.name(), key.trim_start_matches("number.")),
         None => key.to_string(),
     }
 }

@@ -42,7 +42,7 @@ export fn notEq<T: Eq>(actual: T, expected: T): () {
 /// `eq` for a type with no `Eq`: you pass the comparison, and a failure still
 /// reports both values.
 ///
-/// `Map`, `Set`, `OrdMap`, `OrdSet`, `Queue` and `BitSet` answer
+/// `Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
 /// `equals(ctx, other)` rather than deriving `Eq` — two of them holding the
 /// same entries need not hold them in the same shape — so `assert.eq` cannot
 /// take one, and the test had to fall back to `isTrue(a.equals(ctx, b))`, which

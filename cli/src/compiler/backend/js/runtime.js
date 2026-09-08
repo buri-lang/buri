@@ -992,7 +992,7 @@ function $str_splitOnce(s, sep) {
   return i < 0 ? undefined : $some([s.slice(0, i), s.slice(i + sep.length)]);
 }
 
-// `Str.compare`, and through `Ord` every `<`, `sort` and `OrdMap` key order.
+// `Str.compare`, and through `Ord` every `<`, `sort` and `OrderedMap` key order.
 //
 // **Unicode scalar value order**, which for a valid string is byte-for-byte
 // UTF-8 order — the same answer `str::cmp` gives in Rust, `<` gives in Go and

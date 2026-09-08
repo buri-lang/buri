@@ -13,7 +13,7 @@ from "core/bigint" import { BigInt };
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/order" import { Order };
 from "core/testing/assert" import * as assert;
 
@@ -29,8 +29,8 @@ test "of and text round-trip every Int" {
     assert.eq(bigint.of(1000000).text(ctx), "1000000");
     assert.eq(bigint.of(-1000000).text(ctx), "-1000000");
     assert.eq(bigint.of(16777216).text(ctx), "16777216");
-    assert.eq(bigint.of(num.maxValue<I64>()).text(ctx), "9223372036854775807");
-    assert.eq(bigint.of(num.minValue<I64>()).text(ctx), "-9223372036854775808");
+    assert.eq(bigint.of(number.maxValue<I64>()).text(ctx), "9223372036854775807");
+    assert.eq(bigint.of(number.minValue<I64>()).text(ctx), "-9223372036854775808");
 }
 
 test "zero has one shape, however it was reached" {
@@ -119,10 +119,10 @@ test "add is what an Int cannot do" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let top = bigint.of(num.maxValue<I64>());
+    let top = bigint.of(number.maxValue<I64>());
     assert.eq(top.add(ctx, bigint.of(1)).text(ctx), "9223372036854775808");
     assert.eq(top.add(ctx, top).text(ctx), "18446744073709551614");
-    let bottom = bigint.of(num.minValue<I64>());
+    let bottom = bigint.of(number.minValue<I64>());
     assert.eq(bottom.add(ctx, bottom).text(ctx), "-18446744073709551616");
 }
 
@@ -170,7 +170,7 @@ test "mul is what an Int cannot do" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let top = bigint.of(num.maxValue<I64>());
+    let top = bigint.of(number.maxValue<I64>());
     assert.eq(top.mul(ctx, top).text(ctx), "85070591730234615847396907784232501249");
     let ten = assert.some(bigint.parse(ctx, "10000000000000000000"));
     assert.eq(ten.mul(ctx, ten).text(ctx), "100000000000000000000000000000000000000");
@@ -347,13 +347,13 @@ test "toInt is exact at both ends" {
     assert.eq(bigint.of(0).toInt(), .Ok(0));
     assert.eq(bigint.of(-1).toInt(), .Ok(-1));
     assert.eq(bigint.of(1234567890).toInt(), .Ok(1234567890));
-    assert.eq(bigint.of(num.maxValue<I64>()).toInt(), .Ok(num.maxValue<I64>()));
-    assert.eq(bigint.of(num.minValue<I64>()).toInt(), .Ok(num.minValue<I64>()));
+    assert.eq(bigint.of(number.maxValue<I64>()).toInt(), .Ok(number.maxValue<I64>()));
+    assert.eq(bigint.of(number.minValue<I64>()).toInt(), .Ok(number.minValue<I64>()));
     assert.isTrue(
-        bigint.of(num.maxValue<I64>()).add(ctx, bigint.of(1)).toInt().isErr(),
+        bigint.of(number.maxValue<I64>()).add(ctx, bigint.of(1)).toInt().isErr(),
     );
     assert.isTrue(
-        bigint.of(num.minValue<I64>()).sub(ctx, bigint.of(1)).toInt().isErr(),
+        bigint.of(number.minValue<I64>()).sub(ctx, bigint.of(1)).toInt().isErr(),
     );
 }
 
@@ -368,8 +368,8 @@ test "toInt and of undo each other" {
         16777215,
         16777216,
         16777217,
-        num.maxValue<I64>(),
-        num.minValue<I64>(),
+        number.maxValue<I64>(),
+        number.minValue<I64>(),
     ];
     let broken = values.filter(ctx, fn(v) => bigint.of(v).toInt() != .Ok(v));
     assert.isEmpty(broken);
@@ -398,7 +398,7 @@ test "order is numeric and not the field order a derive would give" {
     assert.eq(bigint.of(-5).compare(bigint.of(-7)), Order.Greater);
     assert.eq(bigint.zero().compare(bigint.of(-1)), Order.Greater);
     assert.eq(
-        bigint.of(2).power(ctx, 100).compare(bigint.of(num.maxValue<I64>())),
+        bigint.of(2).power(ctx, 100).compare(bigint.of(number.maxValue<I64>())),
         Order.Greater,
     );
 }
@@ -663,8 +663,8 @@ test "toInt is exact at the Int limits and one past each of them" {
     };
     let top = assert.some(bigint.parse(ctx, "9223372036854775807"));
     let bottom = assert.some(bigint.parse(ctx, "-9223372036854775808"));
-    assert.eq(top.toInt(), .Ok(num.maxValue<I64>()));
-    assert.eq(bottom.toInt(), .Ok(num.minValue<I64>()));
+    assert.eq(top.toInt(), .Ok(number.maxValue<I64>()));
+    assert.eq(bottom.toInt(), .Ok(number.minValue<I64>()));
     // One past either end has no `Int`, and the error names the target.
     let over = assert.some(bigint.parse(ctx, "9223372036854775808"));
     let under = assert.some(bigint.parse(ctx, "-9223372036854775809"));

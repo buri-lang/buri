@@ -462,7 +462,7 @@ Three consequences:
 - **`Ord` on a `Str` is by Unicode scalar value.** That is the unit `len` counts
   and `charAt` hands back, and for a valid string it is byte-for-byte UTF-8
   order — not the UTF-16 code-unit order a JavaScript `<` gives. Both backends
-  answer the scalar order, and `sort`, an `OrdMap<Str, _>` and `core/order`'s
+  answer the scalar order, and `sort`, an `OrderedMap<Str, _>` and `core/order`'s
   `str` all carry it. `Ord` on a `Char` is the scalar's integer order. The
   language has no locale-aware comparison.
 

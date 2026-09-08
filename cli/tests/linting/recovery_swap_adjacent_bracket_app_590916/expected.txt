@@ -5,7 +5,7 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
    |     ^^^
    |
    = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
-   = fix: delete the table, and reach for `character.fromDigit`, `num.toHex` or `bytes.toHex`
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
 error: an array element ends with `,` [missing-separator]
   --> lib/recovery_swap_adjacent_bracket_app_590916/main.buri:40:42
    |

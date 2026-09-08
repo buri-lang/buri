@@ -1056,7 +1056,7 @@ impl Monomorphizer<'_> {
             .module_paths
             .get(info.module.index())
             .cloned()
-            .unwrap_or_else(|| "core/num".into());
+            .unwrap_or_else(|| "core/number".into());
         // `core/str` is `str` and `ui/effect` is `ui_effect`, which is what
         // every backend's runtime table is written against. A standard library
         // module path is the module and nothing else — it never names a file
@@ -1065,11 +1065,11 @@ impl Monomorphizer<'_> {
         let short = module.strip_prefix("core/").unwrap_or(&module).replace('/', "_");
         let key = match info.self_ty {
             // `core/str` exists for `Str`, so `str.Str.len` says it twice.
-            // `core/num` is the defining module of a dozen types, so there the
+            // `core/number` is the defining module of a dozen types, so there the
             // type is what tells two conversions apart.
             Some(con)
                 if is_prim(self.tables(), con)
-                    && short != "num"
+                    && short != "number"
                     && info.impl_of.is_none() =>
             {
                 format!("{short}.{}", info.name)
@@ -2227,7 +2227,7 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// now held to it, and `undetermined-intrinsic-type` is what it says.
 ///
 /// Sorted, and asserted sorted, so a reader can find a key and a duplicate is
-/// visible. `num.<Prim>.show` and `num.<Prim>.toJson` are **not** here: they
+/// visible. `number.<Prim>.show` and `number.<Prim>.toJson` are **not** here: they
 /// are one fact about every primitive rather than twenty-six, and
 /// [`prim_show_or_to_json`] states it once.
 const GENERIC_INTRINSICS: &[&str] = &[
@@ -2379,8 +2379,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // *return* type. Neither backend emits a call: both open-code the constant
     // from the destination's own width (`stencil/emit.rs`, `js/intrinsics.rs`),
     // so the erasure is repaired by there being no runtime call to erase into.
-    "num.maxValue",
-    "num.minValue",
+    "number.maxValue",
+    "number.minValue",
     // `core/str`. Every one names `C: Alloc` for the block it builds and
     // nothing else; `Str` is three leaves at every instantiation, so there is
     // no element pair to supply and `runtime_table` gives them `Extra::None`.
@@ -2450,17 +2450,17 @@ fn generic_intrinsic_allowed(key: &str) -> bool {
     GENERIC_INTRINSICS.contains(&key) || prim_show_or_to_json(key)
 }
 
-/// `num.I64.show`, `num.F64.toJson` and their siblings: the two generic methods
+/// `number.I64.show`, `number.F64.toJson` and their siblings: the two generic methods
 /// `semantics::builtins` mints at every primitive, for every primitive whose
-/// defining module is `core/num` and whose key therefore carries the type.
+/// defining module is `core/number` and whose key therefore carries the type.
 ///
 /// Read off `Prim::all()` rather than written out, for the reason
 /// `backend::intrinsic_keys::derive_key` is: the family is *every* primitive,
 /// and a hand-written list of thirteen is a list that can be short by one.
 /// Both methods name `C: Alloc` and nothing else — the type they are at is in
-/// the key, which is what `short != "num"` in `intrinsic_key` arranges.
+/// the key, which is what `short != "number"` in `intrinsic_key` arranges.
 fn prim_show_or_to_json(key: &str) -> bool {
-    let Some(rest) = key.strip_prefix("num.") else { return false };
+    let Some(rest) = key.strip_prefix("number.") else { return false };
     let Some((ty, op)) = rest.split_once('.') else { return false };
     matches!(op, "show" | "toJson") && Prim::all().iter().any(|p| p.name() == ty)
 }
@@ -2752,7 +2752,7 @@ mod tests {
         list.join list.len list.map list.mapCtx list.mapCtxStep list.push \
         list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
-        num.maxValue num.minValue \
+        number.maxValue number.minValue \
         str.chars str.concat str.format str.fromChars str.fromFloat \
         str.fromInt str.lines str.padEnd str.padStart str.repeat str.replace \
         str.show str.split str.splitAny str.toJson str.toLower str.toUpper \
@@ -2827,23 +2827,23 @@ mod tests {
     fn show_and_to_json_are_allowed_at_every_primitive() {
         for p in Prim::all() {
             let name = p.name();
-            assert!(generic_intrinsic_allowed(&format!("num.{name}.show")), "{name} show");
-            assert!(generic_intrinsic_allowed(&format!("num.{name}.toJson")), "{name} toJson");
+            assert!(generic_intrinsic_allowed(&format!("number.{name}.show")), "{name} show");
+            assert!(generic_intrinsic_allowed(&format!("number.{name}.toJson")), "{name} toJson");
         }
     }
 
-    /// And says nothing about anything else in `core/num`. `hash`, `eq` and
+    /// And says nothing about anything else in `core/number`. `hash`, `eq` and
     /// `compare` are minted with no generics at all, so they never reach the
     /// check — this pins that widening the family would take an edit.
     #[test]
     fn the_primitive_family_is_those_two_methods_and_no_others() {
-        for key in ["num.I64.hash", "num.I64.eq", "num.F64.compare", "num.I64.showOff"] {
+        for key in ["number.I64.hash", "number.I64.eq", "number.F64.compare", "number.I64.showOff"] {
             assert!(!generic_intrinsic_allowed(key), "`{key}` was let through");
         }
         // A type that is not a primitive, spelled into the same shape.
-        assert!(!generic_intrinsic_allowed("num.Decimal.show"));
+        assert!(!generic_intrinsic_allowed("number.Decimal.show"));
         // And the prefix alone is not enough.
-        assert!(!generic_intrinsic_allowed("num.show"));
+        assert!(!generic_intrinsic_allowed("number.show"));
         assert!(!generic_intrinsic_allowed("numeric.I64.show"));
     }
 

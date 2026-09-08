@@ -25,7 +25,7 @@ from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc };
 from "core/json" import { Json };
 from "core/list" import * as list;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/str" import * as str;
 
 derive Eq, Show for ProtoError;
@@ -449,9 +449,9 @@ export fn jsonInt32(x: Int): Json {
 export fn jsonFloat(x: Float): Json {
     if (x != x) {
         Json.Str("NaN")
-    } else if (x > num.maxValue<F64>()) {
+    } else if (x > number.maxValue<F64>()) {
         Json.Str("Infinity")
-    } else if (x < num.minValue<F64>()) {
+    } else if (x < number.minValue<F64>()) {
         Json.Str("-Infinity")
     } else {
         Json.Num(x)
@@ -574,9 +574,9 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
     let x = asFloat(doc, path)?;
     // NaN and the two infinities are values a `float` holds, so the range check
     // only concerns the finite ones.
-    if (x != x || x > num.maxValue<F64>() || x < num.minValue<F64>()) {
+    if (x != x || x > number.maxValue<F64>() || x < number.minValue<F64>()) {
         .Ok(x)
-    } else if (x > num.maxValue<F32>().toF64() || x < num.minValue<F32>().toF64()) {
+    } else if (x > number.maxValue<F32>().toF64() || x < number.minValue<F32>().toF64()) {
         .Err(.BadJson { path: path, wanted: "a number a float can hold" })
     } else {
         .Ok(x)
@@ -588,7 +588,7 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
 fn finite(x: Float, path: Str): Result<Float, ProtoError> {
     if (x != x) {
         .Ok(x)
-    } else if (x > num.maxValue<F64>() || x < num.minValue<F64>()) {
+    } else if (x > number.maxValue<F64>() || x < number.minValue<F64>()) {
         .Err(.BadJson { path: path, wanted: "a number a double can hold" })
     } else {
         .Ok(x)

@@ -38,14 +38,14 @@ error: there is nothing named `assert` in scope [unresolved-name]
 error: there is nothing named `assert` in scope [unresolved-name]
   --> main.buri:29:5
    |
-29 |     assert.eq(got.lane(1), num.maxValue<I64>());
+29 |     assert.eq(got.lane(1), number.maxValue<I64>());
    |     ^^^^^^
    |
    = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
 error: there is nothing named `assert` in scope [unresolved-name]
   --> main.buri:30:5
    |
-30 |     assert.eq(got.lane(2), num.minValue<I64>());
+30 |     assert.eq(got.lane(2), number.minValue<I64>());
    |     ^^^^^^
    |
    = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports

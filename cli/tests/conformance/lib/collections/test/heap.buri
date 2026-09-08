@@ -6,7 +6,7 @@
 // that matters is a long run of pushes followed by a drain — which is where the
 // two-pass merge either pays for itself or leaves a spine behind. Duplicates
 // matter too, because holding the same priority twice is the reason this is not
-// an `OrdSet`.
+// an `OrderedSet`.
 
 from "core/effect" import { Alloc };
 from "core/heap" import * as heap;
@@ -302,7 +302,7 @@ test "a heap of a derived Ord orders by the fields in declaration order" {
 }
 
 // Two elements the order calls equal are two elements, not one — which is the
-// difference from an `OrdSet` and the reason a heap exists.
+// difference from an `OrderedSet` and the reason a heap exists.
 test "a heap keeps elements a custom Ord calls equal" {
     let ctx = context {
         Alloc: alloc(),

@@ -1478,12 +1478,12 @@ fn the_numeric_surface_answers_at_its_own_width() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 export fn main(): Result<(), Str> {
   let a: U8 = 200;
   let b: I8 = -128;
-  let c: I64 = num.maxValue<I64>();
-  let d: I128 = num.maxValue<I128>();
+  let c: I64 = number.maxValue<I64>();
+  let d: I128 = number.maxValue<I128>();
   let e: U128 = 340282366920938463463374607431768211455;
   let f: I64 = -5;
   let _ = io.println(stdout, "${a.checkedAdd(100).withDefault(7)} ${a.saturatingAdd(100)} ${a.wrappingAdd(100)}").ignore();
@@ -1491,7 +1491,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(stdout, "${c.checkedMul(2).withDefault(7)} ${c.saturatingMul(2)} ${c.wrappingMul(2)}").ignore();
   let _ = io.println(stdout, "${d.checkedAdd(1).withDefault(7)} ${d.saturatingAdd(1)} ${d.wrappingAdd(1)}").ignore();
   let _ = io.println(stdout, "${e} ${e.checkedAdd(1).withDefault(7)} ${f.abs()} ${f.signum()}").ignore();
-  let _ = io.println(stdout, "${c.checkedDiv(0).withDefault(7)} ${num.minValue<I8>().checkedDiv(-1).withDefault(7)}").ignore();
+  let _ = io.println(stdout, "${c.checkedDiv(0).withDefault(7)} ${number.minValue<I8>().checkedDiv(-1).withDefault(7)}").ignore();
   .Ok(())
 }
 "#,
@@ -1513,7 +1513,7 @@ export fn main(): Result<(), Str> {
 /// A narrowing conversion answers `Result<T, RangeError>`, at 128 bits and
 /// below.
 ///
-/// The gap buri-lang/buri#4 named: `num.I128.toI64` had no native body, so a
+/// The gap buri-lang/buri#4 named: `number.I128.toI64` had no native body, so a
 /// suite touching it was rerouted onto JavaScript. The range tested is the
 /// **target's** — SPEC 6.2.1's `.Err` is "does not fit `T`" — and the `.Err`
 /// carries the value as the source renders it, which at 128 bits is the one
@@ -1528,11 +1528,11 @@ fn a_narrowing_conversion_answers_a_result() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 export fn main(): Result<(), Str> {
   let a: I128 = 1700000000123456789;
-  let b: I128 = num.maxValue<I128>();
-  let c: I128 = num.minValue<I128>();
+  let b: I128 = number.maxValue<I128>();
+  let c: I128 = number.minValue<I128>();
   let d: U64 = 18446744073709551615;
   let e: I64 = -1;
   let f: I64 = 3000000000;
@@ -1925,7 +1925,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "collections/bitset.buri",
     "collections/heap.buri",
     "collections/map.buri",
-    "collections/ordmap.buri",
+    "collections/orderedmap.buri",
     "collections/queue.buri",
     "collections/sets.buri",
     "compression/deflate.buri",

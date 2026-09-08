@@ -167,7 +167,7 @@ beside its parent. A `oneof` named `contact` inside `Everything` becomes
 
 **64-bit fields round-trip on every backend.** An `Int` is an `I64` everywhere,
 and on the JavaScript backend an `I64` is a `BigInt`
-([`core/num`](../standard-library.md)). So a `uint64` or `int64` field carrying
+([`core/number`](../standard-library.md)). So a `uint64` or `int64` field carrying
 a value past 2^53 survives with every digit. One thing does hold on every
 backend: a `uint64` above 2^63 reads back negative, which is what a signed
 reading of those bits gives you.
