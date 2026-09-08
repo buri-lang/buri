@@ -28,6 +28,7 @@ test "combining marks, emoji and a right-to-left run" {
             ui.text(.Const("")),
         ]),
         .Hover,
+        [],
     );
 }
 
@@ -46,5 +47,6 @@ test "a line longer than the page, wrapped and unwrapped" {
             ui.stack([.TextWrap(.NoWrap)], [ui.text(.Const(line))]),
         ]),
         .Hover,
+        [],
     );
 }

@@ -16,7 +16,7 @@ test "a golden nobody has recorded" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "never-recorded", ui.text(.Const("Ada")), .Hover);
+    snapshot(ctx, "never-recorded", ui.text(.Const("Ada")), .Hover, []);
 }
 
 test "a golden that is not a whole picture" {
@@ -24,7 +24,7 @@ test "a golden that is not a whole picture" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "truncated", ui.text(.Const("Ada")), .Hover);
+    snapshot(ctx, "truncated", ui.text(.Const("Ada")), .Hover, []);
 }
 
 test "one name, and this block painted first" {
@@ -32,7 +32,7 @@ test "one name, and this block painted first" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "shared", ui.text(.Const("first")), .Hover);
+    snapshot(ctx, "shared", ui.text(.Const("first")), .Hover, []);
 }
 
 test "one name, and this block painted second" {
@@ -40,5 +40,5 @@ test "one name, and this block painted second" {
         Alloc: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "shared", ui.text(.Const("second")), .Hover);
+    snapshot(ctx, "shared", ui.text(.Const("second")), .Hover, []);
 }

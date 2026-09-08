@@ -48,8 +48,8 @@ path { path: "lib/scenes/test/__snapshots__/empty.diff.png"  exists: false }
 # one rather than showing a difference against nothing.
 edit {
   file: "lib/scenes/test/shapes.buri"
-  replace: "snapshot(ctx, \"empty\", ui.nothing(), .Hover);"
-  with: "snapshot(ctx, \"never-recorded\", ui.nothing(), .Hover);"
+  replace: "snapshot(ctx, \"empty\", ui.nothing(), .Hover, []);"
+  with: "snapshot(ctx, \"never-recorded\", ui.nothing(), .Hover, []);"
 }
 
 run {

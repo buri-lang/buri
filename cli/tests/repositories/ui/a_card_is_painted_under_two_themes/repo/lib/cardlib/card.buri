@@ -1,0 +1,46 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, token };
+from "ui/theme" import { themed, Theme };
+
+/// This package's closed token vocabulary. What each one is worth is the app's
+/// to say, and a theme is how it says it.
+export enum Token {
+    Surface,
+    Ink,
+}
+
+impl Token {
+    /// The custom property this token is, which is what a style holds.
+    export fn color(self): Color {
+        match (self) {
+            .Surface => token("cardlib", "surface"),
+            .Ink => token("cardlib", "ink"),
+        }
+    }
+}
+
+/// This package's tokens, resolved by `mapping`.
+///
+/// One binding per token, so adding a token here stops every consumer
+/// compiling until it says what the new one is worth.
+export fn themedBy(mapping: fn(Token) => Color): Theme {
+    themed([
+        (Token.Surface.color(), mapping(.Surface)),
+        (Token.Ink.color(), mapping(.Ink)),
+    ])
+}
+
+/// A card painted in this package's tokens and nothing else, so every pixel of
+/// it is the theme's decision.
+export fn card<C>(): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(16)),
+            .Background(Token.Surface.color()),
+            .Foreground(Token.Ink.color()),
+            .Radius(.Px(8)),
+        ],
+        [ui.heading(2, .Const("Ada"))],
+    )
+}
