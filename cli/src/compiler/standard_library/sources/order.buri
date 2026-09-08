@@ -57,7 +57,10 @@ export fn reverse<T>(compare: fn(T, T) => Order): fn(T, T) => Order {
 /// Reverses a comparator when `descending` is true, and hands it back
 /// untouched when it is false. The direction of a sort is usually data: a
 /// column's `ORDER BY ... DESC`, a flag on a request.
-export fn reverseIf<T>(descending: Bool, compare: fn(T, T) => Order): fn(T, T) => Order {
+export fn reverseIf<T>(
+    descending: Bool,
+    compare: fn(T, T) => Order,
+): fn(T, T) => Order {
     if (descending) { reverse(compare) } else { compare }
 }
 

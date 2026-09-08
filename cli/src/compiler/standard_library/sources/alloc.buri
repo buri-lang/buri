@@ -87,9 +87,9 @@
 //! ```
 
 from "core/effect" import {
-    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, NetError, Process, Random,
-    Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin,
-    Stdout, Tasks,
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, NetError, Network,
+    Process, Random, Received, Region, Request, Response, Serve, ServeError, Sockets,
+    Stderr, Stdin, Stdout, Tasks,
 };
 
 // The filesystem's two effects, and the type their methods take. Declared in

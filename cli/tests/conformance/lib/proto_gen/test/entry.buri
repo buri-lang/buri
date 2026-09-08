@@ -49,7 +49,9 @@ test "a schema the reader refuses answers its diagnostics and no module" {
         dependencies: [],
     };
     let out = proto.emit(ctx, request);
-    assert.equal(out.diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
+    assert.equal(out.diagnostics.map(ctx, fn(d) => d.code), [
+        "proto-syntax-declaration",
+    ]);
     assert.length(out.modules, 1);
     // The module is still answered, because a schema always comes back: one
     // bad declaration must not hide what the rest of the file says.

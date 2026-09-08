@@ -230,7 +230,7 @@ it a function, and that function is the fake server: it sees every `Request` the
 code under test makes, and it either answers one or fails it.
 
 ```buri role=test
-from "core/effect" import { Allocator, Network, NetError, Request };
+from "core/effect" import { Allocator, NetError, Network, Request };
 from "core/host/testing" import { alloc, net };
 from "core/net/http" import * as http;
 # from "core/testing/assert" import * as assert;
@@ -270,7 +270,10 @@ test "the responder decides on the method and on a header" {
         .withHeader(live, "authorization", "Bearer t0ken");
     assert.equal(assert.ok(load(live, signed)), 200);
     assert.equal(assert.ok(load(live, signed.withMethod(.Post))), 405);
-    assert.equal(assert.ok(load(live, http.request(.Get, "https://example.test/a"))), 401);
+    assert.equal(
+        assert.ok(load(live, http.request(.Get, "https://example.test/a"))),
+        401,
+    );
 }
 ```
 
@@ -325,7 +328,7 @@ arguments. A path in one of them is the `Str` a `Path` spells. They derive `Equa
 which an assertion compares, and `Show`, which a failing one prints.
 
 ```buri role=test
-from "core/effect" import { Allocator, Network, NetError, Response };
+from "core/effect" import { Allocator, NetError, Network, Response };
 # from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead };
 from "core/host/testing" import { alloc, fetch, fs, net, readFile };
@@ -333,7 +336,10 @@ from "core/net/http" import * as http;
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn cached<C: Allocator + FileSystemRead + Network>(ctx: C, url: Str): Result<Response, NetError> {
+# fn cached<C: Allocator + FileSystemRead + Network>(
+#     ctx: C,
+#     url: Str,
+# ): Result<Response, NetError> {
 #     match (fs.readText(ctx, path.of(ctx, "cache"))) {
 #         .Ok(_body) => .Ok(http.status(200)),
 #         .Err(_e) => http.get(ctx, url),
@@ -432,7 +438,10 @@ test "the third append fails and nothing after it is written" {
         FileSystemWrite: wal,
     };
     let at = path.of(ctx, "wal");
-    assert.equal(assert.err(commit(ctx, at, [[97], [98], [99]], 0)), .Other("disk full"));
+    assert.equal(
+        assert.err(commit(ctx, at, [[97], [98], [99]], 0)),
+        .Other("disk full"),
+    );
     assert.equal(assert.ok(wal.read("wal")), "ab");
 }
 ```

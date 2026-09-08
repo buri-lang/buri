@@ -24,8 +24,9 @@
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Stats };
 from "core/effect" import {
-    Allocator, Clock, Environment, Header, Listen, Listener, Network, NetError, Process, Random, Received,
-    Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Allocator, Clock, Environment, Header, Listen, Listener, NetError, Network, Process,
+    Random, Received, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin,
+    Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -534,7 +535,10 @@ test "a scope forwards randomness" {
 test "a scope forwards the environment" {
     let ctx = context {
         Allocator: alloc.generalPurpose(),
-        Environment: testing.env().variables([("HOME", "/h")]).withArguments(["first", "second"]),
+        Environment: testing
+            .env()
+            .variables([("HOME", "/h")])
+            .withArguments(["first", "second"]),
     };
     assert.equal(alloc.scoped(ctx, fn(c) => variable(c, "HOME")), "/h");
     assert.equal(alloc.scoped(ctx, fn(c) => variable(c, "NOPE")), "unset");
@@ -663,7 +667,10 @@ fn handle<C: Allocator + FileSystemRead + Stdout>(ctx: C, request: Request): Res
 }
 
 /// The wrapping itself, as a plain function over a context and a request.
-fn dispatch<C: Allocator + FileSystemRead + Stdout>(ctx: C, request: Request): Response {
+fn dispatch<C: Allocator + FileSystemRead + Stdout>(
+    ctx: C,
+    request: Request,
+): Response {
     alloc.scoped(ctx, fn(c) => handle(c, request))
 }
 

@@ -532,7 +532,9 @@ test "countBy agrees with groupBy's sizes" {
     assert.isTrue(
         list
             .range(ctx, 0, 7)
-            .all(fn(k) => counts.get(k) == .Some(groups.get(k).withDefault([]).length())),
+            .all(fn(k) => {
+                counts.get(k) == .Some(groups.get(k).withDefault([]).length())
+            }),
     );
 }
 
@@ -726,9 +728,15 @@ test "map.of over a list mapped inside the call keeps every entry" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).length(), 40);
     assert.equal(
-        map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).keys(ctx).length(),
+        map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).length(),
+        40,
+    );
+    assert.equal(
+        map
+            .of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i)))
+            .keys(ctx)
+            .length(),
         40,
     );
     let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
@@ -755,7 +763,10 @@ test "a hand-written fold onto a map answers the same" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(keyedBy(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).length(), 40);
+    assert.equal(
+        keyedBy(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).length(),
+        40,
+    );
     let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
     assert.equal(keyedBy(ctx, named).length(), 40);
 }
@@ -764,6 +775,9 @@ test "set.of over a list mapped inside the call keeps every item" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).length(), 40);
+    assert.equal(
+        set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).length(),
+        40,
+    );
     assert.equal(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => i)).length(), 40);
 }

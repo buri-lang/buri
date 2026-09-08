@@ -112,9 +112,9 @@
 //! how the rest of this module names a method that answers a **new** double.
 
 from "core/effect" import {
-    Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Method, Network,
-    NetError, Process, Random, Received, Region, Request, Response, ServeError, Sockets,
-    Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
+    Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Method,
+    NetError, Network, Process, Random, Received, Region, Request, Response, ServeError,
+    Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
 };
 
 // The filesystem's two effects, declared in `core/fs` because their methods
@@ -739,7 +739,11 @@ impl Network for TestNetwork {
 }
 
 export fn net(): TestNetwork {
-    TestNetwork { handle: newNet(), responder: fn(_request) => .Err(.Refused), plan: [] }
+    TestNetwork {
+        handle: newNet(),
+        responder: fn(_request) => .Err(.Refused),
+        plan: [],
+    }
 }
 
 /// A fresh, empty log, and the handle that names it.

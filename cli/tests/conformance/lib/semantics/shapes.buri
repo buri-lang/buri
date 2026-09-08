@@ -6,8 +6,8 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect" import {
-    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, NetError, Received,
-    Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, NetError, Network,
+    Received, Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
 };
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata, Path };
@@ -17,7 +17,7 @@ from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/number" import { Add, Divide, Multiply, Negate, Remainder, Subtract };
 from "core/order" import * as order;
-from "core/order" import { Equal, Hash, Ordered, Order, Show };
+from "core/order" import { Equal, Hash, Order, Ordered, Show };
 from "core/path" import * as path;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
@@ -720,7 +720,10 @@ export fn nestedShadow(x: Int): Int {
 // program does with a string that came from outside it — `core/fs` takes only
 // a `Path`, and `core/path` is the one place text becomes one.
 
-export fn loadText<C: Allocator + FileSystemRead>(ctx: C, at: Str): Result<Str, IoError> {
+export fn loadText<C: Allocator + FileSystemRead>(
+    ctx: C,
+    at: Str,
+): Result<Str, IoError> {
     fs.readText(ctx, path.of(ctx, at))
 }
 
@@ -1362,7 +1365,10 @@ impl Sockets for QuietSockets {
 /// The handler is handed `c` — the caller's *own* context — and uses it,
 /// which is the claim: a handler runs under the authority `serve` was called
 /// with, and nothing about that passes through `Listen`.
-export fn serveOnce<C: Allocator + Listen + Network + Sockets + Tasks>(ctx: C, url: Str): Int {
+export fn serveOnce<C: Allocator + Listen + Network + Sockets + Tasks>(
+    ctx: C,
+    url: Str,
+): Int {
     // A forged `Socket`, which is what an inert handle allows and what the
     // runtime answers "already gone" for. The three `Sockets` methods are
     // reached through it, which is where they live now.

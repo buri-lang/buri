@@ -59,7 +59,10 @@ test "an inputs that is not a list is an error" {
         Stdout: out,
     };
     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
-    assert.equal(assert.err(codegen.run(ctx, silent)), "codegen: `inputs` is not a list");
+    assert.equal(
+        assert.err(codegen.run(ctx, silent)),
+        "codegen: `inputs` is not a list",
+    );
     assert.equal(out.captured(), "");
 }
 

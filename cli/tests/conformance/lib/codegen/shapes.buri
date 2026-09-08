@@ -20,7 +20,11 @@ from "core/list" import * as list;
 //
 // `adders(ctx, 0, [])` must hold `+0`, `+1`, `+2` and `+3`, in that order.
 
-export fn adders<C: Allocator>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+export fn adders<C: Allocator>(
+    ctx: C,
+    i: Int,
+    acc: [fn(Int) => Int],
+): [fn(Int) => Int] {
     if (i >= 4) { acc } else { adders(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
 }
 
@@ -37,7 +41,11 @@ export fn addersEven<C: Allocator>(
     if (i >= 4) { acc } else { addersOdd(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
 }
 
-export fn addersOdd<C: Allocator>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+export fn addersOdd<C: Allocator>(
+    ctx: C,
+    i: Int,
+    acc: [fn(Int) => Int],
+): [fn(Int) => Int] {
     if (i >= 4) { acc } else { addersEven(ctx, i + 1, acc.push(ctx, fn(x) => x * i)) }
 }
 

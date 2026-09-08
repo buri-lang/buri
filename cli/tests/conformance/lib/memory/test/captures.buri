@@ -52,12 +52,10 @@ test "a captured list slices the same way on every call" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).length()), [
-        0,
-        1,
-        2,
-        3,
-    ]);
+    assert.equal(
+        list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).length()),
+        [0, 1, 2, 3],
+    );
 }
 
 test "a captured list takes the same way on every call" {
@@ -65,12 +63,10 @@ test "a captured list takes the same way on every call" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.take(c, i).length()), [
-        0,
-        1,
-        2,
-        3,
-    ]);
+    assert.equal(
+        list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.take(c, i).length()),
+        [0, 1, 2, 3],
+    );
 }
 
 test "a captured list drops the same way on every call" {
@@ -78,12 +74,10 @@ test "a captured list drops the same way on every call" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.drop(c, i).length()), [
-        3,
-        2,
-        1,
-        0,
-    ]);
+    assert.equal(
+        list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.drop(c, i).length()),
+        [3, 2, 1, 0],
+    );
 }
 
 test "a captured list is not grown in place by the closure that pushes to it" {
@@ -91,11 +85,10 @@ test "a captured list is not grown in place by the closure that pushes to it" {
         Allocator: alloc(),
     };
     let xs = grown(ctx, 2);
-    assert.equal(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.push(c, i).length()), [
-        3,
-        3,
-        3,
-    ]);
+    assert.equal(
+        list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.push(c, i).length()),
+        [3, 3, 3],
+    );
 }
 
 test "a captured list is not extended in place by the closure that concatenates it" {
@@ -104,11 +97,10 @@ test "a captured list is not extended in place by the closure that concatenates 
     };
     let xs = grown(ctx, 2);
     let ys = grown(ctx, 3);
-    assert.equal(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, _i) => xs.concat(c, ys).length()), [
-        5,
-        5,
-        5,
-    ]);
+    assert.equal(
+        list.range(ctx, 0, 3).mapCtx(ctx, fn(c, _i) => xs.concat(c, ys).length()),
+        [5, 5, 5],
+    );
 }
 
 test "a captured list is not turned around in place by the closure that reverses it" {
@@ -394,11 +386,10 @@ test "a closure that reads one capture twice reads it twice every call" {
     let xs = grown(ctx, 4);
     // `take(i)` and `drop(i)` between them are the whole list, whatever `i`
     // is — which stops being true the moment either writes through.
-    assert.equal(over(ctx, 3, fn(c, i) => xs.take(c, i).length() + xs.drop(c, i).length()), [
-        4,
-        4,
-        4,
-    ]);
+    assert.equal(
+        over(ctx, 3, fn(c, i) => xs.take(c, i).length() + xs.drop(c, i).length()),
+        [4, 4, 4],
+    );
 }
 
 test "a closure nobody calls leaves its capture alone" {

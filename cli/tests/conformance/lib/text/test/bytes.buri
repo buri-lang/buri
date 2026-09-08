@@ -202,8 +202,26 @@ test "the sign of a zero is preserved, which the NaN rule does not touch" {
 
 test "eight octets, both ends first" {
     let x: U64 = 0x0123456789abcdef;
-    assert.equal(bytes.fromU64BigEndian(x), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]);
-    assert.equal(bytes.fromU64LittleEndian(x), [0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01]);
+    assert.equal(bytes.fromU64BigEndian(x), [
+        0x01,
+        0x23,
+        0x45,
+        0x67,
+        0x89,
+        0xab,
+        0xcd,
+        0xef,
+    ]);
+    assert.equal(bytes.fromU64LittleEndian(x), [
+        0xef,
+        0xcd,
+        0xab,
+        0x89,
+        0x67,
+        0x45,
+        0x23,
+        0x01,
+    ]);
 }
 
 test "four octets, both ends first" {
@@ -226,9 +244,13 @@ test "the whole width round-trips, including the top bit" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU64BigEndian(bytes.fromU64BigEndian(x), 0));
+    let back = values.mapCtx(ctx, fn(_c, x) => {
+        bytes.toU64BigEndian(bytes.fromU64BigEndian(x), 0)
+    });
     assert.equal(back, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
-    let backLe = values.mapCtx(ctx, fn(_c, x) => bytes.toU64LittleEndian(bytes.fromU64LittleEndian(x), 0));
+    let backLe = values.mapCtx(ctx, fn(_c, x) => {
+        bytes.toU64LittleEndian(bytes.fromU64LittleEndian(x), 0)
+    });
     assert.equal(backLe, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
 }
 
@@ -237,7 +259,9 @@ test "thirty-two bits round-trip the same way" {
         Allocator: alloc(),
     };
     let values: [U32] = [0, 1, 0x7fffffff, 0x80000000, 0xffffffff];
-    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU32LittleEndian(bytes.fromU32LittleEndian(x), 0));
+    let back = values.mapCtx(ctx, fn(_c, x) => {
+        bytes.toU32LittleEndian(bytes.fromU32LittleEndian(x), 0)
+    });
     assert.equal(back, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
 }
 
@@ -335,7 +359,10 @@ test "a truncated read reports the index it began at" {
         DecodeError(1),
     );
     // A frame whose length is not there at all.
-    assert.equal(assert.err(bytes.readerAt([0, 0x80], 1).takeFramed(ctx)), DecodeError(1));
+    assert.equal(
+        assert.err(bytes.readerAt([0, 0x80], 1).takeFramed(ctx)),
+        DecodeError(1),
+    );
 }
 
 test "a reader is a value, so two of them compare" {
@@ -711,8 +738,14 @@ test "an overlong encoding replaces one character per byte" {
     };
     // A lead byte that can only ever begin an overlong leads nothing at all, so
     // it and each byte after it replace on their own.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xc0, 0x80]), str.format(ctx, "${BAD}${BAD}"));
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xc1, 0xbf]), str.format(ctx, "${BAD}${BAD}"));
+    assert.equal(
+        bytes.fromUtf8Lossy(ctx, [0xc0, 0x80]),
+        str.format(ctx, "${BAD}${BAD}"),
+    );
+    assert.equal(
+        bytes.fromUtf8Lossy(ctx, [0xc1, 0xbf]),
+        str.format(ctx, "${BAD}${BAD}"),
+    );
     // The three- and four-byte overlongs are caught by the narrowed range for
     // the *second* byte, before a code point is ever assembled.
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xe0, 0x80, 0xaf]).length(), 3);
@@ -745,7 +778,10 @@ test "a surrogate and a code point past the end each replace" {
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xbf, 0xbf]).length(), 3);
     // A surrogate *pair* written as two sequences is six replacements, not one
     // character.
-    assert.equal(bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80]).length(), 6);
+    assert.equal(
+        bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80]).length(),
+        6,
+    );
     // One past U+10FFFF, caught by `f4`'s narrowed second byte.
     assert.equal(bytes.fromUtf8Lossy(ctx, [0xf4, 0x90, 0x80, 0x80]).length(), 4);
     // And the lead bytes that lead nothing at all.

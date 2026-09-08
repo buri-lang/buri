@@ -332,7 +332,10 @@ test "mapErrCtx leaves Ok alone" {
         Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Ok(3);
-    assert.equal(assert.ok(r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"))), 3);
+    assert.equal(
+        assert.ok(r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"))),
+        3,
+    );
 }
 
 test "mapErrCtx may change the error type" {

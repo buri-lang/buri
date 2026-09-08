@@ -159,7 +159,12 @@ export fn variables(): Str;
 ///
 /// The name is a file name and nothing more. It may not be empty and may not
 /// hold a path separator.
-export fn snapshot<C: Allocator + Ui>(ctx: C, name: Str, root: Node<C>, state: State): () {
+export fn snapshot<C: Allocator + Ui>(
+    ctx: C,
+    name: Str,
+    root: Node<C>,
+    state: State,
+): () {
     paint(name, node.describe(ctx, root, state), stateName(state))
 }
 

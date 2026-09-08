@@ -147,7 +147,10 @@ test "a run that failed is still a run the log has, and the next one runs" {
         Spawn: runner,
     };
     assert.equal(assert.err(process.run(ctx, process.command("first", []))), .NotFound);
-    assert.equal(assert.err(process.run(ctx, process.command("second", []))), .NotFound);
+    assert.equal(
+        assert.err(process.run(ctx, process.command("second", []))),
+        .NotFound,
+    );
     assert.equal(runner.calls(), [spawned("first", []), spawned("second", [])]);
 }
 

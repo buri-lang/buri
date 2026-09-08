@@ -232,7 +232,11 @@ export fn approximatelyEqual(actual: Float, expected: Float, tolerance: Float): 
 /// Two zeroes pass. Anything else against zero fails at every finite tolerance,
 /// because the scale is zero too — use `approximatelyEqual` where one side may be zero. A
 /// `NaN` on either side fails, as it does there.
-export fn approximatelyEqualRelative(actual: Float, expected: Float, tolerance: Float): () {
+export fn approximatelyEqualRelative(
+    actual: Float,
+    expected: Float,
+    tolerance: Float,
+): () {
     let apart = if (actual > expected) { actual - expected } else { expected - actual };
     let left = magnitude(actual);
     let right = magnitude(expected);

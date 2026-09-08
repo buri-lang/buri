@@ -84,14 +84,19 @@ fn walked<C: Allocator + FileSystemRead>(ctx: C, root: Path): Result<Str, Str> {
     .Ok(shown.sort(ctx).join(ctx, " "))
 }
 
-fn found<C: Allocator + Environment + FileSystemRead>(ctx: C, program: Str): Result<Path, Str> {
+fn found<C: Allocator + Environment + FileSystemRead>(
+    ctx: C,
+    program: Str,
+): Result<Path, Str> {
     match (process.which(ctx, program)) {
         .Some(at) => .Ok(at),
         .None => .Err(str.format(ctx, "no `${program}` on PATH")),
     }
 }
 
-fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
+fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+): Result<(), Str> {
     let yes = found(ctx, "true")?;
     let cat = found(ctx, "cat")?;
     let printer = found(ctx, "env")?;
@@ -276,7 +281,11 @@ export fn main(): Result<(), Str> {
         .println(
             ctx,
             "window ${head
-                == [101, 108, 108]} ${past.length()} ${last.length()} ${none.length()} ${refused(
+                == [
+                    101,
+                    108,
+                    108,
+                ]} ${past.length()} ${last.length()} ${none.length()} ${refused(
                 fs.readRange(ctx, note, 0 - 1, 2),
             )} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
         )

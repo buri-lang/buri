@@ -56,7 +56,7 @@ from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/number" import { RangeError };
-from "core/order" import { Equal, Hash, Ordered, Order };
+from "core/order" import { Equal, Hash, Order, Ordered };
 from "core/str" import * as str;
 
 /// A limb holds twenty-four bits. Two of them multiply to forty-eight, which
@@ -187,7 +187,11 @@ impl BigInt {
     /// from "core/bigint" import * as bigint;
     /// from "core/effect" import { Allocator };
     ///
-    /// export fn total<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
+    /// export fn total<C: Allocator>(
+    ///     ctx: C,
+    ///     a: bigint.BigInt,
+    ///     b: bigint.BigInt,
+    /// ): bigint.BigInt {
     ///     a.add(ctx, b)
     /// }
     /// ```
@@ -238,7 +242,11 @@ impl BigInt {
     /// from "core/bigint" import * as bigint;
     /// from "core/effect" import { Allocator };
     ///
-    /// export fn times<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
+    /// export fn times<C: Allocator>(
+    ///     ctx: C,
+    ///     a: bigint.BigInt,
+    ///     b: bigint.BigInt,
+    /// ): bigint.BigInt {
     ///     a.multiply(ctx, b)
     /// }
     /// ```
@@ -524,7 +532,13 @@ fn diagonal(a: [Int], b: [Int], k: Int, i: Int, acc: Int): Int {
 }
 
 /// Carries propagated through a list of unnormalised columns.
-fn carry<C: Allocator>(ctx: C, columns: [Int], at: Int, carried: Int, acc: [Int]): [Int] {
+fn carry<C: Allocator>(
+    ctx: C,
+    columns: [Int],
+    at: Int,
+    carried: Int,
+    acc: [Int],
+): [Int] {
     if (at >= columns.length() && carried == 0) {
         trim(ctx, acc)
     } else {

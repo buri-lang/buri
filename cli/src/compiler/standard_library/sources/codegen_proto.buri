@@ -204,7 +204,13 @@ export fn emptyTable(): Table {
 
 /// One key, for one entry. `qualified` says whether the key is the whole of a
 /// type's name or an abbreviation of it.
-fn addKey<C: Allocator>(ctx: C, t: Table, key: Str, entry: Entry, qualified: Bool): Table {
+fn addKey<C: Allocator>(
+    ctx: C,
+    t: Table,
+    key: Str,
+    entry: Entry,
+    qualified: Bool,
+): Table {
     match (t.byName.get(key)) {
         .None => Table { ..t, byName: t.byName.insert(ctx, key, entry) },
         .Some(existing) => {
@@ -991,7 +997,12 @@ fn enumDeclItem<C: Allocator>(
     }
 }
 
-fn enumEncode<C: Allocator>(ctx: C, name: Str, values: [Valued], unknown: Str): ast.Item {
+fn enumEncode<C: Allocator>(
+    ctx: C,
+    name: Str,
+    values: [Valued],
+    unknown: Str,
+): ast.Item {
     let arms = values
         .map(ctx, fn(v) => armOf(dotP0(v.buri), intE(v.number)))
         .push(ctx, armOf(dotP1(unknown, "n"), id("n")));
@@ -1006,7 +1017,12 @@ fn enumEncode<C: Allocator>(ctx: C, name: Str, values: [Valued], unknown: Str): 
     })
 }
 
-fn enumDecode<C: Allocator>(ctx: C, name: Str, values: [Valued], unknown: Str): ast.Item {
+fn enumDecode<C: Allocator>(
+    ctx: C,
+    name: Str,
+    values: [Valued],
+    unknown: Str,
+): ast.Item {
     // An alias — two names for one number — decodes to the first of them.
     let seed: ([Int], [(ast.Expr, ast.Expr)]) = ([], []);
     let built = values.foldCtx(
@@ -1827,7 +1843,12 @@ fn memberTy(): ast.Type {
     ast.Type { kind: .Tuple([tyNamed("Str"), tyNamed("Json")]), origin: ast.nowhere() }
 }
 
-fn jsonOf<C: Allocator>(ctx: C, f: ResolvedField, value: ast.Expr, c: ast.Expr): ast.Expr {
+fn jsonOf<C: Allocator>(
+    ctx: C,
+    f: ResolvedField,
+    value: ast.Expr,
+    c: ast.Expr,
+): ast.Expr {
     match (f.ty) {
         .Scalar(s) => {
             let k = scalarName(s);

@@ -362,7 +362,11 @@ impl Url {
     /// ```
     ///
     /// `.Err` only when `reference` is itself absolute and does not parse.
-    export fn resolve<C: Allocator>(self, ctx: C, reference: Str): Result<Url, UrlError> {
+    export fn resolve<C: Allocator>(
+        self,
+        ctx: C,
+        reference: Str,
+    ): Result<Url, UrlError> {
         let r = parts(ctx, reference);
         match (r.scheme) {
             .Some(_absolute) => {
@@ -418,7 +422,12 @@ fn percent<C: Allocator>(ctx: C, b: U8): Str {
 }
 
 /// The octets a component decodes to, or the index that stopped it.
-fn octets<C: Allocator>(ctx: C, cs: [Char], at: Int, acc: [U8]): Result<[U8], DecodeError> {
+fn octets<C: Allocator>(
+    ctx: C,
+    cs: [Char],
+    at: Int,
+    acc: [U8],
+): Result<[U8], DecodeError> {
     match (cs.get(at)) {
         .None => .Ok(acc),
         .Some(c) => {
@@ -571,7 +580,10 @@ fn schemeShaped<C: Allocator>(ctx: C, head: Str): Bool {
 
 /// An authority as a host and a port. `.None` for the authority is a reference
 /// with no `//` at all, which has neither.
-fn hostPort<C: Allocator>(ctx: C, text: Option<Str>): Result<(Str, Option<Int>), UrlError> {
+fn hostPort<C: Allocator>(
+    ctx: C,
+    text: Option<Str>,
+): Result<(Str, Option<Int>), UrlError> {
     match (text) {
         .None => .Ok(("", .None)),
         .Some(whole) => {
@@ -718,7 +730,11 @@ fn walking<C: Allocator>(ctx: C, input: Str, out: [Str]): [Str] {
     } else {
         let body = input.slice(1, input.length());
         let cut = 1 + body.indexOf("/").withDefault(body.length());
-        walking(ctx, input.slice(cut, input.length()), out.push(ctx, input.slice(0, cut)))
+        walking(
+            ctx,
+            input.slice(cut, input.length()),
+            out.push(ctx, input.slice(0, cut)),
+        )
     }
 }
 

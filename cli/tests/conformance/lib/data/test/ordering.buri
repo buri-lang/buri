@@ -177,7 +177,10 @@ test "a prefix sorts below what extends it" {
     assert.equal([1].compareBy([1, 2], order.int), Order.Less);
     assert.equal([1, 2].compareBy([1], order.int), Order.Greater);
     assert.equal(list.empty<Int>().compareBy([1], order.int), Order.Less);
-    assert.equal(list.empty<Int>().compareBy(list.empty<Int>(), order.int), Order.Equal);
+    assert.equal(
+        list.empty<Int>().compareBy(list.empty<Int>(), order.int),
+        Order.Equal,
+    );
 }
 
 // The comparator decides, so a reversed one reverses the answer for every pair

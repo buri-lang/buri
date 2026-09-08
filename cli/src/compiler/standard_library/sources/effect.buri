@@ -985,7 +985,10 @@ impl Request {
     ///
     /// A `Duration` converts: `request.withTimeout(time.seconds(5).milliseconds())`.
     export fn withTimeout(self, milliseconds: Int): Request {
-        Request { ..self, timeoutMillis: if (milliseconds > 0) { milliseconds } else { 0 } }
+        Request {
+            ..self,
+            timeoutMillis: if (milliseconds > 0) { milliseconds } else { 0 },
+        }
     }
 }
 

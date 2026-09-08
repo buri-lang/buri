@@ -11,9 +11,9 @@
 //! that asked for it.
 
 from "core/effect" import {
-    Allocator, Clock, Connected, Entropy, Environment, Header, IoError, Listen, Listener, Network,
-    NetError, Process, Random, Received, Region, Request, Response, Serve, ServeError,
-    Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
+    Allocator, Clock, Connected, Entropy, Environment, Header, IoError, Listen,
+    Listener, NetError, Network, Process, Random, Received, Region, Request, Response,
+    Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
 };
 
 // The filesystem's two effects are declared in `core/fs` rather than

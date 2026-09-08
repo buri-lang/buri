@@ -100,7 +100,9 @@ export fn f32Field<C: Allocator>(ctx: C, field: Int, x: Float): [U8] {
 /// A length-delimited field: `bytes`, an embedded message, and a packed
 /// repeated field, which are one encoding wearing three names.
 export fn bytesField<C: Allocator>(ctx: C, field: Int, body: [U8]): [U8] {
-    tag(ctx, field, LEN).concat(ctx, bytes.toVarint(ctx, body.length())).concat(ctx, body)
+    tag(ctx, field, LEN)
+        .concat(ctx, bytes.toVarint(ctx, body.length()))
+        .concat(ctx, body)
 }
 
 /// A `string` field. UTF-8 is what the format says a string is.
@@ -261,7 +263,11 @@ export fn readBytes<C: Allocator>(
 
 /// The same, decoded as UTF-8. A `string` field whose bytes are not text is an
 /// error rather than a replacement character — see `core/bytes`.
-export fn readStr<C: Allocator>(ctx: C, b: [U8], at: Int): Result<(Str, Int), ProtoError> {
+export fn readStr<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+): Result<(Str, Int), ProtoError> {
     let (raw, next) = readBytes(ctx, b, at)?;
     match (bytes.fromUtf8(ctx, raw)) {
         .Ok(s) => .Ok((s, next)),
@@ -576,7 +582,9 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
     // only concerns the finite ones.
     if (x != x || x > number.maxValue<F64>() || x < number.minValue<F64>()) {
         .Ok(x)
-    } else if (x > number.maxValue<F32>().toF64() || x < number.minValue<F32>().toF64()) {
+    } else if (
+        x > number.maxValue<F32>().toF64() || x < number.minValue<F32>().toF64()
+    ) {
         .Err(.BadJson { path: path, wanted: "a number a float can hold" })
     } else {
         .Ok(x)
@@ -622,7 +630,11 @@ export fn asStr(doc: Json, path: Str): Result<Str, ProtoError> {
 ///
 /// `core/bytes` writes and reads the standard alphabet, always padded. proto3
 /// JSON has to accept both, so the translation lives here.
-export fn asBytes<C: Allocator>(ctx: C, doc: Json, path: Str): Result<[U8], ProtoError> {
+export fn asBytes<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<[U8], ProtoError> {
     match (doc.asStr()) {
         .None => .Err(.BadJson { path: path, wanted: "base64" }),
         .Some(s) => {

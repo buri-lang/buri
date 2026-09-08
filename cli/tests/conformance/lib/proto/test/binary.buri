@@ -73,7 +73,10 @@ test "a varint field is a tag and base-128 digits" {
         "10ac02",
     );
     // field 3, wire 0 -> 0x18. 1 is one byte.
-    assert.equal(hex(ctx, Everything { ..defaultEverything(), total: .Some(1) }), "1801");
+    assert.equal(
+        hex(ctx, Everything { ..defaultEverything(), total: .Some(1) }),
+        "1801",
+    );
 }
 
 test "a negative int32 is the ten-byte two's complement" {
@@ -95,7 +98,10 @@ test "a sint field zigzags, so a small negative is a small varint" {
         Allocator: alloc(),
     };
     // field 6, wire 0 -> 0x30. zigzag(-1) = 1.
-    assert.equal(hex(ctx, Everything { ..defaultEverything(), delta: .Some(-1) }), "3001");
+    assert.equal(
+        hex(ctx, Everything { ..defaultEverything(), delta: .Some(-1) }),
+        "3001",
+    );
     // zigzag(-64) = 127, which is still one byte; the two's complement form
     // would have been ten.
     assert.equal(
@@ -103,7 +109,10 @@ test "a sint field zigzags, so a small negative is a small varint" {
         "307f",
     );
     // field 7 -> 0x38. zigzag(1) = 2.
-    assert.equal(hex(ctx, Everything { ..defaultEverything(), offset: .Some(1) }), "3802");
+    assert.equal(
+        hex(ctx, Everything { ..defaultEverything(), offset: .Some(1) }),
+        "3802",
+    );
 }
 
 test "the zigzag transform is its own documented pair" {
@@ -223,7 +232,10 @@ test "a field set to its own zero value is still written" {
     };
     // field 2, wire 0 -> 0x10, and a zero body. Under proto3 this was two bytes
     // of nothing; under editions it is the field being *there*.
-    assert.equal(hex(ctx, Everything { ..defaultEverything(), count: .Some(0) }), "1000");
+    assert.equal(
+        hex(ctx, Everything { ..defaultEverything(), count: .Some(0) }),
+        "1000",
+    );
     assert.equal(hex(ctx, Everything { ..defaultEverything(), count: .None }), "");
 }
 

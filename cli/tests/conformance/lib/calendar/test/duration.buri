@@ -84,7 +84,10 @@ test "isZero and isNegative say what the sign is" {
 
 test "add, sub and mul are the arithmetic of lengths" {
     assert.equal(time.seconds(1).add(time.milliseconds(500)), time.milliseconds(1500));
-    assert.equal(time.seconds(1).subtract(time.milliseconds(250)), time.milliseconds(750));
+    assert.equal(
+        time.seconds(1).subtract(time.milliseconds(250)),
+        time.milliseconds(750),
+    );
     assert.equal(time.milliseconds(250).multiply(4), time.seconds(1));
     assert.equal(time.seconds(1).multiply(0), time.nanoseconds(0));
     assert.equal(time.seconds(1).multiply(-2), time.seconds(-2));
@@ -267,7 +270,11 @@ test "asSecondsFloat reads a length as a count of seconds" {
     assert.approximatelyEqual(time.seconds(3).asSecondsFloat(), 3.0, 1e-9);
     assert.approximatelyEqual(time.milliseconds(250).asSecondsFloat(), 0.25, 1e-9);
     assert.approximatelyEqual(time.ZERO.asSecondsFloat(), 0.0, 1e-9);
-    assert.approximatelyEqual(time.milliseconds(0 - 1500).asSecondsFloat(), 0.0 - 1.5, 1e-9);
+    assert.approximatelyEqual(
+        time.milliseconds(0 - 1500).asSecondsFloat(),
+        0.0 - 1.5,
+        1e-9,
+    );
 }
 
 // --- dividing, and the ratio between two lengths ----------------------------------
@@ -286,7 +293,11 @@ test "a ratio is a number rather than a length" {
     assert.approximatelyEqual(time.seconds(3).ratio(time.seconds(1)), 3.0, 1e-9);
     assert.approximatelyEqual(time.milliseconds(500).ratio(time.seconds(1)), 0.5, 1e-9);
     assert.approximatelyEqual(time.ZERO.ratio(time.seconds(1)), 0.0, 1e-9);
-    assert.approximatelyEqual(time.seconds(0 - 3).ratio(time.seconds(1)), 0.0 - 3.0, 1e-9);
+    assert.approximatelyEqual(
+        time.seconds(0 - 3).ratio(time.seconds(1)),
+        0.0 - 3.0,
+        1e-9,
+    );
     // Nothing goes into no time at all a definite number of times.
     assert.isTrue(math.isInfinite(time.seconds(1).ratio(time.ZERO)));
     assert.isTrue(math.isNan(time.ZERO.ratio(time.ZERO)));

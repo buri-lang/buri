@@ -115,19 +115,39 @@ impl F32x4 {
     }
 
     export fn add(self, other: F32x4): F32x4 {
-        F32x4 { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z, w: self.w + other.w }
+        F32x4 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+            z: self.z + other.z,
+            w: self.w + other.w,
+        }
     }
 
     export fn subtract(self, other: F32x4): F32x4 {
-        F32x4 { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z, w: self.w - other.w }
+        F32x4 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+            z: self.z - other.z,
+            w: self.w - other.w,
+        }
     }
 
     export fn multiply(self, other: F32x4): F32x4 {
-        F32x4 { x: self.x * other.x, y: self.y * other.y, z: self.z * other.z, w: self.w * other.w }
+        F32x4 {
+            x: self.x * other.x,
+            y: self.y * other.y,
+            z: self.z * other.z,
+            w: self.w * other.w,
+        }
     }
 
     export fn divide(self, other: F32x4): F32x4 {
-        F32x4 { x: self.x / other.x, y: self.y / other.y, z: self.z / other.z, w: self.w / other.w }
+        F32x4 {
+            x: self.x / other.x,
+            y: self.y / other.y,
+            z: self.z / other.z,
+            w: self.w / other.w,
+        }
     }
 
     export fn scale(self, factor: Float): F32x4 {
@@ -242,15 +262,30 @@ impl I32x4 {
     }
 
     export fn add(self, other: I32x4): I32x4 {
-        I32x4 { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z, w: self.w + other.w }
+        I32x4 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+            z: self.z + other.z,
+            w: self.w + other.w,
+        }
     }
 
     export fn subtract(self, other: I32x4): I32x4 {
-        I32x4 { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z, w: self.w - other.w }
+        I32x4 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+            z: self.z - other.z,
+            w: self.w - other.w,
+        }
     }
 
     export fn multiply(self, other: I32x4): I32x4 {
-        I32x4 { x: self.x * other.x, y: self.y * other.y, z: self.z * other.z, w: self.w * other.w }
+        I32x4 {
+            x: self.x * other.x,
+            y: self.y * other.y,
+            z: self.z * other.z,
+            w: self.w * other.w,
+        }
     }
 
     export fn min(self, other: I32x4): I32x4 {
@@ -280,15 +315,30 @@ impl I32x4 {
     }
 
     export fn and(self, other: I32x4): I32x4 {
-        I32x4 { x: self.x & other.x, y: self.y & other.y, z: self.z & other.z, w: self.w & other.w }
+        I32x4 {
+            x: self.x & other.x,
+            y: self.y & other.y,
+            z: self.z & other.z,
+            w: self.w & other.w,
+        }
     }
 
     export fn or(self, other: I32x4): I32x4 {
-        I32x4 { x: self.x | other.x, y: self.y | other.y, z: self.z | other.z, w: self.w | other.w }
+        I32x4 {
+            x: self.x | other.x,
+            y: self.y | other.y,
+            z: self.z | other.z,
+            w: self.w | other.w,
+        }
     }
 
     export fn xor(self, other: I32x4): I32x4 {
-        I32x4 { x: self.x ^ other.x, y: self.y ^ other.y, z: self.z ^ other.z, w: self.w ^ other.w }
+        I32x4 {
+            x: self.x ^ other.x,
+            y: self.y ^ other.y,
+            z: self.z ^ other.z,
+            w: self.w ^ other.w,
+        }
     }
 
     /// True when every lane is non-zero — the usual way to consume a mask.

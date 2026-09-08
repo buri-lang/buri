@@ -462,7 +462,11 @@ fn skipTrivia<C: Allocator>(ctx: C, p: P): P {
 }
 
 fn skipLine(p: P): P {
-    if (p.at >= p.cs.length() || charAt(p, p.at) == '\n') { p } else { skipLine(step(p)) }
+    if (p.at >= p.cs.length() || charAt(p, p.at) == '\n') {
+        p
+    } else {
+        skipLine(step(p))
+    }
 }
 
 fn skipBlock<C: Allocator>(ctx: C, p: P, start: Int): P {
@@ -570,7 +574,13 @@ fn readInt(raw: Str): Option<Int> {
 }
 
 /// The rest of a quoted string, from just past its opening quote.
-fn quoted<C: Allocator>(ctx: C, p: P, quote: Char, start: Int, acc: [Char]): (P, Token) {
+fn quoted<C: Allocator>(
+    ctx: C,
+    p: P,
+    quote: Char,
+    start: Int,
+    acc: [Char],
+): (P, Token) {
     if (p.at >= p.cs.length() || charAt(p, p.at) == '\n') {
         let q = err(
             ctx,
@@ -957,7 +967,11 @@ fn nearest<C: Allocator>(ctx: C, word: Str, known: [Str]): Option<Str> {
         ctx,
         fn(c, acc: Option<(Int, Str)>, k) => {
             let distance = editDistance(c, word, k);
-            let longest = if (word.length() > k.length()) { word.length() } else { k.length() };
+            let longest = if (word.length() > k.length()) {
+                word.length()
+            } else {
+                k.length()
+            };
             let third = longest / 3;
             let limit = if (third > 1) { third } else { 1 } + 1;
             if (distance > limit) {
@@ -1331,7 +1345,13 @@ fn messageBody<C: Allocator>(ctx: C, p0: P, m: Message): (P, Message) {
     }
 }
 
-fn messageItem<C: Allocator>(ctx: C, p: P, start: Int, w: Str, m: Message): (P, Message) {
+fn messageItem<C: Allocator>(
+    ctx: C,
+    p: P,
+    start: Int,
+    w: Str,
+    m: Message,
+): (P, Message) {
     if (w == "message") {
         let (p1, inner) = message(ctx, nextToken(ctx, p).0);
         let next = match (inner) {

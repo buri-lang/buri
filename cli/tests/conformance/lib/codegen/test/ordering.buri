@@ -105,5 +105,10 @@ test "a derived ordering sorts" {
     };
     let xs = [mkOctets([2]), mkOctets([1, 5]), mkOctets([]), mkOctets([1])];
     let sorted = xs.sort(ctx);
-    assert.equal(sorted, [mkOctets([]), mkOctets([1]), mkOctets([1, 5]), mkOctets([2])]);
+    assert.equal(sorted, [
+        mkOctets([]),
+        mkOctets([1]),
+        mkOctets([1, 5]),
+        mkOctets([2]),
+    ]);
 }

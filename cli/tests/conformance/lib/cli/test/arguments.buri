@@ -163,18 +163,27 @@ test "a handler's own error is the message main exits 1 with" {
 // --- the five spellings of a flag ----------------------------------------------
 
 test "a global switch is accepted before the subcommand, long and short" {
-    assert.equal(printed(ran(["--quiet", "count", "f"])), "count f none quiet stdout [f]");
+    assert.equal(
+        printed(ran(["--quiet", "count", "f"])),
+        "count f none quiet stdout [f]",
+    );
     assert.equal(printed(ran(["-q", "count", "f"])), "count f none quiet stdout [f]");
 }
 
 test "a value may be attached with = or written as the next token" {
-    assert.equal(printed(ran(["count", "--out=log", "f"])), "count f none loud log [f]");
+    assert.equal(
+        printed(ran(["count", "--out=log", "f"])),
+        "count f none loud log [f]",
+    );
     assert.equal(
         printed(ran(["count", "--out", "log", "f"])),
         "count f none loud log [f]",
     );
     assert.equal(printed(ran(["count", "-o=log", "f"])), "count f none loud log [f]");
-    assert.equal(printed(ran(["count", "-o", "log", "f"])), "count f none loud log [f]");
+    assert.equal(
+        printed(ran(["count", "-o", "log", "f"])),
+        "count f none loud log [f]",
+    );
 }
 
 test "the last value of a Value flag wins" {
@@ -185,14 +194,20 @@ test "the last value of a Value flag wins" {
 }
 
 test "a Many flag keeps every value, in the order they were written" {
-    assert.equal(printed(ran(["hash", "-I", "a", "--include=b", "-I=c"])), "hash [a,b,c]");
+    assert.equal(
+        printed(ran(["hash", "-I", "a", "--include=b", "-I=c"])),
+        "hash [a,b,c]",
+    );
 }
 
 test "a value that is not a long flag is taken whatever it looks like" {
     // `-` is the conventional name for standard input and `-1` is a number:
     // both are values, and neither is a flag this spec declares.
     assert.equal(printed(ran(["count", "--out", "-", "f"])), "count f none loud - [f]");
-    assert.equal(printed(ran(["count", "--out", "-1", "f"])), "count f none loud -1 [f]");
+    assert.equal(
+        printed(ran(["count", "--out", "-1", "f"])),
+        "count f none loud -1 [f]",
+    );
 }
 
 test "-- stops the flags, and everything after it is a positional" {
@@ -307,7 +322,10 @@ test "a switch given a value" {
         assert.err(ran(["--quiet=loud", "count", "f"]).answer),
         "--quiet takes no value",
     );
-    assert.equal(assert.err(ran(["-q=loud", "count", "f"]).answer), "-q takes no value");
+    assert.equal(
+        assert.err(ran(["-q=loud", "count", "f"]).answer),
+        "-q takes no value",
+    );
 }
 
 test "an unknown command, and no command at all" {

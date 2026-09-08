@@ -180,7 +180,10 @@
 //!         Stderr: err,
 //!     };
 //!     assert.equal(assert.err(cli.run(ctx, tool())), "missing argument <name>");
-//!     assert.equal(err.captured().lines(ctx).first(), .Some("hi: missing argument <name>"));
+//!     assert.equal(
+//!         err.captured().lines(ctx).first(),
+//!         .Some("hi: missing argument <name>"),
+//!     );
 //! }
 //! ```
 //!
@@ -391,7 +394,10 @@ struct Step {
 /// `.Ok(())` is exit 0. A parse error goes to stderr with the usage under it
 /// and comes back as `.Err`, which `main`'s contract turns into exit 1
 /// (SPEC 11.4). `--help` and `--version` print and answer `.Ok(())`.
-export fn run<C: Allocator + Environment + Stderr + Stdout>(ctx: C, spec: Cli<C>): Result<(), Str> {
+export fn run<C: Allocator + Environment + Stderr + Stdout>(
+    ctx: C,
+    spec: Cli<C>,
+): Result<(), Str> {
     fire(ctx, spec, env.arguments(ctx))
 }
 

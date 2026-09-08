@@ -16,8 +16,9 @@ from "core/actor" import { Actor, Stepped };
 from "core/alloc" import * as alloc;
 from "core/crypto" import * as crypto;
 from "core/effect" import {
-    Allocator, Clock, Entropy, Environment, Header, IoError, Network, NetError, Process, Random, Region,
-    Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks, WebSocketClient,
+    Allocator, Clock, Entropy, Environment, Header, IoError, NetError, Network, Process,
+    Random, Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
+    WebSocketClient,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -90,7 +91,11 @@ fn ping<C: Allocator + Network>(ctx: C, url: Str): Result<Response, NetError> {
     http.get(ctx, url)
 }
 
-fn saveText<C: Allocator + FileSystemWrite>(ctx: C, at: Str, body: Str): Result<(), IoError> {
+fn saveText<C: Allocator + FileSystemWrite>(
+    ctx: C,
+    at: Str,
+    body: Str,
+): Result<(), IoError> {
     fs.writeText(ctx, path.of(ctx, at), body)
 }
 
@@ -453,7 +458,11 @@ test "readDir lists the immediate children, files and directories alike" {
         FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "d/empty")));
-    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))), ["deep", "empty", "one"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))), [
+        "deep",
+        "empty",
+        "one",
+    ]);
 }
 
 test "sync answers whether there was anything to have flushed" {
@@ -831,7 +840,10 @@ test "a responder sees the request body as the octets it was sent" {
         Network: server,
     };
     assert.equal(assert.ok(statusOf(ctx, http.request(.Post, "/u"))), 0);
-    assert.equal(assert.ok(statusOf(ctx, http.textRequest(ctx, .Post, "/u", "hello"))), 5);
+    assert.equal(
+        assert.ok(statusOf(ctx, http.textRequest(ctx, .Post, "/u", "hello"))),
+        5,
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -864,7 +876,10 @@ test "a responder may fail one request and answer another" {
         Network: server,
     };
     assert.equal(http.send(ctx, http.request(.Get, "/slow")), .Err(.Timeout));
-    assert.equal(http.send(ctx, http.request(.Get, "/bad")), .Err(.BadUrl("no scheme")));
+    assert.equal(
+        http.send(ctx, http.request(.Get, "/bad")),
+        .Err(.BadUrl("no scheme")),
+    );
     assert.equal(assert.ok(statusOf(ctx, http.request(.Get, "/ok"))), 200);
 }
 
@@ -887,7 +902,10 @@ test "every NetError variant a responder can name crosses unchanged" {
     assert.equal(http.send(ctx, http.request(.Get, "/timeout")), .Err(.Timeout));
     assert.equal(http.send(ctx, http.request(.Get, "/refused")), .Err(.Refused));
     assert.equal(http.send(ctx, http.request(.Get, "/badurl")), .Err(.BadUrl("u")));
-    assert.equal(http.send(ctx, http.request(.Get, "/transport")), .Err(.Transport("t")));
+    assert.equal(
+        http.send(ctx, http.request(.Get, "/transport")),
+        .Err(.Transport("t")),
+    );
     assert.equal(http.send(ctx, http.request(.Get, "/aborted")), .Err(.Aborted));
 }
 
@@ -1379,7 +1397,9 @@ test "a refused request is a request that was made" {
         Network: refusing,
     };
     assert.equal(assert.err(ping(ctx, "https://example.test/")), .Refused);
-    assert.equal(refusing.calls(), [fetch(http.request(.Get, "https://example.test/"))]);
+    assert.equal(refusing.calls(), [
+        fetch(http.request(.Get, "https://example.test/")),
+    ]);
 }
 
 test "the whole request crosses: method, url, headers and body" {
@@ -1624,11 +1644,18 @@ fn reported<C: Allocator>(ctx: C, path: Str, error: IoError): Str {
 
 /// Appends every entry to one write-ahead log, stopping at the first failure —
 /// so what is in the log afterwards is a prefix of what it was asked to write.
-fn commitThree<C: Allocator + FileSystemWrite>(ctx: C, entries: [[U8]]): Result<(), Str> {
+fn commitThree<C: Allocator + FileSystemWrite>(
+    ctx: C,
+    entries: [[U8]],
+): Result<(), Str> {
     commitFrom(ctx, entries, 0)
 }
 
-fn commitFrom<C: Allocator + FileSystemWrite>(ctx: C, entries: [[U8]], i: Int): Result<(), Str> {
+fn commitFrom<C: Allocator + FileSystemWrite>(
+    ctx: C,
+    entries: [[U8]],
+    i: Int,
+): Result<(), Str> {
     match (entries.get(i)) {
         .None => .Ok(()),
         .Some(entry) => {
@@ -1691,7 +1718,10 @@ test "merges the three files" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.equal(getConfiguration(ctx), .Ok(Configuration { name: "demo", token: "abc" }));
+    assert.equal(
+        getConfiguration(ctx),
+        .Ok(Configuration { name: "demo", token: "abc" }),
+    );
 }
 
 test "a secrets file that cannot be read is reported" {
@@ -2867,7 +2897,9 @@ test "an empty script opens a socket and closes it with nothing between" {
     // whole of `Connected` reached `onOpen`: a `101`, no headers of this
     // double's own, and no body — because a `101` never carries one.
     assert.equal(websocket.connect(ctx, quiet), .Ok(.Normal));
-    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("open 101 0 0")]);
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("open 101 0 0"),
+    ]);
 }
 
 test "two clients on one double are two sockets writing into one log" {
@@ -2886,7 +2918,10 @@ test "two clients on one double are two sockets writing into one log" {
     // socket on the `sockets()` that made it, and both write into that one
     // double's log.
     assert.equal(websocket.connect(first, echoing("ws://example/first")), .Ok(.Normal));
-    assert.equal(websocket.connect(second, echoing("ws://example/second")), .Ok(.Normal));
+    assert.equal(
+        websocket.connect(second, echoing("ws://example/second")),
+        .Ok(.Normal),
+    );
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text("one"),

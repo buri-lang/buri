@@ -259,7 +259,10 @@ test "a hand-written Show is reached by calling it in the hole" {
     };
     // The conversion the language does not make for you: `${Suit.Hearts}` is
     // rejected, and this is what is written instead.
-    assert.equal(str.format(ctx, "the suit is ${Suit.Hearts.show(ctx)}"), "the suit is H");
+    assert.equal(
+        str.format(ctx, "the suit is ${Suit.Hearts.show(ctx)}"),
+        "the suit is H",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -422,11 +425,17 @@ test "a hand-written Show on an enum replaces the structural one" {
 // -----------------------------------------------------------------------------
 
 test "a hand-written Equal may ignore a field entirely" {
-    assert.equal(Loose { word: "abc", ignored: 1 }, Loose { word: "xyz", ignored: 999 });
+    assert.equal(Loose { word: "abc", ignored: 1 }, Loose {
+        word: "xyz",
+        ignored: 999,
+    });
 }
 
 test "a hand-written Equal decides what != means too" {
-    assert.notEqual(Loose { word: "abc", ignored: 1 }, Loose { word: "abcd", ignored: 1 });
+    assert.notEqual(Loose { word: "abc", ignored: 1 }, Loose {
+        word: "abcd",
+        ignored: 1,
+    });
 }
 
 test "assert.equal goes through the type's own Equal" {
@@ -521,7 +530,10 @@ test "a Self callback applied once per element of a list" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(relayAll(ctx, [Scale { factor: 2 }, Scale { factor: 3 }], 4), [10, 15]);
+    assert.equal(relayAll(ctx, [Scale { factor: 2 }, Scale { factor: 3 }], 4), [
+        10,
+        15,
+    ]);
     assert.equal(relayAll(ctx, list.empty<Scale>(), 4), list.empty<Int>());
 }
 

@@ -500,7 +500,12 @@ fn rowLines<C: Allocator>(
 
 /// One `e` line: the depth, the classes the styles chose, and the declarations
 /// they wrote out. The classes come first, as the pseudo-property `class`.
-fn elementLine<C: Allocator>(ctx: C, depth: Int, classes: [Str], declarations: [Str]): Str {
+fn elementLine<C: Allocator>(
+    ctx: C,
+    depth: Int,
+    classes: [Str],
+    declarations: [Str],
+): Str {
     let all = if (classes.isEmpty()) {
         declarations
     } else {

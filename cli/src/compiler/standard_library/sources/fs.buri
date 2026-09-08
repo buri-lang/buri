@@ -13,8 +13,11 @@
 //! # from "core/effect" import { Allocator, IoError };
 //! # from "core/fs" import * as fs;
 //! # from "core/fs" import { FileSystemRead, Path };
-//! #
-//! export fn settings<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError> {
+//!
+//! export fn settings<C: Allocator + FileSystemRead>(
+//!     ctx: C,
+//!     at: Path,
+//! ): Result<Str, IoError> {
 //!     fs.readText(ctx, at)
 //! }
 //! ```
@@ -174,7 +177,10 @@ export effect FileSystemWrite {
     fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 
-export fn readText<C: Allocator + FileSystemRead>(ctx: C, path: Path): Result<Str, IoError> {
+export fn readText<C: Allocator + FileSystemRead>(
+    ctx: C,
+    path: Path,
+): Result<Str, IoError> {
     ctx.readFile(path)
 }
 
@@ -197,7 +203,10 @@ export fn exists<C: FileSystemRead>(ctx: C, path: Path): Bool {
 ///
 /// Names, not paths: `directory.join(ctx, name)` is the path, and
 /// [`listDirectoryEntries`] is the same call with what each name *is* beside it.
-export fn listDir<C: Allocator + FileSystemRead>(ctx: C, path: Path): Result<[Str], IoError> {
+export fn listDir<C: Allocator + FileSystemRead>(
+    ctx: C,
+    path: Path,
+): Result<[Str], IoError> {
     ctx.readDir(path)
 }
 
@@ -207,7 +216,10 @@ export fn listDir<C: Allocator + FileSystemRead>(ctx: C, path: Path): Result<[St
 /// The only difference from `readText` is the encoding step: a file holding a
 /// protobuf message or a log record wants this one, because `readText` would
 /// substitute U+FFFD into it.
-export fn readBytes<C: Allocator + FileSystemRead>(ctx: C, path: Path): Result<[U8], IoError> {
+export fn readBytes<C: Allocator + FileSystemRead>(
+    ctx: C,
+    path: Path,
+): Result<[U8], IoError> {
     ctx.readFileBytes(path)
 }
 
@@ -510,11 +522,18 @@ fn kindedEntries<C: Allocator + FileSystemRead>(
 ///
 /// `.Err` at the first directory that will not open — including `root`, so a
 /// `root` that names a file is `.Err(.NotADirectory)`.
-export fn walk<C: Allocator + FileSystemRead>(ctx: C, root: Path): Result<[Path], IoError> {
+export fn walk<C: Allocator + FileSystemRead>(
+    ctx: C,
+    root: Path,
+): Result<[Path], IoError> {
     walked(ctx, root, [])
 }
 
-fn walked<C: Allocator + FileSystemRead>(ctx: C, at: Path, sofar: [Path]): Result<[Path], IoError> {
+fn walked<C: Allocator + FileSystemRead>(
+    ctx: C,
+    at: Path,
+    sofar: [Path],
+): Result<[Path], IoError> {
     let entries = listDirectoryEntries(ctx, at)?;
     walkedEntries(ctx, at, entries, 0, sofar)
 }
@@ -567,7 +586,10 @@ export fn readRange<C: Allocator + FileSystemRead>(
 /// really names. Every component has to exist: `.Err(.NotFound)` otherwise.
 ///
 /// What comes back is absolute.
-export fn canonicalize<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Path, IoError> {
+export fn canonicalize<C: Allocator + FileSystemRead>(
+    ctx: C,
+    at: Path,
+): Result<Path, IoError> {
     match (ctx.realPath(at)) {
         .Ok(text) => .Ok(path.of(ctx, text)),
         .Err(e) => .Err(e),

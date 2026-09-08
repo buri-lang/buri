@@ -224,7 +224,9 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, Clock, Environment, Network, Random, Stderr, Stdout };
+# from "core/effect" import {
+#     Allocator, Clock, Environment, Network, Random, Stderr, Stdout,
+# };
 # from "core/fs" import { FileSystemRead };
 
 context Sandbox {

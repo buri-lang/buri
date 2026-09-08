@@ -14,7 +14,11 @@ from "core/net/server" import { Message, Socket };
 ///
 /// The count is what the room *pushed*, not what arrived: `send` never waits,
 /// and a socket that has already gone takes the message and drops it.
-export fn broadcast<C: Allocator + Sockets>(ctx: C, room: [Socket], message: Message): Int {
+export fn broadcast<C: Allocator + Sockets>(
+    ctx: C,
+    room: [Socket],
+    message: Message,
+): Int {
     let _pushed = room.mapCtx(ctx, fn(c, socket) => {
         let _sent = socket.send(c, message);
         0

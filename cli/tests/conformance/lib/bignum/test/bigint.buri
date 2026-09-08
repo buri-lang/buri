@@ -101,7 +101,10 @@ test "add and sub carry and borrow across limbs" {
     assert.equal(big.add(ctx, one).text(ctx), "18446744073709551617");
     assert.equal(big.subtract(ctx, one).text(ctx), "18446744073709551615");
     assert.equal(bigint.of(999999999).add(ctx, bigint.of(1)).text(ctx), "1000000000");
-    assert.equal(bigint.of(1000000000).subtract(ctx, bigint.of(1)).text(ctx), "999999999");
+    assert.equal(
+        bigint.of(1000000000).subtract(ctx, bigint.of(1)).text(ctx),
+        "999999999",
+    );
 }
 
 test "add crosses zero and keeps the right sign" {
@@ -171,9 +174,15 @@ test "mul is what an Int cannot do" {
         Allocator: alloc(),
     };
     let top = bigint.of(number.maxValue<I64>());
-    assert.equal(top.multiply(ctx, top).text(ctx), "85070591730234615847396907784232501249");
+    assert.equal(
+        top.multiply(ctx, top).text(ctx),
+        "85070591730234615847396907784232501249",
+    );
     let ten = assert.some(bigint.parse(ctx, "10000000000000000000"));
-    assert.equal(ten.multiply(ctx, ten).text(ctx), "100000000000000000000000000000000000000");
+    assert.equal(
+        ten.multiply(ctx, ten).text(ctx),
+        "100000000000000000000000000000000000000",
+    );
 }
 
 test "mul is commutative and distributes over add" {
@@ -184,7 +193,10 @@ test "mul is commutative and distributes over add" {
     let b = assert.some(bigint.parse(ctx, "123456789123456789"));
     let c = bigint.of(-4242);
     assert.equal(a.multiply(ctx, b), b.multiply(ctx, a));
-    assert.equal(a.multiply(ctx, b.add(ctx, c)), a.multiply(ctx, b).add(ctx, a.multiply(ctx, c)));
+    assert.equal(
+        a.multiply(ctx, b.add(ctx, c)),
+        a.multiply(ctx, b).add(ctx, a.multiply(ctx, c)),
+    );
 }
 
 // --- power --------------------------------------------------------------------------
@@ -347,8 +359,14 @@ test "toInt is exact at both ends" {
     assert.equal(bigint.of(0).toInt(), .Ok(0));
     assert.equal(bigint.of(-1).toInt(), .Ok(-1));
     assert.equal(bigint.of(1234567890).toInt(), .Ok(1234567890));
-    assert.equal(bigint.of(number.maxValue<I64>()).toInt(), .Ok(number.maxValue<I64>()));
-    assert.equal(bigint.of(number.minValue<I64>()).toInt(), .Ok(number.minValue<I64>()));
+    assert.equal(
+        bigint.of(number.maxValue<I64>()).toInt(),
+        .Ok(number.maxValue<I64>()),
+    );
+    assert.equal(
+        bigint.of(number.minValue<I64>()).toInt(),
+        .Ok(number.minValue<I64>()),
+    );
     assert.isTrue(
         bigint.of(number.maxValue<I64>()).add(ctx, bigint.of(1)).toInt().isErr(),
     );
@@ -490,7 +508,10 @@ test "mul lands exactly on a limb boundary and on the one above it" {
     // 2^24 * 2^24 is 2^48: a column whose carry is the whole of the answer.
     assert.equal(limb.multiply(ctx, limb).text(ctx), "281474976710656");
     // 2^48 * 2^24 is 2^72, past what an `Int` holds at all.
-    assert.equal(limb.multiply(ctx, limb).multiply(ctx, limb).text(ctx), "4722366482869645213696");
+    assert.equal(
+        limb.multiply(ctx, limb).multiply(ctx, limb).text(ctx),
+        "4722366482869645213696",
+    );
     // One below the boundary squared, where no carry leaves the column.
     assert.equal(
         bigint.of(16777215).multiply(ctx, bigint.of(16777215)).text(ctx),
@@ -610,7 +631,10 @@ test "parse reads leading zeros and a signed zero" {
     // `-0` is zero, and zero has one shape however it was reached.
     assert.equal(assert.some(bigint.parse(ctx, "-0")), bigint.zero());
     assert.equal(assert.some(bigint.parse(ctx, "-0")).text(ctx), "0");
-    assert.equal(assert.some(bigint.parse(ctx, "-0")).compare(bigint.zero()), Order.Equal);
+    assert.equal(
+        assert.some(bigint.parse(ctx, "-0")).compare(bigint.zero()),
+        Order.Equal,
+    );
 }
 
 test "parse refuses a sign alone and anything that is not a digit" {

@@ -12,7 +12,7 @@
 // nothing to do with the page, and `Network` is an effect, so the way to supply
 // one is to write one.
 
-from "core/effect" import { Allocator, Network, NetError, Request, Response };
+from "core/effect" import { Allocator, NetError, Network, Request, Response };
 from "core/host/testing" import { alloc, net };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };

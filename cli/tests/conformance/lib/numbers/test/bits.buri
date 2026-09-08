@@ -77,7 +77,10 @@ test "sar rounds toward negative infinity, unlike division" {
 test "shr and sar agree on a non-negative value" {
     assert.equal(bits.shiftRight(1024, 3), bits.shiftRightArithmetic(1024, 3));
     assert.equal(bits.shiftRight(12345, 7), bits.shiftRightArithmetic(12345, 7));
-    assert.equal(bits.shiftRight(number.maxValue<I64>(), 1), bits.shiftRightArithmetic(number.maxValue<I64>(), 1));
+    assert.equal(
+        bits.shiftRight(number.maxValue<I64>(), 1),
+        bits.shiftRightArithmetic(number.maxValue<I64>(), 1),
+    );
 }
 
 test "a value survives a shift left and back when nothing falls off" {
@@ -124,11 +127,13 @@ test "trailingZeros counts from the bottom" {
 
 test "leadingZeros and trailingZeros bracket a single bit" {
     assert.equal(
-        bits.leadingZeros(bits.shiftLeft(1, 20)) + bits.trailingZeros(bits.shiftLeft(1, 20)),
+        bits.leadingZeros(bits.shiftLeft(1, 20))
+            + bits.trailingZeros(bits.shiftLeft(1, 20)),
         63,
     );
     assert.equal(
-        bits.leadingZeros(bits.shiftLeft(1, 40)) + bits.trailingZeros(bits.shiftLeft(1, 40)),
+        bits.leadingZeros(bits.shiftLeft(1, 40))
+            + bits.trailingZeros(bits.shiftLeft(1, 40)),
         63,
     );
     assert.equal(bits.popCount(bits.shiftLeft(1, 40)), 1);
@@ -323,7 +328,10 @@ test "rotateLeftU32 wraps inside thirty-two bits" {
 test "rotateRightU32 is rotateLeftU32's inverse" {
     assert.equal(bits.rotateRightU32(1, 1), 2147483648);
     assert.equal(bits.rotateRightU32(878082066, 8), 305419896);
-    assert.equal(bits.rotateRightU32(bits.rotateLeftU32(3735928559, 17), 17), 3735928559);
+    assert.equal(
+        bits.rotateRightU32(bits.rotateLeftU32(3735928559, 17), 17),
+        3735928559,
+    );
 }
 
 test "rotateLeftU64 wraps inside sixty-four bits" {
@@ -332,7 +340,10 @@ test "rotateLeftU64 wraps inside sixty-four bits" {
     assert.equal(bits.rotateLeftU64(one, 63), top);
     assert.equal(bits.rotateLeftU64(top, 1), one);
     assert.equal(bits.rotateLeftU64(one, 0), one);
-    assert.equal(bits.rotateLeftU64(number.maxValue<U64>(), 29), number.maxValue<U64>());
+    assert.equal(
+        bits.rotateLeftU64(number.maxValue<U64>(), 29),
+        number.maxValue<U64>(),
+    );
 }
 
 test "rotateRightU64 is rotateLeftU64's inverse" {
@@ -344,7 +355,10 @@ test "rotateRightU64 is rotateLeftU64's inverse" {
 test "a rotate at every width agrees with the shift pair it is written out of" {
     // `x << n | x >> (w - n)`, spelled with the shifts this module already had.
     let byte: U8 = 203;
-    assert.equal(bits.rotateLeftU8(byte, 3), bits.shiftLeftU8(byte, 3) | bits.shiftRightU8(byte, 5));
+    assert.equal(
+        bits.rotateLeftU8(byte, 3),
+        bits.shiftLeftU8(byte, 3) | bits.shiftRightU8(byte, 5),
+    );
     let word: U32 = 3735928559;
     assert.equal(
         bits.rotateLeftU32(word, 11),
@@ -473,9 +487,15 @@ test "every rotate leaves zero and an all-ones word alone at every count" {
     assert.equal(bits.rotateRightU8(zeroByte, 3), 0);
     assert.equal(bits.rotateLeftU8(onesByte, 7), 255);
     assert.equal(bits.rotateRightU8(onesByte, 1), 255);
-    assert.equal(bits.rotateLeftU32(number.maxValue<U32>(), 31), number.maxValue<U32>());
+    assert.equal(
+        bits.rotateLeftU32(number.maxValue<U32>(), 31),
+        number.maxValue<U32>(),
+    );
     assert.equal(bits.rotateRightU64(zeroWide, 63), 0);
-    assert.equal(bits.rotateLeftU64(number.maxValue<U64>(), 63), number.maxValue<U64>());
+    assert.equal(
+        bits.rotateLeftU64(number.maxValue<U64>(), 63),
+        number.maxValue<U64>(),
+    );
     assert.equal(bits.rotateLeft(-1, 63), -1);
     assert.equal(bits.rotateRight(0, 63), 0);
 }

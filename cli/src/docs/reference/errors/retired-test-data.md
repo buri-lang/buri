@@ -31,7 +31,9 @@ context is written:
 test "renders the statement" {
     let ctx = context {
         Allocator: alloc(),
-        FileSystemRead: testFs().files([("test/golden/statement.txt", "coffee  $4.50")]),
+        FileSystemRead: testFs().files([
+            ("test/golden/statement.txt", "coffee  $4.50"),
+        ]),
     };
     let at = path.of(ctx, "test/golden/statement.txt");
     let want = assert.ok(fs.readText(ctx, at));

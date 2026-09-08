@@ -704,7 +704,10 @@ test "flatten of a list of empty lists is empty" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal([list.empty<Int>(), list.empty<Int>()].flatten(ctx), list.empty<Int>());
+    assert.equal(
+        [list.empty<Int>(), list.empty<Int>()].flatten(ctx),
+        list.empty<Int>(),
+    );
 }
 
 // --- join ---------------------------------------------------------------------
@@ -1594,7 +1597,10 @@ test "a foldCtx seed read afterwards is not written through" {
     assert.equal(out, [0, 1, 2]);
     assert.equal(seed, [0]);
     // And a second fold over the same seed answers the same thing.
-    assert.equal([3].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed), [0, 3]);
+    assert.equal([3].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed), [
+        0,
+        3,
+    ]);
     assert.equal(seed, [0]);
 }
 
@@ -1660,7 +1666,10 @@ test "flatMap drops a piece that is empty" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal([1, 2, 3].flatMap(ctx, fn(n) => if (n == 2) { [] } else { [n] }), [1, 3]);
+    assert.equal([1, 2, 3].flatMap(ctx, fn(n) => if (n == 2) { [] } else { [n] }), [
+        1,
+        3,
+    ]);
 }
 
 test "flatMap of the empty list is empty" {
@@ -1881,7 +1890,10 @@ test "binarySearchBy answers the insertion point for what is not" {
 }
 
 test "binarySearchBy on the empty list answers zero" {
-    assert.equal(assert.err(list.empty<Int>().binarySearchBy(fn(x) => x.compare(1))), 0);
+    assert.equal(
+        assert.err(list.empty<Int>().binarySearchBy(fn(x) => x.compare(1))),
+        0,
+    );
 }
 
 test "binarySearch uses the type's own order" {
@@ -2191,7 +2203,10 @@ test "the new verbs on five hundred elements" {
     let xs = list.range(ctx, 0, 500);
     assert.equal(xs.length(), 500);
     assert.equal(xs.flatMap(ctx, fn(n) => [n]).length(), 500);
-    assert.equal(xs.flatMap(ctx, fn(n) => if (n % 2 == 0) { [n] } else { [] }).length(), 250);
+    assert.equal(
+        xs.flatMap(ctx, fn(n) => if (n % 2 == 0) { [n] } else { [] }).length(),
+        250,
+    );
     assert.isTrue(xs.mapIndexed(ctx, fn(i, n) => i - n).all(fn(d) => d == 0));
     assert.equal(xs.foldIndexed(fn(acc, i, n) => acc + i - n, 0), 0);
     assert.equal(xs.filterIndexed(ctx, fn(i, _n) => i % 2 == 0).length(), 250);

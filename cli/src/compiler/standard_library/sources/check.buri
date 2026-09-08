@@ -94,7 +94,10 @@ export struct Counterexample<T> {
 ///
 /// Drawing stops at the first failure, so a broken property costs one case
 /// rather than a hundred.
-export fn forAll<T>(generator: fn(Generator) => (T, Generator), property: fn(T) => Bool): () {
+export fn forAll<T>(
+    generator: fn(Generator) => (T, Generator),
+    property: fn(T) => Bool,
+): () {
     assert.none(firstFailure(generator, property, random.seeded(FIRST_SEED), CASES))
 }
 

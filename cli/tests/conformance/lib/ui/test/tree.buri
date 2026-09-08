@@ -77,7 +77,10 @@ test "a row runs along the axis and a column runs down the page" {
         Ui: headless(),
     };
     assert.equal(render(ctx, ui.row([], [])).markup(), "<div class=\"lay-row\"></div>");
-    assert.equal(render(ctx, ui.column([], [])).markup(), "<div class=\"lay-col\"></div>");
+    assert.equal(
+        render(ctx, ui.column([], [])).markup(),
+        "<div class=\"lay-col\"></div>",
+    );
 }
 
 test "a caller's own layout wins over the sugar's" {

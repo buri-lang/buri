@@ -39,7 +39,10 @@ fn respond<C: Allocator>(ctx: C, inputs: [(Str, Str)]): Json {
                     (
                         "text",
                         .Str(
-                            str.format(ctx, "export let edge: Int = ${text.length()};\n"),
+                            str.format(
+                                ctx,
+                                "export let edge: Int = ${text.length()};\n",
+                            ),
                         ),
                     ),
                     ("anchors", .Array(list.empty())),

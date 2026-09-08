@@ -810,4 +810,7 @@ export fn encode<T: ToJson, C: Allocator>(ctx: C, value: T): Json {
 /// name every argument, and a context type has no name to write (SPEC 11.3).
 /// Write the type on the binding instead: `let point: Result<Point,
 /// DecodeError> = json.decode(ctx, doc);`.
-export fn decode<T: FromJson, C: Allocator>(ctx: C, value: Json): Result<T, DecodeError>;
+export fn decode<T: FromJson, C: Allocator>(
+    ctx: C,
+    value: Json,
+): Result<T, DecodeError>;
