@@ -4078,12 +4078,39 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
 /// target that is not this one. Nothing is linked and nothing is run.
 ///
 /// It prints rather than only asserting, because the number is the point and a
-/// pass/fail hides it. The assertion is deliberately loose — a wall clock on a
-/// laptop under `cargo test` is not a benchmark harness — and catches only an
-/// order of magnitude going the wrong way. It used to compare against the
-/// removed debug backend on the same program and assert the ratio; a ratio
-/// against a backend nobody builds is not a measurement, so what stays is the
-/// throughput itself.
+/// pass/fail hides it. It used to compare against the removed debug backend on
+/// the same program and assert the ratio; a ratio against a backend nobody
+/// builds is not a measurement, so what stays is the throughput itself.
+///
+/// **What is asserted is a pair of sizes, and it used to be a wall clock.** The
+/// bound was half a second for one emission — forty times the eleven to thirteen
+/// milliseconds it takes on a quiet box — and two machines carrying other work
+/// crossed it anyway, at 551 ms, on an emitter nobody had touched. A wall clock
+/// cannot tell a slow emitter from a busy host, so a bound written in
+/// milliseconds of one is a test of the machine. What load changes is how long
+/// work takes, never how much of it there is, so what is asserted here is a
+/// *ratio*: one program, emitted beside a program a quarter its size that is
+/// emitted four times, so both halves of a pair turn the same number of lines
+/// into bytes. Emission linear in the program makes those two times equal and
+/// scores 1; emission that has gone quadratic — a rescan per function, a linear
+/// lookup, a cache that stopped hitting — costs four times as much per line on
+/// the big half and scores up to 4, and [`EMIT_BOUND`] sits between with the
+/// measurements either side of it. A burst of load lands on a *pair* rather
+/// than a half, since the halves are milliseconds apart in one process and
+/// their order alternates, and dividing kills it; [`EMIT_PAIRS`] of them, and
+/// the answer is their median.
+///
+/// Processor time is the other way to write a bound on work, and it cannot be
+/// written here: [`buri::parallel::map_with`] spreads emission over every core,
+/// so this thread's own clock reads the serial part alone and a process-wide
+/// one reads every other test libtest is running beside this one.
+///
+/// **What the ratio gives up is a constant factor**: an emitter uniformly ten
+/// times slower scores 1 and passes. Nothing in this suite can catch that
+/// honestly — an absolute figure needs a machine chosen for measuring, and
+/// under `cargo test` it is the flake this test just stopped being. The
+/// throughput is printed on every run, and `design/PERFORMANCE.md`'s goal 3 is
+/// where it is held to a number.
 #[test]
 fn cross_emission_throughput() {
     use std::time::Instant;
@@ -4092,54 +4119,132 @@ fn cross_emission_throughput() {
         eprintln!("no linux-arm64 stencils");
         return;
     }
-    // A program with enough functions to measure: one emission of a
-    // three-function snippet is dominated by process noise.
+    let small = straight_line_program(EMIT_LARGE_FUNCTIONS / EMIT_SIZE_RATIO);
+    let large = straight_line_program(EMIT_LARGE_FUNCTIONS);
+    // A pair's two halves emit these many lines each, which is what makes the
+    // ratio of their times a ratio of costs per line.
+    let small_lines = (small.lines().count() * EMIT_SIZE_RATIO) as f64;
+    let large_lines = large.lines().count() as f64;
+    let small = lowered(&small);
+    let large = lowered(&large);
+
+    println!("target          score   small ms   large ms   lines/s   units");
+    for (name, target) in [
+        ("macos-arm64", Target { platform: Platform::Macos, arch: Some(Arch::Arm64) }),
+        ("linux-arm64", Target { platform: Platform::Linux, arch: Some(Arch::Arm64) }),
+    ] {
+        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        // One untimed emission of each size, so neither the stencil library's
+        // decode nor a first touch of a fresh allocation is inside a reading.
+        let units = match (
+            Stencil::default().emit(&large.0, &large.1, &opts),
+            Stencil::default().emit(&small.0, &small.1, &opts),
+        ) {
+            (Ok(units), Ok(_)) => units.len(),
+            (Err(d), _) | (_, Err(d)) => {
+                eprintln!("{name}: stencil refused: {:?}", messages(&d));
+                continue;
+            }
+        };
+        let took = |(program, tables): &(monomorphize::Program, _), reps| {
+            let started = Instant::now();
+            for _ in 0..reps {
+                let emitted = Stencil::default().emit(program, tables, &opts);
+                assert!(emitted.is_ok(), "{name}: an emission that worked a moment ago refused");
+            }
+            started.elapsed().as_secs_f64() * 1000.0
+        };
+
+        let mut pairs: Vec<(f64, f64)> = Vec::new();
+        for k in 0..EMIT_PAIRS {
+            // The order alternates, so nothing periodic in the machine can
+            // settle into always landing on the same half.
+            pairs.push(if k % 2 == 0 {
+                let small_ms = took(&small, EMIT_SIZE_RATIO);
+                (small_ms, took(&large, 1))
+            } else {
+                let large_ms = took(&large, 1);
+                (took(&small, EMIT_SIZE_RATIO), large_ms)
+            });
+        }
+        let mut scores: Vec<f64> = pairs
+            .iter()
+            .map(|(s, l)| (l / large_lines) / (s / small_lines))
+            .collect();
+        for (k, (s, l)) in pairs.iter().enumerate() {
+            println!("  pair {k:>2}       {:>5.2}   {s:>8.1}   {l:>8.1}", scores[k]);
+        }
+        scores.sort_by(|a, b| a.partial_cmp(b).expect("a time is never NaN"));
+        let score = scores[EMIT_PAIRS / 2];
+        let fastest = pairs.iter().map(|(_, l)| *l).fold(f64::INFINITY, f64::min);
+        let per_second = large_lines / (fastest / 1000.0);
+        println!(
+            "{name:<15} {score:>5.2}   {:>8.1}   {:>8.1}   {per_second:>7.0}   {units}",
+            pairs.iter().map(|(s, _)| *s).fold(f64::INFINITY, f64::min),
+            fastest
+        );
+        assert!(
+            score < EMIT_BOUND,
+            "{name}: emitting {large_lines} lines in one program costs {score:.2} times as much \
+             per line as emitting them {EMIT_SIZE_RATIO} programs at a time, over \
+             {EMIT_PAIRS} pairs; copy-and-patch emission is no longer linear in the size of what \
+             it is given. The pairs were {scores:.2?}."
+        );
+    }
+}
+
+/// The big half of a pair, in functions: tens of milliseconds of emission, so
+/// that a scheduling hiccup is a fraction of a reading rather than all of it.
+const EMIT_LARGE_FUNCTIONS: usize = 600;
+
+/// How much bigger that half is than the other, and how many times the small
+/// one is emitted to make up the difference.
+///
+/// Four, because that is what a quadratic emitter's score becomes — far enough
+/// from the 1 a linear one scores to put a bound between them.
+const EMIT_SIZE_RATIO: usize = 4;
+
+/// How many pairs each target is measured over. Odd, because the answer is the
+/// median of them.
+///
+/// Eleven, because one pair on a loaded machine lands anywhere — 0.26 and 2.60
+/// have both been read while a release build and the rest of `stencil::` ran
+/// beside it — and six of eleven have to be wrong together to move a median.
+const EMIT_PAIRS: usize = 11;
+
+/// What a pair may score: linear emission scores 1 and quadratic scores 4, and
+/// this sits between them.
+///
+/// The gap either side of it is measured, on ten cores. Emission today scores
+/// **1.01 and 1.02** on a quiet machine, with every one of the twenty-two pairs
+/// between 0.96 and 1.09. Under a release build of the toolchain and the rest
+/// of `stencil::`, at a load average over a hundred, six runs scored **0.64 to
+/// 0.99** — load pushes this *down*, because the small half pays a
+/// per-emission cost four times and a busy machine makes every fixed cost
+/// bigger. Against an emitter made deliberately quadratic — a scan of a unit's
+/// members once per member — it scores **1.77** where that scan is one and a
+/// half times the emission's own work, and **2.76** at seven times.
+const EMIT_BOUND: f64 = 2.0;
+
+/// A program of `functions` two-line functions, each called once from `main`,
+/// so that its cost to emit is a straight function of the number.
+fn straight_line_program(functions: usize) -> String {
     let mut src =
         String::from("from \"core/host\" import { stdout };\nfrom \"core/io\" import * as io;\n");
-    for i in 0..300 {
+    for i in 0..functions {
         src.push_str(&format!(
             "fn f{i}(n: Int, m: Int): Int {{ let a = n * {i} + m; \
              if (a > 100) {{ a - m }} else {{ a + n }} }}\n"
         ));
     }
     src.push_str("export fn main(): Result<(), Str> {\n  let t0 = 0;\n");
-    for i in 0..300 {
+    for i in 0..functions {
         src.push_str(&format!("  let t{} = t{i} + f{i}(t{i}, {i});\n", i + 1));
     }
-    src.push_str("  let _ = io.println(stdout, \"${t300}\").ignore();\n  .Ok(())\n}\n");
-    let lines = src.lines().count() as f64;
-
-    let (program, tables) = lowered(&src);
-    let reps = 5;
-    println!("target          emit ms   lines/s   units");
-    for (name, target) in [
-        ("macos-arm64", Target { platform: Platform::Macos, arch: Some(Arch::Arm64) }),
-        ("linux-arm64", Target { platform: Platform::Linux, arch: Some(Arch::Arm64) }),
-    ] {
-        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
-        // One untimed emission, so the stencil library's decode is not inside
-        // the measurement.
-        let units = match Stencil::default().emit(&program, &tables, &opts) {
-            Ok(u) => u,
-            Err(d) => {
-                eprintln!("{name}: stencil refused: {:?}", messages(&d));
-                continue;
-            }
-        };
-        let n_units = units.len();
-        let t0 = Instant::now();
-        for _ in 0..reps {
-            let _ = Stencil::default().emit(&program, &tables, &opts);
-        }
-        let ms = t0.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
-        let per_second = lines / (ms / 1000.0);
-        println!("{name:<15} {ms:>7.1}   {per_second:>7.0}   {n_units}");
-        assert!(
-            ms < 500.0,
-            "{name}: {lines} lines took {ms:.1} ms to emit; copy-and-patch emission has \
-             lost an order of magnitude"
-        );
-    }
+    src.push_str(&format!(
+        "  let _ = io.println(stdout, \"${{t{functions}}}\").ignore();\n  .Ok(())\n}}\n"
+    ));
+    src
 }
 
 /// **Interpolation in a loop leaks nothing**, at two scales.
