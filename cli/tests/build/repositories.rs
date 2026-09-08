@@ -238,14 +238,21 @@ fn the_host_on_node() {
 /// JavaScript answer at all — there is no painter there. So the only tier that
 /// can ask this question is the one that links a real binary and runs it.
 ///
-/// Five cases, and each is one axis of the feature: the whole lifecycle over
+/// Six cases. Five are one axis of the snapshot each: the whole lifecycle over
 /// one picture; the range of every axis a snapshot has over fourteen; every way
 /// a comparison cannot be made; the invocation — `buri test` with no target at
 /// all — that puts two packages' suites in one binary; and the platform, where
 /// a `platforms: [JS]` suite runs the graph and is refused the picture.
+///
+/// The sixth is what a snapshot is built on, and the only case here that
+/// declares no `platforms` at all: the reactive graph and `describe`'s tree
+/// walk, run natively, plus the diagnostic a suite gets when it reaches a
+/// `ui/testing` facility the native backend has no body for. Both bugs it pins
+/// reported as an abort with no message, which is a shape no lower tier can
+/// see — the binary linked, the front end was happy, and the process died.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 5);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 6);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

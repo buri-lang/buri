@@ -915,6 +915,13 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     // compile" is half of what that step asserts; the error text above it is
     // the other half, and it is what the golden is read for.
     "linting/errors_in_every_kind_of_source",
+    // The suite reaches a `ui/testing` facility no native backend has a body
+    // for, and "did not compile" is the claim: the whole point of the step is
+    // that `buri test` names the key it cannot compile instead of linking a
+    // binary that aborts when it arrives there. The sentence above the counts
+    // is what the golden is read for, and the case's other two goldens carry
+    // four passing blocks and a failing one.
+    "ui/the_graph_and_the_tree_run_natively",
 ];
 
 /// The two shapes a recorded report collapses into when it stops being one.
