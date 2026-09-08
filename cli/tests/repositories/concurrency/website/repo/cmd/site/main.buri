@@ -28,38 +28,37 @@ fn site(): Site {
 
 /// The whole site, as one function of the path.
 ///
-/// The label and the handler are parameters because they are the halves only a
-/// page has: the worker passes a constant and a handler that does nothing, and
-/// the page passes a signal and one that writes it. Everything else is the same
-/// tree on both sides, which is what makes the markup match.
+/// The label and the two handlers are parameters because they are the halves
+/// only a page has: the worker passes a constant and handlers that do nothing,
+/// and the page passes a signal, one handler that writes it and one that
+/// navigates. Everything else is the same tree on both sides, which is what
+/// makes the markup match.
+///
+/// Only the last child reads the path, so only the last child is rebuilt when
+/// the reader navigates. The button above it keeps the signal it is bound to.
 fn page<C>(
     path: Prop<Str>,
     title: Str,
     visitors: Str,
     label: Prop<Str>,
     onPress: fn(C, Event) => (),
+    onGo: fn(C, Event) => (),
 ): Node<C> {
-    ui.computed(fn(scope) => at(path.read(scope), title, visitors, label, onPress))
+    ui.region(.Main, [], [
+        ui.heading(1, [], .Const(title)),
+        ui.text(.Const(visitors)),
+        ui.button(label, [], onPress),
+        ui.button(.Const("about"), [], onGo),
+        ui.computed(fn(scope) => at(path.read(scope))),
+    ])
 }
 
 /// Routing: an ordinary match on the path.
-fn at<C>(
-    path: Str,
-    title: Str,
-    visitors: Str,
-    label: Prop<Str>,
-    onPress: fn(C, Event) => (),
-): Node<C> {
+fn at<C>(path: Str): Node<C> {
     match (path) {
-        "/" => {
-            ui.region(.Main, [], [
-                ui.heading(1, [], .Const(title)),
-                ui.text(.Const(visitors)),
-                ui.button(label, [], onPress),
-            ])
-        },
-        "/about" => ui.region(.Main, [], [ui.heading(1, [], .Const("About"))]),
-        _other => ui.region(.Main, [], [ui.text(.Const("no page here"))]),
+        "/" => ui.region(.Article, [], [ui.text(.Const("home"))]),
+        "/about" => ui.region(.Article, [], [ui.heading(2, [], .Const("About"))]),
+        _other => ui.region(.Article, [], [ui.text(.Const("no page here"))]),
     }
 }
 
@@ -85,10 +84,19 @@ export fn main(): Result<(), Str> {
         str.format(ctx, "visitors: ${state.visitors}"),
         .Cell(thanks),
         fn(c, _event) => thanks.set(c, "thanks"),
+        fn(c, _event) => web.navigate(c, "/about"),
     );
     match (web.resume(ctx, tree)) {
         .Err(why) => .Err(why),
         .Ok(_) => {
+            // A redirect. `/index.html` is not a page here, so the entry is
+            // replaced rather than pushed: Back would otherwise take the reader
+            // to the address they were just sent away from.
+            let _ = if (web.path(ctx) == "/index.html") {
+                web.replace(ctx, "/")
+            } else {
+                ()
+            };
             match (io.println(ctx, "resumed ${web.path(ctx)} ${sent}")) {
                 .Ok(_written) => .Ok(()),
                 .Err(_e) => .Err("the page has nowhere to print"),
@@ -114,6 +122,7 @@ export fn fetch(request: Request): Response {
                     state.title,
                     str.format(ctx, "visitors: ${state.visitors}"),
                     .Const("say thanks"),
+                    fn(_ctx, _event) => (),
                     fn(_ctx, _event) => (),
                 ),
             ),

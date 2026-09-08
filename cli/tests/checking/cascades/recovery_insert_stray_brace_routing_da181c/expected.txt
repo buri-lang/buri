@@ -1,0 +1,30 @@
+error: expected `:`, found `?` [unexpected-token]
+  --> main.buri:34:17
+   |
+34 |         Location? : address(headless(), "/"),
+   |                 ^
+   |
+   = expected: `:`
+   = actual: `?`
+   = fix: write `:` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:36:27
+   |
+36 |     assert.equal(web.path(ctx), "/");
+   |                           ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:37:18
+   |
+37 |     web.navigate(ctx, "/guide/routing");
+   |                  ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:38:27
+   |
+38 |     assert.equal(web.path(ctx), "/guide/routing");
+   |                           ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

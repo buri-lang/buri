@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:46:5
+   |
+46 |     };
+   |     ^
+   |
+  --> main.buri:45:26
+   |
+45 |         Location: address(headless(), "/signin",
+   |                          ^ opened here
+   |
+   = fix: write `)` here
