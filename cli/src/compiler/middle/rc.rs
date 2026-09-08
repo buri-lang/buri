@@ -3090,10 +3090,16 @@ impl Scan<'_> {
         let live = &arm_live;
         let mut befores: Vec<Live> = Vec::new();
         let mut ids: Vec<NodeId> = Vec::new();
+        // The back edges each arm leaves by, arm by arm. `arm_jumps` below is
+        // the same set flattened, and the split is what lets the root held
+        // open across the arms be dropped on the arm that jumps *at its jump*
+        // rather than at its entry.
+        let mut jumps_per_arm: Vec<Vec<(NodeId, Position)>> = Vec::new();
         let outer_jumps = std::mem::take(&mut self.jumps);
         let outer_diverged = std::mem::replace(&mut self.diverged, true);
         let mut k = 1usize;
         for a in arms {
+            let jumps_before = self.jumps.len();
             let gid = a.guard.as_ref().map(|_| {
                 let g = self.child(id, k);
                 k += 1;
@@ -3167,6 +3173,7 @@ impl Scan<'_> {
             for b in &bound {
                 lb.remove(b);
             }
+            jumps_per_arm.push(self.jumps.get(jumps_before..).unwrap_or(&[]).to_vec());
             befores.push(lb);
             ids.push(bid);
         }
@@ -3182,10 +3189,24 @@ impl Scan<'_> {
         if let Some(t) = token {
             union.remove(&t);
         }
+        // A **held** root is out of the balancing question for the same
+        // reason, and it is the half that a back edge exposed. An arm whose
+        // body is a tail call scans its arguments against an empty liveness,
+        // so the root drops out of that arm's set while every other arm still
+        // holds it — and `balance` then released it at the arm's *entry*,
+        // ahead of the retain the tail call's own argument takes. A payload
+        // binding points into the root, so that freed the block the argument
+        // named: `ui.choose` inside an `ui.each` row (buri-lang/buri#58).
+        // Below, the arm that jumps is given the drop at its jump instead,
+        // where `order_sites` puts it after that jump's retains.
+        let mut equalized = union.clone();
+        if let Some(r) = kept {
+            equalized.remove(&r);
+        }
         let pairs: Vec<(NodeId, Live)> =
             ids.iter().copied().zip(befores).collect();
         for (bid, b) in &pairs {
-            self.balance(*bid, b, &union);
+            self.balance(*bid, b, &equalized);
         }
         let before = union;
         let sid = self.child(id, 0);
@@ -3210,6 +3231,20 @@ impl Scan<'_> {
         // Whether the code after the arms is reachable at all.
         let falls_through = !arms_diverged || arm_jumps.is_empty();
         if falls_through {
+            // The arms that leave by a back edge never reach "after the arms",
+            // so the held root's drop goes at each of their jumps. An arm that
+            // carries the root into the next iteration is not one of them: it
+            // still names it there, which is what `before` holding it says.
+            if let Some(r) = kept {
+                for (arm, jumps) in jumps_per_arm.iter().enumerate() {
+                    if pairs.get(arm).is_some_and(|(_, b)| b.contains(&r)) {
+                        continue;
+                    }
+                    for (node, at) in jumps {
+                        self.push(*node, *at, RcOp::DecRef, Target::Local(r));
+                    }
+                }
+            }
             self.flush(id);
         } else {
             self.flush_at(&arm_jumps);
