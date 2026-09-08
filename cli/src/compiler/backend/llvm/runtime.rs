@@ -2054,6 +2054,16 @@ pub const ENTRIES: &[Entry] = &[
         args: &[],
         ret: Ret::Out,
     },
+    // `ui/theme`'s own untracked scope, which the walk that flattens a theme
+    // list reads a `switching` theme's condition through. A second row rather
+    // than a second name for the one above it, because a symbol is the rule
+    // applied to its key — the shared table's group says the same.
+    Entry {
+        key: "ui_theme.rootScope",
+        symbol: "buri_rt_ui_theme_root_scope",
+        args: &[],
+        ret: Ret::Out,
+    },
     Entry {
         key: "ui_effect.Scope.read",
         symbol: "buri_rt_ui_effect_scope_read",
@@ -2112,6 +2122,16 @@ pub const ENTRIES: &[Entry] = &[
         key: "ui_testing.Headless.watch",
         symbol: "buri_rt_ui_testing_headless_watch",
         args: &[Arg::Scalar, Arg::Compute],
+        ret: Ret::Void,
+    },
+    // What the paint below is to make of a `var(--token)`: the flattened theme
+    // document, resolved on the other side into the values the painter reads.
+    // One `Str` and a call of its own, because four of them is twelve machine
+    // words and the copy-and-patch backend's runtime call is ten.
+    Entry {
+        key: "ui_testing.installThemes",
+        symbol: "buri_rt_ui_testing_install_themes",
+        args: &[Arg::Str],
         ret: Ret::Void,
     },
     Entry {
