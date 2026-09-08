@@ -667,6 +667,11 @@ millisecond. A bearer token is [`crypto.token`](#cryptography).
 second reserved root. They have a page of their own:
 [user interfaces](../guides/user-interfaces.md).
 
+A reactive closure is handed a `Scope`, which implements `Watch` and
+`Allocator`. So a derivation may map, filter, sort or format what it read —
+`.Computed(fn(s) => xs.get(s).filter(s, isEven))` is a `Prop<[Int]>` — and it
+still cannot write, because `Ui` is the effect that writes.
+
 `heading`, `button`, `link`, `field` and `toggle` take a `[Style]` like every
 container does, and it lands on the element itself — so a hover, focus or
 disabled rule fires on the thing that is hovered, focused or disabled, and a

@@ -9,9 +9,11 @@
 //   - an accessibility-critical parameter is a parameter: a button has its
 //     label, an image its alt, a field and a toggle their label;
 //   - a handler receives its context as a parameter and never captures one;
-//   - and the three reactive constructors each re-run the smallest thing they
+//   - the three reactive constructors each re-run the smallest thing they
 //     can — `choose` and `computed` rebuild one subtree, `each` moves the rows
-//     that are still there and builds only the ones that are not.
+//     that are still there and builds only the ones that are not;
+//   - and a reactive leaf allocates, so `each` walks a filtered view of a
+//     signal and a leaf shows text formatted from one.
 //
 // `ui/testing`'s renderer is the one `mount` uses, against a document the
 // runtime supplies. What it cannot cover is what only a browser does — layout,
@@ -20,6 +22,7 @@
 
 from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
@@ -1109,6 +1112,62 @@ test "a list nested in a list reconciles on its own" {
     let _ = inner.set(ctx, ["x", "y"]);
     assert.equal(page.count("li"), 6);
     assert.equal(page.text(), "a x y b x y");
+}
+
+// --- derived lists and derived text ---------------------------------------------------
+
+// buri-lang/buri#50, in the document. A `Scope` is an `Allocator`, so the list
+// `each` walks may be a filtered view of a signal and the text a leaf shows may
+// be formatted from one. Both are the shapes an app hits on its first screen.
+
+fn isEven(value: Int): Bool {
+    value % 2 == 0
+}
+
+/// A row of the derived list. The item's own text is formatted inside the leaf,
+/// which is the second half of the issue: a number reaches a `ui.text` only if
+/// the closure rendering it can allocate.
+fn numberRow<C>(ctx: C, item: Int, index: Int): Node<C> {
+    ui.region(.ListItem, [], [ui.text(.Computed(fn(s) => str.format(s, "${item}")))])
+}
+
+/// The issue's program, word for word: a filtered `Prop<[Int]>` handed to
+/// `each`, from a function with no context of its own.
+fn evens<C>(xs: Signal<[Int]>): Node<C> {
+    ui.each(.Computed(fn(s) => xs.get(s).filter(s, isEven)), fn(x) => "${x}", numberRow)
+}
+
+test "a derived list re-filters and re-renders when its signal is written" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let xs = signal(ctx, [1, 2, 3, 4]);
+    let page = render(ctx, ui.region(.List, [], [evens(xs)]));
+    assert.equal(page.markup(), "<ul><li>2</li><li>4</li></ul>");
+
+    let _ = xs.set(ctx, [1, 2, 3, 4, 5, 6]);
+    assert.equal(page.markup(), "<ul><li>2</li><li>4</li><li>6</li></ul>");
+
+    // Keyed, so the rows that survived the re-filter were moved rather than
+    // rebuilt — the derivation is fine-grained, not a repaint.
+    let two = page.identity("li", 0);
+    let _ = xs.set(ctx, [2, 6]);
+    assert.equal(page.markup(), "<ul><li>2</li><li>6</li></ul>");
+    assert.equal(page.identity("li", 0), two);
+}
+
+test "formatted text follows the signal it was formatted from" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let n = signal(ctx, 1);
+    let page = render(
+        ctx,
+        ui.text(.Computed(fn(s) => str.format(s, "${n.get(s)} items"))),
+    );
+    assert.equal(page.text(), "1 items");
+    let _ = n.set(ctx, 12);
+    assert.equal(page.text(), "12 items");
 }
 
 // --- batching ------------------------------------------------------------------------
