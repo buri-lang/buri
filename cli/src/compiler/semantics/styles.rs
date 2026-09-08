@@ -24,11 +24,11 @@
 //! A style that folded is replaced, in the typed tree, by the
 //! `Style::Extracted` variant: a `Classes`, holding a list of `(slot, class)`
 //! pairs. `Classes` has a private field, so only `ui/style` and this pass can
-//! build one, which is what keeps the variant unwritable. The *slot* is
-//! the conflict key — the property together with its condition — so the
-//! runtime's last-wins resolution is a scan over compiler-assigned pairs,
-//! choosing between classes that are already in the stylesheet. It never builds
-//! one.
+//! build one, which is what keeps the variant unwritable. The *slot* is the
+//! conflict key — the property, its condition, and the edge where the property
+//! names one — so the runtime's last-wins resolution is a scan over
+//! compiler-assigned pairs, choosing between classes that are already in the
+//! stylesheet. It never builds one.
 //!
 //! ## What is refused, and what merely degrades
 //!
@@ -67,6 +67,10 @@ const STYLE_COMPUTED: usize = 4;
 const STYLE_EXTRACTED: usize = 5;
 /// The first variant that is one property with one value.
 const FIRST_PROPERTY: usize = 6;
+/// `Pin(Edge, Length)`.
+const STYLE_PIN: usize = 15;
+/// `PaddingEdge(Edge, Length)`.
+const STYLE_PADDING_EDGE: usize = 23;
 
 /// One rule in the emitted stylesheet.
 ///
@@ -130,6 +134,46 @@ impl Cond {
         let state = self.state.map_or(0, |s| u32::from(s).saturating_add(1));
         let screen = self.screen.map_or(0, |s| u32::from(s).saturating_add(1));
         state.saturating_mul(5).saturating_add(screen)
+    }
+}
+
+/// How many conditions a property divides into: six states counting "none", by
+/// five breakpoints counting "none", which is what `Cond::code` numbers.
+const CONDITIONS: u32 = 30;
+
+/// How many sub-keys a property divides into: the four `Edge`s, and the one a
+/// `Pin` keeps its `position` in.
+const SUB_KEYS: u32 = 5;
+
+/// The sub-key a `Pin`'s `position` sits in, past the four edges.
+const PIN_FLOW: u32 = 4;
+
+/// The conflict slot: the property, the sub-key where the property has one,
+/// and the condition, packed into one number the runtime compares for equality.
+///
+/// The sub-key is what stops two `Pin`s from colliding. A property is usually
+/// one declaration, so its variant is the whole key — but `Pin` and
+/// `PaddingEdge` name an *edge*, and two of them naming different edges write
+/// different declarations and compose. `ui/style` says so in both variants'
+/// documentation, and the edge is how the slot says it too.
+fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
+    let variant = u32::try_from(variant).ok()?;
+    variant
+        .checked_mul(SUB_KEYS)?
+        .checked_add(sub)?
+        .checked_mul(CONDITIONS)?
+        .checked_add(cond.code())
+}
+
+/// The sub-key a property's value falls in: the edge it names, or nothing.
+fn sub_key(variant: usize, args: &[Value]) -> u32 {
+    match variant {
+        STYLE_PIN | STYLE_PADDING_EDGE => args
+            .first()
+            .and_then(Value::as_variant)
+            .and_then(|(edge, _)| u32::try_from(edge).ok())
+            .unwrap_or(0),
+        _ => 0,
     }
 }
 
@@ -540,19 +584,43 @@ impl<'a> Extractor<'a> {
             // already-extracted style has no value left to read. Both make the
             // enclosing fold give up so that the descent handles them.
             STYLE_WHEN | STYLE_COMPUTED | STYLE_EXTRACTED => None,
-            _ if variant >= FIRST_PROPERTY => {
-                let atom = self.property(variant, args, cond)?;
-                out.push(atom);
-                Some(())
-            }
+            _ if variant >= FIRST_PROPERTY => self.property(variant, args, cond, out),
             _ => None,
         }
     }
 
-    /// One property value: its class, its slot, and the rule it puts in the
-    /// sheet.
-    fn property(&mut self, variant: usize, args: &[Value], cond: Cond) -> Option<Atom> {
-        let (abbreviation, key, blocks) = declaration(variant, args)?;
+    /// One property value: the classes it needs, each in its own slot, and the
+    /// rules they put in the sheet.
+    fn property(
+        &mut self,
+        variant: usize,
+        args: &[Value],
+        cond: Cond,
+        out: &mut Vec<Atom>,
+    ) -> Option<()> {
+        // Out of the flow is one fact about the element rather than one per
+        // edge, so a pin keeps its `position` in a class of its own. Four pins
+        // then write four insets and one `position`, and `Position` — the
+        // property that owns `position`, declared after `Pin` and so written
+        // later in the sheet — overrides it wherever an element has both.
+        if variant == STYLE_PIN {
+            let flow = ("pin", "out".to_owned(), vec![("", "position:absolute".to_owned())]);
+            out.push(self.atom(variant, PIN_FLOW, cond, flow)?);
+        }
+        let sub = sub_key(variant, args);
+        let atom = self.atom(variant, sub, cond, declaration(variant, args)?)?;
+        out.push(atom);
+        Some(())
+    }
+
+    /// One class: its name, its slot, and the rule it puts in the sheet.
+    fn atom(
+        &mut self,
+        variant: usize,
+        sub: u32,
+        cond: Cond,
+        (abbreviation, key, blocks): Declaration,
+    ) -> Option<Atom> {
         let class = format!("{}{}-{}", cond.prefix(), abbreviation, key);
         let property = u16::try_from(variant).ok()?;
         if self.recorded.insert(class.clone()) {
@@ -564,8 +632,7 @@ impl<'a> Extractor<'a> {
                 blocks,
             });
         }
-        let slot = u32::try_from(variant).ok()?.checked_mul(30)?.checked_add(cond.code())?;
-        Some(Atom { slot, class })
+        Some(Atom { slot: slot(variant, sub, cond)?, class })
     }
 }
 
@@ -734,14 +801,12 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let n = first?.as_int()?;
             Some(("span", integer_key(n), one("grid-column", &format!("span {n}"))))
         }
+        // Only the inset: the `position` a pin needs is the `pin-out` class
+        // `property` writes beside this one, so that four edges compose.
         15 => {
             let (property, edge) = edge_property("inset", first?)?;
             let (length, key) = length(args.get(1)?)?;
-            Some((
-                "pin",
-                format!("{edge}-{key}"),
-                one("position", &format!("absolute;{property}:{length}")),
-            ))
+            Some(("pin", format!("{edge}-{key}"), one(&property, &length)))
         }
         16 => {
             let (which, _) = first?.as_variant()?;

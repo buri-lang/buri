@@ -254,12 +254,10 @@ test "the rest of the vocabulary lowers to the declarations it names" {
     ];
     assert.eq(
         render(ctx, ui.stack(rest, [])).markup(),
-        "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\"></div>",
+        "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-out pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\"></div>",
     );
     let sheet = stylesheet();
-    assert.isTrue(
-        sheet.contains(".pin-top-0{position:absolute;inset-block-start:0px}"),
-    );
+    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
     assert.isTrue(sheet.contains(".pe-start-r1{padding-inline-start:1rem}"));
     assert.isTrue(sheet.contains(".ar-1_5{aspect-ratio:1.5}"));
     assert.isTrue(
@@ -267,6 +265,55 @@ test "the rest of the vocabulary lowers to the declarations it names" {
             ".trunc-2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
         ),
     );
+}
+
+test "pins naming different edges compose, and `Position` owns `position`" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The overlay written the obvious way: fixed to the viewport, held to all
+    // four of its edges.
+    let overlay: [Style] = [
+        .Position(.PinViewport),
+        .Pin(.Top, .Px(0)),
+        .Pin(.Bottom, .Px(0)),
+        .Pin(.Start, .Px(0)),
+        .Pin(.End, .Px(0)),
+    ];
+    assert.eq(
+        render(ctx, ui.stack(overlay, [])).markup(),
+        "<div class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
+    assert.isTrue(sheet.contains(".pin-bottom-0{inset-block-end:0px}"));
+    assert.isTrue(sheet.contains(".pin-start-0{inset-inline-start:0px}"));
+    assert.isTrue(sheet.contains(".pin-end-0{inset-inline-end:0px}"));
+    // Out of the flow is one fact about the element rather than one per edge,
+    // and the `Position` beside it wins because the sheet writes it later.
+    let pinned = sheet.indexOf(".pin-out{position:absolute}").withDefault(-1);
+    let viewport = sheet.indexOf(".pos-viewport{position:fixed}").withDefault(-1);
+    assert.isTrue(pinned >= 0);
+    assert.isTrue(pinned < viewport);
+}
+
+test "padding named edge by edge composes too" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let edges: [Style] = [
+        .PaddingEdge(.Top, .Px(1)),
+        .PaddingEdge(.Bottom, .Px(2)),
+        .PaddingEdge(.Start, .Px(3)),
+        .PaddingEdge(.End, .Px(4)),
+    ];
+    assert.eq(
+        render(ctx, ui.stack(edges, [])).markup(),
+        "<div class=\"pe-top-1 pe-bottom-2 pe-start-3 pe-end-4\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".pe-top-1{padding-block-start:1px}"));
+    assert.isTrue(sheet.contains(".pe-end-4{padding-inline-end:4px}"));
 }
 
 test "a value with no bounded spelling is named by what it is" {
