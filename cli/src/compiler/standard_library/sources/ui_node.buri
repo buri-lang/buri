@@ -614,7 +614,7 @@ fn slotsIn<C: Alloc>(
         .None => acc,
         .Some(style) => {
             let more = match (style) {
-                .Extracted(classes) => classes.pairs(),
+                .Extracted(classes) => statePairs(ctx, state, classes.pairs(), 0, []),
                 .Group(inner) => slotsIn(ctx, state, inner, 0, []),
                 .On(on, inner) => {
                     if (stateRank(on) == stateRank(state)) {
@@ -636,6 +636,44 @@ fn slotsIn<C: Alloc>(
             slotsIn(ctx, state, styles, at + 1, acc.concat(ctx, more))
         },
     }
+}
+
+/// The pairs of an extracted style that apply in `state`.
+///
+/// **This is where a pseudo-class is read back.** The compiler folds an
+/// `On(s, ...)` into the classes it emits, so the group itself is gone by the
+/// time this walk sees one; what is left is the conflict slot, which carries
+/// the condition the class was scoped to. A slot's low digits are that
+/// condition — thirty of them per property, five breakpoints to a state, and
+/// zero for "in every state" — so a hover class can be told from a plain one
+/// and left out of every document but the hovered one.
+fn statePairs<C: Alloc>(
+    ctx: C,
+    state: State,
+    pairs: [(Int, Str)],
+    at: Int,
+    acc: [(Int, Str)],
+): [(Int, Str)] {
+    match (pairs.get(at)) {
+        .None => acc,
+        .Some(pair) => {
+            let (slot, _name) = pair;
+            let scoped = slotState(slot);
+            let next = if (scoped < 0 || scoped == stateRank(state)) {
+                acc.push(ctx, pair)
+            } else {
+                acc
+            };
+            statePairs(ctx, state, pairs, at + 1, next)
+        },
+    }
+}
+
+/// The state a conflict slot is scoped to, as a `State`'s rank, and `-1` for a
+/// slot that applies whatever the state is. A breakpoint is the other half of
+/// the condition and is not a state, so it answers `-1` too.
+fn slotState(slot: Int): Int {
+    ((slot % 30) / 5) - 1
 }
 
 /// The class of each slot's last pair.
