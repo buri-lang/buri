@@ -601,6 +601,154 @@ fn the_standard_library_reference_is_complete() {
     assert!(empty.is_empty(), "these modules render no items: {empty:?}");
 }
 
+/// Every conformance the source declares is on the module's page.
+///
+/// `derive Eq, Ord, Show for Instant;` puts three methods on `Instant`, and
+/// the page used to say nothing about any of them: the renderer read `impl`
+/// blocks and walked past `derive` lines. A reader designing an enum with an
+/// `Instant` payload read the page, concluded the type satisfied nothing, and
+/// planned a hand-written `impl Eq` they did not need.
+///
+/// The walk is over the whole library rather than the one module, because a
+/// renderer that cannot see a shape cannot see it anywhere — and it reads the
+/// *source text* rather than the AST, because a test that asked the same AST
+/// the renderer asks would agree with it about a declaration neither of them
+/// saw.
+#[test]
+fn every_conformance_in_the_source_is_on_its_module_page() {
+    let mut map = buri::diagnostics::SourceMap::new();
+    let analysis = buri::compiler::driver::analyze_stdlib(&mut map);
+    assert!(!analysis.diagnostics.has_errors(), "the standard library must check");
+    let modules = buri::documentation::reference::from_loaded(
+        &analysis.loaded,
+        &buri::documentation::reference::std_filter,
+    );
+
+    let mut missing = Vec::new();
+    let mut checked = 0;
+    for std_module in buri::compiler::standard_library::MODULES {
+        let m = modules
+            .iter()
+            .find(|m| m.path == std_module.path)
+            .unwrap_or_else(|| panic!("`{}` has no page", std_module.path));
+        let listed = conformances_on_the_page(&buri::documentation::reference::render(m));
+        for (ty, satisfies) in declared_conformances(std_module.source) {
+            checked += 1;
+            if !listed.contains(&(ty.clone(), satisfies.clone())) {
+                missing.push(format!("{}: {ty} satisfies {satisfies}", std_module.path));
+            }
+        }
+    }
+    assert!(
+        checked > 100,
+        "only {checked} conformances were checked; is the scan still reading the sources?"
+    );
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "these conformances are declared in the standard library and are on no page: \
+         {missing:#?}.\n  A `derive` line is a conformance exactly as an `impl` block is, \
+         and the page has to list the methods either one puts on the type."
+    );
+}
+
+/// The `(type, trait)` pairs a module's source declares: one per trait named
+/// on a `derive` line, one per `impl <trait> for <type>`. Both are top-level
+/// declarations, so an indented line — and a line inside a `//!` or `///`
+/// comment — is neither.
+///
+/// Conformances of a type the module keeps to itself are left out, because a
+/// reference lists what is exported and nothing else.
+fn declared_conformances(source: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in source.lines() {
+        if let Some(rest) = line.strip_prefix("derive ") {
+            let Some((traits, ty)) = rest.split_once(" for ") else { continue };
+            let ty = type_head(ty.trim().trim_end_matches(';'));
+            for satisfies in traits.split(',') {
+                out.push((ty.clone(), type_head(satisfies)));
+            }
+        } else if let Some(rest) = line.strip_prefix("impl") {
+            // `impl<T> Show for Foo<T> {` — the parameters after `impl` belong
+            // to the block rather than to either type.
+            let rest = match rest.strip_prefix('<') {
+                Some(generic) => match generic.split_once('>') {
+                    Some((_, after)) => after,
+                    None => continue,
+                },
+                None => rest,
+            };
+            // An inherent `impl Foo {` names no trait and promises nothing.
+            let Some((satisfies, ty)) = rest.split_once(" for ") else { continue };
+            out.push((type_head(ty.trim_end_matches('{')), type_head(satisfies)));
+        }
+    }
+    out.retain(|(ty, _)| exports_type(source, ty));
+    out
+}
+
+/// Whether a module exports the type it named — `export struct Instant(…)`,
+/// `export enum Order {`.
+fn exports_type(source: &str, name: &str) -> bool {
+    source.lines().any(|line| {
+        for keyword in ["export struct ", "export enum "] {
+            let Some(rest) = line.strip_prefix(keyword) else { continue };
+            let Some(after) = rest.strip_prefix(name) else { continue };
+            if !after.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                return true;
+            }
+        }
+        false
+    })
+}
+
+/// The `(type, trait)` pairs a rendered page lists, off the `Duration.show —
+/// via Show` headings that are how a page says a type conforms.
+fn conformances_on_the_page(page: &str) -> std::collections::HashSet<(String, String)> {
+    let mut out = std::collections::HashSet::new();
+    for line in page.lines() {
+        let Some(heading) = line.strip_prefix("### ") else { continue };
+        let Some((method, satisfies)) = heading.split_once(" — via ") else { continue };
+        let Some((owner, _)) = method.rsplit_once('.') else { continue };
+        out.insert((type_head(owner), type_head(satisfies)));
+    }
+    out
+}
+
+/// A type as its name alone. `Option<T>` and `Option` are the same type, and a
+/// `derive` line, an `impl` head and a page each write it their own way.
+fn type_head(written: &str) -> String {
+    let written = written.trim();
+    let head = written.split('<').next().unwrap_or(written).trim();
+    head.rsplit('.').next().unwrap_or(head).trim().to_string()
+}
+
+/// The case from the issue, through the command a user runs: `Instant` and
+/// `Monotonic` derive `Eq`, `Ord` and `Show`, and the page has to say so the
+/// way it already said `Duration.show`.
+#[test]
+fn a_derived_conformance_reaches_the_page_a_user_reads() {
+    let out = ran(&std::env::temp_dir(), &["docs", "core/time", "--color=never"]);
+    assert!(out.status.success(), "`buri docs core/time` failed");
+    let page = String::from_utf8_lossy(&out.stdout);
+    for want in [
+        "Instant.compare — via Ord",
+        "Instant.eq — via Eq",
+        "Instant.show — via Show",
+        "Monotonic.compare — via Ord",
+        "Monotonic.eq — via Eq",
+        "Monotonic.show — via Show",
+        "Duration.compare — via Ord",
+        "Duration.eq — via Eq",
+        "Duration.hash — via Hash",
+        // The hand-written one, which was the only conformance the page ever
+        // showed.
+        "Duration.show — via Show",
+    ] {
+        assert!(page.contains(want), "`buri docs core/time` does not list `{want}`:\n{page}");
+    }
+}
+
 /// The prose map and the library it maps, in lockstep.
 ///
 /// A module's own page is *generated* — `buri docs core/list` and the site's

@@ -354,6 +354,14 @@ fn module_page(modules: &[reference::ApiModule], id: &str, kind: &'static str) -
 /// One function rather than the two near-identical copies `Std` and
 /// `Workspace` used to carry, which is the other thing an `Entry` buys — the
 /// duplication was only tolerable while the rows were anonymous triples.
+///
+/// A **derived** conformance is on its type's page and is not a row of its
+/// own. `derive Eq, Ord, Show` is ninety lines of the standard library, so
+/// indexing each method it generates would answer "compare ints" with eight
+/// identical `compare`s and push the page that explains comparison off the
+/// end. Nothing is lost by leaving them out: a derived method has no prose of
+/// its own — the sentence saying what `eq` means is on `Eq`, which has a row —
+/// and `buri docs core/time` still lists every one of them.
 fn module_entries(modules: &[reference::ApiModule]) -> Vec<Entry> {
     let mut out = Vec::new();
     for m in modules {
@@ -363,7 +371,7 @@ fn module_entries(modules: &[reference::ApiModule]) -> Vec<Entry> {
             summary: m.docs.first().cloned().unwrap_or_default(),
             text: m.docs.join("\n"),
         });
-        for item in &m.items {
+        for item in m.items.iter().filter(|i| !i.api.via().is_some_and(|v| v.derived)) {
             out.push(Entry {
                 id: item.path(&m.path),
                 title: format!("{} {}", item.kind().label(), item.name),
