@@ -392,7 +392,7 @@ export fn main(): Result<(), Str> {
                     .Binary(_data) => seen,
                 }
             },
-            onClose: fn(_c, _socket, _seen, _reason) => (),
+            onClose: fn(_c, _socket, seen, _reason) => seen,
         }),
     };
     match (server.bind(ctx, plan)) {
@@ -480,7 +480,7 @@ export fn main(): Result<(), Str> {
 /// * `after` — the hook's `send` *after* the close was accepted and dropped,
 ///   rather than aborting. "Did this arrive" was never a question this side
 ///   could answer.
-/// * `served` — `run` still ended in `.Ok(())`, so an overflowing socket is a
+/// * `served` — `run` still ended in an `.Ok`, so an overflowing socket is a
 ///   socket ending and not a server falling over.
 fn overflowing_socket_server(flood: usize) -> String {
     format!(
@@ -519,11 +519,11 @@ export fn main(): Result<(), Str> {{
             path: "/socket",
             onOpen: fn(_c, _socket, _request) => 0,
             onMessage: fn(c, socket, sent, _message) => sent + flood(c, socket, {flood}),
-            onClose: fn(c, socket, _sent, reason) => {{
+            onClose: fn(c, socket, sent, reason) => {{
                 let _said = io.println(c, "closed ${{reason.show(c)}}").ignore();
                 let _dropped = socket.send(c, .Text("after the close"));
                 let _after = io.println(c, "after").ignore();
-                ()
+                sent
             }},
         }}),
     }};
@@ -633,7 +633,7 @@ export fn main(): Result<(), Str> {
             // The second world: the same function, the same argument shapes,
             // and a client on the far side of a real socket.
             onMessage: fn(c, socket, said, message) => said + reply(c, socket, message),
-            onClose: fn(_c, _socket, _said, _reason) => (),
+            onClose: fn(_c, _socket, said, _reason) => said,
         }),
     };
     match (server.bind(ctx, plan)) {
@@ -1202,7 +1202,7 @@ fn a_websocket_is_served_only_at_the_path_its_hooks_name() {
 ///   number the platform uses cannot have come off a socket;
 /// * the hook's own `send`, made *after* the socket is gone, is **dropped**
 ///   rather than aborting; and
-/// * `run` still answered `.Ok(())`.
+/// * `run` still answered an `.Ok`.
 ///
 /// The client says one thing and then reads to the end, so the frames it is
 /// sent go into its receive buffer and the outbound queue is what fills. With
@@ -3369,7 +3369,9 @@ export fn main(): Result<(), Str> {{
             }},
             onClose: fn(c, _socket, seen, _reason) => {{
                 let _said = io.println(c, "server closed after ${{seen}}").ignore();
-                ()
+                // A number of its own, so what `run` reports is this hook's
+                // answer and never the state it was handed.
+                seen + 100
             }},
         }}),
     }};
@@ -3379,8 +3381,9 @@ export fn main(): Result<(), Str> {{
             let _announced = io.println(ctx, "port ${{listener.port}}").ignore();
             match (server.run(ctx, listener, plan)) {{
                 .Err(e) => .Err(server.errorText(e)),
-                .Ok(_ok) => {{
-                    let _done = io.println(ctx, "served").ignore();
+                .Ok(last) => {{
+                    let held = last.mapOr(-1, fn(one) => one);
+                    let _done = io.println(ctx, "served last ${{held}}").ignore();
                     .Ok(())
                 }},
             }}
@@ -3440,7 +3443,7 @@ export fn main(): Result<(), Str> {
         },
         onClose: fn(c, _socket, seen, reason) => {
             let _said = io.println(c, "client closed after ${seen} ${reason}").ignore();
-            ()
+            seen
         },
     });
     match (dialled) {
@@ -3451,8 +3454,8 @@ export fn main(): Result<(), Str> {
             ).ignore();
             .Ok(())
         },
-        .Ok(reason) => {
-            let _said = io.println(ctx, "client ended ${reason}").ignore();
+        .Ok(ended) => {
+            let _said = io.println(ctx, "client ended ${ended.0} ${ended.1}").ignore();
             .Ok(())
         },
     }
@@ -3504,7 +3507,9 @@ fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
         "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
         said.status, said.stdout, said.stderr
     );
-    for line in ["client opened 101", "client heard echo hi", "client ended .Normal"] {
+    // The last of these is the reason and the state beside it: the one frame the
+    // socket counted left through `connect` rather than dying with the socket.
+    for line in ["client opened 101", "client heard echo hi", "client ended .Normal 1"] {
         assert!(
             said.stdout.contains(line),
             "the client never said `{line}`.\nit said:\n{}\nthe server said:\n{}",
@@ -3525,6 +3530,14 @@ fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
     assert!(
         out.stdout.contains("server closed after 1"),
         "the server did not read exactly the one message the client sent.\nit said:\n{}",
+        out.stdout
+    );
+    // And the server's own half of the same claim: `onClose` answered
+    // `seen + 100`, and that is what `run` reported when the listener signed
+    // off — a value a socket held, leaving the server that hosted it.
+    assert!(
+        out.stdout.contains("served last 101"),
+        "what the socket's `onClose` answered never reached `run`.\nit said:\n{}",
         out.stdout
     );
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
@@ -3695,14 +3708,18 @@ fn a_client_handed_a_signature_for_another_handshake_refuses_it() {
     );
 }
 
-/// A client that dials twice, sleeping between the two, and prints what each
-/// session heard.
+/// A client that dials twice, sleeping between the two, and sends the second
+/// socket what the first one was told.
 ///
 /// **The loop `core/net/websocket` documents instead of a knob.** `connect`
 /// returns when the socket closes, so a second socket is a second call — with
 /// `time.sleep` between the tries, which is the whole of what a backoff is
-/// here. The session number is threaded through the recursion, so the two lines
-/// out say which session heard what.
+/// here.
+///
+/// **And it is a session resume.** The state is the token this session greets
+/// with; the frame that comes back becomes the next one's, through `connect`'s
+/// answer, so the second dial says on the wire what only the first socket
+/// could know.
 fn reconnecting_client() -> String {
     String::from(
         r#"from "core/effect" import { Allocator, Clock, Environment, Sockets, Stdout, WebSocketClient };
@@ -3715,50 +3732,53 @@ from "core/net/websocket" import { Client };
 from "core/str" import * as str;
 from "core/time" import * as time;
 
+/// The token this session greets with is its whole state, and what comes back
+/// in a frame is the token the next session will greet with.
 fn saying<C: Allocator + Sockets + Stdout + WebSocketClient>(
     url: Str,
     session: Int,
-    word: Str,
-): Client<C, Int> {
+    token: Str,
+): Client<C, Str> {
     Client {
         url: url,
         onOpen: fn(c, socket, _response) => {
-            let _sent = socket.send(c, .Text(word));
-            0
+            let _sent = socket.send(c, .Text(token));
+            token
         },
-        onMessage: fn(c, socket, seen, message) => {
+        onMessage: fn(c, socket, carried, message) => {
             match (message) {
                 .Text(text) => {
                     let _said = io.println(c, "session ${session} ${text}").ignore();
                     let _closed = socket.close(c, .Normal);
-                    seen + 1
+                    text
                 },
-                .Binary(_data) => seen,
+                .Binary(_data) => carried,
             }
         },
-        onClose: fn(_c, _socket, _seen, _reason) => (),
+        onClose: fn(_c, _socket, carried, _reason) => carried,
     }
 }
 
-/// Dial, and when the socket has closed, sleep and dial again.
+/// Dial, and when the socket has closed, sleep and dial again — with the token
+/// that socket left.
 fn following<C: Allocator + Clock + Sockets + Stdout + WebSocketClient>(
     ctx: C,
     url: Str,
     session: Int,
+    token: Str,
     left: Int,
-): Int {
-    let word = if (session == 1) { "one" } else { "two" };
-    match (websocket.connect(ctx, saying(url, session, word))) {
+): Str {
+    match (websocket.connect(ctx, saying(url, session, token))) {
         .Err(e) => {
             let _said = io.println(ctx, "client refused: ${e.detail}").ignore();
-            session - 1
+            token
         },
-        .Ok(_reason) => {
+        .Ok(ended) => {
             if (left <= 1) {
-                session
+                ended.1
             } else {
                 let _slept = time.sleep(ctx, time.milliseconds(50));
-                following(ctx, url, session + 1, left - 1)
+                following(ctx, url, session + 1, ended.1, left - 1)
             }
         },
     }
@@ -3775,20 +3795,26 @@ export fn main(): Result<(), Str> {
     };
     let port = env.arguments(ctx).first().withDefault("0");
     let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
-    let sessions = following(ctx, url, 1, 2);
-    let _said = io.println(ctx, "reconnected ${sessions}").ignore();
+    let carried = following(ctx, url, 1, "one", 2);
+    let _said = io.println(ctx, "reconnected with ${carried}").ignore();
     .Ok(())
 }
 "#,
     )
 }
 
-/// **Reconnecting is a loop around `connect`, and the second session is a
-/// second socket.**
+/// **Reconnecting is a loop around `connect`, the second session is a second
+/// socket, and it resumes on what the first one learned.**
 ///
 /// Two sessions over one port, each with its own upgrade, its own three hooks
 /// and its own close, from a program that names no reconnect field because there
 /// is none: it calls `connect` again.
+///
+/// **The second dial says `echo one`**, which is a string that existed nowhere
+/// in the program: the server made it, the first socket heard it in a frame, and
+/// it reached the second `connect` through the state `onClose` answered. That is
+/// the session resume the module header writes, over a real socket, with the
+/// server echoing it back as `echo echo one`.
 ///
 /// The server's request limit is two, so it ends on its own once the second
 /// socket has closed, and the row waits for a process to exit rather than
@@ -3807,7 +3833,7 @@ fn a_client_reconnects_by_calling_connect_again() {
         "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
         said.status, said.stdout, said.stderr
     );
-    for line in ["session 1 echo one", "session 2 echo two"] {
+    for line in ["session 1 echo one", "session 2 echo echo one"] {
         assert!(
             said.stdout.contains(line),
             "the client never said `{line}`.\nit said:\n{}\nthe server said:\n{}",
@@ -3816,8 +3842,8 @@ fn a_client_reconnects_by_calling_connect_again() {
         );
     }
     assert!(
-        said.stdout.contains("reconnected 2"),
-        "the loop did not run twice.\nthe client said:\n{}",
+        said.stdout.contains("reconnected with echo echo one"),
+        "the loop lost what the second socket learned.\nthe client said:\n{}",
         said.stdout
     );
     // Two upgrades on the server's side: a second `connect` is a second socket
@@ -3872,7 +3898,7 @@ fn quiet<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C,
         url: url,
         onOpen: fn(_c, _socket, _response) => 0,
         onMessage: fn(_c, _socket, seen, _message) => seen + 1,
-        onClose: fn(_c, _socket, _seen, _reason) => (),
+        onClose: fn(_c, _socket, seen, _reason) => seen,
     }
 }
 
@@ -3884,7 +3910,7 @@ fn dialling<C: Allocator + Sockets + Stdout + WebSocketClient>(ctx: C, url: Str,
     } else {
         let _said = match (websocket.connect(ctx, quiet(url))) {
             .Err(e) => io.println(ctx, "refused ${e.cause}").ignore(),
-            .Ok(reason) => io.println(ctx, "ended ${reason}").ignore(),
+            .Ok(ended) => io.println(ctx, "ended ${ended.0}").ignore(),
         };
         dialling(ctx, url, left - 1)
     }
@@ -4018,7 +4044,8 @@ fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str, large: Int)
             next
         },
         onClose: fn(c, _socket, seen, reason) => {
-            io.println(c, "closed after ${seen} ${reason}").ignore()
+            let _said = io.println(c, "closed after ${seen} ${reason}").ignore();
+            seen
         },
     }
 }
@@ -4040,8 +4067,8 @@ export fn main(): Result<(), Str> {
     let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
     match (websocket.connect(ctx, feed(url, large))) {
         .Err(e) => .Err(e.detail),
-        .Ok(reason) => {
-            let _said = io.println(ctx, "ended ${reason}").ignore();
+        .Ok(ended) => {
+            let _said = io.println(ctx, "ended ${ended.0} ${ended.1}").ignore();
             .Ok(())
         },
     }
@@ -4132,7 +4159,7 @@ fn a_client_carries_every_size_and_is_told_nothing_of_a_ping() {
     // three fragments cut two of those characters in half.
     let wanted = format!(
         "text 0 \ntext 1 x\ntext {LARGE} {large}\nbinary 0\nbinary 1\nbinary {LARGE}\n\
-         text 12 h\u{e9}llo \u{1f30a} done\nclosed after 7 .GoingAway\nended .GoingAway\n"
+         text 12 h\u{e9}llo \u{1f30a} done\nclosed after 7 .GoingAway\nended .GoingAway 7\n"
     );
     assert_eq!(
         said.stdout, wanted,
@@ -4241,11 +4268,14 @@ export fn main(): Result<(), Str> {
             1 / zero
         },
         onMessage: fn(_c, _socket, seen, _message) => seen + 1,
-        onClose: fn(c, _socket, _seen, _reason) => io.println(c, "closed").ignore(),
+        onClose: fn(c, _socket, seen, _reason) => {
+            let _said = io.println(c, "closed").ignore();
+            seen
+        },
     });
     let _said = match (dialled) {
         .Err(e) => io.println(ctx, "refused ${e.cause}").ignore(),
-        .Ok(reason) => io.println(ctx, "ended ${reason}").ignore(),
+        .Ok(ended) => io.println(ctx, "ended ${ended.0}").ignore(),
     };
     .Ok(())
 }

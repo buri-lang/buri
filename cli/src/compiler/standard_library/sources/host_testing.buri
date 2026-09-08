@@ -1305,9 +1305,9 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 ///         url: "ws://example/socket",
 ///         onOpen: fn(_c, _socket, _response) => 0,
 ///         onMessage: fn(_c, _socket, seen, _message) => seen + 1,
-///         onClose: fn(_c, _socket, _seen, _reason) => (),
+///         onClose: fn(_c, _socket, seen, _reason) => seen,
 ///     });
-///     assert.equal(closed, .Ok(.Normal));
+///     assert.equal(closed, .Ok((.Normal, 2)));
 /// }
 /// ```
 ///

@@ -2665,10 +2665,11 @@ fn echoing<C: Sockets + WebSocketClient>(url: Str): Client<C, Int> {
             let _echoed = socket.send(c, message);
             seen + 1
         },
-        onClose: fn(c, socket, _seen, _reason) => {
+        onClose: fn(c, socket, seen, _reason) => {
             // The socket is already closed when this runs, so this push goes
             // nowhere — and the log below is the evidence for it.
-            socket.send(c, .Text("goodbye"))
+            let _goodbye = socket.send(c, .Text("goodbye"));
+            seen
         },
     }
 }
@@ -2680,8 +2681,12 @@ test "a client runs its hooks over the script and answers how the socket ended" 
         WebSocketClient: s.dialling([.Text("one"), .Binary([1, 2]), .Text("two")]),
     };
     // The script running out is a close, and a close is an `.Ok`: a socket
-    // ending is the ordinary end of one rather than a failure.
-    assert.equal(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
+    // ending is the ordinary end of one rather than a failure. Beside the reason
+    // is the state the socket ended holding — three messages seen.
+    assert.equal(
+        websocket.connect(ctx, echoing("ws://example/socket")),
+        .Ok((.Normal, 3)),
+    );
     // `onOpen`'s greeting, then one echo per scripted message, and nothing at
     // all from `onClose` — the socket had already gone by then.
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
@@ -2721,9 +2726,12 @@ test "a client that closes the socket stops reading the script" {
             let _closed = socket.close(c, .Normal);
             seen + 1
         },
-        onClose: fn(c, socket, _seen, _reason) => socket.send(c, .Text("goodbye")),
+        onClose: fn(c, socket, seen, _reason) => {
+            let _goodbye = socket.send(c, .Text("goodbye"));
+            seen
+        },
     };
-    assert.equal(websocket.connect(ctx, hangingUp), .Ok(.Normal));
+    assert.equal(websocket.connect(ctx, hangingUp), .Ok((.Normal, 1)));
     // One message reached the hook and then the socket was gone, so the other
     // two scripted messages were never delivered and `onClose` pushed nothing.
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("one")]);
@@ -2780,6 +2788,80 @@ test "reconnecting is a loop around connect, and each dial is a socket of its ow
     assert.notEqual(pushes.get(2), pushes.get(4));
 }
 
+/// A client handed a resume token in a frame, which sends it back on the next
+/// socket.
+///
+/// `S` is the token, so what one socket learned leaves through `connect` and
+/// arrives at the next dial as an argument. Nothing here writes to a file or a
+/// signal to smuggle the value out.
+fn resuming<C: Allocator + Sockets + WebSocketClient>(carried: Str): Client<C, Str> {
+    Client {
+        url: "ws://example/socket",
+        onOpen: fn(c, socket, _response) => {
+            let _sent = socket.send(c, .Text(str.format(c, "resume ${carried}")));
+            carried
+        },
+        onMessage: fn(c, _socket, sofar, message) => {
+            match (message) {
+                .Text(token) => str.format(c, "${sofar}|${token}"),
+                .Binary(_data) => sofar,
+            }
+        },
+        onClose: fn(_c, _socket, sofar, _reason) => sofar,
+    }
+}
+
+/// The reconnect loop the module header writes, carrying what the last socket
+/// left into the next dial.
+fn resumed<C: Allocator + Sockets + WebSocketClient>(
+    ctx: C,
+    carried: Str,
+    left: Int,
+): Str {
+    match (websocket.connect(ctx, resuming(carried))) {
+        .Err(_never) => carried,
+        .Ok(ended) => {
+            if (left <= 1) { ended.1 } else { resumed(ctx, ended.1, left - 1) }
+        },
+    }
+}
+
+test "a socket's last state leaves through connect, so the next dial resumes" {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("token-7")]),
+    };
+    // Two sockets, and the second one knows what the first was told: the token
+    // arrived in a frame, landed in the state, and came back out of `connect`.
+    assert.equal(resumed(ctx, "start", 2), "start|token-7|token-7");
+    // The evidence on the wire. The first socket greets with what it was given,
+    // the second with what the first learned.
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("resume start"),
+        Message.Text("resume start|token-7"),
+    ]);
+}
+
+test "connect answers what onClose answered, not the state it was handed" {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    let saying = Client {
+        url: "ws://example/socket",
+        onOpen: fn(_c, _socket, _response) => "open",
+        onMessage: fn(_c, _socket, _sofar, _message) => "message",
+        onClose: fn(c, _socket, sofar, _reason) => str.format(c, "${sofar} then close"),
+    };
+    // `onClose` is a hook like the other two: handed the current state, and its
+    // answer is the next one. There is no next one, so it is the call's.
+    assert.equal(websocket.connect(ctx, saying), .Ok((.Normal, "message then close")));
+}
+
 test "the response that opened the socket reaches onOpen" {
     let s = sockets();
     let ctx = context {
@@ -2797,11 +2879,11 @@ test "the response that opened the socket reaches onOpen" {
             response.headers.length()
         },
         onMessage: fn(_c, _socket, headers, _message) => headers,
-        onClose: fn(_c, _socket, _headers, _reason) => (),
+        onClose: fn(_c, _socket, headers, _reason) => headers,
     };
     // A handshake that finished answered `101`; anything else would have been an
     // `.Err` and `onOpen` would never have run.
-    assert.equal(websocket.connect(ctx, reading), .Ok(.Normal));
+    assert.equal(websocket.connect(ctx, reading), .Ok((.Normal, 0)));
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("status 101")]);
 }
 
@@ -2823,7 +2905,7 @@ fn counting<C: Allocator + Sockets + WebSocketClient>(url: Str): Client<C, Int> 
             let _pushed = socket.send(c, .Text(str.format(c, "${next}")));
             next
         },
-        onClose: fn(_c, _socket, _seen, _reason) => (),
+        onClose: fn(_c, _socket, seen, _reason) => seen,
     }
 }
 
@@ -2837,7 +2919,10 @@ test "a client's state is threaded through a hundred messages" {
     // One message and a hundred are the same shape here, and the count is the
     // evidence: `onMessage` answers the state the next one sees, so a hundred
     // steps that lost the state would push a hundred ones.
-    assert.equal(websocket.connect(ctx, counting("ws://example/socket")), .Ok(.Normal));
+    assert.equal(
+        websocket.connect(ctx, counting("ws://example/socket")),
+        .Ok((.Normal, 100)),
+    );
     let pushed = s.sent().map(alloc(), fn(one) => one.1);
     assert.equal(pushed.length(), 100);
     assert.equal(pushed.get(0), .Some(Message.Text("1")));
@@ -2860,7 +2945,10 @@ test "a message of nothing, of one octet, and of many is a message either way" {
     // An empty message is a message and not the absence of one, in both
     // framings — a client that dropped it would lose a keep-alive somebody
     // really sent — and `.Text("")` is not `.Binary([])`.
-    assert.equal(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
+    assert.equal(
+        websocket.connect(ctx, echoing("ws://example/socket")),
+        .Ok((.Normal, 5)),
+    );
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text(""),
@@ -2891,12 +2979,15 @@ test "an empty script opens a socket and closes it with nothing between" {
             0
         },
         onMessage: fn(_c, _socket, seen, _message) => seen + 1,
-        onClose: fn(c, socket, _seen, _reason) => socket.send(c, .Text("goodbye")),
+        onClose: fn(c, socket, seen, _reason) => {
+            let _goodbye = socket.send(c, .Text("goodbye"));
+            seen
+        },
     };
     // Both hooks that must run did, the one that must not did not, and the
     // whole of `Connected` reached `onOpen`: a `101`, no headers of this
     // double's own, and no body — because a `101` never carries one.
-    assert.equal(websocket.connect(ctx, quiet), .Ok(.Normal));
+    assert.equal(websocket.connect(ctx, quiet), .Ok((.Normal, 0)));
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("open 101 0 0"),
     ]);
@@ -2917,10 +3008,13 @@ test "two clients on one double are two sockets writing into one log" {
     // Two `dialling` calls are two clients and one world: each mints its own
     // socket on the `sockets()` that made it, and both write into that one
     // double's log.
-    assert.equal(websocket.connect(first, echoing("ws://example/first")), .Ok(.Normal));
+    assert.equal(
+        websocket.connect(first, echoing("ws://example/first")),
+        .Ok((.Normal, 1)),
+    );
     assert.equal(
         websocket.connect(second, echoing("ws://example/second")),
-        .Ok(.Normal),
+        .Ok((.Normal, 2)),
     );
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
@@ -2943,7 +3037,7 @@ fn dialler<C: Allocator + Sockets + WebSocketClient>(): Actor<C, Int, Str, Bool>
         step: fn(c, seen, url) => {
             Stepped {
                 state: seen + 1,
-                answer: websocket.connect(c, echoing(url)) == .Ok(.Normal),
+                answer: websocket.connect(c, echoing(url)) == .Ok((.Normal, 1)),
             }
         },
     }
