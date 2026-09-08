@@ -40,16 +40,16 @@ message RepoConfig {
 // is a warning, and every rule in it runs. So the block is worth writing only
 // to say something.
 //
-// Two of the four fields are ratchets — each may only make the toolchain
+// Two of the three fields are ratchets — each may only make the toolchain
 // stricter, by running the checks in more places or by making a finding cost
-// more. `rules` and `allow` are the two that are not, and their shape is the
-// argument for letting them exist: a rule is turned off for the *whole
-// repository*, or one named declaration is exempted from it, in the one file
-// everybody reads, and every command that reports findings prints both. There
-// is no per-directory exemption and no per-file suppression comment, because
-// those are the forms that make "is this rule on here" a question no single
-// file can answer, and that let a check be silenced by whoever tripped over it
-// rather than argued about once.
+// more. `rules` is the one that is not, and its shape is the argument for
+// letting it exist: a rule is turned off for the *whole repository*, by the
+// name the finding prints, in the one file everybody reads, and every command
+// that reports findings prints which rules were turned off. There is no
+// per-directory exemption and no per-file suppression comment, because those
+// are the forms that make "is this rule on here" a question no single file can
+// answer, and that let a check be silenced by whoever tripped over it rather
+// than argued about once.
 message Lint {
   // Whether `buri build` and `buri test` run the lint catalogue too and report
   // what it finds, rather than leaving that to `buri lint`.
@@ -63,33 +63,6 @@ message Lint {
 
   // Which of the catalogue's rules run here. Absent, or empty: all of them.
   Rules rules = 3;
-
-  // The declarations a rule is not asked about. Absent, or empty: none.
-  Allow allow = 4;
-}
-
-// Declarations a rule is not asked about, one list per rule.
-//
-// The escape hatch `rules` is not: the rule stays on everywhere else, and what
-// it is off for is a name in this file rather than a directory or a comment
-// beside the code. Write one where the shape a rule objects to is fixed by
-// something outside the repository — a wire format, a protocol, an API somebody
-// else specified — and say why in a comment above it.
-//
-// One field today, and the field set is the catalogue's exactly as `Rules`' is.
-// Two things put a rule in it. Its finding is reported on a declaration's own
-// name, so a label says what the exemption is about; a rule reported inside a
-// body has nothing for a label to name, and a field for one would be an
-// exemption that could never match. And what it objects to can be decided
-// outside this repository, which a signature can be and a body's length cannot.
-//
-// Each entry is a package label, a colon, and the name the finding prints:
-// `//lib/wire:encode`. Two declarations of one name in one package share an
-// exemption. A label naming nothing is not an error — the finding it does not
-// exempt is reported, so a stale exemption shows up as the finding coming back.
-message Allow {
-  // A function takes few parameters. `buri docs lint too-many-parameters`.
-  repeated string too_many_parameters = 1;
 }
 
 // Which rules run: `enabled(rule) = override.unwrap_or(default)`.
