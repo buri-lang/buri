@@ -1,0 +1,3 @@
+0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
+error: //lib/graph cannot run natively: the stencil backend has no implementation of ui_testing.install
+  = fix: declare `test { platforms: [JS] }` for this suite if it belongs on JavaScript, or report the gap: a program the front end accepted is one the backend should compile

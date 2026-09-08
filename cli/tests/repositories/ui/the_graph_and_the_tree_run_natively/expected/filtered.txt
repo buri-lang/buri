@@ -1,0 +1,7 @@
+FAIL //lib/graph  test/graph.buri  "a choose inside an each row is described"
+  assert.isFalse failed
+    actual:   true
+    expected: false
+  --> lib/graph/test/graph.buri:64:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

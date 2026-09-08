@@ -31,6 +31,37 @@ const UPDATE: &str = "BURI_SNAPSHOT_UPDATE";
 /// The file holding the stylesheet this artifact's static styles extracted to.
 const SHEET: &str = "BURI_SNAPSHOT_SHEET";
 
+/// What the paint that follows is to make of a `var(--token)`.
+///
+/// `ui/testing`'s `installThemes(document)`: the flattened theme document
+/// `ui/theme`'s `document` built, resolved here — by the same function `mount`
+/// resolves through — into the custom-property values the painter reads. A
+/// call of its own rather than a fourth string on [`buri_rt_ui_testing_paint`],
+/// because four `Str`s is twelve machine words and a runtime call is ten.
+///
+/// The values live until the next call replaces them, which is one `snapshot`
+/// later: every `snapshot` installs before it paints, so no picture can be
+/// painted under the theme list of the one before it.
+///
+/// # Safety
+/// The pointer must address its byte length, or be null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_install_themes(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: the caller promises the pointer addresses its length.
+    let document = unsafe { crate::host::text(ptr, len) };
+    *variables_lock() = crate::ui::render(&document);
+}
+
+/// The custom-property block the last `installThemes` resolved to.
+fn variables_lock() -> std::sync::MutexGuard<'static, String> {
+    static VARIABLES: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    VARIABLES.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// `ui/testing`'s `paint(name, scene, state)`.
 ///
 /// # Safety
@@ -67,7 +98,9 @@ fn compare(name: &str, scene: &str, state: &str) {
         crate::abort::die(&[b"no snapshot directory: buri test did not set BURI_SNAPSHOT_DIR"])
     };
     let sheet = stylesheet();
-    let request = crate::paint::Request { scene, stylesheet: &sheet, state };
+    let variables = variables_lock().clone();
+    let request =
+        crate::paint::Request { scene, stylesheet: &sheet, state, variables: &variables };
     let actual = match crate::paint::render(&request) {
         Ok(bytes) => bytes,
         Err(why) => crate::abort::die(&[

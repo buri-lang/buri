@@ -87,6 +87,7 @@
 //! [`render`] never panics. Every refusal is one sentence naming what it could
 //! not read.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use cosmic_text::{
@@ -140,6 +141,13 @@ pub struct Request<'a> {
     pub stylesheet: &'a str,
     /// "rest", "hover", "focus", "active", "disabled" or "checked".
     pub state: &'a str,
+    /// The custom-property block the snapshot's themes resolved to — one or
+    /// more `:root{--name:value;…}` blocks, exactly what `mount` installs.
+    ///
+    /// A declaration reading `var(--name)` is worth what this says it is worth,
+    /// and is left as it stands where this says nothing about it. Empty is a
+    /// program with no design tokens, which is most of them.
+    pub variables: &'a str,
 }
 
 /// Lays out, shapes and paints one scene. Answers PNG bytes.
@@ -151,10 +159,81 @@ pub fn render(request: &Request) -> Result<Vec<u8>, String> {
     let scene = Scene::parse(request.scene)?;
     let state = State::parse(request.state)?;
     let sheet = parse_stylesheet(request.stylesheet);
+    let variables = parse_variables(request.variables);
 
-    let styles = resolve(&scene, &sheet, state);
+    let styles = resolve(&scene, &sheet, state, &variables);
     let pixmap = paint(&scene, &styles)?;
     Ok(encode(pixmap.width(), pixmap.height(), &straight(&pixmap)))
+}
+
+/// The custom properties a `:root` block declares, each name without its
+/// dashes.
+///
+/// The text is what `cli/runtime/ui.rs` wrote, so this reads that rather than
+/// CSS in general: `:root{` opens a block, `;` separates declarations, and a
+/// name starts with `--`. A later block wins, which is the order the themes
+/// were passed in.
+fn parse_variables(text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for block in text.split(":root{").skip(1) {
+        let Some((body, _)) = block.split_once('}') else { continue };
+        for entry in body.split(';') {
+            let Some((name, value)) = entry.split_once(':') else { continue };
+            let Some(name) = name.trim().strip_prefix("--") else { continue };
+            let value = value.trim().to_string();
+            match out.iter_mut().find(|(k, _)| k == name) {
+                Some(slot) => slot.1 = value,
+                None => out.push((name.to_string(), value)),
+            }
+        }
+    }
+    out
+}
+
+/// A declaration's value with every `var(--name)` in it replaced by what the
+/// themes said the name was worth.
+///
+/// A name the themes did not bind is left as it stands, so an unresolved token
+/// still reads as one and each property's own arm decides what that means —
+/// which is what the painter did before a theme could reach it at all.
+///
+/// Borrowed where there is nothing to do, which is every declaration in a
+/// program with no design tokens.
+fn substitute<'a>(value: &'a str, variables: &[(String, String)]) -> Cow<'a, str> {
+    if !value.contains("var(") {
+        return Cow::Borrowed(value);
+    }
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(at) = rest.find("var(") {
+        let (before, from) = rest.split_at(at);
+        out.push_str(before);
+        let Some((inside, after)) = from["var(".len()..].split_once(')') else {
+            out.push_str(from);
+            return Cow::Owned(out);
+        };
+        // `var(--name, fallback)`: the fallback is what a browser paints when
+        // nothing bound the name, and it is what this paints too.
+        let (name, fallback) = match inside.split_once(',') {
+            Some((n, f)) => (n.trim(), Some(f.trim())),
+            None => (inside.trim(), None),
+        };
+        let bound = name
+            .strip_prefix("--")
+            .and_then(|n| variables.iter().find(|(k, _)| k == n))
+            .map(|(_, v)| v.as_str());
+        match bound.or(fallback) {
+            Some(text) => out.push_str(text),
+            None => {
+                out.push_str("var(");
+                out.push_str(inside);
+                out.push(')');
+            }
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    Cow::Owned(out)
 }
 
 /// Compares two PNGs. `None` when the bytes are equal; otherwise the PNG of a
@@ -708,7 +787,12 @@ impl Computed {
 
 /// Resolves every node's style: matching class rules in sheet order, then the
 /// element's own declarations, over what the parent passed down.
-fn resolve(scene: &Scene, sheet: &[Rule], state: State) -> Vec<Computed> {
+fn resolve(
+    scene: &Scene,
+    sheet: &[Rule],
+    state: State,
+    variables: &[(String, String)],
+) -> Vec<Computed> {
     let root = Computed::root();
     let mut styles = vec![root.clone(); scene.nodes.len()];
     let mut stack: Vec<(usize, Computed)> =
@@ -725,12 +809,12 @@ fn resolve(scene: &Scene, sheet: &[Rule], state: State) -> Vec<Computed> {
                     && node.classes.contains(&rule.class)
                 {
                     for (name, value) in &rule.declarations {
-                        apply(&mut style, name, value, &parent);
+                        apply(&mut style, name, &substitute(value, variables), &parent);
                     }
                 }
             }
             for (name, value) in &node.declarations {
-                apply(&mut style, name, value, &parent);
+                apply(&mut style, name, &substitute(value, variables), &parent);
             }
         }
         for &child in node.children.iter().rev() {
@@ -2800,7 +2884,7 @@ mod tests {
     const EMPTY: &str = "buri-scene 1\nviewport 4 3\n";
 
     fn render_ok(scene: &str, sheet: &str, state: &str) -> Image {
-        let png = render(&Request { scene, stylesheet: sheet, state }).unwrap();
+        let png = render(&Request { scene, stylesheet: sheet, state, variables: "" }).unwrap();
         decode(&png).unwrap()
     }
 
@@ -2821,55 +2905,55 @@ mod tests {
 
     #[test]
     fn a_scene_without_the_banner_is_refused() {
-        let error = render(&Request { scene: "viewport 4 3\n", stylesheet: "", state: "rest" });
+        let error = render(&Request { scene: "viewport 4 3\n", stylesheet: "", state: "rest", variables: "" });
         assert_eq!(error, Err("the scene does not start with `buri-scene 1`".to_string()));
     }
 
     #[test]
     fn a_scene_without_a_viewport_is_refused() {
         let scene = "buri-scene 1\ne 0 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap_err();
+        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
         assert!(error.contains("is not a viewport"), "{error}");
     }
 
     #[test]
     fn a_viewport_of_zero_is_refused() {
         let scene = "buri-scene 1\nviewport 0 3\n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap_err();
+        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
         assert!(error.contains("0x3"), "{error}");
     }
 
     #[test]
     fn a_depth_that_jumps_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\ne 0 \ne 2 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap_err();
+        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
         assert!(error.contains("jumps from depth 1 to 2"), "{error}");
     }
 
     #[test]
     fn a_line_that_is_neither_e_nor_t_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\nx 0 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap_err();
+        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
         assert!(error.contains("neither an `e` nor a `t`"), "{error}");
     }
 
     #[test]
     fn a_declaration_without_a_colon_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\ne 0 padding\n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap_err();
+        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
         assert!(error.contains("has no `:`"), "{error}");
     }
 
     #[test]
     fn a_child_of_a_text_run_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\nt 0 Ada\ne 1 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap_err();
+        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
         assert!(error.contains("a text run has none"), "{error}");
     }
 
     #[test]
     fn a_state_the_painter_does_not_know_is_refused() {
-        let error = render(&Request { scene: EMPTY, stylesheet: "", state: "wiggly" });
+        let error = render(&Request { scene: EMPTY, stylesheet: "", state: "wiggly", variables: "" });
         assert_eq!(error, Err("`wiggly` is not a snapshot state".to_string()));
     }
 
@@ -2975,10 +3059,10 @@ mod tests {
              t 1 under the box\n",
         ];
         for scene in scenes {
-            let plain = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap();
+            let plain = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap();
             let deeper = wrapped(scene);
             let nested =
-                render(&Request { scene: &deeper, stylesheet: "", state: "rest" }).unwrap();
+                render(&Request { scene: &deeper, stylesheet: "", state: "rest", variables: "" }).unwrap();
             assert_eq!(plain, nested, "wrapping this scene changed it:\n{deeper}");
         }
     }
@@ -3048,8 +3132,8 @@ mod tests {
         let scene = "buri-scene 1\nviewport 40 40\ne 0 padding:16px\n\
                      e 1 width:8px;height:8px;background-color:rgb(255,255,255);\
                      box-shadow:2px 2px 6px 1px rgb(0,0,255)\n";
-        let one = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap();
-        let two = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap();
+        let one = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap();
+        let two = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap();
         assert_eq!(one, two);
     }
 
@@ -3294,7 +3378,7 @@ mod tests {
                      e 0 padding:4px;background-color:rgba(20,30,40,0.5);border-radius:3px\n\
                      e 1 font-size:14px;font-weight:700\n\
                      t 2 Ada Lovelace\n";
-        let request = Request { scene, stylesheet: "", state: "rest" };
+        let request = Request { scene, stylesheet: "", state: "rest", variables: "" };
         assert_eq!(render(&request).unwrap(), render(&request).unwrap());
     }
 
@@ -3457,6 +3541,7 @@ mod tests {
             scene: "buri-scene 1\nviewport 24 16\ne 0 background-color:rgb(9,9,9)\n",
             stylesheet: "",
             state: "rest",
+            variables: "",
         })
         .unwrap();
         // Every prefix, so no chunk boundary is the only one that was tried.
@@ -3483,6 +3568,7 @@ mod tests {
             scene: "buri-scene 1\nviewport 24 16\ne 0 background-color:rgb(9,9,9)\n",
             stylesheet: "",
             state: "rest",
+            variables: "",
         })
         .unwrap();
         for at in 0..whole.len() {
@@ -3550,7 +3636,7 @@ mod tests {
                      e 0 color:rgb(1,2,3)\n\
                      e 1 background-color:var(--x);color:var(--y);width:4px;height:2px\n";
         let scene = Scene::parse(scene).unwrap();
-        let styles = resolve(&scene, &[], State::Rest);
+        let styles = resolve(&scene, &[], State::Rest, &[]);
         assert_eq!(styles.get(1).map(|s| s.background), Some(Rgba::CLEAR));
         assert_eq!(styles.get(1).map(|s| s.colour.r), Some(1));
     }

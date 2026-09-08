@@ -59,7 +59,7 @@ test "a table paints as a table" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "table", invoices(), .Checked);
+    snapshot(ctx, "table", invoices(), .Checked, []);
 }
 
 test "a hovered table paints hovered" {
@@ -67,5 +67,5 @@ test "a hovered table paints hovered" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "table-hovered", invoices(), .Hover);
+    snapshot(ctx, "table-hovered", invoices(), .Hover, []);
 }

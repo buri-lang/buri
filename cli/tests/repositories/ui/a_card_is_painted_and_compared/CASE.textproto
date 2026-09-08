@@ -38,8 +38,8 @@ path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: false }
 # bytes are the same bytes.
 edit {
   file: "lib/card/test/card.buri"
-  replace: "snapshot(ctx, \"card\", card(.Const(\"Ada\")), .Hover);"
-  with: "snapshot(ctx, \"card\", ui.stack([], [card(.Const(\"Ada\"))]), .Hover);"
+  replace: "snapshot(ctx, \"card\", card(.Const(\"Ada\")), .Hover, []);"
+  with: "snapshot(ctx, \"card\", ui.stack([], [card(.Const(\"Ada\"))]), .Hover, []);"
 }
 
 run {

@@ -1,0 +1,77 @@
+# What a design token is worth, in pixels.
+#
+# `snapshot` takes its themes the way `mount` does, and this is the case that
+# says so: one card whose every colour is a token, two theme lists, two goldens
+# checked in. Before it, a snapshot painted an unresolved `var(--cardlib-ink)`
+# as nothing at all and there was no way to say what a token meant in a picture
+# (buri-lang/buri#56).
+#
+# Three steps, and the middle one is the assertion.
+#
+# **Both pictures are recorded and both compare clean.** That is the feature.
+#
+# **The two theme lists are swapped, and both comparisons fail.** That is what
+# makes the pair a *proof*: if the themes reached no pixel, the light golden
+# would still match the dark tree and this step would pass. It fails twice, and
+# a diff image is on disk beside each golden.
+#
+# **And the way back**, so the recorded goldens are the ones the repository
+# keeps.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "one card is painted under a light theme and a dark one, the two goldens differ, and swapping the theme lists fails both comparisons"
+
+run {
+  args: ["test", "//lib/cardlib", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/cardlib/test/__snapshots__/card-light.diff.png"  exists: false }
+path { path: "lib/cardlib/test/__snapshots__/card-dark.diff.png"  exists: false }
+
+# The proof: the same trees, the other theme each.
+edit {
+  file: "lib/cardlib/test/card.buri"
+  replace: "snapshot(ctx, \"card-light\", card(), .Hover, [themedBy(light)]);"
+  with: "snapshot(ctx, \"card-light\", card(), .Hover, [themedBy(dark)]);"
+}
+
+edit {
+  file: "lib/cardlib/test/card.buri"
+  replace: "snapshot(ctx, \"card-dark\", card(), .Hover, [themedBy(dark)]);"
+  with: "snapshot(ctx, \"card-dark\", card(), .Hover, [themedBy(light)]);"
+}
+
+run {
+  args: ["test", "//lib/cardlib", "--force"]
+  exit: 1
+  golden: "swapped.txt"
+}
+
+path { path: "lib/cardlib/test/__snapshots__/card-light.diff.png"  exists: true }
+path { path: "lib/cardlib/test/__snapshots__/card-dark.diff.png"  exists: true }
+
+# And back.
+edit {
+  file: "lib/cardlib/test/card.buri"
+  replace: "snapshot(ctx, \"card-light\", card(), .Hover, [themedBy(dark)]);"
+  with: "snapshot(ctx, \"card-light\", card(), .Hover, [themedBy(light)]);"
+}
+
+edit {
+  file: "lib/cardlib/test/card.buri"
+  replace: "snapshot(ctx, \"card-dark\", card(), .Hover, [themedBy(light)]);"
+  with: "snapshot(ctx, \"card-dark\", card(), .Hover, [themedBy(dark)]);"
+}
+
+run {
+  args: ["test", "//lib/cardlib", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+path { path: "lib/cardlib/test/__snapshots__/card-light.diff.png"  exists: false }
+path { path: "lib/cardlib/test/__snapshots__/card-dark.diff.png"  exists: false }

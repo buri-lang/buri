@@ -28,8 +28,11 @@
 //! Installing a theme writes one `:root` block of values, and switching one
 //! rewrites the same block.
 
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "ui/effect" import { Scope };
 from "ui/prop" import { Prop };
-from "ui/style" import { Color };
+from "ui/style" import { Color, TokenReference };
 
 /// One package's tokens, resolved to values.
 ///
@@ -68,4 +71,109 @@ export fn themed(bindings: [(Color, Color)]): Theme {
 /// computation over one.
 export fn switching(condition: Prop<Bool>, whenTrue: Theme, whenFalse: Theme): Theme {
     Theme(.Switching(condition, [whenTrue], [whenFalse]))
+}
+
+// --- The flattened document --------------------------------------------------
+//
+// A theme holds closures and a closure cannot cross the C boundary as data, so
+// the side that can call one — this one — resolves the switches and hands the
+// bindings over as text. `cli/runtime/ui.rs`'s header is the format, and
+// `ui/testing`'s `snapshot` is the caller: a snapshot is painted natively, and
+// the painter has to know what a token is worth before it can put a colour on a
+// pixel.
+
+/// An untracked scope: reading a prop through it records no dependency.
+///
+/// A snapshot looks at the graph once, so a `switching` theme's condition is
+/// read the same way `ui/node`'s walk reads every other prop.
+fn rootScope(): Scope;
+
+/// `themes`, flattened to the document the toolchain's own renderer reads.
+///
+/// This is the seam between a theme and a painter, and nothing else needs it:
+/// `mount` installs a theme through the runtime, and this is how the one caller
+/// with no runtime to install into — a snapshot — says the same thing. The text
+/// is UTF-8 and line-oriented, `buri-theme 1` first, then a `theme` line per
+/// applying theme with its bindings under it.
+export fn document<C: Allocator>(ctx: C, themes: [Theme]): Str {
+    ["buri-theme 1"].concat(ctx, blocks(ctx, themes, 0, [])).join(ctx, "\n")
+}
+
+/// The lines of every theme that applies, in the order they were passed.
+///
+/// A switch is followed to whichever branch its condition picks, and deciding
+/// that in one place is what keeps the block that is written and the map it is
+/// resolved through from ever disagreeing about which side of a switch the
+/// program is on.
+fn blocks<C: Allocator>(ctx: C, themes: [Theme], at: Int, acc: [Str]): [Str] {
+    match (themes.get(at)) {
+        .None => acc,
+        .Some(theme) => {
+            let lines = match (theme.0) {
+                .Values(bindings) => ["theme"].concat(ctx, binds(ctx, bindings, 0, [])),
+                .Switching(condition, whenTrue, whenFalse) => {
+                    if (condition.read(rootScope())) {
+                        blocks(ctx, whenTrue, 0, [])
+                    } else {
+                        blocks(ctx, whenFalse, 0, [])
+                    }
+                },
+            };
+            blocks(ctx, themes, at + 1, acc.concat(ctx, lines))
+        },
+    }
+}
+
+/// One theme's bindings, in declaration order.
+fn binds<C: Allocator>(ctx: C, bindings: [(Color, Color)], at: Int, acc: [Str]): [Str] {
+    match (bindings.get(at)) {
+        .None => acc,
+        .Some(binding) => {
+            let line = bindLine(ctx, binding.0, binding.1);
+            binds(ctx, bindings, at + 1, acc.concat(ctx, line))
+        },
+    }
+}
+
+/// One `bind` line, or nothing at all where the left half names no token.
+///
+/// A binding whose left half is a plain colour names nothing there is a custom
+/// property for, and `mount` skips it for the same reason.
+fn bindLine<C: Allocator>(ctx: C, left: Color, right: Color): [Str] {
+    match (left) {
+        .Token(reference) => {
+            let name = propertyName(ctx, reference);
+            match (right) {
+                .Token(other) => {
+                    let to = propertyName(ctx, other);
+                    [str.format(ctx, "bind ${name} token ${to}")]
+                },
+                _ => {
+                    let value = valueText(ctx, right);
+                    [str.format(ctx, "bind ${name} value ${value}")]
+                },
+            }
+        },
+        _ => [],
+    }
+}
+
+/// The custom property a token reference names, without its leading dashes.
+fn propertyName<C: Allocator>(ctx: C, reference: TokenReference): Str {
+    let space = reference.namespace();
+    let name = reference.name();
+    str.format(ctx, "${space}-${name}")
+}
+
+/// A colour that is not a token, as CSS — the same text `ui/node`'s walk writes
+/// into a declaration.
+fn valueText<C: Allocator>(ctx: C, color: Color): Str {
+    match (color) {
+        .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
+        .Rgba(r, g, b, a) => str.format(ctx, "rgba(${r},${g},${b},${a})"),
+        .Transparent => "transparent",
+        .Inherit => "inherit",
+        // Answered by `bindLine` before this is reached.
+        .Token(_) => "",
+    }
 }

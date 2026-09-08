@@ -10,5 +10,5 @@ test "the card" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "card", card(.Const("Ada")), .Hover);
+    snapshot(ctx, "card", card(.Const("Ada")), .Hover, []);
 }

@@ -79,7 +79,7 @@ test "a picture is a picture and not a hole in the page" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "pictures", pictures(), .Checked);
+    snapshot(ctx, "pictures", pictures(), .Checked, []);
 }
 
 test "an overlay pinned to the viewport sits in the viewport's corner" {
@@ -87,5 +87,5 @@ test "an overlay pinned to the viewport sits in the viewport's corner" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "pinned-dock", docked(), .Checked);
+    snapshot(ctx, "pinned-dock", docked(), .Checked, []);
 }
