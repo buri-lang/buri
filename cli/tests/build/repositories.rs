@@ -239,7 +239,7 @@ fn the_host_on_node() {
 /// can ask this question is the one that links a real binary and runs it.
 ///
 /// Five cases, and each is one axis of the feature: the whole lifecycle over
-/// one picture; the range of every axis a snapshot has over fourteen; every way
+/// one picture; the range of every axis a snapshot has over fifteen; every way
 /// a comparison cannot be made; the invocation — `buri test` with no target at
 /// all — that puts two packages' suites in one binary; and the platform, where
 /// a `platforms: [JS]` suite runs the graph and is refused the picture.
