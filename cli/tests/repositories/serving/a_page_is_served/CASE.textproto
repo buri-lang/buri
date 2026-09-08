@@ -1,0 +1,72 @@
+# `buri run` on a page: the build it needs, and the two refusals its serving
+# flags give a binary that is not a page.
+#
+# A page is the one output `run` cannot start as a process, so what it does
+# instead is serve the artifact — which means this case can only pin the halves
+# that finish. The server itself is a process that listens until it is stopped,
+# and `build::serving` drives it: it spawns `buri run` against this same `repo/`,
+# reads the address off the line the command prints, asks for a route and an
+# asset, and stops it. That is the split cli/tests/README.md states — a
+# repository fixture cannot run a listener, so anything that does sits in a
+# process of its own.
+#
+#   * **`--watch` and `--port` are the page's flags.** Both are refused on a
+#     binary that runs as a process, because a program `run` starts has no port
+#     and nothing for a rebuild to replace. A flag quietly ignored is the
+#     alternative and it is worse: the loop you asked for never happened and
+#     nothing said so.
+#   * **A page that does not compile is a build failure.** The last edit breaks
+#     the source, and what comes back is the diagnostic and exit 1 — no address,
+#     nothing listening. A server that came up over a stale artifact would show
+#     the reader the previous answer and call it the current one.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "buri run builds a WEB output and serves it, --watch and --port are refused on anything else, and a page that will not compile is a build failure"
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 0
+  golden: "built.txt"
+}
+
+# The three files a page is, and the shell among them: it is what the server
+# answers for every route, so a case about serving starts by pinning that it is
+# a real file on disk.
+path {
+  path: ".buri/out/web/cmd/site/main.html"
+  exists: true
+}
+
+# `--watch` rebuilds the page a server is answering from. A binary that runs as
+# a process is started once, so there is no server and nothing to rebuild into.
+run {
+  args: ["run", "//cmd/tool", "--watch"]
+  exit: 2
+  golden: "watch_is_for_a_page.txt"
+  stream: ERR
+}
+
+# And the same sentence about the port, which is the other half of the same
+# fact: only a page is answered over HTTP.
+run {
+  args: ["run", "//cmd/tool", "--port=4000"]
+  exit: 2
+  golden: "port_is_for_a_page.txt"
+  stream: ERR
+}
+
+# The negative twin the rows above owe a reader: break the page, and `buri run`
+# is a build that failed rather than a server over the artifact that is still
+# lying in `.buri/out` from the row at the top.
+edit {
+  file: "cmd/site/main.buri"
+  replace: "ui.text(.Const(\"the front page\"))"
+  with: "ui.text(.Const(theFrontPage))"
+}
+
+run {
+  args: ["run", "//cmd/site"]
+  exit: 1
+  golden: "nothing_to_serve.txt"
+}

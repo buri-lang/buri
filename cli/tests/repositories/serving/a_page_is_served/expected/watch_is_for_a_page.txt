@@ -1,0 +1,3 @@
+error: `buri run` takes `--watch` only for a page, and //cmd/tool runs its js output as a process
+  = a page is served over HTTP, so a rebuild is what the next request answers from; a program with a process of its own is started once
+  = fix: drop `--watch`, or name a page — `--output=web` picks one where a binary declares a page beside a native output

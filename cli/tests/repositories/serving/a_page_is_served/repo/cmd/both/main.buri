@@ -1,0 +1,35 @@
+// A binary with both entries: a page and the worker that would answer for it
+// in production. `buri run` starts neither as a process — it serves the page,
+// which is the entry a person can look at.
+//
+// The page mounts rather than resumes, and that is deliberate. `buri run`
+// answers the shell the compiler wrote, not the document the worker renders,
+// so a page that resumed would find markup no `web.shell` had written. Putting
+// the worker in front of the page locally is not what this command does.
+from "core/effect" import { Allocator, Request, Response };
+from "core/host" import * as host;
+from "core/net/http" import * as http;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/web" import * as web;
+
+fn page<C>(): Node<C> {
+    ui.region(.Main, [], [ui.text(.Const("both halves, one tree"))])
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    ui.mount(ctx, page(), [])
+}
+
+export fn fetch(request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+    };
+    http.html(ctx, web.shell(ctx, request.path(), web.render(page()), .Null))
+}

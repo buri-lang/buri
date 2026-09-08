@@ -1,0 +1,13 @@
+// A program with a process of its own, here so the refusals `buri run`'s
+// serving flags give a binary that is not a page have something to refuse.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, "tool").mapErr(fn(_e) => "could not write to standard output")
+}

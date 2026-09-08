@@ -234,6 +234,19 @@ fn the_host_on_node() {
     run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
 }
 
+/// `buri run` on a page: the flags that belong to the server it starts, and
+/// the build failure that means there is no server at all.
+///
+/// The listening half cannot be a step here — a manifest step runs a command
+/// to completion, and a server runs until it is stopped — so it is
+/// `build::serving`, which spawns `buri run` against this same `repo/` and
+/// talks to it. What is left for a manifest is what finishes: the artifact the
+/// server answers from, the two refusals, and the page that will not compile.
+#[test]
+fn serving_a_page() {
+    run_corpus(&tests_dir().join("repositories/serving"), "serving", 1);
+}
+
 /// The user interface at tier 2: the reactive graph, and a tree painted to a
 /// PNG and compared byte for byte.
 ///

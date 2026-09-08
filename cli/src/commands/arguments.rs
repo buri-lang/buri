@@ -71,9 +71,13 @@ pub struct Flags {
     /// observe from outside is not one anybody can hold the toolchain to.
     pub explain: bool,
     /// Re-run the invocation every time one of its declared inputs moves.
-    /// `buri test` only, and refused in the three combinations `parse` names
-    /// below.
+    /// `buri test` and the page `buri run` serves, and refused in the
+    /// combinations `parse` names below.
     pub watch: bool,
+    /// Where the page `buri run` serves listens. `buri run` only; `Some(0)`
+    /// asks the operating system for whatever is free, which is what every
+    /// test in this repository that needs a port does.
+    pub port: Option<u16>,
     /// Record what `snapshot` painted as the golden instead of comparing
     /// against it. `buri test` only.
     pub update: bool,
@@ -178,7 +182,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
     }
 
     if flags.watch {
-        refuse_watch(&flags)?;
+        refuse_watch(&command, &flags)?;
     }
     Ok(Args { command, targets, flags, passthrough })
 }
@@ -194,7 +198,15 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
 /// about where the command is running and comes last, so that
 /// `buri test --watch --force` in a pipe says which flag is wrong rather than
 /// which pipe it is in.
-fn refuse_watch(flags: &Flags) -> Result<(), String> {
+///
+/// The terminal check is `buri test`'s alone, and the command name is here to
+/// say so. It asks whether anybody is watching a loop that would otherwise
+/// re-run for ever — and `buri run` on a page does not answer that question,
+/// because it blocks with or without the flag: it is a server, and a server in
+/// a pipe is still a server. Applying the check there would refuse the one
+/// invocation `cli/tests/build/serving.rs` needs and would refuse nothing a
+/// person could have meant differently.
+fn refuse_watch(command: &str, flags: &Flags) -> Result<(), String> {
     use std::io::IsTerminal as _;
     if flags.force {
         return Err(
@@ -204,7 +216,7 @@ fn refuse_watch(flags: &Flags) -> Result<(), String> {
                 .into(),
         );
     }
-    if !std::io::stdout().is_terminal() {
+    if command != "run" && !std::io::stdout().is_terminal() {
         return Err(
             "`--watch` needs a terminal: a watch loop with nothing watching it is a hung job, \
              which in CI is a build that never finishes — run `buri test` instead, which is the \
