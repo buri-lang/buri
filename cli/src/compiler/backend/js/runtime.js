@@ -4301,7 +4301,11 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // The level is the document's outline rather than a size. There is no
     // seventh level to lower to, so it clamps.
     const level = node[1] < 1 ? 1 : node[1] > 6 ? 6 : node[1];
-    $tree_text(node[2], $tree_element(parent, "h" + level, anchor), null);
+    const element = $tree_element(parent, "h" + level, anchor);
+    // The size and the weight are the styles', because the level is not one:
+    // the sheet's reset drops what a browser paints on a heading by itself.
+    $tree_styles(element, node[2]);
+    $tree_text(node[3], element, null);
     return;
   }
   if (tag === 3) {

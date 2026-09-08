@@ -133,7 +133,8 @@ ui.nothing(): Node<C>                                     // occupies nothing, e
 
 // text
 ui.text(content: Prop<Str>): Node<C>
-ui.heading(level: Int, content: Prop<Str>): Node<C>
+// the level is the outline; the size and the weight are the styles
+ui.heading(level: Int, styles, content: Prop<Str>): Node<C>
 
 // widgets — interactive behaviour, not roles. Accessibility-critical
 // parameters (alt, dest, label) are required, not attributes.
