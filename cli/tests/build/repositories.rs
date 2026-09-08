@@ -182,7 +182,7 @@ fn lint_catalogue() {
 /// never compiled gets.
 #[test]
 fn test_suites() {
-    run_corpus(&tests_dir().join("repositories/testing"), "testing", 12);
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 13);
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a
@@ -223,7 +223,8 @@ fn the_host_on_node() {
     run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
 }
 
-/// Visual snapshots: a tree painted to a PNG and compared byte for byte.
+/// The user interface at tier 2: the reactive graph, and a tree painted to a
+/// PNG and compared byte for byte.
 ///
 /// A group of its own rather than a case under `testing/`, because what it
 /// asserts is not what a suite reports — it is what the *renderer* produced,
@@ -238,14 +239,18 @@ fn the_host_on_node() {
 /// JavaScript answer at all — there is no painter there. So the only tier that
 /// can ask this question is the one that links a real binary and runs it.
 ///
-/// Five cases, and each is one axis of the feature: the whole lifecycle over
+/// Six cases. Five are one axis each of the snapshot: the whole lifecycle over
 /// one picture; the range of every axis a snapshot has over fourteen; every way
 /// a comparison cannot be made; the invocation — `buri test` with no target at
 /// all — that puts two packages' suites in one binary; and the platform, where
 /// a `platforms: [JS]` suite runs the graph and is refused the picture.
+///
+/// The sixth is the graph rather than the painter: a `Signal<[T]>`, whose value
+/// is a list like any other and whose two readings of "which type is `T`" both
+/// backends used to get wrong.
 #[test]
-fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 5);
+fn the_graph_and_the_painter() {
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 6);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

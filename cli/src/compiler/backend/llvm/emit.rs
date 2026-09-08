@@ -2130,6 +2130,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// register shape with no `Ty` behind it. Reading it off the item instead
     /// would work for `[Str]` and fail for `[Int]`, which is the worst place
     /// for a rule to be nearly right.
+    ///
+    /// A row that carries **one whole value** has no element at all and says
+    /// so ([`runtime::carries_a_whole_value`]), which is what keeps a
+    /// `Signal<[Account]>` from being read as a store of `Account`s: the
+    /// destination of `read` at that instantiation *is* a list, and the
+    /// fallback below would happily take its element.
     fn generic_element(
         &mut self,
         code: &ir::Code,
@@ -2137,6 +2143,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         entry: &runtime::Entry,
         args: &[ir::ValueId],
     ) -> Option<Ty> {
+        if runtime::carries_a_whole_value(entry.key) {
+            return None;
+        }
         let mut cursor = 0usize;
         for mode in entry.args {
             if !mode.consumes() {

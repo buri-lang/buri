@@ -2157,6 +2157,19 @@ pub fn entry(key: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|e| e.key == key)
 }
 
+/// Whether this row's `T` is the **whole value** the call carries rather than
+/// a `[T]`'s element — `runtime_table.rs`'s `Carrier` column, asked by key.
+///
+/// Read off the shared table rather than copied into a column here, because
+/// the two tables are one contract written twice and this is the half neither
+/// `Arg` list can state: `Arg::Spilled` says where a value is, not that the
+/// row has no element. `Emit::generic_element` is the caller, and what it
+/// stops is a `Signal<[Account]>` being read as a store of `Account`s.
+pub fn carries_a_whole_value(key: &str) -> bool {
+    use crate::compiler::backend::runtime_table::{self, Carrier};
+    runtime_table::entry(key).is_some_and(|e| e.carrier == Carrier::Value)
+}
+
 // ---------------------------------------------------------------------------
 // The symbols this backend emits without an intrinsic key behind them
 // ---------------------------------------------------------------------------
