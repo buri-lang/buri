@@ -277,15 +277,25 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
 
         // `Enum.Variant`, `mod.Enum.Variant`, `Struct { .. }`, `Tuple(x)`.
+        //
+        // A namespace in front spends one more segment on the type's name, so
+        // `rest` is trimmed with it: what remains is the variant, and
+        // `mod.Enum` on its own is an enum named without one rather than an
+        // enum whose variant is called `Enum`.
         let module = self.module;
-        let resolved = match rest.first() {
-            None => self.c.scope(module).names.get(head).cloned(),
-            Some(second) => {
-                match self.c.scope(module).namespaces.get(head).copied() {
-                    Some(ns) => self.c.lookup_export(ns, t.text(*second)),
-                    None => self.c.scope(module).names.get(head).cloned(),
-                }
-            }
+        let namespaced = match rest.split_first() {
+            Some((second, tail)) => self
+                .c
+                .scope(module)
+                .namespaces
+                .get(head)
+                .copied()
+                .map(|ns| (ns, t.text(*second), tail)),
+            None => None,
+        };
+        let (resolved, rest) = match namespaced {
+            Some((ns, second, tail)) => (self.c.lookup_export(ns, second), tail),
+            None => (self.c.scope(module).names.get(head).cloned(), rest),
         };
 
         match resolved {
