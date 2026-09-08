@@ -76,7 +76,7 @@ resolver = "2"
 # The set is not the same *kind* of thing as the toolchain's in one more way
 # worth stating: turning `backend-llvm` off costs a release code generator a
 # contributor can do without, while turning `net` off costs a *language
-# capability* — `Net`, `Listen`, `Tasks` — that a program either has or is
+# capability* — `Network`, `Listen`, `Tasks` — that a program either has or is
 # refused for. "Degrades rather than breaks" is met on both, but on the
 # runtime's side the degradation has to be a diagnostic naming the missing
 # effect rather than a link error, which is why the toolchain learns the

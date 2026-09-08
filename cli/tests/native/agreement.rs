@@ -11,9 +11,9 @@
 //! It was not a check, and four of the rows were wrong. Each is a test below
 //! rather than a paragraph:
 //!
-//!  * **Row 3 was false.** `wrappingMul` was not exact on JavaScript at any
+//!  * **Row 3 was false.** `wrappingMultiply` was not exact on JavaScript at any
 //!    width where the product leaves 2^53 — the `BigInt` in `$wrapTo` wraps a
-//!    double that has *already* been rounded, so `U32.wrappingMul(0xffffffff,
+//!    double that has *already* been rounded, so `U32.wrappingMultiply(0xffffffff,
 //!    0xffffffff)` answered 0 where the answer is 1. Not a precision ceiling: a
 //!    wrong answer, at 32 bits, with exact operands and an exact answer, from
 //!    the operation a checksum is written with. `$wrapOp` fixes it wherever the
@@ -92,7 +92,7 @@
 //!
 //! `cargo test -p buri --features backend-llvm --test native agreement::` is the
 //! second half, and it runs: LLVM 21 compiles most of the rows and refuses the
-//! rest for reasons of its own — `num.minValue`/`num.maxValue` have no body —
+//! rest for reasons of its own — `number.minValue`/`number.maxValue` have no body —
 //! so it carries a
 //! [`Native::partial`] note and a row it cannot compile is skipped with the
 //! reason printed. Stencil carries no such note, so a refusal from it is a
@@ -122,7 +122,7 @@
 //!   would add twenty minutes and no coverage.
 //! * **What the native surface cannot reach.** `derive ToJson` and a `[T]`
 //!   inside a derived `Show` are both refused by `missing_intrinsics`, and
-//!   `Alloc` accounting exists on neither backend. Each is covered twice: an
+//!   `Allocator` accounting exists on neither backend. Each is covered twice: an
 //!   `#[ignore]`d agreement test that runs the day the gap closes, and a test
 //!   asserting the gap is *still there*, so the ignore cannot rot into a lie.
 //!   That is `native/conformance.rs`'s pattern, for its reason.
@@ -179,7 +179,7 @@ const NATIVES: &[Native] = &[
         partial: Some(
             "the release backend, and its surface is narrower than the \
                  development backend's: \
-                 `num.minValue`/`num.maxValue` have no body, so some rows \
+                 `number.minValue`/`number.maxValue` have no body, so some rows \
                  cannot be asked of it. The `..rest` array pattern that used \
                  to be the other half of this sentence is emitted now \
                  (`Unit::array_slice`), which is what took \
@@ -692,10 +692,10 @@ fn row_01_int_overflow() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let m = num.maxValue<Int>();
+  let m = number.maxValue<Int>();
   let over = m + 1;
   let _ = io.println(stdout, "${over}").ignore();
   .Ok(())
@@ -717,12 +717,12 @@ fn row_01_integer_show_at_the_64_bit_extremes() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let a = num.minValue<I64>();
-  let b = num.maxValue<I64>();
-  let c = num.maxValue<U64>();
+  let a = number.minValue<I64>();
+  let b = number.maxValue<I64>();
+  let c = number.maxValue<U64>();
   let _ = io.println(stdout, "${a} ${b} ${c}").ignore();
   .Ok(())
 }
@@ -767,15 +767,15 @@ fn tell(x: Option<Int>): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let big = bits.shl(1, 60);
-  // `maxValue<I64>()` as a literal: `num.minValue`/`num.maxValue` have no LLVM
+  let big = bits.shiftLeft(1, 60);
+  // `maxValue<I64>()` as a literal: `number.minValue`/`number.maxValue` have no LLVM
   // body yet, and a row this one is about should not be skipped there.
   let top: Int = 9223372036854775807;
   let a = tell(big.checkedAdd(1));
   let b = tell(top.checkedAdd(0));
   let small: Int = 100;
   let c = tell(small.checkedAdd(20));
-  let d = tell(small.checkedDiv(0));
+  let d = tell(small.checkedDivide(0));
   let e = tell(top.checkedAdd(1));
   let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
   .Ok(())
@@ -811,9 +811,9 @@ export fn main(): Result<(), Str> {
   let c: I8 = 100;
   let d: I32 = 46341;
   let e: I32 = 0 - 2147483647;
-  let _ = io.println(stdout, "${a.saturatingAdd(1000)} ${b.saturatingAdd(10)} ${b.saturatingSub(255)}").ignore();
-  let _ = io.println(stdout, "${c.saturatingMul(2)} ${c.saturatingMul(0 - 2)} ${d.saturatingMul(d)}").ignore();
-  let _ = io.println(stdout, "${e.saturatingSub(1000)}").ignore();
+  let _ = io.println(stdout, "${a.saturatingAdd(1000)} ${b.saturatingAdd(10)} ${b.saturatingSubtract(255)}").ignore();
+  let _ = io.println(stdout, "${c.saturatingMultiply(2)} ${c.saturatingMultiply(0 - 2)} ${d.saturatingMultiply(d)}").ignore();
+  let _ = io.println(stdout, "${e.saturatingSubtract(1000)}").ignore();
   .Ok(())
 }
 "#,
@@ -833,7 +833,7 @@ export fn main(): Result<(), Str> {
 /// literal rather than the operation.
 ///
 /// Even so, agreement at 64 bits is narrower than the row claims, and this
-/// is the honest boundary. `(2^62 + 1024).wrappingMul(4)` is 4096 natively
+/// is the honest boundary. `(2^62 + 1024).wrappingMultiply(4)` is 4096 natively
 /// and 0 on JavaScript, with both operands exact and the answer exact,
 /// because the *intermediate* 2^64 + 4096 rounds before the wrap — and the
 /// repair, computing in `BigInt`, is not available here: it changes
@@ -850,22 +850,22 @@ fn row_03_wrapping_arithmetic_agrees() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   // 2^32 * 2^32 = 2^64, which wraps to zero at 64 bits.
   let p: I64 = 4294967296;
-  let a = p.wrappingMul(p);
-  let c = num.minValue<I64>().wrappingAdd(num.minValue<I64>());
-  let d = num.minValue<I64>().wrappingMul(2);
+  let a = p.wrappingMultiply(p);
+  let c = number.minValue<I64>().wrappingAdd(number.minValue<I64>());
+  let d = number.minValue<I64>().wrappingMultiply(2);
   let e: I64 = 3;
-  let f = e.wrappingMul(5);
+  let f = e.wrappingMultiply(5);
   let u: U64 = 9223372036854775808;
-  let g = u.wrappingMul(2);
+  let g = u.wrappingMultiply(2);
   let w: U64 = 18446744073709549568;
   let i = w.wrappingAdd(2048);
   let x: I64 = 0 - 7;
-  let y = x.wrappingSub(9);
+  let y = x.wrappingSubtract(9);
   let _ = io.println(stdout, "${a} ${c} ${d} ${f} ${g} ${i} ${y}").ignore();
   .Ok(())
 }
@@ -889,7 +889,7 @@ fn row_03_wrapping_at_the_type_boundaries_agrees() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let a: U64 = 18446744073709551615;
@@ -897,11 +897,11 @@ export fn main(): Result<(), Str> {
   let c: U64 = 0;
   // Printed as a verdict rather than as a number: the value is `maxValue<U64>`,
   // which is row 1's ceiling and renders differently on the two backends.
-  let d = c.wrappingSub(1) == a;
+  let d = c.wrappingSubtract(1) == a;
   let e: U128 = 340282366920938463463374607431768211455;
   let f = e.wrappingAdd(1);
   let g: I64 = 9223372036854775807;
-  let h = g.wrappingAdd(1) == num.minValue<I64>();
+  let h = g.wrappingAdd(1) == number.minValue<I64>();
   let _ = io.println(stdout, "${b} ${d} ${f} ${h}").ignore();
   .Ok(())
 }
@@ -924,19 +924,19 @@ fn row_03_wrapping_at_narrow_widths_agrees() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let a: U32 = 4294967295;
-  let b = a.wrappingMul(a);
+  let b = a.wrappingMultiply(a);
   let c: U32 = 65536;
-  let d = c.wrappingMul(c);
-  let e = num.minValue<I32>();
-  let f = e.wrappingMul(e);
+  let d = c.wrappingMultiply(c);
+  let e = number.minValue<I32>();
+  let f = e.wrappingMultiply(e);
   let g: U16 = 65535;
-  let h = g.wrappingMul(g);
+  let h = g.wrappingMultiply(g);
   let i: U8 = 255;
-  let j = i.wrappingMul(i);
+  let j = i.wrappingMultiply(i);
   let k: I8 = 127;
   let l = k.wrappingAdd(1);
   let _ = io.println(stdout, "${b} ${d} ${f} ${h} ${j} ${l}").ignore();
@@ -984,12 +984,12 @@ fn row_04_integer_show_at_the_128_bit_extremes() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let a = num.minValue<I128>();
-  let b = num.maxValue<I128>();
-  let c = num.maxValue<U128>();
+  let a = number.minValue<I128>();
+  let b = number.maxValue<I128>();
+  let c = number.maxValue<U128>();
   let _ = io.println(stdout, "${a} ${b} ${c}").ignore();
   .Ok(())
 }
@@ -1010,7 +1010,7 @@ export fn main(): Result<(), Str> {
 ///
 /// So this is a second stale divergence, and the row is an agreement row.
 /// Three levels deep, through a `match`, through a derived `Show` and
-/// through a derived `Eq` — because the collision the row is about is in
+/// through a derived `Equal` — because the collision the row is about is in
 /// the *representation*, and each of those three reads it differently.
 #[test]
 fn row_05_nested_option_is_distinct() {
@@ -1023,7 +1023,7 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export struct Box3 { v: Option<Option<Option<Int>>> }
-derive Show, Eq for Box3;
+derive Show, Equal for Box3;
 
 fn tell(x: Option<Option<Int>>): Str {
   match (x) {
@@ -1071,11 +1071,11 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let a = "abc".len();
-  let b = "\u{1F600}".len();
-  let c = "e\u{301}".len();
-  let d = "".len();
-  let e = "\u{1F600}\u{1F600}ab".len();
+  let a = "abc".length();
+  let b = "\u{1F600}".length();
+  let c = "e\u{301}".length();
+  let d = "".length();
+  let e = "\u{1F600}\u{1F600}ab".length();
   let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
   .Ok(())
 }
@@ -1097,7 +1097,7 @@ export fn main(): Result<(), Str> {
 ///
 /// Every input here straddles the boundary the two orders disagree on. `sort`
 /// and `Char` are in the same program because they are the same conformance:
-/// `[Str].sort` is `Ord`, `<` is `Ord`, and a `Char` is a one-character string
+/// `[Str].sort` is `Ordered`, `<` is `Ordered`, and a `Char` is a one-character string
 /// on JavaScript, so all three used to come out of `<`.
 #[test]
 fn row_17_text_orders_by_scalar_value() {
@@ -1310,19 +1310,19 @@ fn row_09_integer_show_at_every_width() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let a = num.minValue<I8>();
-  let b = num.maxValue<I8>();
-  let c = num.minValue<I16>();
-  let d = num.maxValue<I16>();
-  let e = num.minValue<I32>();
-  let f = num.maxValue<I32>();
-  let g = num.minValue<U8>();
-  let h = num.maxValue<U8>();
-  let i = num.maxValue<U16>();
-  let j = num.maxValue<U32>();
+  let a = number.minValue<I8>();
+  let b = number.maxValue<I8>();
+  let c = number.minValue<I16>();
+  let d = number.maxValue<I16>();
+  let e = number.minValue<I32>();
+  let f = number.maxValue<I32>();
+  let g = number.minValue<U8>();
+  let h = number.maxValue<U8>();
+  let i = number.maxValue<U16>();
+  let j = number.maxValue<U32>();
   let k: I64 = 0 - 9007199254740991;
   let l: U64 = 9007199254740991;
   let m: Int = 1234567890123;
@@ -1367,7 +1367,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(stdout, a.show(alloc)).ignore();
   let _ = io.println(stdout, b.show(alloc)).ignore();
   let _ = io.println(stdout, d.show(alloc)).ignore();
-  let _ = io.println(stdout, "${a.s.len()} ${b.s.len()} ${a.b} ${b.b}").ignore();
+  let _ = io.println(stdout, "${a.s.length()} ${b.s.length()} ${a.b} ${b.b}").ignore();
   .Ok(())
 }
 "#,
@@ -1415,7 +1415,7 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// Derived `Eq` and `Ord`: the *verdicts*, over a struct compared
+/// Derived `Equal` and `Ordered`: the *verdicts*, over a struct compared
 /// field-by-field and an enum compared by variant order and then payload.
 #[test]
 fn row_09_derived_eq_and_ord_verdicts() {
@@ -1429,8 +1429,8 @@ from "core/order" import { Order };
 
 export struct P { a: Int, b: Str }
 export enum E { A, B(Int), C { x: Int } }
-derive Eq, Ord for P;
-derive Eq, Ord for E;
+derive Equal, Ordered for P;
+derive Equal, Ordered for E;
 
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 
@@ -1453,11 +1453,11 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// Derived `Eq` over an `F64` field: the float facts SPEC 6.2 and 7.2 pin, on
+/// Derived `Equal` over an `F64` field: the float facts SPEC 6.2 and 7.2 pin, on
 /// every backend.
 ///
 /// SPEC 6.2: "`==` on floats is an equivalence relation … `-0.0` equals `0.0`
-/// and `NaN` equals `NaN`." SPEC 7.2: a derived `Eq` inherits that, so it is
+/// and `NaN` equals `NaN`." SPEC 7.2: a derived `Equal` inherits that, so it is
 /// reflexive at every value. The same rule is read here at four depths — the
 /// bare primitive, two separately built aggregates, one aggregate against
 /// itself, and the sign of zero the comparison must ignore — and the ordering
@@ -1480,7 +1480,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export struct F { x: Float }
-derive Eq for F;
+derive Equal for F;
 
 fn mk(x: Float): F { F { x: x } }
 fn zeroF(): Float { 0.0 }
@@ -1649,7 +1649,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export struct Bag { xs: [Int] }
-derive Eq, Hash, Show for Bag;
+derive Equal, Hash, Show for Bag;
 
 export fn main(): Result<(), Str> {
   let a = Bag { xs: [1, 2] };
@@ -1659,9 +1659,9 @@ export fn main(): Result<(), Str> {
 }
 "#;
 
-/// A `[T]` inside a derived `Ord`, which used to be a named gap of its own.
+/// A `[T]` inside a derived `Ordered`, which used to be a named gap of its own.
 ///
-/// `derive Ord` on a type holding an array was a program the front end accepted
+/// `derive Ordered` on a type holding an array was a program the front end accepted
 /// and the stencil backend refused by name — "cannot compile CallIntrinsic
 /// deriveArrayCompare" — so a `Value` enum with a `Bytes([U8])` arm could not be
 /// built for a native target at all (buri-lang/buri#27).
@@ -1685,13 +1685,13 @@ from "core/io" import * as io;
 from "core/order" import { Order };
 
 export struct Bag { xs: [U8] }
-derive Eq, Ord for Bag;
+derive Equal, Ordered for Bag;
 
 export struct Leaf { a: Int, b: Str }
-derive Eq, Ord for Leaf;
+derive Equal, Ordered for Leaf;
 
 export struct Deep { xs: [Leaf], ss: [Str] }
-derive Eq, Ord for Deep;
+derive Equal, Ordered for Deep;
 
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 fn bag(xs: [U8]): Bag { Bag { xs: xs } }
@@ -1711,7 +1711,7 @@ export fn main(): Result<(), Str> {
 }
 "#;
 
-/// A hand-written `impl Ord` on a field's type, and the derived `Ord` above it.
+/// A hand-written `impl Ordered` on a field's type, and the derived `Ordered` above it.
 ///
 /// **The two backends agree, and the answer they agree on is the structural
 /// one.** SPEC 5.12.3 says a `derive` "generates the trait's methods
@@ -1720,7 +1720,7 @@ export fn main(): Result<(), Str> {
 /// resolve", and the same section is where the language reasons that a
 /// hand-written implementation "would be obeyed where the type is encoded on
 /// its own and ignored where a type holding it is". `ToJson` and `FromJson` are
-/// the two it settles by *rejecting* the `impl`; `Ord` is left half-obeyed, and
+/// the two it settles by *rejecting* the `impl`; `Ordered` is left half-obeyed, and
 /// this row is where that shows.
 ///
 /// So `direct` is the hand-written verdict and `derived` is the structural one,
@@ -1745,18 +1745,18 @@ from "core/io" import * as io;
 from "core/order" import { Order };
 
 export struct Holder { octets: [U8] }
-derive Eq, Ord for Holder;
+derive Equal, Ordered for Holder;
 
 export struct Wrapper(Holder);
 
-impl Ord for Wrapper {
+impl Ordered for Wrapper {
   fn compare(self, other: Wrapper): Order {
-    if ((self.0).octets.len() < (other.0).octets.len()) { .Less } else { .Greater }
+    if ((self.0).octets.length() < (other.0).octets.length()) { .Less } else { .Greater }
   }
 }
 
 export struct Pair { wrapped: Wrapper }
-derive Ord for Pair;
+derive Ordered for Pair;
 
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 fn wrap(octets: [U8]): Wrapper { Wrapper(Holder { octets: octets }) }
@@ -1969,8 +1969,8 @@ export fn main(): Result<(), Str> {
 ///
 /// The divisor is `"".len()` rather than a literal zero because a division
 /// by a literal is decided at compile time and there is nothing left to
-/// ask; `cli/tests/crash/` reaches for `env.args(ctx).len()` instead, which
-/// is `host.HostEnv.args` and has no native body yet.
+/// ask; `cli/tests/crash/` reaches for `env.arguments(ctx).len()` instead, which
+/// is `host.HostEnvironment.arguments` and has no native body yet.
 #[test]
 fn row_11_division_by_zero() {
     rows_or_skip!();
@@ -1983,7 +1983,7 @@ from "core/io" import * as io;
 fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
-  let zero = "".len();
+  let zero = "".length();
   let _ = io.println(stdout, "before").ignore();
   let _ = io.println(stdout, "${ratio(10, zero)}").ignore();
   .Ok(())
@@ -2001,7 +2001,7 @@ from "core/io" import * as io;
 fn rest(a: Int, b: Int): Int { a % b }
 
 export fn main(): Result<(), Str> {
-  let zero = "".len();
+  let zero = "".length();
   let _ = io.println(stdout, "${rest(10, zero)}").ignore();
   .Ok(())
 }
@@ -2023,10 +2023,10 @@ from "core/bits" import * as bits;
 from "core/host" import { stdout };
 from "core/io" import * as io;
 
-fn push(x: U8, n: Int): U8 { bits.shlU8(x, n) }
+fn push(x: U8, n: Int): U8 { bits.shiftLeftU8(x, n) }
 
 export fn main(): Result<(), Str> {
-  let width = 8 + "".len();
+  let width = 8 + "".length();
   let _ = io.println(stdout, "${push(1, width)}").ignore();
   .Ok(())
 }
@@ -2066,20 +2066,20 @@ export fn main(): Result<(), Str> {
 }
 
 // -------------------------------------------------------------------
-// Row 12 — `Alloc` accounting
+// Row 12 — `Allocator` accounting
 // -------------------------------------------------------------------
 
 // `row_12_alloc_accounting_is_a_gap` stood here and is gone with the
 // `#[ignore]` beside it, for the reason row 10's did: it pinned
-// `host.HostAlloc.allocate` having no native body, and the debug backend has
+// `host.HostAllocator.allocate` having no native body, and the debug backend has
 // one now — `runtime_table.rs`'s row reaches
-// `buri_rt_host_alloc_allocate`, which is the same archive body the release
+// `buri_rt_host_allocator_allocate`, which is the same archive body the release
 // backend has always called.
 
 /// MEMORY.md §7's model, on both backends, at the one row that charges its
 /// own argument.
 ///
-/// `HostAlloc` is zero-sized and unbounded (§7.2), so `allocate(64)` is
+/// `HostAllocator` is zero-sized and unbounded (§7.2), so `allocate(64)` is
 /// `Region(64)` and nothing accumulates *in the allocator* — the accounting a
 /// program can read is `core/alloc`'s counters, which are a different four
 /// keys and a different question. So the agreement this pins is the one §7.1
@@ -2093,7 +2093,7 @@ fn row_12_alloc_accounting() {
 
 const ALLOCATE: &str = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Region };
+from "core/effect" import { Allocator, Region };
 from "core/host" import { alloc as platform, stdout };
 from "core/io" import * as io;
 
@@ -2297,7 +2297,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 
 export struct F { x: Float }
-derive Eq for F;
+derive Equal for F;
 
 fn mk(x: Float): F { F { x: x } }
 fn zeroF(): Float { 0.0 }
@@ -2412,7 +2412,7 @@ export fn main(): Result<(), Str> {
   let ns = [1, 2, 3, 4];
   let doubledStep = ns.mapCtxStep(alloc, fn(c, n) => n * 2);
   let doubledLoop = ns.mapCtx(alloc, fn(c, n) => n * 2);
-  let _ = io.println(stdout, "${doubledStep.len()} ${doubledLoop.len()}").ignore();
+  let _ = io.println(stdout, "${doubledStep.length()} ${doubledLoop.length()}").ignore();
   let _ = io.println(stdout, "${show(doubledStep.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
   let _ = io.println(stdout, "${show(doubledLoop.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
 
@@ -2431,11 +2431,11 @@ export fn main(): Result<(), Str> {
   let _ = io.println(stdout, show(pairs.mapCtx(alloc, fn(c, p) => str.format(c, "${p.0}^${p.1}")))).ignore();
 
   // Nested: a step that is itself a call site.
-  let nested = ns.mapCtx(alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).len());
-  let _ = io.println(stdout, "${nested.len()} ${nested[0].withDefault(0)}").ignore();
+  let nested = ns.mapCtx(alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).length());
+  let _ = io.println(stdout, "${nested.length()} ${nested[0].withDefault(0)}").ignore();
 
   let empty: [Int] = [];
-  let _ = io.println(stdout, "${empty.mapCtxStep(alloc, fn(c, n) => n + 1).len()}").ignore();
+  let _ = io.println(stdout, "${empty.mapCtxStep(alloc, fn(c, n) => n + 1).length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2496,17 +2496,17 @@ fn the_task_scheduler_answers_in_input_order_on_every_backend() {
     agree(
         "tasks.parallel",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 
-fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
+fn show<C: Allocator>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
 
   // The index is the item's own, and the answer is in the items' order.
   let ns = [10, 20, 30, 40];
@@ -2533,7 +2533,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, show(ctx, nested.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)))).ignore();
 
   let empty: [Int] = [];
-  let _ = io.println(ctx, "${tasks.parallel(ctx, empty, fn(c, i, n) => n + 1).len()}").ignore();
+  let _ = io.println(ctx, "${tasks.parallel(ctx, empty, fn(c, i, n) => n + 1).length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2587,7 +2587,7 @@ fn a_shared_list_is_counted_correctly_by_every_task() {
     agree(
         "tasks.parallel shared",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -2597,7 +2597,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
+    Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
 
   // One list, read whole by every step. The closure captures it, so the
@@ -2612,9 +2612,9 @@ export fn main(): Result<(), Str> {
   // sleep a step finishes before the next is dispatched and gets handed the
   // same carrier back, which is a sequential walk with extra steps.
   let seen = tasks.parallel(ctx, ns, fn(c, i, n) => {
-    let _ = time.sleepMs(c, 20);
+    let _ = time.sleep(c, time.milliseconds(20));
     let each = spin.mapCtx(c, fn(d, k) => shared.join(d, ""));
-    str.format(c, "${n}:${each.len()}:${each.join(c, "|").len()}")
+    str.format(c, "${n}:${each.length()}:${each.join(c, "|").length()}")
   });
   let _ = io.println(ctx, seen.join(ctx, " ")).ignore();
 
@@ -2670,7 +2670,7 @@ fn a_shared_buffer_is_never_appended_to_in_place_by_two_tasks() {
     agree(
         "tasks.parallel in-place",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -2680,7 +2680,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
+    Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
 
   // A heap Str with room to grow, owned by the closure's environment.
@@ -2692,7 +2692,7 @@ export fn main(): Result<(), Str> {
   // its carrier is handed straight back, so a fan-out over trivial work is a
   // sequential walk with extra steps and would prove nothing about sharing.
   let grown = tasks.parallel(ctx, ns, fn(c, i, n) => {
-    let _ = time.sleepMs(c, 40);
+    let _ = time.sleep(c, time.milliseconds(40));
     seed.concat(c, str.fromInt(c, n))
   });
   let _ = io.println(ctx, grown.join(ctx, " ")).ignore();
@@ -2728,7 +2728,7 @@ export fn main(): Result<(), Str> {
 ///
 ///  * **one effect out of the context** — `time.now(c)` inside a step. The
 ///    reduced repro: `[7, 9]` where `[12, 14]` was promised.
-///  * **two effects at once** — `str.format` needs the `Alloc` and reads the
+///  * **two effects at once** — `str.format` needs the `Allocator` and reads the
 ///    `Clock`, so a step handed a value satisfying only `Tasks` could satisfy
 ///    neither.
 ///  * **nested** — the inner `parallel`'s receiver is the context the outer
@@ -2743,7 +2743,7 @@ fn a_task_is_handed_the_callers_context_on_every_backend() {
     agree(
         "tasks.parallel context",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -2757,16 +2757,16 @@ struct Ticker {
 }
 
 impl Clock for Ticker {
-  fn nowMillis(self): I64 { self.at }
-  fn sleepMillis(self, millis: Int): () { () }
+  fn nowMilliseconds(self): I64 { self.at }
+  fn sleepMilliseconds(self, milliseconds: Int): () { () }
   fn monotonicNanoseconds(self): I64 { self.at }
 }
 
-fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
+fn show<C: Allocator>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Clock: Ticker { at: 5 },
     Stdout: host.stdout,
     Tasks: host.tasks,
@@ -2776,7 +2776,7 @@ export fn main(): Result<(), Str> {
   let stamped = tasks.parallel(ctx, [7, 9], fn(c, i, x) => time.now(c).0 + x);
   let _ = io.println(ctx, show(ctx, stamped.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)))).ignore();
 
-  // Two effects in one expression: `Alloc` to build the string, `Clock` to
+  // Two effects in one expression: `Allocator` to build the string, `Clock` to
   // fill it.
   let both = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${time.now(c).0}:${i}:${x}"));
   let _ = io.println(ctx, show(ctx, both)).ignore();
@@ -2861,19 +2861,19 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
         "rebuilt handler",
         r#"
 from "core/effect" import {
-  Alloc, Header, IoError, Listen, Listener, Received, Region, Request, Response,
+  Allocator, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout, Tasks,
 };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/server" import * as server;
 
-/// An `Alloc` that is not zero-sized, so the context binding it is a word wide.
+/// An `Allocator` that is not zero-sized, so the context binding it is a word wide.
 struct Plain {
   n: I64,
 }
 
-impl Alloc for Plain {
+impl Allocator for Plain {
   fn allocate(self, bytes: Int): Region { Region(bytes + self.n) }
 }
 
@@ -2890,7 +2890,7 @@ impl Listen for OneShot {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
     match (self.binds) {
       0 => .Err(ServeError { cause: .PermissionDenied, detail: "" }),
@@ -2945,7 +2945,7 @@ impl Listen for OneShot {
 /// The wrapper: unbounded in `C`, exactly like `Scoped<C>`.
 struct Wrap<C>(C, I64);
 
-impl<C> Alloc for Wrap<C> {
+impl<C> Allocator for Wrap<C> {
   fn allocate(self, bytes: Int): Region { Region(bytes) }
 }
 
@@ -2968,9 +2968,9 @@ impl<C: Listen> Listen for Wrap<C> {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
-    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
+    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMilliseconds)
   }
 
   fn listenAccept(self, handle: Int): Result<Int, ServeError> {
@@ -3011,7 +3011,7 @@ impl<C: Listen> Listen for Wrap<C> {
 /// `server.bind` — before the loop or after it — passed on the broken
 /// toolchain while this one faulted. The `bind` half is a row of its own
 /// below, for exactly that reason.
-fn served<C: Alloc + Listen + Stdout + Tasks>(ctx: C): Int {
+fn served<C: Allocator + Listen + Stdout + Tasks>(ctx: C): Int {
   let plan = server.Server {
     port: 0,
     address: .Some("10.0.0.1"),
@@ -3033,7 +3033,7 @@ fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: Plain { n: 0 },
+    Allocator: Plain { n: 0 },
     Stdout: host.stdout,
     Listen: OneShot { binds: 1 },
     Tasks: host.tasks,
@@ -3079,7 +3079,7 @@ fn a_bound_listener_crosses_a_wrapper_on_every_backend() {
         "bound listener",
         r#"
 from "core/effect" import {
-  Alloc, Header, IoError, Listen, Listener, Received, Region, Request, Response,
+  Allocator, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout,
 };
 from "core/host" import * as host;
@@ -3100,7 +3100,7 @@ impl Listen for Gate {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
     match (self.opens) {
       0 => .Err(ServeError { cause: .AddressInUse, detail: "taken" }),
@@ -3141,7 +3141,7 @@ impl Listen for Gate {
 /// aggregates.
 struct Wrap<C>(C, I64);
 
-impl<C> Alloc for Wrap<C> {
+impl<C> Allocator for Wrap<C> {
   fn allocate(self, bytes: Int): Region { Region(bytes) }
 }
 
@@ -3158,9 +3158,9 @@ impl<C: Listen> Listen for Wrap<C> {
     port: Int,
     plan: [Serve],
     requestLimit: Int,
-    idleTimeoutMillis: Int,
+    idleTimeoutMilliseconds: Int,
   ): Result<Listener, ServeError> {
-    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
+    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMilliseconds)
   }
 
   fn listenAccept(self, handle: Int): Result<Int, ServeError> {
@@ -3194,7 +3194,7 @@ impl<C: Listen> Listen for Wrap<C> {
 
 /// Binds, and answers what the acceptor said — the port it chose and the
 /// number of handlers it will host, both read off the `.Ok` payload.
-fn published<C: Alloc + Listen + Stdout>(ctx: C, opens: Bool): Str {
+fn published<C: Allocator + Listen + Stdout>(ctx: C, opens: Bool): Str {
   let plan = server.Server {
     port: 0,
     address: .Some(if (opens) { "10.0.0.1" } else { "0.0.0.0" }),
@@ -3212,8 +3212,8 @@ fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
 }
 
 export fn main(): Result<(), Str> {
-  let open = context { Alloc: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 1 } };
-  let shut = context { Alloc: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 0 } };
+  let open = context { Allocator: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 1 } };
+  let shut = context { Allocator: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 0 } };
   let _ = io.println(host.stdout, wrapped(open, fn(c) => published(c, true))).ignore();
   let _ = io.println(host.stdout, wrapped(shut, fn(c) => published(c, false))).ignore();
   .Ok(())
@@ -3251,7 +3251,7 @@ fn a_value_leaves_a_scope_alive_on_every_backend() {
         "copy out of a scope",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -3263,16 +3263,16 @@ enum Answer {
 }
 
 /// A `Str` this program allocated, rather than one the compiler interned.
-fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str {
+fn built<C: Allocator>(ctx: C, unit: Str, times: Int): Str {
   unit.repeat(ctx, times)
 }
 
-fn flatten<C: Alloc>(ctx: C, xss: [[Str]]): Str {
+fn flatten<C: Allocator>(ctx: C, xss: [[Str]]): Str {
   xss.mapCtx(ctx, fn(c, xs) => xs.join(c, "+")).join(ctx, "|")
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
 
   let nested = alloc.scoped(ctx, fn(c) => [
     [built(c, "a", 2), built(c, "b", 3)],
@@ -3298,7 +3298,7 @@ export fn main(): Result<(), Str> {
   // again — so the last line is the first line only if the answer was copied.
   let churn = alloc.scoped(ctx, fn(c) => built(c, "q", 4096));
   let more = alloc.scoped(ctx, fn(c) => [built(c, "r", 2048)]);
-  let _ = io.println(ctx, "${churn.len()} ${more.len()}").ignore();
+  let _ = io.println(ctx, "${churn.length()} ${more.length()}").ignore();
   let _ = io.println(ctx, flatten(ctx, nested)).ignore();
   .Ok(())
 }
@@ -3330,19 +3330,19 @@ fn a_scope_per_task_answers_on_every_backend() {
         "a scope per task",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
   let out = tasks.parallel(ctx, ns, fn(c, i, n) =>
     alloc.scoped(c, fn(d) => "-".repeat(d, n + 1)));
   let _ = io.println(ctx, out.join(ctx, ",")).ignore();
-  let _ = io.println(ctx, "${out.len()}").ignore();
+  let _ = io.println(ctx, "${out.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -3376,13 +3376,13 @@ fn a_spawned_task_runs_before_its_scope_returns_on_every_backend() {
     agree(
         "tasks.scope",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "before").ignore();
   let later = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
@@ -3436,7 +3436,7 @@ fn a_task_spawned_inside_an_arena_keeps_what_it_captured_on_every_backend() {
         "tasks.spawn inside an arena",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3447,17 +3447,17 @@ let LOOSE: Int = 70000;
 
 /// Scopes that map and release pages of their own, so an arena the spawn left
 /// behind is one this allocator is entitled to hand out again.
-fn churn<C: Alloc>(ctx: C): Int {
+fn churn<C: Allocator>(ctx: C): Int {
   let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
-    alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
+    alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).length())
   });
-  let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).len());
-  small.len() + large
+  let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).length());
+  small.length() + large
 }
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -3467,10 +3467,10 @@ export fn main(): Result<(), Str> {
     let built = alloc.scoped(c, fn(d) => {
       let big = "s".repeat(d, LOOSE);
       let _ = tasks.spawn(d, here, fn(e) => {
-        let _ = io.println(e, "the task read ${big.len()}").ignore();
+        let _ = io.println(e, "the task read ${big.length()}").ignore();
         ()
       });
-      big.len()
+      big.length()
     });
     let _ = churn(c);
     io.println(c, "the arena built ${built}").ignore()
@@ -3507,7 +3507,7 @@ fn the_edges_of_a_scope_agree_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3523,7 +3523,7 @@ enum Ran {
 
 /// An actor that spawns rather than working. A `Scope` holds no context, so it
 /// fits in a message the way an address fits in a state.
-fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
+fn foreman<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
   Actor {
     state: 0,
     step: fn(c, started, message) => {
@@ -3542,7 +3542,7 @@ fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -3607,7 +3607,7 @@ export fn main(): Result<(), Str> {
 ///
 /// The row above proves the order; this one proves the waiting. `core/tasks`
 /// ships no `Timer` and no `setTimeout` — the whole claim is that
-/// `clock.sleepMillis` inside a spawned task is one — so a backend where the
+/// `clock.sleepMilliseconds` inside a spawned task is one — so a backend where the
 /// sleep answered without waiting would pass every ordering assertion in this
 /// file and still have no timers in it.
 ///
@@ -3622,7 +3622,7 @@ fn a_spawned_timer_waits_on_the_clock_on_every_backend() {
     agree(
         "tasks.scope timer",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3630,12 +3630,12 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
+    Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
   };
   let started = time.now(ctx).0;
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
-      let _ = time.sleepMs(c2, 50);
+      let _ = time.sleep(c2, time.milliseconds(50));
       let _ = io.println(c2, "the timer fired").ignore();
       ()
     });
@@ -3675,7 +3675,7 @@ fn the_monotonic_clock_never_goes_backwards_on_every_backend() {
     agree(
         "time.monotonic",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -3690,7 +3690,7 @@ fn verdict(ok: Bool): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout,
+    Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout,
   };
 
   // Two hundred readings back to back, with nothing between them but the call.
@@ -3708,9 +3708,9 @@ export fn main(): Result<(), Str> {
   // milliseconds of elapsed time, measured off this clock rather than the wall
   // one.
   let before = time.monotonic(ctx);
-  let _ = time.sleepMs(ctx, 50);
+  let _ = time.sleep(ctx, time.milliseconds(50));
   let waited = time.elapsed(ctx, before);
-  let _ = io.println(ctx, "moved: ${verdict(waited.millis() >= 50)}").ignore();
+  let _ = io.println(ctx, "moved: ${verdict(waited.milliseconds() >= 50)}").ignore();
   let _ = io.println(ctx, "forward: ${verdict(!waited.isNegative())}").ignore();
   .Ok(())
 }
@@ -3736,7 +3736,7 @@ fn a_spawned_loop_stops_when_its_actor_says_so_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3750,7 +3750,7 @@ enum Turn {
   Stop,
 }
 
-fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+fn gate<C: Allocator + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
   Actor {
     state: turns,
     step: fn(c, left, message) => {
@@ -3762,7 +3762,7 @@ fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
   }
 }
 
-fn frames<C: Alloc + Stdout + Tasks>(
+fn frames<C: Allocator + Stdout + Tasks>(
   ctx: C,
   keeper: Address<C, Int, Ask, Turn>,
   n: Int,
@@ -3780,7 +3780,7 @@ fn frames<C: Alloc + Stdout + Tasks>(
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let keeper = actor.start(ctx, gate(3));
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
@@ -3820,7 +3820,7 @@ fn a_waiting_step_runs_under_every_ctx_combinator_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -3835,7 +3835,7 @@ enum Heard {
   Log(Int),
 }
 
-fn recorder<C: Alloc + Tasks>(): Actor<C, Int, Note, Heard> {
+fn recorder<C: Allocator + Tasks>(): Actor<C, Int, Note, Heard> {
   Actor {
     state: 0,
     step: fn(c, seen, note) => {
@@ -3861,12 +3861,12 @@ fn heardSoFar(r: Result<Heard, Stopped>): Int {
   }
 }
 
-fn shown<C: Alloc>(ctx: C, xs: [Int]): Str {
+fn shown<C: Allocator>(ctx: C, xs: [Int]): Str {
   xs.mapCtx(ctx, fn(c, v) => str.fromInt(c, v)).join(ctx, ",")
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
 
   let mapping = actor.start(ctx, recorder());
   let mapped = [1, 2, 3].mapCtx(ctx, fn(c, x) => noted(mapping.sendMessage(c, .Saw(x))));
@@ -3955,7 +3955,7 @@ fn an_abort_inside_a_task_stops_the_program_the_same_way() {
     abort_agrees(
         "tasks.parallel abort",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -3964,10 +3964,10 @@ from "core/tasks" import * as tasks;
 fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "before").ignore();
   let answers = tasks.parallel(ctx, [4, 2, 0], fn(c, i, n) => ratio(8, n));
-  let _ = io.println(ctx, "${answers.len()}").ignore();
+  let _ = io.println(ctx, "${answers.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -3995,7 +3995,7 @@ fn an_abort_inside_a_spawned_task_stops_the_program_the_same_way() {
     abort_agrees(
         "tasks.spawn abort",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -4003,7 +4003,7 @@ from "core/tasks" import * as tasks;
 fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
       let _ = io.println(c2, "${ratio(8, 0)}").ignore();
@@ -4055,7 +4055,7 @@ fn an_actor_counts_the_same_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4070,7 +4070,7 @@ enum CounterAnswer {
   Count(Int),
 }
 
-fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
+fn counter<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -4084,7 +4084,7 @@ fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAn
   }
 }
 
-fn pump<C: Alloc + Stdout + Tasks>(
+fn pump<C: Allocator + Stdout + Tasks>(
   ctx: C,
   address: Address<C, Int, CounterMessage, CounterAnswer>,
   left: Int,
@@ -4108,7 +4108,7 @@ fn total(r: Result<CounterAnswer, Stopped>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -4194,7 +4194,7 @@ fn a_step_that_sends_to_its_own_actor_is_refused_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4212,7 +4212,7 @@ enum Reentered {
   Count(Int),
 }
 
-fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
+fn reentrant<C: Allocator + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -4229,7 +4229,7 @@ fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
   }
 }
 
-fn ticks<C: Alloc + Tasks>(
+fn ticks<C: Allocator + Tasks>(
   ctx: C,
   address: Address<C, Int, Reentrant<C>, Reentered>,
   left: Int,
@@ -4248,7 +4248,7 @@ fn ticks<C: Alloc + Tasks>(
 
 /// Posts `left` messages that answer with a **block** rather than a number, and
 /// counts how many were answered on the spot, which is none of them.
-fn says<C: Alloc + Tasks>(
+fn says<C: Allocator + Tasks>(
   ctx: C,
   address: Address<C, Int, Reentrant<C>, Reentered>,
   left: Int,
@@ -4284,7 +4284,7 @@ fn said(answered: Result<Reentered, Stopped>): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -4353,7 +4353,7 @@ fn what_an_actors_messages_carry_agrees_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -4364,7 +4364,7 @@ enum Ping {
   Ping,
 }
 
-fn silent<C: Alloc + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
+fn silent<C: Allocator + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
   Actor {
     state: (),
     step: fn(c, held, message) => Stepped { state: (), answer: () },
@@ -4392,15 +4392,15 @@ enum Bagged {
   Held([Int]),
 }
 
-fn bag<C: Alloc + Tasks>(): Actor<C, [Int], Bag, Bagged> {
+fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
   Actor {
     state: [],
     step: fn(c, held, message) => {
       match (message) {
-        .Fill(next) => Stepped { state: next, answer: .Kept(next.len()) },
+        .Fill(next) => Stepped { state: next, answer: .Kept(next.length()) },
         .Push(n) => {
           let grown = held.push(c, n);
-          Stepped { state: grown, answer: .Kept(grown.len()) }
+          Stepped { state: grown, answer: .Kept(grown.length()) }
         },
         .Drain => Stepped { state: [], answer: .Held(held) },
       }
@@ -4410,7 +4410,7 @@ fn bag<C: Alloc + Tasks>(): Actor<C, [Int], Bag, Bagged> {
 
 fn drained(r: Result<Bagged, Stopped>): Int {
   match (r) {
-    .Ok(.Held(xs)) => xs.len(),
+    .Ok(.Held(xs)) => xs.length(),
     .Ok(.Kept(n)) => n,
     .Err(_e) => -1,
   }
@@ -4426,12 +4426,12 @@ enum Said {
   Text(Str),
 }
 
-fn scribe<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
+fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
   Actor {
     state: initial,
     step: fn(c, held, message) => {
       match (message) {
-        .Say(next) => Stepped { state: next, answer: .Scalars(next.len()) },
+        .Say(next) => Stepped { state: next, answer: .Scalars(next.length()) },
         .Read => Stepped { state: held, answer: .Text(held) },
       }
     },
@@ -4449,7 +4449,7 @@ fn told(r: Result<Said, Stopped>): Str {
 fn counted(r: Result<Said, Stopped>): Int {
   match (r) {
     .Ok(.Scalars(n)) => n,
-    .Ok(.Text(s)) => s.len(),
+    .Ok(.Text(s)) => s.length(),
     .Err(_e) => -1,
   }
 }
@@ -4476,7 +4476,7 @@ enum Filed {
   Was(Record),
 }
 
-fn cabinet<C: Alloc + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
+fn cabinet<C: Allocator + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
   Actor {
     state: initial,
     step: fn(c, held, message) => {
@@ -4496,7 +4496,7 @@ fn record(name: Str, note: Option<Str>): Record {
   }
 }
 
-fn shown<C: Alloc>(ctx: C, r: Result<Filed, Stopped>): Str {
+fn shown<C: Allocator>(ctx: C, r: Result<Filed, Stopped>): Str {
   match (r) {
     .Ok(.Was(rec)) => {
       let note = match (rec.note) {
@@ -4505,7 +4505,7 @@ fn shown<C: Alloc>(ctx: C, r: Result<Filed, Stopped>): Str {
       };
       str.format(
         ctx,
-        "${rec.label.name}/${rec.label.tags.len()}/${rec.counts.len()}/${note}",
+        "${rec.label.name}/${rec.label.tags.length()}/${rec.counts.length()}/${note}",
       )
     },
     .Err(_e) => "gone",
@@ -4524,7 +4524,7 @@ enum Tallied {
   Count(Int),
 }
 
-fn tally<C: Alloc + Tasks>(): Actor<C, Int, Tally, Tallied> {
+fn tally<C: Allocator + Tasks>(): Actor<C, Int, Tally, Tallied> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -4547,7 +4547,7 @@ enum Desked {
   Gone,
 }
 
-fn desk<C: Alloc + Tasks>(
+fn desk<C: Allocator + Tasks>(
   behind: Address<C, Int, Tally, Tallied>,
 ): Actor<C, Address<C, Int, Tally, Tallied>, Desk, Desked> {
   Actor {
@@ -4591,7 +4591,7 @@ fn totalled(r: Result<Desked, Stopped>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -4673,7 +4673,7 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4687,7 +4687,7 @@ enum Kept {
   Held(Str),
 }
 
-fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
+fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
   Actor {
     state: initial,
     step: fn(c, held, message) => {
@@ -4708,7 +4708,7 @@ struct Escaped<C> {
 }
 
 /// Bigger than one arena block, so its mapping is unmapped rather than pooled.
-fn big<C: Alloc>(ctx: C, unit: Str): Str {
+fn big<C: Allocator>(ctx: C, unit: Str): Str {
   unit.repeat(ctx, 70000)
 }
 
@@ -4734,7 +4734,7 @@ fn ended(r: Result<(), Stopped>): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -4751,10 +4751,10 @@ export fn main(): Result<(), Str> {
   // Scopes that map and release pages of their own. Small ones first: those
   // are the ones that draw a pooled block.
   let churned = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
-    alloc.scoped(k, fn(s) => "z".repeat(s, 40 + n).len())
+    alloc.scoped(k, fn(s) => "z".repeat(s, 40 + n).length())
   });
-  let large = alloc.scoped(ctx, fn(s) => "y".repeat(s, 70000).len());
-  let _ = io.println(ctx, "churned ${churned.len()} ${large}").ignore();
+  let large = alloc.scoped(ctx, fn(s) => "y".repeat(s, 70000).length());
+  let _ = io.println(ctx, "churned ${churned.length()} ${large}").ignore();
 
   let answered = out.address.sendMessage(out.scope, .Get);
   let want = big(ctx, "m");
@@ -4831,10 +4831,10 @@ fn outer(): Outer {
 fn identity<T>(value: T): T { value }
 
 export fn main(): Result<(), Str> {
-  let a = identity(outer()).inner.items.len();
+  let a = identity(outer()).inner.items.length();
   let plain = identity(outer()).plain;
   let inner = identity(outer()).inner;
-  let _ = io.println(stdout, "${a} ${plain.items.len()} ${inner.items.len()}").ignore();
+  let _ = io.println(stdout, "${a} ${plain.items.length()} ${inner.items.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -4953,7 +4953,7 @@ struct Walk { seen: [Int], total: Int }
 
 fn walk(octets: [U8], at: Int): Result<Int, Fault> {
   let walked = walkFrom(octets, at, Walk { seen: list.empty<Int>(), total: 0 })?;
-  .Ok(walked.total + walked.seen.len())
+  .Ok(walked.total + walked.seen.length())
 }
 
 fn walkFrom(octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
@@ -5029,18 +5029,18 @@ from "core/list" import * as list;
 
 struct Wrapper { octets: [U8] }
 
-fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).len() }
+fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).length() }
 
 fn matched(held: Option<[U8]>): Int {
-  match (held) { .None => 0, .Some(raw) => raw.len() }
+  match (held) { .None => 0, .Some(raw) => raw.length() }
 }
 
 fn wrapped(held: Option<Wrapper>): Int {
-  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.len()
+  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.length()
 }
 
 fn wrappedMatch(held: Option<Wrapper>): Int {
-  match (held) { .None => 0, .Some(w) => w.octets.len() }
+  match (held) { .None => 0, .Some(w) => w.octets.length() }
 }
 
 fn built(): [U8] { [1, 2, 3].map(alloc, fn(n) => n.wrapToU8()) }
@@ -5159,7 +5159,7 @@ fn a_websocket_client_refuses_a_scheme_it_cannot_speak_on_every_backend() {
         "websocket client refusal",
         r#"
 from "core/effect" import {
-  Alloc, ServeError, ServeFailure, Sockets, Stdout, WebSocketClient,
+  Allocator, ServeError, ServeFailure, Sockets, Stdout, WebSocketClient,
 };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -5196,7 +5196,7 @@ fn cause(r: Result<CloseReason, ServeError>): ServeFailure {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Sockets: host.sockets,
     Stdout: host.stdout,
     WebSocketClient: host.websocketClient,
@@ -5271,13 +5271,13 @@ fn writing(i: Int, n: Int, acc: (Out, Bool)): Out {
   if (i >= n) { acc.0 } else { writing(i + 1, n, (wrote(acc.0, i), true)) }
 }
 
-fn shown(xs: [Int]): Str { str.format(alloc, "${xs.len()}:${xs.sum()}") }
+fn shown(xs: [Int]): Str { str.format(alloc, "${xs.length()}:${xs.sum()}") }
 
 export fn main(): Result<(), Str> {
   // One closure, called four times, over a list the program grew.
   let xs = grown(3);
-  let sliced = list.range(alloc, 0, 4).mapCtx(alloc, fn(c, i) => xs.slice(c, 0, i).len());
-  let kept = Held { run: fn(c, i) => xs.drop(c, i).len() };
+  let sliced = list.range(alloc, 0, 4).mapCtx(alloc, fn(c, i) => xs.slice(c, 0, i).length());
+  let kept = Held { run: fn(c, i) => xs.drop(c, i).length() };
   let call = kept.run;
   let _ = io.println(stdout, "captured ${shown(sliced)} ${call(alloc, 1)} ${shown(xs)}").ignore();
 
@@ -5384,7 +5384,7 @@ export fn main(): Result<(), Str> {
   let again = match (whole) {
     .Only(nest) => nest.tag,
   };
-  let _ = io.println(stdout, "twice ${tag} ${rest.len()} ${again}").ignore();
+  let _ = io.println(stdout, "twice ${tag} ${rest.length()} ${again}").ignore();
   .Ok(())
 }
 "#,
@@ -5453,7 +5453,7 @@ fn built(i: Int, n: Int, acc: Chain): Chain {
 fn size(t: Tree): Int {
   match (t) {
     .Tip => 0,
-    .Branch(f) => 1 + size(f.left) + size(f.right) + f.mark.len(),
+    .Branch(f) => 1 + size(f.left) + size(f.right) + f.mark.length(),
   }
 }
 

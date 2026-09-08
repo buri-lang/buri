@@ -1,7 +1,7 @@
 // EXPECT: this `match` does not cover `.Some(false)`
 // The alternation under `.Some` names one of `Bool`'s two constructors, so it
 // completes nothing.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -13,7 +13,7 @@ fn describe(x: Option<Bool>): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${describe(.Some(false))}").ignore();
   .Ok(())
 }

@@ -3,5 +3,5 @@ from "//lib/money" import { Cents };
 from "//lib/money/testing" import { sample };
 
 test "the testing surface builds a Cents" {
-    assert.eq(sample().0, 1905);
+    assert.equal(sample().0, 1905);
 }

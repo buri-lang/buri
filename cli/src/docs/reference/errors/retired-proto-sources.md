@@ -19,10 +19,7 @@ Move every schema the field listed into a `generators` entry, and hand it to
 ```textproto schema=build
 library {
     generators: [
-        {
-            tool: "std/codegen/proto"
-            inputs: ["address.proto", "point.proto"]
-        }
+        { tool: "std/codegen/proto", inputs: ["address.proto", "point.proto"] },
     ]
     visibility: ["//visibility:public"]
 }

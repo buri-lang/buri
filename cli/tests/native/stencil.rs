@@ -278,7 +278,7 @@ fn emitted(name: &str, source: &str) -> Vec<(String, Vec<u8>)> {
 /// what carries a `Layout`'s per-variant offsets.
 const EMITTER_SHAPES: &str = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -302,14 +302,14 @@ fn total(t: Tree): Int {
 }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: alloc.generalPurpose() };
+    let ctx = context { Allocator: alloc.generalPurpose() };
     let tree: Tree = .Node(.Node(.Leaf, 1, .Leaf), 2, .Node(.Leaf, 4, .Leaf));
     let rows = list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => Row {
         key: str.format(c, "k${i}"),
         values: list.range(c, 0, 3).map(c, fn(j) => i * j),
     });
     let sum = rows.fold(fn(acc, r) => acc + r.values.sum(), 0);
-    let kept = rows.filter(ctx, fn(r) => r.values.len() == 3);
+    let kept = rows.filter(ctx, fn(r) => r.values.length() == 3);
     let keys = kept.map(ctx, fn(r) => r.key).join(ctx, ",");
     let walked = total(tree);
     let _ = io.println(stdout, str.format(ctx, "${walked} ${sum} ${keys}")).ignore();
@@ -414,14 +414,14 @@ fn a_backend_that_adopted_a_lowering_lowers_the_next_program_for_itself() {
     let (second, second_tables) = lowered(
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: alloc.generalPurpose() };
+    let ctx = context { Allocator: alloc.generalPurpose() };
     let n = list.range(ctx, 0, 5).fold(fn(a, v) => a + v, 0);
     let _ = io.println(stdout, str.format(ctx, "${n}")).ignore();
     .Ok(())
@@ -492,21 +492,21 @@ fn emitting_one_program_twice_gives_the_same_objects_in_the_same_order() {
 /// the tests assert on rather than this number.
 fn many_functions(n: usize) -> String {
     let mut s = String::from(
-        "from \"core/effect\" import { Alloc, Stdout };\n\
+        "from \"core/effect\" import { Allocator, Stdout };\n\
          from \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\n",
     );
     for i in 0..n {
         s.push_str(&format!(
-            "fn f{i}<C: Alloc>(ctx: C, x: Int): Int {{\n    \
+            "fn f{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    \
              let xs = [\"a{i}\", \"b\"];\n    \
-             xs.map(ctx, fn (t: Str) => t.len()).len() + x + {i}\n}}\n"
+             xs.map(ctx, fn (t: Str) => t.length()).length() + x + {i}\n}}\n"
         ));
     }
     s.push_str(
         "export fn main(): Result<(), Str> {\n    \
          let ctx = context {\n        \
-         Alloc: host.alloc,\n        \
+         Allocator: host.alloc,\n        \
          Stdout: host.stdout,\n    \
          };\n    let total = 0;\n",
     );
@@ -807,18 +807,18 @@ fn concatenation_keeps_the_ascii_flag() {
         "concat",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let a = "ab";
   let b = "cd";
   let c = "é";
   let ascii = str.format(ctx, "${a}${b}");
   let wide = str.format(ctx, "${a}${c}");
-  let _ = io.println(stdout, "${ascii} ${wide} ${ascii.len()} ${wide.len()}").ignore();
+  let _ = io.println(stdout, "${ascii} ${wide} ${ascii.length()} ${wide.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -840,12 +840,12 @@ fn runtime_entries_answer_through_an_out_pointer() {
         "rtshapes",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let s = "  Hello  ";
   let t = s.trim();
   let n = "41".toInt();
@@ -883,7 +883,7 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
         "refusal",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 
@@ -893,7 +893,7 @@ struct Bag {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let b = Bag { items: [1, 2, 3] };
   let _ = io.println(stdout, "${b.hash()}").ignore();
   .Ok(())
@@ -993,7 +993,7 @@ fn the_identity_moves_with_the_library() {
     assert!(id.starts_with("stencil "), "{id}");
 }
 
-/// `str.compare`, and the derived `Ord` that reaches it.
+/// `str.compare`, and the derived `Ordered` that reaches it.
 ///
 /// Two strings compared is a **call**, and every stencil that calls uses the
 /// zero-register prototype — so nothing may be live in the CPS register file
@@ -1011,7 +1011,7 @@ from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/order" import { Order };
 export struct P { a: Int, b: Str }
-derive Eq, Ord for P;
+derive Equal, Ordered for P;
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 export fn main(): Result<(), Str> {
   let p = P { a: 1, b: "m" };
@@ -1053,7 +1053,7 @@ fn nothing_is_leaked() {
         "leaks",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/json" import { Json, ToJson };
@@ -1080,7 +1080,7 @@ fn noteText(j: Json): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let a = str.format(ctx, "one ${1}");
   let b = Boxed { label: str.format(ctx, "two ${2}"), n: 2 };
   let c = hold(str.format(ctx, "three ${3}"));
@@ -1111,7 +1111,7 @@ fn a_memo_and_a_watcher_run_under_the_native_backend() {
     }
     let source = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
@@ -1120,32 +1120,32 @@ from "ui/testing" import { headless, observer, recorder };
 
 test "a memo is lazy, caches, and recomputes when its source changes" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
-    assert.eq(log.noted().len(), 0);
+    assert.equal(log.noted().length(), 0);
     let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
-    assert.eq(log.noted(), [4]);
+    assert.equal(log.noted(), [4]);
     let _ = n.set(ctx, 5);
-    assert.eq(log.noted(), [4, 10]);
+    assert.equal(log.noted(), [4, 10]);
 }
 
 test "a watcher runs when it is registered and again on every change" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
     let log = recorder();
     let n = signal(ctx, 1);
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
-    assert.eq(log.noted(), [1]);
+    assert.equal(log.noted(), [1]);
     let _ = n.set(ctx, 7);
-    assert.eq(log.noted(), [1, 7]);
+    assert.equal(log.noted(), [1, 7]);
 }
 
 fn ignore(value: Int): () {
@@ -1188,7 +1188,7 @@ fn a_one_byte_signal_read_inside_a_memo_answers_what_was_written() {
     }
     let source = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
@@ -1209,7 +1209,7 @@ fn noteStr(log: Recorder, text: Str): () {
 
 test "a memo reading a memo, which is what leaves the word behind" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
@@ -1218,12 +1218,12 @@ test "a memo reading a memo, which is what leaves the word behind" {
     let inner = memo(ctx, fn(s) => n.get(s) + 10);
     let outer = memo(ctx, fn(s) => log.note(inner.read(s) + 1));
     let _ = watch(ctx, fn(s) => ignore(outer.read(s)));
-    assert.eq(log.noted(), [12]);
+    assert.equal(log.noted(), [12]);
 }
 
 test "a Bool signal read inside a memo" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
@@ -1231,9 +1231,9 @@ test "a Bool signal read inside a memo" {
     let flag = signal(ctx, true);
     let label = memo(ctx, fn(s) => yesNo(flag.get(s)));
     let _ = watch(ctx, fn(s) => noteStr(log, label.read(s)));
-    assert.eq(log.recorded(), ["yes"]);
+    assert.equal(log.recorded(), ["yes"]);
     let _ = flag.set(ctx, false);
-    assert.eq(log.recorded(), ["yes", "no"]);
+    assert.equal(log.recorded(), ["yes", "no"]);
 }
 "#;
     let binary = build_tests("narrow-cell", source);
@@ -1283,7 +1283,7 @@ fn writing_a_reactive_cell_leaks_nothing() {
         format!(
             r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import {{ Alloc }};
+from "core/effect" import {{ Allocator }};
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import {{ Ui, Watch }};
@@ -1292,12 +1292,12 @@ from "ui/testing" import {{ headless, observer }};
 
 test "a cell written many times" {{
     let ctx = context {{
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     }};
     let s = signal(ctx, str.format(ctx, "value ${{0}}"));
-{body}    assert.eq(s.get(ctx), str.format(ctx, "value ${{{last}}}"));
+{body}    assert.equal(s.get(ctx), str.format(ctx, "value ${{{last}}}"));
 }}
 "#,
             body = body,
@@ -1351,7 +1351,7 @@ fn a_scope_leaks_nothing() {
         "scopeleaks",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -1359,10 +1359,10 @@ from "core/str" import * as str;
 
 export enum Answer { Nothing, Text(Str), Many([Str]) }
 
-fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str { unit.repeat(ctx, times) }
+fn built<C: Allocator>(ctx: C, unit: Str, times: Int): Str { unit.repeat(ctx, times) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
 
   let nested = alloc.scoped(ctx, fn(c) => [
     [built(c, "a", 2), built(c, "b", 3)],
@@ -1377,7 +1377,7 @@ export fn main(): Result<(), Str> {
   // blocks it made die with the arena and none of them is the answer.
   let n = alloc.scoped(ctx, fn(c) => {
     let churn = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(c, fn(d, i) => built(d, "q", i * 64));
-    churn.len()
+    churn.length()
   });
 
   let shown = match (answer) {
@@ -1427,7 +1427,7 @@ fn the_glue_balances() {
         "glue",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -1442,13 +1442,13 @@ fn depth(t: Tree): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let tag = str.format(ctx, "t${1}");
   let names = ["a", "b", "c"].mapCtx(ctx, fn(c, s) => tag.concat(c, s));
   let more = names.push(ctx, str.format(ctx, "d${4}"));
   let row = Row { names: more };
   let t = Tree.Node(Tree.Node(Tree.Leaf, str.format(ctx, "x${1}")), "y");
-  let _ = io.println(stdout, "${row.show(ctx)} ${depth(t)} ${row.names.len()}").ignore();
+  let _ = io.println(stdout, "${row.show(ctx)} ${depth(t)} ${row.names.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -1486,20 +1486,20 @@ fn the_numeric_surface_answers_at_its_own_width() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 export fn main(): Result<(), Str> {
   let a: U8 = 200;
   let b: I8 = -128;
-  let c: I64 = num.maxValue<I64>();
-  let d: I128 = num.maxValue<I128>();
+  let c: I64 = number.maxValue<I64>();
+  let d: I128 = number.maxValue<I128>();
   let e: U128 = 340282366920938463463374607431768211455;
   let f: I64 = -5;
   let _ = io.println(stdout, "${a.checkedAdd(100).withDefault(7)} ${a.saturatingAdd(100)} ${a.wrappingAdd(100)}").ignore();
-  let _ = io.println(stdout, "${b.checkedSub(1).withDefault(7)} ${b.saturatingSub(1)} ${b.wrappingSub(1)}").ignore();
-  let _ = io.println(stdout, "${c.checkedMul(2).withDefault(7)} ${c.saturatingMul(2)} ${c.wrappingMul(2)}").ignore();
+  let _ = io.println(stdout, "${b.checkedSubtract(1).withDefault(7)} ${b.saturatingSubtract(1)} ${b.wrappingSubtract(1)}").ignore();
+  let _ = io.println(stdout, "${c.checkedMultiply(2).withDefault(7)} ${c.saturatingMultiply(2)} ${c.wrappingMultiply(2)}").ignore();
   let _ = io.println(stdout, "${d.checkedAdd(1).withDefault(7)} ${d.saturatingAdd(1)} ${d.wrappingAdd(1)}").ignore();
   let _ = io.println(stdout, "${e} ${e.checkedAdd(1).withDefault(7)} ${f.abs()} ${f.signum()}").ignore();
-  let _ = io.println(stdout, "${c.checkedDiv(0).withDefault(7)} ${num.minValue<I8>().checkedDiv(-1).withDefault(7)}").ignore();
+  let _ = io.println(stdout, "${c.checkedDivide(0).withDefault(7)} ${number.minValue<I8>().checkedDivide(-1).withDefault(7)}").ignore();
   .Ok(())
 }
 "#,
@@ -1521,7 +1521,7 @@ export fn main(): Result<(), Str> {
 /// A narrowing conversion answers `Result<T, RangeError>`, at 128 bits and
 /// below.
 ///
-/// The gap buri-lang/buri#4 named: `num.I128.toI64` had no native body, so a
+/// The gap buri-lang/buri#4 named: `number.I128.toI64` had no native body, so a
 /// suite touching it was rerouted onto JavaScript. The range tested is the
 /// **target's** — SPEC 6.2.1's `.Err` is "does not fit `T`" — and the `.Err`
 /// carries the value as the source renders it, which at 128 bits is the one
@@ -1536,11 +1536,11 @@ fn a_narrowing_conversion_answers_a_result() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 export fn main(): Result<(), Str> {
   let a: I128 = 1700000000123456789;
-  let b: I128 = num.maxValue<I128>();
-  let c: I128 = num.minValue<I128>();
+  let b: I128 = number.maxValue<I128>();
+  let c: I128 = number.minValue<I128>();
   let d: U64 = 18446744073709551615;
   let e: I64 = -1;
   let f: I64 = 3000000000;
@@ -1582,7 +1582,7 @@ fn the_list_surface_is_the_one_the_language_specifies() {
         "lists",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -1590,7 +1590,7 @@ from "core/str" import * as str;
 export struct Row { key: Int, tag: Str }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let rows = [
     Row { key: 1, tag: "a" }, Row { key: 0, tag: "b" }, Row { key: 1, tag: "c" },
     Row { key: 0, tag: "d" }, Row { key: 1, tag: "e" },
@@ -1603,7 +1603,7 @@ export fn main(): Result<(), Str> {
   let flat = [["p", "q"], [], ["r"]].flatten(ctx).join(ctx, "");
   let sum = [1, 2, 3].foldResult(fn(acc, x) => .Ok(acc + x), 0).withDefault(-1);
   let stop = [1, 9, 3].foldResult(fn(acc, x) => if (x == 9) { .Err(-2) } else { .Ok(acc + x) }, 0).withDefault(-1);
-  let _ = io.println(stdout, "${tags} ${found} ${at} ${pairs.len()} ${flat} ${sum} ${stop}").ignore();
+  let _ = io.println(stdout, "${tags} ${found} ${at} ${pairs.length()} ${flat} ${sum} ${stop}").ignore();
   .Ok(())
 }
 "#,
@@ -1630,7 +1630,7 @@ fn a_none_with_a_niche_is_not_walked() {
         "niche",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -1641,7 +1641,7 @@ fn pick(xs: [Str], i: Int): Option<Str> {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let xs = [str.format(ctx, "a${1}"), str.format(ctx, "b${2}"), str.format(ctx, "c${3}")];
   let seen = list.range(ctx, 0, 4).map(ctx, fn(i) => pick(xs, i).withDefault("-")).join(ctx, "");
   let _ = io.println(stdout, seen).ignore();
@@ -1686,7 +1686,7 @@ export fn build(s: Str, i: Int): Str {
 
 export fn main(): Result<(), Str> {
   let s = build("", 1000);
-  let _ = io.println(stdout, "${s.len()} ${s.slice(0, 4)}").ignore();
+  let _ = io.println(stdout, "${s.length()} ${s.slice(0, 4)}").ignore();
   .Ok(())
 }
 "#,
@@ -1789,8 +1789,8 @@ export fn main(): Result<(), Str> {
   let base = "ab".concat(alloc, "cd");
   let a = base.concat(alloc, "-one");
   let b = base.concat(alloc, "-two");
-  let _ = io.println(stdout, "${base} ${a} ${b} ${base.len()}").ignore();
-  let _ = io.println(stdout, "${b} ${b.len()}").ignore();
+  let _ = io.println(stdout, "${base} ${a} ${b} ${base.length()}").ignore();
+  let _ = io.println(stdout, "${b} ${b.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -1939,7 +1939,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "collections/bitset.buri",
     "collections/heap.buri",
     "collections/map.buri",
-    "collections/ordmap.buri",
+    "collections/orderedmap.buri",
     "collections/queue.buri",
     "collections/sets.buri",
     "compression/deflate.buri",
@@ -2747,9 +2747,9 @@ fn the_test_binary_resumes_where_the_runner_asks() {
     }
     let source = r#"
 from "core/testing/assert" import * as assert;
-test "first" { assert.eq(1, 1); }
-test "second" { assert.eq(1, 2); }
-test "third" { assert.eq(3, 3); }
+test "first" { assert.equal(1, 1); }
+test "second" { assert.equal(1, 2); }
+test "third" { assert.equal(3, 3); }
 "#;
     let binary = build_tests("resume", source);
 
@@ -2757,7 +2757,7 @@ test "third" { assert.eq(3, 3); }
     let whole = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
     assert_ne!(whole.status.code(), Some(0), "a failing block must end the process");
     let report = String::from_utf8_lossy(&whole.stderr).to_string();
-    assert!(report.contains("assert.eq failed"), "the abort is the assertion's: {report}");
+    assert!(report.contains("assert.equal failed"), "the abort is the assertion's: {report}");
 
     // Started *after* the failure but before the last block: the runner's
     // resume, and the proof that `buri_rt_test_enter` is consulted per block
@@ -4171,7 +4171,7 @@ fn go(n: Int, acc: Int): Int {{
     let p = (h, h);
     let s = str.format(alloc, "[${{p.0}}][${{p.1}}]");
     let _ = io.println(stdout, "${{n}}").ignore();
-    go(n - 1, acc + s.len())
+    go(n - 1, acc + s.length())
   }}
 }}
 
@@ -4215,7 +4215,7 @@ from "core/host" import {{ stdout, alloc }};
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-derive Eq, Show for Tag;
+derive Equal, Show for Tag;
 struct Tag {{
   id: Int,
   name: Str,
@@ -4225,7 +4225,7 @@ fn go(n: Int, acc: Int): Int {{
   if (n <= 0) {{ acc }} else {{
     let t = Tag {{ id: n, name: "ab".repeat(alloc, 3) }};
     let s = str.format(alloc, "[${{t}}]");
-    go(n - 1, acc + s.len())
+    go(n - 1, acc + s.length())
   }}
 }}
 

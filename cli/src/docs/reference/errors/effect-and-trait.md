@@ -23,7 +23,7 @@ not.
 ## A program that provokes it
 
 ```buri fail code=effect-and-trait
-# from "core/effect" import { Alloc, IoError, Stdout };
+# from "core/effect" import { Allocator, IoError, Stdout };
 # from "core/order" import { Show };
 
 struct SilentOut {}
@@ -43,7 +43,7 @@ impl Stdout for SilentOut {
 }
 
 impl Show for SilentOut {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         "silent"
     }
 }

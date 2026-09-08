@@ -32,8 +32,8 @@ run {
 # expectation records the answer an escaped handle really gives.
 edit {
   file: "lib/vault/test/crossings.buri"
-  replace: "assert.eq(out.address.stop(out.scope), .Ok(()));\n    assert.eq(out.address.sendMessage(out.scope, .Put(\"late\")), .Err(.Stopped));"
-  with: "assert.eq(out.address.stop(out.scope), .Err(.Stopped));"
+  replace: "assert.equal(out.address.stop(out.scope), .Ok(()));\n    assert.equal(out.address.sendMessage(out.scope, .Put(\"late\")), .Err(.Stopped));"
+  with: "assert.equal(out.address.stop(out.scope), .Err(.Stopped));"
 }
 
 run {

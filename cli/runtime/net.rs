@@ -359,7 +359,7 @@ pub const H3_UNSUPPORTED: &str = "HTTP/3 is not supported by this toolchain's na
 /// `net`-off toolchain (`networking-not-available`, C3). `net-h3` is *not* in
 /// that family and must not be: refusing at compile time would refuse every
 /// program that mentions `serve`, including every one that was only ever going
-/// to ask for HTTP/1.1. That asymmetry is exactly the one `HostNet.fetch` and
+/// to ask for HTTP/1.1. That asymmetry is exactly the one `HostNetwork.fetch` and
 /// `https://` already carry, argued in `runtime_native.rs` and `lib.rs` §8.
 pub fn serves(protocol: Protocol) -> Result<(), &'static str> {
     match protocol {
@@ -478,7 +478,7 @@ pub const H2_NEEDS_TLS: &str =
 //
 // **Every wait is bounded except the one a server is for.** Reads and writes
 // carry `SO_RCVTIMEO`/`SO_SNDTIMEO` from `headerTimeoutMillis`; the wait for a
-// connection carries `idleTimeoutMillis` when the caller set one. A caller that
+// connection carries `idleTimeoutMilliseconds` when the caller set one. A caller that
 // sets neither gets a server that waits for a client indefinitely and reads
 // with a thirty-second deadline, which is what a server is; a *test* sets both,
 // and every test in this repository does.
@@ -530,7 +530,7 @@ const BODY_LIMIT: usize = 8 * 1024 * 1024;
 /// long one client may take to say what it wants, and ten is how long a server
 /// that has been asked to stop should keep a deployment waiting for a client
 /// that is not going to finish. A program that knows its own handlers take
-/// longer says so — `Server.drainMillis` is that sentence, and it is one
+/// longer says so — `Server.drain` is that sentence, and it is one
 /// [`ServePlan`] variant rather than one more argument.
 const DRAIN_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -4153,7 +4153,7 @@ union BuriServePayload {
     /// `.Speak` — a payload-free enum is a bare integer (§6's first niche), so
     /// `Protocol`'s payload *is* its variant index in one byte.
     protocol: i8,
-    /// `.DrainMillis` — an `Int`, which is eight bytes at the payload area's
+    /// `.DrainMilliseconds` — an `Int`, which is eight bytes at the payload area's
     /// own offset. It changes nothing about the size: a `Str` was already the
     /// widest thing here, and F4's argument that the whole is 32 bytes is what
     /// a fifth variant would have to move rather than a fourth.
@@ -4199,7 +4199,7 @@ unsafe fn plan_of(ptr: *const u8, len: u64) -> Result<ServePlan, ServeErr> {
                 plan.drain = (millis >= 0).then(|| Duration::from_millis(millis as u64));
             }
             // SAFETY: the tag says the payload area holds an `Int`. Zero and
-            // below are read as "chose nothing" for `.DrainMillis`'s reason and
+            // below are read as "chose nothing" for `.DrainMilliseconds`'s reason and
             // for one of its own: a socket whose buffer holds no messages is a
             // socket that closes on its first `send`, which is a configuration
             // nobody means.
@@ -4332,7 +4332,7 @@ pub unsafe extern "C" fn buri_rt_host_listen_bind(
             return 0;
         }
     };
-    // **A suspension point** (`rt.rs` §2), for `buri_rt_host_net_fetch`'s
+    // **A suspension point** (`rt.rs` §2), for `buri_rt_host_network_fetch`'s
     // reason: the bind is a syscall that can block on name resolution, and a
     // carrier is not the caller's to lose. The Buri blocks below are built
     // after the park returns, on the carrier and under the baton.
@@ -5001,7 +5001,7 @@ mod tests {
         assert_eq!(std::mem::offset_of!(BuriConnected, body), 32);
 
         // `Serve { Speak(Protocol), Certificate(Str), PrivateKey(Str),
-        // DrainMillis(Int), SocketBuffer(Int) }` — §6's `tag ++ payload`, and
+        // DrainMilliseconds(Int), SocketBuffer(Int) }` — §6's `tag ++ payload`, and
         // the first
         // payload-carrying enum this runtime reads. The tag is one byte because
         // four variants fit in one; the payload area starts at 8 because a

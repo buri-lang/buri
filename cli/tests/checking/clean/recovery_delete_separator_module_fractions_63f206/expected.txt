@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:16:37
+   |
+16 | from "core/time" import { Duration }
+   |                                     ^
+   |
+   = fix: write `;` here

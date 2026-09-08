@@ -3,7 +3,7 @@
 // may not name a module inside it, even though those files are one directory
 // listing away. The boundary belongs to the rule, not to the directory.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//tools/report" import { render };
@@ -11,7 +11,7 @@ from "//tools/report/flags.buri" import { label };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io

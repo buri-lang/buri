@@ -28,7 +28,7 @@
 # parked on missing compiler features — and both were deleted the way a row here
 # is supposed to be: by writing the feature. `derivePrimJson` has a body on both
 # native backends (`stencil/emit.rs::json_prim`, `llvm/emit.rs::json_prim`), and
-# `host.HostAlloc.allocate` has a `runtime_table.rs` row reaching the archive
+# `host.HostAllocator.allocate` has a `runtime_table.rs` row reaching the archive
 # body the release backend already called.
 #
 # Empty is therefore the floor, not a starting state: the scan above holds

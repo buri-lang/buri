@@ -7,10 +7,10 @@ warning: Order is imported but not used [unused-import]
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import
 warning: `ctx` is not used; the function is pure [unused-context]
-  --> lib/money/test/cents.buri:14:20
+  --> lib/money/test/cents.buri:14:24
    |
-14 | fn width<C: Alloc>(ctx: C, label: Str): Int {
-   |                    ^^^^^^
+14 | fn width<C: Allocator>(ctx: C, label: Str): Int {
+   |                        ^^^^^^
    |
    = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
    = fix: remove the `ctx` parameter, and the context argument at every call site

@@ -6,14 +6,14 @@
 //
 // The assertions that matter most are the saturating ones. Overflow is
 // undefined behaviour, and a deadline is where a program can least afford it —
-// so every one of these is a case where the hand-written `checkedMul`,
-// `checkedSub`, decide-from-the-sign shape had to get the answer right.
+// so every one of these is a case where the hand-written `checkedMultiply`,
+// `checkedSubtract`, decide-from-the-sign shape had to get the answer right.
 
-from "core/effect" import { Alloc, Clock };
+from "core/effect" import { Allocator, Clock };
 from "core/host/testing" import { alloc, clock };
 from "core/list" import * as list;
 from "core/math" import * as math;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "core/time" import { Duration, Instant, Monotonic };
@@ -21,60 +21,60 @@ from "core/time" import { Duration, Instant, Monotonic };
 // --- constructors --------------------------------------------------------------
 
 test "each constructor names the unit it counts" {
-    assert.eq(time.nanos(7).0, 7);
-    assert.eq(time.micros(7).0, 7000);
-    assert.eq(time.millis(7).0, 7000000);
-    assert.eq(time.seconds(7).0, 7000000000);
-    assert.eq(time.minutes(7).0, 420000000000);
-    assert.eq(time.hours(7).0, 25200000000000);
+    assert.equal(time.nanoseconds(7).0, 7);
+    assert.equal(time.microseconds(7).0, 7000);
+    assert.equal(time.milliseconds(7).0, 7000000);
+    assert.equal(time.seconds(7).0, 7000000000);
+    assert.equal(time.minutes(7).0, 420000000000);
+    assert.equal(time.hours(7).0, 25200000000000);
 }
 
 test "the constructors agree with one another" {
-    assert.eq(time.seconds(1), time.millis(1000));
-    assert.eq(time.millis(1), time.micros(1000));
-    assert.eq(time.micros(1), time.nanos(1000));
-    assert.eq(time.minutes(1), time.seconds(60));
-    assert.eq(time.hours(1), time.minutes(60));
+    assert.equal(time.seconds(1), time.milliseconds(1000));
+    assert.equal(time.milliseconds(1), time.microseconds(1000));
+    assert.equal(time.microseconds(1), time.nanoseconds(1000));
+    assert.equal(time.minutes(1), time.seconds(60));
+    assert.equal(time.hours(1), time.minutes(60));
 }
 
 test "a count no Duration can hold saturates rather than wrapping" {
-    let biggest = Duration(num.maxValue<I64>());
-    let smallest = Duration(num.minValue<I64>());
-    assert.eq(time.hours(num.maxValue<I64>()), biggest);
-    assert.eq(time.seconds(1000000000000), biggest);
-    assert.eq(time.hours(num.minValue<I64>()), smallest);
-    assert.eq(time.seconds(-1000000000000), smallest);
+    let biggest = Duration(number.maxValue<I64>());
+    let smallest = Duration(number.minValue<I64>());
+    assert.equal(time.hours(number.maxValue<I64>()), biggest);
+    assert.equal(time.seconds(1000000000000), biggest);
+    assert.equal(time.hours(number.minValue<I64>()), smallest);
+    assert.equal(time.seconds(-1000000000000), smallest);
     // Saturating means the sign survives, which is the whole point: the shape
     // this replaces wrapped a timeout into the past.
-    assert.isFalse(time.hours(num.maxValue<I64>()).isNegative());
+    assert.isFalse(time.hours(number.maxValue<I64>()).isNegative());
 }
 
 // --- getters --------------------------------------------------------------------
 
 test "every getter truncates towards zero" {
-    let d = time.nanos(1999999);
-    assert.eq(d.nanos(), 1999999);
-    assert.eq(d.micros(), 1999);
-    assert.eq(d.millis(), 1);
-    assert.eq(d.seconds(), 0);
+    let d = time.nanoseconds(1999999);
+    assert.equal(d.nanoseconds(), 1999999);
+    assert.equal(d.microseconds(), 1999);
+    assert.equal(d.milliseconds(), 1);
+    assert.equal(d.seconds(), 0);
 }
 
 test "a negative length truncates towards zero too" {
-    let d = time.nanos(-1999999);
-    assert.eq(d.micros(), -1999);
-    assert.eq(d.millis(), -1);
+    let d = time.nanoseconds(-1999999);
+    assert.equal(d.microseconds(), -1999);
+    assert.equal(d.milliseconds(), -1);
 }
 
 test "the larger units read what the constructors wrote" {
-    assert.eq(time.hours(3).minutes(), 180);
-    assert.eq(time.minutes(90).hours(), 1);
-    assert.eq(time.hours(48).days(), 2);
-    assert.eq(time.millis(86400000).days(), 1);
+    assert.equal(time.hours(3).minutes(), 180);
+    assert.equal(time.minutes(90).hours(), 1);
+    assert.equal(time.hours(48).days(), 2);
+    assert.equal(time.milliseconds(86400000).days(), 1);
 }
 
 test "isZero and isNegative say what the sign is" {
-    assert.isTrue(time.nanos(0).isZero());
-    assert.isFalse(time.nanos(1).isZero());
+    assert.isTrue(time.nanoseconds(0).isZero());
+    assert.isFalse(time.nanoseconds(1).isZero());
     assert.isTrue(time.seconds(-1).isNegative());
     assert.isFalse(time.seconds(0).isNegative());
     assert.isFalse(time.seconds(1).isNegative());
@@ -82,43 +82,46 @@ test "isZero and isNegative say what the sign is" {
 
 // --- arithmetic ------------------------------------------------------------------
 
-test "add, sub and mul are the arithmetic of lengths" {
-    assert.eq(time.seconds(1).add(time.millis(500)), time.millis(1500));
-    assert.eq(time.seconds(1).sub(time.millis(250)), time.millis(750));
-    assert.eq(time.millis(250).mul(4), time.seconds(1));
-    assert.eq(time.seconds(1).mul(0), time.nanos(0));
-    assert.eq(time.seconds(1).mul(-2), time.seconds(-2));
+test "add, subtract and multiply are the arithmetic of lengths" {
+    assert.equal(time.seconds(1).add(time.milliseconds(500)), time.milliseconds(1500));
+    assert.equal(
+        time.seconds(1).subtract(time.milliseconds(250)),
+        time.milliseconds(750),
+    );
+    assert.equal(time.milliseconds(250).multiply(4), time.seconds(1));
+    assert.equal(time.seconds(1).multiply(0), time.nanoseconds(0));
+    assert.equal(time.seconds(1).multiply(-2), time.seconds(-2));
 }
 
 test "arithmetic saturates at both ends" {
-    let biggest = Duration(num.maxValue<I64>());
-    let smallest = Duration(num.minValue<I64>());
-    assert.eq(biggest.add(time.seconds(1)), biggest);
-    assert.eq(smallest.sub(time.seconds(1)), smallest);
-    assert.eq(biggest.mul(2), biggest);
-    assert.eq(biggest.mul(-2), smallest);
+    let biggest = Duration(number.maxValue<I64>());
+    let smallest = Duration(number.minValue<I64>());
+    assert.equal(biggest.add(time.seconds(1)), biggest);
+    assert.equal(smallest.subtract(time.seconds(1)), smallest);
+    assert.equal(biggest.multiply(2), biggest);
+    assert.equal(biggest.multiply(-2), smallest);
 }
 
 test "negate and abs" {
-    assert.eq(time.seconds(3).negate(), time.seconds(-3));
-    assert.eq(time.seconds(-3).negate(), time.seconds(3));
-    assert.eq(time.seconds(-3).abs(), time.seconds(3));
-    assert.eq(time.seconds(3).abs(), time.seconds(3));
-    assert.eq(time.nanos(0).negate(), time.nanos(0));
+    assert.equal(time.seconds(3).negate(), time.seconds(-3));
+    assert.equal(time.seconds(-3).negate(), time.seconds(3));
+    assert.equal(time.seconds(-3).abs(), time.seconds(3));
+    assert.equal(time.seconds(3).abs(), time.seconds(3));
+    assert.equal(time.nanoseconds(0).negate(), time.nanoseconds(0));
 }
 
 test "the most negative length negates to the most positive one" {
     // The one asymmetry in two's complement, answered by saturating rather
     // than by wrapping back to itself.
-    let smallest = Duration(num.minValue<I64>());
-    assert.eq(smallest.negate(), Duration(num.maxValue<I64>()));
-    assert.eq(smallest.abs(), Duration(num.maxValue<I64>()));
+    let smallest = Duration(number.minValue<I64>());
+    assert.equal(smallest.negate(), Duration(number.maxValue<I64>()));
+    assert.equal(smallest.abs(), Duration(number.maxValue<I64>()));
 }
 
 test "durations compare as lengths" {
-    assert.isTrue(time.seconds(1) > time.millis(999));
-    assert.isTrue(time.millis(-1) < time.nanos(0));
-    assert.eq(time.seconds(1), time.nanos(1000000000));
+    assert.isTrue(time.seconds(1) > time.milliseconds(999));
+    assert.isTrue(time.milliseconds(-1) < time.nanoseconds(0));
+    assert.equal(time.seconds(1), time.nanoseconds(1000000000));
     assert.isTrue(time.seconds(1) != time.seconds(2));
 }
 
@@ -126,34 +129,34 @@ test "durations compare as lengths" {
 
 test "a length shows in the largest unit it reaches" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(time.millis(1500).show(ctx), "1.5s");
-    assert.eq(time.millis(300).show(ctx), "300ms");
-    assert.eq(time.micros(750).show(ctx), "750us");
-    assert.eq(time.nanos(1).show(ctx), "1ns");
-    assert.eq(time.nanos(0).show(ctx), "0s");
-    assert.eq(time.minutes(2).show(ctx), "120s");
+    assert.equal(time.milliseconds(1500).show(ctx), "1.5s");
+    assert.equal(time.milliseconds(300).show(ctx), "300ms");
+    assert.equal(time.microseconds(750).show(ctx), "750us");
+    assert.equal(time.nanoseconds(1).show(ctx), "1ns");
+    assert.equal(time.nanoseconds(0).show(ctx), "0s");
+    assert.equal(time.minutes(2).show(ctx), "120s");
 }
 
 test "the fraction is exact and carries no trailing zeros" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(time.nanos(1000000001).show(ctx), "1.000000001s");
-    assert.eq(time.nanos(999999999).show(ctx), "999.999999ms");
-    assert.eq(time.nanos(1500).show(ctx), "1.5us");
-    assert.eq(time.nanos(999).show(ctx), "999ns");
-    assert.eq(time.nanos(1000).show(ctx), "1us");
+    assert.equal(time.nanoseconds(1000000001).show(ctx), "1.000000001s");
+    assert.equal(time.nanoseconds(999999999).show(ctx), "999.999999ms");
+    assert.equal(time.nanoseconds(1500).show(ctx), "1.5us");
+    assert.equal(time.nanoseconds(999).show(ctx), "999ns");
+    assert.equal(time.nanoseconds(1000).show(ctx), "1us");
 }
 
 test "the sign is in front of the number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(time.millis(-1500).show(ctx), "-1.5s");
-    assert.eq(time.nanos(-1).show(ctx), "-1ns");
-    assert.eq(time.millis(-300).show(ctx), "-300ms");
+    assert.equal(time.milliseconds(-1500).show(ctx), "-1.5s");
+    assert.equal(time.nanoseconds(-1).show(ctx), "-1ns");
+    assert.equal(time.milliseconds(-300).show(ctx), "-300ms");
 }
 
 // --- instants ------------------------------------------------------------------------
@@ -161,55 +164,55 @@ test "the sign is in front of the number" {
 test "the difference between two points is a length" {
     let a = Instant(1000);
     let b = Instant(4000);
-    assert.eq(b.duration(a), time.seconds(3));
-    assert.eq(a.duration(b), time.seconds(-3));
-    assert.eq(a.duration(a), time.nanos(0));
+    assert.equal(b.duration(a), time.seconds(3));
+    assert.equal(a.duration(b), time.seconds(-3));
+    assert.equal(a.duration(a), time.nanoseconds(0));
 }
 
 test "a point moved by a length is a point" {
     let a = Instant(1000);
-    assert.eq(a.plus(time.seconds(3)), Instant(4000));
-    assert.eq(a.minus(time.seconds(3)), Instant(-2000));
+    assert.equal(a.plus(time.seconds(3)), Instant(4000));
+    assert.equal(a.minus(time.seconds(3)), Instant(-2000));
     // An `Instant` is milliseconds, so a length under one moves it nowhere.
-    assert.eq(a.plus(time.nanos(999999)), a);
-    assert.eq(a.plus(time.micros(1500)), Instant(1001));
+    assert.equal(a.plus(time.nanoseconds(999999)), a);
+    assert.equal(a.plus(time.microseconds(1500)), Instant(1001));
 }
 
 test "hasPassed is the whole deadline check" {
     let started = Instant(1000);
     let deadline = started.plus(time.seconds(30));
     assert.isFalse(started.hasPassed(deadline));
-    assert.isFalse(started.plus(time.millis(29999)).hasPassed(deadline));
+    assert.isFalse(started.plus(time.milliseconds(29999)).hasPassed(deadline));
     // At the deadline counts as passed: a timeout that has run out has run out.
     assert.isTrue(deadline.hasPassed(deadline));
     assert.isTrue(started.plus(time.minutes(2)).hasPassed(deadline));
 }
 
 test "a deadline built from a length that saturates has not passed" {
-    // The overflow-guard dance this replaces: `checkedMul` a timeout out to
-    // nanoseconds, `checkedSub` it from now, and decide from whichever answer
+    // The overflow-guard dance this replaces: `checkedMultiply` a timeout out to
+    // nanoseconds, `checkedSubtract` it from now, and decide from whichever answer
     // survived. Here the deadline saturates to the end of time and the check
     // is `>=`.
     let started = Instant(1000);
-    let never = started.plus(time.hours(num.maxValue<I64>()));
+    let never = started.plus(time.hours(number.maxValue<I64>()));
     // The length saturated at the largest `Duration`, which is that many
     // nanoseconds; the instant then moves by the milliseconds in it.
-    assert.eq(never.0, 1000 + num.maxValue<I64>() / 1000000);
+    assert.equal(never.0, 1000 + number.maxValue<I64>() / 1000000);
     assert.isFalse(started.hasPassed(never));
     assert.isTrue(never.hasPassed(never));
 }
 
 test "moving a point past the end of time saturates too" {
-    let end = Instant(num.maxValue<I64>());
-    assert.eq(end.plus(time.seconds(1)), end);
-    let start = Instant(num.minValue<I64>());
-    assert.eq(start.minus(time.seconds(1)), start);
+    let end = Instant(number.maxValue<I64>());
+    assert.equal(end.plus(time.seconds(1)), end);
+    let start = Instant(number.minValue<I64>());
+    assert.equal(start.minus(time.seconds(1)), start);
 }
 
 test "instants compare as points" {
     assert.isTrue(Instant(1) < Instant(2));
     assert.isTrue(Instant(2) > Instant(1));
-    assert.eq(Instant(1), Instant(1));
+    assert.equal(Instant(1), Instant(1));
 }
 
 // --- the clock ---------------------------------------------------------------------
@@ -217,14 +220,14 @@ test "instants compare as points" {
 test "since answers a length rather than a count" {
     let dial = clock().at(500);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: dial,
     };
     let start = time.now(ctx);
-    time.sleepMs(dial, 250);
+    time.sleep(dial, time.milliseconds(250));
     let waited: Duration = time.since(ctx, start);
-    assert.eq(waited, time.millis(250));
-    assert.eq(waited.show(ctx), "250ms");
+    assert.equal(waited, time.milliseconds(250));
+    assert.equal(waited.show(ctx), "250ms");
 }
 
 test "sleep takes a length and moves the clock by it" {
@@ -232,11 +235,11 @@ test "sleep takes a length and moves the clock by it" {
     let ctx = context {
         Clock: dial,
     };
-    time.sleep(dial, time.millis(250));
-    assert.eq(time.now(ctx), Instant(250));
+    time.sleep(dial, time.milliseconds(250));
+    assert.equal(time.now(ctx), Instant(250));
     // Under a millisecond the clock cannot move, and says so by not moving.
-    time.sleep(dial, time.micros(999));
-    assert.eq(time.now(ctx), Instant(250));
+    time.sleep(dial, time.microseconds(999));
+    assert.equal(time.now(ctx), Instant(250));
 }
 
 test "a deadline read off the clock" {
@@ -246,47 +249,55 @@ test "a deadline read off the clock" {
     };
     let deadline = time.now(ctx).plus(time.seconds(1));
     assert.isFalse(time.now(ctx).hasPassed(deadline));
-    time.sleep(dial, time.millis(999));
+    time.sleep(dial, time.milliseconds(999));
     assert.isFalse(time.now(ctx).hasPassed(deadline));
-    time.sleep(dial, time.millis(1));
+    time.sleep(dial, time.milliseconds(1));
     assert.isTrue(time.now(ctx).hasPassed(deadline));
 }
 
 // --- ZERO, and the fractional constructor -------------------------------------------
 
 test "ZERO is no length at all, and the identity for adding" {
-    assert.eq(time.ZERO.0, 0);
+    assert.equal(time.ZERO.0, 0);
     assert.isTrue(time.ZERO.isZero());
     assert.isFalse(time.ZERO.isNegative());
-    assert.eq(time.ZERO.add(time.seconds(3)), time.seconds(3));
-    assert.eq(time.seconds(3).sub(time.seconds(3)), time.ZERO);
-    assert.eq(time.nanos(0), time.ZERO);
+    assert.equal(time.ZERO.add(time.seconds(3)), time.seconds(3));
+    assert.equal(time.seconds(3).subtract(time.seconds(3)), time.ZERO);
+    assert.equal(time.nanoseconds(0), time.ZERO);
 }
 
 test "asSecondsFloat reads a length as a count of seconds" {
-    assert.approxEq(time.seconds(3).asSecondsFloat(), 3.0, 1e-9);
-    assert.approxEq(time.millis(250).asSecondsFloat(), 0.25, 1e-9);
-    assert.approxEq(time.ZERO.asSecondsFloat(), 0.0, 1e-9);
-    assert.approxEq(time.millis(0 - 1500).asSecondsFloat(), 0.0 - 1.5, 1e-9);
+    assert.approximatelyEqual(time.seconds(3).asSecondsFloat(), 3.0, 1e-9);
+    assert.approximatelyEqual(time.milliseconds(250).asSecondsFloat(), 0.25, 1e-9);
+    assert.approximatelyEqual(time.ZERO.asSecondsFloat(), 0.0, 1e-9);
+    assert.approximatelyEqual(
+        time.milliseconds(0 - 1500).asSecondsFloat(),
+        0.0 - 1.5,
+        1e-9,
+    );
 }
 
 // --- dividing, and the ratio between two lengths ----------------------------------
 
-test "divide is mul's inverse and truncates toward zero" {
-    assert.eq(time.seconds(6).divide(2), time.seconds(3));
-    assert.eq(time.seconds(3).mul(4).divide(4), time.seconds(3));
-    assert.eq(time.nanos(7).divide(2), time.nanos(3));
-    assert.eq(time.nanos(0 - 7).divide(2), time.nanos(0 - 3));
-    assert.eq(time.nanos(7).divide(0 - 2), time.nanos(0 - 3));
-    assert.eq(time.ZERO.divide(5), time.ZERO);
-    assert.eq(time.seconds(3).divide(1), time.seconds(3));
+test "divide is multiply's inverse and truncates toward zero" {
+    assert.equal(time.seconds(6).divide(2), time.seconds(3));
+    assert.equal(time.seconds(3).multiply(4).divide(4), time.seconds(3));
+    assert.equal(time.nanoseconds(7).divide(2), time.nanoseconds(3));
+    assert.equal(time.nanoseconds(0 - 7).divide(2), time.nanoseconds(0 - 3));
+    assert.equal(time.nanoseconds(7).divide(0 - 2), time.nanoseconds(0 - 3));
+    assert.equal(time.ZERO.divide(5), time.ZERO);
+    assert.equal(time.seconds(3).divide(1), time.seconds(3));
 }
 
 test "a ratio is a number rather than a length" {
-    assert.approxEq(time.seconds(3).ratio(time.seconds(1)), 3.0, 1e-9);
-    assert.approxEq(time.millis(500).ratio(time.seconds(1)), 0.5, 1e-9);
-    assert.approxEq(time.ZERO.ratio(time.seconds(1)), 0.0, 1e-9);
-    assert.approxEq(time.seconds(0 - 3).ratio(time.seconds(1)), 0.0 - 3.0, 1e-9);
+    assert.approximatelyEqual(time.seconds(3).ratio(time.seconds(1)), 3.0, 1e-9);
+    assert.approximatelyEqual(time.milliseconds(500).ratio(time.seconds(1)), 0.5, 1e-9);
+    assert.approximatelyEqual(time.ZERO.ratio(time.seconds(1)), 0.0, 1e-9);
+    assert.approximatelyEqual(
+        time.seconds(0 - 3).ratio(time.seconds(1)),
+        0.0 - 3.0,
+        1e-9,
+    );
     // Nothing goes into no time at all a definite number of times.
     assert.isTrue(math.isInfinite(time.seconds(1).ratio(time.ZERO)));
     assert.isTrue(math.isNan(time.ZERO.ratio(time.ZERO)));
@@ -299,11 +310,11 @@ test "the test clock moves both its readings together" {
         Clock: clock(),
     };
     let started = time.monotonic(ctx);
-    assert.eq(started.0, 0);
-    time.sleep(ctx, time.millis(250));
-    assert.eq(time.elapsed(ctx, started), time.millis(250));
+    assert.equal(started.0, 0);
+    time.sleep(ctx, time.milliseconds(250));
+    assert.equal(time.elapsed(ctx, started), time.milliseconds(250));
     // And the wall clock agrees, because it is the same reading.
-    assert.eq(time.now(ctx).0, 250);
+    assert.equal(time.now(ctx).0, 250);
 }
 
 test "elapsed is the difference between two readings" {
@@ -313,12 +324,12 @@ test "elapsed is the difference between two readings" {
     let first = time.monotonic(ctx);
     time.sleep(ctx, time.seconds(1));
     let second = time.monotonic(ctx);
-    assert.eq(second.duration(first), time.seconds(1));
+    assert.equal(second.duration(first), time.seconds(1));
     // The other way round is the same length, negated.
-    assert.eq(first.duration(second), time.seconds(0 - 1));
-    assert.eq(first.duration(first), time.ZERO);
+    assert.equal(first.duration(second), time.seconds(0 - 1));
+    assert.equal(first.duration(first), time.ZERO);
     // And a reading taken now is no time after itself.
-    assert.eq(time.elapsed(ctx, time.monotonic(ctx)), time.ZERO);
+    assert.equal(time.elapsed(ctx, time.monotonic(ctx)), time.ZERO);
 }
 
 test "a monotonic reading orders and compares" {
@@ -326,26 +337,26 @@ test "a monotonic reading orders and compares" {
         Clock: clock(),
     };
     let first = time.monotonic(ctx);
-    time.sleep(ctx, time.millis(5));
+    time.sleep(ctx, time.milliseconds(5));
     let second = time.monotonic(ctx);
-    assert.gt(second, first);
-    assert.notEq(first, second);
-    assert.eq(first, Monotonic(0));
-    assert.eq(second, Monotonic(5_000_000));
+    assert.greaterThan(second, first);
+    assert.notEqual(first, second);
+    assert.equal(first, Monotonic(0));
+    assert.equal(second, Monotonic(5_000_000));
 }
 
 test "a clock the test moves by hand moves the monotonic reading too" {
     let ctx = context {
         Clock: clock().at(1_000),
     };
-    assert.eq(time.now(ctx).0, 1_000);
-    assert.eq(time.monotonic(ctx).0, 1_000_000_000);
-    assert.eq(time.elapsed(ctx, Monotonic(0)), time.seconds(1));
+    assert.equal(time.now(ctx).0, 1_000);
+    assert.equal(time.monotonic(ctx).0, 1_000_000_000);
+    assert.equal(time.elapsed(ctx, Monotonic(0)), time.seconds(1));
 }
 
 test "a run of readings off one clock never goes backwards" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
     };
     // Thirty readings, with a sleep of nothing between some pairs and a longer
@@ -354,51 +365,51 @@ test "a run of readings off one clock never goes backwards" {
     let readings = list
         .range(ctx, 0, 30)
         .mapCtx(ctx, fn(c, i) => {
-            let _ = time.sleep(c, time.millis(i % 3));
+            let _ = time.sleep(c, time.milliseconds(i % 3));
             time.monotonic(c)
         });
     assert.isTrue(readings.isSortedBy(fn(a, b) => a.compare(b)));
     // The double moves by exactly what it was told to, so the whole run is
     // checkable rather than merely ordered.
-    assert.eq(assert.some(readings.first()), Monotonic(0));
-    assert.eq(assert.some(readings.last()), Monotonic(30_000_000));
+    assert.equal(assert.some(readings.first()), Monotonic(0));
+    assert.equal(assert.some(readings.last()), Monotonic(30_000_000));
     // And the difference between the ends is the sum of the sleeps.
-    assert.eq(
+    assert.equal(
         assert.some(readings.last()).duration(assert.some(readings.first())),
-        time.millis(30),
+        time.milliseconds(30),
     );
 }
 
 test "elapsed measures from a reading taken before the work, not after" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_000),
     };
     let started = time.monotonic(ctx);
-    let _ = time.sleep(ctx, time.millis(40));
+    let _ = time.sleep(ctx, time.milliseconds(40));
     let middle = time.elapsed(ctx, started);
-    let _ = time.sleep(ctx, time.millis(60));
+    let _ = time.sleep(ctx, time.milliseconds(60));
     // The same starting reading, measured twice: the second answer is the
     // longer one, and the difference is the second sleep.
-    assert.eq(middle, time.millis(40));
-    assert.eq(time.elapsed(ctx, started), time.millis(100));
-    assert.eq(time.elapsed(ctx, started).sub(middle), time.millis(60));
+    assert.equal(middle, time.milliseconds(40));
+    assert.equal(time.elapsed(ctx, started), time.milliseconds(100));
+    assert.equal(time.elapsed(ctx, started).subtract(middle), time.milliseconds(60));
     // A reading from the future measures backwards rather than saturating at
     // nothing, which is what makes `duration` usable in either order.
     let ahead = Monotonic(time.monotonic(ctx).0 + 5_000_000);
-    assert.eq(time.elapsed(ctx, ahead), time.millis(0 - 5));
+    assert.equal(time.elapsed(ctx, ahead), time.milliseconds(0 - 5));
     assert.isTrue(time.elapsed(ctx, ahead).isNegative());
 }
 
 test "dividing a length by a negative count turns it round" {
-    assert.eq(time.seconds(6).divide(0 - 2), time.seconds(0 - 3));
-    assert.eq(time.seconds(0 - 6).divide(0 - 2), time.seconds(3));
-    assert.eq(time.seconds(6).divide(0 - 1), time.seconds(0 - 6));
+    assert.equal(time.seconds(6).divide(0 - 2), time.seconds(0 - 3));
+    assert.equal(time.seconds(0 - 6).divide(0 - 2), time.seconds(3));
+    assert.equal(time.seconds(6).divide(0 - 1), time.seconds(0 - 6));
     // Truncation is toward zero on both sides of it.
-    assert.eq(time.nanos(0 - 7).divide(0 - 2), time.nanos(3));
+    assert.equal(time.nanoseconds(0 - 7).divide(0 - 2), time.nanoseconds(3));
     // A divisor larger than the length leaves nothing.
-    assert.eq(time.seconds(1).divide(0 - 2_000_000_000), time.ZERO);
-    assert.eq(time.ZERO.divide(0 - 5), time.ZERO);
+    assert.equal(time.seconds(1).divide(0 - 2_000_000_000), time.ZERO);
+    assert.equal(time.ZERO.divide(0 - 5), time.ZERO);
 }
 
 test "a ratio against no time at all has a sign" {
@@ -409,5 +420,5 @@ test "a ratio against no time at all has a sign" {
     assert.isTrue(math.isInfinite(time.seconds(0 - 1).ratio(time.ZERO)));
     assert.isTrue(math.isNan(time.ZERO.ratio(time.ZERO)));
     // No time at all goes into a length no times at all.
-    assert.approxEq(time.ZERO.ratio(time.seconds(3)), 0.0, 1e-9);
+    assert.approximatelyEqual(time.ZERO.ratio(time.seconds(3)), 0.0, 1e-9);
 }

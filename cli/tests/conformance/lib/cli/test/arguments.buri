@@ -11,7 +11,7 @@
 // to write down.
 
 from "core/cli" import * as cli;
-from "core/effect" import { Alloc, Env, Stderr, Stdout };
+from "core/effect" import { Allocator, Environment, Stderr, Stdout };
 from "core/host/testing" import { alloc, env, stderr, stdout, TestStderr, TestStdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -23,7 +23,7 @@ from "core/testing/assert" import * as assert;
 // Every handler prints one line naming itself and what it read, so a test can
 // tell "the right command fired" from "a command fired".
 
-fn count<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+fn count<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
     let quiet = match (arguments.on("quiet")) {
         true => "quiet",
         false => "loud",
@@ -36,13 +36,13 @@ fn count<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
     .Ok(())
 }
 
-fn hash<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+fn hash<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
     let included = arguments.many("include").join(ctx, ",");
     let _ = io.println(ctx, "hash [${included}]").ignore();
     .Ok(())
 }
 
-fn tool<C: Alloc + Stdout>(): cli.Cli<C> {
+fn tool<C: Allocator + Stdout>(): cli.Cli<C> {
     cli.Cli {
         name: "wc2",
         version: "0.1.0",
@@ -108,8 +108,8 @@ fn ran(argv: [Str]): Ran {
     let out = stdout();
     let err = stderr();
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().arguments(argv),
+        Allocator: alloc(),
+        Environment: env().withArguments(argv),
         Stdout: out,
         Stderr: err,
     };
@@ -123,29 +123,29 @@ fn printed(r: Ran): Str {
 }
 
 /// The first line of stderr — the `name: message` line, above the usage.
-fn complained<C: Alloc>(ctx: C, r: Ran): Option<Str> {
+fn complained<C: Allocator>(ctx: C, r: Ran): Option<Str> {
     r.err.captured().lines(ctx).first()
 }
 
 // --- dispatch ------------------------------------------------------------------
 
 test "the named command fires, and nothing else does" {
-    assert.eq(
+    assert.equal(
         printed(ran(["count", "README.md"])),
         "count README.md none loud stdout [README.md]",
     );
-    assert.eq(printed(ran(["hash"])), "hash []");
+    assert.equal(printed(ran(["hash"])), "hash []");
 }
 
 test "a declared positional is bound by name, in declaration order" {
-    assert.eq(
+    assert.equal(
         printed(ran(["count", "README.md", "docs"])),
         "count README.md docs loud stdout [README.md+docs]",
     );
 }
 
 test "positionals past the declared ones are kept rather than refused" {
-    assert.eq(
+    assert.equal(
         printed(ran(["count", "a", "b", "c", "d"])),
         "count a b loud stdout [a+b+c+d]",
     );
@@ -153,57 +153,72 @@ test "positionals past the declared ones are kept rather than refused" {
 
 test "a handler's own error is the message main exits 1 with" {
     let r = ran(["refuse"]);
-    assert.eq(assert.err(r.answer), "the handler said no");
+    assert.equal(assert.err(r.answer), "the handler said no");
     // The handler failed, not the parse, so nothing was written to stderr by
     // `core/cli`: rendering a usage block over a working command line would be
     // an answer to a question nobody asked.
-    assert.eq(r.err.captured(), "");
+    assert.equal(r.err.captured(), "");
 }
 
 // --- the five spellings of a flag ----------------------------------------------
 
 test "a global switch is accepted before the subcommand, long and short" {
-    assert.eq(printed(ran(["--quiet", "count", "f"])), "count f none quiet stdout [f]");
-    assert.eq(printed(ran(["-q", "count", "f"])), "count f none quiet stdout [f]");
+    assert.equal(
+        printed(ran(["--quiet", "count", "f"])),
+        "count f none quiet stdout [f]",
+    );
+    assert.equal(printed(ran(["-q", "count", "f"])), "count f none quiet stdout [f]");
 }
 
 test "a value may be attached with = or written as the next token" {
-    assert.eq(printed(ran(["count", "--out=log", "f"])), "count f none loud log [f]");
-    assert.eq(
+    assert.equal(
+        printed(ran(["count", "--out=log", "f"])),
+        "count f none loud log [f]",
+    );
+    assert.equal(
         printed(ran(["count", "--out", "log", "f"])),
         "count f none loud log [f]",
     );
-    assert.eq(printed(ran(["count", "-o=log", "f"])), "count f none loud log [f]");
-    assert.eq(printed(ran(["count", "-o", "log", "f"])), "count f none loud log [f]");
+    assert.equal(printed(ran(["count", "-o=log", "f"])), "count f none loud log [f]");
+    assert.equal(
+        printed(ran(["count", "-o", "log", "f"])),
+        "count f none loud log [f]",
+    );
 }
 
 test "the last value of a Value flag wins" {
-    assert.eq(
+    assert.equal(
         printed(ran(["count", "-o", "one", "--out=two", "f"])),
         "count f none loud two [f]",
     );
 }
 
 test "a Many flag keeps every value, in the order they were written" {
-    assert.eq(printed(ran(["hash", "-I", "a", "--include=b", "-I=c"])), "hash [a,b,c]");
+    assert.equal(
+        printed(ran(["hash", "-I", "a", "--include=b", "-I=c"])),
+        "hash [a,b,c]",
+    );
 }
 
 test "a value that is not a long flag is taken whatever it looks like" {
     // `-` is the conventional name for standard input and `-1` is a number:
     // both are values, and neither is a flag this spec declares.
-    assert.eq(printed(ran(["count", "--out", "-", "f"])), "count f none loud - [f]");
-    assert.eq(printed(ran(["count", "--out", "-1", "f"])), "count f none loud -1 [f]");
+    assert.equal(printed(ran(["count", "--out", "-", "f"])), "count f none loud - [f]");
+    assert.equal(
+        printed(ran(["count", "--out", "-1", "f"])),
+        "count f none loud -1 [f]",
+    );
 }
 
 test "-- stops the flags, and everything after it is a positional" {
-    assert.eq(
+    assert.equal(
         printed(ran(["count", "--", "--out", "f"])),
         "count --out f loud stdout [--out+f]",
     );
 }
 
 test "-- before the command name still names the command" {
-    assert.eq(printed(ran(["--", "count", "f"])), "count f none loud stdout [f]");
+    assert.equal(printed(ran(["--", "count", "f"])), "count f none loud stdout [f]");
 }
 
 // --- --help and --version ------------------------------------------------------
@@ -211,21 +226,21 @@ test "-- before the command name still names the command" {
 test "the help page, to the byte" {
     let r = ran(["--help"]);
     assert.ok(r.answer);
-    assert.eq(
+    assert.equal(
         r.out.captured(),
         "wc2 0.1.0 — counts and hashes files\n\nusage: wc2 [options] <command> [arguments]\n\ncommands:\n  count   count the lines in a file\n  hash    print a file's digest\n  refuse  always fails\n\noptions:\n  -q, --quiet    print nothing on success\n      --help     print this help and exit\n      --version  print the version and exit\n",
     );
 }
 
 test "an empty argument list is the same question, and prints the same page" {
-    assert.eq(printed(ran(list.empty<Str>())), printed(ran(["--help"])));
-    assert.eq(ran(list.empty<Str>()).err.captured(), "");
+    assert.equal(printed(ran(list.empty<Str>())), printed(ran(["--help"])));
+    assert.equal(ran(list.empty<Str>()).err.captured(), "");
 }
 
 test "a subcommand's help page names its own flags and its arguments" {
     let r = ran(["count", "--help"]);
     assert.ok(r.answer);
-    assert.eq(
+    assert.equal(
         r.out.captured(),
         "wc2 count — count the lines in a file\n\nusage: wc2 [global options] count [options] <file> [tag]\n\narguments:\n  <file>  file to read\n  <tag>   what to call it\n\noptions:\n  -o, --out <path>  where to write the count\n      --help        print this help and exit\n",
     );
@@ -234,7 +249,7 @@ test "a subcommand's help page names its own flags and its arguments" {
 test "a subcommand with no declared arguments has no arguments section" {
     let r = ran(["hash", "--help"]);
     assert.ok(r.answer);
-    assert.eq(
+    assert.equal(
         r.out.captured(),
         "wc2 hash — print a file's digest\n\nusage: wc2 [global options] hash [options]\n\noptions:\n  -I, --include <dir>...  a directory to search\n      --help              print this help and exit\n",
     );
@@ -243,10 +258,10 @@ test "a subcommand with no declared arguments has no arguments section" {
 test "--version prints the version and nothing else, before or after a command" {
     let r = ran(["--version"]);
     assert.ok(r.answer);
-    assert.eq(r.out.captured(), "0.1.0\n");
+    assert.equal(r.out.captured(), "0.1.0\n");
     let after = ran(["count", "--version"]);
     assert.ok(after.answer);
-    assert.eq(after.out.captured(), "0.1.0\n");
+    assert.equal(after.out.captured(), "0.1.0\n");
 }
 
 test "--help is answered where it is read, whatever the rest of the line says" {
@@ -254,95 +269,98 @@ test "--help is answered where it is read, whatever the rest of the line says" {
     // verdict: nothing reaches stderr and the run is `.Ok(())`.
     let r = ran(["count", "--help"]);
     assert.ok(r.answer);
-    assert.eq(r.err.captured(), "");
+    assert.equal(r.err.captured(), "");
     // `--help=anything` is still `--help` rather than `UnexpectedValue`.
-    assert.eq(ran(["count", "--help=1"]).out.captured(), r.out.captured());
+    assert.equal(ran(["count", "--help=1"]).out.captured(), r.out.captured());
     // `-h` is not reserved: `wc2` declares none, so it is an unknown flag
     // rather than the page.
-    assert.eq(assert.err(ran(["-h"]).answer), "unknown flag -h");
+    assert.equal(assert.err(ran(["-h"]).answer), "unknown flag -h");
 }
 
 // --- the verdicts a line can earn ----------------------------------------------
 
 test "an unknown flag names the token as it was written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         assert.err(ran(["--verbose", "count", "f"]).answer),
         "unknown flag --verbose",
     );
-    assert.eq(assert.err(ran(["-v", "count", "f"]).answer), "unknown flag -v");
-    assert.eq(
+    assert.equal(assert.err(ran(["-v", "count", "f"]).answer), "unknown flag -v");
+    assert.equal(
         assert.err(ran(["count", "--verbose", "f"]).answer),
         "unknown flag --verbose",
     );
     // A global flag is global *before* the subcommand and unknown after it,
     // which is what `Cli.flags` means by "accepted before the subcommand".
-    assert.eq(
+    assert.equal(
         assert.err(ran(["count", "--quiet", "f"]).answer),
         "unknown flag --quiet",
     );
-    assert.eq(
+    assert.equal(
         complained(ctx, ran(["--verbose", "count", "f"])),
         .Some("wc2: unknown flag --verbose"),
     );
 }
 
 test "short flags do not cluster" {
-    assert.eq(assert.err(ran(["hash", "-Iq"]).answer), "unknown flag -Iq");
+    assert.equal(assert.err(ran(["hash", "-Iq"]).answer), "unknown flag -Iq");
 }
 
 test "a flag with no value left to take" {
-    assert.eq(assert.err(ran(["count", "--out"]).answer), "--out needs a value");
-    assert.eq(
+    assert.equal(assert.err(ran(["count", "--out"]).answer), "--out needs a value");
+    assert.equal(
         assert.err(ran(["count", "--out", "--quiet", "f"]).answer),
         "--out needs a value",
     );
-    assert.eq(assert.err(ran(["count", "-o"]).answer), "-o needs a value");
+    assert.equal(assert.err(ran(["count", "-o"]).answer), "-o needs a value");
 }
 
 test "a switch given a value" {
-    assert.eq(
+    assert.equal(
         assert.err(ran(["--quiet=loud", "count", "f"]).answer),
         "--quiet takes no value",
     );
-    assert.eq(assert.err(ran(["-q=loud", "count", "f"]).answer), "-q takes no value");
+    assert.equal(
+        assert.err(ran(["-q=loud", "count", "f"]).answer),
+        "-q takes no value",
+    );
 }
 
 test "an unknown command, and no command at all" {
-    assert.eq(assert.err(ran(["frobnicate"]).answer), "unknown command frobnicate");
+    assert.equal(assert.err(ran(["frobnicate"]).answer), "unknown command frobnicate");
     // Global flags and then nothing: the line meant to name a command.
-    assert.eq(assert.err(ran(["--quiet"]).answer), "no command given");
-    assert.eq(assert.err(ran(["--"]).answer), "no command given");
+    assert.equal(assert.err(ran(["--quiet"]).answer), "no command given");
+    assert.equal(assert.err(ran(["--"]).answer), "no command given");
 }
 
 test "a required positional the line did not supply" {
-    assert.eq(assert.err(ran(["count"]).answer), "missing argument <file>");
+    assert.equal(assert.err(ran(["count"]).answer), "missing argument <file>");
     // The optional one after it is not required to be there.
-    assert.eq(printed(ran(["count", "f"])), "count f none loud stdout [f]");
+    assert.equal(printed(ran(["count", "f"])), "count f none loud stdout [f]");
 }
 
 test "a refused line puts the message and the usage on stderr" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r = ran(["count"]);
     let lines = r.err.captured().lines(ctx);
-    assert.eq(lines.first(), .Some("wc2: missing argument <file>"));
+    assert.equal(lines.first(), .Some("wc2: missing argument <file>"));
     // The help page follows, so a reader is told what was wrong and what to
     // write instead — the same page `--help` prints, from the same `Cli`.
-    assert.eq(lines.get(1), .Some("wc2 0.1.0 — counts and hashes files"));
-    assert.eq(lines.get(3), .Some("usage: wc2 [options] <command> [arguments]"));
+    assert.equal(lines.get(1), .Some("wc2 0.1.0 — counts and hashes files"));
+    assert.equal(lines.get(3), .Some("usage: wc2 [options] <command> [arguments]"));
     // Nothing reached stdout: an error is not output.
-    assert.eq(r.out.captured(), "");
+    assert.equal(r.out.captured(), "");
 }
 
 test "the message on stderr and the message main exits with are the same one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r = ran(["frobnicate"]);
     let message = assert.err(r.answer);
-    assert.eq(complained(ctx, r), .Some(str.format(ctx, "wc2: ${message}")));
+    assert.equal(complained(ctx, r), .Some(str.format(ctx, "wc2: ${message}")));
 }

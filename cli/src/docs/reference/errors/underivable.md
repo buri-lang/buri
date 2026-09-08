@@ -6,13 +6,13 @@ note: a derived implementation is a fold over the type's components, and `{field
 # A derive is a fold over the type's components
 
 ```text
-error: `Outer` cannot derive `Eq`: `inner` has type `Inner` [underivable]
+error: `Outer` cannot derive `Equal`: `inner` has type `Inner` [underivable]
 ```
 
 ## What to do
 
-Make `Inner` satisfy `Eq` first — `derive Eq for Inner;` in its own module, or
-an `impl` — or drop `Eq` from this `derive`.
+Make `Inner` satisfy `Equal` first — `derive Equal for Inner;` in its own module, or
+an `impl` — or drop `Equal` from this `derive`.
 
 ## Why
 
@@ -22,13 +22,13 @@ why the diagnostic names the component rather than the type you wrote it on.
 ## A program that provokes it
 
 ```buri fail code=underivable
-# from "core/order" import { Eq };
+# from "core/order" import { Equal };
 
 struct Inner {
     export x: Int,
 }
 
-derive Eq for Outer;
+derive Equal for Outer;
 struct Outer {
     export inner: Inner,
 }

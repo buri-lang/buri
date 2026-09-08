@@ -3,7 +3,7 @@
 // location, and nothing else — so the only way to see captured output is to
 // assert on it, which the second test does.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
 from "//lib/noisy" import { announce };
@@ -11,18 +11,18 @@ from "//lib/noisy" import { announce };
 test "what a failing test printed is not in its report" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
     };
-    assert.eq(announce(ctx, "alpha"), 99);
+    assert.equal(announce(ctx, "alpha"), 99);
 }
 
 test "the captured text is only visible to an assertion" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
     };
     let _ = announce(ctx, "beta");
-    assert.eq(sink.captured(), "nothing was written");
+    assert.equal(sink.captured(), "nothing was written");
 }

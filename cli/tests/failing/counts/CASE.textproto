@@ -50,20 +50,20 @@ run {
 # silent and exits 0, so the report above cannot go stale.
 edit {
   file: "lib/mixed/test/mixed.buri"
-  replace: "assert.eq(2, 20);"
-  with: "assert.eq(2, 2);"
+  replace: "assert.equal(2, 20);"
+  with: "assert.equal(2, 2);"
 }
 
 edit {
   file: "lib/mixed/test/mixed.buri"
-  replace: "assert.eq(4, 40);"
-  with: "assert.eq(4, 4);"
+  replace: "assert.equal(4, 40);"
+  with: "assert.equal(4, 4);"
 }
 
 edit {
   file: "lib/mixed/test/mixed.buri"
-  replace: "assert.eq(6, 60);"
-  with: "assert.eq(6, 6);"
+  replace: "assert.equal(6, 60);"
+  with: "assert.equal(6, 6);"
 }
 
 run {

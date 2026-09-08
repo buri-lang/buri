@@ -20,17 +20,17 @@
 //! and [`Path::isAbsolute`] are **views** into a path that already exists, so
 //! they are pure and take no context (SPEC 10.5). [`of`], [`Path::join`],
 //! [`Path::withSuffix`] and [`Path::components`] build something new, so they
-//! name `Alloc`.
+//! name `Allocator`.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/path" import * as path;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let dir = path.of(ctx, "var//log/./");
@@ -46,10 +46,10 @@
 //! var/log/app.log — app then log
 //! ```
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 
-derive Eq, Show for Path;
+derive Equal, Show for Path;
 /// A filesystem path, in the one spelling [`of`] gives it.
 ///
 /// You can't reach the text as a field, so nothing downstream has to ask
@@ -63,14 +63,14 @@ export struct Path(Str);
 /// relative path is relative to.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/path" import * as path;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let tidied = path.of(ctx, "logs//app/").text();
@@ -86,7 +86,7 @@ export struct Path(Str);
 /// ```stdout
 /// logs/app . / a/../b
 /// ```
-export fn of<C: Alloc>(ctx: C, text: Str): Path {
+export fn of<C: Allocator>(ctx: C, text: Str): Path {
     let body = named(ctx, text).join(ctx, "/");
     if (text.startsWith("/")) {
         Path("/".concat(ctx, body))
@@ -98,7 +98,7 @@ export fn of<C: Alloc>(ctx: C, text: Str): Path {
 }
 
 /// The components of `text` that name something: neither empty nor `.`.
-fn named<C: Alloc>(ctx: C, text: Str): [Str] {
+fn named<C: Allocator>(ctx: C, text: Str): [Str] {
     text.split(ctx, "/").filter(ctx, fn(part) => part != "" && part != ".")
 }
 
@@ -113,7 +113,7 @@ fn lastComponent(text: Str): Str {
 
 /// The index of the last `.` in `name`, at or after `start`, or `best`.
 fn lastDot(name: Str, start: Int, best: Option<Int>): Option<Int> {
-    match (name.slice(start, name.len()).indexOf(".")) {
+    match (name.slice(start, name.length()).indexOf(".")) {
         .None => best,
         .Some(at) => lastDot(name, start + at + 1, .Some(start + at)),
     }
@@ -128,7 +128,7 @@ fn extensionDot(name: Str): Option<Int> {
     match (lastDot(name, 0, .None)) {
         .None => .None,
         .Some(at) => {
-            if (at == 0 || at + 1 == name.len()) { .None } else { .Some(at) }
+            if (at == 0 || at + 1 == name.length()) { .None } else { .Some(at) }
         },
     }
 }
@@ -159,14 +159,14 @@ impl Path {
     /// onto its own directory ends up reading `/etc/passwd`.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let dir = path.of(ctx, "var/log");
@@ -181,7 +181,7 @@ impl Path {
     /// ```stdout
     /// var/log/app.log var/log/a/b var/log/etc
     /// ```
-    export fn join<C: Alloc>(self, ctx: C, other: Str): Path {
+    export fn join<C: Allocator>(self, ctx: C, other: Str): Path {
         let left = self.0;
         of(ctx, str.format(ctx, "${left}/${other}"))
     }
@@ -195,14 +195,14 @@ impl Path {
     /// `parent` drops the last component, and `..` is a component.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let deep = path.of(ctx, "/var/log").parent().map(fn(p) => p.text());
@@ -223,7 +223,7 @@ impl Path {
     /// ```
     export fn parent(self): Option<Path> {
         let tail = lastComponent(self.0);
-        let cut = self.0.len() - tail.len() - 1;
+        let cut = self.0.length() - tail.length() - 1;
         if (self.0 == "/" || self.0 == ".") {
             .None
         } else if (cut < 0) {
@@ -266,14 +266,14 @@ impl Path {
     /// from it, and `archive.`'s dot ends the name.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let archive = path.of(ctx, "a/report.tar.gz");
@@ -296,7 +296,7 @@ impl Path {
             .Some(name) => {
                 match (extensionDot(name)) {
                     .None => .None,
-                    .Some(at) => .Some(name.slice(at + 1, name.len())),
+                    .Some(at) => .Some(name.slice(at + 1, name.length())),
                 }
             },
         }
@@ -311,7 +311,7 @@ impl Path {
     ///
     /// `.None` where there is no last component to append to: the root and
     /// `.`.
-    export fn withSuffix<C: Alloc>(self, ctx: C, suffix: Str): Option<Path> {
+    export fn withSuffix<C: Allocator>(self, ctx: C, suffix: Str): Option<Path> {
         match (self.fileName()) {
             .None => .None,
             .Some(_name) => .Some(of(ctx, self.0.concat(ctx, suffix))),
@@ -323,7 +323,7 @@ impl Path {
     ///
     /// `/a/b` and `a/b` answer the same two, and [`Path::isAbsolute`] tells
     /// them apart. The root and `.` answer the empty list.
-    export fn components<C: Alloc>(self, ctx: C): [Str] {
+    export fn components<C: Allocator>(self, ctx: C): [Str] {
         named(ctx, self.0)
     }
 
@@ -334,14 +334,14 @@ impl Path {
     /// path the way `/` starts every absolute one.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let base = path.of(ctx, "/srv/a");
@@ -363,7 +363,7 @@ impl Path {
         } else if (prefix.0 == "/" || prefix.0 == ".") {
             true
         } else if (self.0.startsWith(prefix.0)) {
-            match (self.0.charAt(prefix.0.len())) {
+            match (self.0.charAt(prefix.0.length())) {
                 .None => false,
                 .Some(c) => c == '/',
             }
@@ -379,14 +379,14 @@ impl Path {
     /// path that *is* `base` answers `.`.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let root = path.of(ctx, "/srv/app");
@@ -401,7 +401,7 @@ impl Path {
     /// ```stdout
     /// log/today none
     /// ```
-    export fn relativeTo<C: Alloc>(self, ctx: C, base: Path): Option<Path> {
+    export fn relativeTo<C: Allocator>(self, ctx: C, base: Path): Option<Path> {
         if (!self.startsWith(base)) {
             .None
         } else if (self.0 == base.0) {
@@ -409,9 +409,9 @@ impl Path {
         } else if (base.0 == ".") {
             .Some(self)
         } else if (base.0 == "/") {
-            .Some(of(ctx, self.0.slice(1, self.0.len())))
+            .Some(of(ctx, self.0.slice(1, self.0.length())))
         } else {
-            .Some(of(ctx, self.0.slice(base.0.len() + 1, self.0.len())))
+            .Some(of(ctx, self.0.slice(base.0.length() + 1, self.0.length())))
         }
     }
 
@@ -426,14 +426,14 @@ impl Path {
     /// in `..`.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let file = path.of(ctx, "/var/log/app.log");
@@ -447,7 +447,7 @@ impl Path {
     /// ```stdout
     /// /var/log/app.gz /var/log/app
     /// ```
-    export fn withExtension<C: Alloc>(self, ctx: C, extension: Str): Option<Path> {
+    export fn withExtension<C: Allocator>(self, ctx: C, extension: Str): Option<Path> {
         match (self.fileName()) {
             .None => .None,
             .Some(name) => {
@@ -470,7 +470,7 @@ impl Path {
 
     /// This path with its extension dropped, or the path unchanged where there
     /// is none to drop.
-    export fn withoutExtension<C: Alloc>(self, ctx: C): Path {
+    export fn withoutExtension<C: Allocator>(self, ctx: C): Path {
         self.withExtension(ctx, "").withDefault(self)
     }
 
@@ -479,7 +479,7 @@ impl Path {
     /// It appends an absolute `other` exactly as `join` does — the root never
     /// changes — so joining a path a caller supplied cannot walk out of this
     /// one.
-    export fn joinPath<C: Alloc>(self, ctx: C, other: Path): Path {
+    export fn joinPath<C: Allocator>(self, ctx: C, other: Path): Path {
         self.join(ctx, other.text())
     }
 
@@ -504,14 +504,14 @@ impl Path {
     /// backtracking costs.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let file = path.of(ctx, "src/net/http.buri");
@@ -538,7 +538,7 @@ impl Path {
 // Globbing
 //
 // Index arithmetic over two views rather than two lists of components: a list
-// would need an `Alloc`, and `matchesGlob` is pure.
+// would need an `Allocator`, and `matchesGlob` is pure.
 // -----------------------------------------------------------------------------
 
 /// The components of a path or a pattern as one string, without the leading
@@ -547,7 +547,7 @@ fn componentsOf(text: Str): Str {
     if (text == "." || text == "/") {
         ""
     } else if (text.startsWith("/")) {
-        text.slice(1, text.len())
+        text.slice(1, text.length())
     } else {
         text
     }
@@ -555,27 +555,27 @@ fn componentsOf(text: Str): Str {
 
 /// Where the component starting at `at` ends.
 fn componentEnd(text: Str, at: Int): Int {
-    match (text.slice(at, text.len()).indexOf("/")) {
-        .None => text.len(),
+    match (text.slice(at, text.length()).indexOf("/")) {
+        .None => text.length(),
         .Some(k) => at + k,
     }
 }
 
 /// Where the component after the one ending at `end` starts.
 fn afterComponent(text: Str, end: Int): Int {
-    if (end >= text.len()) { text.len() } else { end + 1 }
+    if (end >= text.length()) { text.length() } else { end + 1 }
 }
 
 /// `text` from `ti`, against `pattern` from `pi`, one component at a time.
 fn globComponents(text: Str, ti: Int, pattern: Str, pi: Int): Bool {
-    if (pi >= pattern.len()) {
-        ti >= text.len()
+    if (pi >= pattern.length()) {
+        ti >= text.length()
     } else {
         let pe = componentEnd(pattern, pi);
         let piece = pattern.slice(pi, pe);
         if (piece == "**") {
             globAcross(text, ti, pattern, afterComponent(pattern, pe))
-        } else if (ti >= text.len()) {
+        } else if (ti >= text.length()) {
             false
         } else {
             let te = componentEnd(text, ti);
@@ -597,7 +597,7 @@ fn globComponents(text: Str, ti: Int, pattern: Str, pi: Int): Bool {
 fn globAcross(text: Str, ti: Int, pattern: Str, pi: Int): Bool {
     if (globComponents(text, ti, pattern, pi)) {
         true
-    } else if (ti >= text.len()) {
+    } else if (ti >= text.length()) {
         false
     } else {
         globAcross(text, afterComponent(text, componentEnd(text, ti)), pattern, pi)
@@ -606,16 +606,16 @@ fn globAcross(text: Str, ti: Int, pattern: Str, pi: Int): Bool {
 
 /// One component against one pattern component.
 fn globOne(name: Str, ni: Int, piece: Str, pi: Int): Bool {
-    if (pi >= piece.len()) {
-        ni >= name.len()
+    if (pi >= piece.length()) {
+        ni >= name.length()
     } else {
         match (piece.charAt(pi)) {
-            .None => ni >= name.len(),
+            .None => ni >= name.length(),
             .Some(c) => {
                 if (c == '*') {
                     globRun(name, ni, piece, pi + 1)
                 } else if (c == '?') {
-                    if (ni >= name.len()) {
+                    if (ni >= name.length()) {
                         false
                     } else {
                         globOne(name, ni + 1, piece, pi + 1)
@@ -643,7 +643,7 @@ fn globOne(name: Str, ni: Int, piece: Str, pi: Int): Bool {
 fn globRun(name: Str, ni: Int, piece: Str, pi: Int): Bool {
     if (globOne(name, ni, piece, pi)) {
         true
-    } else if (ni >= name.len()) {
+    } else if (ni >= name.length()) {
         false
     } else {
         globRun(name, ni + 1, piece, pi)
@@ -676,7 +676,7 @@ fn globSet(name: Str, ni: Int, piece: Str, pi: Int): Bool {
 
 /// Where the `]` closing a set opened before `start` is.
 fn closingBracket(piece: Str, start: Int): Option<Int> {
-    match (piece.slice(start, piece.len()).indexOf("]")) {
+    match (piece.slice(start, piece.length()).indexOf("]")) {
         .None => .None,
         .Some(k) => .Some(start + k),
     }

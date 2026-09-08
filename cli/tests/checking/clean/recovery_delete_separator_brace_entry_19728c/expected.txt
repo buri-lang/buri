@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:17:6
+   |
+17 |     }
+   |      ^
+   |
+   = fix: write `;` here

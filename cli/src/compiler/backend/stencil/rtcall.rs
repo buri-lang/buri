@@ -175,12 +175,12 @@ impl Jit<'_> {
             // Which argument that is comes from the row ([`Entry::ctx`]) rather
             // than from the value's type, and the difference is not academic.
             // Asking "is this a `Ty::Ctx`?" was the rule here, and it is the
-            // right answer only while every `C: Alloc` is instantiated at a
+            // right answer only while every `C: Allocator` is instantiated at a
             // `context { … }`. `C` is an ordinary type parameter with an
-            // ordinary bound (SPEC 10.1), so a value that *implements* `Alloc`
+            // ordinary bound (SPEC 10.1), so a value that *implements* `Allocator`
             // satisfies it without being a context — SPEC 10.8's attenuating
             // `ReadOnly<C>`, and `core/host/testing`'s `alloc()`, which is a
-            // `struct TestAlloc(I64)` carrying a handle. One of those slipped
+            // `struct TestAllocator(I64)` carrying a handle. One of those slipped
             // past the type test, spread to a leaf, and shifted every argument
             // after it one register down: `push` reached `buri_rt_list_push`
             // with the handle where the pointer belongs and died in `memmove`
@@ -337,7 +337,7 @@ impl Jit<'_> {
         //
         // Whether an entry *uses* the third one's message is the one thing here
         // that is a column ([`Ret::ResMsg`]), and it is about the entry rather
-        // than about `E`: `HostFs` can meet an `EISDIR` and `TestFs` is a map
+        // than about `E`: `HostFileSystem` can meet an `EISDIR` and `TestFileSystem` is a map
         // in memory, and the five stream writers stay out of it because the
         // pointer is an address into this destination and a function that
         // prints would stop keeping its `Result` in registers.
@@ -384,8 +384,8 @@ impl Jit<'_> {
                     // is zeroed here, so an entry that answered a classified
                     // variant and wrote nothing leaves an empty `Str` behind
                     // rather than whatever the frame held. Writing it here is
-                    // what lets the same C signature serve `HostFs`, which has
-                    // a message for `.Other`, and `TestFs`, which never
+                    // what lets the same C signature serve `HostFileSystem`, which has
+                    // a message for `.Other`, and `TestFileSystem`, which never
                     // produces one — and on the `.Ok` path the entry's own
                     // out-pointer write lands on top of these zeros, because
                     // the two payloads share the destination's payload area and
@@ -1095,7 +1095,7 @@ impl Jit<'_> {
 /// **The letter is the C return type's width, and `Leaf` is not where that
 /// lives.** [`Jit::leaves`] answers a *slot*, which is eight bytes for every
 /// integer; what the callee returns is the destination's own IR type, and a
-/// `Bool` comes back from `buri_rt_str_eq` as a `u8` where an `Int` comes back
+/// `Bool` comes back from `buri_rt_str_equal` as a `u8` where an `Int` comes back
 /// from `buri_rt_str_hash` as a `u64`. Both psABIs leave the upper bits of a
 /// narrower integer return **unspecified**, so a stencil that declared
 /// `uint64_t` for the first reads whatever was in the register — which AAPCS64
@@ -1151,7 +1151,7 @@ pub(crate) const EQUAL: u64 = 1;
 pub(crate) const GREATER: u64 = 2;
 
 impl Jit<'_> {
-    /// `buri_rt_str_eq` or `buri_rt_str_compare`, with the answer in `dest`.
+    /// `buri_rt_str_equal` or `buri_rt_str_compare`, with the answer in `dest`.
     ///
     /// **Six** arguments, not four: `lib.rs` §2 rule 1 flattens a `Str` to all
     /// three of its words, and both entries take two of them — the `base` each
@@ -1175,12 +1175,12 @@ impl Jit<'_> {
             Src::Word(b + STR_PTR),
             Src::Word(b + STR_LEN),
         ];
-        // `buri_rt_str_eq` answers a `u8` and `buri_rt_str_compare` a C `int`,
+        // `buri_rt_str_equal` answers a `u8` and `buri_rt_str_compare` a C `int`,
         // and both psABIs leave the rest of the register unspecified in both
         // cases: the result shape has to be the **declared** width, not the
         // register's, and not the wider of the two either. One shape for both
         // was a `Bool` read out of the top three bytes of an `int` on SysV.
-        let kind = if symbol == "buri_rt_str_eq" { "b" } else { "w" };
+        let kind = if symbol == "buri_rt_str_equal" { "b" } else { "w" };
         self.c_call(symbol, st, &args, &[], dest, kind)
     }
 
@@ -1193,7 +1193,7 @@ impl Jit<'_> {
     /// answer would leave the second comparing a boolean.
     ///
     /// `want` empty means the answer is already the boolean, which is
-    /// `buri_rt_str_eq`'s; `BinOp::Ne` is that answer inverted.
+    /// `buri_rt_str_equal`'s; `BinOp::Ne` is that answer inverted.
     pub(crate) fn order_test(&mut self, st: &Fn2, raw: u32, dest: u32, op: ir::BinOp, want: &[u64]) {
         let scratch = st.scratch + SPARE_WORD * 8;
         match (op, want) {
@@ -1395,15 +1395,15 @@ impl Jit<'_> {
     ///
     /// `str.concat` has no table row, so the rule [`Entry::ctx`] states for
     /// every other key is stated here instead, and it is the same rule read off
-    /// the same place — the **declaration**. `Str.concat<C: Alloc>(self, ctx: C,
-    /// other: Str)` is three arguments and the middle one is the context;
+    /// the same place — the **declaration**. `Str.concat<C: Allocator>(self,
+    /// ctx: C, other: Str)` is three arguments and the middle one is the context;
     /// `lower::template`'s `str.concat(a, b)` is two and never had one. Either
     /// way `buri_rt_str_concat` sees two `Str`s and nothing else.
     ///
     /// By position rather than by type, for [`Entry::ctx`]'s reason: a `C:
-    /// Alloc` instantiated at a value that merely *implements* `Alloc` is not a
-    /// `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat` as three
-    /// arguments — which this backend refuses by arity, so it was a "report it"
+    /// Allocator` instantiated at a value that merely *implements* `Allocator`
+    /// is not a `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat`
+    /// as three arguments — which this backend refuses by arity, so it was a "report it"
     /// diagnostic on a program the front end was right to accept.
     pub(crate) const fn concat_ctx(argc: usize) -> Option<usize> {
         if argc == 3 { Some(1) } else { None }

@@ -30,8 +30,8 @@ edit {
 
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "assert.eq(format(fromCents(1905)), \"some\");"
-  with: "assert.eq(toCents(fromCents(1905)), 1905);"
+  replace: "assert.equal(format(fromCents(1905)), \"some\");"
+  with: "assert.equal(toCents(fromCents(1905)), 1905);"
 }
 
 run {

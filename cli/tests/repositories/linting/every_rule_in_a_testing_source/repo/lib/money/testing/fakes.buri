@@ -4,7 +4,7 @@
 
 // TODO: these fakes are not finished.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/effect" import { IoError, Stdout };
 from "core/io" import * as io;
 from "core/order" import { Order };
@@ -13,7 +13,7 @@ from "//lib/money" import { Cents, fromCents };
 
 let HEX_DIGITS: Str = "0123456789abcdef";
 
-let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
 
 struct Ledger {
     entries: I64,
@@ -53,11 +53,11 @@ fn compareInts(left: Int, right: Int): Order {
     if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
 }
 
-fn width<C: Alloc>(ctx: C, label: Str): Int {
-    label.len()
+fn width<C: Allocator>(ctx: C, label: Str): Int {
+    label.length()
 }
 
-fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
     io.println(ctx, "-- ${label}")
 }
 
@@ -135,7 +135,7 @@ fn spell(n: I64): Str {
 }
 
 // On the testing surface, and called only by the suite next door.
-export fn fakeCents<C: Alloc + Stdout>(ctx: C): Cents {
+export fn fakeCents<C: Allocator + Stdout>(ctx: C): Cents {
     let unread = total(1, 2, 3, 4, 5, 6);
     let ledger = Ledger { entries: 2, note: "unread" };
     let shade: Shade = .Light;
@@ -148,8 +148,8 @@ export fn fakeCents<C: Alloc + Stdout>(ctx: C): Cents {
     };
     let counted = ledger.entries
         + width(ctx, depth(5))
-        + spell(7).len()
-        + HEX_DIGITS.len()
-        + NANOS_PER_MILLISECOND;
+        + spell(7).length()
+        + HEX_DIGITS.length()
+        + NANOSECONDS_PER_MILLISECOND;
     fromCents(counted)
 }

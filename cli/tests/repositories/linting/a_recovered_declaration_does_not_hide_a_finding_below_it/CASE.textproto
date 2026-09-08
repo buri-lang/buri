@@ -14,8 +14,8 @@ run {
 # things rather than one thing and a cascade.
 edit {
   file: "lib/money/cents.buri"
-  replace: "import { Alloc }\n"
-  with: "import { Alloc };\n"
+  replace: "import { Allocator }\n"
+  with: "import { Allocator };\n"
 }
 
 run {

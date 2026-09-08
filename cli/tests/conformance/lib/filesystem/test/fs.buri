@@ -9,9 +9,9 @@
 // memory: it holds no symbolic links, so `.Symlink` never appears here, and its
 // `modified` is the epoch. `native::e2e` is where a real tree answers.
 
-from "core/effect" import { Alloc, Entropy, Env };
+from "core/effect" import { Allocator, Entropy, Environment };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/host/testing" import {
     alloc, copyFile, entropy, env, fs as disk, metadata, readDir, readRange, realPath,
     removeFile,
@@ -27,43 +27,43 @@ from "core/time" import { Instant };
 test "a file's metadata is its kind, its octets and its timestamp" {
     let files = disk().files([("notes.txt", "hello")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
     let info = assert.ok(fs.metadata(ctx, path.of(ctx, "notes.txt")));
-    assert.eq(info.kind, .File);
-    assert.eq(info.size, 5);
-    assert.eq(info.modified, Instant(0));
+    assert.equal(info.kind, .File);
+    assert.equal(info.size, 5);
+    assert.equal(info.modified, Instant(0));
 }
 
 test "a directory makeDir recorded is a directory" {
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "var/log")));
     let info = assert.ok(fs.metadata(ctx, path.of(ctx, "var/log")));
-    assert.eq(info.kind, .Directory);
-    assert.eq(info.size, 0);
+    assert.equal(info.kind, .Directory);
+    assert.equal(info.size, 0);
 }
 
 test "a path naming nothing is NotFound" {
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
-    assert.eq(assert.err(fs.metadata(ctx, path.of(ctx, "b"))), .NotFound);
+    assert.equal(assert.err(fs.metadata(ctx, path.of(ctx, "b"))), .NotFound);
 }
 
 test "isFile and isDirectory answer false for what is not there" {
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "d")));
     assert.isTrue(fs.isFile(ctx, path.of(ctx, "a")));
@@ -82,8 +82,8 @@ test "an unreadable path reads as false rather than as an error" {
         .files([("a", "A")])
         .faults([metadata("a").fails(.PermissionDenied)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
     assert.isFalse(fs.isFile(ctx, path.of(ctx, "a")));
 }
@@ -95,13 +95,13 @@ test "an unreadable path reads as false rather than as an error" {
 test "a listing says what each entry is" {
     let files = disk().files([("src/main.buri", "x"), ("src/lib.buri", "y")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "src/net")));
     let entries = assert.ok(fs.listDirectoryEntries(ctx, path.of(ctx, "src")));
-    assert.eq(entries, [
+    assert.equal(entries, [
         ("lib.buri", .File),
         ("main.buri", .File),
         ("net", .Directory),
@@ -115,9 +115,9 @@ test "an empty directory lists nothing" {
     // `native::e2e` is where that is asserted.
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "empty")));
     assert.isEmpty(assert.ok(fs.listDirectoryEntries(ctx, path.of(ctx, "empty"))));
@@ -125,24 +125,24 @@ test "an empty directory lists nothing" {
 
 test "walk lists a directory before what is inside it" {
     // `makeDir` for the nested one, because a flat map's parents are not
-    // directories until something says so — `TestFs` states that.
+    // directories until something says so — `TestFileSystem` states that.
     let files = disk().files([("t/a.txt", "a"), ("t/deep/b.txt", "b")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "t/deep")));
     let found = assert.ok(fs.walk(ctx, path.of(ctx, "t"))).map(ctx, fn(p) => p.text());
-    assert.eq(found, ["t/a.txt", "t/deep", "t/deep/b.txt"]);
+    assert.equal(found, ["t/a.txt", "t/deep", "t/deep/b.txt"]);
 }
 
 test "walking an empty tree finds nothing" {
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "empty")));
     assert.isEmpty(assert.ok(fs.walk(ctx, path.of(ctx, "empty"))));
@@ -153,10 +153,10 @@ test "a walk stops at the first entry it cannot read" {
         .files([("t/a.txt", "a")])
         .faults([metadata("t/a.txt").fails(.PermissionDenied)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
-    assert.eq(assert.err(fs.walk(ctx, path.of(ctx, "t"))), .PermissionDenied);
+    assert.equal(assert.err(fs.walk(ctx, path.of(ctx, "t"))), .PermissionDenied);
 }
 
 test "a deep tree comes back a directory at a time, deepest last" {
@@ -170,14 +170,14 @@ test "a deep tree comes back a directory at a time, deepest last" {
         ("t/two/d.txt", "d"),
     ]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "t/one/deeper")));
     assert.ok(fs.makeDir(ctx, path.of(ctx, "t/two")));
     let found = assert.ok(fs.walk(ctx, path.of(ctx, "t"))).map(ctx, fn(p) => p.text());
-    assert.eq(found, [
+    assert.equal(found, [
         "t/a.txt",
         "t/one",
         "t/one/b.txt",
@@ -196,12 +196,12 @@ test "a directory that will not open stops the walk where it is" {
         .files([("t/a.txt", "a"), ("t/deep/b.txt", "b")])
         .faults([readDir("t/deep").fails(.PermissionDenied)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "t/deep")));
-    assert.eq(assert.err(fs.walk(ctx, path.of(ctx, "t"))), .PermissionDenied);
+    assert.equal(assert.err(fs.walk(ctx, path.of(ctx, "t"))), .PermissionDenied);
 }
 
 test "a listing and a walk of what is not there are two different answers" {
@@ -213,14 +213,14 @@ test "a listing and a walk of what is not there are two different answers" {
         .files([("t/a.txt", "a")])
         .faults([readDir("gone").fails(.NotFound)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.listDirectoryEntries(ctx, path.of(ctx, "gone"))),
         .NotFound,
     );
-    assert.eq(assert.err(fs.walk(ctx, path.of(ctx, "gone"))), .NotFound);
+    assert.equal(assert.err(fs.walk(ctx, path.of(ctx, "gone"))), .NotFound);
 }
 
 // -----------------------------------------------------------------------------
@@ -230,42 +230,42 @@ test "a listing and a walk of what is not there are two different answers" {
 test "readRange gives the octets it was asked for" {
     let files = disk().filesBytes([("blob", [1, 2, 3, 4, 5])]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
     let at = path.of(ctx, "blob");
-    assert.eq(assert.ok(fs.readRange(ctx, at, 1, 3)), [2, 3, 4]);
-    assert.eq(assert.ok(fs.readRange(ctx, at, 0, 99)), [1, 2, 3, 4, 5]);
+    assert.equal(assert.ok(fs.readRange(ctx, at, 1, 3)), [2, 3, 4]);
+    assert.equal(assert.ok(fs.readRange(ctx, at, 0, 99)), [1, 2, 3, 4, 5]);
     assert.isEmpty(assert.ok(fs.readRange(ctx, at, 0, 0)));
 }
 
 test "a range past the end is empty, and a negative one is an error" {
     let files = disk().filesBytes([("blob", [7, 8])]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
     let at = path.of(ctx, "blob");
     assert.isEmpty(assert.ok(fs.readRange(ctx, at, 9, 4)));
-    assert.eq(
+    assert.equal(
         assert.err(fs.readRange(ctx, at, 0 - 1, 4)),
         .Other("a negative offset or count"),
     );
-    assert.eq(assert.err(fs.readRange(ctx, path.of(ctx, "gone"), 0, 1)), .NotFound);
+    assert.equal(assert.err(fs.readRange(ctx, path.of(ctx, "gone"), 0, 1)), .NotFound);
 }
 
 test "the four edges of the window: the end, past it, across it, and none of it" {
     let files = disk().filesBytes([("blob", [1, 2, 3, 4])]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
     let at = path.of(ctx, "blob");
     // At the last octet, and at exactly the end.
-    assert.eq(assert.ok(fs.readRange(ctx, at, 3, 1)), [4]);
+    assert.equal(assert.ok(fs.readRange(ctx, at, 3, 1)), [4]);
     assert.isEmpty(assert.ok(fs.readRange(ctx, at, 4, 2)));
     // Spanning the end gives what is there rather than failing.
-    assert.eq(assert.ok(fs.readRange(ctx, at, 2, 99)), [3, 4]);
+    assert.equal(assert.ok(fs.readRange(ctx, at, 2, 99)), [3, 4]);
     // A count of zero is the empty list wherever it is asked from.
     assert.isEmpty(assert.ok(fs.readRange(ctx, at, 0, 0)));
     assert.isEmpty(assert.ok(fs.readRange(ctx, at, 2, 0)));
@@ -275,15 +275,15 @@ test "the four edges of the window: the end, past it, across it, and none of it"
 test "a negative count is an error, and so are two negatives" {
     let files = disk().filesBytes([("blob", [7, 8])]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
     let at = path.of(ctx, "blob");
-    assert.eq(
+    assert.equal(
         assert.err(fs.readRange(ctx, at, 0, 0 - 1)),
         .Other("a negative offset or count"),
     );
-    assert.eq(
+    assert.equal(
         assert.err(fs.readRange(ctx, at, 0 - 5, 0 - 5)),
         .Other("a negative offset or count"),
     );
@@ -292,8 +292,8 @@ test "a negative count is an error, and so are two negatives" {
 test "an empty file has no window to give" {
     let files = disk().filesBytes([("empty", [])]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
     assert.isEmpty(assert.ok(fs.readRange(ctx, path.of(ctx, "empty"), 0, 8)));
 }
@@ -305,12 +305,12 @@ test "an empty file has no window to give" {
 test "a copy leaves both files behind" {
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
-    assert.eq(files.snapshot(), [("a", "A"), ("b", "A")]);
+    assert.equal(files.snapshot(), [("a", "A"), ("b", "A")]);
 }
 
 test "a copy onto itself leaves the file exactly as it was" {
@@ -318,12 +318,12 @@ test "a copy onto itself leaves the file exactly as it was" {
     // before it reads its source. It is `.Ok`, and the octets are still there.
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "a")));
-    assert.eq(files.snapshot(), [("a", "A")]);
+    assert.equal(files.snapshot(), [("a", "A")]);
 }
 
 test "a copy over a file that is there replaces the whole of it" {
@@ -331,20 +331,20 @@ test "a copy over a file that is there replaces the whole of it" {
     // octets are gone, including the ones past the end of the source.
     let files = disk().files([("a", "A"), ("b", "BBBB")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
-    assert.eq(files.snapshot(), [("a", "A"), ("b", "A")]);
+    assert.equal(files.snapshot(), [("a", "A"), ("b", "A")]);
 }
 
 test "an empty file copies as an empty file" {
     let files = disk().filesBytes([("a", [])]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
     assert.isEmpty(assert.ok(fs.readBytes(ctx, path.of(ctx, "b"))));
@@ -357,32 +357,32 @@ test "a copy into a directory nobody made is the one answer a map cannot give" {
     // down rather than found later.
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "nowhere/b")));
-    assert.eq(files.snapshot(), [("a", "A"), ("nowhere/b", "A")]);
+    assert.equal(files.snapshot(), [("a", "A"), ("nowhere/b", "A")]);
 }
 
 test "copying what is not there is NotFound, and a read-only view refuses" {
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.copy(ctx, path.of(ctx, "gone"), path.of(ctx, "b"))),
         .NotFound,
     );
     let frozen = files.readOnly();
     let sealed = context {
-        Alloc: alloc(),
-        FsRead: frozen,
-        FsWrite: frozen,
+        Allocator: alloc(),
+        FileSystemRead: frozen,
+        FileSystemWrite: frozen,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.copy(sealed, path.of(sealed, "a"), path.of(sealed, "c"))),
         .ReadOnly,
     );
@@ -391,34 +391,34 @@ test "copying what is not there is NotFound, and a read-only view refuses" {
 test "removeTree takes the whole tree with it" {
     let files = disk().files([("t/a", "A"), ("t/deep/b", "B"), ("keep", "K")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "t/deep")));
     assert.ok(fs.removeTree(ctx, path.of(ctx, "t")));
-    assert.eq(files.snapshot(), [("keep", "K")]);
+    assert.equal(files.snapshot(), [("keep", "K")]);
     assert.isFalse(fs.exists(ctx, path.of(ctx, "t")));
 }
 
 test "removeTree on a file removes the file, and on nothing is NotFound" {
     let files = disk().files([("f", "F")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.removeTree(ctx, path.of(ctx, "f")));
     assert.isEmpty(files.snapshot());
-    assert.eq(assert.err(fs.removeTree(ctx, path.of(ctx, "f"))), .NotFound);
+    assert.equal(assert.err(fs.removeTree(ctx, path.of(ctx, "f"))), .NotFound);
 }
 
 test "removeTree on an empty directory takes the directory" {
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "scratch")));
     assert.ok(fs.removeTree(ctx, path.of(ctx, "scratch")));
@@ -432,19 +432,19 @@ test "a tree nothing may write to is left where it is" {
     // refusal came before anything went.
     let files = disk().files([("t/a", "A"), ("t/deep/b", "B")]);
     let building = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(building, path.of(building, "t/deep")));
     let frozen = files.readOnly();
     let sealed = context {
-        Alloc: alloc(),
-        FsRead: frozen,
-        FsWrite: frozen,
+        Allocator: alloc(),
+        FileSystemRead: frozen,
+        FileSystemWrite: frozen,
     };
-    assert.eq(assert.err(fs.removeTree(sealed, path.of(sealed, "t"))), .ReadOnly);
-    assert.eq(files.snapshot(), [("t/a", "A"), ("t/deep/b", "B")]);
+    assert.equal(assert.err(fs.removeTree(sealed, path.of(sealed, "t"))), .ReadOnly);
+    assert.equal(files.snapshot(), [("t/a", "A"), ("t/deep/b", "B")]);
 }
 
 test "removeTree stops at the first entry it cannot take, and says which" {
@@ -452,15 +452,15 @@ test "removeTree stops at the first entry it cannot take, and says which" {
         .files([("t/a", "A"), ("t/b", "B")])
         .faults([removeFile("t/b").fails(.PermissionDenied)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "t")));
-    assert.eq(assert.err(fs.removeTree(ctx, path.of(ctx, "t"))), .PermissionDenied);
+    assert.equal(assert.err(fs.removeTree(ctx, path.of(ctx, "t"))), .PermissionDenied);
     // The one it reached first is gone, and the tree above it is still there:
     // this is the partly removed tree the doc comment names.
-    assert.eq(files.snapshot(), [("t/b", "B")]);
+    assert.equal(files.snapshot(), [("t/b", "B")]);
 }
 
 // -----------------------------------------------------------------------------
@@ -470,14 +470,14 @@ test "removeTree stops at the first entry it cannot take, and says which" {
 test "canonicalize answers the path the filesystem holds" {
     let files = disk().files([("a/b", "B")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
-    assert.eq(
+    assert.equal(
         assert.ok(fs.canonicalize(ctx, path.of(ctx, "a/b"))),
         path.of(ctx, "a/b"),
     );
-    assert.eq(assert.err(fs.canonicalize(ctx, path.of(ctx, "gone"))), .NotFound);
+    assert.equal(assert.err(fs.canonicalize(ctx, path.of(ctx, "gone"))), .NotFound);
 }
 
 test "the current directory canonicalizes and `..` has nothing to resolve to" {
@@ -486,57 +486,57 @@ test "the current directory canonicalizes and `..` has nothing to resolve to" {
     // `native::e2e`, which is the only place either question has an answer.
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
     };
-    assert.eq(assert.ok(fs.canonicalize(ctx, path.of(ctx, "."))), path.of(ctx, "."));
-    assert.eq(assert.err(fs.canonicalize(ctx, path.of(ctx, ".."))), .NotFound);
-    assert.eq(assert.err(fs.canonicalize(ctx, path.of(ctx, "a/../a"))), .NotFound);
+    assert.equal(assert.ok(fs.canonicalize(ctx, path.of(ctx, "."))), path.of(ctx, "."));
+    assert.equal(assert.err(fs.canonicalize(ctx, path.of(ctx, ".."))), .NotFound);
+    assert.equal(assert.err(fs.canonicalize(ctx, path.of(ctx, "a/../a"))), .NotFound);
 }
 
 test "a temporary directory is under TMPDIR and exists once it is made" {
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
-        Env: env().variables([("TMPDIR", "/scratch")]),
-        FsRead: files,
-        FsWrite: files,
+        Environment: env().variables([("TMPDIR", "/scratch")]),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     let made = assert.ok(fs.makeTemporaryDirectory(ctx, "build-"));
     assert.isTrue(made.startsWith(path.of(ctx, "/scratch")));
     assert.isTrue(fs.exists(ctx, made));
     // The prefix, then sixteen hex characters: `crypto.token(ctx, 8)`.
-    assert.eq(assert.some(made.fileName()).len(), 22);
+    assert.equal(assert.some(made.fileName()).length(), 22);
 }
 
 test "two temporary directories are two directories" {
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
-        Env: env(),
-        FsRead: files,
-        FsWrite: files,
+        Environment: env(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     let one = assert.ok(fs.makeTemporaryDirectory(ctx, "a"));
     let two = assert.ok(fs.makeTemporaryDirectory(ctx, "a"));
-    assert.notEq(one, two);
+    assert.notEqual(one, two);
     assert.isTrue(one.startsWith(path.of(ctx, "/tmp")));
 }
 
 test "an empty prefix is a name of sixteen hex characters and nothing else" {
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
-        Env: env(),
-        FsRead: files,
-        FsWrite: files,
+        Environment: env(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     let made = assert.ok(fs.makeTemporaryDirectory(ctx, ""));
-    assert.eq(assert.some(made.fileName()).len(), 16);
-    assert.eq(assert.some(made.parent()), path.of(ctx, "/tmp"));
+    assert.equal(assert.some(made.fileName()).length(), 16);
+    assert.equal(assert.some(made.parent()), path.of(ctx, "/tmp"));
 }
 
 test "a prefix with a separator in it names a directory further down" {
@@ -545,11 +545,11 @@ test "a prefix with a separator in it names a directory further down" {
     // rejected. Every parent is created, so what comes back is still there.
     let files = disk();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
-        Env: env().variables([("TMPDIR", "/scratch")]),
-        FsRead: files,
-        FsWrite: files,
+        Environment: env().variables([("TMPDIR", "/scratch")]),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     let made = assert.ok(fs.makeTemporaryDirectory(ctx, "buri/build-"));
     assert.isTrue(made.startsWith(path.of(ctx, "/scratch/buri")));
@@ -564,15 +564,15 @@ test "a prefix with a separator in it names a directory further down" {
 test "the four new methods are calls the log reports" {
     let files = disk().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     let _ = assert.ok(fs.metadata(ctx, path.of(ctx, "a")));
     let _ = assert.ok(fs.readRange(ctx, path.of(ctx, "a"), 0, 1));
     let _ = assert.ok(fs.canonicalize(ctx, path.of(ctx, "a")));
     assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
-    assert.eq(files.calls(), [
+    assert.equal(files.calls(), [
         metadata("a"),
         readRange("a"),
         realPath("a"),
@@ -585,11 +585,11 @@ test "a fault fires on the method it names" {
         .files([("a", "A")])
         .faults([copyFile("a", "b").fails(.ReadOnly)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
         .ReadOnly,
     );
@@ -600,15 +600,15 @@ test "a call the plan failed writes nothing" {
         .files([("a", "A")])
         .faults([copyFile("a", "b").fails(.ReadOnly)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
         .ReadOnly,
     );
-    assert.eq(files.snapshot(), [("a", "A")]);
+    assert.equal(files.snapshot(), [("a", "A")]);
 }
 
 test "a call the plan failed is still a call the log has" {
@@ -616,13 +616,13 @@ test "a call the plan failed is still a call the log has" {
         .files([("a", "A")])
         .faults([copyFile("a", "b").fails(.ReadOnly)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
         .ReadOnly,
     );
-    assert.eq(files.calls(), [copyFile("a", "b")]);
+    assert.equal(files.calls(), [copyFile("a", "b")]);
 }

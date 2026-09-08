@@ -4,14 +4,14 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
 
-derive Eq, Show for Node3;
+derive Equal, Show for Node3;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node3 {
@@ -38,7 +38,7 @@ export fn lift3(n: Node2): Node3 {
     Node3 { label: n.label, value: n.value + seed3(), weight: n.weight }
 }
 
-derive Eq, Show for Rec3_0;
+derive Equal, Show for Rec3_0;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec3_0 {
     export f0: Int,
@@ -52,20 +52,20 @@ impl Rec3_0 {
         self.f0 * factor + 53
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec3_0: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe3_0<C: Alloc>(ctx: C): Int {
+export fn probe3_0<C: Allocator>(ctx: C): Int {
     let r = Rec3_0 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach3<C: Alloc>(ctx: C): Int {
+export fn reach3<C: Allocator>(ctx: C): Int {
     0 + probe3_0(ctx) + reach2(ctx) + reach0(ctx) + reach1(ctx)
 }

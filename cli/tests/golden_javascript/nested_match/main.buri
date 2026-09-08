@@ -1,6 +1,6 @@
 // A match on a nested enum, where the outer tag is established once but every
 // inner arm re-establishes it.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -31,7 +31,7 @@ fn render(o: Outer): Str {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io

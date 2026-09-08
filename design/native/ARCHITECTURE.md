@@ -30,7 +30,7 @@ cli/src/compiler/
     dce.rs              reachability + drop, after inlining
     tail_calls.rs       *rewrites* rather than advises
     decision.rs         match arms -> a decision tree
-    derives.rs          a generated Show/Eq/Hash/Json per type
+    derives.rs          a generated Show/Equal/Hash/Json per type
     fuse.rs             combinator chains -> one loop, native only
     closures.rs         lambda -> code pointer + environment record
     rc.rs               own/borrow inference, elision, reuse
@@ -137,7 +137,7 @@ it, because inlining a constructor into a projection is what makes most folding
 possible and folding is what exposes the next round's call sites.
 
 `derives`, `fuse` and `rc` run on the native branch only. `derives` generates a
-`Show`, `Eq`, `Hash` and `ToJson`/`FromJson` per type where JavaScript walks a
+`Show`, `Equal`, `Hash` and `ToJson`/`FromJson` per type where JavaScript walks a
 descriptor at run time (VALUE-MODEL.md §9). `fuse` collapses a combinator chain
 into one loop, deleting an intermediate list that costs `malloc` plus a copy
 natively. `rc` inserts and elides reference-count operations, which a
@@ -221,8 +221,8 @@ pub trait Backend {
     /// question asked per backend.
     ///
     /// It takes `&Tables` because deciding whether a key has a body goes through
-    /// the same code the emission does — `Gen::intrinsic`, which resolves
-    /// `num.*` through the *type* of the function it is implementing — and that
+    /// the same code the emission does — `Generator::intrinsic`, which resolves
+    /// `number.*` through the *type* of the function it is implementing — and that
     /// needs the type table. A version without it would be a second
     /// implementation of the question, and the two would drift.
     fn missing_intrinsics(&self, program: &Program, tables: &Tables) -> Vec<String>;

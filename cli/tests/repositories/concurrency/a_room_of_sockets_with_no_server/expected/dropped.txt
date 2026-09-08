@@ -1,5 +1,5 @@
 FAIL //lib/room  test/broadcast.buri  "a message to a socket the room closed is dropped, and the close is not"
-  assert.eq failed
+  assert.equal failed
     actual:   2
     expected: 1
   --> lib/room/test/broadcast.buri:21:1

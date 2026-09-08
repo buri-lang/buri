@@ -6,6 +6,6 @@ from "core/testing/assert" import * as assert;
 from "//cmd/tool/main.buri" import { banner, route };
 
 test "the entry point's own exports are what the suite sees" {
-    assert.eq(banner(), "tool");
-    assert.eq(route("/nope"), "fallback");
+    assert.equal(banner(), "tool");
+    assert.equal(route("/nope"), "fallback");
 }

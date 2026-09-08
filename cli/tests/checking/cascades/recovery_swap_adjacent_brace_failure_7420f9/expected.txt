@@ -1,0 +1,28 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:91:70
+   |
+91 |     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [} ];
+   |                                                                      ^
+   |
+  --> main.buri:91:69
+   |
+91 |     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [} ];
+   |                                                                     ^ opened here
+   |
+   = fix: write `]` here
+error: expected `;`, found `]` [unexpected-token]
+  --> main.buri:91:72
+   |
+91 |     let silent = fn(_c, _r) => Response { modules: [], diagnostics: [} ];
+   |                                                                        ^
+   |
+   = expected: `;`
+   = actual: `]`
+   = fix: write `;` here
+error: there is nothing named `silent` in scope [unresolved-name]
+  --> main.buri:93:37
+   |
+93 |         assert.err(codegen.run(ctx, silent)),
+   |                                     ^^^^^^
+   |
+   = fix: declare `silent`, or import it — a name is in scope only from this module's own declarations and its imports

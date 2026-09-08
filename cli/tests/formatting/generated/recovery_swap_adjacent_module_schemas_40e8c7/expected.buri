@@ -1,0 +1,88 @@
+// What these tests drive: a `.proto` text in, the module it becomes out.
+//
+// The assertions are on the *printed text* rather than on the tree, because the
+// text is what the compiler parses and what a reader of `buri docs` sees. A
+// tree assertion would pass just as happily if the printer and the generator
+// drifted together.
+
+from "core/buri/ast" import * as ast;
+from "core/bytes" import * as bytes;
+from "core/effect" import { Allocator };
+from "std/codegen/proto" import * as proto;
+from "std/codegen/proto/schema" import * as schema;
+
+/// The path every schema here is read from. Every origin names it.
+export let FILE: Str = "lib/wire/point.proto";
+
+/// `edition = "2026";`, which every schema starts with.
+export let HEAD: Str = "edition = \"2026\";\n";
+
+/// The generator's answer: the tree, and what it had to say about the schema.
+export fn generated<C: Allocator>(ctx: C, text: Str): proto.Generated {
+    proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [])
+}
+
+/// The same, with a second schema in scope under the module path its generated
+/// form has.
+export fn generatedWith<C: Allocator>(
+    ctx: C,
+    text: Str,
+    depPath: Str,
+    dep: Str,
+): proto.Generated {
+    proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [
+        (depPath, schema.parse(ctx, dep, depPath).schema),
+    ])
+}
+
+/// The printed module, and the map back to the schema.
+export fn printed<C: Allocator>(ctx: C, text: Str): ast.{ Printed
+    ast.print(ctx, generated(ctx, text).tree)
+}
+
+/// The lines of the printed module, which is what a golden reads as.
+export fn lines<C: Allocator>(ctx: C, text: Str): [Str] {
+    printed(ctx, text).text.lines(ctx)
+}
+
+/// The `count` lines that begin at `head`, so a golden can be a block of the
+/// module rather than one line at a time.
+export fn block<C: Allocator>(ctx: C, out: [Str], head: Str, count: Int): [Str] {
+    match (out.findIndex(fn(l) => l == head)) {
+        .Some(i) => out.slice(ctx, i, i + count),
+        .None => [],
+    }
+}
+
+/// The anchor whose printed text is exactly `piece`.
+///
+/// This is how a test asks what a generated declaration came from. The
+/// comparison is on **bytes**, because an anchor is a byte range and
+/// `Str.slice` indexes by scalar value — the two part company at the first
+/// non-ASCII character, and a generated module holds em dashes in its
+/// documentation.
+export fn anchorOf<C: Allocator>(
+    ctx: C,
+    out: ast.Printed,
+    piece: Str,
+): Option<ast.Anchor> {
+    let raw = bytes.toUtf8(ctx, out.text);
+    let wanted = bytes.toUtf8(ctx, piece);
+    let hit = out
+        .anchors
+        .mapCtx(ctx, fn(c, a) => (a, raw.slice(c, a.start, a.end)))
+        .find(fn(pair) => pair.1 == wanted);
+    match (hit) {
+        .Some(pair) => .Some(pair.0),
+        .None => .None,
+    }
+}
+
+/// The schema text an origin covers, so it reads as the declaration it points
+/// at rather than as two numbers.
+///
+/// Every schema these tests read is ASCII, so slicing it by scalar value is
+/// slicing it by byte.
+export fn spanText(schemaText: Str, o: ast.Origin): Str {
+    schemaText.slice(o.span.start, o.span.end)
+}

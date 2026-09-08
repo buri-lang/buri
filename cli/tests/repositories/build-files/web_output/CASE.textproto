@@ -12,14 +12,14 @@
 # first paint and the module has nothing left to do about them.
 #
 # **A platform is the set of effects its host exports.** `Ui: host.ui` resolves
-# under WEB and under nothing else; `FsRead: host.fs` resolves everywhere else and
+# under WEB and under nothing else; `FileSystemRead: host.fs` resolves everywhere else and
 # not under WEB. Both directions are edited in below, because a rule that fires
 # in one direction is a rule nobody can rely on.
 #
-# It was `Net` on that second line until a request stopped blocking the thread
-# that asked. WEB withheld `net` because `Net.fetch` did not return until the
+# It was `Network` on that second line until a request stopped blocking the thread
+# that asked. WEB withheld `net` because `Network.fetch` did not return until the
 # answer arrived and a page whose one thread is waiting is a frozen page; a
-# suspending call blocks nothing, so WEB grants `Net` now and the filesystem is what is
+# suspending call blocks nothing, so WEB grants `Network` now and the filesystem is what is
 # left on this side of the line — a page has no filesystem, and no wave of this
 # work changes that.
 #
@@ -90,13 +90,13 @@ edit {
 edit {
   file: "cmd/counter/main.buri"
   replace: "    Ui: host.ui,"
-  with: "    FsRead: host.fs,\n    Ui: host.ui,"
+  with: "    FileSystemRead: host.fs,\n    Ui: host.ui,"
 }
 
 edit {
   file: "cmd/counter/main.buri"
-  replace: "import { Alloc, Stdout };"
-  with: "import { Alloc, Stdout };\nfrom \"core/fs\" import { FsRead };"
+  replace: "import { Allocator, Stdout };"
+  with: "import { Allocator, Stdout };\nfrom \"core/fs\" import { FileSystemRead };"
 }
 
 run {
@@ -106,12 +106,12 @@ run {
 }
 
 # And the implementation struct goes with the value. A host struct has no
-# private field, so exporting `HostFs` while withholding `fs` would leave the
-# authority one `FsRead: host.HostFs {}` away.
+# private field, so exporting `HostFileSystem` while withholding `fs` would leave the
+# authority one `FileSystemRead: host.HostFileSystem {}` away.
 edit {
   file: "cmd/counter/main.buri"
-  replace: "    FsRead: host.fs,"
-  with: "    FsRead: host.HostFs {},"
+  replace: "    FileSystemRead: host.fs,"
+  with: "    FileSystemRead: host.HostFileSystem {},"
 }
 
 run {
@@ -122,14 +122,14 @@ run {
 
 edit {
   file: "cmd/counter/main.buri"
-  replace: "    FsRead: host.HostFs {},\n"
+  replace: "    FileSystemRead: host.HostFileSystem {},\n"
   with: ""
 }
 
 edit {
   file: "cmd/counter/main.buri"
-  replace: "import { Alloc, Stdout };\nfrom \"core/fs\" import { FsRead };"
-  with: "import { Alloc, Stdout }\n\n;"
+  replace: "import { Allocator, Stdout };\nfrom \"core/fs\" import { FileSystemRead };"
+  with: "import { Allocator, Stdout }\n\n;"
 }
 
 # A WEB output takes neither of the two fields a JS output can: an `arch` is

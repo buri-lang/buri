@@ -4,7 +4,7 @@
 // one hands the context over and the parameter is a second context under
 // another name. Compare `//lib/semantics`'s `Widget<C>`, whose `C` occurs only
 // as a handler's own first parameter and which is therefore ordinary data.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -13,12 +13,12 @@ enum Boxed<C> {
   Nothing,
 }
 
-fn peek<C: Alloc + Stdout>(ctx: C, held: Boxed<C>): Int {
+fn peek<C: Allocator + Stdout>(ctx: C, held: Boxed<C>): Int {
   0
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${peek(ctx, .Nothing)}").ignore();
   .Ok(())
 }

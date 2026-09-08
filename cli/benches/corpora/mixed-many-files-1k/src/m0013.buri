@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
@@ -13,7 +13,7 @@ from "//bench/m0006.buri" import { blend6, Node6, reach6, seed6 };
 from "//bench/m0010.buri" import { blend10, Node10, reach10, seed10 };
 from "//bench/m0012.buri" import { blend12, Node12, reach12, seed12 };
 
-derive Eq, Show for Node13;
+derive Equal, Show for Node13;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node13 {
@@ -44,7 +44,7 @@ export fn lift13(n: Node4): Node13 {
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label13_0<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label13_0<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "alpha" } else { "bravo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -57,14 +57,14 @@ export fn constants13_0(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_0<C: Alloc>(ctx: C): Int {
+export fn probe13_0<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants13_0();
-    label13_0(ctx, a, e).len() + b
+    label13_0(ctx, a, e).length() + b
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach13<C: Alloc>(ctx: C): Int {
+export fn reach13<C: Allocator>(ctx: C): Int {
     0
         + probe13_0(ctx)
         + reach4(ctx)

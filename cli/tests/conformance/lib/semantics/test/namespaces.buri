@@ -23,28 +23,28 @@ from "//lib/semantics" import * as semantics;
 
 test "a nullary variant is reached through the namespace" {
     let s: semantics.Shape = semantics.Shape.Empty;
-    assert.eq(s, .Empty);
+    assert.equal(s, .Empty);
 }
 
 test "a tuple payload is reached through the namespace" {
     let s: semantics.Shape = semantics.Shape.Circle(2.0);
-    assert.eq(s, .Circle(2.0));
+    assert.equal(s, .Circle(2.0));
 }
 
 test "a record payload is reached through the namespace" {
     let s: semantics.Shape = semantics.Shape.Rect { width: 3.0, height: 4.0 };
-    assert.eq(s, .Rect { width: 3.0, height: 4.0 });
+    assert.equal(s, .Rect { width: 3.0, height: 4.0 });
 }
 
 test "a generic enum's variant is reached through the namespace" {
     let filled: semantics.Slot<Int> = semantics.Slot.Filled(7);
     let vacant: semantics.Slot<Int> = semantics.Slot.Vacant;
-    assert.eq(filled.slotOr(0), 7);
-    assert.eq(vacant.slotOr(0), 0);
+    assert.equal(filled.slotOr(0), 7);
+    assert.equal(vacant.slotOr(0), 0);
 }
 
 test "the value built through the namespace carries its methods" {
-    assert.eq(semantics.Shape.Rect { width: 3.0, height: 4.0 }.area(), 12.0);
+    assert.equal(semantics.Shape.Rect { width: 3.0, height: 4.0 }.area(), 12.0);
 }
 
 // -----------------------------------------------------------------------------
@@ -60,9 +60,9 @@ fn measure(s: semantics.Shape): Float {
 }
 
 test "every payload form matches through the namespace" {
-    assert.eq(measure(semantics.Shape.Circle(2.0)), 2.0);
-    assert.eq(measure(semantics.Shape.Rect { width: 3.0, height: 4.0 }), 12.0);
-    assert.eq(measure(semantics.Shape.Empty), 0.0);
+    assert.equal(measure(semantics.Shape.Circle(2.0)), 2.0);
+    assert.equal(measure(semantics.Shape.Rect { width: 3.0, height: 4.0 }), 12.0);
+    assert.equal(measure(semantics.Shape.Empty), 0.0);
 }
 
 test "a namespaced pattern sits beside a dotted one and an alternation" {
@@ -77,7 +77,7 @@ test "a namespaced pattern sits beside a dotted one and an alternation" {
 // 3. The enum keeps everything else it had
 // -----------------------------------------------------------------------------
 
-test "a derived `Ord` ranks the variants the same through the alias" {
+test "a derived `Ordered` ranks the variants the same through the alias" {
     assert.isTrue(semantics.Level.Low < semantics.Level.High);
-    assert.eq(semantics.Level.Medium, .Medium);
+    assert.equal(semantics.Level.Medium, .Medium);
 }

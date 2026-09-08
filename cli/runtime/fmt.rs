@@ -250,7 +250,7 @@ pub unsafe extern "C" fn buri_rt_show_u128(lo: u64, hi: u64, out: *mut BuriStr) 
 }
 
 /// A `Char` as a one-scalar `Str` — a template hole at `Char`, and
-/// `num.<T>.toChar` reaching a rendering.
+/// `number.<T>.toChar` reaching a rendering.
 ///
 /// `$str` of a `Char` on JavaScript is the character itself, because a `Char`
 /// *is* a one-character string there. An unpaired or out-of-range scalar

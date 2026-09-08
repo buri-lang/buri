@@ -2,5 +2,5 @@ from "core/testing/assert" import * as assert;
 from "//lib/shop" import { shopfront };
 
 test "the shopfront is where the doc comment says" {
-    assert.eq(shopfront(), "https://example.org/shop");
+    assert.equal(shopfront(), "https://example.org/shop");
 }

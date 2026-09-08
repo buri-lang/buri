@@ -21,7 +21,7 @@ run {
 edit {
   file: "lib/money/test/cents.buri"
   replace: "  let _ = fromCents(150);\n"
-  with: "  assert.eq(fromCents(150), Cents(150))\n"
+  with: "  assert.equal(fromCents(150), Cents(150))\n"
 }
 
 run {

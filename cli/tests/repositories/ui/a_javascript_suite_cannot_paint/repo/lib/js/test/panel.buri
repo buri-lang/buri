@@ -2,7 +2,7 @@
 // backends and the painter runs on one, so the two together say where the line
 // is drawn.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
@@ -17,18 +17,18 @@ test "a signal reads back what was written, whichever backend runs it" {
     };
     let n = signal(ctx, 1);
     let _ = n.set(ctx, 7);
-    assert.eq(n.get(ctx), 7);
+    assert.equal(n.get(ctx), 7);
 }
 
 test "the panel" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(
         ctx,
         "panel",
-        ui.column([.Padding(.Px(16))], [ui.heading(2, .Const("panel"))]),
+        ui.column([.Padding(.Px(16))], [ui.heading(2, [], .Const("panel"))]),
         .Hover,
     );
 }

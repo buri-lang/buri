@@ -84,7 +84,7 @@
 (generic_parameter name: (identifier) @type.parameter)
 
 ; A type path's last segment is the type; the ones before it are the module it
-; came from, and colouring them the same makes `effects.Alloc` read as one word.
+; came from, and colouring them the same makes `effects.Allocator` read as one word.
 (named_type (type_path (identifier) @type))
 (array_type "[" @punctuation.bracket)
 
@@ -141,7 +141,7 @@
 
 ; --- Imports -----------------------------------------------------------------
 ; A specifier names whatever the module exported, and its shape is the only
-; evidence a grammar has: `Alloc` is a type, `map` is a function.
+; evidence a grammar has: `Allocator` is a type, `map` is a function.
 (import_specifier name: (identifier) @function)
 (import_specifier alias: (identifier) @function)
 ((import_specifier name: (identifier) @type)

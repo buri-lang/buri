@@ -1,0 +1,7 @@
+error: a `derive` declaration ends with `;` [missing-terminator]
+  --> main.buri:12:38
+   |
+12 | derive Equal, Ordered, Show for Cents
+   |                                      ^
+   |
+   = fix: write `;` here

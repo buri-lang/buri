@@ -8,14 +8,14 @@
 // What to read for in the record: every one of these is a `while(true)` whose
 // short-circuit is a `return` of the literal the operator gives, and whose
 // recursion is a rebinding plus `continue`.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 
 // `&&`: the shape of `all`.
 fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
-    if (i >= xs.len()) {
+    if (i >= xs.length()) {
         true
     } else {
         xs.get(i).withDefault(0) < limit && allBelow(xs, limit, i + 1)
@@ -24,7 +24,7 @@ fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
 
 // `||`: the mirror image, the shape of `any`.
 fn anyAtLeast(xs: [Int], limit: Int, i: Int): Bool {
-    if (i >= xs.len()) {
+    if (i >= xs.length()) {
         false
     } else {
         xs.get(i).withDefault(0) >= limit || anyAtLeast(xs, limit, i + 1)
@@ -39,7 +39,7 @@ fn bothSmall(a: Int, b: Int): Bool {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let xs = [3, 1, 4, 1, 5];

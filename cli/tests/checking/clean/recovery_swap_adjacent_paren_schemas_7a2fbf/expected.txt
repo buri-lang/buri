@@ -1,0 +1,9 @@
+error: expected `=>`, found `l` [unexpected-token]
+  --> main.buri:51:32
+   |
+51 |     match (out.findIndex(fn(l) l => == head)) {
+   |                                ^
+   |
+   = expected: `=>`
+   = actual: `l`
+   = fix: write `=>` here

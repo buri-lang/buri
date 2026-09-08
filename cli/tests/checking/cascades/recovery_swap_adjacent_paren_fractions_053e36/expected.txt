@@ -1,0 +1,31 @@
+error: `equal` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:22:5
+   |
+22 |     assert.equal(time.secondsFloat(0.0 - 0.25)time ,.milliseconds(0 - 250));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:22:47
+   |
+22 |     assert.equal(time.secondsFloat(0.0 - 0.25)time ,.milliseconds(0 - 250));
+   |                                               ^
+   |
+   = fix: write `,` here
+error: there is nothing named `time` in scope [unresolved-name]
+  --> main.buri:22:47
+   |
+22 |     assert.equal(time.secondsFloat(0.0 - 0.25)time ,.milliseconds(0 - 250));
+   |                                               ^^^^
+   |
+   = `time` is a module namespace; name a member of it
+   = fix: correct the spelling, or declare it
+error: `.milliseconds` needs a known expected type [unannotated-variant]
+  --> main.buri:22:53
+   |
+22 |     assert.equal(time.secondsFloat(0.0 - 0.25)time ,.milliseconds(0 - 250));
+   |                                                     ^^^^^^^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.milliseconds(...)`, or annotate what this value is being used as

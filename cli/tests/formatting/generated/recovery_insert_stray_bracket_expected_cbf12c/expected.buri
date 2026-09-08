@@ -18,7 +18,7 @@ let SEED: [U32] = [
     1541459225,
 ];
 
-derive Eq, Ord for Working;
+derive Equal, Ordered for Working;
 export struct Working {
     export a: U32,
     export b: U32,
@@ -32,22 +32,22 @@ export enum Shape {
 }
 
 export trait Weigh {
-    fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float;
+    fn grams<C: Allocator + Stdout>(self, ctx: C, scale: Str): Float;
 }
 
 impl Weigh for Working {
-    fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float {
-        let heavy = self.a > 0 && self.b > 0 && self.h > 0 && scale.len() > 0;
+    fn grams<C: Allocator + Stdout>(self, ctx: C, scale: Str): Float {
+        let heavy = self.a > 0 && self.b > 0 && self.h > 0 && scale.length() > 0;
         if (heavy) { 1.0 } else { 0.0 }
     }
 }
 
 export context Everything {
     Clock: Fixed(0),
-    Alloc: System(),
+    Allocator: System(),
 }
 
-export fn everything<C: Alloc>(ctx: C, b: [U8], o: Option<Int>): Str {
+export fn everything<C: Allocator>(ctx: C, b: [U8], o: Option<Int>): Str {
     let hexed = b
         .mapCtx(ctx, fn(c, x) => {
             let n = x.toI64();
@@ -62,7 +62,7 @@ export fn everything<C: Alloc>(ctx: C, b: [U8], o: Option<Int>): Str {
 }
 
 test "everything" {
-    assert.eq(
+    assert.equal(
         everything(Everything(), [1, 2, 3], .Some(6)),
         "a string long enough that the call around it cannot stay on one line",
     );

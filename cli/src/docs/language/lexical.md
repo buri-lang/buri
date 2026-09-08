@@ -124,7 +124,7 @@ time performs, so a derived `x.show(ctx)` drops its context and
 `io.println(ctx, "${point}")` still needs only the `stdout` effect.
 
 A hole will not take a **hand-written** `impl Show`. A `Template` names no
-context to call its `show<C: Alloc>(self, ctx: C)` with, so write the conversion
+context to call its `show<C: Allocator>(self, ctx: C)` with, so write the conversion
 yourself:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"

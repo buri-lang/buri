@@ -1,0 +1,37 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_closer_paren_app_aa912e/main.buri:16:24
+   |
+16 | fn width<C: Allocator>(ctx: C, label: Str): Int {
+   |                        ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_aa912e/main.buri:34:53
+   |
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                                     ^^
+   |
+  --> lib/recovery_delete_closer_paren_app_aa912e/main.buri:34:45
+   |
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                             ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `:` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_app_aa912e/main.buri:34:72
+   |
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                                                        ^
+   |
+   = expected: `=>`
+   = actual: `:`
+   = fix: write `=>` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_delete_closer_paren_app_aa912e/main.buri:51:23
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
+   |                       ^^^^^^^^
+   |
+   = did you mean `Ordered`?
+   = fix: correct the spelling, or declare it

@@ -4,9 +4,9 @@
 from "core/testing/assert" import * as assert;
 
 test "alpha fails" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "alpha passes" {
-    assert.eq(1, 1);
+    assert.equal(1, 1);
 }

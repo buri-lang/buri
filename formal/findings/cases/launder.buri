@@ -6,7 +6,7 @@
 // effect-carrying `self`, no context construction, and no lambda in its body
 // captures anything the taint predicate flags -- `T` is unbounded, and
 // `fn(T) => ()` is untainted because only the RESULT counts (types.rs:575).
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -16,7 +16,7 @@ fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 

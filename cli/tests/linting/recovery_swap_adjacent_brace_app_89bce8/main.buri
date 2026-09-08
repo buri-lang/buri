@@ -16,7 +16,7 @@ from "core/io" import * as io;
 
 fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
     ( matchio.println(ctx, line)) {
-        .Ok(_written) => .Ok(line.len()),
+        .Ok(_written) => .Ok(line.length()),
         .Err(_error) => .Err("could not write to standard output"),
     }
 }

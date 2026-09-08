@@ -26,7 +26,7 @@ Add `derive Show for Point;` to `Point`'s own module and the hole above
 compiles, printing what `p.show(ctx)` produces.
 
 A **hand-written** `impl Show` is the other case, and it stays your call.
-`show<C: Alloc>(self, ctx: C)` names a context the interpolation cannot reach,
+`show<C: Allocator>(self, ctx: C)` names a context the interpolation cannot reach,
 so write the conversion out.
 
 ```buri ignore why="the fix, not a failure: it needs a Show impl and a ctx the page does not declare"

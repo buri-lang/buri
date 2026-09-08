@@ -40,7 +40,7 @@ Hand-roll one and you get a wrong answer that compiles.
   value carrying it (`effect-method-call`). The doors are `core/io`, `core/fs`,
   `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
   `core/net/server`, `core/process`, `core/tasks` and `ui/signal`. The
-  filesystem is **two** effects, `FsRead` and `FsWrite`. `core/fs` declares
+  filesystem is **two** effects, `FileSystemRead` and `FileSystemWrite`. `core/fs` declares
   both, not `core/effect`, and every function there takes a `Path` from
   `core/path` rather than a `Str`. See the `buri-types` skill.
 - **A bare identifier in a pattern is always a binding.** `None` binds a
@@ -63,7 +63,7 @@ Hand-roll one and you get a wrong answer that compiles.
 ## A whole program
 
 ```buri
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -93,7 +93,7 @@ impl Shape {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 
@@ -110,8 +110,8 @@ only an entry may build a context; only `main.buri` may import `core/host`.
 `outputs` may name a second entry — `{ platform: CLOUDFLARE_WORKER, entry:
 "fetch" }` enters at `fn fetch(request: Request): Response`.
 
-**Import the effect names.** `context { Alloc: host.alloc }` without
-`from "core/effect" import { Alloc };` above it fails with `not-an-effect`.
+**Import the effect names.** `context { Allocator: host.alloc }` without
+`from "core/effect" import { Allocator };` above it fails with `not-an-effect`.
 
 ## Modules
 
@@ -161,7 +161,7 @@ impl Meters {
     export fn doubled(self): Meters { Meters(self.0 * 2.0) }
 }
 
-derive Eq, Ord, Show for Meters;
+derive Equal, Ordered, Show for Meters;
 ```
 
 - Every top-level `fn` **must** write its return type, and its parameter
@@ -182,7 +182,7 @@ and each ends with `;`.
 let hypotenuse = {
     let a2 = a * a;
     let b2 = b * b;
-    math.sqrt(a2 + b2)
+    math.squareRoot(a2 + b2)
 };
 
 let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positive" };
@@ -204,7 +204,7 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
   unreachable arm is a compile error.
 - Comparison is **non-associative**: `a < b < c` is a parse error.
 - Bitwise binds tighter than comparison, so `a & MASK == 0` is `(a & MASK) == 0`.
-- There is no `<<`/`>>`; use `bits.shl(x, n)` and `bits.shr(x, n)`.
+- There is no `<<`/`>>`; use `bits.shiftLeft(x, n)` and `bits.shiftRight(x, n)`.
 - A lambda body extends as far right as possible, so `2 * fn(x) => x` is a
   parse error — parenthesise it.
 - Shadowing is allowed, including twice in one block.
@@ -212,7 +212,7 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ### `?` and defaults
 
 ```buri
-fn loadPort<C: Alloc + FsRead>(ctx: C, at: Path): Result<Int, ConfigError> {
+fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, ConfigError> {
     let text = fs.readText(ctx, at)?;         // Err(e) => return Err(e)
     let cfg = parseConfig(text)?;
     .Ok(cfg.port.withDefault(8080))

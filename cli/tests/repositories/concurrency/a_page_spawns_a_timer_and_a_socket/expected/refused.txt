@@ -1,5 +1,5 @@
 FAIL //lib/page  test/feed.buri  "a scope waits for the socket loop and the timer it was given"
-  assert.eq failed
+  assert.equal failed
     actual:   "mounted\nframe a\nframe b\nsocket closed\nsessions expired at 300000\n"
     expected: "mounted\n"
   --> lib/page/test/feed.buri:11:1

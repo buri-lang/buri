@@ -7,25 +7,25 @@
 // then runs it.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
-fn roundTrip<C: Alloc>(ctx: C, source: Str): Str {
+fn roundTrip<C: Allocator>(ctx: C, source: Str): Str {
     match (ast.parse(ctx, "probe.buri", source)) {
         .Ok(m) => ast.print(ctx, m).text,
         .Err(errors) => errors.map(ctx, fn(e) => e.message).join(ctx, "; "),
     }
 }
 
-fn same<C: Alloc>(ctx: C, source: Str): () {
-    assert.eq(roundTrip(ctx, source), source)
+fn same<C: Allocator>(ctx: C, source: Str): () {
+    assert.equal(roundTrip(ctx, source), source)
 }
 
 test "declarations" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "export type Id = Int;\n");
     same(ctx, "type Pair = (Int, Str);\n");
@@ -37,28 +37,31 @@ test "declarations" {
 
 test "imports" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "from \"core/list\" import * as list;\n");
-    same(ctx, "from \"core/effect\" import { Alloc };\n");
-    same(ctx, "from \"core/order\" import { Eq, Ord };\n");
-    same(ctx, "from \"core/order\" import { Eq as Equal };\n");
+    same(ctx, "from \"core/effect\" import { Allocator };\n");
+    same(ctx, "from \"core/order\" import { Equal, Ordered };\n");
+    same(ctx, "from \"core/order\" import { Equal as Equal };\n");
     same(ctx, "from \"//lib/money\" export { Cents };\n");
 }
 
 test "functions" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "export fn f(): Int {\n    1\n}\n");
     same(ctx, "fn g(a: Int, b: Str): Bool {\n    true\n}\n");
-    same(ctx, "fn h<T: Eq + Ord, C: Alloc>(ctx: C, item: T): T {\n    item\n}\n");
+    same(
+        ctx,
+        "fn h<T: Equal + Ordered, C: Allocator>(ctx: C, item: T): T {\n    item\n}\n",
+    );
     same(ctx, "fn nothing(): () {\n    ()\n}\n");
 }
 
 test "structs and enums" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "export struct Point {\n    export x: Int,\n    y: Int,\n}\n");
     same(ctx, "struct Meters(export Float);\n");
@@ -71,9 +74,12 @@ test "structs and enums" {
 
 test "traits, effects and impls" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    same(ctx, "export trait Show {\n    fn show<C: Alloc>(self, ctx: C): Str;\n}\n");
+    same(
+        ctx,
+        "export trait Show {\n    fn show<C: Allocator>(self, ctx: C): Str;\n}\n",
+    );
     same(ctx, "export effect Clock {\n    fn now(self): Int;\n}\n");
     same(ctx, "impl Point {\n    export fn area(self): Int {\n        1\n    }\n}\n");
     same(ctx, "impl<T> [T] {\n    fn head(self): Int {\n        0\n    }\n}\n");
@@ -83,27 +89,27 @@ test "traits, effects and impls" {
         ctx,
         "impl Show for Point {\n    fn show(self): Str {\n        \"p\"\n    }\n}\n",
     );
-    same(ctx, "derive Eq, Show for Point;\n");
+    same(ctx, "derive Equal, Show for Point;\n");
 }
 
 test "tests and contexts" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "test \"it holds\" {\n    ()\n}\n");
-    same(ctx, "context Fixture {\n    Alloc: alloc(),\n}\n");
-    same(ctx, "export context Fixture {\n    Alloc: alloc(),\n}\n");
+    same(ctx, "context Fixture {\n    Allocator: alloc(),\n}\n");
+    same(ctx, "export context Fixture {\n    Allocator: alloc(),\n}\n");
 }
 
 test "expressions" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "fn f(): Int {\n    1 + 2 * 3\n}\n");
     same(ctx, "fn f(): Int {\n    (1 + 2) * 3\n}\n");
     same(ctx, "fn f(): Bool {\n    a == b && c != d\n}\n");
     same(ctx, "fn f(): Int {\n    -x\n}\n");
-    same(ctx, "fn f(): Int {\n    xs.len()\n}\n");
+    same(ctx, "fn f(): Int {\n    xs.length()\n}\n");
     same(ctx, "fn f(): Int {\n    pair.0\n}\n");
     same(ctx, "fn f(): Int {\n    xs[0]\n}\n");
     same(ctx, "fn f(): Int {\n    g()?\n}\n");
@@ -122,7 +128,7 @@ test "expressions" {
 
 test "blocks, ifs and matches" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "fn f(): Int {\n    let a = 1;\n    a\n}\n");
     same(ctx, "fn f(): Int {\n    let a: Int = 1;\n    a\n}\n");
@@ -141,19 +147,19 @@ test "blocks, ifs and matches" {
 
 test "lambdas and contexts" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "fn f(): Int {\n    g(fn(x) => x)\n}\n");
     same(ctx, "fn f(): Int {\n    g(fn(x: Int): Int => x)\n}\n");
     same(
         ctx,
-        "fn f(): Int {\n    let ctx = context {\n        Alloc: alloc(),\n    };\n    1\n}\n",
+        "fn f(): Int {\n    let ctx = context {\n        Allocator: alloc(),\n    };\n    1\n}\n",
     );
 }
 
 test "patterns" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(
         ctx,
@@ -181,7 +187,7 @@ test "patterns" {
 
 test "doc comments come back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(ctx, "/// A row's key.\nexport type Id = Int;\n");
     same(ctx, "//! The module.\n\ntype Id = Int;\n");
@@ -189,23 +195,23 @@ test "doc comments come back" {
 
 test "a module of several declarations" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     same(
         ctx,
-        "from \"core/list\" import * as list;\n\nderive Eq, Show for Point;\nexport struct Point {\n    export x: Int,\n}\n\nexport fn area(p: Point): Int {\n    p.x * p.x\n}\n",
+        "from \"core/list\" import * as list;\n\nderive Equal, Show for Point;\nexport struct Point {\n    export x: Int,\n}\n\nexport fn area(p: Point): Int {\n    p.x * p.x\n}\n",
     );
 }
 
 test "a source that does not parse says where" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     match (ast.parse(ctx, "probe.buri", "export type = Int;\n")) {
         .Ok(_m) => assert.isTrue(false),
         .Err(errors) => {
-            assert.eq(errors.len(), 1);
-            assert.eq(
+            assert.equal(errors.length(), 1);
+            assert.equal(
                 assert.some(errors.first()).message,
                 "expected an identifier, found `=`",
             );
@@ -217,7 +223,7 @@ test "a source that does not parse says where" {
 
 test "a literal comes back spelled the way it was written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Plain decimal that fits is a number; everything else keeps its text.
     same(ctx, "let SMALL: Int = 32;\n");
@@ -231,46 +237,46 @@ test "a literal comes back spelled the way it was written" {
 
 test "every node knows the file and the bytes it came from" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let tree = assert.ok(ast.parse(ctx, "rows.buri", "type Id = Int;\n"));
     let item = assert.some(tree.items.first());
-    assert.eq(item.origin.file, "rows.buri");
-    assert.eq(item.origin.span, ast.Span { start: 0, end: 14 });
+    assert.equal(item.origin.file, "rows.buri");
+    assert.equal(item.origin.span, ast.Span { start: 0, end: 14 });
 }
 
 test "a printed module anchors the nodes it read" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let tree = assert.ok(ast.parse(ctx, "rows.buri", "type Id = Int;\n"));
     let printed = ast.print(ctx, tree);
-    assert.eq(printed.text, "type Id = Int;\n");
-    assert.gt(printed.anchors.len(), 0);
+    assert.equal(printed.text, "type Id = Int;\n");
+    assert.greaterThan(printed.anchors.length(), 0);
 }
 
 // --- what it refuses ------------------------------------------------------------------
 
 test "a mistake names what was wanted and what was there" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(errorsOf(ctx, "export type = Int;\n"), [
+    assert.equal(errorsOf(ctx, "export type = Int;\n"), [
         "expected an identifier, found `=`",
     ]);
-    assert.eq(errorsOf(ctx, "let x: Int = 1\n"), [
+    assert.equal(errorsOf(ctx, "let x: Int = 1\n"), [
         "expected `;`, found the end of the file",
     ]);
-    assert.eq(errorsOf(ctx, "while (x) {}\n"), [
+    assert.equal(errorsOf(ctx, "while (x) {}\n"), [
         "expected a declaration, found `while`",
     ]);
 }
 
 test "every declaration that failed is reported, not only the first" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(errorsOf(ctx, "type = Int;\ntype Ok = Int;\nenum = {}\n"), [
+    assert.equal(errorsOf(ctx, "type = Int;\ntype Ok = Int;\nenum = {}\n"), [
         "expected an identifier, found `=`",
         "expected an identifier, found `=`",
     ]);
@@ -278,17 +284,20 @@ test "every declaration that failed is reported, not only the first" {
 
 test "an error carries the span of the token it is about" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     match (ast.parse(ctx, "probe.buri", "type = Int;\n")) {
         .Ok(_tree) => assert.isTrue(false),
         .Err(errors) => {
-            assert.eq(assert.some(errors.first()).span, ast.Span { start: 5, end: 6 });
+            assert.equal(assert.some(errors.first()).span, ast.Span {
+                start: 5,
+                end: 6,
+            });
         },
     }
 }
 
-fn errorsOf<C: Alloc>(ctx: C, source: Str): [Str] {
+fn errorsOf<C: Allocator>(ctx: C, source: Str): [Str] {
     match (ast.parse(ctx, "probe.buri", source)) {
         .Ok(_tree) => [],
         .Err(errors) => errors.map(ctx, fn(e) => e.message),

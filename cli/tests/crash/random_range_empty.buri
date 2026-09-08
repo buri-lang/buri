@@ -1,7 +1,7 @@
 // CRASH: random range is empty
 // `nextInt` has no value to return when the range holds none, and there is no
 // `Option` in its signature to say so.
-from "core/effect" import { Alloc, Stdout, Env, Rand };
+from "core/effect" import { Allocator, Stdout, Environment, Random };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -9,13 +9,13 @@ from "core/random" import * as random;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
-    Env: host.env,
-    Rand: host.rand,
+    Environment: host.env,
+    Random: host.rand,
   };
   // Opaque to the compiler, so the call is really made.
-  let hi = env.args(ctx).len();
+  let hi = env.arguments(ctx).length();
   let _ = io.println(ctx, "${random.int(ctx, hi, hi)}").ignore();
   .Ok(())
 }

@@ -1,7 +1,7 @@
 // The library under test. Nothing here is a finding: the `testing/` half
 // beside it is what this case is about.
 
-derive Eq, Show for Cents;
+derive Equal, Show for Cents;
 export struct Cents(export I64);
 
 export fn fromCents(c: I64): Cents {

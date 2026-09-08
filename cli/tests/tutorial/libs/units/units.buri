@@ -1,8 +1,8 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/str" import * as str;
 
-derive Eq, Show for Unit;
+derive Equal, Show for Unit;
 /// A length unit. Every conversion goes through metres.
 export enum Unit {
     Metres,
@@ -11,14 +11,14 @@ export enum Unit {
     Feet,
 }
 
-derive Eq, Show for Quantity;
+derive Equal, Show for Quantity;
 /// A number with its unit attached, so the two cannot drift apart.
 export struct Quantity {
     export amount: Float,
     export unit: Unit,
 }
 
-derive Eq, Show for ParseError;
+derive Equal, Show for ParseError;
 /// Each variant carries the word, so a caller can say which one was wrong.
 export enum ParseError {
     NotANumber(Str),
@@ -75,9 +75,9 @@ impl Quantity {
         }
     }
 
-    /// `Alloc` and nothing else: building a `Str` allocates, and that is all
+    /// `Allocator` and nothing else: building a `Str` allocates, and that is all
     /// this does.
-    export fn format<C: Alloc>(self, ctx: C): Str {
+    export fn format<C: Allocator>(self, ctx: C): Str {
         let rounded = math.round(self.amount * 100.0) / 100.0;
         str.format(ctx, "${rounded} ${self.unit.symbol()}")
     }

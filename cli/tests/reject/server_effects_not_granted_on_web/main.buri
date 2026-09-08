@@ -19,14 +19,14 @@
 // PLATFORM: WEB — and the forged struct is refused with the value, as
 // everywhere else a grant is withheld: `Listen: host.HostListen {}` is not the
 // way round it either.
-from "core/effect" import { Alloc, Listen, Sockets, Stdout, WebSocketClient };
+from "core/effect" import { Allocator, Listen, Sockets, Stdout, WebSocketClient };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Listen: host.HostListen {},
     Sockets: host.sockets,

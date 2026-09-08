@@ -10,5 +10,5 @@ fn twice(n: I64): I64 {
 }
 
 test "pads the cents place" {
-    assert.eq(format(fromCents(twice(950))), "some");
+    assert.equal(format(fromCents(twice(950))), "some");
 }

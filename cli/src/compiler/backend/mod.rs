@@ -725,7 +725,7 @@ mod tests {
             "host.HostListen.listen",
             "host.HostSockets.socketSendText",
             "host.HostTasks.parallel",
-            "host.HostFs.readFile",
+            "host.HostFileSystem.readFile",
             "list.map",
         ]);
         assert_eq!(
@@ -751,7 +751,7 @@ mod tests {
     /// toolchain's own feature state, and not a second reading of it.
     #[test]
     fn the_gap_is_the_toolchain_s_answer() {
-        let program = program_using(&["host.HostListen.listen", "host.HostFs.readFile"]);
+        let program = program_using(&["host.HostListen.listen", "host.HostFileSystem.readFile"]);
         assert_eq!(
             networking_gap(&program),
             networking_gap_when(&program, runtime_native::net())

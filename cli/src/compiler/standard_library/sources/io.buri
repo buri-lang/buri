@@ -22,7 +22,7 @@
 //!
 //! `core/effect`'s `Stdout` argues that decision in full.
 
-from "core/effect" import { Alloc, IoError, Stderr, Stdin, Stdout };
+from "core/effect" import { Allocator, IoError, Stderr, Stdin, Stdout };
 
 from "core/effect" export { IoError };
 
@@ -46,26 +46,26 @@ export fn readLine<C: Stdin>(ctx: C): Option<Str> {
     ctx.readLine()
 }
 
-/// Exactly `n` octets from standard input, or fewer at end of input.
+/// Exactly `count` octets from standard input, or fewer at end of input.
 ///
 /// `readLine` decodes and this does not. Mixing the two on one stream is
 /// undefined.
-export fn readBytes<C: Stdin>(ctx: C, n: Int): Option<[U8]> {
-    ctx.readBytes(n)
+export fn readBytes<C: Stdin>(ctx: C, count: Int): Option<[U8]> {
+    ctx.readBytes(count)
 }
 
 /// Octets to standard output, with no encoding at all.
-export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): Result<(), IoError> {
-    ctx.writeBytes(b)
+export fn writeBytes<C: Stdout>(ctx: C, bytes: [U8]): Result<(), IoError> {
+    ctx.writeBytes(bytes)
 }
 
 /// Everything left on standard input, as text.
 ///
 /// ```buri role=std
-/// # from "core/effect" import { Alloc, Stdin, Stdout };
+/// # from "core/effect" import { Allocator, Stdin, Stdout };
 /// # from "core/io" import * as io;
 ///
-/// export fn shout<C: Alloc + Stdin + Stdout>(ctx: C): () {
+/// export fn shout<C: Allocator + Stdin + Stdout>(ctx: C): () {
 ///     io.println(ctx, "${io.readAll(ctx)}!").ignore()
 /// }
 /// ```
@@ -77,11 +77,11 @@ export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): Result<(), IoError> {
 ///
 /// It returns at end of input and not before, so a stream that stays open is a
 /// call that does not come back.
-export fn readAll<C: Alloc + Stdin>(ctx: C): Str {
+export fn readAll<C: Allocator + Stdin>(ctx: C): Str {
     gatheredLines(ctx, []).join(ctx, "\n")
 }
 
-fn gatheredLines<C: Alloc + Stdin>(ctx: C, sofar: [Str]): [Str] {
+fn gatheredLines<C: Allocator + Stdin>(ctx: C, sofar: [Str]): [Str] {
     match (ctx.readLine()) {
         .None => sofar,
         .Some(line) => gatheredLines(ctx, sofar.push(ctx, line)),
@@ -96,11 +96,11 @@ let CHUNK: Int = 65_536;
 /// Everything left on standard input, unchanged.
 ///
 /// ```buri role=std
-/// # from "core/effect" import { Alloc, Stdin, Stdout };
+/// # from "core/effect" import { Allocator, Stdin, Stdout };
 /// # from "core/io" import * as io;
 ///
-/// export fn size<C: Alloc + Stdin + Stdout>(ctx: C): () {
-///     io.println(ctx, "${io.readAllBytes(ctx).len()}").ignore()
+/// export fn size<C: Allocator + Stdin + Stdout>(ctx: C): () {
+///     io.println(ctx, "${io.readAllBytes(ctx).length()}").ignore()
 /// }
 /// ```
 ///
@@ -109,15 +109,15 @@ let CHUNK: Int = 65_536;
 /// and an octet reader over one queue is undefined, which `Stdin` states.
 ///
 /// It returns at end of input and not before.
-export fn readAllBytes<C: Alloc + Stdin>(ctx: C): [U8] {
+export fn readAllBytes<C: Allocator + Stdin>(ctx: C): [U8] {
     gatheredBytes(ctx, []).flatten(ctx)
 }
 
-fn gatheredBytes<C: Alloc + Stdin>(ctx: C, sofar: [[U8]]): [[U8]] {
+fn gatheredBytes<C: Allocator + Stdin>(ctx: C, sofar: [[U8]]): [[U8]] {
     match (ctx.readBytes(CHUNK)) {
         .None => sofar,
         .Some(chunk) => {
-            if (chunk.len() == 0) {
+            if (chunk.length() == 0) {
                 sofar
             } else {
                 gatheredBytes(ctx, sofar.push(ctx, chunk))
