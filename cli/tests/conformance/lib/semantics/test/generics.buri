@@ -4,7 +4,7 @@
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "//lib/semantics" import {
     Backwards, between, Boxed, Brick, constant, Count, depth, Either, eitherInt,
@@ -159,10 +159,10 @@ test "a Show bound at a type with a hand-written show" {
     assert.eq(showAll(ctx, [Backwards(1), Backwards(2)]), "Backwards(1),Backwards(2)");
 }
 
-test "num.min and num.max are the same Ord bound at three types" {
-    assert.eq(num.min(3, 7), 3);
-    assert.eq(num.min("b", "a"), "a");
-    assert.eq(num.max(Meters(1.0), Meters(2.0)), Meters(2.0));
+test "number.min and number.max are the same Ord bound at three types" {
+    assert.eq(number.min(3, 7), 3);
+    assert.eq(number.min("b", "a"), "a");
+    assert.eq(number.max(Meters(1.0), Meters(2.0)), Meters(2.0));
 }
 
 // -----------------------------------------------------------------------------

@@ -5,7 +5,7 @@
 // boolean, and that a horizontal reduction reduces across all four.
 
 from "core/math" import * as math;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/simd" import * as simd;
 from "core/testing/assert" import * as assert;
 
@@ -223,7 +223,7 @@ test "shl and shr move every lane" {
 test "shr fills with zeros rather than with the sign bit" {
     // The lanes are `Int`, so this is `bits.shr` — logical at every width.
     assert.eq(simd.splatI(-1).shr(63), simd.splatI(1));
-    assert.eq(simd.splatI(1).shl(63), simd.splatI(num.minValue<I64>()));
+    assert.eq(simd.splatI(1).shl(63), simd.splatI(number.minValue<I64>()));
 }
 
 // --- selectI ------------------------------------------------------------------------
@@ -364,9 +364,9 @@ test "mulAdd carries an infinity and a NaN through lane by lane" {
 }
 
 test "the integer lanes reach both ends of Int" {
-    let ends = simd.i32x4(num.minValue<I64>(), num.maxValue<I64>(), 0, -1);
-    assert.eq(ends.lane(0), num.minValue<I64>());
-    assert.eq(ends.lane(1), num.maxValue<I64>());
+    let ends = simd.i32x4(number.minValue<I64>(), number.maxValue<I64>(), 0, -1);
+    assert.eq(ends.lane(0), number.minValue<I64>());
+    assert.eq(ends.lane(1), number.maxValue<I64>());
     // `minValue` is non-zero, so it is a true lane in a mask and `not` sends it
     // to zero rather than complementing its bits.
     assert.eq(ends.not(), simd.i32x4(0, 0, 1, 0));
@@ -384,10 +384,10 @@ test "shl and shr take every count the width allows" {
     assert.eq(v.shl(0), v);
     assert.eq(v.shr(0), v);
     // Sixty-three is the largest count there is; sixty-four aborts.
-    assert.eq(simd.splatI(1).shl(63), simd.splatI(num.minValue<I64>()));
-    assert.eq(simd.splatI(num.minValue<I64>()).shr(63), simd.splatI(1));
+    assert.eq(simd.splatI(1).shl(63), simd.splatI(number.minValue<I64>()));
+    assert.eq(simd.splatI(number.minValue<I64>()).shr(63), simd.splatI(1));
     assert.eq(simd.splatI(-1).shr(63), simd.splatI(1));
-    assert.eq(v.shl(63), simd.i32x4(num.minValue<I64>(), 0, num.minValue<I64>(), 0));
+    assert.eq(v.shl(63), simd.i32x4(number.minValue<I64>(), 0, number.minValue<I64>(), 0));
 }
 
 test "loadI32x4 refuses a negative index too" {

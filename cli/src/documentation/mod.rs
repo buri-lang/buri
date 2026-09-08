@@ -1029,7 +1029,7 @@ const CONCEPTS: &[(&[&str], &[&str])] = &[
     (&["assert", "assertion", "expect"], &["core/testing/assert"]),
     (&["file", "filesystem", "directory", "path"], &["core/fs"]),
     (&["print", "println", "log", "stdout", "output"], &["core/io"]),
-    (&["dictionary", "hashmap", "lookup", "keyed"], &["core/map", "core/ordmap"]),
+    (&["dictionary", "hashmap", "lookup", "keyed"], &["core/map", "core/orderedmap"]),
     (&["clock", "timestamp", "duration", "elapsed"], &["core/time", "core/date"]),
     (&["encode", "decode", "serialize", "parse"], &["core/json", "core/proto"]),
     (&["boolean", "predicate", "truthy"], &["core/bool"]),

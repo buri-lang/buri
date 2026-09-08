@@ -1,7 +1,7 @@
 error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
   --> main.buri:29:5
    |
-29 |     assert.eq(got.lane(1, num.maxValue<I64>());
+29 |     assert.eq(got.lane(1, number.maxValue<I64>());
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 2
@@ -10,7 +10,7 @@ error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
 error: `lane` takes 1 arguments, but 2 were given [wrong-argument-count]
   --> main.buri:29:15
    |
-29 |     assert.eq(got.lane(1, num.maxValue<I64>());
+29 |     assert.eq(got.lane(1, number.maxValue<I64>());
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 1
@@ -19,12 +19,12 @@ error: `lane` takes 1 arguments, but 2 were given [wrong-argument-count]
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:29:47
    |
-29 |     assert.eq(got.lane(1, num.maxValue<I64>());
+29 |     assert.eq(got.lane(1, number.maxValue<I64>());
    |                                               ^
    |
   --> main.buri:29:14
    |
-29 |     assert.eq(got.lane(1, num.maxValue<I64>());
+29 |     assert.eq(got.lane(1, number.maxValue<I64>());
    |              ^ opened here
    |
    = fix: write `)` here

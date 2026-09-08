@@ -1549,7 +1549,7 @@ corpus set than `--only=mixed`, and it moves when somebody takes it the way §2
 says to.
 
 **What the ceiling is now.** The per-unit emission is parallel, so it is bounded
-by the **largest single unit** — on this repository `core/ordmap`, 11,267
+by the **largest single unit** — on this repository `core/orderedmap`, 11,267
 monomorphized functions, which is 1.10 s of the 1.10 s. Splitting a unit is a
 build-system question (a unit is a cache key and an object file,
 `design/native/ARCHITECTURE.md` §5), so the next win on that line is either
@@ -1577,7 +1577,7 @@ measurement.
 footnote.** §6.9's repository no longer compiles against this toolchain: a later
 change split the filesystem effect into `FsRead` and `FsWrite` (`core/fs`), and
 nine of its eighteen packages are written against the un-split one. A program
-*shaped* like the finding replaces it — one module instantiating `core/ordmap`
+*shaped* like the finding replaces it — one module instantiating `core/orderedmap`
 at two hundred key and value types, which puts **14,200 monomorphized functions
 in `core_ordmap`** against the real repository's 11,267 — so read the numbers
 below as that shape rather than as that repository.

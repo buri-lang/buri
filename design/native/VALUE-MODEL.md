@@ -615,7 +615,7 @@ should not be:
   gone: `I64`, `U64`, `I128` and `U128` are `BigInt`s on JavaScript
   (buri-lang/buri#8, #4), at the cost §12's table measures.
 - Two documents outside §6.2 were amended with it: `docs/build/proto.md`'s 64-bit
-  caveat, now the JavaScript backend's rather than the language's, and `core/num`'s
+  caveat, now the JavaScript backend's rather than the language's, and `core/number`'s
   own module comment.
 - **A native backend that also stopped at 2^53 shipped for a wave and was
   reversed.** It makes `Checked` useless on `I64` natively, which is exactly where

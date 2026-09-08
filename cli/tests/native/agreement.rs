@@ -92,7 +92,7 @@
 //!
 //! `cargo test -p buri --features backend-llvm --test native agreement::` is the
 //! second half, and it runs: LLVM 21 compiles most of the rows and refuses the
-//! rest for reasons of its own — `num.minValue`/`num.maxValue` have no body —
+//! rest for reasons of its own — `number.minValue`/`number.maxValue` have no body —
 //! so it carries a
 //! [`Native::partial`] note and a row it cannot compile is skipped with the
 //! reason printed. Stencil carries no such note, so a refusal from it is a
@@ -179,7 +179,7 @@ const NATIVES: &[Native] = &[
         partial: Some(
             "the release backend, and its surface is narrower than the \
                  development backend's: \
-                 `num.minValue`/`num.maxValue` have no body, so some rows \
+                 `number.minValue`/`number.maxValue` have no body, so some rows \
                  cannot be asked of it. The `..rest` array pattern that used \
                  to be the other half of this sentence is emitted now \
                  (`Unit::array_slice`), which is what took \
@@ -692,10 +692,10 @@ fn row_01_int_overflow() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let m = num.maxValue<Int>();
+  let m = number.maxValue<Int>();
   let over = m + 1;
   let _ = io.println(stdout, "${over}").ignore();
   .Ok(())
@@ -717,12 +717,12 @@ fn row_01_integer_show_at_the_64_bit_extremes() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let a = num.minValue<I64>();
-  let b = num.maxValue<I64>();
-  let c = num.maxValue<U64>();
+  let a = number.minValue<I64>();
+  let b = number.maxValue<I64>();
+  let c = number.maxValue<U64>();
   let _ = io.println(stdout, "${a} ${b} ${c}").ignore();
   .Ok(())
 }
@@ -768,7 +768,7 @@ fn tell(x: Option<Int>): Str {
 
 export fn main(): Result<(), Str> {
   let big = bits.shl(1, 60);
-  // `maxValue<I64>()` as a literal: `num.minValue`/`num.maxValue` have no LLVM
+  // `maxValue<I64>()` as a literal: `number.minValue`/`number.maxValue` have no LLVM
   // body yet, and a row this one is about should not be skipped there.
   let top: Int = 9223372036854775807;
   let a = tell(big.checkedAdd(1));
@@ -850,14 +850,14 @@ fn row_03_wrapping_arithmetic_agrees() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   // 2^32 * 2^32 = 2^64, which wraps to zero at 64 bits.
   let p: I64 = 4294967296;
   let a = p.wrappingMul(p);
-  let c = num.minValue<I64>().wrappingAdd(num.minValue<I64>());
-  let d = num.minValue<I64>().wrappingMul(2);
+  let c = number.minValue<I64>().wrappingAdd(number.minValue<I64>());
+  let d = number.minValue<I64>().wrappingMul(2);
   let e: I64 = 3;
   let f = e.wrappingMul(5);
   let u: U64 = 9223372036854775808;
@@ -889,7 +889,7 @@ fn row_03_wrapping_at_the_type_boundaries_agrees() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let a: U64 = 18446744073709551615;
@@ -901,7 +901,7 @@ export fn main(): Result<(), Str> {
   let e: U128 = 340282366920938463463374607431768211455;
   let f = e.wrappingAdd(1);
   let g: I64 = 9223372036854775807;
-  let h = g.wrappingAdd(1) == num.minValue<I64>();
+  let h = g.wrappingAdd(1) == number.minValue<I64>();
   let _ = io.println(stdout, "${b} ${d} ${f} ${h}").ignore();
   .Ok(())
 }
@@ -924,14 +924,14 @@ fn row_03_wrapping_at_narrow_widths_agrees() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let a: U32 = 4294967295;
   let b = a.wrappingMul(a);
   let c: U32 = 65536;
   let d = c.wrappingMul(c);
-  let e = num.minValue<I32>();
+  let e = number.minValue<I32>();
   let f = e.wrappingMul(e);
   let g: U16 = 65535;
   let h = g.wrappingMul(g);
@@ -984,12 +984,12 @@ fn row_04_integer_show_at_the_128_bit_extremes() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let a = num.minValue<I128>();
-  let b = num.maxValue<I128>();
-  let c = num.maxValue<U128>();
+  let a = number.minValue<I128>();
+  let b = number.maxValue<I128>();
+  let c = number.maxValue<U128>();
   let _ = io.println(stdout, "${a} ${b} ${c}").ignore();
   .Ok(())
 }
@@ -1310,19 +1310,19 @@ fn row_09_integer_show_at_every_width() {
         r#"
 from "core/host" import { stdout };
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let a = num.minValue<I8>();
-  let b = num.maxValue<I8>();
-  let c = num.minValue<I16>();
-  let d = num.maxValue<I16>();
-  let e = num.minValue<I32>();
-  let f = num.maxValue<I32>();
-  let g = num.minValue<U8>();
-  let h = num.maxValue<U8>();
-  let i = num.maxValue<U16>();
-  let j = num.maxValue<U32>();
+  let a = number.minValue<I8>();
+  let b = number.maxValue<I8>();
+  let c = number.minValue<I16>();
+  let d = number.maxValue<I16>();
+  let e = number.minValue<I32>();
+  let f = number.maxValue<I32>();
+  let g = number.minValue<U8>();
+  let h = number.maxValue<U8>();
+  let i = number.maxValue<U16>();
+  let j = number.maxValue<U32>();
   let k: I64 = 0 - 9007199254740991;
   let l: U64 = 9007199254740991;
   let m: Int = 1234567890123;

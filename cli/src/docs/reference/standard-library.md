@@ -34,7 +34,7 @@ struct, so every operation in `core/simd` is pure.
 [`core/option`](../../compiler/standard_library/sources/option.buri),
 [`core/result`](../../compiler/standard_library/sources/result.buri),
 [`core/order`](../../compiler/standard_library/sources/order.buri),
-[`core/num`](../../compiler/standard_library/sources/num.buri),
+[`core/number`](../../compiler/standard_library/sources/number.buri),
 [`core/bool`](../../compiler/standard_library/sources/bool.buri),
 [`core/math`](../../compiler/standard_library/sources/math.buri),
 [`core/bits`](../../compiler/standard_library/sources/bits.buri).
@@ -52,7 +52,7 @@ when there is a value. `Result.fold` takes both halves onto one type and
 `Option` off a nested one, `option.zip` answers both values or neither, and
 `toList` is the one-or-none list `filterMap` wants.
 
-`core/num` also carries the integer arithmetic that `/` and `%` do not:
+`core/number` also carries the integer arithmetic that `/` and `%` do not:
 `power`, `greatestCommonDivisor`, `leastCommonMultiple`, `divideEuclidean` (the
 quotient that pairs with `remEuclid`), `divideCeiling`, `quotientRemainder`,
 `integerSquareRoot` — exact where `math.sqrt` stops being — `absoluteDifference`
@@ -105,7 +105,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   is byte-for-byte UTF-8 order for a valid string, as in Rust, Go and Python. It
   is *not* the UTF-16 code-unit order a JavaScript `<` gives, on either backend,
   and the two disagree above the basic multilingual plane. `<`, `[Str].sort`,
-  `core/order`'s `str` and an `OrdMap<Str, _>`'s key order all use that one
+  `core/order`'s `str` and an `OrderedMap<Str, _>`'s key order all use that one
   comparison.
 
   Beside them: `stripPrefix` and `stripSuffix` for the trim-if-present form,
@@ -154,7 +154,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   of digits.** `character.fromDigit(n, radix)` and `character.toDigit(radix)`
   invert each other over base 2 to base 36, and `character.isHexDigit` is the
   predicate.
-  `num.toHex(ctx, x, width)` renders a number zero-padded and lowercase in
+  `number.toHex(ctx, x, width)` renders a number zero-padded and lowercase in
   64-bit two's complement, so a negative number comes out as its bit pattern
   rather than a `-`. `str.toRadix(text, radix)` reads any of those bases back,
   answering `.None` rather than a value the `Int` cannot hold.
@@ -331,7 +331,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   land on the schema line that produced it. Each message brings `defaultM`,
   `encodeM`, `decodeM`, `encodeMJson`, `decodeMJson` and `decodeMJsonAt`, and
   each enum four of its own. Costs one pass over the schema to build the type
-  table and one to write the tree; a type name resolves through an `OrdMap`, so
+  table and one to write the tree; a type name resolves through an `OrderedMap`, so
   a schema of `n` declarations costs O(n log t) in the `t` types in scope.
   [The proto reference](./build/proto.md) is the mapping, and it is a promise.
   This is the module the build runs: `generators: [{ tool: "std/codegen/proto",
@@ -345,8 +345,8 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/heap`](../../compiler/standard_library/sources/heap.buri),
 [`core/map`](../../compiler/standard_library/sources/map.buri),
 [`core/set`](../../compiler/standard_library/sources/set.buri),
-[`core/ordmap`](../../compiler/standard_library/sources/ordmap.buri),
-[`core/ordset`](../../compiler/standard_library/sources/ordset.buri),
+[`core/orderedmap`](../../compiler/standard_library/sources/orderedmap.buri),
+[`core/orderedset`](../../compiler/standard_library/sources/orderedset.buri),
 [`core/bitset`](../../compiler/standard_library/sources/bitset.buri).
 
 Every one of these is a value, so every "modification" answers a new one. Each
@@ -355,13 +355,13 @@ module states its cost rather than leaving you to guess:
 | | Lookup | Insert | Note |
 |---|---|---|---|
 | `core/queue` | O(1) | O(1) amortized | Banker's deque: two lists, the front reversed. The reversal makes both ends an append. |
-| `core/heap` | O(1) `peek` | O(1) `push` | A pairing heap, smallest first. `merge` is O(1) and `pop` is O(log n) amortized. It holds duplicates, which is why it is not an `OrdSet`. |
+| `core/heap` | O(1) `peek` | O(1) `push` | A pairing heap, smallest first. `merge` is O(1) and `pop` is O(log n) amortized. It holds duplicates, which is why it is not an `OrderedSet`. |
 | `core/map`, `core/set` | O(1) expected | O(b) in buckets | Buckets of association lists. Grows and rehashes past a load factor of 4. **Iteration order is unspecified and will change.** |
-| `core/ordmap`, `core/ordset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration runs in key order.** `range` and `prefix` scan at O(log n + m) rather than filtering over everything. |
+| `core/orderedmap`, `core/orderedset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration runs in key order.** `range` and `prefix` scan at O(log n + m) rather than filtering over everything. |
 | `core/bitset` | O(1) | O(n/32) | 32 bits to an `Int` word. 32 and not 64 because `Int` is signed, and a bit in position 63 would make every shift a question about sign extension. |
 
 **Two keyed collections, and order is what you choose between.** `Map` hashes,
-and looks one key up faster. `OrdMap` compares, and answers "every key between
+and looks one key up faster. `OrderedMap` compares, and answers "every key between
 these two" or "every key starting with this" without visiting the rest. Its keys
 need `Ord` rather than `Hash + Eq`. A compound key is a struct with `derive
 Ord`, and a derived `Ord` compares fields in declaration order, which is what a
@@ -394,7 +394,7 @@ finish it — `mean` is on `[Int]` and `meanFloat` on `[Float]`, because one
 method name resolves once for `[T]`.
 
 **Grouping answers a map, so it lives with the map.** `map.groupBy(ctx, xs,
-key)` and `ordmap.groupBy` collect the elements under each key, `indexBy` keeps
+key)` and `orderedmap.groupBy` collect the elements under each key, `indexBy` keeps
 one element per key, and `countBy` counts them without building the groups.
 `map.frequencies` is `countBy` with the element as its own key. They are free
 functions because `core/list` sits at the bottom of the dependency order and
@@ -403,7 +403,7 @@ what a counter needs; both maps have it. `mapValues` puts every value through a
 function without touching the keys, and `filterMapValues` drops the ones it
 answers nothing for. `merge` is right-biased and `mergeWith` decides a key that
 is in both. `filter`, `pop`, `takeKeys` and `dropKeys` are the rest.
-`OrdMap.popFirst` and `popLast` take an entry off an end in **one descent**,
+`OrderedMap.popFirst` and `popLast` take an entry off an end in **one descent**,
 where `first` and then `remove` is two — which is what a sorted work queue does
 on every step — and `floor` and `ceiling` answer the nearest key at or below, or
 at or above, which `range` cannot.
@@ -414,7 +414,7 @@ one side, `isSupersetOf` is `isSubsetOf` read from the other end, and
 `isEmpty` allocates a whole set to ask a yes-or-no question. `set.distinct` and
 `distinctBy` drop later duplicates and keep the order, in O(n) against
 `core/list`'s `uniqueBy`, which asks about everything already kept and costs
-O(n²); they are free functions for `groupBy`'s reason. `core/ordset` has the
+O(n²); they are free functions for `groupBy`'s reason. `core/orderedset` has the
 same six over `Ord`, plus `floor` and `ceiling`.
 
 **Walking a `BitSet` one bit at a time.** `firstSet` and `nextSet` read words
@@ -422,7 +422,7 @@ and skip an empty one whole, so finding a member costs O(n/32) rather than
 `toList`'s whole-set allocation. `toggle`, `complement` and `setRange` are
 word-at-a-time too, and each stops at the capacity rather than at the word.
 
-`Queue`, `Map`, `Set`, `OrdMap`, `OrdSet` and `BitSet` provide `equals` rather
+`Queue`, `Map`, `Set`, `OrderedMap`, `OrderedSet` and `BitSet` provide `equals` rather
 than deriving `Eq`, because a derived `Eq` would compare the *representation*.
 Two maps built in different orders need not share a bucket layout.
 
@@ -547,7 +547,7 @@ from a seed and cannot take its generator from whoever called it.
 
 `shuffle`, `pick` and `sample` draw from a list, and each has a `Gen` twin that
 answers the value and the next generator. `shuffle` is Fisher-Yates over an
-`OrdMap<Int, T>`, so it costs O(n log n) — a `[T]` has no write that costs less
+`OrderedMap<Int, T>`, so it costs O(n log n) — a `[T]` has no write that costs less
 than a copy — and every permutation is equally likely. `sample` is that shuffle
 and a `take`, so it costs the same in the length of the *list* rather than of
 the sample. `nextGaussian` is Marsaglia's polar method: a point in the square
@@ -761,7 +761,7 @@ Only a test source may import
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
 `eqWith(ctx, actual, expected, same)` is the one for a type with no `Eq`:
-`Map`, `Set`, `OrdMap`, `OrdSet`, `Queue` and `BitSet` answer
+`Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
 `equals(ctx, other)` instead, and passing that comparison keeps the report.
 `unordered(ctx, actual, expected)` sorts both lists first and reports the sorted
 pair, which costs O(n log n).

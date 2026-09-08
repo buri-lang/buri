@@ -41,7 +41,7 @@
 //! table `cli/runtime/testing.rs` already carried, so it needed nothing the
 //! archive did not have. `semantics/anonymous.buri` is the
 //! twenty-ninth and `semantics/elision.buri` the twenty-eighth, with
-//! `collections/ordmap.buri` the twenty-seventh; none of them needed anything
+//! `collections/orderedmap.buri` the twenty-seventh; none of them needed anything
 //! the backend did not already have.
 //! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
@@ -55,7 +55,7 @@
 //!     `cli/runtime/lib.rs` §2.1, which names an error by a variant index or
 //!     writes it through a pointer: here the backend has to *build* the two
 //!     strings. `numbers/conversions.buri`, `text/json.buri` (one call:
-//!     `num.U32.toChar`) and `proto/json.buri` (`num.F64.toI64`) are the three
+//!     `number.U32.toChar`) and `proto/json.buri` (`number.F64.toI64`) are the three
 //!     files, and `numbers/conversions.buri` carries a second problem behind
 //!     the first — two of its blocks assert the JavaScript *bound*, which
 //!     VALUE-MODEL.md §12 row 2 has already ruled is not the native one.
@@ -98,7 +98,7 @@
 //! primitive, the derive's leaf having landed — and an inexact `F64 -> I64`.
 //! It reached two more in batch three, `numbers/floats.buri` and
 //! `text/json.buri`, excluded for `core/math`'s transcendentals and for
-//! `num.U32.toChar`; neither reason was ever about the testing context.
+//! `number.U32.toChar`; neither reason was ever about the testing context.
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run at
 //! every step and still reports each of them.
 //!
@@ -333,7 +333,7 @@ const PACKAGES: &[Case] = &[
     excluded(
         "generators/wire.buri",
         "it prints a module, so it carries the 448-byte `ast.Item` too, and \
-             `core/json`'s unescaping reaches `num.U32.toChar`, which this \
+             `core/json`'s unescaping reaches `number.U32.toChar`, which this \
              backend does not compile yet",
     ),
     excluded(
@@ -477,17 +477,17 @@ const PACKAGES: &[Case] = &[
     //  * `data/patterns.buri` wanted `deriveArrayShow`, which is the element's
     //    generated `show` called once per element plus `buri_rt_show_list`.
     included("collections/map.buri"),
-    // `core/ordmap` and `core/ordset` are ordinary Buri over a recursive enum,
+    // `core/orderedmap` and `core/orderedset` are ordinary Buri over a recursive enum,
     // which the backend boxes, and `core/list`'s splicing — so the file that
     // exercises them reaches nothing the four above do not, and is in the
     // native set from the day it was written.
-    included("collections/ordmap.buri"),
+    included("collections/orderedmap.buri"),
     // `core/heap` is the same kind of thing one more time: a recursive enum the
     // backend boxes, `push` onto a `[Tree<T>]`, and a fold over the pairs. It
-    // reaches nothing `collections/ordmap.buri` does not, so it is in from the
+    // reaches nothing `collections/orderedmap.buri` does not, so it is in from the
     // day it was written.
     included("collections/heap.buri"),
-    // `core/set` and `core/ordset`'s own file. Both are wrappers over the two
+    // `core/set` and `core/orderedset`'s own file. Both are wrappers over the two
     // maps above, and `distinct` is a fold whose accumulator is a tuple — a
     // shape the backend already stages for `insertInto`'s `(Grown, Bool)`.
     included("collections/sets.buri"),
@@ -630,7 +630,7 @@ const PACKAGES: &[Case] = &[
     // backends have a body for it (VALUE-MODEL.md §12 row 10). What is left is
     // its sibling — `ToJson::toJson` called *directly* on a primitive, which
     // reaches a backend as `bool.toJson`, `character.toJson`, `str.toJson`,
-    // `num.I64.toJson` and `num.F64.toJson`, five ordinary intrinsic keys with
+    // `number.I64.toJson` and `number.F64.toJson`, five ordinary intrinsic keys with
     // no body. They are the same three-way answer `json_prim` already gives
     // and are a slice of their own, because letting this file in moves the
     // census ratchet.
@@ -647,7 +647,7 @@ const PACKAGES: &[Case] = &[
     included("proto/binary.buri"),
     excluded(
         "proto/json.buri",
-        "`num.F64.toI64` — an inexact conversion, so it answers \
+        "`number.F64.toI64` — an inexact conversion, so it answers \
              `Result<Int, RangeError>`. `core/character`'s classifiers and \
              `core/bytes` are emitted now",
     ),
@@ -677,7 +677,7 @@ const PACKAGES: &[Case] = &[
     // `crypto/sha256.buri` is — a second implementation of an algorithm both
     // backends have to agree about, with every answer written into the file.
     included("random/gen.buri"),
-    // The three draws from a list. Ordinary Buri over `[T]` and `core/ordmap`,
+    // The three draws from a list. Ordinary Buri over `[T]` and `core/orderedmap`,
     // reaching no host: `nextShuffle` is Fisher-Yates over the tree, and the
     // two doors are one algorithm. In for `random/gen.buri`'s reason — a
     // sequence both backends have to agree about, with every property written
@@ -722,7 +722,7 @@ const PACKAGES: &[Case] = &[
              `core/uuid` is in `uuid/uuid.buri` and is in the native set",
     ),
     included("text/bytes.buri"),
-    // Hexadecimal across four modules — `character.fromDigit`, `num.toHex`,
+    // Hexadecimal across four modules — `character.fromDigit`, `number.toHex`,
     // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so
     // none of it meets the `Result<T, RangeError>` shape that holds
     // `numbers/conversions.buri` out.
@@ -785,7 +785,7 @@ const PACKAGES: &[Case] = &[
     included("numbers/special_floats.buri"),
     excluded(
         "text/json.buri",
-        "`num.U32.toChar` — an *inexact* conversion, so it answers \
+        "`number.U32.toChar` — an *inexact* conversion, so it answers \
              `Result<Char, RangeError>`. `core/character`'s classifiers and \
              `list.find` are emitted now, and this one call is the whole of \
              what is left",

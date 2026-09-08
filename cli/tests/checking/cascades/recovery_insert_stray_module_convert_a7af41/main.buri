@@ -11,7 +11,7 @@
 // has nowhere to put an error — so this saturates instead, which is the rule a
 // vector unit's own conversion has.
 
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/simd" import * as simd;
 from "core/testing/assert" import * as assert@ ;
 
@@ -26,8 +26,8 @@ test "toInt is total, where a plain conversion is not" {
     let far = simd.f32x4(nan, 1.0e300, -1.0e300, 3.0);
     let got = far.toInt();
     assert.eq(got.lane(0), 0);
-    assert.eq(got.lane(1), num.maxValue<I64>());
-    assert.eq(got.lane(2), num.minValue<I64>());
+    assert.eq(got.lane(1), number.maxValue<I64>());
+    assert.eq(got.lane(2), number.minValue<I64>());
     assert.eq(got.lane(3), 3);
 }
 

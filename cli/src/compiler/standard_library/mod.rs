@@ -111,7 +111,7 @@ pub const MODULES: &[StdModule] = &[
             "RangeError",
         ],
         eager: true,
-        ..m("core/num", include_str!("sources/num.buri"))
+        ..m("core/number", include_str!("sources/number.buri"))
     },
     // `[T]`, `Str`, `Char` and `Bool` need their defining modules present in a
     // program that never names them, because a method needs no import
@@ -145,8 +145,8 @@ pub const MODULES: &[StdModule] = &[
     m("std/codegen/proto", include_str!("sources/codegen_proto.buri")),
     m("core/map", include_str!("sources/map.buri")),
     m("core/set", include_str!("sources/set.buri")),
-    m("core/ordmap", include_str!("sources/ordmap.buri")),
-    m("core/ordset", include_str!("sources/ordset.buri")),
+    m("core/orderedmap", include_str!("sources/orderedmap.buri")),
+    m("core/orderedset", include_str!("sources/orderedset.buri")),
     m("core/bytes", include_str!("sources/bytes.buri")),
     // DEFLATE and gzip, and pure Buri all the way down: there is no compression
     // crate in the runtime's manifest to bind to, and the archive's own
@@ -324,14 +324,21 @@ pub fn roots_phrase() -> String {
 ///
 /// A rename is not an alias: the old path stops resolving, and the point of
 /// this table is that the *diagnostic* names the new one rather than leaving a
-/// reader to guess. `core/char` and `core/proc` were the abbreviations, and
-/// `core/character` and `core/process` are the same two modules spelled out.
+/// reader to guess. Every row is an abbreviation and the same module spelled
+/// out: `core/char` is `core/character`, `core/proc` is `core/process`,
+/// `core/num` is `core/number`, and the two ordered collections are
+/// `core/orderedmap` and `core/orderedset`.
 ///
 /// Nothing here is loadable, and [`find`] is asked first, so a name that came
 /// back into service would shadow its own row rather than collide with it.
 /// `no_retired_path_is_also_a_module` is what says a row cannot be both.
-pub const RETIRED: &[(&str, &str)] =
-    &[("core/char", "core/character"), ("core/proc", "core/process")];
+pub const RETIRED: &[(&str, &str)] = &[
+    ("core/char", "core/character"),
+    ("core/num", "core/number"),
+    ("core/ordmap", "core/orderedmap"),
+    ("core/ordset", "core/orderedset"),
+    ("core/proc", "core/process"),
+];
 
 /// What a retired path is called now, or `None` for a path that never named a
 /// module here. Read with the same `/lib.buri` canonicalisation [`find`] uses,
@@ -396,16 +403,16 @@ pub fn prelude() -> impl Iterator<Item = (&'static str, &'static str)> {
 ///
 /// Total over `Prim` rather than a `&str` match with a catch-all: a new
 /// primitive is now a compile error here instead of silently landing in
-/// `core/num`.
+/// `core/number`.
 pub fn defining_module(p: Prim) -> &'static str {
     match p {
         Prim::Str => "core/str",
         Prim::Char => "core/character",
         Prim::Bool => "core/bool",
         // A template is a `Str` with holes, and its operations are the
-        // numeric-rendering ones, so it shares `core/num`'s module the way
+        // numeric-rendering ones, so it shares `core/number`'s module the way
         // every numeric type does.
-        Prim::Template => "core/num",
+        Prim::Template => "core/number",
         Prim::I8
         | Prim::I16
         | Prim::I32
@@ -417,7 +424,7 @@ pub fn defining_module(p: Prim) -> &'static str {
         | Prim::U64
         | Prim::U128
         | Prim::F32
-        | Prim::F64 => "core/num",
+        | Prim::F64 => "core/number",
     }
 }
 

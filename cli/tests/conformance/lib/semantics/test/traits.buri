@@ -3,7 +3,7 @@
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/order" import { Order };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
@@ -350,9 +350,9 @@ test "the operators and compare agree, because they are the same method" {
     assert.eq(Backwards(3).compare(Backwards(3)), Order.Equal);
 }
 
-test "num.min through an Ord bound follows the hand-written impl" {
-    assert.eq(num.min(Backwards(1), Backwards(5)), Backwards(5));
-    assert.eq(num.max(Backwards(1), Backwards(5)), Backwards(1));
+test "number.min through an Ord bound follows the hand-written impl" {
+    assert.eq(number.min(Backwards(1), Backwards(5)), Backwards(5));
+    assert.eq(number.max(Backwards(1), Backwards(5)), Backwards(1));
 }
 
 test "sorting through a hand-written Ord follows it" {

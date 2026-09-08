@@ -13,7 +13,7 @@ from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
-from "core/ordmap" import * as ordmap;
+from "core/orderedmap" import * as orderedmap;
 from "core/queue" import * as queue;
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
@@ -195,8 +195,8 @@ test "eqWith takes each collection that answers equals rather than deriving Eq" 
     let ctx = context {
         Alloc: alloc(),
     };
-    let sortedOne = ordmap.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
-    let sortedTwo = ordmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
+    let sortedOne = orderedmap.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
+    let sortedTwo = orderedmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
     assert.eqWith(ctx, sortedOne, sortedTwo, fn(c, a, b) => a.equals(c, b));
     let setOne = set.empty<Int>().insert(ctx, 1).insert(ctx, 2);
     let setTwo = set.empty<Int>().insert(ctx, 2).insert(ctx, 1);

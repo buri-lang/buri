@@ -155,7 +155,7 @@ supertraits, no trait objects, no dynamic dispatch.
 | a `struct` or `enum` you declared | the module declaring it |
 | `[T]` | `core/list` |
 | `Str` `Char` `Bool` | `core/str` `core/character` `core/bool` |
-| every integer and float type | `core/num` |
+| every integer and float type | `core/number` |
 | `Option<T>` `Result<T, E>` | `core/option` `core/result` |
 | tuples, function types, `Template` | none — no methods |
 

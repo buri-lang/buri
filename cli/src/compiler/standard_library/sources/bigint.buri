@@ -54,8 +54,8 @@
 from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
-from "core/num" import * as num;
-from "core/num" import { RangeError };
+from "core/number" import * as number;
+from "core/number" import { RangeError };
 from "core/order" import { Eq, Hash, Ord, Order };
 from "core/str" import * as str;
 
@@ -511,7 +511,7 @@ fn subLimbs<C: Alloc>(
 /// Each product is under `2^48`, so a column stays inside an `Int` up to about
 /// 32768 terms — the module's stated limit.
 fn column(a: [Int], b: [Int], k: Int): Int {
-    diagonal(a, b, k, num.max(0, k - b.len() + 1), 0)
+    diagonal(a, b, k, number.max(0, k - b.len() + 1), 0)
 }
 
 fn diagonal(a: [Int], b: [Int], k: Int, i: Int, acc: Int): Int {

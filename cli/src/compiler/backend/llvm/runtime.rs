@@ -2284,7 +2284,7 @@ pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `Unit::call_sum` — which translates an `i32` discriminant into whatever
 /// `middle::layout` chose for the `Option` — can be driven by something that is
 /// not an [`ENTRIES`] row: this operation has no intrinsic key of its own, it is
-/// the 128-bit arm of `num.I128.checkedAdd`.
+/// the 128-bit arm of `number.I128.checkedAdd`.
 const I128_CHECKED: &str = "buri_rt_i128_checked";
 pub const I128_SATURATING: &str = "buri_rt_i128_saturating";
 
@@ -2292,7 +2292,7 @@ pub const I128_SATURATING: &str = "buri_rt_i128_saturating";
 /// call path can be reused. `args` is empty because the argument list is built
 /// at the call site from a 128-bit pair rather than from a Buri signature.
 pub const I128_CHECKED_ENTRY: Entry = Entry {
-    key: "num.<128>.checked",
+    key: "number.<128>.checked",
     symbol: I128_CHECKED,
     args: &[],
     ret: Ret::Sum,

@@ -1,12 +1,12 @@
 //! The methods and trait impls the primitive types carry.
 //!
-//! SPEC 6.2.1 says there are a lot of these in `core/num` — one per
+//! SPEC 6.2.1 says there are a lot of these in `core/number` — one per
 //! source-and-target pair — and that they are ordinary methods rather than
 //! cast operators. They are registered here rather than written out in Buri
 //! for one reason: `i32.toI64()` and `i16.toI64()` are different operations
 //! that share a name, which is fine for a method (resolved by the receiver's
 //! type) and would be overloading for a free function. Registering them
-//! directly keeps them methods and keeps `core/num`'s module scope honest.
+//! directly keeps them methods and keeps `core/number`'s module scope honest.
 
 use crate::compiler::semantics::resolve::Checker;
 use crate::compiler::semantics::types::*;
@@ -321,7 +321,7 @@ impl<'a> Checker<'a> {
         }
 
         // `Bounded`'s methods take no `self`, so they get no entry in the
-        // method table; `num.minValue<U8>()` reaches them.
+        // method table; `number.minValue<U8>()` reaches them.
         let con = self.tables.prim_id(p);
         let bounded_methods = vec![
             self.static_method(p, "minValue", self_ty.clone()),

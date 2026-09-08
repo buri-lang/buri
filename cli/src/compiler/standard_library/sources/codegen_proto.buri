@@ -31,8 +31,8 @@ from "core/buri/ast" import * as ast;
 from "core/codegen" import { Diagnostic, Request, Response };
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
-from "core/ordmap" import * as ordmap;
-from "core/ordmap" import { OrdMap };
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
 from "core/str" import * as str;
 from "std/codegen/proto/schema" import * as schema;
 
@@ -186,9 +186,9 @@ fn sameAs(a: Entry, b: Entry): Bool {
 ///   only a problem where a field actually reaches through it — so it is
 ///   recorded here and reported at the use.
 export struct Table {
-    export byName: OrdMap<Str, Entry>,
+    export byName: OrderedMap<Str, Entry>,
     /// Short keys two different declarations both claim, with both of them.
-    export ambiguous: OrdMap<Str, [Entry]>,
+    export ambiguous: OrderedMap<Str, [Entry]>,
     /// Fully-qualified names declared twice: the name, and the two entries.
     export duplicates: [(Str, Entry, Entry)],
 }
@@ -196,8 +196,8 @@ export struct Table {
 /// A table nothing has been collected into.
 export fn emptyTable(): Table {
     Table {
-        byName: ordmap.empty<Str, Entry>(),
-        ambiguous: ordmap.empty<Str, [Entry]>(),
+        byName: orderedmap.empty<Str, Entry>(),
+        ambiguous: orderedmap.empty<Str, [Entry]>(),
         duplicates: [],
     }
 }
@@ -2236,7 +2236,7 @@ fn messageItems<C: Alloc>(
 struct Gen {
     table: Table,
     package: Str,
-    used: OrdMap<Str, Entry>,
+    used: OrderedMap<Str, Entry>,
     diagnostics: [Diagnostic],
     items: [ast.Item],
 }
@@ -2527,13 +2527,13 @@ fn namespaceImport(path: Str, alias: Str): ast.Item {
 
 /// One import line per foreign module, naming the types used and the codecs
 /// that come with them.
-fn foreignImports<C: Alloc>(ctx: C, used: OrdMap<Str, Entry>): [ast.Item] {
-    let seed: OrdMap<Str, [Str]> = ordmap.empty<Str, [Str]>();
+fn foreignImports<C: Alloc>(ctx: C, used: OrderedMap<Str, Entry>): [ast.Item] {
+    let seed: OrderedMap<Str, [Str]> = orderedmap.empty<Str, [Str]>();
     let grouped = used
         .values(ctx)
         .foldCtx(
             ctx,
-            fn(c, acc: OrdMap<Str, [Str]>, e) => {
+            fn(c, acc: OrderedMap<Str, [Str]>, e) => {
                 match (e.inModule) {
                     .None => acc,
                     .Some(home) => {
@@ -2554,7 +2554,7 @@ fn foreignImports<C: Alloc>(ctx: C, used: OrdMap<Str, Entry>): [ast.Item] {
     grouped.entries(ctx).mapCtx(ctx, fn(c, pair) => namedImport(c, pair.0, pair.1))
 }
 
-fn importItems<C: Alloc>(ctx: C, used: OrdMap<Str, Entry>): [ast.Item] {
+fn importItems<C: Alloc>(ctx: C, used: OrderedMap<Str, Entry>): [ast.Item] {
     [
         namedImport(ctx, "core/effect", ["Alloc"]),
         namespaceImport("core/bytes", "bytes"),
@@ -2599,7 +2599,7 @@ export fn generate<C: Alloc>(
     let start = Gen {
         table: table,
         package: package,
-        used: ordmap.empty<Str, Entry>(),
+        used: orderedmap.empty<Str, Entry>(),
         diagnostics: duplicateDiagnostics(ctx, table),
         items: [],
     };

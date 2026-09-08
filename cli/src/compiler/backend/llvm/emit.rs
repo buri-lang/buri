@@ -5469,7 +5469,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Some(dest) = dests.first().copied() else { return false };
         // `str.show`, `character.eq`, `bool.compare` and their siblings: the same
         // three operations `Unit::numeric` emits, at the three primitives whose
-        // defining module is not `core/num` and whose keys are therefore two
+        // defining module is not `core/number` and whose keys are therefore two
         // segments rather than three.
         if let Some((prim, op)) = prim_leaf(key) {
             let Some(x) = args.first().copied() else { return false };
@@ -7795,7 +7795,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 }
 
 // ---------------------------------------------------------------------------
-// `num.<T>.<op>` — the numeric surface `core/num` declares without a body
+// `number.<T>.<op>` — the numeric surface `core/number` declares without a body
 // ---------------------------------------------------------------------------
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -7818,7 +7818,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         span: Span,
     ) -> bool {
         let parts: Vec<&str> = key.split('.').collect();
-        let (Some(&"num"), Some(name), Some(op), 3) =
+        let (Some(&"number"), Some(name), Some(op), 3) =
             (parts.first(), parts.get(1), parts.get(2), parts.len())
         else {
             return false;
@@ -8740,7 +8740,7 @@ pub fn implemented(key: &str) -> bool {
 /// **every** primitive, and `monomorphize::intrinsic_key` names each after the
 /// type's own module — so `Str`'s live under `str.`, `Char`'s under
 /// `character.` and `Bool`'s under `bool.`, while the numeric ones are three
-/// segments under `num.` because `core/num` defines a dozen types. One rule,
+/// segments under `number.` because `core/number` defines a dozen types. One rule,
 /// two spellings, and this is the half of it `numeric_op` does not cover.
 ///
 /// `str.eq`, `str.compare` and `str.hash` are absent because the archive has
@@ -8825,7 +8825,7 @@ fn open_coded_key(key: &str) -> bool {
     )
 }
 
-/// The `num.<T>.<op>` operations [`Unit::numeric`] emits, asked before
+/// The `number.<T>.<op>` operations [`Unit::numeric`] emits, asked before
 /// emission rather than during it.
 ///
 /// Four families are deliberately absent, and each for its own reason:
@@ -8849,11 +8849,11 @@ pub fn numeric_op(key: &str) -> bool {
     // spellings answer yes, because both describe an operation this backend
     // compiles; `stencil/emit.rs::numeric_key` has said so since the change
     // that found it, and this table had drifted from it.
-    if key == "num.minValue" || key == "num.maxValue" {
+    if key == "number.minValue" || key == "number.maxValue" {
         return true;
     }
     let parts: Vec<&str> = key.split('.').collect();
-    let (Some(&"num"), Some(name), Some(op), 3) =
+    let (Some(&"number"), Some(name), Some(op), 3) =
         (parts.first(), parts.get(1), parts.get(2), parts.len())
     else {
         return false;

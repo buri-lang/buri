@@ -3,7 +3,7 @@
 //! A **pairing heap**: `push` and `merge` are O(1), `peek` is O(1) and pure,
 //! and `pop` is O(log n) amortized. The collection `core/queue` is not — a
 //! deque answers at the ends it was written at, not at the smallest element —
-//! and the one `core/ordset` is not either, because a set collapses duplicates
+//! and the one `core/orderedset` is not either, because a set collapses duplicates
 //! and a work queue holds the same priority twice.
 //!
 //! **What this costs.** A `Heap` is a value, like everything else, so `push`

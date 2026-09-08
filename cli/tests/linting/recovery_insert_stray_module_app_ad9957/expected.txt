@@ -14,7 +14,7 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
    |     ^^^
    |
    = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
-   = fix: delete the table, and reach for `character.fromDigit`, `num.toHex` or `bytes.toHex`
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
 error: there is nothing named `HEX_DIGITS` in scope [unresolved-name]
   --> lib/recovery_insert_stray_module_app_ad9957/main.buri:33:12
    |

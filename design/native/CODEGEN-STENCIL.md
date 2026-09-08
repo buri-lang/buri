@@ -538,7 +538,7 @@ not affect §4.1's byte-for-byte reproducibility, and
 that as a test.
 
 That leaves the emission against a ceiling: **the largest single unit**, which
-on that repository is `core/ordmap` at 11,267 monomorphized functions — the
+on that repository is `core/orderedmap` at 11,267 monomorphized functions — the
 whole of the parallel emission's remaining time. Splitting a unit is a build
 system question (a unit is a cache key and an object file, ARCHITECTURE.md
 §5), so what closed the gap instead was making a function cheaper to emit:
@@ -640,7 +640,7 @@ The prototype had its own `intrin.rs`: a descriptor-driven helper per
 operation, written in Rust, living in the compiler's process. That could not
 survive object emission, because a symbol in the compiler is not a symbol in
 the artifact — and it was `libburi_rt.a` written a second time, with every
-`num.U64.checkedMul` the language ever adds having to be written twice.
+`number.U64.checkedMul` the language ever adds having to be written twice.
 
 ### 5.0 A runtime call is emitted into its caller, not called
 
@@ -1051,7 +1051,7 @@ answer.
   this shape.
 * **`json.*`, and `ToJson::toJson` called directly on a primitive.**
   `json.decode` is a descriptor-driven walker, and the five `bool.toJson` /
-  `character.toJson` / `str.toJson` / `num.<T>.toJson` keys are the trait's own
+  `character.toJson` / `str.toJson` / `number.<T>.toJson` keys are the trait's own
   leaves. `derivePrimJson` is not on this line: both backends build `Json`'s
   primitive arm (VALUE-MODEL.md §12 row 10).
 * **`core/math`'s thirteen transcendentals**, which are refused rather than

@@ -1,4 +1,4 @@
-//! core/ordmap — a persistent B-tree keyed by `Ord`.
+//! core/orderedmap — a persistent B-tree keyed by `Ord`.
 //!
 //! The collection `core/map` is not: keyed *and* ordered. Lookup, insert and
 //! remove are O(log n). `entries`, `keys` and `values` come out in key order,
@@ -39,14 +39,14 @@
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
-//! from "core/ordmap" import * as ordmap;
+//! from "core/orderedmap" import * as orderedmap;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
 //!         Alloc: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
-//!     let scores = ordmap.of(ctx, [("carol", 3), ("alice", 1), ("bob", 2)]);
+//!     let scores = orderedmap.of(ctx, [("carol", 3), ("alice", 1), ("bob", 2)]);
 //!     // Key order, whatever order the entries arrived in.
 //!     let names = scores.keys(ctx).join(ctx, " ");
 //!     // Half-open: "alice" and "bob" are in the scan, "carol" is not.
@@ -84,15 +84,15 @@ enum Node<K, V> {
 ///
 /// `size` is carried rather than walked: callers ask `len` far more often than
 /// the tree changes.
-export struct OrdMap<K, V> {
+export struct OrderedMap<K, V> {
     root: Node<K, V>,
     export size: Int,
 }
 
 /// The empty map. Pure: a context type has no name, so a `<K, V, C>` here could
 /// not be written at a call site.
-export fn empty<K, V>(): OrdMap<K, V> {
-    OrdMap { root: .Leaf(list.empty<(K, V)>()), size: 0 }
+export fn empty<K, V>(): OrderedMap<K, V> {
+    OrderedMap { root: .Leaf(list.empty<(K, V)>()), size: 0 }
 }
 
 /// The elements of `xs` collected under `key(x)`, each group in the order the
@@ -105,10 +105,10 @@ export fn groupBy<A, K: Ord, C: Alloc>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
-): OrdMap<K, [A]> {
+): OrderedMap<K, [A]> {
     xs.foldCtx(
         ctx,
-        fn(c, acc: OrdMap<K, [A]>, x) => {
+        fn(c, acc: OrderedMap<K, [A]>, x) => {
             let k = key(x);
             let group = acc.get(k).withDefault(list.empty<A>());
             acc.insert(c, k, group.push(c, x))
@@ -123,10 +123,10 @@ export fn countBy<A, K: Ord, C: Alloc>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
-): OrdMap<K, Int> {
+): OrderedMap<K, Int> {
     xs.foldCtx(
         ctx,
-        fn(c, acc: OrdMap<K, Int>, x) => {
+        fn(c, acc: OrderedMap<K, Int>, x) => {
             let k = key(x);
             acc.insert(c, k, acc.get(k).withDefault(0) + 1)
         },
@@ -136,16 +136,16 @@ export fn countBy<A, K: Ord, C: Alloc>(
 
 /// One element per key rather than a group of them: `key(x)` to `x`, with a
 /// later element replacing an earlier one that answered the same key.
-export fn indexBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): OrdMap<K, A> {
+export fn indexBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): OrderedMap<K, A> {
     xs.foldCtx(
         ctx,
-        fn(c, acc: OrdMap<K, A>, x) => acc.insert(c, key(x), x),
+        fn(c, acc: OrderedMap<K, A>, x) => acc.insert(c, key(x), x),
         empty<K, A>(),
     )
 }
 
 /// A map holding the given entries, later ones winning.
-export fn of<K: Ord, V, C: Alloc>(ctx: C, entries: [(K, V)]): OrdMap<K, V> {
+export fn of<K: Ord, V, C: Alloc>(ctx: C, entries: [(K, V)]): OrderedMap<K, V> {
     entries.foldCtx(
         ctx,
         fn(c, acc, e) => {
@@ -724,7 +724,7 @@ fn rangeFrom<K: Ord, V, C: Alloc>(
 // The map
 // -----------------------------------------------------------------------------
 
-impl<K: Ord, V> OrdMap<K, V> {
+impl<K: Ord, V> OrderedMap<K, V> {
     export fn len(self): Int {
         self.size
     }
@@ -746,22 +746,22 @@ impl<K: Ord, V> OrdMap<K, V> {
     ///
     /// The map you called it on is unchanged, and the two share every node
     /// outside the one root-to-leaf path this copied.
-    export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): OrdMap<K, V> {
+    export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): OrderedMap<K, V> {
         let (grown, added) = insertInto(ctx, self.root, key, value);
         let root = match (grown) {
             .Fit(one) => one,
             // The tree gets taller only here, and by one level all at once.
             .Split(left, mid, right) => .Branch([mid], [left, right]),
         };
-        OrdMap { root: root, size: if (added) { self.size + 1 } else { self.size } }
+        OrderedMap { root: root, size: if (added) { self.size + 1 } else { self.size } }
     }
 
     /// Removes `key`, if it is there. Removing what is absent is not an
     /// error.
-    export fn remove<C: Alloc>(self, ctx: C, key: K): OrdMap<K, V> {
+    export fn remove<C: Alloc>(self, ctx: C, key: K): OrderedMap<K, V> {
         let (next, gone) = removeFrom(ctx, self.root, key);
         if (gone) {
-            OrdMap { root: shrinkRoot(next), size: self.size - 1 }
+            OrderedMap { root: shrinkRoot(next), size: self.size - 1 }
         } else {
             self
         }
@@ -779,14 +779,14 @@ impl<K: Ord, V> OrdMap<K, V> {
     /// from "core/effect" import { Alloc, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
-    /// from "core/ordmap" import * as ordmap;
+    /// from "core/orderedmap" import * as orderedmap;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
     ///         Alloc: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
-    ///     let counts = ordmap.of(ctx, [("a", 1)]);
+    ///     let counts = orderedmap.of(ctx, [("a", 1)]);
     ///     // One call whether or not the key is there, and one that removes.
     ///     let bumped = counts
     ///         .alter(ctx, "a", fn(n) => .Some(n.withDefault(0) + 1))
@@ -807,7 +807,7 @@ impl<K: Ord, V> OrdMap<K, V> {
         ctx: C,
         key: K,
         f: fn(Option<V>) => Option<V>,
-    ): OrdMap<K, V> {
+    ): OrderedMap<K, V> {
         match (f(self.get(key))) {
             .Some(v) => self.insert(ctx, key, v),
             .None => self.remove(ctx, key),
@@ -816,7 +816,7 @@ impl<K: Ord, V> OrdMap<K, V> {
 
     /// The value under `key` and the map without it, or `.None` when the key is
     /// not there.
-    export fn pop<C: Alloc>(self, ctx: C, key: K): Option<(V, OrdMap<K, V>)> {
+    export fn pop<C: Alloc>(self, ctx: C, key: K): Option<(V, OrderedMap<K, V>)> {
         match (self.get(key)) {
             .None => .None,
             .Some(v) => .Some((v, self.remove(ctx, key))),
@@ -834,14 +834,14 @@ impl<K: Ord, V> OrdMap<K, V> {
     /// from "core/effect" import { Alloc, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
-    /// from "core/ordmap" import * as ordmap;
+    /// from "core/orderedmap" import * as orderedmap;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
     ///         Alloc: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
-    ///     let due = ordmap.of(ctx, [(30, "c"), (10, "a"), (20, "b")]);
+    ///     let due = orderedmap.of(ctx, [(30, "c"), (10, "a"), (20, "b")]);
     ///     let (what, left) = match (due.popFirst(ctx)) {
     ///         .None => ("nothing", 0),
     ///         .Some(taken) => {
@@ -858,24 +858,24 @@ impl<K: Ord, V> OrdMap<K, V> {
     /// ```stdout
     /// a, 2 left
     /// ```
-    export fn popFirst<C: Alloc>(self, ctx: C): Option<((K, V), OrdMap<K, V>)> {
+    export fn popFirst<C: Alloc>(self, ctx: C): Option<((K, V), OrderedMap<K, V>)> {
         match (takeFirst(ctx, self.root)) {
             .None => .None,
             .Some(taken) => {
                 let (e, next) = taken;
-                .Some((e, OrdMap { root: shrinkRoot(next), size: self.size - 1 }))
+                .Some((e, OrderedMap { root: shrinkRoot(next), size: self.size - 1 }))
             },
         }
     }
 
     /// The entry with the largest key, and the map without it. `popFirst` from
     /// the other end, and one descent for the same reason.
-    export fn popLast<C: Alloc>(self, ctx: C): Option<((K, V), OrdMap<K, V>)> {
+    export fn popLast<C: Alloc>(self, ctx: C): Option<((K, V), OrderedMap<K, V>)> {
         match (takeLast(ctx, self.root)) {
             .None => .None,
             .Some(taken) => {
                 let (e, next) = taken;
-                .Some((e, OrdMap { root: shrinkRoot(next), size: self.size - 1 }))
+                .Some((e, OrderedMap { root: shrinkRoot(next), size: self.size - 1 }))
             },
         }
     }
@@ -888,7 +888,7 @@ impl<K: Ord, V> OrdMap<K, V> {
     /// from "core/effect" import { Alloc, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
-    /// from "core/ordmap" import * as ordmap;
+    /// from "core/orderedmap" import * as orderedmap;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
@@ -896,7 +896,7 @@ impl<K: Ord, V> OrdMap<K, V> {
     ///         Stdout: host.stdout,
     ///     };
     ///     // A step function: the band a reading falls in.
-    ///     let bands = ordmap.of(ctx, [(0, "cold"), (10, "mild"), (25, "hot")]);
+    ///     let bands = orderedmap.of(ctx, [(0, "cold"), (10, "mild"), (25, "hot")]);
     ///     let band = match (bands.floor(17)) {
     ///         .None => "off the scale",
     ///         .Some(entry) => {
@@ -926,12 +926,12 @@ impl<K: Ord, V> OrdMap<K, V> {
     ///
     /// Right-biased, like `core/map`'s: `defaults.merge(ctx, overrides)` reads
     /// the way it is used.
-    export fn merge<C: Alloc>(self, ctx: C, other: OrdMap<K, V>): OrdMap<K, V> {
+    export fn merge<C: Alloc>(self, ctx: C, other: OrderedMap<K, V>): OrderedMap<K, V> {
         other
             .entries(ctx)
             .foldCtx(
                 ctx,
-                fn(c, acc: OrdMap<K, V>, e) => {
+                fn(c, acc: OrderedMap<K, V>, e) => {
                     let (k, v) = e;
                     acc.insert(c, k, v)
                 },
@@ -944,14 +944,14 @@ impl<K: Ord, V> OrdMap<K, V> {
     export fn mergeWith<C: Alloc>(
         self,
         ctx: C,
-        other: OrdMap<K, V>,
+        other: OrderedMap<K, V>,
         combine: fn(V, V) => V,
-    ): OrdMap<K, V> {
+    ): OrderedMap<K, V> {
         other
             .entries(ctx)
             .foldCtx(
                 ctx,
-                fn(c, acc: OrdMap<K, V>, e) => {
+                fn(c, acc: OrderedMap<K, V>, e) => {
                     let (k, v) = e;
                     match (acc.get(k)) {
                         .None => acc.insert(c, k, v),
@@ -963,12 +963,12 @@ impl<K: Ord, V> OrdMap<K, V> {
     }
 
     /// The entries `keep` answers true for, still in key order.
-    export fn filter<C: Alloc>(self, ctx: C, keep: fn(K, V) => Bool): OrdMap<K, V> {
+    export fn filter<C: Alloc>(self, ctx: C, keep: fn(K, V) => Bool): OrderedMap<K, V> {
         self
             .entries(ctx)
             .foldCtx(
                 ctx,
-                fn(c, acc: OrdMap<K, V>, e) => {
+                fn(c, acc: OrderedMap<K, V>, e) => {
                     let (k, v) = e;
                     if (keep(k, v)) { acc.insert(c, k, v) } else { acc }
                 },
@@ -980,12 +980,12 @@ impl<K: Ord, V> OrdMap<K, V> {
     ///
     /// Nothing touches the keys, so the order cannot change. It rebuilds the
     /// tree rather than copying it node for node, so it costs O(n log n).
-    export fn mapValues<W, C: Alloc>(self, ctx: C, f: fn(V) => W): OrdMap<K, W> {
+    export fn mapValues<W, C: Alloc>(self, ctx: C, f: fn(V) => W): OrderedMap<K, W> {
         self
             .entries(ctx)
             .foldCtx(
                 ctx,
-                fn(c, acc: OrdMap<K, W>, e) => {
+                fn(c, acc: OrderedMap<K, W>, e) => {
                     let (k, v) = e;
                     acc.insert(c, k, f(v))
                 },
@@ -1037,10 +1037,10 @@ impl<K: Ord, V> OrdMap<K, V> {
     }
 }
 
-impl<K: Ord, V: Eq> OrdMap<K, V> {
+impl<K: Ord, V: Eq> OrderedMap<K, V> {
     /// Same entries, whatever order either was built in. `derive Eq` would
     /// compare the trees, which two equal maps need not share.
-    export fn equals<C: Alloc>(self, ctx: C, other: OrdMap<K, V>): Bool {
+    export fn equals<C: Alloc>(self, ctx: C, other: OrderedMap<K, V>): Bool {
         if (self.size != other.size) {
             false
         } else {
@@ -1059,7 +1059,7 @@ impl<K: Ord, V: Eq> OrdMap<K, V> {
 // Prefix scans, which only string keys have
 // -----------------------------------------------------------------------------
 
-impl<V> OrdMap<Str, V> {
+impl<V> OrderedMap<Str, V> {
     /// The entries whose keys begin with `prefix`, in key order. The empty
     /// prefix answers every entry.
     ///

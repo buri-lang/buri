@@ -196,7 +196,7 @@ fn isNan(x: Float): Bool {
 
 /// Lexicographic by Unicode scalar value, which for a valid string is UTF-8 byte
 /// order. This is `core/str`'s `compare`. Every `<` on a `Str`, every
-/// `[Str].sort` and every `OrdMap<Str, _>` uses the same order.
+/// `[Str].sort` and every `OrderedMap<Str, _>` uses the same order.
 ///
 /// It is not JavaScript's `<`, which orders by UTF-16 code unit and so puts every
 /// astral character below every character in U+E000..U+FFFF. Both backends answer

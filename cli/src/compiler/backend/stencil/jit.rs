@@ -437,7 +437,7 @@ impl<'a> Jit<'a> {
     /// per instruction is quadratic in the width of the widest enum a program
     /// touches. The reference-counting walk is that loop — it asks for a
     /// layout per field of per variant of per value it releases — and it was
-    /// the largest single cost in emitting `core/ordmap`.
+    /// the largest single cost in emitting `core/orderedmap`.
     pub(crate) fn layout_shared(&mut self, ty: &Ty) -> std::rc::Rc<Layout> {
         self.layouts.shared(ty)
     }

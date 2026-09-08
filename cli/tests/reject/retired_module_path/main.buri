@@ -1,9 +1,12 @@
 // EXPECT: "core/char" is now "core/character"
 //
 // The renamed modules do not answer to their old paths, and the refusal names
-// the new one rather than the rule. `core/proc` is on the same line for the
-// same reason, so one case pins both rows of the table.
+// the new one rather than the rule. Every other row of the table is on a line
+// of its own for the same reason, so one case pins all five.
 from "core/char" import * as character;
+from "core/num" import * as number;
+from "core/ordmap" import * as orderedmap;
+from "core/ordset" import * as orderedset;
 from "core/proc" import * as process;
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;

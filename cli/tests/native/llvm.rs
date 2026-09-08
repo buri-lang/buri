@@ -893,7 +893,7 @@ export fn main(): Result<(), Str> {
   let _ = if (scale32(a, b) == 2.0) { io.println(ctx, "f32 ok").ignore() } else { io.println(ctx, "f32 bad").ignore() };
   let _ = if (scale64(0.25, 8.0) == 2.0) { io.println(ctx, "f64 ok").ignore() } else { io.println(ctx, "f64 bad").ignore() };
   // `+` on floats is an `ir::BinOp` like any other; `/` and `<` on a `Float`
-  // are `num.F64.div` and `num.F64.compare`, which are stdlib intrinsics the
+  // are `number.F64.div` and `number.F64.compare`, which are stdlib intrinsics the
   // native runtime has no body for yet and which `missing_intrinsics` reports.
   let _ = if (scale64(1.5, 2.0) + 1.0 == 4.0) { io.println(ctx, "add ok").ignore() } else { io.println(ctx, "add bad").ignore() };
   .Ok(())
@@ -2130,7 +2130,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// The `num.<T>.<op>` surface, emitted inline.
+/// The `number.<T>.<op>` surface, emitted inline.
 ///
 /// `abs` at `-0.0` and `signum` at `NaN` are the two that a comparison-shaped
 /// implementation gets wrong, so both are here: `js/intrinsics.rs` uses
@@ -2144,14 +2144,14 @@ fn the_numeric_surface_runs() {
         &program(
             r#"
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = -9;
   let _ = io.println(ctx, "abs ${a.abs()}").ignore();
   let _ = io.println(ctx, "sign ${a.signum()} ${0.signum()} ${9.signum()}").ignore();
-  let _ = io.println(ctx, "min ${num.min(a, 3)} ${num.max(a, 3)}").ignore();
+  let _ = io.println(ctx, "min ${number.min(a, 3)} ${number.max(a, 3)}").ignore();
   let x = -0.0;
   let _ = io.println(ctx, "fabs ${x.abs()}").ignore();
   let big = 3.9;
@@ -2806,7 +2806,7 @@ export fn main(): Result<(), Str> {
 ///
 /// `semantics/builtins.rs` declares these on every primitive and
 /// `monomorphize::intrinsic_key` names each after the type's own module, so
-/// they are `character.` and `bool.` keys rather than the three-segment `num.`
+/// they are `character.` and `bool.` keys rather than the three-segment `number.`
 /// ones — one rule, two spellings, and this is the half `numeric_op` does not
 /// cover.
 /// `show` here is `$str` and not `$show`: a `Char` renders as itself, unquoted.
@@ -3117,8 +3117,8 @@ export fn main(): Result<(), Str> {{
 
 /// `Bounded`, whose two methods take no `self` and whose type is in the key.
 ///
-/// `middle::lower`'s `bounded_key` qualifies `num.minValue` into
-/// `num.<Prim>.minValue` for the reason `qualified_key` qualifies a
+/// `middle::lower`'s `bounded_key` qualifies `number.minValue` into
+/// `number.<Prim>.minValue` for the reason `qualified_key` qualifies a
 /// `derivePrim*`: the *return* type is a bare register shape, and `I64` and
 /// `U64` are the same one. The unsigned bounds are the assertion that the key
 /// is what is read.
@@ -3130,14 +3130,14 @@ fn the_bounded_methods_are_the_types_own_range() {
         &program(
             r#"
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "u8 ${num.minValue<U8>()} ${num.maxValue<U8>()}").ignore();
-  let _ = io.println(ctx, "i8 ${num.minValue<I8>()} ${num.maxValue<I8>()}").ignore();
-  let _ = io.println(ctx, "i32 ${num.minValue<I32>()} ${num.maxValue<I32>()}").ignore();
-  let _ = io.println(ctx, "u32 ${num.maxValue<U32>()}").ignore();
+  let _ = io.println(ctx, "u8 ${number.minValue<U8>()} ${number.maxValue<U8>()}").ignore();
+  let _ = io.println(ctx, "i8 ${number.minValue<I8>()} ${number.maxValue<I8>()}").ignore();
+  let _ = io.println(ctx, "i32 ${number.minValue<I32>()} ${number.maxValue<I32>()}").ignore();
+  let _ = io.println(ctx, "u32 ${number.maxValue<U32>()}").ignore();
   .Ok(())
 }
 "#,

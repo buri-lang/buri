@@ -13,7 +13,7 @@ from "core/effect" import { Alloc, Clock };
 from "core/host/testing" import { alloc, clock };
 from "core/list" import * as list;
 from "core/math" import * as math;
-from "core/num" import * as num;
+from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "core/time" import { Duration, Instant, Monotonic };
@@ -38,15 +38,15 @@ test "the constructors agree with one another" {
 }
 
 test "a count no Duration can hold saturates rather than wrapping" {
-    let biggest = Duration(num.maxValue<I64>());
-    let smallest = Duration(num.minValue<I64>());
-    assert.eq(time.hours(num.maxValue<I64>()), biggest);
+    let biggest = Duration(number.maxValue<I64>());
+    let smallest = Duration(number.minValue<I64>());
+    assert.eq(time.hours(number.maxValue<I64>()), biggest);
     assert.eq(time.seconds(1000000000000), biggest);
-    assert.eq(time.hours(num.minValue<I64>()), smallest);
+    assert.eq(time.hours(number.minValue<I64>()), smallest);
     assert.eq(time.seconds(-1000000000000), smallest);
     // Saturating means the sign survives, which is the whole point: the shape
     // this replaces wrapped a timeout into the past.
-    assert.isFalse(time.hours(num.maxValue<I64>()).isNegative());
+    assert.isFalse(time.hours(number.maxValue<I64>()).isNegative());
 }
 
 // --- getters --------------------------------------------------------------------
@@ -91,8 +91,8 @@ test "add, sub and mul are the arithmetic of lengths" {
 }
 
 test "arithmetic saturates at both ends" {
-    let biggest = Duration(num.maxValue<I64>());
-    let smallest = Duration(num.minValue<I64>());
+    let biggest = Duration(number.maxValue<I64>());
+    let smallest = Duration(number.minValue<I64>());
     assert.eq(biggest.add(time.seconds(1)), biggest);
     assert.eq(smallest.sub(time.seconds(1)), smallest);
     assert.eq(biggest.mul(2), biggest);
@@ -110,9 +110,9 @@ test "negate and abs" {
 test "the most negative length negates to the most positive one" {
     // The one asymmetry in two's complement, answered by saturating rather
     // than by wrapping back to itself.
-    let smallest = Duration(num.minValue<I64>());
-    assert.eq(smallest.negate(), Duration(num.maxValue<I64>()));
-    assert.eq(smallest.abs(), Duration(num.maxValue<I64>()));
+    let smallest = Duration(number.minValue<I64>());
+    assert.eq(smallest.negate(), Duration(number.maxValue<I64>()));
+    assert.eq(smallest.abs(), Duration(number.maxValue<I64>()));
 }
 
 test "durations compare as lengths" {
@@ -191,18 +191,18 @@ test "a deadline built from a length that saturates has not passed" {
     // survived. Here the deadline saturates to the end of time and the check
     // is `>=`.
     let started = Instant(1000);
-    let never = started.plus(time.hours(num.maxValue<I64>()));
+    let never = started.plus(time.hours(number.maxValue<I64>()));
     // The length saturated at the largest `Duration`, which is that many
     // nanoseconds; the instant then moves by the milliseconds in it.
-    assert.eq(never.0, 1000 + num.maxValue<I64>() / 1000000);
+    assert.eq(never.0, 1000 + number.maxValue<I64>() / 1000000);
     assert.isFalse(started.hasPassed(never));
     assert.isTrue(never.hasPassed(never));
 }
 
 test "moving a point past the end of time saturates too" {
-    let end = Instant(num.maxValue<I64>());
+    let end = Instant(number.maxValue<I64>());
     assert.eq(end.plus(time.seconds(1)), end);
-    let start = Instant(num.minValue<I64>());
+    let start = Instant(number.minValue<I64>());
     assert.eq(start.minus(time.seconds(1)), start);
 }
 

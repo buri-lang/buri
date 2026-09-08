@@ -1,4 +1,4 @@
-//! core/num — the defining module of every integer and float type.
+//! core/number — the defining module of every integer and float type.
 //!
 //! Two names, one set of types. `Int` and `Float` are aliases for `I64` and
 //! `F64`, not a separate tier, so everyday code and code that names an exact
@@ -190,7 +190,7 @@ export fn remEuclid(a: Int, b: Int): Int {
 }
 
 /// `Bounded`'s methods take no `self`, so you reach them through these rather
-/// than through a receiver: `num.maxValue<U8>()`.
+/// than through a receiver: `number.maxValue<U8>()`.
 export fn minValue<T: Bounded>(): T;
 
 export fn maxValue<T: Bounded>(): T;
@@ -257,10 +257,10 @@ fn significantNibbles(x: Int, upper: Int): Int {
 /// `base` raised to `exponent`, or `.None` when the answer is not an `Int`.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn cube(x: Int): Option<Int> {
-///     num.power(x, 3)
+///     number.power(x, 3)
 /// }
 /// ```
 ///
@@ -301,10 +301,10 @@ fn squaring(base: Int, exponent: Int, acc: Int): Option<Int> {
 /// The largest number that divides both, never negative.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn simplify(top: Int, bottom: Int): (Int, Int) {
-///     let g = num.greatestCommonDivisor(top, bottom);
+///     let g = number.greatestCommonDivisor(top, bottom);
 ///     if (g == 0) { (top, bottom) } else { (top / g, bottom / g) }
 /// }
 /// ```
@@ -337,10 +337,10 @@ fn magnitude(x: Int): Int {
 /// `Int`.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn together(everyA: Int, everyB: Int): Option<Int> {
-///     num.leastCommonMultiple(everyA, everyB)
+///     number.leastCommonMultiple(everyA, everyB)
 /// }
 /// ```
 ///
@@ -366,10 +366,10 @@ export fn leastCommonMultiple(a: Int, b: Int): Option<Int> {
 /// — a negative one included, where `divFloor` and `remEuclid` part company.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn week(day: Int): Int {
-///     num.divideEuclidean(day, 7)
+///     number.divideEuclidean(day, 7)
 /// }
 /// ```
 ///
@@ -383,10 +383,10 @@ export fn divideEuclidean(dividend: Int, divisor: Int): Int {
 /// `divideCeiling(7, 2)` is `4` where `7 / 2` is `3`.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn pages(items: Int, perPage: Int): Int {
-///     num.divideCeiling(items, perPage)
+///     number.divideCeiling(items, perPage)
 /// }
 /// ```
 ///
@@ -401,10 +401,10 @@ export fn divideCeiling(dividend: Int, divisor: Int): Int {
 /// dividend % divisor)`, truncated toward zero as the two operators are.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn hoursAndMinutes(minutes: Int): (Int, Int) {
-///     num.quotientRemainder(minutes, 60)
+///     number.quotientRemainder(minutes, 60)
 /// }
 /// ```
 ///
@@ -416,10 +416,10 @@ export fn quotientRemainder(dividend: Int, divisor: Int): (Int, Int) {
 /// The largest `r` with `r * r <= value`, or `.None` for a negative `value`.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn side(area: Int): Option<Int> {
-///     num.integerSquareRoot(area)
+///     number.integerSquareRoot(area)
 /// }
 /// ```
 ///
@@ -448,10 +448,10 @@ fn newton(value: Int, x: Int): Int {
 /// `|a - b|`, without the sign question either subtraction alone would raise.
 ///
 /// ```buri
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn apart(a: Int, b: Int): Int {
-///     num.absoluteDifference(a, b)
+///     number.absoluteDifference(a, b)
 /// }
 /// ```
 ///
@@ -467,10 +467,10 @@ export fn absoluteDifference(a: Int, b: Int): Int {
 ///
 /// ```buri
 /// from "core/effect" import { Alloc };
-/// from "core/num" import * as num;
+/// from "core/number" import * as number;
 ///
 /// export fn binary<C: Alloc>(ctx: C, n: Int): Str {
-///     num.toRadix(ctx, n, 2)
+///     number.toRadix(ctx, n, 2)
 /// }
 /// ```
 ///

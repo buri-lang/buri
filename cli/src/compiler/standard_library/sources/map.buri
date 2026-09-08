@@ -189,7 +189,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     /// stored afterwards, with `.None` meaning "not there".
     ///
     /// A counter is `alter(ctx, k, fn(n) => .Some(n.withDefault(0) + 1))`.
-    /// `core/ordmap` has the same method with the same meaning.
+    /// `core/orderedmap` has the same method with the same meaning.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };

@@ -707,7 +707,7 @@ fn moves(o: &mut Out) {
          ? (uint64_t)OFF(_JIT_N) : (uint64_t)OFF(_JIT_P); TAIL; }"
             .into(),
     );
-    // Float/integer conversions, for `num.*.toF64` and friends.
+    // Float/integer conversions, for `number.*.toF64` and friends.
     o.push("cvt/i2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
     o.push("cvt/u2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)AT(uint64_t, _JIT_A)); TAIL; }".into());
     o.push("cvt/f2i", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = (uint64_t)(int64_t)bits_f64(AT(uint64_t, _JIT_A)); TAIL; }".into());
@@ -946,7 +946,7 @@ fn checks(o: &mut Out) -> Result<(), String> {
 /// into an operand whose `fi` stencil exists, so not generating one is what
 /// keeps a 128-bit constant materialised.
 ///
-/// Nothing about this is a level: `core/num` declares `I128` and `U128` at
+/// Nothing about this is a level: `core/number` declares `I128` and `U128` at
 /// every operation the other widths have, so a library without these is a
 /// library that refuses a program rather than one that compiles it slower.
 fn wide(o: &mut Out) {

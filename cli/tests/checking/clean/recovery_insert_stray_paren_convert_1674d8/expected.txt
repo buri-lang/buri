@@ -1,7 +1,7 @@
 error: expected an expression, found `,` [unexpected-token]
   --> main.buri:30:28
    |
-30 |     assert.eq(got.lane(2), , num.minValue<I64>());
+30 |     assert.eq(got.lane(2), , number.minValue<I64>());
    |                            ^
    |
    = expected: an expression

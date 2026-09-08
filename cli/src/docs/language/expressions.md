@@ -109,7 +109,7 @@ integer type defines `toF64` as an exact-to-53-bits conversion that rounds beyon
 that. That bound is the float's rather than the backend's, so `toF64` rounds
 identically everywhere.
 
-`core/num` holds one of these functions per source-and-target pair. `as` appears
+`core/number` holds one of these functions per source-and-target pair. `as` appears
 only in import specifiers (`design/grammar-rationale.md` 12.5).
 
 `Char` and `U32` convert the same way: `c.toU32()` is exact, `n.toChar()` yields
@@ -149,7 +149,7 @@ trait Bounded {
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let safe = a.checkedAdd(b).withDefault(0);
 let hash = seed.wrappingMul(31).wrappingAdd(byte);
-let ceiling = num.maxValue<U8>();
+let ceiling = number.maxValue<U8>();
 ```
 
 Every built-in integer type satisfies all four; the float types satisfy
@@ -371,7 +371,7 @@ Defining modules:
 | `Str` | `core/str` |
 | `Char` | `core/character` |
 | `Bool` | `core/bool` |
-| every integer and float type | `core/num` |
+| every integer and float type | `core/number` |
 | `Option<T>` | `core/option` |
 | `Result<T, E>` | `core/result` |
 | tuples, function types, `Template` | none — no methods |
