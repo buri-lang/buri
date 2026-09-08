@@ -27,6 +27,12 @@
 //! Editing `REPO.buri` re-analyses every target regardless: its bytes are in
 //! the graph hash below, because a build file decides what a closure is.
 //!
+//! The `allow` block is the one exception, and that last sentence is what makes
+//! it safe. An exemption names a *declaration*, which the report has no way to
+//! recover from a record, so it is applied where the rule is asked instead — and
+//! a record written under one `allow` block is unreachable from a repository
+//! with another, because the block's bytes moved the graph hash.
+//!
 //! The key is an ordinary [`ActionKey`], so the toolchain version is in it by
 //! construction and a record another `buri` wrote is unreachable rather than
 //! trusted; entries land in `.buri/cache`, which `buri clean` drops and which

@@ -28,3 +28,8 @@ or options value named after the function that takes it is the same bag,
 organised by function rather than by abstraction, so the next function invents
 another one and the concept stays unnamed. You are done when the entity carries
 a domain name and no call site still passes its fields loose.
+
+**If the signature is not yours** — a wire format, a protocol, an API somebody
+else specified — name the declaration in `REPO.buri`'s `lint { allow { … } }`
+block. The rule stays on everywhere else, and every report says which
+declaration it was not asked about.

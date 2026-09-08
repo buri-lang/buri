@@ -352,7 +352,7 @@ fn one_pass(
         // The same line `buri lint` prints: a rule this repository turned off
         // is absent from the report, and an absence nothing explains reads as
         // a check that passed.
-        if let Some(note) = crate::commands::lint::rules_note(&session) {
+        if let Some(note) = crate::commands::lint::policy_note(&session) {
             out.line(&note);
         }
     }

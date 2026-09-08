@@ -1,0 +1,17 @@
+error: expected an identifier, found `:` [unexpected-token]
+  --> lib/recovery_delete_closer_module_frame_59a1af/lib.buri:11:1
+   |
+11 | : I64 {
+   | ^
+   |
+   = expected: an identifier
+   = actual: `:`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+warning: `describe` takes 6 parameters [too-many-parameters]
+  --> lib/recovery_delete_closer_module_frame_59a1af/lib.buri:16:11
+   |
+16 | export fn describe(
+   |           ^^^^^^^^
+   |
+   = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
+   = fix: group the parameters that always travel together into a struct, and take that instead

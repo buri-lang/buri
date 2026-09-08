@@ -1,0 +1,8 @@
+error: `lib/wire:encode` is not a declaration label [allow-not-a-declaration]
+ --> REPO.buri:6:31
+  |
+6 |         too_many_parameters: ["lib/wire:encode"]
+  |                               ^^^^^^^^^^^^^^^^^
+  |
+  = an exemption is a package label, a colon, and the name the finding prints, so that it exempts one declaration and not a directory
+  = fix: write it as `//lib/wire:encode`
