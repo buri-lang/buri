@@ -251,6 +251,29 @@ test "the calendar's Duration is core/time's, re-exported and not a copy" {
     assert.equal(date.between(Instant(0), Instant(1000)), borrowed);
 }
 
+// An `Instant` counts milliseconds, so these are the factors a program moving
+// one by a whole unit multiplies by. Asserted by name: each was `MILLIS_PER_*`
+// until the module spelled its names out, and only two of the four were reached
+// by any assertion afterwards.
+test "each unit is worth the millisecond count its constant names" {
+    assert.equal(date.MILLISECONDS_PER_SECOND, 1000);
+    assert.equal(date.MILLISECONDS_PER_MINUTE, 60000);
+    assert.equal(date.MILLISECONDS_PER_HOUR, 3600000);
+    assert.equal(date.MILLISECONDS_PER_DAY, 86400000);
+    // And each moves an instant by one of its unit.
+    let epoch = Instant(0);
+    assert.equal(
+        date.plus(epoch, time.seconds(1)),
+        Instant(date.MILLISECONDS_PER_SECOND),
+    );
+    assert.equal(
+        date.plus(epoch, time.minutes(1)),
+        Instant(date.MILLISECONDS_PER_MINUTE),
+    );
+    assert.equal(date.plus(epoch, time.hours(1)), Instant(date.MILLISECONDS_PER_HOUR));
+    assert.equal(date.plus(epoch, time.hours(24)), Instant(date.MILLISECONDS_PER_DAY));
+}
+
 // --- ISO 8601 ----------------------------------------------------------------------
 
 test "dates format with fixed width" {
