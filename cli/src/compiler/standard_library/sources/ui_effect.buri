@@ -18,6 +18,8 @@
 //! A page asks for `Network` like every other platform: there is no fetch effect
 //! here.
 
+from "core/effect" import { Allocator, Region };
+
 /// Reading signals, alone.
 ///
 /// Separate from `Ui` so a computation can hold read authority and nothing else.
@@ -54,16 +56,43 @@ export effect Ui {
     fn watch(self, run: fn(Scope) => ()): ();
 }
 
-/// The one concrete implementor of `Watch`, minted only by the runtime when it
-/// evaluates a reactive closure.
+/// What a reactive closure is handed: reading the graph, and allocating.
 ///
-/// Concrete so that closure types can name it, which keeps `Prop` and `Style`
-/// free of a context type parameter. Its field is private, so no program can
-/// build one, and it is effect-carrying, so it may only arrive as `ctx`.
+/// Minted only by the runtime, when it evaluates a computation. Concrete so
+/// that closure types can name it, which keeps `Prop` and `Style` free of a
+/// context type parameter. Its field is private, so no program can build one,
+/// and it is effect-carrying, so it may only arrive as `ctx`.
+///
+/// ```buri
+/// from "ui/effect" import { Scope };
+///
+/// fn evens(ctx: Scope, xs: [Int]): [Int] {
+///     xs.filter(ctx, fn(value) => value % 2 == 0)
+/// }
+/// ```
+///
+/// **It cannot write.** Reading and allocating are what a derivation does;
+/// writing a signal it read would be a loop the runtime schedules rather than a
+/// value it caches. `Ui` is the effect that writes, and a `Scope` is not one.
 export struct Scope(Int);
 
 impl Watch for Scope {
     fn read<T>(self, id: Int): T;
+}
+
+/// Allocating hands out nothing: `Allocator` is the one effect whose
+/// implementation carries no authority, because a `Region` is a number
+/// (`core/alloc`'s own header says why that module is importable anywhere).
+/// So a `Scope` charges the request and counts nothing, exactly as `core/host`'s
+/// allocator does — a derived value is reclaimed when the last reference to it
+/// goes, and no budget is attached to a computation.
+///
+/// Without this a derivation could not map, filter, sort or format, and an app
+/// whose state lives in signals would render once and go stale.
+impl Allocator for Scope {
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes)
+    }
 }
 
 /// Something a reader did.

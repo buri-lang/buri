@@ -12,12 +12,16 @@
 //     signal run their reader once rather than twice;
 //   - the equality cutoff is the cell's: a memo that recomputed to the answer
 //     it had still runs what reads it;
-//   - `Prop.Const` registers nothing.
+//   - `Prop.Const` registers nothing;
+//   - a reactive closure allocates, so a derivation may map, filter and format.
 //
 // The `Recorder` is how a computation says that it ran: a reactive closure
-// receives a `Scope`, which grants reading the graph and nothing else, so it
-// cannot write a signal and it cannot print.
+// receives a `Scope`, which grants reading the graph and allocating, so it can
+// build its answer and it still cannot write a signal or print.
 
+from "core/alloc" import * as alloc;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
@@ -488,6 +492,107 @@ test "a spread may replace one reactive effect and inherit the other" {
     assert.equal(log.recorded(), ["yes"]);
     let _ = flag.set(ctx, false);
     assert.equal(log.recorded(), ["yes", "no"]);
+}
+
+// --- allocating derivations ----------------------------------------------------------
+
+// buri-lang/buri#50. A reactive closure gets a `Scope`, and a `Scope` is an
+// `Allocator`, so a derived value may map, filter, sort or format. Without that
+// the only reactivity left is a condition and a list whose keys changed, and an
+// app whose state lives in signals renders once and then goes stale.
+
+fn isEven(value: Int): Bool {
+    value % 2 == 0
+}
+
+/// The issue's program, as a `Prop`: a filtered view of a signal, built by a
+/// function with no context at all. `filter` allocates and the `Scope` pays.
+fn evens(xs: Signal<[Int]>): Prop<[Int]> {
+    .Computed(fn(s) => xs.get(s).filter(s, isEven))
+}
+
+/// Two allocating calls over what a computation read, so what the log holds is
+/// the derived list itself rather than a number standing in for it.
+fn joined(ctx: Scope, values: [Int]): Str {
+    values.mapCtx(ctx, digits).join(ctx, ",")
+}
+
+fn digits<C: Allocator>(ctx: C, value: Int): Str {
+    str.fromInt(ctx, value)
+}
+
+test "a computed prop filters, so a derived list follows its signal" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let xs = signal(ctx, [1, 2, 3, 4]);
+    let even = evens(xs);
+    let _ = watch(ctx, fn(s) => log.record(joined(s, even.read(s))));
+    assert.equal(log.recorded(), ["2,4"]);
+    let _ = xs.set(ctx, [1, 2, 3, 4, 5, 6]);
+    assert.equal(log.recorded(), ["2,4", "2,4,6"]);
+}
+
+test "a memo builds a list, and holds it until its source moves" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let xs = signal(ctx, [1, 2, 3, 4]);
+    let even = memo(ctx, fn(s) => xs.get(s).filter(s, isEven));
+    let _ = watch(ctx, fn(s) => log.record(joined(s, even.read(s))));
+    assert.equal(log.recorded(), ["2,4"]);
+    let _ = xs.set(ctx, [2, 4, 6]);
+    assert.equal(log.recorded(), ["2,4", "2,4,6"]);
+}
+
+/// `str.format` is the one the issue leads with: a number in a signal cannot
+/// reach a `ui.text` at all unless the closure rendering it can allocate.
+fn priced(n: Signal<Int>): Prop<Str> {
+    .Computed(fn(s) => str.format(s, "${n.get(s)} items"))
+}
+
+test "a computed prop formats, so derived text follows its signal" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let label = priced(n);
+    let _ = watch(ctx, fn(s) => log.record(label.read(s)));
+    assert.equal(log.recorded(), ["1 items"]);
+    let _ = n.set(ctx, 12);
+    assert.equal(log.recorded(), ["1 items", "12 items"]);
+}
+
+test "a watcher allocates for itself" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let names = signal(ctx, ["ada", "grace"]);
+    let _ = watch(ctx, fn(s) => log.record(names.get(s).join(s, " & ")));
+    assert.equal(log.recorded(), ["ada & grace"]);
+    let _ = names.set(ctx, ["ada", "grace", "alan"]);
+    assert.equal(log.recorded(), ["ada & grace", "ada & grace & alan"]);
+}
+
+/// The charge is the request, exactly as `core/host`'s own allocator answers
+/// it. A `Scope` counts nothing: a derived value is reclaimed when the last
+/// reference to it goes, and no budget is attached to a computation.
+fn charged(ctx: Scope): Int {
+    alloc.allocate(ctx, 24).0
+}
+
+test "a scope charges the bytes it was asked for" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 0);
+    let _ = watch(ctx, fn(s) => ignore(log.note(charged(s))));
+    assert.equal(log.noted(), [24]);
 }
 
 // --- the design's example ------------------------------------------------------------
