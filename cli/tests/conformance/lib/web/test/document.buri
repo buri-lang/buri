@@ -36,7 +36,10 @@ struct Reading {
 
 /// The one tree these tests render, built where both renderers can reach it.
 fn tree<C>(): Node<C> {
-    ui.region(.Main, [], [ui.heading(1, .Const("Titles")), ui.text(.Const("and text"))])
+    ui.region(.Main, [], [
+        ui.heading(1, [], .Const("Titles")),
+        ui.text(.Const("and text")),
+    ])
 }
 
 /// The body of a document, without the state the page resumes from.
@@ -136,7 +139,7 @@ test "every kind of node renders" {
     assert.equal(web.render(ui.text(.Const("plain"))), "plain");
     assert.equal(web.render(ui.stack([], [ui.text(.Const("in"))])), "<div>in</div>");
     assert.equal(web.render(ui.row([], [])), "<div class=\"lay-row\"></div>");
-    assert.equal(web.render(ui.heading(2, .Const("two"))), "<h2>two</h2>");
+    assert.equal(web.render(ui.heading(2, [], .Const("two"))), "<h2>two</h2>");
     assert.equal(
         web.render(ui.link(.Const("/there"), [], [ui.text(.Const("go"))])),
         "<a href=\"/there\">go</a>",
@@ -197,9 +200,20 @@ test "every kind of node renders" {
 }
 
 test "a heading's level clamps to the range a document has" {
-    assert.equal(web.render(ui.heading(0, .Const("low"))), "<h1>low</h1>");
-    assert.equal(web.render(ui.heading(-4, .Const("lower"))), "<h1>lower</h1>");
-    assert.equal(web.render(ui.heading(7, .Const("high"))), "<h6>high</h6>");
+    assert.equal(web.render(ui.heading(0, [], .Const("low"))), "<h1>low</h1>");
+    assert.equal(web.render(ui.heading(-4, [], .Const("lower"))), "<h1>lower</h1>");
+    assert.equal(web.render(ui.heading(7, [], .Const("high"))), "<h6>high</h6>");
+}
+
+test "a heading the worker sent carries the classes its styles chose" {
+    // The level picks the element and the styles paint it, on the server as in
+    // the browser. Without them the user agent's own sheet decides the type.
+    assert.equal(
+        web.render(
+            ui.heading(2, [.FontSize(.Px(28)), .FontWeight(.Bold)], .Const("Prices")),
+        ),
+        "<h2 class=\"fs-28 fw-bold\">Prices</h2>",
+    );
 }
 
 test "text is escaped, so a title cannot write markup" {
