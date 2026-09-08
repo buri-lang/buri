@@ -1,1 +1,3 @@
-from "//lib/scenes/scenes.buri" export { deep, fractions, plate, siblings, tinted };
+from "//lib/scenes/scenes.buri" export {
+    corners, deep, fractions, plate, siblings, tinted,
+};
