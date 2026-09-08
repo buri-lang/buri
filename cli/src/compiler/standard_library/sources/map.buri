@@ -422,7 +422,7 @@ impl<K: Hash + Equal, V> Map<K, V> {
     }
 }
 
-/// The elements of `xs` collected under `key(x)`, each group in the order the
+/// The elements of `items` collected under `key(x)`, each group in the order the
 /// elements arrived in.
 ///
 /// A free function rather than a method on `[T]`: `core/list` sits at the bottom
@@ -452,10 +452,10 @@ impl<K: Hash + Equal, V> Map<K, V> {
 /// ```
 export fn groupBy<A, K: Hash + Equal, C: Allocator>(
     ctx: C,
-    xs: [A],
+    items: [A],
     key: fn(A) => K,
 ): Map<K, [A]> {
-    xs.foldCtx(
+    items.foldCtx(
         ctx,
         fn(c, acc: Map<K, [A]>, x) => {
             let k = key(x);
@@ -473,10 +473,10 @@ export fn groupBy<A, K: Hash + Equal, C: Allocator>(
 /// key is not unique: this one *silently* keeps the last.
 export fn indexBy<A, K: Hash + Equal, C: Allocator>(
     ctx: C,
-    xs: [A],
+    items: [A],
     key: fn(A) => K,
 ): Map<K, A> {
-    xs.foldCtx(ctx, fn(c, acc: Map<K, A>, x) => acc.insert(c, key(x), x), empty<K, A>())
+    items.foldCtx(ctx, fn(c, acc: Map<K, A>, x) => acc.insert(c, key(x), x), empty<K, A>())
 }
 
 /// A map holding the given entries, later ones winning.

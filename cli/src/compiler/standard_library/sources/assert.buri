@@ -125,25 +125,25 @@ export fn startsWith(haystack: Str, prefix: Str): () {
     report(haystack.startsWith(prefix), "startsWith", haystack, prefix)
 }
 
-/// Fails unless `xs` is empty. The report shows what was in it.
-export fn isEmpty<T>(xs: [T]): () {
-    report(xs.isEmpty(), "isEmpty", xs, [])
+/// Fails unless `items` is empty. The report shows what was in it.
+export fn isEmpty<T>(items: [T]): () {
+    report(items.isEmpty(), "isEmpty", items, [])
 }
 
-/// Fails when `xs` is empty. The one assertion here that reports a sentence
+/// Fails when `items` is empty. The one assertion here that reports a sentence
 /// rather than a diff, because it can only fail at one value.
-export fn notEmpty<T>(xs: [T]): () {
-    if (xs.isEmpty()) {
+export fn notEmpty<T>(items: [T]): () {
+    if (items.isEmpty()) {
         failWith("assert.notEmpty failed: the list is empty")
     } else {
         ()
     }
 }
 
-/// Fails unless `xs` holds exactly `expected` elements. The report compares the
+/// Fails unless `items` holds exactly `expected` elements. The report compares the
 /// two lengths.
-export fn length<T>(xs: [T], expected: Int): () {
-    report(xs.length() == expected, "length", xs.length(), expected)
+export fn length<T>(items: [T], expected: Int): () {
+    report(items.length() == expected, "length", items.length(), expected)
 }
 
 /// Fails unless the two lists hold the same elements in any order. Duplicates
@@ -264,17 +264,17 @@ export fn err<T, E>(r: Result<T, E>): E {
 
 /// The report shows the `Option` itself, so a failure reads `actual: .None`
 /// against `expected: .Some` — both in the syntax you write the value in.
-export fn some<T>(o: Option<T>): T {
-    match (o) {
+export fn some<T>(option: Option<T>): T {
+    match (option) {
         .Some(v) => v,
-        .None => failExpected("some", o),
+        .None => failExpected("some", option),
     }
 }
 
 /// The mirror of `some`: `actual: .Some("none")` against `expected: .None`.
-export fn none<T>(o: Option<T>): () {
-    match (o) {
-        .Some(_) => failExpected("none", o),
+export fn none<T>(option: Option<T>): () {
+    match (option) {
+        .Some(_) => failExpected("none", option),
         .None => (),
     }
 }

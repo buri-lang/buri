@@ -1045,8 +1045,8 @@ fn table<C: Allocator>(ctx: C, rows: [(Str, Str)]): Str {
 // The error line
 // ---------------------------------------------------------------------------
 
-fn errorText<C: Allocator>(ctx: C, e: ParseError): Str {
-    match (e) {
+fn errorText<C: Allocator>(ctx: C, error: ParseError): Str {
+    match (error) {
         .UnknownFlag(token) => str.format(ctx, "unknown flag ${token}"),
         .MissingValue(token) => str.format(ctx, "${token} needs a value"),
         .UnexpectedValue(token) => str.format(ctx, "${token} takes no value"),

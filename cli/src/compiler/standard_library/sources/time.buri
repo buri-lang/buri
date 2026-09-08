@@ -107,28 +107,28 @@ export let NANOSECONDS_PER_DAY: Int = 86_400_000_000_000;
 // Each one saturates, so a count no `Duration` can hold becomes the largest one
 // there is rather than a wrapped negative.
 
-export fn nanoseconds(n: Int): Duration {
-    Duration(n)
+export fn nanoseconds(count: Int): Duration {
+    Duration(count)
 }
 
-export fn microseconds(n: Int): Duration {
-    Duration(n.saturatingMultiply(NANOSECONDS_PER_MICROSECOND))
+export fn microseconds(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_MICROSECOND))
 }
 
-export fn milliseconds(n: Int): Duration {
-    Duration(n.saturatingMultiply(NANOSECONDS_PER_MILLISECOND))
+export fn milliseconds(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_MILLISECOND))
 }
 
-export fn seconds(n: Int): Duration {
-    Duration(n.saturatingMultiply(NANOSECONDS_PER_SECOND))
+export fn seconds(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_SECOND))
 }
 
-export fn minutes(n: Int): Duration {
-    Duration(n.saturatingMultiply(NANOSECONDS_PER_MINUTE))
+export fn minutes(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_MINUTE))
 }
 
-export fn hours(n: Int): Duration {
-    Duration(n.saturatingMultiply(NANOSECONDS_PER_HOUR))
+export fn hours(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_HOUR))
 }
 
 /// A length from a fractional count of seconds: `secondsFloat(0.25)` is 250
@@ -325,12 +325,12 @@ impl Instant {
 
     /// This point moved forward by a length. `d.milliseconds()` is what moves it, so
     /// a length under a millisecond moves nothing — see the module header.
-    export fn plus(self, d: Duration): Instant {
-        Instant(self.0.saturatingAdd(d.milliseconds()))
+    export fn plus(self, duration: Duration): Instant {
+        Instant(self.0.saturatingAdd(duration.milliseconds()))
     }
 
-    export fn minus(self, d: Duration): Instant {
-        Instant(self.0.saturatingSubtract(d.milliseconds()))
+    export fn minus(self, duration: Duration): Instant {
+        Instant(self.0.saturatingSubtract(duration.milliseconds()))
     }
 
     /// Whether this point is at or past `deadline`. Both ends saturate, so the
@@ -351,8 +351,8 @@ export fn since<C: Clock>(ctx: C, earlier: Instant): Duration {
 }
 
 /// Waits for a length of time, to the millisecond the clock offers.
-export fn sleep<C: Clock>(ctx: C, d: Duration): () {
-    ctx.sleepMilliseconds(d.milliseconds())
+export fn sleep<C: Clock>(ctx: C, duration: Duration): () {
+    ctx.sleepMilliseconds(duration.milliseconds())
 }
 
 // -----------------------------------------------------------------------------

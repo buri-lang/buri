@@ -408,8 +408,8 @@ fn isExponent(cs: [Char], i: Int): Bool {
 
 /// The compact rendering: no spaces, no newlines, keys in the order the value
 /// holds them. `parse` of this is the value it came from.
-export fn stringify<C: Allocator>(ctx: C, v: Json): Str {
-    match (v) {
+export fn stringify<C: Allocator>(ctx: C, value: Json): Str {
+    match (value) {
         .Null => "null",
         .Bool(b) => if (b) { "true" } else { "false" },
         .Num(x) => numberText(ctx, x),
@@ -536,8 +536,8 @@ fn numberText<C: Allocator>(ctx: C, x: Float): Str {
 }
 
 /// A quoted, escaped string literal.
-export fn quote<C: Allocator>(ctx: C, s: Str): Str {
-    let inner = s.chars(ctx).mapCtx(ctx, fn(c, ch) => escape(c, ch)).join(ctx, "");
+export fn quote<C: Allocator>(ctx: C, text: Str): Str {
+    let inner = text.chars(ctx).mapCtx(ctx, fn(c, ch) => escape(c, ch)).join(ctx, "");
     str.format(ctx, "\"${inner}\"")
 }
 

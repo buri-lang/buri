@@ -95,7 +95,7 @@ export fn empty<K, V>(): OrderedMap<K, V> {
     OrderedMap { root: .Leaf(list.empty<(K, V)>()), size: 0 }
 }
 
-/// The elements of `xs` collected under `key(x)`, each group in the order the
+/// The elements of `items` collected under `key(x)`, each group in the order the
 /// elements arrived in and the keys in key order.
 ///
 /// A free function rather than a method on `[T]`, because the answer is a map
@@ -103,10 +103,10 @@ export fn empty<K, V>(): OrderedMap<K, V> {
 /// same pair for an unordered answer.
 export fn groupBy<A, K: Ordered, C: Allocator>(
     ctx: C,
-    xs: [A],
+    items: [A],
     key: fn(A) => K,
 ): OrderedMap<K, [A]> {
-    xs.foldCtx(
+    items.foldCtx(
         ctx,
         fn(c, acc: OrderedMap<K, [A]>, x) => {
             let k = key(x);
@@ -136,8 +136,8 @@ export fn countBy<A, K: Ordered, C: Allocator>(
 
 /// One element per key rather than a group of them: `key(x)` to `x`, with a
 /// later element replacing an earlier one that answered the same key.
-export fn indexBy<A, K: Ordered, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): OrderedMap<K, A> {
-    xs.foldCtx(
+export fn indexBy<A, K: Ordered, C: Allocator>(ctx: C, items: [A], key: fn(A) => K): OrderedMap<K, A> {
+    items.foldCtx(
         ctx,
         fn(c, acc: OrderedMap<K, A>, x) => acc.insert(c, key(x), x),
         empty<K, A>(),
@@ -976,18 +976,18 @@ impl<K: Ordered, V> OrderedMap<K, V> {
             )
     }
 
-    /// The same keys, every value put through `f`.
+    /// The same keys, every value put through `transform`.
     ///
     /// Nothing touches the keys, so the order cannot change. It rebuilds the
     /// tree rather than copying it node for node, so it costs O(n log n).
-    export fn mapValues<W, C: Allocator>(self, ctx: C, f: fn(V) => W): OrderedMap<K, W> {
+    export fn mapValues<W, C: Allocator>(self, ctx: C, transform: fn(V) => W): OrderedMap<K, W> {
         self
             .entries(ctx)
             .foldCtx(
                 ctx,
                 fn(c, acc: OrderedMap<K, W>, e) => {
                     let (k, v) = e;
-                    acc.insert(c, k, f(v))
+                    acc.insert(c, k, transform(v))
                 },
                 empty<K, W>(),
             )

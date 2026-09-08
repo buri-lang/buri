@@ -162,7 +162,7 @@ impl Stdout for TestStdout {
 
     /// Captured as the UTF-8 text the octets spell, so `captured` answers one
     /// question rather than two.
-    fn writeBytes(self, b: [U8]): Result<(), IoError>;
+    fn writeBytes(self, bytes: [U8]): Result<(), IoError>;
 }
 
 export fn stdout(): TestStdout;
@@ -200,7 +200,7 @@ export struct TestStdin(I64);
 impl Stdin for TestStdin {
     fn readLine(self): Option<Str>;
 
-    fn readBytes(self, n: Int): Option<[U8]>;
+    fn readBytes(self, count: Int): Option<[U8]>;
 }
 
 export fn stdin(): TestStdin;
@@ -957,7 +957,7 @@ impl TestClock {
 export struct TestRandom(I64);
 
 impl Random for TestRandom {
-    fn nextInt(self, lo: Int, hi: Int): Int;
+    fn nextInt(self, low: Int, high: Int): Int;
 
     fn nextFloat(self): Float;
 }
@@ -1631,8 +1631,8 @@ export fn readLine(): StdinCall {
 }
 
 /// A `readBytes(n)`, as a call.
-export fn readBytes(n: Int): StdinCall {
-    StdinCall { name: "readBytes", count: n }
+export fn readBytes(count: Int): StdinCall {
+    StdinCall { name: "readBytes", count: count }
 }
 
 // --- The fault plan -----------------------------------------------------------
@@ -1743,7 +1743,7 @@ impl Tasks for TestTasks {
     /// `ctx` is the caller's whole context and is what every step is handed —
     /// `Tasks`' own promise, and the same parameter the real implementation
     /// takes.
-    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    fn parallel<C, A, B>(self, ctx: C, items: [A], step: fn(C, Int, A) => B): [B];
 }
 
 /// Program order, no faults, and a fresh log.

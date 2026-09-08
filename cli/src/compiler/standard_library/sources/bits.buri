@@ -7,34 +7,34 @@
 
 /// Shifting by a count at or beyond the width of the type aborts: a bad shift
 /// count has no defensible answer.
-export fn shiftLeft(x: Int, n: Int): Int;
+export fn shiftLeft(value: Int, count: Int): Int;
 
-export fn shiftRight(x: Int, n: Int): Int;
+export fn shiftRight(value: Int, count: Int): Int;
 
 /// Arithmetic shift right: the sign bit repeats into the vacated places.
-export fn shiftRightArithmetic(x: Int, n: Int): Int;
+export fn shiftRightArithmetic(value: Int, count: Int): Int;
 
-export fn popCount(x: Int): Int;
+export fn popCount(value: Int): Int;
 
-export fn leadingZeros(x: Int): Int;
+export fn leadingZeros(value: Int): Int;
 
-export fn trailingZeros(x: Int): Int;
+export fn trailingZeros(value: Int): Int;
 
-export fn rotateLeft(x: Int, n: Int): Int;
+export fn rotateLeft(value: Int, count: Int): Int;
 
-export fn rotateRight(x: Int, n: Int): Int;
+export fn rotateRight(value: Int, count: Int): Int;
 
-export fn shiftLeftU8(x: U8, n: Int): U8;
+export fn shiftLeftU8(value: U8, n: Int): U8;
 
-export fn shiftRightU8(x: U8, n: Int): U8;
+export fn shiftRightU8(value: U8, n: Int): U8;
 
-export fn shiftLeftU32(x: U32, n: Int): U32;
+export fn shiftLeftU32(value: U32, n: Int): U32;
 
-export fn shiftRightU32(x: U32, n: Int): U32;
+export fn shiftRightU32(value: U32, n: Int): U32;
 
-export fn shiftLeftU64(x: U64, n: Int): U64;
+export fn shiftLeftU64(value: U64, n: Int): U64;
 
-export fn shiftRightU64(x: U64, n: Int): U64;
+export fn shiftRightU64(value: U64, n: Int): U64;
 
 // --- The unsigned widths ----------------------------------------------------------
 //

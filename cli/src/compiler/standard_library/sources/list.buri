@@ -35,17 +35,17 @@ impl<T> [T] {
 
     /// A fold produces one value rather than a new collection, so it allocates
     /// nothing and needs no context.
-    export fn fold<B>(self, f: fn(B, T) => B, init: B): B;
+    export fn fold<B>(self, step: fn(B, T) => B, init: B): B;
 
     /// The `*Ctx` variant, for a step that needs an effect. A lambda may not
     /// capture one (SPEC 10.6), so you thread the context through instead.
-    export fn foldCtx<B, C>(self, ctx: C, f: fn(C, B, T) => B, init: B): B;
+    export fn foldCtx<B, C>(self, ctx: C, step: fn(C, B, T) => B, init: B): B;
 
     /// Stops at the first `.Err` — how you write a fallible fold without an
     /// early exit.
     export fn foldResult<B, E>(
         self,
-        f: fn(B, T) => Result<B, E>,
+        step: fn(B, T) => Result<B, E>,
         init: B,
     ): Result<B, E>;
 
@@ -58,13 +58,13 @@ impl<T> [T] {
         init: B,
     ): Result<B, E>;
 
-    export fn any(self, pred: fn(T) => Bool): Bool;
+    export fn any(self, predicate: fn(T) => Bool): Bool;
 
-    export fn all(self, pred: fn(T) => Bool): Bool;
+    export fn all(self, predicate: fn(T) => Bool): Bool;
 
-    export fn find(self, pred: fn(T) => Bool): Option<T>;
+    export fn find(self, predicate: fn(T) => Bool): Option<T>;
 
-    export fn findIndex(self, pred: fn(T) => Bool): Option<Int>;
+    export fn findIndex(self, predicate: fn(T) => Bool): Option<Int>;
 }
 
 impl<T: Equal> [T] {
@@ -74,27 +74,27 @@ impl<T: Equal> [T] {
 }
 
 impl<T> [T] {
-    export fn count(self, pred: fn(T) => Bool): Int;
+    export fn count(self, predicate: fn(T) => Bool): Int;
 
     /// Whether every neighbouring pair is in order — `cmp(xs[i], xs[i + 1])` is
     /// never `.Greater`. The empty list and a single element are sorted. This is
     /// the predicate `sort` and `sortBy` answer.
-    export fn isSortedBy(self, cmp: fn(T, T) => Order): Bool {
-        sortedFrom(self, cmp, 0)
+    export fn isSortedBy(self, compare: fn(T, T) => Order): Bool {
+        sortedFrom(self, compare, 0)
     }
 
-    /// The greatest element by `cmp`, or `.None` for an empty list. Ties go to
+    /// The greatest element by `compare`, or `.None` for an empty list. Ties go to
     /// the earlier element, which is `maximum`'s answer too.
     ///
     /// `maximum` is this with the type's own `Ordered`. This form takes the order as
     /// a value, so "the row with the largest score" needs no `Ordered` on the row.
-    export fn maxBy(self, cmp: fn(T, T) => Order): Option<T> {
+    export fn maxBy(self, compare: fn(T, T) => Order): Option<T> {
         self.fold(
             fn(best, x) => {
                 match (best) {
                     .None => .Some(x),
                     .Some(b) => {
-                        match (cmp(x, b)) {
+                        match (compare(x, b)) {
                             .Greater => .Some(x),
                             _ => .Some(b),
                         }
@@ -105,15 +105,15 @@ impl<T> [T] {
         )
     }
 
-    /// The least element by `cmp`, or `.None` for an empty list. Ties go to
+    /// The least element by `compare`, or `.None` for an empty list. Ties go to
     /// the earlier element.
-    export fn minBy(self, cmp: fn(T, T) => Order): Option<T> {
+    export fn minBy(self, compare: fn(T, T) => Order): Option<T> {
         self.fold(
             fn(best, x) => {
                 match (best) {
                     .None => .Some(x),
                     .Some(b) => {
-                        match (cmp(x, b)) {
+                        match (compare(x, b)) {
                             .Less => .Some(x),
                             _ => .Some(b),
                         }
@@ -124,14 +124,14 @@ impl<T> [T] {
         )
     }
 
-    /// Lexicographic comparison, element by element with `cmp`, the shorter
+    /// Lexicographic comparison, element by element with `compare`, the shorter
     /// list first when one is a prefix of the other.
     ///
     /// `[T]` satisfies `Ordered` structurally whenever `T` does (SPEC 5.11), so `<`
     /// on two lists already answers this order. This adds the comparator form: a
     /// list compared by an order that is not the element type's own.
-    export fn compareBy(self, other: [T], cmp: fn(T, T) => Order): Order {
-        compareFrom(self, other, cmp, 0)
+    export fn compareBy(self, other: [T], compare: fn(T, T) => Order): Order {
+        compareFrom(self, other, compare, 0)
     }
 }
 
@@ -180,9 +180,9 @@ impl<T: Ordered> [T] {
 // --- Deterministic: bounded by <C: Allocator> ------------------------------------
 
 impl<A> [A] {
-    export fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B];
+    export fn map<B, C: Allocator>(self, ctx: C, transform: fn(A) => B): [B];
 
-    export fn mapCtx<B, C: Allocator>(self, ctx: C, f: fn(C, A) => B): [B];
+    export fn mapCtx<B, C: Allocator>(self, ctx: C, transform: fn(C, A) => B): [B];
 
     /// `mapCtx`, with the runtime running the step rather than a loop the
     /// backend writes. The answer is `mapCtx`'s answer, element for element.
@@ -265,13 +265,13 @@ impl<A> [A] {
 
     /// `mapResult` for a step that answers `Option`: every element mapped, or
     /// `.None` the moment one is missing.
-    export fn mapOption<B, C: Allocator>(self, ctx: C, f: fn(A) => Option<B>): Option<[B]> {
+    export fn mapOption<B, C: Allocator>(self, ctx: C, transform: fn(A) => Option<B>): Option<[B]> {
         // `Result` is the shape with an early exit in it, so the walk is one
         // and the two names differ only in what they answer.
         let mapped = self.foldResultCtx(
             ctx,
             fn(c, acc: [B], x) => {
-                match (f(x)) {
+                match (transform(x)) {
                     .Some(b) => .Ok(acc.push(c, b)),
                     .None => .Err(()),
                 }
@@ -306,13 +306,13 @@ impl<A> [A] {
         }
     }
 
-    /// Maps and filters in one pass: it drops an element `f` answers `.None`
+    /// Maps and filters in one pass: it drops an element `transform` answers `.None`
     /// for, and the `.Some` payloads are the result.
-    export fn filterMap<B, C: Allocator>(self, ctx: C, f: fn(A) => Option<B>): [B] {
+    export fn filterMap<B, C: Allocator>(self, ctx: C, transform: fn(A) => Option<B>): [B] {
         self.foldCtx(
             ctx,
             fn(c, acc: [B], x) => {
-                match (f(x)) {
+                match (transform(x)) {
                     .Some(b) => acc.push(c, b),
                     .None => acc,
                 }
@@ -365,9 +365,9 @@ impl<T: Ordered> [T] {
 }
 
 impl<T> [T] {
-    export fn take<C: Allocator>(self, ctx: C, n: Int): [T];
+    export fn take<C: Allocator>(self, ctx: C, count: Int): [T];
 
-    export fn drop<C: Allocator>(self, ctx: C, n: Int): [T];
+    export fn drop<C: Allocator>(self, ctx: C, count: Int): [T];
 
     export fn slice<C: Allocator>(self, ctx: C, start: Int, end: Int): [T];
 
@@ -390,7 +390,7 @@ impl<T> [T] {
         }
     }
 
-    /// The first element of each class `cmp` calls `.Equal`, in the order they
+    /// The first element of each class `compare` calls `.Equal`, in the order they
     /// arrived — it keeps the list's order, not the comparator's, and two equal
     /// elements need not be neighbours.
     ///
@@ -398,8 +398,8 @@ impl<T> [T] {
     /// about every element already kept. For a large list, `sortBy` and a walk
     /// over neighbours is the O(n log n) answer, and `core/orderedset` is the one
     /// that also answers membership.
-    export fn uniqueBy<C: Allocator>(self, ctx: C, cmp: fn(T, T) => Order): [T] {
-        uniqueFrom(ctx, self, cmp, 0, empty<T>())
+    export fn uniqueBy<C: Allocator>(self, ctx: C, compare: fn(T, T) => Order): [T] {
+        uniqueFrom(ctx, self, compare, 0, empty<T>())
     }
 }
 
@@ -466,9 +466,9 @@ export fn range<C: Allocator>(ctx: C, start: Int, end: Int): [Int];
 export fn repeat<T, C: Allocator>(ctx: C, item: T, times: Int): [T];
 
 /// `[f(0), f(1), ..., f(n - 1)]`. `repeat` for an element that depends on its
-/// own position. An `n` of zero or less is the empty list.
-export fn generate<T, C: Allocator>(ctx: C, n: Int, f: fn(Int) => T): [T] {
-    range(ctx, 0, n).map(ctx, fn(i) => f(i))
+/// own position. An `count` of zero or less is the empty list.
+export fn generate<T, C: Allocator>(ctx: C, count: Int, transform: fn(Int) => T): [T] {
+    range(ctx, 0, count).map(ctx, fn(i) => transform(i))
 }
 
 // --- Numeric folds ------------------------------------------------------------

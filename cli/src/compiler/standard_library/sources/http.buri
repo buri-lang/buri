@@ -132,8 +132,8 @@ export fn post<C: Allocator + Network>(
 
 /// A sentence for a `NetError`. It is a free function because `NetError`
 /// belongs to `core/effect`.
-export fn errorText(e: NetError): Str {
-    match (e) {
+export fn errorText(error: NetError): Str {
+    match (error) {
         .Timeout => "the request timed out",
         .Refused => "the connection was refused",
         .BadUrl(_u) => "the url could not be parsed",

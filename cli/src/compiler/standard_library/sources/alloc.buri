@@ -125,20 +125,20 @@ export let HEADER_BYTES: Int = 16;
 /// allocates (SPEC 10.5), not what an implementation happens to do.
 export let VIEW_BYTES: Int = 0;
 
-/// The charge for a `Str` of `n` UTF-8 bytes: `16 + n`.
+/// The charge for a `Str` of `count` UTF-8 bytes: `16 + n`.
 ///
 /// UTF-8 bytes, not scalars — `"é".length()` is 1 and its charge is 18.
-export fn strBytes(n: Int): Int {
-    HEADER_BYTES + n
+export fn strBytes(count: Int): Int {
+    HEADER_BYTES + count
 }
 
-/// The charge for a `[T]` of `n` elements: `16 + n * stride`.
+/// The charge for a `[T]` of `count` elements: `16 + n * stride`.
 ///
 /// The stride is a parameter because the language has no `sizeOf<T>()`. The
 /// model's `stride(T)` is VALUE-MODEL.md §5's layout, which the compiler knows
 /// and a program cannot ask for.
-export fn listBytes(n: Int, stride: Int): Int {
-    HEADER_BYTES + n * stride
+export fn listBytes(count: Int, stride: Int): Int {
+    HEADER_BYTES + count * stride
 }
 
 /// The charge for a closure environment of `size` bytes: `16 + size`.
@@ -499,8 +499,8 @@ impl<C: Stdout> Stdout for Scoped<C> {
         self.0.println(text)
     }
 
-    fn writeBytes(self, b: [U8]): Result<(), IoError> {
-        self.0.writeBytes(b)
+    fn writeBytes(self, bytes: [U8]): Result<(), IoError> {
+        self.0.writeBytes(bytes)
     }
 }
 
@@ -519,8 +519,8 @@ impl<C: Stdin> Stdin for Scoped<C> {
         self.0.readLine()
     }
 
-    fn readBytes(self, n: Int): Option<[U8]> {
-        self.0.readBytes(n)
+    fn readBytes(self, count: Int): Option<[U8]> {
+        self.0.readBytes(count)
     }
 }
 
@@ -613,8 +613,8 @@ impl<C: Clock> Clock for Scoped<C> {
 }
 
 impl<C: Random> Random for Scoped<C> {
-    fn nextInt(self, lo: Int, hi: Int): Int {
-        self.0.nextInt(lo, hi)
+    fn nextInt(self, low: Int, high: Int): Int {
+        self.0.nextInt(low, high)
     }
 
     fn nextFloat(self): Float {
@@ -665,8 +665,8 @@ impl<C: Spawn> Spawn for Scoped<C> {
 // The step is handed `ctx` — the caller's whole context — and not `self`, so a
 // task receives whatever the caller passed and not this wrapper.
 impl<C: Tasks> Tasks for Scoped<C> {
-    fn parallel<X, A, B>(self, ctx: X, items: [A], f: fn(X, Int, A) => B): [B] {
-        self.0.parallel(ctx, items, f)
+    fn parallel<X, A, B>(self, ctx: X, items: [A], step: fn(X, Int, A) => B): [B] {
+        self.0.parallel(ctx, items, step)
     }
 }
 
