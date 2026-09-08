@@ -231,6 +231,11 @@ warning: `total` takes 6 parameters [too-many-parameters]
      entity carries a domain name and no call site still passes its fields
      loose.
 
+     If the signature is not yours — a wire format, a protocol, an API somebody
+     else specified — name the declaration in REPO.buri's lint { allow { … } }
+     block. The rule stays on everywhere else, and every report says which
+     declaration it was not asked about.
+
 warning: this is `order.int`, written out [hand-rolled-comparator]
   --> lib/money/test/cents.buri:39:4
    |
@@ -597,5 +602,5 @@ warning: test "a test that asserts nothing is still a test" asserts nothing [tes
 152 | test "a test that asserts nothing is still a test" {
     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     |
-    = nothing reachable from this test calls `core/testing/assert`, so it passes as long as it does not abort
+    = nothing reachable from this test calls `core/testing/assert` or `ui/testing`'s `snapshot`, so it passes as long as it does not abort
     = fix: assert what the test is for, or delete it

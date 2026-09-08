@@ -126,6 +126,9 @@ impl Rendered {
 /// property value, deduped across the whole build. So a test can assert what a
 /// class *means*, and see that two modules asking for one padding produced one
 /// rule and not two.
+///
+/// Ahead of the classes is the reset: the chrome a browser would paint on a
+/// button, a link or a field, dropped for the elements this program builds.
 export fn stylesheet(): Str;
 
 /// Installs `themes` exactly as `mount` does, and answers the custom-property

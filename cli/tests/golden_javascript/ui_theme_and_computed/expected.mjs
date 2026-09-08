@@ -1,13 +1,13 @@
-const $k0=[930n,'bg-t_both_bg'];
+const $k0=[4650n,'bg-t_both_bg'];
 const $k1=[$k0];
 const $k2=[$k1];
 const $k3=[5,$k2];
 const $k4=[$k3];
-const $k5=[180n,'lay-row'];
+const $k5=[900n,'lay-row'];
 const $k6=[$k5];
 const $k7=[$k6];
 const $k8=[5,$k7];
-const $k9=[180n,'lay-col'];
+const $k9=[900n,'lay-col'];
 const $k10=[$k9];
 const $k11=[$k10];
 const $k12=[5,$k11];
