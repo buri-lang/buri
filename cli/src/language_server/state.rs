@@ -487,8 +487,10 @@ struct Cached<T> {
     root: PathBuf,
     /// `None` for a file no rule in the build graph claims.
     target: Option<TargetId>,
-    /// Which bodies were type-checked. `None` is every body in the closure;
-    /// `Some(file)` is that file's alone — see [`State::analyze_for_query`].
+    /// Which bodies were type-checked. `None` is every body the repository
+    /// wrote — the standard library's own are nobody's question here, see
+    /// `driver::analyze_program`; `Some(file)` is that one file's alone — see
+    /// [`State::analyze_for_query`].
     ///
     /// Part of the key and not a note about it. The two answers are built from
     /// the same bytes and are not the same answer: the scoped one has no entry
@@ -1022,7 +1024,12 @@ impl State {
             with_tests: true,
         };
         self.work.analyses = self.work.analyses.saturating_add(1);
-        let analysis = crate::compiler::driver::analyze(
+        // The repository's bodies, not the standard library's. An editor asks
+        // what is wrong with the file on screen, and a `core/str` body can
+        // only answer that if the toolchain itself is broken — which is a
+        // question `buri version --self-check` asks once rather than one an
+        // open pays for every time. See `driver::analyze_program`.
+        let analysis = crate::compiler::driver::analyze_program(
             Some(&session.workspace),
             &mut session.map,
             &mut session.parsed,
@@ -1037,8 +1044,8 @@ impl State {
             Cached {
                 root: root.to_path_buf(),
                 target,
-                // Every body in the closure, which is what makes this one
-                // usable for diagnostics and for a scoped question alike.
+                // Every body the repository wrote, which is what makes this
+                // one usable for diagnostics and for a scoped question alike.
                 scope: None,
                 key,
                 closure: Rc::new(closure),
@@ -1207,7 +1214,8 @@ impl State {
             Cached {
                 root: root.to_path_buf(),
                 target: Some(target),
-                // The analysis behind it checked every body in the closure.
+                // The analysis behind it checked every body the repository
+                // wrote, which is every body a lint rule reads.
                 scope: None,
                 key,
                 closure,
