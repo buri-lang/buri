@@ -9,7 +9,7 @@ warning: str is imported but not used [unused-import]
 error: expected a declaration, found `,` [unexpected-token]
   --> lib/recovery_insert_stray_module_cents_75ec5f/lib.buri:11:1
    |
-11 | , derive Eq, Show for Cents;
+11 | , derive Equal, Show for Cents;
    | ^
    |
    = expected: a declaration

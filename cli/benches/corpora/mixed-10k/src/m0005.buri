@@ -11,7 +11,7 @@ from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
 
-derive Eq, Show for Node5;
+derive Equal, Show for Node5;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node5 {
@@ -161,7 +161,7 @@ export fn probe5_4<C: Allocator>(ctx: C): Int {
     label5_4(ctx, a, e).len() + b
 }
 
-derive Eq, Show for Rec5_5;
+derive Equal, Show for Rec5_5;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec5_5 {
     export f0: Int,

@@ -11,7 +11,7 @@ from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Node3;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Node3;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node3 {
@@ -37,7 +37,7 @@ export fn lift3(n: Node2): Node3 {
     Node3 { label: n.label, value: n.value + seed3(), weight: n.weight }
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State3_0;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State3_0;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State3_0 {
     Idle,
@@ -77,7 +77,7 @@ export fn probe3_0<C: Allocator>(ctx: C): Int {
     rank3_0(s) + s.show(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec3_1;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec3_1;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec3_1 {
     export f0: Int,
@@ -124,7 +124,7 @@ export fn probe3_2<C: Allocator>(ctx: C): Int {
     digest3_2(ctx) + drain3_2()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State3_3;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State3_3;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State3_3 {
     Idle,

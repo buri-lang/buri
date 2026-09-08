@@ -364,7 +364,7 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
         "lib/subject/test/x.buri",
         "from \"//lib/subject\" import { triple };\nfrom \"//lib/helper\" import { double };\n\
          from \"core/testing/assert\" import * as assert;\n\ntest \"triple against double\" {\n  \
-         assert.eq(triple(2), double(3));\n}\n",
+         assert.equal(triple(2), double(3));\n}\n",
     );
 
     let first = scratch.run(&["test", "//lib/subject", "--explain"]);
@@ -442,7 +442,7 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
             "{preamble}test \"the results do not depend on the order\" {{\n  \
              let scheduler = tasks().anyOrder();\n  \
              let ctx = context {{ Allocator: alloc(), Tasks: scheduler }};\n  \
-             assert.eq(labelled(ctx, [1, 2, 3]), [1, 102, 203]);\n}}\n"
+             assert.equal(labelled(ctx, [1, 2, 3]), [1, 102, 203]);\n}}\n"
         ),
     );
     // Fails whichever order the runner names, and the report says which.
@@ -459,7 +459,7 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
             "{preamble}test \"a failing block names the order it ran in\" {{\n  \
              let scheduler = tasks().anyOrder();\n  \
              let ctx = context {{ Allocator: alloc(), Tasks: scheduler }};\n  \
-             assert.eq(labelled(ctx, [1, 2, 3]), [0, 0, 0]);\n}}\n"
+             assert.equal(labelled(ctx, [1, 2, 3]), [0, 0, 0]);\n}}\n"
         ),
     );
 
@@ -684,7 +684,7 @@ fn a_suite_naming_the_host_platform_runs_natively() {
         "lib/n/test/n.buri",
         "from \"//lib/n\" import { answer };\n\
          from \"core/testing/assert\" import * as assert;\n\
-         \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
+         \ntest \"answers\" {\n  assert.equal(answer(), 21);\n}\n",
     );
 
     let first = scratch.run(&["test", "//lib/n", "--explain"]);
@@ -724,7 +724,7 @@ fn a_suite_naming_the_host_platform_runs_natively() {
     let failed = scratch.run(&["test", "//lib/n"]);
     failed.exits(1);
     assert!(
-        failed.all().contains("assert.eq failed"),
+        failed.all().contains("assert.equal failed"),
         "a native assertion failure did not name itself:\n{}",
         indent(&failed.all())
     );
@@ -763,7 +763,7 @@ fn a_suite_naming_no_platform_runs_natively() {
         "lib/n/test/n.buri",
         "from \"//lib/n\" import { answer };\n\
          from \"core/testing/assert\" import * as assert;\n\
-         \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
+         \ntest \"answers\" {\n  assert.equal(answer(), 21);\n}\n",
     );
 
     let run = scratch.run(&["test", "//lib/n", "--explain"]);
@@ -855,7 +855,7 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
         "lib/n/test/n.buri",
         "from \"//lib/n\" import { answer };\n\
          from \"core/testing/assert\" import * as assert;\n\
-         \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
+         \ntest \"answers\" {\n  assert.equal(answer(), 21);\n}\n",
     );
 
     let run = scratch.run(&["test", "//lib/n", "--release", "--explain"]);
@@ -914,7 +914,7 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
          \x20 let ctx = context { Allocator: alloc() };\n\
          \x20 let parsed = assert.ok(json.parse(ctx, \"1\"));\n\
          \x20 let n: Float = assert.ok(json.decode(ctx, parsed));\n\
-         \x20 assert.eq(n, 1.0);\n}\n",
+         \x20 assert.equal(n, 1.0);\n}\n",
     );
 
     let run = scratch.run(&["test", "//lib/g"]);
@@ -1064,14 +1064,14 @@ fn a_suite_is_keyed_on_the_key_of_what_it_tests() {
     scratch.write("lib/n/inner.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
-        "from \"//lib/n\" import { twice };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"twice\" {\n  assert.eq(twice(), 42);\n}\n",
+        "from \"//lib/n\" import { twice };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"twice\" {\n  assert.equal(twice(), 42);\n}\n",
     );
     // An unrelated package: nothing depends on it and it depends on nothing.
     scratch.write("lib/m/BUILD.buri", "library {\n  test { sources: [\"test/m.buri\"] }\n}\n");
     scratch.write("lib/m/lib.buri", "export fn one(): Int { 1 }\n");
     scratch.write(
         "lib/m/test/m.buri",
-        "from \"//lib/m\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"one\" {\n  assert.eq(one(), 1);\n}\n",
+        "from \"//lib/m\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"one\" {\n  assert.equal(one(), 1);\n}\n",
     );
 
     let n_before = keys(scratch.run(&["test", "//lib/n", "--explain"]).ok());
@@ -1119,7 +1119,7 @@ fn suite_package(scratch: &Scratch, name: &str, tags: &str) {
         &format!(
             "from \"//lib/{name}\" import {{ one }};\n\
              from \"core/testing/assert\" import * as assert;\n\
-             \ntest \"one\" {{\n  assert.eq(one(), 1);\n}}\n"
+             \ntest \"one\" {{\n  assert.equal(one(), 1);\n}}\n"
         ),
     );
 }
@@ -1262,7 +1262,7 @@ fn one_suites_failure_leaves_the_others_reported() {
         indent(&run.all())
     );
     assert!(
-        run.stdout.contains("FAIL //lib/b") && run.stdout.contains("assert.eq failed"),
+        run.stdout.contains("FAIL //lib/b") && run.stdout.contains("assert.equal failed"),
         "the failing suite was not named:\n{}",
         indent(&run.all())
     );

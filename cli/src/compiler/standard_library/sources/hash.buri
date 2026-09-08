@@ -79,7 +79,7 @@ export fn fnv1a32(b: [U8]): U32 {
 
 /// One octet folded into a 32-bit hash, stepped as each octet arrives.
 export fn fnv1a32Step(h: U32, octet: U8): U32 {
-    (h ^ octet.toU32()).wrappingMul(FNV32_PRIME)
+    (h ^ octet.toU32()).wrappingMultiply(FNV32_PRIME)
 }
 
 /// FNV-1a at 64 bits.
@@ -89,7 +89,7 @@ export fn fnv1a64(b: [U8]): U64 {
 
 /// One octet folded into a 64-bit hash.
 export fn fnv1a64Step(h: U64, octet: U8): U64 {
-    (h ^ octet.toU64()).wrappingMul(FNV64_PRIME)
+    (h ^ octet.toU64()).wrappingMultiply(FNV64_PRIME)
 }
 
 // --- CRC-32C --------------------------------------------------------------------

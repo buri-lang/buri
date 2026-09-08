@@ -10,7 +10,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Node1;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Node1;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node1 {
@@ -35,7 +35,7 @@ export fn lift1(n: Node0): Node1 {
     Node1 { label: n.label, value: n.value + seed1(), weight: n.weight }
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State1_0;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_0;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State1_0 {
     Idle,
@@ -102,7 +102,7 @@ export fn probe1_1<C: Allocator>(ctx: C): Int {
     choose1_1(.Some(3), .None) + extra
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec1_2;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec1_2;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec1_2 {
     export f0: Int,
@@ -129,7 +129,7 @@ export fn probe1_2<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State1_3;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_3;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State1_3 {
     Idle,
@@ -171,7 +171,7 @@ export fn probe1_3<C: Allocator>(ctx: C): Int {
     rank1_3(s) + s.show(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State1_4;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_4;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State1_4 {
     Idle,
@@ -283,7 +283,7 @@ export fn probe1_7<C: Allocator>(ctx: C): Int {
     choose1_7(.Some(3), .None) + extra
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec1_8;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec1_8;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec1_8 {
     export f0: Int,

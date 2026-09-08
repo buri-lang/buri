@@ -13,7 +13,7 @@ from "//lib/ledger/testing" import { sample };
 from "//lib/money" import { fromCents };
 
 test "total sums every entry" {
-    assert.eq(total(sample()), fromCents(3650));
+    assert.equal(total(sample()), fromCents(3650));
 }
 
 test "DropZero removes zero-amount entries" {
@@ -21,8 +21,8 @@ test "DropZero removes zero-amount entries" {
         Allocator: alloc(),
     };
     let kept = apply(ctx, sample(), Rule.DropZero);
-    assert.eq(kept.len(), 2);
-    assert.eq(total(kept), fromCents(3650));
+    assert.equal(kept.len(), 2);
+    assert.equal(total(kept), fromCents(3650));
 }
 
 test "MemoPrefix keeps matching memos" {
@@ -30,5 +30,5 @@ test "MemoPrefix keeps matching memos" {
         Allocator: alloc(),
     };
     let kept = apply(ctx, sample(), Rule.MemoPrefix { prefix: "co" });
-    assert.eq(kept.len(), 1);
+    assert.equal(kept.len(), 1);
 }

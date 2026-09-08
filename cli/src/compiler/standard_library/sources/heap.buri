@@ -12,7 +12,7 @@
 //! moves every child of the root, and the pairing pass pays for it across the
 //! pops that follow.
 //!
-//! **Smallest first.** `peek` and `pop` answer the least element by `Ord`. For
+//! **Smallest first.** `peek` and `pop` answer the least element by `Ordered`. For
 //! largest-first, key the elements by a struct with a `compare` that flips —
 //! `core/order`'s `reverse` is the same idea one level down.
 //!
@@ -73,7 +73,7 @@ export fn empty<T>(): Heap<T> {
 }
 
 /// A heap holding every item, duplicates and all.
-export fn of<T: Ord, C: Allocator>(ctx: C, items: [T]): Heap<T> {
+export fn of<T: Ordered, C: Allocator>(ctx: C, items: [T]): Heap<T> {
     items.foldCtx(ctx, fn(c, acc: Heap<T>, x) => acc.push(c, x), empty<T>())
 }
 
@@ -82,7 +82,7 @@ export fn of<T: Ord, C: Allocator>(ctx: C, items: [T]): Heap<T> {
 /// This is the whole data structure. `push` melds a one-element tree, `merge`
 /// melds two heaps, and `pop` melds what is left of the root's children — each
 /// of them one comparison and one `push` onto a child list.
-fn meld<T: Ord, C: Allocator>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
+fn meld<T: Ordered, C: Allocator>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
     match (a) {
         .Empty => b,
         .Node(x, xs) => {
@@ -107,7 +107,7 @@ fn meld<T: Ord, C: Allocator>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
 /// next `pop` walks all of it. Both passes are folds rather than recursion,
 /// because a root that has just taken n pushes has n children and a recursion
 /// per pair would be n/2 frames deep.
-fn mergePairs<T: Ord, C: Allocator>(ctx: C, children: [Tree<T>]): Tree<T> {
+fn mergePairs<T: Ordered, C: Allocator>(ctx: C, children: [Tree<T>]): Tree<T> {
     let paired = list
         .range(ctx, 0, (children.len() + 1) / 2)
         .mapCtx(ctx, fn(c, i) => {
@@ -122,7 +122,7 @@ fn mergePairs<T: Ord, C: Allocator>(ctx: C, children: [Tree<T>]): Tree<T> {
 
 /// Pops until there is nothing left, in a tail call rather than a `map` over
 /// something no one has yet.
-fn drain<T: Ord, C: Allocator>(ctx: C, h: Heap<T>, acc: [T]): [T] {
+fn drain<T: Ordered, C: Allocator>(ctx: C, h: Heap<T>, acc: [T]): [T] {
     match (h.pop(ctx)) {
         .None => acc,
         .Some(taken) => {
@@ -132,7 +132,7 @@ fn drain<T: Ord, C: Allocator>(ctx: C, h: Heap<T>, acc: [T]): [T] {
     }
 }
 
-impl<T: Ord> Heap<T> {
+impl<T: Ordered> Heap<T> {
     export fn length(self): Int {
         self.size
     }

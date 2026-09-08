@@ -61,7 +61,7 @@ from "core/str" import * as str;
 
 from "core/bytes" export { DecodeError };
 
-derive Eq, Show for UrlError;
+derive Equal, Show for UrlError;
 /// Why a text is not a URL.
 export enum UrlError {
     /// The text does not begin with `scheme:`. Relative references go through
@@ -76,7 +76,7 @@ export enum UrlError {
     UserInfo,
 }
 
-derive Eq, Show for Url;
+derive Equal, Show for Url;
 /// An absolute URL, in parts.
 ///
 /// `path` keeps its leading `/` and `query` and `fragment` do **not** keep the

@@ -57,7 +57,7 @@ export fn exit<C: Process>(ctx: C, code: Int): () {
     ctx.exitWith(code)
 }
 
-derive Eq, Show for Command;
+derive Equal, Show for Command;
 /// What to run, and what to run it with.
 ///
 /// [`command`] builds one with the three optional fields empty, and a program
@@ -77,7 +77,7 @@ export struct Command {
     export stdin: Option<[U8]>,
 }
 
-derive Eq, Show for Output;
+derive Equal, Show for Output;
 /// What a finished process left behind.
 ///
 /// `code` is the exit status, and a child killed by a signal reports `128 +

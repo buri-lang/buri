@@ -769,7 +769,7 @@ pub(crate) fn forget_frames_are_per_carrier() {
 /// `$divi` documents on JavaScript (`runtime.js:48-50`).
 ///
 /// # Safety
-/// `quot` and `rem` must each be non-null and point at two writable,
+/// `quot` and `remainder` must each be non-null and point at two writable,
 /// `u64`-aligned words (low half first).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_i128_divmod(

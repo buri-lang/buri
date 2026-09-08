@@ -91,7 +91,7 @@ Run the tests again:
 ```text
 $ buri test
 FAIL //libs/greeting  test/greeting.buri  "the greeting"
-  assert.eq failed
+  assert.equal failed
     actual:   "hello, Buri"
     expected: "hello world"
   --> libs/greeting/test/greeting.buri:7:1
@@ -108,7 +108,7 @@ Open `libs/greeting/test/greeting.buri` and change the expected string in its
 one assertion to `"hello, Buri"`, so the line reads:
 
 ```text
-    assert.eq(greeting(), "hello, Buri");
+    assert.equal(greeting(), "hello, Buri");
 ```
 
 Run them once more, and run the program:

@@ -1,7 +1,7 @@
 error: there is no type `Cents` [unresolved-type]
  --> lib/recovery_swap_adjacent_paren_cents_5789bf/lib.buri:1:21
   |
-1 | derive Eq, Show for Cents;
+1 | derive Equal, Show for Cents;
   |                     ^^^^^
   |
   = fix: declare it, import it, or correct the spelling

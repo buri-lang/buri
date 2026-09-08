@@ -961,10 +961,10 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Int(32),
     },
     // Not declared in `core/str`: this is the `Str` arm of an `Inst::Binary`
-    // at `Prim::Str`, which is what `middle::derives` emits for a derived `Eq`
+    // at `Prim::Str`, which is what `middle::derives` emits for a derived `Equal`
     // over a type with a `Str` in it (`derives.rs`'s `fn eq`).
     Entry {
-        key: "str.eq",
+        key: "str.equal",
         symbol: "buri_rt_str_eq",
         args: &[Arg::Str, Arg::Str],
         ret: Ret::Int(8),
@@ -1608,7 +1608,7 @@ pub const ENTRIES: &[Entry] = &[
     },
     // The fault plan's promise. The plan never crosses — it is a list of Buri
     // values holding an `IoError`, and §2.1 cannot name an error variant that
-    // carries a field, so matching is the `Eq` the `Call` records derive and
+    // carries a field, so matching is the `Equal` the `Call` records derive and
     // happens in `host_testing.buri`. These carry the half a program cannot
     // keep: `addFsFault` and `addNetFault` say what an entry would read like in
     // a failure message, `noteFault` records that one fired, and `test.leave`

@@ -9,7 +9,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0016.buri" import { blend16, Node16, reach16, seed16 };
 
-derive Eq, Show for Node21;
+derive Equal, Show for Node21;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node21 {
@@ -34,7 +34,7 @@ export fn lift21(n: Node16): Node21 {
     Node21 { label: n.label, value: n.value + seed21(), weight: n.weight }
 }
 
-derive Eq, Show for State21_0;
+derive Equal, Show for State21_0;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State21_0 {
     Idle,

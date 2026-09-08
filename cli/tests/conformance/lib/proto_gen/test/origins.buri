@@ -29,12 +29,12 @@ test "a generated field's name carries the span of the field that produced it" {
     let text = source(ctx);
     let out = printed(ctx, text);
     let anchor = assert.some(anchorOf(ctx, out, "name"));
-    assert.eq(anchor.origin.file, FILE);
-    assert.eq(spanText(text, anchor.origin), "string name = 1;");
+    assert.equal(anchor.origin.file, FILE);
+    assert.equal(spanText(text, anchor.origin), "string name = 1;");
     // The whole member carries it too, so a diagnostic about the field lands on
     // the same line of the schema as one about its name.
     let member = assert.some(anchorOf(ctx, out, "export name: Option<Str>"));
-    assert.eq(spanText(text, member.origin), "string name = 1;");
+    assert.equal(spanText(text, member.origin), "string name = 1;");
 }
 
 test "a generated struct carries its message's span" {
@@ -44,7 +44,7 @@ test "a generated struct carries its message's span" {
     let text = source(ctx);
     let out = printed(ctx, text);
     let anchor = assert.some(anchorOf(ctx, out, "Person"));
-    assert.eq(spanText(text, anchor.origin), "Person");
+    assert.equal(spanText(text, anchor.origin), "Person");
 }
 
 test "a generated enum variant carries the span of its value" {
@@ -53,8 +53,8 @@ test "a generated enum variant carries the span of its value" {
     };
     let text = source(ctx);
     let out = printed(ctx, text);
-    assert.eq(spanText(text, assert.some(anchorOf(ctx, out, "DARK")).origin), "DARK");
-    assert.eq(spanText(text, assert.some(anchorOf(ctx, out, "Shade")).origin), "Shade");
+    assert.equal(spanText(text, assert.some(anchorOf(ctx, out, "DARK")).origin), "DARK");
+    assert.equal(spanText(text, assert.some(anchorOf(ctx, out, "Shade")).origin), "Shade");
 }
 
 test "a oneof's enum and its cases carry the schema's spans" {
@@ -64,11 +64,11 @@ test "a oneof's enum and its cases carry the schema's spans" {
     let text = source(ctx);
     let out = printed(ctx, text);
     let held = assert.some(anchorOf(ctx, out, "Person_Pick"));
-    assert.eq(spanText(text, held.origin), "pick");
+    assert.equal(spanText(text, held.origin), "pick");
     let phone = assert.some(anchorOf(ctx, out, "Phone"));
-    assert.eq(spanText(text, phone.origin), "string phone = 4;");
+    assert.equal(spanText(text, phone.origin), "string phone = 4;");
     let field = assert.some(anchorOf(ctx, out, "export pick: Option<Person_Pick>"));
-    assert.eq(spanText(text, field.origin), "pick");
+    assert.equal(spanText(text, field.origin), "pick");
 }
 
 test "a node no declaration is behind records no anchor" {

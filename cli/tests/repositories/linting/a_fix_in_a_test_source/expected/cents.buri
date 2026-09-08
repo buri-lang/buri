@@ -19,7 +19,7 @@ test "the fake answers a hundred and fifty cents" {
         Allocator: alloc(),
     };
     let made: Cents = fakeCents();
-    assert.eq(made, fromCents(150));
-    assert.eq(width("abc"), 3);
-    assert.eq(str.format(ctx, "${made.0}"), "150");
+    assert.equal(made, fromCents(150));
+    assert.equal(width("abc"), 3);
+    assert.equal(str.format(ctx, "${made.0}"), "150");
 }

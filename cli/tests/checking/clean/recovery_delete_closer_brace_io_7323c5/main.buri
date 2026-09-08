@@ -13,7 +13,7 @@ test "readAll is the lines, joined by one newline" {
         Allocator: alloc(),
         Stdin: stdin().lines(["one", "two", "three"]),
     };
-    assert.eq(io.readAll(ctx), "one\ntwo\nthree");
+    assert.equal(io.readAll(ctx), "one\ntwo\nthree");
 }
 
 test "a stream with nothing on it reads as the empty string" {
@@ -21,7 +21,7 @@ test "a stream with nothing on it reads as the empty string" {
         Allocator: alloc(),
         Stdin: stdin(),
     };
-    assert.eq(io.readAll(ctx), "");
+    assert.equal(io.readAll(ctx), "");
 }
 
 test "one line is that line, with no newline after it" {
@@ -29,7 +29,7 @@ test "one line is that line, with no newline after it" {
         Allocator: alloc(),
         Stdin: stdin().lines(["only"]),
     };
-    assert.eq(io.readAll(ctx), "only");
+    assert.equal(io.readAll(ctx), "only");
 }
 
 test "an empty line is a line" {
@@ -37,7 +37,7 @@ test "an empty line is a line" {
         Allocator: alloc(),
         Stdin: stdin().lines(["", "b", ""]),
     };
-    assert.eq(io.readAll(ctx), "\nb\n");
+    assert.equal(io.readAll(ctx), "\nb\n");
 }
 
 test "a carriage return stays on the line it ended" {
@@ -47,7 +47,7 @@ test "a carriage return stays on the line it ended" {
         Allocator: alloc(),
         Stdin: stdin().lines(["one\r", "two\r"]),
     };
-    assert.eq(io.readAll(ctx), "one\r\ntwo\r");
+    assert.equal(io.readAll(ctx), "one\r\ntwo\r");
 }
 
 test "readAll carries whatever the line held" {
@@ -55,7 +55,7 @@ test "readAll carries whatever the line held" {
         Allocator: alloc(),
         Stdin: stdin().lines(["café", "\ttabbed", "a b  c"]),
     };
-    assert.eq(io.readAll(ctx), "café\n\ttabbed\na b  c");
+    assert.equal(io.readAll(ctx), "café\n\ttabbed\na b  c");
 }
 
 test "readAll leaves the stream at its end" {
@@ -63,7 +63,7 @@ test "readAll leaves the stream at its end" {
         Allocator: alloc(),
         Stdin: stdin().lines(["a"]),
     };
-    assert.eq(io.readAll(ctx), "a");
+    assert.equal(io.readAll(ctx), "a");
     assert.none(io.readLine(ctx));
 }
 
@@ -72,7 +72,7 @@ test "readAllBytes is the octets, unchanged" {
         Allocator: alloc(),
         Stdin: stdin().bytes([0, 255, 10, 65],
     };
-    assert.eq(io.readAllBytes(ctx), [0, 255, 10, 65]);
+    assert.equal(io.readAllBytes(ctx), [0, 255, 10, 65]);
 }
 
 test "no octets at all is the empty list" {
@@ -90,7 +90,7 @@ test "a NUL is an octet like any other, and so is an unpaired one" {
         Allocator: alloc(),
         Stdin: stdin().bytes([104, 0, 105, 255, 0]),
     };
-    assert.eq(io.readAllBytes(ctx), [104, 0, 105, 255, 0]);
+    assert.equal(io.readAllBytes(ctx), [104, 0, 105, 255, 0]);
 }
 
 test "input with no newline at its end is all of the input" {
@@ -98,7 +98,7 @@ test "input with no newline at its end is all of the input" {
         Allocator: alloc(),
         Stdin: stdin().bytes([97, 10, 98]),
     };
-    assert.eq(io.readAllBytes(ctx), [97, 10, 98]);
+    assert.equal(io.readAllBytes(ctx), [97, 10, 98]);
 }
 
 test "readAllBytes leaves the stream at its end" {
@@ -106,6 +106,6 @@ test "readAllBytes leaves the stream at its end" {
         Allocator: alloc(),
         Stdin: stdin().bytes([7]),
     };
-    assert.eq(io.readAllBytes(ctx), [7]);
+    assert.equal(io.readAllBytes(ctx), [7]);
     assert.none(io.readBytes(ctx, 1));
 }

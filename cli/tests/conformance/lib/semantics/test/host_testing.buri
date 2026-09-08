@@ -133,8 +133,8 @@ test "the test allocator answers the count it was asked for" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(alloc.allocate(ctx, 64), Region(64));
-    assert.eq(alloc.allocate(ctx, 0), Region(0));
+    assert.equal(alloc.allocate(ctx, 64), Region(64));
+    assert.equal(alloc.allocate(ctx, 0), Region(0));
 }
 
 // -----------------------------------------------------------------------------
@@ -147,7 +147,7 @@ test "captured reads back what a function printed" {
         Stdout: sink,
     };
     speak(ctx, "hello");
-    assert.eq(sink.captured(), "[hello]\n");
+    assert.equal(sink.captured(), "[hello]\n");
 }
 
 test "each call to stdout is a stream of its own" {
@@ -157,8 +157,8 @@ test "each call to stdout is a stream of its own" {
         Stdout: first,
     };
     speak(ctx, "one");
-    assert.eq(second.captured(), "");
-    assert.eq(first.captured(), "[one]\n");
+    assert.equal(second.captured(), "");
+    assert.equal(first.captured(), "[one]\n");
 }
 
 test "writeBytes is captured as the text the octets spell" {
@@ -167,7 +167,7 @@ test "writeBytes is captured as the text the octets spell" {
         Stdout: sink,
     };
     let _ = io.writeBytes(ctx, [104, 105]).ignore();
-    assert.eq(sink.captured(), "hi");
+    assert.equal(sink.captured(), "hi");
 }
 
 test "standard error is its own transcript, under the same method name" {
@@ -180,8 +180,8 @@ test "standard error is its own transcript, under the same method name" {
         Stderr: err,
     };
     shout(ctx, "bad");
-    assert.eq(err.captured(), "<bad\n");
-    assert.eq(out.captured(), "");
+    assert.equal(err.captured(), "<bad\n");
+    assert.equal(out.captured(), "");
 }
 
 // -----------------------------------------------------------------------------
@@ -200,8 +200,8 @@ test "lines reads the lines it was given, then end of input" {
     let ctx = context {
         Stdin: stdin().lines(["first", "second"]),
     };
-    assert.eq(assert.some(io.readLine(ctx)), "first");
-    assert.eq(assert.some(io.readLine(ctx)), "second");
+    assert.equal(assert.some(io.readLine(ctx)), "first");
+    assert.equal(assert.some(io.readLine(ctx)), "second");
     assert.none(io.readLine(ctx));
 }
 
@@ -214,11 +214,11 @@ test "each call to stdin is a cursor of its own" {
     let two = context {
         Stdin: second,
     };
-    assert.eq(assert.some(io.readLine(one)), "a");
-    assert.eq(assert.some(io.readLine(one)), "b");
+    assert.equal(assert.some(io.readLine(one)), "a");
+    assert.equal(assert.some(io.readLine(one)), "b");
     assert.none(io.readLine(one));
     // The second stream was never read, so it is still at its first line.
-    assert.eq(assert.some(io.readLine(two)), "a");
+    assert.equal(assert.some(io.readLine(two)), "a");
 }
 
 test "bytes takes exactly what it asks for, then end of input" {
@@ -227,8 +227,8 @@ test "bytes takes exactly what it asks for, then end of input" {
     };
     let head: [U8] = [1, 2, 3];
     let tail: [U8] = [4];
-    assert.eq(assert.some(io.readBytes(ctx, 3)), head);
-    assert.eq(assert.some(io.readBytes(ctx, 3)), tail);
+    assert.equal(assert.some(io.readBytes(ctx, 3)), head);
+    assert.equal(assert.some(io.readBytes(ctx, 3)), tail);
     assert.none(io.readBytes(ctx, 3));
 }
 
@@ -250,12 +250,12 @@ test "the last builder in the chain is the stream" {
     let octets = context {
         Stdin: stdin().lines(["a"]).bytes([65]),
     };
-    assert.eq(assert.some(io.readBytes(octets, 1)), want);
+    assert.equal(assert.some(io.readBytes(octets, 1)), want);
     assert.none(io.readLine(octets));
     let text = context {
         Stdin: stdin().bytes([65]).lines(["a"]),
     };
-    assert.eq(assert.some(io.readLine(text)), "a");
+    assert.equal(assert.some(io.readLine(text)), "a");
     assert.none(io.readBytes(text, 1));
 }
 
@@ -268,7 +268,7 @@ test "a builder answers a new stdin and leaves its receiver at end of input" {
     let b = context {
         Stdin: filled,
     };
-    assert.eq(assert.some(io.readLine(b)), "x");
+    assert.equal(assert.some(io.readLine(b)), "x");
     assert.none(io.readLine(a));
 }
 
@@ -285,7 +285,7 @@ test "a fresh filesystem holds nothing" {
     };
     assert.isTrue(fs.readText(ctx, path.of(ctx, "a")).isErr());
     assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
-    assert.eq(empty.snapshot().len(), 0);
+    assert.equal(empty.snapshot().len(), 0);
 }
 
 test "files contains exactly the entries it was given" {
@@ -295,8 +295,8 @@ test "files contains exactly the entries it was given" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.ok(loadText(ctx, "b")), "B");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "b")), "B");
     assert.isTrue(loadText(ctx, "c").isErr());
 }
 
@@ -309,7 +309,7 @@ test "reading a path the filesystem does not have gives IoError.NotFound" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(which(loadText(ctx, "missing")), "NotFound");
+    assert.equal(which(loadText(ctx, "missing")), "NotFound");
 }
 
 test "an empty file is a file, not an absent one" {
@@ -320,7 +320,7 @@ test "an empty file is a file, not an absent one" {
         FileSystemWrite: disk,
     };
     assert.isTrue(fs.exists(ctx, path.of(ctx, "e")));
-    assert.eq(assert.ok(loadText(ctx, "e")), "");
+    assert.equal(assert.ok(loadText(ctx, "e")), "");
 }
 
 test "a write is readable back, and a second one replaces the body" {
@@ -331,9 +331,9 @@ test "a write is readable back, and a second one replaces the body" {
         FileSystemWrite: disk,
     };
     assert.ok(saveText(ctx, "a", "two"));
-    assert.eq(assert.ok(loadText(ctx, "a")), "two");
+    assert.equal(assert.ok(loadText(ctx, "a")), "two");
     assert.ok(saveText(ctx, "b", "new"));
-    assert.eq(assert.ok(loadText(ctx, "b")), "new");
+    assert.equal(assert.ok(loadText(ctx, "b")), "new");
 }
 
 test "each call to fs is a filesystem of its own" {
@@ -345,13 +345,13 @@ test "each call to fs is a filesystem of its own" {
         FileSystemWrite: mine,
     };
     assert.ok(saveText(ctx, "b", "B"));
-    assert.eq(yours.snapshot().len(), 0);
-    assert.eq(mine.snapshot().len(), 2);
+    assert.equal(yours.snapshot().len(), 0);
+    assert.equal(mine.snapshot().len(), 2);
 }
 
 test "files is additive, and the later entry for a path wins" {
     let both = fs().files([("a", "one")]).files([("a", "two"), ("b", "B")]);
-    assert.eq(both.snapshot(), [("a", "two"), ("b", "B")]);
+    assert.equal(both.snapshot(), [("a", "two"), ("b", "B")]);
 }
 
 test "filesBytes is the byte twin, and composes with files in either order" {
@@ -368,17 +368,17 @@ test "filesBytes is the byte twin, and composes with files in either order" {
         FileSystemRead: two,
         FileSystemWrite: two,
     };
-    assert.eq(assert.ok(fs.readBytes(a, path.of(a, "b"))), raw);
-    assert.eq(assert.ok(fs.readText(a, path.of(a, "t"))), "text");
-    assert.eq(assert.ok(fs.readText(b, path.of(b, "b"))), "hi");
-    assert.eq(one.snapshot(), two.snapshot());
+    assert.equal(assert.ok(fs.readBytes(a, path.of(a, "b"))), raw);
+    assert.equal(assert.ok(fs.readText(a, path.of(a, "t"))), "text");
+    assert.equal(assert.ok(fs.readText(b, path.of(b, "b"))), "hi");
+    assert.equal(one.snapshot(), two.snapshot());
 }
 
 test "a builder answers a new filesystem and leaves its receiver alone" {
     let empty = fs();
     let filled = empty.files([("a", "A")]);
-    assert.eq(empty.snapshot().len(), 0);
-    assert.eq(filled.snapshot().len(), 1);
+    assert.equal(empty.snapshot().len(), 0);
+    assert.equal(filled.snapshot().len(), 1);
 }
 
 test "octets a text encoding cannot carry survive a round trip" {
@@ -390,7 +390,7 @@ test "octets a text encoding cannot carry survive a round trip" {
     };
     let raw: [U8] = [0, 1, 254, 255, 128];
     assert.ok(fs.writeBytes(ctx, path.of(ctx, "blob"), raw));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
 }
 
 test "append creates the file when it is absent, then adds to the end" {
@@ -403,7 +403,7 @@ test "append creates the file when it is absent, then adds to the end" {
     let whole: [U8] = [1, 10, 2, 20];
     assert.ok(fs.append(ctx, path.of(ctx, "log"), [1, 10]));
     assert.ok(fs.append(ctx, path.of(ctx, "log"), [2, 20]));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), whole);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), whole);
 }
 
 test "rename replaces the destination and leaves nothing at the source" {
@@ -414,8 +414,8 @@ test "rename replaces the destination and leaves nothing at the source" {
         FileSystemWrite: store,
     };
     assert.ok(fs.rename(ctx, path.of(ctx, "from"), path.of(ctx, "to")));
-    assert.eq(store.snapshot(), [("to", "F")]);
-    assert.eq(
+    assert.equal(store.snapshot(), [("to", "F")]);
+    assert.equal(
         which(fs.rename(ctx, path.of(ctx, "gone"), path.of(ctx, "to"))),
         "NotFound",
     );
@@ -429,7 +429,7 @@ test "remove of a missing file is NotFound, not a silent success" {
         FileSystemWrite: disk,
     };
     assert.ok(fs.remove(ctx, path.of(ctx, "a")));
-    assert.eq(which(fs.remove(ctx, path.of(ctx, "a"))), "NotFound");
+    assert.equal(which(fs.remove(ctx, path.of(ctx, "a"))), "NotFound");
 }
 
 test "makeDir creates the parents, and a path already naming a file does not" {
@@ -442,7 +442,7 @@ test "makeDir creates the parents, and a path already naming a file does not" {
     assert.ok(fs.makeDir(ctx, path.of(ctx, "a/b/c")));
     assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
     assert.isTrue(fs.exists(ctx, path.of(ctx, "a/b/c")));
-    assert.eq(which(fs.makeDir(ctx, path.of(ctx, "f"))), "AlreadyExists");
+    assert.equal(which(fs.makeDir(ctx, path.of(ctx, "f"))), "AlreadyExists");
 }
 
 test "readDir lists the immediate children, files and directories alike" {
@@ -453,7 +453,7 @@ test "readDir lists the immediate children, files and directories alike" {
         FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "d/empty")));
-    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))), ["deep", "empty", "one"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))), ["deep", "empty", "one"]);
 }
 
 test "sync answers whether there was anything to have flushed" {
@@ -464,7 +464,7 @@ test "sync answers whether there was anything to have flushed" {
         FileSystemWrite: disk,
     };
     assert.ok(fs.sync(ctx, path.of(ctx, "a")));
-    assert.eq(which(fs.sync(ctx, path.of(ctx, "missing"))), "NotFound");
+    assert.equal(which(fs.sync(ctx, path.of(ctx, "missing"))), "NotFound");
 }
 
 // -----------------------------------------------------------------------------
@@ -479,8 +479,8 @@ test "readOnly forwards every read" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
     assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
     assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).len() >= 1);
 }
@@ -492,8 +492,8 @@ test "a write through readOnly FAILS" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "readOnly refuses a write to a path that does not exist either" {
@@ -503,7 +503,7 @@ test "readOnly refuses a write to a path that does not exist either" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
+    assert.equal(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
 }
 
 test "every writing half of the surface FAILS through readOnly" {
@@ -513,15 +513,15 @@ test "every writing half of the surface FAILS through readOnly" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.writeBytes(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
-    assert.eq(assert.err(fs.append(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
-    assert.eq(
+    assert.equal(assert.err(fs.writeBytes(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.equal(assert.err(fs.append(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.equal(
         assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
         .ReadOnly,
     );
-    assert.eq(assert.err(fs.remove(ctx, path.of(ctx, "a"))), .ReadOnly);
-    assert.eq(assert.err(fs.makeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
-    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "a"))), "A");
+    assert.equal(assert.err(fs.remove(ctx, path.of(ctx, "a"))), .ReadOnly);
+    assert.equal(assert.err(fs.makeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "a"))), "A");
 }
 
 test "sync is not a write, so readOnly forwards it" {
@@ -545,8 +545,8 @@ test "readOnly ATTENUATES the same filesystem rather than copying it" {
         FileSystemWrite: store,
     };
     assert.ok(saveText(open, "b", "B"));
-    assert.eq(assert.ok(guarded.read("b")), "B");
-    assert.eq(guarded.snapshot(), store.snapshot());
+    assert.equal(assert.ok(guarded.read("b")), "B");
+    assert.equal(guarded.snapshot(), store.snapshot());
 }
 
 test "attenuating a filesystem leaves the one it was called on writable" {
@@ -562,9 +562,9 @@ test "attenuating a filesystem leaves the one it was called on writable" {
         FileSystemRead: store,
         FileSystemWrite: store,
     };
-    assert.eq(assert.err(saveText(guarded, "a", "B")), .ReadOnly);
+    assert.equal(assert.err(saveText(guarded, "a", "B")), .ReadOnly);
     assert.ok(saveText(open, "a", "C"));
-    assert.eq(store.snapshot(), [("a", "C")]);
+    assert.equal(store.snapshot(), [("a", "C")]);
 }
 
 test "the attenuation travels with a builder applied after it" {
@@ -576,8 +576,8 @@ test "the attenuation travels with a builder applied after it" {
         FileSystemRead: disk,
         FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
 }
 
 // -----------------------------------------------------------------------------
@@ -586,8 +586,8 @@ test "the attenuation travels with a builder applied after it" {
 
 test "read answers what the filesystem holds, without binding the effect" {
     let store = fs().files([("a", "A")]);
-    assert.eq(assert.ok(store.read("a")), "A");
-    assert.eq(which(store.read("missing")), "NotFound");
+    assert.equal(assert.ok(store.read("a")), "A");
+    assert.equal(which(store.read("missing")), "NotFound");
 }
 
 test "read sees what a function under test wrote" {
@@ -598,7 +598,7 @@ test "read sees what a function under test wrote" {
         FileSystemWrite: store,
     };
     assert.ok(saveText(ctx, "out/report.txt", "done"));
-    assert.eq(assert.ok(store.read("out/report.txt")), "done");
+    assert.equal(assert.ok(store.read("out/report.txt")), "done");
 }
 
 test "snapshot is sorted by path, whatever order the entries arrived in" {
@@ -609,7 +609,7 @@ test "snapshot is sorted by path, whatever order the entries arrived in" {
         FileSystemWrite: store,
     };
     assert.ok(saveText(ctx, "b", "B"));
-    assert.eq(store.snapshot(), [("a", "A"), ("b", "B"), ("c", "C")]);
+    assert.equal(store.snapshot(), [("a", "A"), ("b", "B"), ("c", "C")]);
 }
 
 test "snapshot sorts by path and not by insertion, even after a rewrite" {
@@ -621,13 +621,13 @@ test "snapshot sorts by path and not by insertion, even after a rewrite" {
     };
     assert.ok(saveText(ctx, "m", "M2"));
     assert.ok(fs.remove(ctx, path.of(ctx, "z")));
-    assert.eq(store.snapshot(), [("a", "A"), ("m", "M2")]);
+    assert.equal(store.snapshot(), [("a", "A"), ("m", "M2")]);
 }
 
 test "snapshot reads octets back as the text they spell" {
     let raw: [U8] = [104, 105];
     let store = fs().filesBytes([("b", raw)]);
-    assert.eq(store.snapshot(), [("b", "hi")]);
+    assert.equal(store.snapshot(), [("b", "hi")]);
 }
 
 test "snapshot is files only: a directory holds no octets" {
@@ -639,11 +639,11 @@ test "snapshot is files only: a directory holds no octets" {
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "d")));
     assert.isTrue(fs.exists(ctx, path.of(ctx, "d")));
-    assert.eq(store.snapshot(), [("a", "A")]);
+    assert.equal(store.snapshot(), [("a", "A")]);
 }
 
 test "an empty filesystem's snapshot is empty" {
-    assert.eq(fs().snapshot().len(), 0);
+    assert.equal(fs().snapshot().len(), 0);
 }
 
 /// The shape the design note is for: an environment declared, a function run,
@@ -657,7 +657,7 @@ test "a function that merges two files is asserted through the environment" {
     };
     assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
     assert.ok(copyInto(ctx, "app/b.txt", "app/merged.txt"));
-    assert.eq(store.snapshot(), [
+    assert.equal(store.snapshot(), [
         ("app/a.txt", "one"),
         ("app/b.txt", "two"),
         ("app/merged.txt", "onetwo"),
@@ -673,19 +673,19 @@ test "a fresh network refuses every request" {
         Allocator: alloc(),
         Network: net(),
     };
-    assert.eq(assert.err(ping(ctx, "https://example.test/a")), .Refused);
-    assert.eq(assert.err(ping(ctx, "https://example.test/b")), .Refused);
+    assert.equal(assert.err(ping(ctx, "https://example.test/a")), .Refused);
+    assert.equal(assert.err(ping(ctx, "https://example.test/b")), .Refused);
 }
 
 test "the refusal is Refused, and it is an error rather than a stub answer" {
     let ctx = context {
         Network: net(),
     };
-    assert.eq(
+    assert.equal(
         http.send(ctx, http.request(.Get, "https://example.test/")),
         .Err(.Refused),
     );
-    assert.eq(
+    assert.equal(
         http.send(ctx, http.request(.Post, "https://example.test/")),
         .Err(.Refused),
     );
@@ -694,7 +694,7 @@ test "the refusal is Refused, and it is an error rather than a stub answer" {
 test "each call to net is a network of its own" {
     let answered = net().respond(fn(_request) => .Ok(http.status(204)));
     let refusing = net();
-    assert.eq(
+    assert.equal(
         assert
             .ok(
                 http.send(
@@ -707,7 +707,7 @@ test "each call to net is a network of its own" {
             .status,
         204,
     );
-    assert.eq(
+    assert.equal(
         http.send(
             context {
                 Network: refusing,
@@ -727,8 +727,8 @@ test "a responder answers every request with what it returns" {
         Allocator: alloc(),
         Network: net().respond(fn(_request) => .Ok(http.status(204))),
     };
-    assert.eq(assert.ok(ping(ctx, "https://example.test/a")).status, 204);
-    assert.eq(assert.ok(ping(ctx, "https://example.test/b")).status, 204);
+    assert.equal(assert.ok(ping(ctx, "https://example.test/a")).status, 204);
+    assert.equal(assert.ok(ping(ctx, "https://example.test/b")).status, 204);
 }
 
 test "a responder reads the request's method enum" {
@@ -743,10 +743,10 @@ test "a responder reads the request's method enum" {
     let ctx = context {
         Network: server,
     };
-    assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "/r"))), 200);
-    assert.eq(assert.ok(statusOf(ctx, http.request(.Post, "/r"))), 201);
-    assert.eq(assert.ok(statusOf(ctx, http.request(.Delete, "/r"))), 204);
-    assert.eq(assert.ok(statusOf(ctx, http.request(.Patch, "/r"))), 405);
+    assert.equal(assert.ok(statusOf(ctx, http.request(.Get, "/r"))), 200);
+    assert.equal(assert.ok(statusOf(ctx, http.request(.Post, "/r"))), 201);
+    assert.equal(assert.ok(statusOf(ctx, http.request(.Delete, "/r"))), 204);
+    assert.equal(assert.ok(statusOf(ctx, http.request(.Patch, "/r"))), 405);
 }
 
 test "a responder reads the request's headers" {
@@ -762,12 +762,12 @@ test "a responder reads the request's headers" {
         Network: server,
     };
     let bare = http.request(.Get, "/r");
-    assert.eq(assert.ok(statusOf(ctx, bare)), 401);
-    assert.eq(
+    assert.equal(assert.ok(statusOf(ctx, bare)), 401);
+    assert.equal(
         assert.ok(statusOf(ctx, bare.withHeader(ctx, "X-API-Key", "secret"))),
         200,
     );
-    assert.eq(
+    assert.equal(
         assert.ok(statusOf(ctx, bare.withHeader(ctx, "x-api-key", "guess"))),
         403,
     );
@@ -793,10 +793,10 @@ test "a responder inspects the method and a header together" {
     let signed = http
         .request(.Get, "/thing")
         .withHeader(ctx, "authorization", "Bearer t0ken");
-    assert.eq(assert.ok(statusOf(ctx, signed)), 200);
-    assert.eq(assert.ok(statusOf(ctx, signed.withMethod(.Delete))), 204);
-    assert.eq(assert.ok(statusOf(ctx, signed.withMethod(.Put))), 405);
-    assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "/thing"))), 401);
+    assert.equal(assert.ok(statusOf(ctx, signed)), 200);
+    assert.equal(assert.ok(statusOf(ctx, signed.withMethod(.Delete))), 204);
+    assert.equal(assert.ok(statusOf(ctx, signed.withMethod(.Put))), 405);
+    assert.equal(assert.ok(statusOf(ctx, http.request(.Get, "/thing"))), 401);
 }
 
 test "a responder routes on the path and ignores the rest of the URL" {
@@ -810,15 +810,15 @@ test "a responder routes on the path and ignores the rest of the URL" {
     let ctx = context {
         Network: server,
     };
-    assert.eq(
+    assert.equal(
         assert.ok(statusOf(ctx, http.request(.Get, "https://a.test/health?deep=1"))),
         200,
     );
-    assert.eq(
+    assert.equal(
         assert.ok(statusOf(ctx, http.request(.Get, "https://b.test:8443/gone#x"))),
         410,
     );
-    assert.eq(
+    assert.equal(
         assert.ok(statusOf(ctx, http.request(.Get, "https://a.test/other"))),
         404,
     );
@@ -830,8 +830,8 @@ test "a responder sees the request body as the octets it was sent" {
         Allocator: alloc(),
         Network: server,
     };
-    assert.eq(assert.ok(statusOf(ctx, http.request(.Post, "/u"))), 0);
-    assert.eq(assert.ok(statusOf(ctx, http.textRequest(ctx, .Post, "/u", "hello"))), 5);
+    assert.equal(assert.ok(statusOf(ctx, http.request(.Post, "/u"))), 0);
+    assert.equal(assert.ok(statusOf(ctx, http.textRequest(ctx, .Post, "/u", "hello"))), 5);
 }
 
 // -----------------------------------------------------------------------------
@@ -847,9 +847,9 @@ test "a responder may answer .Err, payload and all" {
         Network: net().respond(fn(_request) => .Err(.Transport("socket closed"))),
     };
     let failed = http.send(ctx, http.request(.Get, "/x"));
-    assert.eq(failed, .Err(.Transport("socket closed")));
+    assert.equal(failed, .Err(.Transport("socket closed")));
     assert.notEq(failed, .Err(.Transport("socket open")));
-    assert.eq(http.errorText(assert.err(failed)), "the transport failed");
+    assert.equal(http.errorText(assert.err(failed)), "the transport failed");
 }
 
 test "a responder may fail one request and answer another" {
@@ -863,9 +863,9 @@ test "a responder may fail one request and answer another" {
     let ctx = context {
         Network: server,
     };
-    assert.eq(http.send(ctx, http.request(.Get, "/slow")), .Err(.Timeout));
-    assert.eq(http.send(ctx, http.request(.Get, "/bad")), .Err(.BadUrl("no scheme")));
-    assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "/ok"))), 200);
+    assert.equal(http.send(ctx, http.request(.Get, "/slow")), .Err(.Timeout));
+    assert.equal(http.send(ctx, http.request(.Get, "/bad")), .Err(.BadUrl("no scheme")));
+    assert.equal(assert.ok(statusOf(ctx, http.request(.Get, "/ok"))), 200);
 }
 
 /// One responder, five answers, chosen by the URL — a context may not be built
@@ -884,17 +884,17 @@ test "every NetError variant a responder can name crosses unchanged" {
     let ctx = context {
         Network: server,
     };
-    assert.eq(http.send(ctx, http.request(.Get, "/timeout")), .Err(.Timeout));
-    assert.eq(http.send(ctx, http.request(.Get, "/refused")), .Err(.Refused));
-    assert.eq(http.send(ctx, http.request(.Get, "/badurl")), .Err(.BadUrl("u")));
-    assert.eq(http.send(ctx, http.request(.Get, "/transport")), .Err(.Transport("t")));
-    assert.eq(http.send(ctx, http.request(.Get, "/aborted")), .Err(.Aborted));
+    assert.equal(http.send(ctx, http.request(.Get, "/timeout")), .Err(.Timeout));
+    assert.equal(http.send(ctx, http.request(.Get, "/refused")), .Err(.Refused));
+    assert.equal(http.send(ctx, http.request(.Get, "/badurl")), .Err(.BadUrl("u")));
+    assert.equal(http.send(ctx, http.request(.Get, "/transport")), .Err(.Transport("t")));
+    assert.equal(http.send(ctx, http.request(.Get, "/aborted")), .Err(.Aborted));
 }
 
 test "respond answers a new network and leaves its receiver refusing" {
     let refusing = net();
     let answering = refusing.respond(fn(_request) => .Ok(http.status(200)));
-    assert.eq(
+    assert.equal(
         http.send(
             context {
                 Network: refusing,
@@ -903,7 +903,7 @@ test "respond answers a new network and leaves its receiver refusing" {
         ),
         .Err(.Refused),
     );
-    assert.eq(
+    assert.equal(
         assert.ok(
             statusOf(
                 context {
@@ -920,7 +920,7 @@ test "the last respond in the chain is the responder" {
     let server = net()
         .respond(fn(_request) => .Ok(http.status(500)))
         .respond(fn(_request) => .Ok(http.status(200)));
-    assert.eq(
+    assert.equal(
         assert.ok(
             statusOf(
                 context {
@@ -947,9 +947,9 @@ test "a responder answers with a body the test built beforehand" {
         Network: server,
     };
     let answer = assert.ok(ping(live, "https://example.test/ping"));
-    assert.eq(answer.status, 200);
-    assert.eq(answer.header("content-type"), .Some("text/plain; charset=utf-8"));
-    assert.eq(assert.ok(http.bodyText(live, answer.body)), "pong");
+    assert.equal(answer.status, 200);
+    assert.equal(answer.header("content-type"), .Some("text/plain; charset=utf-8"));
+    assert.equal(assert.ok(http.bodyText(live, answer.body)), "pong");
     assert.isTrue(answer.isOk());
 }
 
@@ -972,11 +972,11 @@ test "a function under test is asserted through the network it was given" {
         Network: server,
     };
     let good = assert.ok(ping(live, "https://api.test/v1/status"));
-    assert.eq(good.status, 200);
-    assert.eq(good.header("content-type"), .Some("application/json"));
-    assert.eq(assert.ok(http.bodyText(live, good.body)), "{\"ok\":true}");
-    assert.eq(assert.ok(ping(live, "https://api.test/v1/other")).status, 404);
-    assert.eq(
+    assert.equal(good.status, 200);
+    assert.equal(good.header("content-type"), .Some("application/json"));
+    assert.equal(assert.ok(http.bodyText(live, good.body)), "{\"ok\":true}");
+    assert.equal(assert.ok(ping(live, "https://api.test/v1/other")).status, 404);
+    assert.equal(
         assert.ok(statusOf(live, http.request(.Post, "https://api.test/v1/status"))),
         405,
     );
@@ -990,10 +990,10 @@ test "a test clock starts at zero and moves only when it is moved" {
     let ctx = context {
         Clock: clock(),
     };
-    assert.eq(time.now(ctx).0, 0);
-    assert.eq(time.now(ctx).0, 0);
-    assert.eq(elapsed(ctx, 5), 5);
-    assert.eq(time.now(ctx).0, 5);
+    assert.equal(time.now(ctx).0, 0);
+    assert.equal(time.now(ctx).0, 0);
+    assert.equal(elapsed(ctx, 5), 5);
+    assert.equal(time.now(ctx).0, 5);
 }
 
 test "at answers a new clock and leaves the one it was called on alone" {
@@ -1006,8 +1006,8 @@ test "at answers a new clock and leaves the one it was called on alone" {
         Clock: later,
     };
     let _ = time.sleepMs(b, 7);
-    assert.eq(time.now(b).0, 1007);
-    assert.eq(time.now(a).0, 0);
+    assert.equal(time.now(b).0, 1007);
+    assert.equal(time.now(a).0, 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -1018,9 +1018,9 @@ test "an unseeded generator is the same sequence on every backend" {
     let ctx = context {
         Random: rand(),
     };
-    assert.eq(random.int(ctx, 0, 100), 69);
-    assert.eq(random.int(ctx, 0, 100), 89);
-    assert.eq(random.int(ctx, 10, 11), 10);
+    assert.equal(random.int(ctx, 0, 100), 69);
+    assert.equal(random.int(ctx, 0, 100), 89);
+    assert.equal(random.int(ctx, 10, 11), 10);
 }
 
 test "seed answers a new generator at the start of its sequence" {
@@ -1029,11 +1029,11 @@ test "seed answers a new generator at the start of its sequence" {
     let ctx = context {
         Random: seeded,
     };
-    assert.eq(random.int(ctx, 0, 1000), 583);
+    assert.equal(random.int(ctx, 0, 1000), 583);
     let other = context {
         Random: base,
     };
-    assert.eq(random.int(other, 0, 100), 69);
+    assert.equal(random.int(other, 0, 100), 69);
 }
 
 test "two generators at the same seed agree with each other" {
@@ -1043,7 +1043,7 @@ test "two generators at the same seed agree with each other" {
     let b = context {
         Random: rand().seed(42),
     };
-    assert.eq(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
+    assert.equal(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
 }
 
 test "a seeded generator answers a float in the unit interval" {
@@ -1069,7 +1069,7 @@ test "the seeded entropy is the same octets on every backend" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    assert.eq(crypto.randomBytes(ctx, 4), [33, 1, 197, 79]);
+    assert.equal(crypto.randomBytes(ctx, 4), [33, 1, 197, 79]);
 }
 
 test "an entropy seed answers a new generator at the start of its sequence" {
@@ -1078,12 +1078,12 @@ test "an entropy seed answers a new generator at the start of its sequence" {
         Allocator: alloc(),
         Entropy: base.seed(7),
     };
-    assert.eq(crypto.token(ctx, 4), "e7074345");
+    assert.equal(crypto.token(ctx, 4), "e7074345");
     let other = context {
         Allocator: alloc(),
         Entropy: base,
     };
-    assert.eq(crypto.token(other, 4), "2101c54f");
+    assert.equal(crypto.token(other, 4), "2101c54f");
 }
 
 test "the entropy double and the rand double are one generator" {
@@ -1095,7 +1095,7 @@ test "the entropy double and the rand double are one generator" {
         Allocator: alloc(),
         Random: rand().seed(3),
     };
-    assert.eq(crypto.randomBytes(secret, 6), random.bytes(uniform, 6));
+    assert.equal(crypto.randomBytes(secret, 6), random.bytes(uniform, 6));
 }
 
 // -----------------------------------------------------------------------------
@@ -1107,7 +1107,7 @@ test "a fresh environment has no variables and no arguments" {
         Environment: env(),
     };
     assert.isTrue(env.get(ctx, "HOME").isNone());
-    assert.eq(env.arguments(ctx).len(), 0);
+    assert.equal(env.arguments(ctx).len(), 0);
 }
 
 test "the two builders compose in either order" {
@@ -1121,10 +1121,10 @@ test "the two builders compose in either order" {
         Allocator: alloc(),
         Environment: two,
     };
-    assert.eq(assert.some(env.get(a, "HOME")), "/tmp");
-    assert.eq(assert.some(env.get(b, "HOME")), "/tmp");
-    assert.eq(env.arguments(a).join(a, " "), "--verbose");
-    assert.eq(env.arguments(b).join(b, " "), "--verbose");
+    assert.equal(assert.some(env.get(a, "HOME")), "/tmp");
+    assert.equal(assert.some(env.get(b, "HOME")), "/tmp");
+    assert.equal(env.arguments(a).join(a, " "), "--verbose");
+    assert.equal(env.arguments(b).join(b, " "), "--verbose");
 }
 
 test "a builder answers a new environment and leaves its receiver empty" {
@@ -1137,7 +1137,7 @@ test "a builder answers a new environment and leaves its receiver empty" {
         Environment: filled,
     };
     assert.isTrue(env.get(a, "LANG").isNone());
-    assert.eq(assert.some(env.get(b, "LANG")), "C");
+    assert.equal(assert.some(env.get(b, "LANG")), "C");
 }
 
 test "an environment holds what it was given and nothing else" {
@@ -1147,12 +1147,12 @@ test "an environment holds what it was given and nothing else" {
             .variables([("HOME", "/tmp"), ("LANG", "C")])
             .withArguments(["--verbose", "x"]),
     };
-    assert.eq(assert.some(env.get(ctx, "HOME")), "/tmp");
-    assert.eq(assert.some(env.get(ctx, "LANG")), "C");
+    assert.equal(assert.some(env.get(ctx, "HOME")), "/tmp");
+    assert.equal(assert.some(env.get(ctx, "LANG")), "C");
     assert.isTrue(env.get(ctx, "PATH").isNone());
     let args = env.arguments(ctx);
-    assert.eq(args.len(), 2);
-    assert.eq(args.join(ctx, " "), "--verbose x");
+    assert.equal(args.len(), 2);
+    assert.equal(args.join(ctx, " "), "--verbose x");
 }
 
 // -----------------------------------------------------------------------------
@@ -1174,7 +1174,7 @@ test "an exit is absorbed rather than taken" {
     // well. The transcript says neither happened. `proc()` has no reader, so
     // the exit code is nowhere to be asserted on — carrying on *is* the claim,
     // and two exits later this is still the block making it.
-    assert.eq(out.captured(), "[after the first]\n[after the second]\n");
+    assert.equal(out.captured(), "[after the first]\n[after the second]\n");
 }
 
 // -----------------------------------------------------------------------------
@@ -1186,9 +1186,9 @@ test "an exit is absorbed rather than taken" {
 // missing one and a reordering are three different failures.
 
 test "a double that was never asked anything has an empty log" {
-    assert.eq(fs().calls(), []);
-    assert.eq(net().calls(), []);
-    assert.eq(stdin().calls(), []);
+    assert.equal(fs().calls(), []);
+    assert.equal(net().calls(), []);
+    assert.equal(stdin().calls(), []);
 }
 
 test "the log is the calls that were made, in the order they were made" {
@@ -1198,10 +1198,10 @@ test "the log is the calls that were made, in the order they were made" {
         FileSystemRead: store,
         FileSystemWrite: store,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
     assert.ok(saveText(ctx, "b", "B"));
-    assert.eq(assert.ok(loadText(ctx, "b")), "B");
-    assert.eq(store.calls(), [readFile("a"), writeFile("b", "B"), readFile("b")]);
+    assert.equal(assert.ok(loadText(ctx, "b")), "B");
+    assert.equal(store.calls(), [readFile("a"), writeFile("b", "B"), readFile("b")]);
 }
 
 test "a call that failed is a call: the log is not the successes" {
@@ -1212,7 +1212,7 @@ test "a call that failed is a call: the log is not the successes" {
         FileSystemWrite: store,
     };
     assert.isTrue(loadText(ctx, "missing").isErr());
-    assert.eq(store.calls(), [readFile("missing")]);
+    assert.equal(store.calls(), [readFile("missing")]);
 }
 
 test "a write refused through readOnly is still something that was asked" {
@@ -1222,8 +1222,8 @@ test "a write refused through readOnly is still something that was asked" {
         FileSystemRead: attenuated,
         FileSystemWrite: attenuated,
     };
-    assert.eq(which(saveText(ctx, "a", "B")), "ReadOnly");
-    assert.eq(attenuated.calls(), [writeFile("a", "B")]);
+    assert.equal(which(saveText(ctx, "a", "B")), "ReadOnly");
+    assert.equal(attenuated.calls(), [writeFile("a", "B")]);
 }
 
 test "every method of the filesystem is logged under its own name" {
@@ -1248,7 +1248,7 @@ test "every method of the filesystem is logged under its own name" {
     assert.ok(fs.remove(ctx, path.of(ctx, "d")));
     assert.ok(fs.makeDir(ctx, path.of(ctx, "dir")));
     assert.ok(fs.sync(ctx, path.of(ctx, "a")));
-    assert.eq(store.calls(), [
+    assert.equal(store.calls(), [
         readFile("a"),
         writeFile("a", "A2"),
         fileExists("a"),
@@ -1276,7 +1276,7 @@ test "octets are logged as the text they spell, as snapshot reads them back" {
     assert.ok(fs.writeBytes(ctx, path.of(ctx, "c"), raw));
     // The constructor spells the octets exactly as the log does, so a fixture
     // that is not text is still a call a test can write down.
-    assert.eq(store.calls(), [writeFileBytes("b", hi), writeFileBytes("c", raw)]);
+    assert.equal(store.calls(), [writeFileBytes("b", hi), writeFileBytes("c", raw)]);
     // And what it spells is the text `writeFile` would have been given, so the
     // two methods stay two calls rather than one written twice.
     assert.notEq(writeFileBytes("b", hi), writeFile("b", "hi"));
@@ -1287,9 +1287,9 @@ test "reading the environment back is not a call" {
     // rather than asking it anything, so none of the three is in the log.
     let store = fs().files([("a", "A")]);
     let _ = assert.ok(store.read("a"));
-    assert.eq(store.snapshot().len(), 1);
-    assert.eq(store.calls(), []);
-    assert.eq(store.calls().len(), 0);
+    assert.equal(store.snapshot().len(), 1);
+    assert.equal(store.calls(), []);
+    assert.equal(store.calls().len(), 0);
 }
 
 test "a builder answers a new filesystem with a log of its own" {
@@ -1301,8 +1301,8 @@ test "a builder answers a new filesystem with a log of its own" {
     };
     assert.isTrue(loadText(ctx, "a").isErr());
     let filled = empty.files([("a", "A")]);
-    assert.eq(empty.calls(), [readFile("a")]);
-    assert.eq(filled.calls(), []);
+    assert.equal(empty.calls(), [readFile("a")]);
+    assert.equal(filled.calls(), []);
 }
 
 test "readOnly answers a new view with a log of its own" {
@@ -1322,8 +1322,8 @@ test "readOnly answers a new view with a log of its own" {
     };
     let _ = assert.ok(loadText(one, "a"));
     assert.isTrue(loadText(two, "missing").isErr());
-    assert.eq(writable.calls(), [readFile("a")]);
-    assert.eq(attenuated.calls(), [readFile("missing")]);
+    assert.equal(writable.calls(), [readFile("a")]);
+    assert.equal(attenuated.calls(), [readFile("missing")]);
 }
 
 test "each filesystem logs only what was asked of it" {
@@ -1335,8 +1335,8 @@ test "each filesystem logs only what was asked of it" {
         FileSystemWrite: mine,
     };
     assert.ok(saveText(ctx, "a", "A"));
-    assert.eq(mine.calls(), [writeFile("a", "A")]);
-    assert.eq(yours.calls(), []);
+    assert.equal(mine.calls(), [writeFile("a", "A")]);
+    assert.equal(yours.calls(), []);
 }
 
 test "a function under test is asserted through what it asked for" {
@@ -1348,7 +1348,7 @@ test "a function under test is asserted through what it asked for" {
     };
     assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
     let one: [U8] = [111, 110, 101];
-    assert.eq(store.calls(), [
+    assert.equal(store.calls(), [
         readFileBytes("app/a.txt"),
         appendFile("app/merged.txt", one),
     ]);
@@ -1366,7 +1366,7 @@ test "a network logs the requests it was given, in the order it answered them" {
     };
     let _ = assert.ok(ping(ctx, "https://example.test/a"));
     let _ = assert.ok(ping(ctx, "https://example.test/b"));
-    assert.eq(upstream.calls(), [
+    assert.equal(upstream.calls(), [
         fetch(http.request(.Get, "https://example.test/a")),
         fetch(http.request(.Get, "https://example.test/b")),
     ]);
@@ -1378,8 +1378,8 @@ test "a refused request is a request that was made" {
         Allocator: alloc(),
         Network: refusing,
     };
-    assert.eq(assert.err(ping(ctx, "https://example.test/")), .Refused);
-    assert.eq(refusing.calls(), [fetch(http.request(.Get, "https://example.test/"))]);
+    assert.equal(assert.err(ping(ctx, "https://example.test/")), .Refused);
+    assert.equal(refusing.calls(), [fetch(http.request(.Get, "https://example.test/"))]);
 }
 
 test "the whole request crosses: method, url, headers and body" {
@@ -1392,7 +1392,7 @@ test "the whole request crosses: method, url, headers and body" {
         .textRequest(ctx, .Post, "https://example.test/things", "{}")
         .withHeader(ctx, "x-api-key", "secret");
     let _ = assert.ok(http.send(ctx, sent));
-    assert.eq(upstream.calls(), [fetch(sent)]);
+    assert.equal(upstream.calls(), [fetch(sent)]);
 }
 
 test "two requests that differ only in a header are two different calls" {
@@ -1404,7 +1404,7 @@ test "two requests that differ only in a header are two different calls" {
     let plain = http.request(.Get, "https://example.test/");
     let signed = plain.withHeader(ctx, "x-api-key", "secret");
     let _ = assert.ok(http.send(ctx, signed));
-    assert.eq(upstream.calls(), [fetch(signed)]);
+    assert.equal(upstream.calls(), [fetch(signed)]);
     assert.notEq(upstream.calls(), [fetch(plain)]);
 }
 
@@ -1420,7 +1420,7 @@ test "every Method variant crosses the log unchanged" {
     let _ = assert.ok(http.send(ctx, http.request(.Patch, "/a")));
     let _ = assert.ok(http.send(ctx, http.request(.Delete, "/a")));
     let _ = assert.ok(http.send(ctx, http.request(.Options, "/a")));
-    assert.eq(upstream.calls(), [
+    assert.equal(upstream.calls(), [
         fetch(http.request(.Get, "/a")),
         fetch(http.request(.Head, "/a")),
         fetch(http.request(.Post, "/a")),
@@ -1444,10 +1444,10 @@ test "respond answers a new network with a log of its own" {
     };
     assert.isTrue(ping(one, "https://example.test/refused").isErr());
     let _ = assert.ok(ping(two, "https://example.test/answered"));
-    assert.eq(refusing.calls(), [
+    assert.equal(refusing.calls(), [
         fetch(http.request(.Get, "https://example.test/refused")),
     ]);
-    assert.eq(answering.calls(), [
+    assert.equal(answering.calls(), [
         fetch(http.request(.Get, "https://example.test/answered")),
     ]);
 }
@@ -1461,8 +1461,8 @@ test "a retry is two calls to the same url, and the log says so" {
     let _ = assert.ok(ping(ctx, "https://example.test/config"));
     let _ = assert.ok(ping(ctx, "https://example.test/config"));
     let once = http.request(.Get, "https://example.test/config");
-    assert.eq(upstream.calls(), [fetch(once), fetch(once)]);
-    assert.eq(upstream.calls().len(), 2);
+    assert.equal(upstream.calls(), [fetch(once), fetch(once)]);
+    assert.equal(upstream.calls().len(), 2);
 }
 
 // -----------------------------------------------------------------------------
@@ -1476,7 +1476,7 @@ test "a stream logs the reads it was asked for, with what they asked for" {
     };
     let _ = assert.some(io.readBytes(ctx, 3));
     let _ = assert.some(io.readBytes(ctx, 3));
-    assert.eq(input.calls(), [readBytes(3), readBytes(3)]);
+    assert.equal(input.calls(), [readBytes(3), readBytes(3)]);
 }
 
 test "a read that found nothing is still a read that was made" {
@@ -1486,7 +1486,7 @@ test "a read that found nothing is still a read that was made" {
     };
     assert.none(io.readLine(ctx));
     assert.none(io.readBytes(ctx, 8));
-    assert.eq(input.calls(), [readLine(), readBytes(8)]);
+    assert.equal(input.calls(), [readLine(), readBytes(8)]);
 }
 
 test "a stdin builder answers a new stream with a log of its own" {
@@ -1499,10 +1499,10 @@ test "a stdin builder answers a new stream with a log of its own" {
         Stdin: filled,
     };
     assert.none(io.readLine(a));
-    assert.eq(assert.some(io.readLine(b)), "x");
+    assert.equal(assert.some(io.readLine(b)), "x");
     assert.none(io.readLine(b));
-    assert.eq(empty.calls(), [readLine()]);
-    assert.eq(filled.calls(), [readLine(), readLine()]);
+    assert.equal(empty.calls(), [readLine()]);
+    assert.equal(filled.calls(), [readLine(), readLine()]);
 }
 
 // -----------------------------------------------------------------------------
@@ -1518,10 +1518,10 @@ test "two calls to one method with different arguments are DIFFERENT" {
 }
 
 test "two calls to one method with the same arguments are the same call" {
-    assert.eq(readFile("a"), readFile("a"));
-    assert.eq(writeFile("a", "one"), writeFile("a", "one"));
-    assert.eq(readLine(), readLine());
-    assert.eq(fetch(http.request(.Get, "/a")), fetch(http.request(.Get, "/a")));
+    assert.equal(readFile("a"), readFile("a"));
+    assert.equal(writeFile("a", "one"), writeFile("a", "one"));
+    assert.equal(readLine(), readLine());
+    assert.equal(fetch(http.request(.Get, "/a")), fetch(http.request(.Get, "/a")));
 }
 
 test "two methods over the same path are different calls" {
@@ -1542,11 +1542,11 @@ test "a call is compared by its arguments and not by where it came from" {
         FileSystemWrite: store,
     };
     let _ = assert.ok(loadText(ctx, "a"));
-    assert.eq(store.calls(), [readFile("a")]);
+    assert.equal(store.calls(), [readFile("a")]);
     assert.notEq(store.calls(), [readFile("b")]);
 }
 
-derive Eq, Show for Configuration;
+derive Equal, Show for Configuration;
 // -----------------------------------------------------------------------------
 // faults() — the fault plan
 // -----------------------------------------------------------------------------
@@ -1691,7 +1691,7 @@ test "merges the three files" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(getConfiguration(ctx), .Ok(Configuration { name: "demo", token: "abc" }));
+    assert.equal(getConfiguration(ctx), .Ok(Configuration { name: "demo", token: "abc" }));
 }
 
 test "a secrets file that cannot be read is reported" {
@@ -1703,7 +1703,7 @@ test "a secrets file that cannot be read is reported" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(getConfiguration(ctx), .Err("app/secrets.env: permission denied"));
+    assert.equal(getConfiguration(ctx), .Err("app/secrets.env: permission denied"));
 }
 
 test "the third append fails and nothing after it is written" {
@@ -1716,14 +1716,14 @@ test "the third append fails and nothing after it is written" {
         FileSystemRead: wal,
         FileSystemWrite: wal,
     };
-    assert.eq(commitThree(ctx, entries), .Err("wal: disk full"));
-    assert.eq(wal.calls(), [
+    assert.equal(commitThree(ctx, entries), .Err("wal: disk full"));
+    assert.equal(wal.calls(), [
         appendFile("wal", [97]),
         appendFile("wal", [98]),
         appendFile("wal", [99]),
     ]);
     // The prefix is what survived: the failed append wrote nothing.
-    assert.eq(assert.ok(wal.read("wal")), "ab");
+    assert.equal(assert.ok(wal.read("wal")), "ab");
 }
 
 test "nothing is written when upstream times out" {
@@ -1736,9 +1736,9 @@ test "nothing is written when upstream times out" {
         FileSystemWrite: files,
         Network: upstream,
     };
-    assert.eq(refreshFromUpstream(ctx, request), .Err("upstream: timeout"));
-    assert.eq(files.snapshot(), [("app/cache.json", "old")]);
-    assert.eq(files.calls(), []);
+    assert.equal(refreshFromUpstream(ctx, request), .Err("upstream: timeout"));
+    assert.equal(files.snapshot(), [("app/cache.json", "old")]);
+    assert.equal(files.calls(), []);
 }
 
 test "a timed-out first attempt is retried" {
@@ -1758,8 +1758,8 @@ test "a timed-out first attempt is retried" {
         Network: upstream,
     };
     assert.ok(refreshFromUpstream(live, request));
-    assert.eq(upstream.calls(), [fetch(request), fetch(request)]);
-    assert.eq(assert.ok(files.read("app/cache.json")), "name = \"demo\"");
+    assert.equal(upstream.calls(), [fetch(request), fetch(request)]);
+    assert.equal(assert.ok(files.read("app/cache.json")), "name = \"demo\"");
 }
 
 // --- the rules the five stand on ----------------------------------------------
@@ -1773,8 +1773,8 @@ test "a fault fires only on the call it names" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(which(loadText(ctx, "b")), "PermissionDenied");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(which(loadText(ctx, "b")), "PermissionDenied");
 }
 
 test "fails fires on every matching call" {
@@ -1786,9 +1786,9 @@ test "fails fires on every matching call" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
-    assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
-    assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
+    assert.equal(which(loadText(ctx, "a")), "PermissionDenied");
+    assert.equal(which(loadText(ctx, "a")), "PermissionDenied");
+    assert.equal(which(loadText(ctx, "a")), "PermissionDenied");
 }
 
 test "failsOnCall fires on the nth matching call and no other" {
@@ -1800,9 +1800,9 @@ test "failsOnCall fires on the nth matching call and no other" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(which(loadText(ctx, "a")), "NotFound");
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(which(loadText(ctx, "a")), "NotFound");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
 }
 
 /// The `n` is a position among the *matching* calls, so a call of another shape
@@ -1816,12 +1816,12 @@ test "the call number counts matching calls and not calls" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.ok(loadText(ctx, "b")), "B");
-    assert.eq(which(loadText(ctx, "a")), "NotFound");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "b")), "B");
+    assert.equal(which(loadText(ctx, "a")), "NotFound");
 }
 
-/// Matching is the `Eq` the `FsCall` records derive, so a fault names a call
+/// Matching is the `Equal` the `FsCall` records derive, so a fault names a call
 /// exactly as `calls()` reports it — same constructor, same arguments.
 test "a fault matches by every argument of the call it names" {
     let files = fs().faults([writeFile("a", "B").fails(.PermissionDenied)]);
@@ -1831,8 +1831,8 @@ test "a fault matches by every argument of the call it names" {
         FileSystemWrite: files,
     };
     assert.ok(saveText(ctx, "a", "A"));
-    assert.eq(which(saveText(ctx, "a", "B")), "PermissionDenied");
-    assert.eq(assert.ok(files.read("a")), "A");
+    assert.equal(which(saveText(ctx, "a", "B")), "PermissionDenied");
+    assert.equal(assert.ok(files.read("a")), "A");
 }
 
 /// The same path under two methods is two calls, which is what one record per
@@ -1844,7 +1844,7 @@ test "a fault on one method leaves the other alone" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
     assert.isTrue(fs.readBytes(ctx, path.of(ctx, "a")).isErr());
 }
 
@@ -1857,9 +1857,9 @@ test "a call the plan failed is a call, and it performed nothing" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(which(fs.remove(ctx, path.of(ctx, "a"))), "PermissionDenied");
-    assert.eq(files.calls(), [removeFile("a")]);
-    assert.eq(files.snapshot(), [("a", "A")]);
+    assert.equal(which(fs.remove(ctx, path.of(ctx, "a"))), "PermissionDenied");
+    assert.equal(files.calls(), [removeFile("a")]);
+    assert.equal(files.snapshot(), [("a", "A")]);
 }
 
 test "an error that carries text carries it back unchanged" {
@@ -1869,7 +1869,7 @@ test "an error that carries text carries it back unchanged" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(fs.makeDir(ctx, path.of(ctx, "d")), .Err(.Other("no space")));
+    assert.equal(fs.makeDir(ctx, path.of(ctx, "d")), .Err(.Other("no space")));
 }
 
 /// Every variant of `IoError`, including the one that carries a `Str`: the plan
@@ -1890,13 +1890,13 @@ test "every IoError variant a plan can name crosses unchanged" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(fs.readText(ctx, path.of(ctx, "notFound")), .Err(.NotFound));
-    assert.eq(fs.readText(ctx, path.of(ctx, "denied")), .Err(.PermissionDenied));
-    assert.eq(fs.readText(ctx, path.of(ctx, "readOnly")), .Err(.ReadOnly));
-    assert.eq(fs.readText(ctx, path.of(ctx, "exists")), .Err(.AlreadyExists));
-    assert.eq(fs.readText(ctx, path.of(ctx, "notADirectory")), .Err(.NotADirectory));
-    assert.eq(fs.readText(ctx, path.of(ctx, "crossDevice")), .Err(.CrossDevice));
-    assert.eq(fs.readText(ctx, path.of(ctx, "other")), .Err(.Other("spelled out")));
+    assert.equal(fs.readText(ctx, path.of(ctx, "notFound")), .Err(.NotFound));
+    assert.equal(fs.readText(ctx, path.of(ctx, "denied")), .Err(.PermissionDenied));
+    assert.equal(fs.readText(ctx, path.of(ctx, "readOnly")), .Err(.ReadOnly));
+    assert.equal(fs.readText(ctx, path.of(ctx, "exists")), .Err(.AlreadyExists));
+    assert.equal(fs.readText(ctx, path.of(ctx, "notADirectory")), .Err(.NotADirectory));
+    assert.equal(fs.readText(ctx, path.of(ctx, "crossDevice")), .Err(.CrossDevice));
+    assert.equal(fs.readText(ctx, path.of(ctx, "other")), .Err(.Other("spelled out")));
 }
 
 test "every NetError variant a plan can name crosses unchanged" {
@@ -1915,11 +1915,11 @@ test "every NetError variant a plan can name crosses unchanged" {
     let ctx = context {
         Network: server,
     };
-    assert.eq(http.send(ctx, timeout), .Err(.Timeout));
-    assert.eq(http.send(ctx, refused), .Err(.Refused));
-    assert.eq(http.send(ctx, badUrl), .Err(.BadUrl("u")));
-    assert.eq(http.send(ctx, transport), .Err(.Transport("t")));
-    assert.eq(http.send(ctx, aborted), .Err(.Aborted));
+    assert.equal(http.send(ctx, timeout), .Err(.Timeout));
+    assert.equal(http.send(ctx, refused), .Err(.Refused));
+    assert.equal(http.send(ctx, badUrl), .Err(.BadUrl("u")));
+    assert.equal(http.send(ctx, transport), .Err(.Transport("t")));
+    assert.equal(http.send(ctx, aborted), .Err(.Aborted));
 }
 
 /// A failed request never reaches the responder, which is what makes `respond`
@@ -1937,13 +1937,13 @@ test "a request the plan fails does not reach the responder" {
     let live = context {
         Network: server,
     };
-    assert.eq(http.send(live, request), .Err(.Refused));
-    assert.eq(assert.ok(http.send(live, other)).status, 200);
-    assert.eq(server.calls(), [fetch(request), fetch(other)]);
+    assert.equal(http.send(live, request), .Err(.Refused));
+    assert.equal(assert.ok(http.send(live, other)).status, 200);
+    assert.equal(server.calls(), [fetch(request), fetch(other)]);
 }
 
 /// Two requests differing in one header are two calls, so a plan naming one of
-/// them leaves the other alone — `NetCall`'s `Eq` reads the whole request.
+/// them leaves the other alone — `NetCall`'s `Equal` reads the whole request.
 test "a net fault matches the whole request" {
     let plain = http.request(.Get, "https://n.test/x");
     let tagged = Request {
@@ -1963,8 +1963,8 @@ test "a net fault matches the whole request" {
     let live = context {
         Network: server,
     };
-    assert.eq(assert.ok(http.send(live, plain)).status, 200);
-    assert.eq(http.send(live, tagged), .Err(.Aborted));
+    assert.equal(assert.ok(http.send(live, plain)).status, 200);
+    assert.equal(http.send(live, tagged), .Err(.Aborted));
 }
 
 // --- the plan travels with the double -----------------------------------------
@@ -1976,7 +1976,7 @@ test "a builder after faults keeps the plan" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(which(loadText(ctx, "a")), "NotFound");
+    assert.equal(which(loadText(ctx, "a")), "NotFound");
 }
 
 test "faults after a builder keeps the files" {
@@ -1988,8 +1988,8 @@ test "faults after a builder keeps the files" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(which(loadText(ctx, "b")), "CrossDevice");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(which(loadText(ctx, "b")), "CrossDevice");
 }
 
 test "readOnly keeps the plan and the plan is consulted first" {
@@ -2002,13 +2002,13 @@ test "readOnly keeps the plan and the plan is consulted first" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(which(loadText(ctx, "a")), "NotFound");
+    assert.equal(which(loadText(ctx, "a")), "NotFound");
 }
 
 test "faults answers a new filesystem and leaves its receiver whole" {
     let sound = fs().files([("a", "A")]);
     let broken = sound.faults([readFile("a").fails(.NotFound)]);
-    assert.eq(
+    assert.equal(
         assert.ok(
             loadText(
                 context {
@@ -2021,7 +2021,7 @@ test "faults answers a new filesystem and leaves its receiver whole" {
         ),
         "A",
     );
-    assert.eq(
+    assert.equal(
         which(
             loadText(
                 context {
@@ -2043,13 +2043,13 @@ test "faults answers a new log" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
     let broken = files.faults([readFile("a").fails(.NotFound)]);
-    assert.eq(broken.calls(), []);
-    assert.eq(files.calls(), [readFile("a")]);
+    assert.equal(broken.calls(), []);
+    assert.equal(files.calls(), [readFile("a")]);
     // And the plan is kept, because a plan is a promise: a block that declared
     // this fault and never made the call would fail on the way out.
-    assert.eq(
+    assert.equal(
         which(
             loadText(
                 context {
@@ -2062,7 +2062,7 @@ test "faults answers a new log" {
         ),
         "NotFound",
     );
-    assert.eq(broken.calls(), [readFile("a")]);
+    assert.equal(broken.calls(), [readFile("a")]);
 }
 
 /// `faults` replaces, as `respond` does: two plans for one call have no answer
@@ -2078,7 +2078,7 @@ test "the last faults in the chain is the plan" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(which(loadText(ctx, "a")), "NotFound");
+    assert.equal(which(loadText(ctx, "a")), "NotFound");
 }
 
 test "respond keeps the plan" {
@@ -2093,7 +2093,7 @@ test "respond keeps the plan" {
     let live = context {
         Network: server,
     };
-    assert.eq(http.send(live, request), .Err(.Timeout));
+    assert.equal(http.send(live, request), .Err(.Timeout));
 }
 
 // --- the promise ---------------------------------------------------------------
@@ -2117,8 +2117,8 @@ test "a plan whose entries all fire leaves the block passing" {
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.eq(which(loadText(ctx, "a")), "NotFound");
-    assert.eq(which(saveText(ctx, "b", "C")), "ReadOnly");
+    assert.equal(which(loadText(ctx, "a")), "NotFound");
+    assert.equal(which(saveText(ctx, "b", "C")), "ReadOnly");
 }
 
 // -----------------------------------------------------------------------------
@@ -2179,8 +2179,8 @@ test "a task run by the double is handed the caller's context" {
         Clock: clock().at(5),
         Tasks: scheduler,
     };
-    assert.eq(stamped(ctx, [7, 8]), ["5:0:7", "5:1:8"]);
-    assert.eq(scheduler.calls(), [task(0), task(1)]);
+    assert.equal(stamped(ctx, [7, 8]), ["5:0:7", "5:1:8"]);
+    assert.equal(scheduler.calls(), [task(0), task(1)]);
 }
 
 test "the context survives a nested parallel through the double" {
@@ -2198,11 +2198,11 @@ test "the context survives a nested parallel through the double" {
             .parallel(c, [x, x], fn(d, j, y) => time.now(d).0 + y + j)
             .fold(fn(a, m) => a + m, 0)
     });
-    assert.eq(out, [25]);
+    assert.equal(out, [25]);
     // The inner fan-out's two tasks both finish before the outer one does, and a
     // call is logged when its step *returns* — so the outer task's own entry is
     // last rather than first.
-    assert.eq(scheduler.calls(), [task(0), task(1), task(0)]);
+    assert.equal(scheduler.calls(), [task(0), task(1), task(0)]);
 }
 
 test "tasks() runs its tasks in program order" {
@@ -2211,8 +2211,8 @@ test "tasks() runs its tasks in program order" {
         Allocator: alloc(),
         Tasks: scheduler,
     };
-    assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
-    assert.eq(scheduler.calls(), [task(0), task(1), task(2)]);
+    assert.equal(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
+    assert.equal(scheduler.calls(), [task(0), task(1), task(2)]);
 }
 
 test "the results are in the items' order whatever order the work ran in" {
@@ -2226,8 +2226,8 @@ test "the results are in the items' order whatever order the work ran in" {
         Tasks: scheduler,
     };
     // The same answer as the block above, from the opposite order.
-    assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
-    assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
+    assert.equal(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
+    assert.equal(scheduler.calls(), [task(2), task(1), task(0)]);
 }
 
 test "anyOrder with no seed is an order the program's own bytes name" {
@@ -2236,14 +2236,14 @@ test "anyOrder with no seed is an order the program's own bytes name" {
         Allocator: alloc(),
         Tasks: scheduler,
     };
-    assert.eq(labelled(ctx, [1, 2]), [1, 102]);
+    assert.equal(labelled(ctx, [1, 2]), [1, 102]);
     // *Which* of the two orders is the runner's answer: the seed is derived from
     // the suite's action key, so it moves when the suite moves and a corpus that
     // pinned it would pin its own bytes. What is pinned here is that it is an
     // order — every task ran, once each — and that the results are the items'.
     // The failure report is where a reader learns which one it was, and
     // `tasks().seed(n)` is how they replay it.
-    assert.eq(scheduler.calls().len(), 2);
+    assert.equal(scheduler.calls().len(), 2);
 }
 
 test "a seed is the order's own number, counted from zero" {
@@ -2253,7 +2253,7 @@ test "a seed is the order's own number, counted from zero" {
         Tasks: first,
     };
     let _ = labelled(one, [1, 2, 3]);
-    assert.eq(first.calls(), [task(0), task(1), task(2)]);
+    assert.equal(first.calls(), [task(0), task(1), task(2)]);
 
     let fourth = tasks().seed(3);
     let two = context {
@@ -2261,7 +2261,7 @@ test "a seed is the order's own number, counted from zero" {
         Tasks: fourth,
     };
     let _ = labelled(two, [1, 2, 3]);
-    assert.eq(fourth.calls(), [task(1), task(2), task(0)]);
+    assert.equal(fourth.calls(), [task(1), task(2), task(0)]);
 
     let last = tasks().seed(5);
     let three = context {
@@ -2269,7 +2269,7 @@ test "a seed is the order's own number, counted from zero" {
         Tasks: last,
     };
     let _ = labelled(three, [1, 2, 3]);
-    assert.eq(last.calls(), [task(2), task(1), task(0)]);
+    assert.equal(last.calls(), [task(2), task(1), task(0)]);
 }
 
 test "a seed past the last one wraps" {
@@ -2281,7 +2281,7 @@ test "a seed past the last one wraps" {
         Tasks: scheduler,
     };
     let _ = labelled(ctx, [1, 2, 3]);
-    assert.eq(scheduler.calls(), [task(0), task(1), task(2)]);
+    assert.equal(scheduler.calls(), [task(0), task(1), task(2)]);
 }
 
 test "everyOrder runs the body once per completion order" {
@@ -2290,11 +2290,11 @@ test "everyOrder runs the body once per completion order" {
         Allocator: alloc(),
         Tasks: scheduler,
     };
-    assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
+    assert.equal(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
     // Three tasks, six orders, and this run is one of them: the order the work
     // happened in is the `runs()`th of the six, counted from one.
-    assert.eq(scheduler.orders(), 6);
-    assert.eq(scheduler.calls(), nthOrderOfThree(scheduler.runs() - 1));
+    assert.equal(scheduler.orders(), 6);
+    assert.equal(scheduler.calls(), nthOrderOfThree(scheduler.runs() - 1));
     // And there is never a seventh run. The sixth *is* reached, which is a claim
     // no passing block can make about itself: `cli/tests/failing/every_order/` is
     // the golden that makes it, by failing on the sixth and only then.
@@ -2308,8 +2308,8 @@ test "everyOrder over two tasks is two runs" {
         Tasks: scheduler,
     };
     let _ = labelled(ctx, [1, 2]);
-    assert.eq(scheduler.orders(), 2);
-    assert.eq(scheduler.calls(), nthOrderOfTwo(scheduler.runs() - 1));
+    assert.equal(scheduler.orders(), 2);
+    assert.equal(scheduler.calls(), nthOrderOfTwo(scheduler.runs() - 1));
 }
 
 test "a block that schedules nothing runs once" {
@@ -2318,12 +2318,12 @@ test "a block that schedules nothing runs once" {
         Allocator: alloc(),
         Tasks: scheduler,
     };
-    assert.eq(labelled(ctx, []), []);
+    assert.equal(labelled(ctx, []), []);
     // No fan-out means nothing to order, and an empty fan-out is a fan-out of
     // nothing rather than an order of one.
-    assert.eq(scheduler.orders(), 1);
-    assert.eq(scheduler.runs(), 1);
-    assert.eq(scheduler.calls(), []);
+    assert.equal(scheduler.orders(), 1);
+    assert.equal(scheduler.runs(), 1);
+    assert.equal(scheduler.calls(), []);
 }
 
 test "one task has one order" {
@@ -2332,9 +2332,9 @@ test "one task has one order" {
         Allocator: alloc(),
         Tasks: scheduler,
     };
-    assert.eq(labelled(ctx, [4]), [4]);
-    assert.eq(scheduler.orders(), 1);
-    assert.eq(scheduler.calls(), [task(0)]);
+    assert.equal(labelled(ctx, [4]), [4]);
+    assert.equal(scheduler.orders(), 1);
+    assert.equal(scheduler.calls(), [task(0)]);
 }
 
 test "two fan-outs in one run are scheduled the same way" {
@@ -2350,7 +2350,7 @@ test "two fan-outs in one run are scheduled the same way" {
     let _ = labelled(ctx, [4, 5, 6]);
     // One decision per run, not one per call — so a test asserting on both is
     // asserting about one thing.
-    assert.eq(scheduler.calls(), [
+    assert.equal(scheduler.calls(), [
         task(2),
         task(1),
         task(0),
@@ -2369,8 +2369,8 @@ test "a builder answers a new scheduler and a new log" {
     let _ = labelled(ctx, [1, 2]);
     // The receiver is untouched by the builder, and the builder's answer has run
     // nothing at all.
-    assert.eq(first.calls(), [task(0), task(1)]);
-    assert.eq(first.anyOrder().calls(), []);
+    assert.equal(first.calls(), [task(0), task(1)]);
+    assert.equal(first.anyOrder().calls(), []);
 }
 
 test "a task is handed its own index" {
@@ -2382,7 +2382,7 @@ test "a task is handed its own index" {
     // In whatever order the program's own bytes named, and every task still gets
     // the index of the item it was given — which is what `effect Tasks` promises
     // and what makes the order safe to change.
-    assert.eq(labelled(ctx, [10, 20, 30]), [10, 120, 230]);
+    assert.equal(labelled(ctx, [10, 20, 30]), [10, 120, 230]);
 }
 
 /// The six orders of three tasks, in the order their seeds count.
@@ -2429,8 +2429,8 @@ test "faults replaces, and a plan it replaced claims nothing" {
         Allocator: alloc(),
         Tasks: scheduler,
     };
-    assert.eq(labelled(ctx, [1, 2]), [1, 102]);
-    assert.eq(scheduler.calls(), [task(0), task(1)]);
+    assert.equal(labelled(ctx, [1, 2]), [1, 102]);
+    assert.equal(scheduler.calls(), [task(0), task(1)]);
 }
 
 // --- sockets(), and a broadcast actor with no server at all --------------------
@@ -2496,7 +2496,7 @@ test "a socket this double minted is open, and two of them differ" {
     assert.notEq(first, second);
     // Nothing was pushed, so there is nothing to read back — a double is born
     // empty, exactly as `fs()` and `stdin()` are.
-    assert.eq(s.sent(), []);
+    assert.equal(s.sent(), []);
     // And a handle a program made up is not a socket. `effect Sockets` says a
     // handle naming no open socket is one that has already gone, and this is
     // that sentence asked directly.
@@ -2520,7 +2520,7 @@ test "both framings are read back, in the order they were pushed" {
     // One list and one order, because that is the order the far side would have
     // seen them in — and the framing is the message's own variant rather than a
     // field a test has to read.
-    assert.eq(s.sent(), [
+    assert.equal(s.sent(), [
         (socket, Message.Text("hello")),
         (socket, Message.Binary([1, 2, 3])),
         (socket, Message.Text("again")),
@@ -2540,7 +2540,7 @@ test "a message to a closed socket is dropped, and the close is not" {
     // this arrive" was never a question that side could answer. So does this,
     // and the log is the evidence.
     assert.isFalse(s.isOpen(socket));
-    assert.eq(s.sent(), [(socket, Message.Text("before"))]);
+    assert.equal(s.sent(), [(socket, Message.Text("before"))]);
 }
 
 test "two doubles are two worlds, and neither writes on the other's socket" {
@@ -2557,8 +2557,8 @@ test "two doubles are two worlds, and neither writes on the other's socket" {
     // filesystems — so a socket the other double minted is dropped here for the
     // same reason a forged one is, and nothing reached the other's log either.
     assert.isFalse(mine.isOpen(alien));
-    assert.eq(mine.sent(), [(ours, Message.Text("mine"))]);
-    assert.eq(theirs.sent(), []);
+    assert.equal(mine.sent(), [(ours, Message.Text("mine"))]);
+    assert.equal(theirs.sent(), []);
 }
 
 test "a broadcast actor reaches every socket in the room, with no server at all" {
@@ -2574,15 +2574,15 @@ test "a broadcast actor reaches every socket in the room, with no server at all"
     let _joinedFirst = members.sendMessage(ctx, .Joined(first));
     let _joinedSecond = members.sendMessage(ctx, .Joined(second));
     // The receipt is the count: two sockets joined, so a publish reached two.
-    assert.eq(assert.ok(members.sendMessage(ctx, .Publish(.Text("hi")))), 2);
+    assert.equal(assert.ok(members.sendMessage(ctx, .Publish(.Text("hi")))), 2);
     // And the socket that did **not** publish heard it, which is the whole of
     // what a broadcast is. With a server this needed two workers and a real
     // client; with the double it is one block on every backend.
-    assert.eq(s.sent(), [(first, Message.Text("hi")), (second, Message.Text("hi"))]);
+    assert.equal(s.sent(), [(first, Message.Text("hi")), (second, Message.Text("hi"))]);
     // Somebody leaves, and the next publish reaches one.
     let _left = members.sendMessage(ctx, .Left(first));
-    assert.eq(assert.ok(members.sendMessage(ctx, .Publish(.Text("bye")))), 1);
-    assert.eq(s.sent(), [
+    assert.equal(assert.ok(members.sendMessage(ctx, .Publish(.Text("bye")))), 1);
+    assert.equal(s.sent(), [
         (first, Message.Text("hi")),
         (second, Message.Text("hi")),
         (second, Message.Text("bye")),
@@ -2607,8 +2607,8 @@ test "a socket the room closed is one a later broadcast does not reach" {
     // still reaches only one. That is the platform's own rule reaching a
     // program that did not think about it, which is the divergence a double
     // exists to keep out.
-    assert.eq(assert.ok(members.sendMessage(ctx, .Publish(.Text("room")))), 2);
-    assert.eq(s.sent(), [(staying, Message.Text("room"))]);
+    assert.equal(assert.ok(members.sendMessage(ctx, .Publish(.Text("room")))), 2);
+    assert.equal(s.sent(), [(staying, Message.Text("room"))]);
     let _stopped = members.stop(ctx);
 }
 
@@ -2651,10 +2651,10 @@ test "a client runs its hooks over the script and answers how the socket ended" 
     };
     // The script running out is a close, and a close is an `.Ok`: a socket
     // ending is the ordinary end of one rather than a failure.
-    assert.eq(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
+    assert.equal(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
     // `onOpen`'s greeting, then one echo per scripted message, and nothing at
     // all from `onClose` — the socket had already gone by then.
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text("one"),
         Message.Binary([1, 2]),
@@ -2673,8 +2673,8 @@ test "a URL this platform cannot dial never opens a socket" {
     // this platform does not speak is `.Unsupported` — a fact about the
     // platform rather than about the attempt.
     let refused = assert.err(websocket.connect(ctx, echoing("http://example/socket")));
-    assert.eq(refused.cause, .Unsupported);
-    assert.eq(s.sent(), []);
+    assert.equal(refused.cause, .Unsupported);
+    assert.equal(s.sent(), []);
 }
 
 test "a client that closes the socket stops reading the script" {
@@ -2693,10 +2693,10 @@ test "a client that closes the socket stops reading the script" {
         },
         onClose: fn(c, socket, _seen, _reason) => socket.send(c, .Text("goodbye")),
     };
-    assert.eq(websocket.connect(ctx, hangingUp), .Ok(.Normal));
+    assert.equal(websocket.connect(ctx, hangingUp), .Ok(.Normal));
     // One message reached the hook and then the socket was gone, so the other
     // two scripted messages were never delivered and `onClose` pushed nothing.
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("one")]);
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("one")]);
 }
 
 /// Reconnecting, as `core/net/websocket` writes it: a loop around `connect` with
@@ -2731,10 +2731,10 @@ test "reconnecting is a loop around connect, and each dial is a socket of its ow
         Sockets: s,
         WebSocketClient: s.dialling([.Text("one")]),
     };
-    assert.eq(following(ctx, echoing("ws://example/socket"), 3), 1);
+    assert.equal(following(ctx, echoing("ws://example/socket"), 3), 1);
     // Three sessions, and each one ran the same hooks over the same script: the
     // greeting `onOpen` pushes, then the echo of the one message.
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text("one"),
         Message.Text("hello"),
@@ -2771,8 +2771,8 @@ test "the response that opened the socket reaches onOpen" {
     };
     // A handshake that finished answered `101`; anything else would have been an
     // `.Err` and `onOpen` would never have run.
-    assert.eq(websocket.connect(ctx, reading), .Ok(.Normal));
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("status 101")]);
+    assert.equal(websocket.connect(ctx, reading), .Ok(.Normal));
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("status 101")]);
 }
 
 // --- What a client is handed, and where a dial can happen ---------------------
@@ -2807,11 +2807,11 @@ test "a client's state is threaded through a hundred messages" {
     // One message and a hundred are the same shape here, and the count is the
     // evidence: `onMessage` answers the state the next one sees, so a hundred
     // steps that lost the state would push a hundred ones.
-    assert.eq(websocket.connect(ctx, counting("ws://example/socket")), .Ok(.Normal));
+    assert.equal(websocket.connect(ctx, counting("ws://example/socket")), .Ok(.Normal));
     let pushed = s.sent().map(alloc(), fn(one) => one.1);
-    assert.eq(pushed.len(), 100);
-    assert.eq(pushed.get(0), .Some(Message.Text("1")));
-    assert.eq(pushed.get(99), .Some(Message.Text("100")));
+    assert.equal(pushed.len(), 100);
+    assert.equal(pushed.get(0), .Some(Message.Text("1")));
+    assert.equal(pushed.get(99), .Some(Message.Text("100")));
 }
 
 test "a message of nothing, of one octet, and of many is a message either way" {
@@ -2830,8 +2830,8 @@ test "a message of nothing, of one octet, and of many is a message either way" {
     // An empty message is a message and not the absence of one, in both
     // framings — a client that dropped it would lose a keep-alive somebody
     // really sent — and `.Text("")` is not `.Binary([])`.
-    assert.eq(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+    assert.equal(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text(""),
         Message.Binary([]),
@@ -2866,8 +2866,8 @@ test "an empty script opens a socket and closes it with nothing between" {
     // Both hooks that must run did, the one that must not did not, and the
     // whole of `Connected` reached `onOpen`: a `101`, no headers of this
     // double's own, and no body — because a `101` never carries one.
-    assert.eq(websocket.connect(ctx, quiet), .Ok(.Normal));
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("open 101 0 0")]);
+    assert.equal(websocket.connect(ctx, quiet), .Ok(.Normal));
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("open 101 0 0")]);
 }
 
 test "two clients on one double are two sockets writing into one log" {
@@ -2885,9 +2885,9 @@ test "two clients on one double are two sockets writing into one log" {
     // Two `dialling` calls are two clients and one world: each mints its own
     // socket on the `sockets()` that made it, and both write into that one
     // double's log.
-    assert.eq(websocket.connect(first, echoing("ws://example/first")), .Ok(.Normal));
-    assert.eq(websocket.connect(second, echoing("ws://example/second")), .Ok(.Normal));
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+    assert.equal(websocket.connect(first, echoing("ws://example/first")), .Ok(.Normal));
+    assert.equal(websocket.connect(second, echoing("ws://example/second")), .Ok(.Normal));
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text("one"),
         Message.Text("hello"),
@@ -2928,7 +2928,7 @@ test "a client dialled from inside an actor step is an ordinary client" {
     let worker = actor.start(ctx, dialler());
     assert.isTrue(assert.ok(worker.sendMessage(ctx, "ws://example/socket")));
     let _stopped = worker.stop(ctx);
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text("one"),
     ]);
@@ -2951,7 +2951,7 @@ test "a client dialled from inside a spawned task is an ordinary client" {
     // Nothing spawned into a scope outlives it, so the log is whole here rather
     // than being raced for — which is what makes this an assertion about a
     // value and not about a timing.
-    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text("one"),
     ]);

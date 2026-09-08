@@ -74,8 +74,8 @@ run {
 # the runner's two values — `failure_format`'s manifest is the argument.
 edit {
   file: "lib/writer/test/writer.buri"
-  replace: "assert.eq(written(ctx, 1), 1);"
-  with: "assert.eq(written(ctx, 1), 2);"
+  replace: "assert.equal(written(ctx, 1), 1);"
+  with: "assert.equal(written(ctx, 1), 2);"
 }
 
 run {

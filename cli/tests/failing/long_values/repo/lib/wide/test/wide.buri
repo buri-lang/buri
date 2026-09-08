@@ -10,7 +10,7 @@ from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
 test "a string far past a terminal's width" {
-    assert.eq(
+    assert.equal(
         "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
         "short",
     );
@@ -20,11 +20,11 @@ test "a list of forty elements" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(list.range(ctx, 1, 41), []);
+    assert.equal(list.range(ctx, 1, 41), []);
 }
 
 test "a string holding newlines" {
-    assert.eq("first\nsecond\nthird", "one line");
+    assert.equal("first\nsecond\nthird", "one line");
 }
 
 // The one assertion that reports a sentence rather than a diff. It used to be

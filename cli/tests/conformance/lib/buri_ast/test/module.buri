@@ -31,7 +31,7 @@ fn colour(): [ast.Item] {
     [
         item(
             .Derive(ast.DeriveDecl {
-                traits: [ty("Eq"), ty("Show")],
+                traits: [ty("Equal"), ty("Show")],
                 selfTy: ty("Colour"),
             }),
         ),
@@ -192,7 +192,7 @@ fn expected<C: Allocator>(ctx: C): Str {
         "from \"core/effect\" import { Allocator };",
         "from \"core/list\" import * as list;",
         "",
-        "derive Eq, Show for Colour;",
+        "derive Equal, Show for Colour;",
         "/// A colour, or the name of one.",
         "export enum Colour {",
         "    Red,",
@@ -227,7 +227,7 @@ test "a whole module prints the source the formatter leaves alone" {
     };
     let items = imports().concat(ctx, colour()).concat(ctx, [point(), describe()]);
     let m = ast.Module { items: items, docs: ["A generated module."] };
-    assert.eq(ast.print(ctx, m).text, expected(ctx));
+    assert.equal(ast.print(ctx, m).text, expected(ctx));
 }
 
 test "nothing in that module knows where it came from" {

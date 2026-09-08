@@ -31,11 +31,11 @@ test "a node with an origin gets an anchor over its own printed text" {
         docs: [],
     };
     let out = ast.print(ctx, m);
-    assert.eq(out.text, "export type Id = Int;\n");
+    assert.equal(out.text, "export type Id = Int;\n");
     let a = assert.some(out.anchors.get(0));
     assert.len(out.anchors, 1);
-    assert.eq(out.text.slice(a.start, a.end), "export type Id = Int;");
-    assert.eq(a.origin, ast.origin(FILE, 3, 9));
+    assert.equal(out.text.slice(a.start, a.end), "export type Id = Int;");
+    assert.equal(a.origin, ast.origin(FILE, 3, 9));
 }
 
 test "a node whose origin names no file gets none" {
@@ -62,14 +62,14 @@ test "anchors come back sorted, and the outermost first where two start together
         docs: [],
     };
     let out = ast.print(ctx, m);
-    assert.eq(out.text, "export type Id = Option<Str>;\n");
-    assert.eq(out.anchors, [
+    assert.equal(out.text, "export type Id = Option<Str>;\n");
+    assert.equal(out.anchors, [
         ast.Anchor { start: 0, end: 29, origin: ast.origin(FILE, 0, 20) },
         ast.Anchor { start: 17, end: 28, origin: ast.origin(FILE, 10, 20) },
         ast.Anchor { start: 17, end: 23, origin: ast.origin(FILE, 10, 16) },
     ]);
-    assert.eq(out.text.slice(17, 28), "Option<Str>");
-    assert.eq(out.text.slice(17, 23), "Option");
+    assert.equal(out.text.slice(17, 28), "Option<Str>");
+    assert.equal(out.text.slice(17, 23), "Option");
 }
 
 test "an anchor counts UTF-8 bytes, not scalar values" {
@@ -89,13 +89,13 @@ test "an anchor counts UTF-8 bytes, not scalar values" {
     );
     let second = itemAt(alias(n("B"), ty("Int"), false), FILE, 0, 1);
     let out = ast.print(ctx, ast.Module { items: [first, second], docs: [] });
-    assert.eq(out.text, "let A: Str = \"é\";\n\ntype B = Int;\n");
+    assert.equal(out.text, "let A: Str = \"é\";\n\ntype B = Int;\n");
     let a = assert.some(out.anchors.get(0));
     // 17 scalar values on the first line, 18 bytes, and then the two breaks a
     // pair of declarations is parted by.
-    assert.eq(out.text.slice(0, 17).len(), 17);
-    assert.eq(a.start, 20);
-    assert.eq(a.end, 33);
+    assert.equal(out.text.slice(0, 17).len(), 17);
+    assert.equal(a.start, 20);
+    assert.equal(a.end, 33);
 }
 
 test "every node kind that carries an origin records one" {
@@ -127,18 +127,18 @@ test "every node kind that carries an origin records one" {
         docs: [],
     };
     let out = ast.print(ctx, m);
-    assert.eq(out.text, "export struct Point {\n    export x: Int,\n}\n");
+    assert.equal(out.text, "export struct Point {\n    export x: Int,\n}\n");
     // The declaration, its name, the field, and the field's name.
     assert.len(out.anchors, 4);
     let decl = assert.some(out.anchors.get(0));
-    assert.eq(
+    assert.equal(
         out.text.slice(decl.start, decl.end),
         out.text.slice(0, out.text.len() - 1),
     );
     let name = assert.some(out.anchors.get(1));
-    assert.eq(out.text.slice(name.start, name.end), "Point");
+    assert.equal(out.text.slice(name.start, name.end), "Point");
     let member = assert.some(out.anchors.get(2));
-    assert.eq(out.text.slice(member.start, member.end), "export x: Int");
+    assert.equal(out.text.slice(member.start, member.end), "export x: Int");
     let inner = assert.some(out.anchors.get(3));
-    assert.eq(out.text.slice(inner.start, inner.end), "x");
+    assert.equal(out.text.slice(inner.start, inner.end), "x");
 }

@@ -32,7 +32,7 @@ from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
-derive Eq, Show for Token;
+derive Equal, Show for Token;
 /// One token, the shape the `.proto` reader steps over: a word this program
 /// built, and an end nobody has to give back.
 enum Token {
@@ -40,7 +40,7 @@ enum Token {
     End,
 }
 
-derive Eq, Show for Pair;
+derive Equal, Show for Pair;
 struct Pair {
     kept: Int,
     dropped: Str,
@@ -74,7 +74,7 @@ test "a tuple element the pattern skips is given back" {
     // `skipStatement`, in one line: step over a token and keep only where the
     // cursor now is.
     let (at, _) = next(ctx, 0, "message");
-    assert.eq(at, 1);
+    assert.equal(at, 1);
 }
 
 test "the skipped element may be the first one" {
@@ -82,7 +82,7 @@ test "the skipped element may be the first one" {
         Allocator: alloc(),
     };
     let (_, t) = (grown(ctx, "syntax"), 7);
-    assert.eq(t, 7);
+    assert.equal(t, 7);
 }
 
 test "a skipped element is given back however many there are" {
@@ -90,7 +90,7 @@ test "a skipped element is given back however many there are" {
         Allocator: alloc(),
     };
     let (_, n, _) = (grown(ctx, "extend"), 2, grownList(ctx, 3));
-    assert.eq(n, 2);
+    assert.equal(n, 2);
 }
 
 test "a struct field the pattern skips is given back" {
@@ -98,7 +98,7 @@ test "a struct field the pattern skips is given back" {
         Allocator: alloc(),
     };
     let Pair { kept, dropped: _ } = Pair { kept: 4, dropped: grown(ctx, "group") };
-    assert.eq(kept, 4);
+    assert.equal(kept, 4);
 }
 
 test "a skipped position nested under a kept one is given back" {
@@ -106,7 +106,7 @@ test "a skipped position nested under a kept one is given back" {
         Allocator: alloc(),
     };
     let (n, (_, m)) = (1, (grown(ctx, "optional"), 2));
-    assert.eq(n + m, 3);
+    assert.equal(n + m, 3);
 }
 
 test "the value being destructured may be a local rather than a call" {
@@ -115,7 +115,7 @@ test "the value being destructured may be a local rather than a call" {
     };
     let token = next(ctx, 0, "required");
     let (at, _) = token;
-    assert.eq(at, 1);
+    assert.equal(at, 1);
 }
 
 test "a payload the pattern never reaches is given back with its token" {
@@ -126,8 +126,8 @@ test "a payload the pattern never reaches is given back with its token" {
     // answer is looked at and the other's is thrown away whole.
     let (peeked, t) = next(ctx, 0, "service");
     let (consumed, _) = next(ctx, peeked, "service");
-    assert.eq(consumed, 2);
-    assert.eq(t, Token.Word("service"));
+    assert.equal(consumed, 2);
+    assert.equal(t, Token.Word("service"));
 }
 
 test "a `let` that keeps nothing at all is still a statement that gives back" {
@@ -138,7 +138,7 @@ test "a `let` that keeps nothing at all is still a statement that gives back" {
     // statement's own temporary, and the statement drops it.
     let (_, _) = next(ctx, 0, "public");
     let _ = next(ctx, 0, "public");
-    assert.eq(1, 1);
+    assert.equal(1, 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -153,8 +153,8 @@ test "a skipped position of a value still in use is not given back twice" {
     let (at, _) = token;
     // The destructuring above is not the last read of `token`, so it took a
     // count of its own rather than the one `token` holds.
-    assert.eq(at, 1);
-    assert.eq(token.1, Token.Word("reserved"));
+    assert.equal(at, 1);
+    assert.equal(token.1, Token.Word("reserved"));
 }
 
 test "a skipped field of a struct still in use is not given back twice" {
@@ -163,8 +163,8 @@ test "a skipped field of a struct still in use is not given back twice" {
     };
     let p = Pair { kept: 9, dropped: grown(ctx, "extensions") };
     let Pair { kept, dropped: _ } = p;
-    assert.eq(kept, 9);
-    assert.eq(p.dropped, "extensions");
+    assert.equal(kept, 9);
+    assert.equal(p.dropped, "extensions");
 }
 
 test "the same position skipped in a loop is given back every time round" {
@@ -181,7 +181,7 @@ test "the same position skipped in a loop is given back every time round" {
             },
             0,
         );
-    assert.eq(steps, 8);
+    assert.equal(steps, 8);
 }
 
 // -----------------------------------------------------------------------------
@@ -200,18 +200,18 @@ test "the same position skipped in a loop is given back every time round" {
 // and a `match` arm's payload goes with its scrutinee instead — the section
 // after them is what says so.
 
-derive Eq, Show for Nest;
+derive Equal, Show for Nest;
 struct Nest {
     tag: Int,
     both: (Str, [Int]),
 }
 
-derive Eq, Show for Deep;
+derive Equal, Show for Deep;
 enum Deep {
     Only(Nest),
 }
 
-derive Eq, Show for Holder;
+derive Equal, Show for Holder;
 struct Holder {
     label: Str,
     token: Token,
@@ -242,8 +242,8 @@ test "a position skipped three levels down is given back" {
     // tuple's first element is where it stops, and that `Str` is what nothing
     // used to release.
     let .Only(Nest { tag, both: (_, kept) }) = deep(ctx, "enum");
-    assert.eq(tag, 1);
-    assert.eq(kept, [0, 1]);
+    assert.equal(tag, 1);
+    assert.equal(kept, [0, 1]);
 }
 
 test "two positions skipped at one depth are both given back" {
@@ -251,7 +251,7 @@ test "two positions skipped at one depth are both given back" {
         Allocator: alloc(),
     };
     let .Only(Nest { tag, both: (_, _) }) = deep(ctx, "import");
-    assert.eq(tag, 1);
+    assert.equal(tag, 1);
 }
 
 test "a position skipped either side of a kept one, two levels down, is given back" {
@@ -263,7 +263,7 @@ test "a position skipped either side of a kept one, two levels down, is given ba
         (grownWords(ctx, 2), 5, grownList(ctx, 3)),
         grown(ctx, "weak"),
     );
-    assert.eq(n, 5);
+    assert.equal(n, 5);
 }
 
 test "a struct field the pattern does not name at all is given back" {
@@ -276,7 +276,7 @@ test "a struct field the pattern does not name at all is given back" {
         tag: 3,
         both: (grown(ctx, "stream"), grownList(ctx, 2)),
     };
-    assert.eq(tag, 3);
+    assert.equal(tag, 3);
 }
 
 test "a skipped position may hold a list of blocks" {
@@ -284,7 +284,7 @@ test "a skipped position may hold a list of blocks" {
         Allocator: alloc(),
     };
     let (n, _) = (6, grownWords(ctx, 3));
-    assert.eq(n, 6);
+    assert.equal(n, 6);
 }
 
 test "a skipped position may hold an option that is there" {
@@ -292,7 +292,7 @@ test "a skipped position may hold an option that is there" {
         Allocator: alloc(),
     };
     let (n, _) = (7, Option.Some(grown(ctx, "returns")));
-    assert.eq(n, 7);
+    assert.equal(n, 7);
 }
 
 test "a skipped position may hold a struct with a list in it" {
@@ -300,7 +300,7 @@ test "a skipped position may hold a struct with a list in it" {
         Allocator: alloc(),
     };
     let (n, _) = (8, Nest { tag: 0, both: (grown(ctx, "rpc"), grownList(ctx, 2)) });
-    assert.eq(n, 8);
+    assert.equal(n, 8);
 }
 
 test "a position named but never read is given back" {
@@ -311,7 +311,7 @@ test "a position named but never read is given back" {
     // position at all — it is a binding the scan drops where it is bound —
     // and it has to come back the way one that was never named does.
     let (at, _unread) = next(ctx, 0, "oneof");
-    assert.eq(at, 1);
+    assert.equal(at, 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -333,7 +333,7 @@ test "a payload a match arm skips is given back with its scrutinee" {
         .Word(_) => 1,
         .End => 0,
     };
-    assert.eq(n, 1);
+    assert.equal(n, 1);
 }
 
 test "a payload a match arm skips under a field it keeps is given back" {
@@ -344,7 +344,7 @@ test "a payload a match arm skips under a field it keeps is given back" {
         Holder { label, token: .Word(_) } => label.len(),
         Holder { label: _, token: .End } => 0,
     };
-    assert.eq(n, 7);
+    assert.equal(n, 7);
 }
 
 test "an arm that keeps a payload leaves the value it came out of whole" {
@@ -356,10 +356,10 @@ test "an arm that keeps a payload leaves the value it came out of whole" {
         Holder { label: _, token: .Word(w) } => w,
         Holder { label, token: .End } => label,
     };
-    assert.eq(word, "message");
+    assert.equal(word, "message");
     // The scrutinee is still whole, so the arm that kept a piece of it took a
     // count rather than the one `held` holds.
-    assert.eq(held.label, "message");
+    assert.equal(held.label, "message");
 }
 
 // -----------------------------------------------------------------------------
@@ -383,7 +383,7 @@ test "a skipped position of a fold's accumulator is given back every round" {
             (0, ""),
         );
     let (at, _) = ended;
-    assert.eq(at, 8);
+    assert.equal(at, 8);
 }
 
 test "a position skipped inside a mapped closure is given back every element" {
@@ -396,7 +396,7 @@ test "a position skipped inside a mapped closure is given back every element" {
             let .Only(Nest { tag, both: (_, _) }) = deep(c, "syntax");
             tag + i
         });
-    assert.eq(steps, [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.equal(steps, [1, 2, 3, 4, 5, 6, 7, 8]);
 }
 
 // -----------------------------------------------------------------------------
@@ -409,10 +409,10 @@ test "a deep skipped position of a value still in use is not given back twice" {
     };
     let whole = deep(ctx, "extend");
     let .Only(Nest { tag, both: (_, kept) }) = whole;
-    assert.eq(tag, 1);
-    assert.eq(kept, [0, 1]);
+    assert.equal(tag, 1);
+    assert.equal(kept, [0, 1]);
     // The destructuring above was not the last read of `whole`.
-    assert.eq(whole, deep(ctx, "extend"));
+    assert.equal(whole, deep(ctx, "extend"));
 }
 
 test "a field `..` stood for is not given back twice while the struct is read" {
@@ -421,6 +421,6 @@ test "a field `..` stood for is not given back twice while the struct is read" {
     };
     let nest = Nest { tag: 2, both: (grown(ctx, "public"), grownList(ctx, 2)) };
     let Nest { tag, .. } = nest;
-    assert.eq(tag, 2);
-    assert.eq(nest.both.0, "public");
+    assert.equal(tag, 2);
+    assert.equal(nest.both.0, "public");
 }

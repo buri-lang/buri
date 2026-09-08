@@ -1,7 +1,7 @@
-error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
   --> main.buri:17:5
    |
-17 |     assert.eq(
+17 |     assert.equal(
    |     ^^^^^^^^^^
    |
    = expected: 2
@@ -23,7 +23,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |
   --> main.buri:17:14
    |
-17 |     assert.eq(
+17 |     assert.equal(
    |              ^ opened here
    |
    = fix: write `)` here

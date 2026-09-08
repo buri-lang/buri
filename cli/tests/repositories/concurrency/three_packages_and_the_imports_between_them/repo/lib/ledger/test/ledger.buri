@@ -9,16 +9,16 @@ from "//lib/ledger/testing" import { sample };
 from "//lib/money" import { fromCents, show };
 
 test "the total is the sum of what is in the ledger" {
-    assert.eq(total(entries()), fromCents(3650));
+    assert.equal(total(entries()), fromCents(3650));
 }
 
 test "a fixture from the testing surface is an ordinary entry" {
-    assert.eq(total([sample()]), fromCents(1));
+    assert.equal(total([sample()]), fromCents(1));
 }
 
 test "a dependency's own function is reachable through its surface" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(show(ctx, total(entries())), "3650c");
+    assert.equal(show(ctx, total(entries())), "3650c");
 }

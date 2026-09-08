@@ -16,23 +16,23 @@ from "core/time" import * as time;
 from "core/time" import { Duration };
 
 test "secondsFloat takes a fraction of a second" {
-    assert.eq(time.secondsFloat(0.25), time.millis(250));
-    assert.eq(time.secondsFloat(1.5), time.millis(1500));
-    assert.eq(time.secondsFloat(0.0), time.ZERO);
-    assert.eq(time.secondsFloat(0.0 - 0.25), time.millis(0 - 250));
-    assert.eq(time.secondsFloat(1e-9), time.nanos(1));
+    assert.equal(time.secondsFloat(0.25), time.millis(250));
+    assert.equal(time.secondsFloat(1.5), time.millis(1500));
+    assert.equal(time.secondsFloat(0.0), time.ZERO);
+    assert.equal(time.secondsFloat(0.0 - 0.25), time.millis(0 - 250));
+    assert.equal(time.secondsFloat(1e-9), time.nanos(1));
     // Finer than a nanosecond truncates toward zero.
-    assert.eq(time.secondsFloat(1e-10), time.ZERO);
+    assert.equal(time.secondsFloat(1e-10), time.ZERO);
 }
 
 test "a fraction no Duration can hold saturates, and a NaN is nothing" {
-    assert.eq(time.secondsFloat(1e30), Duration(number.maxValue<I64>()));
-    assert.eq(time.secondsFloat(0.0 - 1e30), Duration(number.minValue<I64>()));
-    assert.eq(time.secondsFloat(1.0 / 0.0), Duration(number.maxValue<I64>()));
-    assert.eq(time.secondsFloat(extra 0.0 - 1.0 / 0.0), Duration(number.minValue<I64>()));
-    assert.eq(time.secondsFloat(0.0 / 0.0), time.ZERO);
+    assert.equal(time.secondsFloat(1e30), Duration(number.maxValue<I64>()));
+    assert.equal(time.secondsFloat(0.0 - 1e30), Duration(number.minValue<I64>()));
+    assert.equal(time.secondsFloat(1.0 / 0.0), Duration(number.maxValue<I64>()));
+    assert.equal(time.secondsFloat(extra 0.0 - 1.0 / 0.0), Duration(number.minValue<I64>()));
+    assert.equal(time.secondsFloat(0.0 / 0.0), time.ZERO);
     // A count of seconds whose nanoseconds are not exact still converts.
-    assert.eq(time.secondsFloat(0.1), time.millis(100));
+    assert.equal(time.secondsFloat(0.1), time.millis(100));
 }
 
 test "secondsFloat and asSecondsFloat invert each other" {

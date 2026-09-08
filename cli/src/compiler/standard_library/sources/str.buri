@@ -56,7 +56,7 @@ impl Str {
     ///
     /// `<`, `<=`, `>`, `>=`, `[Str].sort`, `core/order.str` and an
     /// `OrderedMap<Str, _>`'s key order all answer this order, because every one of
-    /// them reaches this method through `Ord`.
+    /// them reaches this method through `Ordered`.
     ///
     /// This is *not* UTF-16 code-unit order, which is what JavaScript's `<` on a
     /// string gives. An astral scalar is written there as a surrogate pair
@@ -121,7 +121,7 @@ impl Str {
                 if (negative) {
                     magnitude
                 } else {
-                    magnitude.andThen(fn(m) => zero.checkedSub(m))
+                    magnitude.andThen(fn(m) => zero.checkedSubtract(m))
                 }
             }
         }
@@ -139,8 +139,8 @@ fn digitsOf(text: Str, radix: Int, at: Int, acc: Int): Option<Int> {
                 .None => .None,
                 .Some(d) => {
                     let next = acc
-                        .checkedMul(radix)
-                        .andThen(fn(scaled) => scaled.checkedSub(d));
+                        .checkedMultiply(radix)
+                        .andThen(fn(scaled) => scaled.checkedSubtract(d));
                     match (next) {
                         .None => .None,
                         .Some(v) => digitsOf(text, radix, at + 1, v),
@@ -796,7 +796,7 @@ fn renderFixed<C: Allocator>(ctx: C, digits: Str, point: Int, places: Int): Str 
 // text and is the slow one — `graphemes(ctx).len()` is the same answer for less
 // where a context is at hand.
 
-derive Eq, Show for Normalization;
+derive Equal, Show for Normalization;
 /// The four normalization forms of UAX #15.
 export enum Normalization {
     /// Canonical decomposition, then canonical composition. The form to store

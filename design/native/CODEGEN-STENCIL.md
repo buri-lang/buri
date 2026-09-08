@@ -240,7 +240,7 @@ instructions and patching is an instruction rewrite:
 Clang cannot be *asked* for the operand shapes the emitter wants, so four
 rewrites in `stencil/extract.rs` recover them: `fold_addressing` puts a frame
 offset in a load or store's own `imm12`; `fold_imm` puts a literal in an
-`add`/`sub`/`cmp`'s; `fold_cond` makes a conditional branch's `imm19` a hole,
+`add`/`subtract`/`cmp`'s; `fold_cond` makes a conditional branch's `imm19` a hole,
 so a two-way branch is two instructions instead of three; and `swap_arms`
 builds the twin with the arms exchanged, so the emitter can pick whichever one
 falls through. Each stencil goes into the library with up to four twins, and
@@ -640,7 +640,7 @@ The prototype had its own `intrin.rs`: a descriptor-driven helper per
 operation, written in Rust, living in the compiler's process. That could not
 survive object emission, because a symbol in the compiler is not a symbol in
 the artifact — and it was `libburi_rt.a` written a second time, with every
-`number.U64.checkedMul` the language ever adds having to be written twice.
+`number.U64.checkedMultiply` the language ever adds having to be written twice.
 
 ### 5.0 A runtime call is emitted into its caller, not called
 

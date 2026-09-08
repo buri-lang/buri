@@ -1,7 +1,7 @@
 error: expected an identifier, found `for` [unexpected-token]
  --> lib/recovery_swap_adjacent_module_cents_912e22/lib.buri:1:12
   |
-1 | derive Eq, for Show Cents;
+1 | derive Equal, for Show Cents;
   |            ^^^
   |
   = expected: an identifier

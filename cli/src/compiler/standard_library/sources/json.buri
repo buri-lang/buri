@@ -51,7 +51,7 @@ from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show for Json;
+derive Equal, Show for Json;
 /// A JSON value.
 export enum Json {
     Null,
@@ -63,7 +63,7 @@ export enum Json {
     Object([(Str, Json)]),
 }
 
-derive Eq, Show for JsonError;
+derive Equal, Show for JsonError;
 /// What went wrong, and where. The position is an index into the characters of
 /// the input.
 export enum JsonError {
@@ -745,7 +745,7 @@ export trait FromJson {
     fn fromJson(value: Json): Result<Self, DecodeError>;
 }
 
-derive Eq, Show for DecodeError;
+derive Equal, Show for DecodeError;
 /// Why a document could not be read as the type asked for, and *where*.
 ///
 /// `path` writes `$` for the document itself, `.name` for a member and `[i]`
@@ -768,13 +768,13 @@ export enum DecodeError {
 /// from "core/json" import * as json;
 /// from "core/json" import { DecodeError, FromJson, ToJson };
 ///
-/// derive Eq, ToJson, FromJson for Point;
+/// derive Equal, ToJson, FromJson for Point;
 /// struct Point {
 ///     x: Int,
 ///     y: Int,
 /// }
 ///
-/// derive Eq, ToJson, FromJson for Shape;
+/// derive Equal, ToJson, FromJson for Shape;
 /// enum Shape {
 ///     Dot,
 ///     Line(Point, Point),

@@ -39,7 +39,7 @@ passes `ctx` to can ask for `FileSystemWrite` from a context that does not bind 
 Otherwise an effect is a trait: same declaration shape, same nominal
 conformance, same `impl`, same bounds. Two rules keep the two apart. You may
 pass an effect-carrying value only as `self` or `ctx`, and no type may implement
-both an effect and a trait, so a `T: Ord` is never secretly a context. Together
+both an effect and a trait, so a `T: Ordered` is never secretly a context. Together
 they make one sentence true: **a function is effectful if and only if it has a
 `ctx` parameter or an effect-carrying `self`.**
 
@@ -176,7 +176,7 @@ test "load reads the file it is given" {
         Allocator: alloc(),
         FileSystemRead: memory().files([("notes.txt", "hello")]),
     };
-    assert.eq(load(ctx, path.of(ctx, "notes.txt")), .Ok("hello"));
+    assert.equal(load(ctx, path.of(ctx, "notes.txt")), .Ok("hello"));
 }
 ```
 

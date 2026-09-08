@@ -305,7 +305,7 @@ test "an unknown path is a 404" {
     };
     let counted = actor.start(ctx, hits());
     let answer = route(ctx, counted, http.request(.Get, "http://localhost/nope"));
-    assert.eq(answer.status, 404);
+    assert.equal(answer.status, 404);
 }
 
 test "a broadcast reaches every socket in the room" {
@@ -317,7 +317,7 @@ test "a broadcast reaches every socket in the room" {
     let one = pushes.open();
     let two = pushes.open();
     broadcast(ctx, [one, two], "closing time");
-    assert.eq(pushes.sent(), [
+    assert.equal(pushes.sent(), [
         (one, .Text("closing time")),
         (two, .Text("closing time")),
     ]);

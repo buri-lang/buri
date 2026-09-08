@@ -1,4 +1,4 @@
-// EXPECT: `Template` does not implement `Eq`
+// EXPECT: `Template` does not implement `Equal`
 from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;

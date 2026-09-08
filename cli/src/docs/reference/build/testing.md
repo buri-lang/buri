@@ -47,7 +47,7 @@ way.
 
 | Function | Answers |
 |---|---|
-| `assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.len`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | `()`, so the call stands alone as a statement |
+| `assert.equal`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.len`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | `()`, so the call stands alone as a statement |
 | `assert.ok`, `assert.err`, `assert.some` | The unwrapped value |
 
 The statement rule asks for the type, not the shape. Any expression of type `()`
@@ -245,7 +245,7 @@ test "a request nobody arranged for is refused rather than answered" {
         Network: net(),
     };
     let asked = load(ctx, http.request(.Get, "https://example.test/a"));
-    assert.eq(assert.err(asked), NetError.Refused);
+    assert.equal(assert.err(asked), NetError.Refused);
 }
 
 test "the responder decides on the method and on a header" {
@@ -268,9 +268,9 @@ test "the responder decides on the method and on a header" {
     let signed = http
         .request(.Get, "https://example.test/a")
         .withHeader(live, "authorization", "Bearer t0ken");
-    assert.eq(assert.ok(load(live, signed)), 200);
-    assert.eq(assert.ok(load(live, signed.withMethod(.Post))), 405);
-    assert.eq(assert.ok(load(live, http.request(.Get, "https://example.test/a"))), 401);
+    assert.equal(assert.ok(load(live, signed)), 200);
+    assert.equal(assert.ok(load(live, signed.withMethod(.Post))), 405);
+    assert.equal(assert.ok(load(live, http.request(.Get, "https://example.test/a"))), 401);
 }
 ```
 
@@ -321,7 +321,7 @@ A test writes the call it expects with the constructor of the same name. These
 are ordinary functions of `core/host/testing`: `readFile(path)`,
 `writeFile(path, body)`, `renameFile(source, destination)`, `fetch(request)`,
 `readBytes(n)`. There is one per method, and each takes the call's own
-arguments. A path in one of them is the `Str` a `Path` spells. They derive `Eq`,
+arguments. A path in one of them is the `Str` a `Path` spells. They derive `Equal`,
 which an assertion compares, and `Show`, which a failing one prints.
 
 ```buri role=test
@@ -349,8 +349,8 @@ test "a miss consults the cache once and then goes upstream" {
         Network: upstream,
     };
     let _ = assert.ok(cached(ctx, "https://example.test/thing"));
-    assert.eq(files.calls(), [readFile("cache")]);
-    assert.eq(upstream.calls(), [
+    assert.equal(files.calls(), [readFile("cache")]);
+    assert.equal(upstream.calls(), [
         fetch(http.request(.Get, "https://example.test/thing")),
     ]);
 }
@@ -364,7 +364,7 @@ test "a hit never reaches the network at all" {
         Network: upstream,
     };
     let _ = assert.ok(cached(ctx, "https://example.test/thing"));
-    assert.eq(upstream.calls(), []);
+    assert.equal(upstream.calls(), []);
 }
 ```
 
@@ -393,7 +393,7 @@ to look in.
 A fault is one of the `Call` constructors above and an error. `fails(e)` fails
 every matching call. `failsOnCall(n, e)` fails the `n`th of them, counted from
 one over the *matching* calls, so a read between two writes does not move the
-number. Matching uses the `Eq` those records derive, so you spell a fault
+number. Matching uses the `Equal` those records derive, so you spell a fault
 exactly as `calls()` reports the call it names.
 
 ```buri role=test
@@ -432,8 +432,8 @@ test "the third append fails and nothing after it is written" {
         FileSystemWrite: wal,
     };
     let at = path.of(ctx, "wal");
-    assert.eq(assert.err(commit(ctx, at, [[97], [98], [99]], 0)), .Other("disk full"));
-    assert.eq(assert.ok(wal.read("wal")), "ab");
+    assert.equal(assert.err(commit(ctx, at, [[97], [98], [99]], 0)), .Other("disk full"));
+    assert.equal(assert.ok(wal.read("wal")), "ab");
 }
 ```
 
@@ -517,9 +517,9 @@ test "the answer does not depend on the order the work finished in" {
         Tasks: scheduler,
     };
     // The items' order, whatever order the work ran in.
-    assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
+    assert.equal(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
     // And the order it ran in, which is the thing this double chose.
-    assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
+    assert.equal(scheduler.calls(), [task(2), task(1), task(0)]);
 }
 ```
 
@@ -590,7 +590,7 @@ test "everybody in the room hears it" {
     let _said = broadcast(ctx, [first, second], .Text("hello"));
     // The socket that did not publish heard it, which is the whole of what a
     // broadcast is — and there is no listener, no port and no client here.
-    assert.eq(wire.sent(), [
+    assert.equal(wire.sent(), [
         (first, Message.Text("hello")),
         (second, Message.Text("hello")),
     ]);
@@ -642,7 +642,7 @@ Output names the target, the file, and the test:
 
 ```
 FAIL //lib/money  test/cents.buri  "pads the cents place"
-  assert.eq failed
+  assert.equal failed
     actual:   "$19.5"
     expected: "$19.05"
   --> lib/money/test/cents.buri:8:3

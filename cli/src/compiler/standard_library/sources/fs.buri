@@ -92,7 +92,7 @@ from "core/path" export { Path };
 
 from "core/time" export { Instant };
 
-derive Eq, Show for EntryKind;
+derive Equal, Show for EntryKind;
 /// What a directory entry is.
 ///
 /// The **declaration order is the ABI**: the variant index is what crosses to
@@ -109,7 +109,7 @@ export enum EntryKind {
     Other,
 }
 
-derive Eq, Show for Metadata;
+derive Equal, Show for Metadata;
 /// What the filesystem knows about a path without opening it.
 ///
 /// `size` is octets, and it means nothing for a directory: what a directory's

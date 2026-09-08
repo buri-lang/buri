@@ -504,7 +504,7 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // it is a standard-library module, an effect declaration and JavaScript
         // runtime functions — and the population grew by a file that is dense
         // in what this row measures. A website assertion is a call inside a
-        // call inside an assertion (`assert.eq(web.render(tree()), "...")`, and
+        // call inside an assertion (`assert.equal(web.render(tree()), "...")`, and
         // a `match` on a `splitOnce` inside a `match` on another), so swapping
         // two adjacent tokens in one leaves a program the grammar reads
         // differently and the checker then has an honest opinion about. 485 of

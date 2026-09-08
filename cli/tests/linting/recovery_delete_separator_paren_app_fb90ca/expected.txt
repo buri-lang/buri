@@ -21,7 +21,7 @@ error: `Option<<error>>` does not satisfy `Allocator` [unsatisfied-bound]
 40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = `Option<<error>>` implements `Eq`, `Hash`, `Ord` and `Show`, but not `Allocator`
+   = `Option<<error>>` implements `Equal`, `Hash`, `Ordered` and `Show`, but not `Allocator`
    = fix: add `derive Allocator for Option<<error>>;` in that type's own module, or write `impl Allocator for Option<<error>> { ... }` there
 error: `C` cannot be indexed [not-indexable]
   --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:40:19

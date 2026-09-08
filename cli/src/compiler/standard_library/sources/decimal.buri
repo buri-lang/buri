@@ -34,7 +34,7 @@
 //! does not fit. It is the same promise `Checked` makes: `.Some(v)` is always
 //! the exact value.
 //!
-//! **Exact, and never rounds on its own.** `add`, `sub` and `mul` keep every
+//! **Exact, and never rounds on its own.** `add`, `subtract` and `multiply` keep every
 //! digit; `roundTo` is the only thing here that throws one away, and it rounds
 //! ties to even — banker's rounding, the rule a column of money wants, because
 //! it sends half the ties each way instead of drifting upward.
@@ -47,7 +47,7 @@
 //!
 //! `units` never ends in a zero the scale could absorb, and `scale` is never
 //! negative — so `of(100, 2)` and `of(1, 0)` are the same value and the same
-//! bits. That is what lets `Eq` and `Hash` be derived: the representation is the
+//! bits. That is what lets `Equal` and `Hash` be derived: the representation is the
 //! number. `of` and `parse` are what establish it, so build a `Decimal` through
 //! one of them rather than writing the literal out.
 
@@ -55,16 +55,16 @@ from "core/character" import * as character;
 from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/number" import * as number;
-from "core/order" import { Eq, Hash, Ord, Order, Show };
+from "core/order" import { Equal, Hash, Ordered, Order, Show };
 from "core/str" import * as str;
 
-derive Eq, Hash for Decimal;
+derive Equal, Hash for Decimal;
 /// A number as its digits: `units` scaled down by `scale` powers of ten, so
 /// `of(1999, 2)` is `19.99`.
 ///
 /// The fields are exported because a stored decimal is those two numbers, and a
 /// row in a database holds them. Read them freely; build through `of`, which is
-/// what puts the value in the canonical form `Eq` and `Hash` depend on.
+/// what puts the value in the canonical form `Equal` and `Hash` depend on.
 export struct Decimal {
     export units: Int,
     export scale: Int,
@@ -77,7 +77,7 @@ export struct Decimal {
 /// Exact, and it cannot overflow: only the *smaller* scale is raised, and a
 /// value that will not fit at the larger one is the larger magnitude by that
 /// very fact, which its own sign turns into an answer.
-impl Ord for Decimal {
+impl Ordered for Decimal {
     fn compare(self, other: Decimal): Order {
         if (self.scale >= other.scale) {
             match (scaleUp(other.units, self.scale - other.scale)) {
@@ -147,7 +147,7 @@ export fn parse(text: Str): Option<Decimal> {
             if (negative) {
                 .Some(canonical(below, places))
             } else {
-                0.checkedSub(below).map(fn(above) => canonical(above, places))
+                0.checkedSubtract(below).map(fn(above) => canonical(above, places))
             }
         })
     }
@@ -176,12 +176,12 @@ impl Decimal {
     /// from "core/decimal" import * as decimal;
     ///
     /// export fn minus(a: decimal.Decimal, b: decimal.Decimal): Option<decimal.Decimal> {
-    ///     a.sub(b)
+    ///     a.subtract(b)
     /// }
     /// ```
     ///
     /// `add`'s rule about scales, and its rule about `.None`.
-    export fn sub(self, other: Decimal): Option<Decimal> {
+    export fn subtract(self, other: Decimal): Option<Decimal> {
         together(self, other, false)
     }
 
@@ -191,16 +191,16 @@ impl Decimal {
     /// from "core/decimal" import * as decimal;
     ///
     /// export fn times(a: decimal.Decimal, b: decimal.Decimal): Option<decimal.Decimal> {
-    ///     a.mul(b)
+    ///     a.multiply(b)
     /// }
     /// ```
     ///
     /// The scales add, so `0.5 * 0.5` is `0.25` — every digit of the true
     /// product, which is why a chain of them wants a `roundTo` at the end.
-    export fn mul(self, other: Decimal): Option<Decimal> {
+    export fn multiply(self, other: Decimal): Option<Decimal> {
         self
             .units
-            .checkedMul(other.units)
+            .checkedMultiply(other.units)
             .andThen(fn(u) => {
                 self.scale.checkedAdd(other.scale).map(fn(s) => canonical(u, s))
             })
@@ -298,7 +298,7 @@ impl Decimal {
     /// }
     /// ```
     export fn negate(self): Option<Decimal> {
-        0.checkedSub(self.units).map(fn(u) => canonical(u, self.scale))
+        0.checkedSubtract(self.units).map(fn(u) => canonical(u, self.scale))
     }
 
     /// Whether this is zero.
@@ -328,7 +328,7 @@ fn canonical(units: Int, scale: Int): Decimal {
     }
 }
 
-/// `add` and `sub`, which differ only in the operation at the common scale.
+/// `add` and `subtract`, which differ only in the operation at the common scale.
 fn together(a: Decimal, b: Decimal, adding: Bool): Option<Decimal> {
     let scale = number.max(a.scale, b.scale);
     scaleUp(a.units, scale - a.scale).andThen(fn(left) => {
@@ -336,7 +336,7 @@ fn together(a: Decimal, b: Decimal, adding: Bool): Option<Decimal> {
             let sum = if (adding) {
                 left.checkedAdd(right)
             } else {
-                left.checkedSub(right)
+                left.checkedSubtract(right)
             };
             sum.map(fn(v) => canonical(v, scale))
         })
@@ -351,7 +351,7 @@ fn scaleUp(units: Int, by: Int): Option<Int> {
     if (units == 0 || by <= 0) {
         .Some(units)
     } else {
-        match (units.checkedMul(10)) {
+        match (units.checkedMultiply(10)) {
             .None => .None,
             .Some(v) => scaleUp(v, by - 1),
         }
@@ -369,7 +369,7 @@ fn dropDigits(units: Int, drop: Int): Int {
                 // halfway test can lift it. `5 * 10^(drop - 1)` still fits at
                 // `drop == 19`, and past that nothing does.
                 .Some(tenth) => {
-                    match (tenth.checkedMul(5)) {
+                    match (tenth.checkedMultiply(5)) {
                         .None => 0,
                         .Some(half) => pastHalf(units, half),
                     }
@@ -413,7 +413,7 @@ fn tenUp(n: Int, acc: Int): Option<Int> {
     if (n <= 0) {
         .Some(acc)
     } else {
-        match (acc.checkedMul(10)) {
+        match (acc.checkedMultiply(10)) {
             .None => .None,
             .Some(v) => tenUp(n - 1, v),
         }
@@ -450,7 +450,7 @@ fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, In
                 match (c.toDigit(10)) {
                     .None => .None,
                     .Some(d) => {
-                        match (acc.checkedMul(10).andThen(fn(m) => m.checkedSub(d))) {
+                        match (acc.checkedMultiply(10).andThen(fn(m) => m.checkedSubtract(d))) {
                             .None => .None,
                             .Some(next) => {
                                 let after = if (places < 0) { -1 } else { places + 1 };

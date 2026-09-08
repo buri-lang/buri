@@ -49,7 +49,7 @@
 from "core/effect" import { Allocator };
 from "core/str" import * as str;
 
-derive Eq, Show for Path;
+derive Equal, Show for Path;
 /// A filesystem path, in the one spelling [`of`] gives it.
 ///
 /// You can't reach the text as a field, so nothing downstream has to ask

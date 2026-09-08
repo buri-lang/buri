@@ -1,7 +1,7 @@
 error: an `impl` method is not separately exported [impl-method-export]
   --> cmd/exported_trait_method/main.buri:13:3
    |
-13 |   export fn eq(self, other: Version): Bool { self.major == other.major }
+13 |   export fn equal(self, other: Version): Bool { self.major == other.major }
    |   ^^^^^^
    |
    = conformance is a property of the type, visible wherever the type is
@@ -16,7 +16,7 @@ error: an `impl` method is not separately exported [impl-method-export]
      ───
 
      Conformance belongs to the type: once Version is visible, everything impl
-     Eq for Version supplies is visible with it. Withholding a method the trait
+     Equal for Version supplies is visible with it. Withholding a method the trait
      requires would be a conformance that does not hold.
 
      A program that provokes it

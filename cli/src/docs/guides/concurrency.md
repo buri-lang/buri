@@ -266,7 +266,7 @@ test "a recorded amount is added to the running total" {
         Tasks: tasks(),
     };
     let step = ledger().step;
-    assert.eq(step(ctx, 450, .Record(1905)).state, 2355);
+    assert.equal(step(ctx, 450, .Record(1905)).state, 2355);
 }
 ```
 

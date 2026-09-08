@@ -399,12 +399,12 @@ impl BinOp {
     pub fn trait_method(self) -> Option<(&'static str, &'static str)> {
         Some(match self {
             BinOp::Add => ("Add", "add"),
-            BinOp::Sub => ("Sub", "sub"),
-            BinOp::Mul => ("Mul", "mul"),
-            BinOp::Div => ("Div", "div"),
-            BinOp::Rem => ("Rem", "rem"),
-            BinOp::Eq | BinOp::Ne => ("Eq", "eq"),
-            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => ("Ord", "compare"),
+            BinOp::Sub => ("Subtract", "subtract"),
+            BinOp::Mul => ("Multiply", "multiply"),
+            BinOp::Div => ("Divide", "divide"),
+            BinOp::Rem => ("Remainder", "remainder"),
+            BinOp::Eq | BinOp::Ne => ("Equal", "equal"),
+            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => ("Ordered", "compare"),
             _ => return None,
         })
     }

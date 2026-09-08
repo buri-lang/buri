@@ -89,7 +89,7 @@ from "core/json" import * as json;
 from "core/json" import { Json };
 from "core/str" import * as str;
 
-derive Eq, Show for Request;
+derive Equal, Show for Request;
 /// What the build hands a generator: the files the rule declared, and the
 /// files its dependencies own. Each pair is `(repository-relative path, text)`,
 /// in the order the rule declared them.
@@ -98,7 +98,7 @@ export struct Request {
     export dependencies: [(Str, Str)],
 }
 
-derive Eq, Show for Diagnostic;
+derive Equal, Show for Diagnostic;
 /// Something the generator has to say about its input.
 ///
 /// `code` is looked up in the toolchain's catalogue. `origin` is `.None` for a

@@ -17,7 +17,7 @@ error: an expression statement is legal only in a test source [expression-statem
 
      A block is lets followed by a result expression; there is no third
      statement form. A test source is the one exception, which is what lets
-     assert.eq(...) stand alone: there, any expression of type () may stand
+     assert.equal(...) stand alone: there, any expression of type () may stand
      alone, terminated by ; — a match or an if whose branches all assert
      included.
 

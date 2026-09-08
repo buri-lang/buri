@@ -10,7 +10,7 @@ error: expected `;`, found `,` [unexpected-token]
 error: there is nothing named `other` in scope [unresolved-name]
   --> main.buri:19:27
    |
-19 |     assert.eq(one.hash(), other.hash());
+19 |     assert.equal(one.hash(), other.hash());
    |                           ^^^^^
    |
    = fix: declare `other`, or import it — a name is in scope only from this module's own declarations and its imports

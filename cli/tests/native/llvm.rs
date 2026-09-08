@@ -893,7 +893,7 @@ export fn main(): Result<(), Str> {
   let _ = if (scale32(a, b) == 2.0) { io.println(ctx, "f32 ok").ignore() } else { io.println(ctx, "f32 bad").ignore() };
   let _ = if (scale64(0.25, 8.0) == 2.0) { io.println(ctx, "f64 ok").ignore() } else { io.println(ctx, "f64 bad").ignore() };
   // `+` on floats is an `ir::BinOp` like any other; `/` and `<` on a `Float`
-  // are `number.F64.div` and `number.F64.compare`, which are stdlib intrinsics the
+  // are `number.F64.divide` and `number.F64.compare`, which are stdlib intrinsics the
   // native runtime has no body for yet and which `missing_intrinsics` reports.
   let _ = if (scale64(1.5, 2.0) + 1.0 == 4.0) { io.println(ctx, "add ok").ignore() } else { io.println(ctx, "add bad").ignore() };
   .Ok(())
@@ -2164,7 +2164,7 @@ export fn main(): Result<(), Str> {
   let s: I8 = -1;
   let _ = io.println(ctx, "sext ${s.toI64()}").ignore();
   let _ = io.println(ctx, "show ${(7).show(ctx)} ${(0.5).show(ctx)}").ignore();
-  let _ = io.println(ctx, "eq ${(7).eq(7)} ${'a'.eq('b')} ${true.eq(true)}").ignore();
+  let _ = io.println(ctx, "eq ${(7).equal(7)} ${'a'.equal('b')} ${true.equal(true)}").ignore();
   .Ok(())
 }
 "#,
@@ -2658,7 +2658,7 @@ export fn main(): Result<(), Str> {
 
 /// `==` and `<` at a `Str`, which has no comparison instruction.
 ///
-/// `middle::derives` lowers a derived `Eq` over a type with a `Str` in it to
+/// `middle::derives` lowers a derived `Equal` over a type with a `Str` in it to
 /// an `ir::Inst::Binary` at `Prim::Str` (`derives.rs`'s `fn eq`), so the
 /// integer path would compare two three-word structs and answer with whichever
 /// operand it happened to keep. Both the direct comparison and the derived one
@@ -2674,7 +2674,7 @@ from "core/io" import * as io;
 from "core/order" import { Order };
 
 struct Named { name: Str, rank: Int }
-derive Eq for Named;
+derive Equal for Named;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -2802,7 +2802,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// `character.show`, `bool.show` and their `eq`/`compare` siblings.
+/// `character.show`, `bool.show` and their `equal`/`compare` siblings.
 ///
 /// `semantics/builtins.rs` declares these on every primitive and
 /// `monomorphize::intrinsic_key` names each after the type's own module, so
@@ -2824,7 +2824,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "show ${'q'.show(ctx)} ${true.show(ctx)} ${false.show(ctx)}").ignore();
   let _ = io.println(ctx, "show ${"raw".show(ctx)}").ignore();
-  let _ = io.println(ctx, "eq ${'a'.eq('a')} ${'a'.eq('b')} ${true.eq(false)}").ignore();
+  let _ = io.println(ctx, "eq ${'a'.equal('a')} ${'a'.equal('b')} ${true.equal(false)}").ignore();
   let _ = io.println(ctx, "cmp ${'a'.compare('b') == Order.Less} ${'b'.compare('b') == Order.Equal}").ignore();
   // `$hashInto(SEED, x)`, at every shape `cli/runtime/hash.rs` has an arm for.
   // The numbers are the runtime's, so what is asserted is that equal values
@@ -2833,7 +2833,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, "hash ${'a'.hash() == 'a'.hash()} ${'a'.hash() == 'b'.hash()}").ignore();
   let _ = io.println(ctx, "hash ${true.hash() == true.hash()} ${(7).hash() == (7).hash()}").ignore();
   let _ = io.println(ctx, "hash ${(1.5).hash() == (1.5).hash()} ${(1.5).hash() == (2.5).hash()}").ignore();
-  let _ = io.println(ctx, "wrap ${(1).wrappingAdd(2)} ${(3).wrappingMul(4)} ${(9).wrappingSub(1)}").ignore();
+  let _ = io.println(ctx, "wrap ${(1).wrappingAdd(2)} ${(3).wrappingMultiply(4)} ${(9).wrappingSubtract(1)}").ignore();
   .Ok(())
 }
 "#,
@@ -3285,20 +3285,20 @@ export fn main(): Result<(), Str> {
   // The third column of each line is inside the type and above 2^53: `.Some`
   // here, `.None` on JavaScript, and that band is row 2's divergence.
   let _ = io.println(ctx, "add ${say((2).checkedAdd(3))} ${say(top.checkedAdd(1))} ${say((9007199254740991).checkedAdd(1))}").ignore();
-  let _ = io.println(ctx, "sub ${say((5).checkedSub(3))} ${say(bot.checkedSub(2))} ${say(bot.checkedSub(1))}").ignore();
-  let _ = io.println(ctx, "mul ${say((1000).checkedMul(1000))} ${say((4294967296).checkedMul(4294967296))} ${say((4503599627370496).checkedMul(4))}").ignore();
+  let _ = io.println(ctx, "sub ${say((5).checkedSubtract(3))} ${say(bot.checkedSubtract(2))} ${say(bot.checkedSubtract(1))}").ignore();
+  let _ = io.println(ctx, "mul ${say((1000).checkedMultiply(1000))} ${say((4294967296).checkedMultiply(4294967296))} ${say((4503599627370496).checkedMultiply(4))}").ignore();
   // A checked division by zero is `.None`, not SPEC 6.2's abort — and so is
   // the one signed quotient the width cannot hold.
-  let _ = io.println(ctx, "div ${say((7).checkedDiv(2))} ${say((7).checkedDiv(0))} ${say(min.checkedDiv(0 - 1))}").ignore();
+  let _ = io.println(ctx, "div ${say((7).checkedDivide(2))} ${say((7).checkedDivide(0))} ${say(min.checkedDivide(0 - 1))}").ignore();
   let _ = match ((2).checkedAdd(3)) { .Some(v) => io.println(ctx, "value ${v}").ignore(), .None => io.println(ctx, "value none").ignore() };
   // A narrow type is bounded by itself, and always was: at 32 bits and below
   // the type's range and a double's exact range are the same range.
   let small: U8 = 200;
   let _ = io.println(ctx, "u8 ${say2(small.checkedAdd(100))} ${say2(small.checkedAdd(55))}").ignore();
   // `saturating*` clamps at the type's own bounds and always answers a value.
-  let _ = io.println(ctx, "sat ${small.saturatingAdd(100)} ${small.saturatingSub(255)}").ignore();
+  let _ = io.println(ctx, "sat ${small.saturatingAdd(100)} ${small.saturatingSubtract(255)}").ignore();
   let big: I8 = 100;
-  let _ = io.println(ctx, "sat8 ${big.saturatingAdd(100)} ${big.saturatingMul(0 - 100)}").ignore();
+  let _ = io.println(ctx, "sat8 ${big.saturatingAdd(100)} ${big.saturatingMultiply(0 - 100)}").ignore();
   // 128 bits goes through `buri_rt_i128_checked` and
   // `buri_rt_i128_saturating`: the overflow test both backends use at 64 bits
   // is a widening multiply, which no backend here has at `i128`, so one
@@ -3306,7 +3306,7 @@ export fn main(): Result<(), Str> {
   // so it is bounded by the type there too.
   let w: I128 = 1000;
   let wide: I128 = 170141183460469231731687303715884105727;
-  let _ = io.println(ctx, "i128 ${say3(w.checkedMul(9007199254740991))} ${say3(wide.checkedAdd(1))}").ignore();
+  let _ = io.println(ctx, "i128 ${say3(w.checkedMultiply(9007199254740991))} ${say3(wide.checkedAdd(1))}").ignore();
   let _ = io.println(ctx, "i128sat ${w.saturatingAdd(1)}").ignore();
   .Ok(())
 }
@@ -3683,7 +3683,7 @@ export fn main(): Result<(), Str> {{
 /// rather than with a `context { … }` record — the shape SPEC 10.8's
 /// attenuation is made of, and the one a native ABI rule used to get wrong.
 ///
-/// `<C: Allocator>` and `<T: Ord>` are one feature (SPEC 10.1), so the argument at
+/// `<C: Allocator>` and `<T: Ordered>` are one feature (SPEC 10.1), so the argument at
 /// `C` need not be a context, and `Tagged` here is a plain struct that forwards
 /// `allocate` and carries a word of its own so that it is **not** zero-sized.
 ///
@@ -4072,11 +4072,11 @@ test "a memo is lazy, caches, and recomputes when its source changes" {
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
-    assert.eq(log.noted().len(), 0);
+    assert.equal(log.noted().len(), 0);
     let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
-    assert.eq(log.noted(), [4]);
+    assert.equal(log.noted(), [4]);
     let _ = n.set(ctx, 5);
-    assert.eq(log.noted(), [4, 10]);
+    assert.equal(log.noted(), [4, 10]);
 }
 
 test "a watcher runs when it is registered and again on every change" {
@@ -4088,9 +4088,9 @@ test "a watcher runs when it is registered and again on every change" {
     let log = recorder();
     let n = signal(ctx, 1);
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
-    assert.eq(log.noted(), [1]);
+    assert.equal(log.noted(), [1]);
     let _ = n.set(ctx, 7);
-    assert.eq(log.noted(), [1, 7]);
+    assert.equal(log.noted(), [1, 7]);
 }
 
 fn ignore(value: Int): () {

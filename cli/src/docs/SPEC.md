@@ -480,12 +480,12 @@ literal's type, and a conversion method changes a value's (Section 6.2.1).
 #### Generic numeric code
 
 Arithmetic is available on a type parameter through the operator traits of
-Section 5.12 — `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, `Ord` — each of which
+Section 5.12 — `Add`, `Subtract`, `Multiply`, `Divide`, `Remainder`, `Negate`, `Ordered` — each of which
 is an ordinary interface with a method set:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 fn total<N: Add>(zero: N, xs: [N]): N { ... }
-fn clamp<N: Ord>(lo: N, hi: N, x: N): N { ... }
+fn clamp<N: Ordered>(lo: N, hi: N, x: N): N { ... }
 ```
 
 There are no compiler-privileged bounds. A bound names what a type *can do*, so
@@ -804,8 +804,8 @@ must satisfy. Multiple bounds are joined with `+`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Allocator };
-fn largest<T: Ord>(xs: [T]): Option<T> { ... }
-fn report<T: Ord + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
+fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
+fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
 ```
 
 Inside such a function you may call the bound's methods on the parameter —
@@ -833,40 +833,40 @@ equal values or copy one whenever that is faster (Section 8.1). Code that needs
 identity carries it as data — `struct NodeId(U64)` — which is a value the
 compiler cannot invent or coalesce.
 
-`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare`. Section 5.12.4
+`==` and `!=` are `Equal.equal`; `<` `<=` `>` `>=` are `Ordered.compare`. Section 5.12.4
 has the operator table. Neither is compiler magic: a type has them because it
 derives or implements the trait. Every primitive, and `[T]` and tuples built from
-types that have them, satisfy `Eq` and `Ord` already. Your own structs and enums
+types that have them, satisfy `Equal` and `Ordered` already. Your own structs and enums
 opt in:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-derive Eq, Ord for Version;
+derive Equal, Ordered for Version;
 
 let same = Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 };
 // true — different values, equal contents
 ```
 
-`Eq` is not defined for function types or `Template`, so comparing those is a
+`Equal` is not defined for function types or `Template`, so comparing those is a
 compile error.
 
 Three consequences:
 
-- **A derived `Eq` is an equivalence relation, and so is `==` on a float.**
+- **A derived `Equal` is an equivalence relation, and so is `==` on a float.**
   `NaN == NaN` (Section 6.2), so a struct with an `F64` field holding `NaN` is
-  equal to itself *and* to a separately built copy of itself. `Ord` on floats is
+  equal to itself *and* to a separately built copy of itself. `Ordered` on floats is
   unchanged and still IEEE-754's: it orders `-0.0` equal to `0.0` and reports
   `NaN` as unordered, so `<` and `compare` disagree with `==` at `NaN`. `==` is
   the one made total.
 
-- **A hand-written `impl Eq` need not be structural.** Nothing checks that it is
+- **A hand-written `impl Equal` need not be structural.** Nothing checks that it is
   reflexive, symmetric, or transitive, so a case-insensitive `Str` wrapper is
   expressible — and so is a broken one. `derive` cannot be wrong in that way.
 
-- **`Ord` on a `Str` is by Unicode scalar value.** That is the unit `len` counts
+- **`Ordered` on a `Str` is by Unicode scalar value.** That is the unit `len` counts
   and `charAt` hands back, and for a valid string it is byte-for-byte UTF-8
   order — not the UTF-16 code-unit order a JavaScript `<` gives. Both backends
   answer the scalar order, and `sort`, an `OrderedMap<Str, _>` and `core/order`'s
-  `str` all carry it. `Ord` on a `Char` is the scalar's integer order. The
+  `str` all carry it. `Ordered` on a `Char` is the scalar's integer order. The
   language has no locale-aware comparison.
 
 ### 5.12 Traits
@@ -877,7 +877,7 @@ satisfy.
 ```buri
 # from "core/effect" import { Allocator };
 
-trait Ord {
+trait Ordered {
     fn compare(self, other: Self): Order;
 }
 
@@ -900,7 +900,7 @@ A type satisfies a trait only where an `impl` or a `derive` says so. Declaring a
 method that happens to match a trait's signature does not make the type conform.
 The compiler infers nothing from shape.
 
-Checking `T: Ord` is therefore a lookup in one table keyed by `(trait, type)`.
+Checking `T: Ordered` is therefore a lookup in one table keyed by `(trait, type)`.
 There is exactly one candidate, so there is no coherence pass, no orphan rule,
 and no instance search.
 
@@ -909,7 +909,7 @@ and no instance search.
 `impl Trait for Type` declares conformance and supplies the methods:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-impl Ord for Version {
+impl Ordered for Version {
   fn compare(self, other: Version): Order { ... }
 }
 ```
@@ -931,13 +931,13 @@ write `Version` or `Self` for its second parameter.
 #### 5.12.3 `derive` generates the implementation
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-derive Eq, Ord, Show for Version;
+derive Equal, Ordered, Show for Version;
 ```
 
 `derive` generates the trait's methods structurally: struct fields in declaration
 order, enum variants in declaration order, recursing into field types.
 
-Derivation is available for `Eq`, `Ord`, `Show`, `Hash`, `ToJson`, `FromJson`,
+Derivation is available for `Equal`, `Ordered`, `Show`, `Hash`, `ToJson`, `FromJson`,
 and the operator traits. A `derive` fails to compile if any field's type does not
 itself satisfy the trait.
 
@@ -951,19 +951,19 @@ is. `core/json` states the mapping from Buri shapes onto JSON ones.
 | Operator | Trait method |
 |---|---|
 | `a + b` | `Add.add` |
-| `a - b` | `Sub.sub` |
-| `-a` | `Neg.neg` |
-| `a * b` | `Mul.mul` |
-| `a / b` | `Div.div` |
-| `a % b` | `Rem.rem` |
-| `a == b`, `a != b` | `Eq.eq` |
-| `a < b`, `a <= b`, `a > b`, `a >= b` | `Ord.compare` |
+| `a - b` | `Subtract.subtract` |
+| `-a` | `Negate.negate` |
+| `a * b` | `Multiply.multiply` |
+| `a / b` | `Divide.divide` |
+| `a % b` | `Remainder.remainder` |
+| `a == b`, `a != b` | `Equal.equal` |
+| `a < b`, `a <= b`, `a > b`, `a >= b` | `Ordered.compare` |
 
 This is what makes newtype wrappers work:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 struct Meters(F64);
-derive Add, Sub, Ord, Show for Meters;
+derive Add, Subtract, Ordered, Show for Meters;
 
 let total = Meters(1.5) + Meters(2.0);     // Meters
 let far = total > Meters(3.0);             // Bool
@@ -1051,7 +1051,7 @@ equivalence relation**. It compares numerically, so `-0.0 == 0.0` is true and
 `0.1 + 0.2 != 0.3`, and it is reflexive, so **`NaN == NaN` is true** — every
 `NaN` equals every other `NaN` regardless of sign or payload. IEEE-754 says the
 opposite, and the trade is deliberate: everything built on `==` — a `Map` key, a
-`Set` member, `list.contains`, `derive Eq` — quietly requires an equivalence
+`Set` member, `list.contains`, `derive Equal` — quietly requires an equivalence
 relation.
 
 The **ordering** operators are unchanged and remain IEEE-754's: `NaN < x`,
@@ -1112,21 +1112,21 @@ you spell them out where you use them:
 ```buri
 trait Checked {
     fn checkedAdd(self, rhs: Self): Option<Self>;
-    fn checkedSub(self, rhs: Self): Option<Self>;
-    fn checkedMul(self, rhs: Self): Option<Self>;
-    fn checkedDiv(self, rhs: Self): Option<Self>;
+    fn checkedSubtract(self, rhs: Self): Option<Self>;
+    fn checkedMultiply(self, rhs: Self): Option<Self>;
+    fn checkedDivide(self, rhs: Self): Option<Self>;
 }
 
 trait Wrapping {
     fn wrappingAdd(self, rhs: Self): Self;
-    fn wrappingSub(self, rhs: Self): Self;
-    fn wrappingMul(self, rhs: Self): Self;
+    fn wrappingSubtract(self, rhs: Self): Self;
+    fn wrappingMultiply(self, rhs: Self): Self;
 }
 
 trait Saturating {
     fn saturatingAdd(self, rhs: Self): Self;
-    fn saturatingSub(self, rhs: Self): Self;
-    fn saturatingMul(self, rhs: Self): Self;
+    fn saturatingSubtract(self, rhs: Self): Self;
+    fn saturatingMultiply(self, rhs: Self): Self;
 }
 
 trait Bounded {
@@ -1137,7 +1137,7 @@ trait Bounded {
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let safe = a.checkedAdd(b).withDefault(0);
-let hash = seed.wrappingMul(31).wrappingAdd(byte);
+let hash = seed.wrappingMultiply(31).wrappingAdd(byte);
 let ceiling = number.maxValue<U8>();
 ```
 
@@ -1349,7 +1349,7 @@ candidate set, no autoref, no autoderef, and no coherence check. Resolution does
 need the receiver's type, so name resolution consults inference.
 
 Where two bounds declare the same method name, the call is ambiguous.
-Disambiguate it by calling the trait method as a function: `Ord.compare(x, y)`.
+Disambiguate it by calling the trait method as a function: `Ordered.compare(x, y)`.
 
 Defining modules:
 
@@ -1714,7 +1714,7 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
   effect-carrying type — one that merely *mentions* an effect, such as a
   `Holder<C>` storing a context — satisfies no ordinary bound either, whatever
   `impl`s its head constructor carries. That is what lets Section 10.6 conclude a
-  `T: Ord` is never a context.
+  `T: Ordered` is never a context.
 
 A function names the effects it needs as **bounds** on its context parameter:
 
@@ -1728,7 +1728,7 @@ fn loadConfig<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Config, C
 }
 ```
 
-There is one constraint mechanism in the language. `<T: Ord + Show>` and
+There is one constraint mechanism in the language. `<T: Ordered + Show>` and
 `<C: Allocator + FileSystemRead>` are the same feature: a list of interfaces a type parameter
 must satisfy.
 
@@ -1909,7 +1909,7 @@ is spending, or refuses to spend more than a budget.
 Each of those three qualifiers is load-bearing, and each is there because the
 sentence without it is false:
 
-- **Identical, not equal.** Function types have no `Eq` (Section 5.11), so
+- **Identical, not equal.** Function types have no `Equal` (Section 5.11), so
   "equal arguments" has no referent at one. The theorem quantifies over the
   *same* values, which means something at every type.
 - **Terminating without aborting.** A pure function may abort — `100 / x` at
@@ -1991,8 +1991,8 @@ type and returns a `fn() => ()` holding an effect. So the rule treats a type
 parameter as though it *were* a context, unless one of two things says otherwise:
 
 - **An ordinary trait bound.** An effect-carrying type satisfies no ordinary
-  bound (Section 10.1), so a `T: Eq` is never a context and
-  `xs.any(fn(x) => x == needle)` inside `impl<T: Eq> [T]` is fine. A `T` with no
+  bound (Section 10.1), so a `T: Equal` is never a context and
+  `xs.any(fn(x) => x == needle)` inside `impl<T: Equal> [T]` is fine. A `T` with no
   bounds, or one bounded only by effects, has no such guarantee.
 - **A function type.** A closure holds exactly what this rule let it capture, so
   capturing one is safe whatever its type parameters are: `fn compose<A, B, C>(f:
@@ -2277,7 +2277,7 @@ test "pads the cents place" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(fromCents(1905).format(ctx), "$19.05");
+    assert.equal(fromCents(1905).format(ctx), "$19.05");
 }
 ```
 
@@ -2335,13 +2335,13 @@ from "core/testing/assert" import * as assert;
 
 | Function | Meaning |
 |---|---|
-| `assert.eq(a, b)` | Fails unless `a == b`. Requires `Eq`, and `Show` for the message. |
+| `assert.equal(a, b)` | Fails unless `a == b`. Requires `Equal`, and `Show` for the message. |
 | `assert.notEq(a, b)` | The negation. |
 | `assert.isTrue(b)` / `assert.isFalse(b)` | On a `Bool`. |
 | `assert.contains(xs, x)` | Fails unless `x` is an element of `xs`. |
 | `assert.isEmpty(xs)` / `assert.notEmpty(xs)` | On a list. |
 | `assert.len(xs, n)` | Fails unless `xs` holds exactly `n` elements. |
-| `assert.gt(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ord`. |
+| `assert.gt(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ordered`. |
 | `assert.approxEq(a, b, tolerance)` | On `Float`, within an absolute tolerance. |
 | `assert.ok(r)` | Fails unless `r` is `.Ok`; **returns the wrapped value**. |
 | `assert.err(r)` | Fails unless `r` is `.Err`; returns the error. |
@@ -2366,7 +2366,7 @@ test "reads the config it wrote" {
     let cfg = path.of(ctx, "cfg");
     assert.ok(fs.writeText(ctx, cfg, "port=8080")); // returns (), so a statement
     let text = assert.ok(fs.readText(ctx, cfg)); // returns Str, so a binding
-    assert.eq(text, "port=8080");
+    assert.equal(text, "port=8080");
 }
 ```
 
@@ -2385,10 +2385,10 @@ the common case; a `match`, an `if` or a block whose every branch produces `()`
 counts too.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-assert.eq(total, 42);              // statement: type is ()
+assert.equal(total, 42);              // statement: type is ()
 match (parsed) {                   // statement: every arm is ()
-  .Some(n) => assert.eq(n, 42),
-  .None => assert.eq(parsed, .Some(42)),
+  .Some(n) => assert.equal(n, 42),
+  .None => assert.equal(parsed, .Some(42)),
 };                                 // ← the `;` is what makes it a statement
 // assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
                                    // it explicitly with `let _ =`
@@ -2464,7 +2464,7 @@ test "rejects a port above 65535" {
         FileSystemRead: fs().files([("config.toml", "port=99999")]),
     };
     let e = assert.err(loadConfig(ctx, "config.toml"));
-    assert.eq(e, ConfigError.PortOutOfRange);
+    assert.equal(e, ConfigError.PortOutOfRange);
 }
 ```
 

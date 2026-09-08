@@ -1,5 +1,5 @@
 FAIL //lib/writer  test/writer.buri  "a written list holds what was put in it"
-  assert.eq failed
+  assert.equal failed
     actual:   1
     expected: 2
   --> lib/writer/test/writer.buri:18:1

@@ -51,7 +51,7 @@ export fn empty<T>(): OrderedSet<T> {
 }
 
 /// A set holding the given items, duplicates collapsed.
-export fn of<T: Ord, C: Allocator>(ctx: C, items: [T]): OrderedSet<T> {
+export fn of<T: Ordered, C: Allocator>(ctx: C, items: [T]): OrderedSet<T> {
     items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty<T>())
 }
 
@@ -61,7 +61,7 @@ fn memberOf<T>(entry: (T, ())): T {
     member
 }
 
-impl<T: Ord> OrderedSet<T> {
+impl<T: Ordered> OrderedSet<T> {
     export fn len(self): Int {
         self.members.len()
     }
@@ -184,10 +184,10 @@ impl OrderedSet<Str> {
 /// The list with later duplicates dropped, the first of each kept and the order
 /// left alone.
 ///
-/// `core/set`'s `distinct` over `Ord` rather than `Hash + Eq`: O(n log n)
+/// `core/set`'s `distinct` over `Ordered` rather than `Hash + Equal`: O(n log n)
 /// against that one's O(n), and still well under `core/list`'s `uniqueBy`,
 /// which asks about everything already kept and costs O(n²).
-export fn distinct<T: Ord, C: Allocator>(ctx: C, xs: [T]): [T] {
+export fn distinct<T: Ordered, C: Allocator>(ctx: C, xs: [T]): [T] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([T], OrderedSet<T>), x) => {
@@ -201,7 +201,7 @@ export fn distinct<T: Ord, C: Allocator>(ctx: C, xs: [T]): [T] {
 
 /// [`distinct`] over a key: the first element answering each key is kept, and
 /// the rest go. One `key` call per element.
-export fn distinctBy<A, K: Ord, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): [A] {
+export fn distinctBy<A, K: Ordered, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): [A] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([A], OrderedSet<K>), x) => {

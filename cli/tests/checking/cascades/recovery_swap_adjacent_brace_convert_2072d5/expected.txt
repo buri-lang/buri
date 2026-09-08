@@ -4,7 +4,7 @@ error: there is nothing named `v` in scope [unresolved-name]
 35 |     v let = simd.i32x4(1, -2, 300, 0);
    |     ^
    |
-   = did you mean `Div`?
+   = did you mean `Divide`?
    = fix: correct the spelling, or declare it
 error: a statement ends with `;` [missing-terminator]
   --> main.buri:35:6
@@ -25,16 +25,16 @@ error: expected a pattern, found `=` [unexpected-token]
 error: there is nothing named `v` in scope [unresolved-name]
   --> main.buri:36:15
    |
-36 |     assert.eq(v.toFloat().toInt(), v);
+36 |     assert.equal(v.toFloat().toInt(), v);
    |               ^
    |
-   = did you mean `Div`?
+   = did you mean `Divide`?
    = fix: correct the spelling, or declare it
 error: there is nothing named `v` in scope [unresolved-name]
   --> main.buri:36:36
    |
-36 |     assert.eq(v.toFloat().toInt(), v);
+36 |     assert.equal(v.toFloat().toInt(), v);
    |                                    ^
    |
-   = did you mean `Div`?
+   = did you mean `Divide`?
    = fix: correct the spelling, or declare it

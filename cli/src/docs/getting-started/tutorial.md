@@ -58,7 +58,7 @@ from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/str" import * as str;
 
-derive Eq, Show for Unit;
+derive Equal, Show for Unit;
 /// A length unit. Every conversion goes through metres.
 export enum Unit {
     Metres,
@@ -67,14 +67,14 @@ export enum Unit {
     Feet,
 }
 
-derive Eq, Show for Quantity;
+derive Equal, Show for Quantity;
 /// A number with its unit attached, so the two cannot drift apart.
 export struct Quantity {
     export amount: Float,
     export unit: Unit,
 }
 
-derive Eq, Show for ParseError;
+derive Equal, Show for ParseError;
 /// Each variant carries the word, so a caller can say which one was wrong.
 export enum ParseError {
     NotANumber(Str),
@@ -164,11 +164,11 @@ from "//libs/units" import { ParseError, parseQuantity, Quantity, Unit };
 
 test "two words make a quantity" {
     let marathon = assert.ok(parseQuantity("26.2", "mi"));
-    assert.eq(marathon, Quantity { amount: 26.2, unit: Unit.Miles });
+    assert.equal(marathon, Quantity { amount: 26.2, unit: Unit.Miles });
 }
 
 test "a word that names no unit comes back with the word" {
-    assert.eq(
+    assert.equal(
         assert.err(parseQuantity("1", "furlong")),
         ParseError.UnknownUnit("furlong"),
     );
@@ -179,7 +179,7 @@ test "a marathon is 42.16 kilometres, to two places" {
         Allocator: alloc(),
     };
     let marathon = Quantity { amount: 26.2, unit: Unit.Miles };
-    assert.eq(marathon.into(.Kilometres).format(ctx), "42.16 km");
+    assert.equal(marathon.into(.Kilometres).format(ctx), "42.16 km");
 }
 ```
 
@@ -219,14 +219,14 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 from "//libs/units" import { ParseError, parseQuantity, parseUnit, Quantity, Unit };
 
-derive Eq, Show for Request;
+derive Equal, Show for Request;
 /// One conversion to perform.
 export struct Request {
     export quantity: Quantity,
     export target: Unit,
 }
 
-derive Eq, Show for ConvertError;
+derive Equal, Show for ConvertError;
 /// Everything that can go wrong between the command line and the answer.
 export enum ConvertError {
     Usage,
@@ -332,11 +332,11 @@ impl Environment for FixedArgs {
 }
 
 test "too few words is a usage error" {
-    assert.eq(assert.err(parseRequest(["1", "km"])), ConvertError.Usage);
+    assert.equal(assert.err(parseRequest(["1", "km"])), ConvertError.Usage);
 }
 
 test "an unknown unit has a line for the user" {
-    assert.eq(
+    assert.equal(
         assert.err(parseRequest(["1", "mi", "furlong"])).message(),
         "the units are m, km, mi and ft",
     );
@@ -350,7 +350,7 @@ test "run reads its arguments and prints one line" {
         Stdout: out,
     };
     assert.ok(run(ctx));
-    assert.eq(out.captured(), "10.0 km = 6.21 mi\n");
+    assert.equal(out.captured(), "10.0 km = 6.21 mi\n");
 }
 ```
 

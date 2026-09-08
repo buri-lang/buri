@@ -9,7 +9,7 @@ from "core/json" import { FromJson, ToJson };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Node0;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Node0;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node0 {
@@ -48,7 +48,7 @@ export fn probe0_0<C: Allocator>(ctx: C): Int {
     digest0_0(ctx) + drain0_0()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec0_1;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec0_1;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec0_1 {
     export f0: Int,
@@ -73,7 +73,7 @@ export fn probe0_1<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State0_2;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State0_2;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State0_2 {
     Idle,
@@ -133,7 +133,7 @@ export fn probe0_3<C: Allocator>(ctx: C): Int {
     label0_3(ctx, a, e).len() + b
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State0_4;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State0_4;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State0_4 {
     Idle,
@@ -175,7 +175,7 @@ export fn probe0_4<C: Allocator>(ctx: C): Int {
     rank0_4(s) + s.show(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec0_5;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec0_5;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec0_5 {
     export f0: Int,
@@ -245,7 +245,7 @@ export fn probe0_7<C: Allocator>(ctx: C): Int {
     digest0_7(ctx) + drain0_7()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State0_8;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State0_8;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State0_8 {
     Idle,
@@ -285,7 +285,7 @@ export fn probe0_8<C: Allocator>(ctx: C): Int {
     rank0_8(s) + s.show(ctx).len()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State0_9;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State0_9;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State0_9 {
     Idle,

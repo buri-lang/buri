@@ -34,7 +34,7 @@ test "a scope answers what its body answered" {
         Stdout: stdout(),
         Tasks: tasks(),
     };
-    assert.eq(tasks.scope(ctx, fn(c, here) => 41 + 1), 42);
+    assert.equal(tasks.scope(ctx, fn(c, here) => 41 + 1), 42);
 }
 
 test "a scope that spawns nothing runs nothing" {
@@ -45,7 +45,7 @@ test "a scope that spawns nothing runs nothing" {
         Tasks: tasks(),
     };
     let _ = tasks.scope(ctx, fn(c, here) => say(c, "body"));
-    assert.eq(out.captured(), "body\n");
+    assert.equal(out.captured(), "body\n");
 }
 
 test "the body finishes before anything spawned in it starts" {
@@ -59,7 +59,7 @@ test "the body finishes before anything spawned in it starts" {
         let _ = tasks.spawn(c, here, fn(c2) => say(c2, "task"));
         say(c, "body")
     });
-    assert.eq(out.captured(), "body\ntask\n");
+    assert.equal(out.captured(), "body\ntask\n");
 }
 
 test "a scope returns only once every task spawned in it has finished" {
@@ -75,7 +75,7 @@ test "a scope returns only once every task spawned in it has finished" {
         let _ = tasks.spawn(c, here, fn(c2) => say(c2, "three"));
         ()
     });
-    assert.eq(out.captured(), "one\ntwo\nthree\n");
+    assert.equal(out.captured(), "one\ntwo\nthree\n");
 }
 
 test "a task spawned by a task is waited for too" {
@@ -93,7 +93,7 @@ test "a task spawned by a task is waited for too" {
         });
         ()
     });
-    assert.eq(out.captured(), "outer\ninner\n");
+    assert.equal(out.captured(), "outer\ninner\n");
 }
 
 test "a timer is a task that sleeps" {
@@ -112,10 +112,10 @@ test "a timer is a task that sleeps" {
         });
         say(c, "mounted")
     });
-    assert.eq(out.captured(), "mounted\nthe session expired\n");
+    assert.equal(out.captured(), "mounted\nthe session expired\n");
     // The wait was a wait, and the double is what makes it one a test can
     // read: no real time passed and the clock moved by the sleep.
-    assert.eq(time.now(ctx).0, 300000);
+    assert.equal(time.now(ctx).0, 300000);
 }
 
 // -- the order the tasks run in ----------------------------------------------
@@ -134,7 +134,7 @@ test "tasks() spawns in program order" {
         Tasks: tasks(),
     };
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
-    assert.eq(out.captured(), "a\nb\nc\n");
+    assert.equal(out.captured(), "a\nb\nc\n");
 }
 
 test "a seed is the order the spawned tasks run in" {
@@ -145,7 +145,7 @@ test "a seed is the order the spawned tasks run in" {
         Tasks: tasks().seed(5),
     };
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
-    assert.eq(out.captured(), "c\nb\na\n");
+    assert.equal(out.captured(), "c\nb\na\n");
 }
 
 test "the double records a spawned task the way it records any other" {
@@ -156,7 +156,7 @@ test "the double records a spawned task the way it records any other" {
         Tasks: scheduler,
     };
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
-    assert.eq(scheduler.calls().len(), 3);
+    assert.equal(scheduler.calls().len(), 3);
 }
 
 /// Three tasks, spawned in a written order, each saying which it is.
@@ -186,11 +186,11 @@ test "a scope is inert, so a lambda may capture it" {
         }
     });
     // Nothing has been spawned yet, so the scope returned with the body.
-    assert.eq(out.captured(), "mounted\n");
+    assert.equal(out.captured(), "mounted\n");
     let click = handler;
     let _ = click(ctx);
     // The scope was still there, and the task ran on the caller that spawned it.
-    assert.eq(out.captured(), "mounted\na socket opened\n");
+    assert.equal(out.captured(), "mounted\na socket opened\n");
 }
 
 // -- stopping a task ----------------------------------------------------------
@@ -251,6 +251,6 @@ test "a spawned loop stops when the actor it asks says to" {
         let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
         ()
     });
-    assert.eq(out.captured(), "frame 0\nframe 1\nframe 2\nthe loop stopped\n");
+    assert.equal(out.captured(), "frame 0\nframe 1\nframe 2\nthe loop stopped\n");
     let _ = keeper.stop(ctx).ignore();
 }

@@ -12,7 +12,7 @@ test "a module says where it came from and imports what it uses" {
         Allocator: alloc(),
     };
     let out = lines(ctx, [HEAD, "message M { int32 a = 1; }\n"].join(ctx, ""));
-    assert.eq(
+    assert.equal(
         block(
             ctx,
             out,

@@ -1,12 +1,12 @@
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:22:79
    |
-22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash();
+22 |     assert.equal(bigint.zero().hash(), bigint.of(5).subtract(ctx, bigint.of(5)).hash();
    |                                                                               ^
    |
   --> main.buri:22:14
    |
-22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash();
+22 |     assert.equal(bigint.zero().hash(), bigint.of(5).subtract(ctx, bigint.of(5)).hash();
    |              ^ opened here
    |
    = fix: write `)` here

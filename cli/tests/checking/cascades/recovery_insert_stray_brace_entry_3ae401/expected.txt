@@ -33,7 +33,7 @@ error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
 error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:33:15
    |
-33 |     assert.eq(out.modules.map(ctx, fn(m) => m.0), ["address.proto", "point.proto"]);
+33 |     assert.equal(out.modules.map(ctx, fn(m) => m.0), ["address.proto", "point.proto"]);
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Allocator`, or use a type that has one
@@ -68,7 +68,7 @@ error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
 error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:52:15
    |
-52 |     assert.eq(out.diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
+52 |     assert.equal(out.diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Allocator`, or use a type that has one

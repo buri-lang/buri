@@ -1,7 +1,7 @@
 error: expected 1 arguments, found 2 [argument-count-mismatch]
    --> main.buri:113:15
     |
-113 |     assert.eq(b(3extra ), 200);
+113 |     assert.equal(b(3extra ), 200);
     |               ^^^^^^^^^^
     |
     = expected: 1
@@ -10,14 +10,14 @@ error: expected 1 arguments, found 2 [argument-count-mismatch]
 error: a call argument ends with `,` [missing-separator]
    --> main.buri:113:18
     |
-113 |     assert.eq(b(3extra ), 200);
+113 |     assert.equal(b(3extra ), 200);
     |                  ^
     |
     = fix: write `,` here
 error: there is nothing named `extra` in scope [unresolved-name]
    --> main.buri:113:18
     |
-113 |     assert.eq(b(3extra ), 200);
+113 |     assert.equal(b(3extra ), 200);
     |                  ^^^^^
     |
     = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

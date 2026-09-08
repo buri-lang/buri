@@ -363,21 +363,21 @@ let GZIP_NAMED: [U8] = [
 test "the empty input is a stream that says where it ends" {
     // Three bits of block header and seven of end-of-block: the two bytes every
     // zlib writes for nothing at all.
-    assert.eq(packed(list.empty<U8>()), [3, 0]);
-    assert.eq(assert.ok(unpacked([3, 0])), list.empty<U8>());
+    assert.equal(packed(list.empty<U8>()), [3, 0]);
+    assert.equal(assert.ok(unpacked([3, 0])), list.empty<U8>());
 }
 
 test "three literals are the bytes zlib's fixed Huffman writes" {
-    assert.eq(packed(octets("abc")), [75, 76, 74, 6, 0]);
+    assert.equal(packed(octets("abc")), [75, 76, 74, 6, 0]);
 }
 
 test "what it writes, it reads" {
-    assert.eq(text(assert.ok(unpacked(packed(octets("abc"))))), "abc");
-    assert.eq(
+    assert.equal(text(assert.ok(unpacked(packed(octets("abc"))))), "abc");
+    assert.equal(
         text(assert.ok(unpacked(packed(octets("ha ha ha ha ha ha ha ha!"))))),
         "ha ha ha ha ha ha ha ha!",
     );
-    assert.eq(text(assert.ok(unpacked(packed(octets(DYNAMIC_TEXT))))), DYNAMIC_TEXT);
+    assert.equal(text(assert.ok(unpacked(packed(octets(DYNAMIC_TEXT))))), DYNAMIC_TEXT);
 }
 
 test "a run longer than one match code round-trips" {
@@ -388,65 +388,65 @@ test "a run longer than one match code round-trips" {
     // so the emitter has to write more than one back-reference.
     let filler: U8 = 65;
     let run = list.repeat(ctx, filler, 700);
-    assert.eq(assert.ok(unpacked(packed(run))), run);
+    assert.equal(assert.ok(unpacked(packed(run))), run);
 }
 
 // --- What `inflate` reads -------------------------------------------------------
 
 test "a stored block is its bytes" {
-    assert.eq(text(assert.ok(unpacked([1, 3, 0, 252, 255, 97, 98, 99]))), "abc");
+    assert.equal(text(assert.ok(unpacked([1, 3, 0, 252, 255, 97, 98, 99]))), "abc");
 }
 
 test "a fixed-Huffman block" {
-    assert.eq(text(assert.ok(unpacked([75, 76, 74, 6, 0]))), "abc");
+    assert.equal(text(assert.ok(unpacked([75, 76, 74, 6, 0]))), "abc");
 }
 
 test "a dynamic-Huffman block, tree and all" {
-    assert.eq(text(assert.ok(unpacked(DYNAMIC))), DYNAMIC_TEXT);
+    assert.equal(text(assert.ok(unpacked(DYNAMIC))), DYNAMIC_TEXT);
 }
 
 test "more than one block in a stream" {
-    assert.eq(text(assert.ok(unpacked(MULTIBLOCK))), "first second");
+    assert.equal(text(assert.ok(unpacked(MULTIBLOCK))), "first second");
 }
 
 // --- What `inflate` refuses -----------------------------------------------------
 
 test "nothing at all is not a stream" {
-    assert.eq(assert.err(unpacked(list.empty<U8>())), DecodeError(0));
+    assert.equal(assert.err(unpacked(list.empty<U8>())), DecodeError(0));
 }
 
 test "there is no fourth block type" {
     // `111`: a final block of type 11, which RFC 1951 reserves.
-    assert.eq(assert.err(unpacked([7])), DecodeError(0));
+    assert.equal(assert.err(unpacked([7])), DecodeError(0));
 }
 
 test "a stream that stops mid-symbol" {
-    assert.eq(assert.err(unpacked([75, 76])), DecodeError(2));
+    assert.equal(assert.err(unpacked([75, 76])), DecodeError(2));
 }
 
 test "a stored block whose complement does not complement" {
-    assert.eq(assert.err(unpacked([1, 3, 0, 0, 0, 97, 98, 99])), DecodeError(5));
+    assert.equal(assert.err(unpacked([1, 3, 0, 0, 0, 97, 98, 99])), DecodeError(5));
 }
 
 test "a match that copies from before the start" {
     // One literal, then a length of 3 at a distance of 5, with one byte written.
-    assert.eq(assert.err(unpacked([75, 4, 18, 0])), DecodeError(3));
+    assert.equal(assert.err(unpacked([75, 4, 18, 0])), DecodeError(3));
 }
 
 // --- gzip -----------------------------------------------------------------------
 
 test "a gzip member from gzip itself" {
-    assert.eq(text(assert.ok(unwrapped(GZIP_HELLO))), "hello, gzip\n");
+    assert.equal(text(assert.ok(unwrapped(GZIP_HELLO))), "hello, gzip\n");
 }
 
 test "a header carrying a file name is read past" {
-    assert.eq(text(assert.ok(unwrapped(GZIP_NAMED))), "named member");
+    assert.equal(text(assert.ok(unwrapped(GZIP_NAMED))), "named member");
 }
 
 test "what gzip writes, gunzip reads" {
     let raw = octets(DYNAMIC_TEXT);
-    assert.eq(assert.ok(unwrapped(wrapped(raw))), raw);
-    assert.eq(assert.ok(unwrapped(wrapped(list.empty<U8>()))), list.empty<U8>());
+    assert.equal(assert.ok(unwrapped(wrapped(raw))), raw);
+    assert.equal(assert.ok(unwrapped(wrapped(list.empty<U8>()))), list.empty<U8>());
 }
 
 test "the header is the fixed ten bytes RFC 1952 asks for" {
@@ -454,7 +454,7 @@ test "the header is the fixed ten bytes RFC 1952 asks for" {
         Allocator: alloc(),
     };
     let member = wrapped(octets("x"));
-    assert.eq(member.take(ctx, 10), [31, 139, 8, 0, 0, 0, 0, 0, 0, 255]);
+    assert.equal(member.take(ctx, 10), [31, 139, 8, 0, 0, 0, 0, 0, 0, 255]);
 }
 
 test "a member is not a member without its magic number" {
@@ -462,29 +462,29 @@ test "a member is not a member without its magic number" {
         Allocator: alloc(),
     };
     let zeroes: [U8] = list.repeat(ctx, 0, 24);
-    assert.eq(assert.err(unwrapped(zeroes)), DecodeError(0));
+    assert.equal(assert.err(unwrapped(zeroes)), DecodeError(0));
 }
 
 test "a member shorter than a header" {
-    assert.eq(assert.err(unwrapped([31, 139])), DecodeError(0));
+    assert.equal(assert.err(unwrapped([31, 139])), DecodeError(0));
 }
 
 test "a compression method that is not DEFLATE" {
-    assert.eq(assert.err(unwrapped(changed(GZIP_HELLO, 2, 9))), DecodeError(2));
+    assert.equal(assert.err(unwrapped(changed(GZIP_HELLO, 2, 9))), DecodeError(2));
 }
 
 test "a trailer that does not match what came out" {
     // The last eight bytes are the CRC-32 and the length, in that order.
-    assert.eq(assert.err(unwrapped(changed(GZIP_HELLO, 24, 0))), DecodeError(24));
-    assert.eq(assert.err(unwrapped(changed(GZIP_HELLO, 28, 9))), DecodeError(28));
+    assert.equal(assert.err(unwrapped(changed(GZIP_HELLO, 24, 0))), DecodeError(24));
+    assert.equal(assert.err(unwrapped(changed(GZIP_HELLO, 28, 9))), DecodeError(28));
 }
 
 // --- A large input ---------------------------------------------------------------
 
 test "six kilobytes there and back, through both wrappers" {
     let raw = large();
-    assert.eq(assert.ok(unpacked(packed(raw))), raw);
-    assert.eq(assert.ok(unwrapped(wrapped(raw))), raw);
+    assert.equal(assert.ok(unpacked(packed(raw))), raw);
+    assert.equal(assert.ok(unwrapped(wrapped(raw))), raw);
 }
 
 test "and it actually compresses" {
@@ -611,12 +611,12 @@ let GZIP_TWO_MEMBERS: [U8] = [
 
 test "one byte there and back, through both wrappers" {
     let one: [U8] = [7];
-    assert.eq(assert.ok(unpacked(packed(one))), one);
-    assert.eq(assert.ok(unwrapped(wrapped(one))), one);
+    assert.equal(assert.ok(unpacked(packed(one))), one);
+    assert.equal(assert.ok(unwrapped(wrapped(one))), one);
     // Every byte value, one member each, is more than this suite needs; the two
     // ends of the range are the ones a signed/unsigned slip would break.
-    assert.eq(assert.ok(unwrapped(wrapped([0]))), [0]);
-    assert.eq(assert.ok(unwrapped(wrapped([255]))), [255]);
+    assert.equal(assert.ok(unwrapped(wrapped([0]))), [0]);
+    assert.equal(assert.ok(unwrapped(wrapped([255]))), [255]);
 }
 
 test "an input of nothing but zeroes" {
@@ -624,8 +624,8 @@ test "an input of nothing but zeroes" {
         Allocator: alloc(),
     };
     let zeroes: [U8] = list.repeat(ctx, 0, 4096);
-    assert.eq(assert.ok(unpacked(packed(zeroes))), zeroes);
-    assert.eq(assert.ok(unwrapped(wrapped(zeroes))), zeroes);
+    assert.equal(assert.ok(unpacked(packed(zeroes))), zeroes);
+    assert.equal(assert.ok(unwrapped(wrapped(zeroes))), zeroes);
     // One run: this is the case a back-reference is for.
     assert.lt(packed(zeroes).len(), 64);
 }
@@ -635,8 +635,8 @@ test "an input nothing can compress still round-trips" {
         Allocator: alloc(),
     };
     let noise = random.seeded(20260907).nextBytes(ctx, 1200).0;
-    assert.eq(assert.ok(unpacked(packed(noise))), noise);
-    assert.eq(assert.ok(unwrapped(wrapped(noise))), noise);
+    assert.equal(assert.ok(unpacked(packed(noise))), noise);
+    assert.equal(assert.ok(unwrapped(wrapped(noise))), noise);
     // A fixed-Huffman block over eight-bit noise costs about a bit a byte, and
     // this pins that it does not run away.
     assert.lt(packed(noise).len(), noise.len() * 3 / 2);
@@ -663,9 +663,9 @@ test "a match at the window's last distance is taken, and one past it is not" {
     let tooFar = spanning(32759);
     let atTheEdge = packed(reachable);
     let pastIt = packed(tooFar);
-    assert.eq(reachable.len(), 32778);
-    assert.eq(assert.ok(unpacked(atTheEdge)), reachable);
-    assert.eq(assert.ok(unpacked(pastIt)), tooFar);
+    assert.equal(reachable.len(), 32778);
+    assert.equal(assert.ok(unpacked(atTheEdge)), reachable);
+    assert.equal(assert.ok(unpacked(pastIt)), tooFar);
     // The one that could reach back is the smaller stream.
     assert.lt(atTheEdge.len(), pastIt.len());
 }
@@ -682,25 +682,25 @@ test "a stored block reaches its 65535-byte limit and the next one carries the r
     let opening: [U8] = [0, 255, 255, 0, 0];
     let closing: [U8] = [1, 3, 0, 252, 255];
     let stream = opening.concat(ctx, first).concat(ctx, closing).concat(ctx, rest);
-    assert.eq(assert.ok(unpacked(stream)), first.concat(ctx, rest));
+    assert.equal(assert.ok(unpacked(stream)), first.concat(ctx, rest));
 }
 
 test "a stored block holding nothing at all" {
-    assert.eq(assert.ok(unpacked([1, 0, 0, 255, 255])), list.empty<U8>());
+    assert.equal(assert.ok(unpacked([1, 0, 0, 255, 255])), list.empty<U8>());
 }
 
 // --- What `inflate` refuses, in the dynamic header ------------------------------------
 
 test "a code-length alphabet that claims more codes than there is room for" {
     // Four codes of length one, where a binary tree has room for two.
-    assert.eq(assert.err(unpacked([5, 0, 146, 4])), DecodeError(3));
+    assert.equal(assert.err(unpacked([5, 0, 146, 4])), DecodeError(3));
 }
 
 test "a dynamic block claiming more codes than the format has" {
     // HLIT of 30 asks for 287 literal codes and there are 286.
-    assert.eq(assert.err(unpacked([245, 0, 0])), DecodeError(2));
+    assert.equal(assert.err(unpacked([245, 0, 0])), DecodeError(2));
     // HDIST of 30 asks for 31 distance codes and there are 30.
-    assert.eq(assert.err(unpacked([5, 30, 0])), DecodeError(2));
+    assert.equal(assert.err(unpacked([5, 30, 0])), DecodeError(2));
 }
 
 test "bytes after the final block are not read" {
@@ -708,27 +708,27 @@ test "bytes after the final block are not read" {
         Allocator: alloc(),
     };
     let trailing: [U8] = [75, 76, 74, 6, 0, 1, 2, 3];
-    assert.eq(text(assert.ok(unpacked(trailing))), "abc");
+    assert.equal(text(assert.ok(unpacked(trailing))), "abc");
     let _ = ctx;
 }
 
 // --- gzip, the rest of its header and the ways a member ends early -----------------------
 
 test "a header carrying every optional field is read past" {
-    assert.eq(text(assert.ok(unwrapped(GZIP_EVERY_FLAG))), "flagged member");
+    assert.equal(text(assert.ok(unwrapped(GZIP_EVERY_FLAG))), "flagged member");
 }
 
 test "two members in one file check the first against the second's trailer" {
     // The trailer is the last eight bytes, so a second member's is the one the
     // first member's output is compared against — and it does not match.
-    assert.eq(assert.err(unwrapped(GZIP_TWO_MEMBERS)), DecodeError(44));
+    assert.equal(assert.err(unwrapped(GZIP_TWO_MEMBERS)), DecodeError(44));
 }
 
 test "a member whose compressed body was cut" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(assert.err(unwrapped(GZIP_HELLO.take(ctx, 20))), DecodeError(20));
+    assert.equal(assert.err(unwrapped(GZIP_HELLO.take(ctx, 20))), DecodeError(20));
 }
 
 test "a member whose trailer was cut" {
@@ -736,7 +736,7 @@ test "a member whose trailer was cut" {
         Allocator: alloc(),
     };
     // The stream inflates, and then runs past where the trailer has to start.
-    assert.eq(assert.err(unwrapped(GZIP_HELLO.take(ctx, 28))), DecodeError(24));
+    assert.equal(assert.err(unwrapped(GZIP_HELLO.take(ctx, 28))), DecodeError(24));
 }
 
 test "a member of exactly the length the header check allows" {
@@ -744,5 +744,5 @@ test "a member of exactly the length the header check allows" {
         Allocator: alloc(),
     };
     let seventeen = GZIP_HELLO.take(ctx, 17);
-    assert.eq(assert.err(unwrapped(seventeen)), DecodeError(0));
+    assert.equal(assert.err(unwrapped(seventeen)), DecodeError(0));
 }

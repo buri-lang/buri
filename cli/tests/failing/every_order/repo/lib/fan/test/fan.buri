@@ -33,7 +33,7 @@ test "a fault ends the block at the task it names" {
         Tasks: scheduler,
     };
     // Task 0 runs; task 1 is the one the plan fails, and nothing after it starts.
-    assert.eq(labelled(ctx, [1, 2, 3]), [1, 102, 203]);
+    assert.equal(labelled(ctx, [1, 2, 3]), [1, 102, 203]);
 }
 
 test "a fault whose task is never reached fails the test" {
@@ -42,7 +42,7 @@ test "a fault whose task is never reached fails the test" {
         Allocator: alloc(),
         Tasks: scheduler,
     };
-    assert.eq(labelled(ctx, [1, 2]), [1, 102]);
+    assert.equal(labelled(ctx, [1, 2]), [1, 102]);
 }
 
 test "everyOrder over seven spawned tasks is refused" {
@@ -57,7 +57,7 @@ test "everyOrder over seven spawned tasks is refused" {
     // fourth claim no passing block can make about itself, because the block
     // that reaches it does not come back.
     let _ = tasks.scope(ctx, fn(c, here) => spawnEach(c, here, 7));
-    assert.eq(scheduler.runs(), 1);
+    assert.equal(scheduler.runs(), 1);
 }
 
 /// Spawns `left` tasks, which do nothing: what is under test is how many there

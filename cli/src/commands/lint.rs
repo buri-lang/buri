@@ -2623,7 +2623,7 @@ fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
 /// dead bound there is dead on the *trait*), and a `ctx` whose type is not a
 /// type parameter, which has no bound list to trim. The scope is narrowed once
 /// more, to a parameter carrying at least one `effect`: that is what makes it
-/// a context, and `T: Eq` on ordinary data is a different question with a
+/// a context, and `T: Equal` on ordinary data is a different question with a
 /// different answer.
 ///
 /// The fourth is the one place this rule is *less* able than that one: **a

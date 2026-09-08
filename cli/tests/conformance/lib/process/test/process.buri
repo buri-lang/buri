@@ -20,8 +20,8 @@ from "core/testing/assert" import * as assert;
 
 test "a command names a program and its arguments, and nothing else" {
     let one = process.command("git", ["describe", "--tags"]);
-    assert.eq(one.program, "git");
-    assert.eq(one.arguments, ["describe", "--tags"]);
+    assert.equal(one.program, "git");
+    assert.equal(one.arguments, ["describe", "--tags"]);
     assert.none(one.workingDirectory);
     assert.none(one.environment);
     assert.none(one.stdin);
@@ -29,8 +29,8 @@ test "a command names a program and its arguments, and nothing else" {
 
 test "a command with no arguments is a command" {
     let bare = process.command("true", []);
-    assert.eq(bare.arguments, []);
-    assert.eq(bare, process.command("true", []));
+    assert.equal(bare.arguments, []);
+    assert.equal(bare, process.command("true", []));
 }
 
 // -----------------------------------------------------------------------------
@@ -43,11 +43,11 @@ test "a double that was told nothing refuses" {
         Allocator: alloc(),
         Spawn: runner,
     };
-    assert.eq(
+    assert.equal(
         assert.err(process.run(ctx, process.command("git", ["--version"]))),
         .NotFound,
     );
-    assert.eq(runner.calls(), [spawned("git", ["--version"])]);
+    assert.equal(runner.calls(), [spawned("git", ["--version"])]);
 }
 
 test "a scripted output comes back whole" {
@@ -57,7 +57,7 @@ test "a scripted output comes back whole" {
         Allocator: alloc(),
         Spawn: runner,
     };
-    assert.eq(assert.ok(process.run(ctx, process.command("echo", ["hi"]))), answer);
+    assert.equal(assert.ok(process.run(ctx, process.command("echo", ["hi"]))), answer);
 }
 
 test "a non-zero exit is an answer rather than an error" {
@@ -67,8 +67,8 @@ test "a non-zero exit is an answer rather than an error" {
         Spawn: runner,
     };
     let done = assert.ok(process.run(ctx, process.command("false", [])));
-    assert.eq(done.code, 3);
-    assert.eq(done.stderr, [33]);
+    assert.equal(done.code, 3);
+    assert.equal(done.stderr, [33]);
 }
 
 test "a scripted failure is the failure" {
@@ -77,7 +77,7 @@ test "a scripted failure is the failure" {
         Allocator: alloc(),
         Spawn: runner,
     };
-    assert.eq(
+    assert.equal(
         assert.err(process.run(ctx, process.command("sh", []))),
         .PermissionDenied,
     );
@@ -91,7 +91,7 @@ test "every run is a call the log has, in order" {
     };
     let _ = assert.ok(process.run(ctx, process.command("a", ["1"])));
     let _ = assert.ok(process.run(ctx, process.command("b", [])));
-    assert.eq(runner.calls(), [spawned("a", ["1"]), spawned("b", [])]);
+    assert.equal(runner.calls(), [spawned("a", ["1"]), spawned("b", [])]);
 }
 
 test "an argument reaches the log exactly as it was written" {
@@ -105,7 +105,7 @@ test "an argument reaches the log exactly as it was written" {
     };
     let arguments = ["", "two words", "--message=it's \"quoted\"", "café", ";rm -rf /"];
     let _ = assert.ok(process.run(ctx, process.command("tool", arguments)));
-    assert.eq(runner.calls(), [spawned("tool", arguments)]);
+    assert.equal(runner.calls(), [spawned("tool", arguments)]);
 }
 
 test "a program named by a path is the program, separators and all" {
@@ -116,7 +116,7 @@ test "a program named by a path is the program, separators and all" {
     };
     let _ = assert.ok(process.run(ctx, process.command("/usr/bin/env", [])));
     let _ = assert.ok(process.run(ctx, process.command("./build/tool", ["x"])));
-    assert.eq(runner.calls(), [
+    assert.equal(runner.calls(), [
         spawned("/usr/bin/env", []),
         spawned("./build/tool", ["x"]),
     ]);
@@ -133,9 +133,9 @@ test "a child that wrote to both streams is read back from both" {
         Spawn: runner,
     };
     let done = assert.ok(process.run(ctx, process.command("noisy", [])));
-    assert.eq(done.code, 2);
-    assert.eq(done.stdout, [111, 117, 116]);
-    assert.eq(done.stderr, [101]);
+    assert.equal(done.code, 2);
+    assert.equal(done.stdout, [111, 117, 116]);
+    assert.equal(done.stderr, [101]);
 }
 
 test "a run that failed is still a run the log has, and the next one runs" {
@@ -146,9 +146,9 @@ test "a run that failed is still a run the log has, and the next one runs" {
         Allocator: alloc(),
         Spawn: runner,
     };
-    assert.eq(assert.err(process.run(ctx, process.command("first", []))), .NotFound);
-    assert.eq(assert.err(process.run(ctx, process.command("second", []))), .NotFound);
-    assert.eq(runner.calls(), [spawned("first", []), spawned("second", [])]);
+    assert.equal(assert.err(process.run(ctx, process.command("first", []))), .NotFound);
+    assert.equal(assert.err(process.run(ctx, process.command("second", []))), .NotFound);
+    assert.equal(runner.calls(), [spawned("first", []), spawned("second", [])]);
 }
 
 test "the three optional fields reach the effect without changing what is logged" {
@@ -165,7 +165,7 @@ test "the three optional fields reach the effect without changing what is logged
         stdin: .Some([1, 2]),
     };
     let _ = assert.ok(process.run(ctx, full));
-    assert.eq(runner.calls(), [spawned("make", ["-j", "4"])]);
+    assert.equal(runner.calls(), [spawned("make", ["-j", "4"])]);
 }
 
 // -----------------------------------------------------------------------------
@@ -179,7 +179,7 @@ test "which walks PATH and answers the first that is there" {
         Environment: env().variables([("PATH", "/opt/bin:/usr/bin")]),
         FileSystemRead: files,
     };
-    assert.eq(assert.some(process.which(ctx, "git")), path.of(ctx, "/opt/bin/git"));
+    assert.equal(assert.some(process.which(ctx, "git")), path.of(ctx, "/opt/bin/git"));
 }
 
 test "which answers nothing where nothing on PATH is called that" {
@@ -199,7 +199,7 @@ test "a program with a separator in it names a file directly" {
         Environment: env().variables([("PATH", "/usr/bin")]),
         FileSystemRead: files,
     };
-    assert.eq(
+    assert.equal(
         assert.some(process.which(ctx, "build/tool")),
         path.of(ctx, "build/tool"),
     );
@@ -223,7 +223,7 @@ test "an absolute program names a file directly, and PATH is not consulted" {
         Environment: env().variables([("PATH", "/usr/bin")]),
         FileSystemRead: files,
     };
-    assert.eq(assert.some(process.which(ctx, "/opt/git")), path.of(ctx, "/opt/git"));
+    assert.equal(assert.some(process.which(ctx, "/opt/git")), path.of(ctx, "/opt/git"));
     assert.none(process.which(ctx, "/opt/missing"));
 }
 
@@ -237,7 +237,7 @@ test "an empty PATH is one empty entry, which is where the process stands" {
         Environment: env().variables([("PATH", "")]),
         FileSystemRead: files,
     };
-    assert.eq(assert.some(process.which(ctx, "tool")), path.of(ctx, "tool"));
+    assert.equal(assert.some(process.which(ctx, "tool")), path.of(ctx, "tool"));
     assert.none(process.which(ctx, "git"));
 }
 
@@ -248,7 +248,7 @@ test "an empty entry in the middle of PATH is the same current directory" {
         Environment: env().variables([("PATH", "/usr/bin::/opt/bin")]),
         FileSystemRead: files,
     };
-    assert.eq(assert.some(process.which(ctx, "tool")), path.of(ctx, "tool"));
+    assert.equal(assert.some(process.which(ctx, "tool")), path.of(ctx, "tool"));
 }
 
 test "a directory on PATH with the program's name answers as a path" {
@@ -268,7 +268,7 @@ test "a directory on PATH with the program's name answers as a path" {
         Environment: env().variables([("PATH", "/usr/bin")]),
         FileSystemRead: files,
     };
-    assert.eq(assert.some(process.which(ctx, "git")), path.of(ctx, "/usr/bin/git"));
+    assert.equal(assert.some(process.which(ctx, "git")), path.of(ctx, "/usr/bin/git"));
 }
 
 test "the first entry that has it wins, and a trailing separator changes nothing" {
@@ -278,5 +278,5 @@ test "the first entry that has it wins, and a trailing separator changes nothing
         Environment: env().variables([("PATH", "/none:/a/:/b")]),
         FileSystemRead: files,
     };
-    assert.eq(assert.some(process.which(ctx, "tool")), path.of(ctx, "/a/tool"));
+    assert.equal(assert.some(process.which(ctx, "tool")), path.of(ctx, "/a/tool"));
 }

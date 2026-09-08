@@ -49,7 +49,7 @@ from "core/bits" import * as bits;
 from "core/math" import * as math;
 from "core/number" import * as number;
 
-derive Eq, Show for F32x4;
+derive Equal, Show for F32x4;
 /// Four floats.
 export struct F32x4 {
     export x: Float,
@@ -58,7 +58,7 @@ export struct F32x4 {
     export w: Float,
 }
 
-derive Eq, Show for I32x4;
+derive Equal, Show for I32x4;
 /// Four integers.
 export struct I32x4 {
     export x: Int,
@@ -118,20 +118,20 @@ impl F32x4 {
         F32x4 { x: self.x + o.x, y: self.y + o.y, z: self.z + o.z, w: self.w + o.w }
     }
 
-    export fn sub(self, o: F32x4): F32x4 {
+    export fn subtract(self, o: F32x4): F32x4 {
         F32x4 { x: self.x - o.x, y: self.y - o.y, z: self.z - o.z, w: self.w - o.w }
     }
 
-    export fn mul(self, o: F32x4): F32x4 {
+    export fn multiply(self, o: F32x4): F32x4 {
         F32x4 { x: self.x * o.x, y: self.y * o.y, z: self.z * o.z, w: self.w * o.w }
     }
 
-    export fn div(self, o: F32x4): F32x4 {
+    export fn divide(self, o: F32x4): F32x4 {
         F32x4 { x: self.x / o.x, y: self.y / o.y, z: self.z / o.z, w: self.w / o.w }
     }
 
     export fn scale(self, k: Float): F32x4 {
-        self.mul(splatF(k))
+        self.multiply(splatF(k))
     }
 
     export fn min(self, o: F32x4): F32x4 {
@@ -161,7 +161,7 @@ impl F32x4 {
         }
     }
 
-    export fn neg(self): F32x4 {
+    export fn negate(self): F32x4 {
         F32x4 { x: -self.x, y: -self.y, z: -self.z, w: -self.w }
     }
 
@@ -181,7 +181,7 @@ impl F32x4 {
     }
 
     export fn dot(self, o: F32x4): Float {
-        self.mul(o).sum()
+        self.multiply(o).sum()
     }
 
     /// The lane-wise comparison, as a mask of 1 and 0 rather than booleans —
@@ -245,11 +245,11 @@ impl I32x4 {
         I32x4 { x: self.x + o.x, y: self.y + o.y, z: self.z + o.z, w: self.w + o.w }
     }
 
-    export fn sub(self, o: I32x4): I32x4 {
+    export fn subtract(self, o: I32x4): I32x4 {
         I32x4 { x: self.x - o.x, y: self.y - o.y, z: self.z - o.z, w: self.w - o.w }
     }
 
-    export fn mul(self, o: I32x4): I32x4 {
+    export fn multiply(self, o: I32x4): I32x4 {
         I32x4 { x: self.x * o.x, y: self.y * o.y, z: self.z * o.z, w: self.w * o.w }
     }
 
@@ -276,7 +276,7 @@ impl I32x4 {
     }
 
     export fn dot(self, o: I32x4): Int {
-        self.mul(o).sum()
+        self.multiply(o).sum()
     }
 
     export fn and(self, o: I32x4): I32x4 {
@@ -365,7 +365,7 @@ impl F32x4 {
     /// different bits on a backend that has the instruction and a backend that
     /// does not.
     export fn mulAdd(self, multiplier: F32x4, addend: F32x4): F32x4 {
-        self.mul(multiplier).add(addend)
+        self.multiply(multiplier).add(addend)
     }
 
     /// Each lane truncated toward zero.

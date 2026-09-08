@@ -591,7 +591,7 @@ struct SymbolClash<'a> {
 /// "the backend declares the runtime import and defines nothing"
 /// (`backend/llvm/emit.rs`) — so two of them under one key are two names for
 /// one runtime entry rather than two bodies fighting over a symbol. `Str`'s
-/// `compare` is reached both inherently and through `Ord` and is a live
+/// `compare` is reached both inherently and through `Ordered` and is a live
 /// example. `language::symbols` sweeps the corpus with the same exclusion, and
 /// the two have to agree: this one is the invariant on every program the
 /// toolchain ever compiles, and that one is the invariant on programs nobody
@@ -1767,8 +1767,8 @@ impl Monomorphizer<'_> {
         let mut all = args;
         all.push(desc_arg);
         match (name.as_str(), method) {
-            ("Eq", _) => ExprKind::Intrinsic { name: "structuralEq".into(), targs: Vec::new(), args: all },
-            ("Ord", _) => {
+            ("Equal", _) => ExprKind::Intrinsic { name: "structuralEq".into(), targs: Vec::new(), args: all },
+            ("Ordered", _) => {
                 ExprKind::Intrinsic { name: "structuralCompare".into(), targs: Vec::new(), args: all }
             }
             // `show` and `toJson` each take a context they do not use here:
@@ -1789,7 +1789,7 @@ impl Monomorphizer<'_> {
             }
             // The operator traits derived on a newtype: apply the operation to
             // the wrapped value and rewrap.
-            (op @ ("Add" | "Sub" | "Mul" | "Div" | "Rem" | "Neg"), _) => {
+            (op @ ("Add" | "Subtract" | "Multiply" | "Divide" | "Remainder" | "Negate"), _) => {
                 self.derived_operator(op, recv, all, span)
             }
             _ => {
@@ -1846,10 +1846,10 @@ impl Monomorphizer<'_> {
         };
         let prim_op = match op {
             "Add" => typed::PrimOp::Add,
-            "Sub" => typed::PrimOp::Sub,
-            "Mul" => typed::PrimOp::Mul,
-            "Div" => typed::PrimOp::Div,
-            "Rem" => typed::PrimOp::Rem,
+            "Subtract" => typed::PrimOp::Sub,
+            "Multiply" => typed::PrimOp::Mul,
+            "Divide" => typed::PrimOp::Div,
+            "Remainder" => typed::PrimOp::Rem,
             _ => typed::PrimOp::Neg,
         };
         let unwrapped: Vec<typed::Expr> = args
@@ -1883,7 +1883,7 @@ impl Monomorphizer<'_> {
     }
 
     /// Interns a runtime type descriptor. Field names and variant names are
-    /// what `show` needs; `eq` and `compare` need the shape.
+    /// what `show` needs; `equal` and `compare` need the shape.
     fn descriptor(&mut self, ty: &Ty) -> usize {
         if let Some(i) = self.desc_index.get(ty) {
             return *i;
@@ -2832,12 +2832,12 @@ mod tests {
         }
     }
 
-    /// And says nothing about anything else in `core/number`. `hash`, `eq` and
+    /// And says nothing about anything else in `core/number`. `hash`, `equal` and
     /// `compare` are minted with no generics at all, so they never reach the
     /// check — this pins that widening the family would take an edit.
     #[test]
     fn the_primitive_family_is_those_two_methods_and_no_others() {
-        for key in ["number.I64.hash", "number.I64.eq", "number.F64.compare", "number.I64.showOff"] {
+        for key in ["number.I64.hash", "number.I64.equal", "number.F64.compare", "number.I64.showOff"] {
             assert!(!generic_intrinsic_allowed(key), "`{key}` was let through");
         }
         // A type that is not a primitive, spelled into the same shape.
@@ -2965,7 +2965,7 @@ mod tests {
 
     /// An intrinsic defines nothing, so two of them under one key are two
     /// names for one runtime entry. `Str.compare`, reached both inherently and
-    /// through `Ord`, is the live example — and the exclusion has to be the
+    /// through `Ordered`, is the live example — and the exclusion has to be the
     /// one `language::symbols` makes, or a green corpus and a passing compiler
     /// would be saying different things.
     #[test]

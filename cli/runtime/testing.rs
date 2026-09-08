@@ -141,7 +141,7 @@ enum Slot {
     ///
     /// The plan itself is a Buri value and stays in the program — an `IoError`
     /// is a value `lib.rs` §2.1 cannot hand back across a row, so matching is
-    /// the `Eq` the `Call` records derive and happens there. What is here is the
+    /// the `Equal` the `Call` records derive and happens there. What is here is the
     /// half a program cannot keep: a `test` block has returned by the time
     /// anyone could ask whether every fault it planned was used, so
     /// [`buri_rt_test_leave`] asks on its behalf.
@@ -3075,7 +3075,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_spelled(
 // The fault plan's promise
 // ---------------------------------------------------------------------------
 //
-// The plan itself is a Buri value and is matched there, by the `Eq` the `Call`
+// The plan itself is a Buri value and is matched there, by the `Equal` the `Call`
 // records derive: an `IoError` carries a `Str` on `.Other` and `lib.rs` §2.1
 // cannot name an error variant that carries anything, so a plan the archive held
 // could not hand its errors back. What is here is the half a program cannot
@@ -3173,7 +3173,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_add_fs_fault(
 
 /// `addNetFault(handle, url)` — the call half of one entry of a network's plan.
 ///
-/// The URL and not the whole request: matching is `NetCall`'s derived `Eq` and
+/// The URL and not the whole request: matching is `NetCall`'s derived `Equal` and
 /// reads every field of it, and a message that named every header would be a
 /// paragraph where a reader wants a line.
 ///

@@ -30,22 +30,22 @@ fn dial(ctx: TestTcp): Result<Stream, IoError> {
 test "connect wraps the handle the effect answered" {
     let peer = tcp();
     let dialled = assert.ok(dial(peer));
-    assert.eq(dialled.0, 1);
-    assert.eq(peer.calls(), [testing.tcpConnect("db.test", 6379, 1)]);
+    assert.equal(dialled.0, 1);
+    assert.equal(peer.calls(), [testing.tcpConnect("db.test", 6379, 1)]);
 }
 
 test "a second dial through one double is a second stream" {
     let peer = tcp();
-    assert.eq(assert.ok(dial(peer)).0, 1);
-    assert.eq(assert.ok(dial(peer)).0, 2);
-    assert.eq(peer.calls(), [
+    assert.equal(assert.ok(dial(peer)).0, 1);
+    assert.equal(assert.ok(dial(peer)).0, 2);
+    assert.equal(peer.calls(), [
         testing.tcpConnect("db.test", 6379, 1),
         testing.tcpConnect("db.test", 6379, 2),
     ]);
 }
 
 test "a fresh double has recorded nothing" {
-    assert.eq(tcp().calls(), list.empty<testing.TcpCall>());
+    assert.equal(tcp().calls(), list.empty<testing.TcpCall>());
 }
 
 // --- Reading ---------------------------------------------------------------------
@@ -57,9 +57,9 @@ test "a read takes a prefix of the script, and the log says what was asked for" 
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
-    assert.eq(assert.ok(dialled.read(ctx, 2)), [80, 79]);
-    assert.eq(assert.ok(dialled.read(ctx, 99)), [78, 71, 10]);
-    assert.eq(peer.calls(), [
+    assert.equal(assert.ok(dialled.read(ctx, 2)), [80, 79]);
+    assert.equal(assert.ok(dialled.read(ctx, 99)), [78, 71, 10]);
+    assert.equal(peer.calls(), [
         testing.tcpConnect("db.test", 6379, 1),
         testing.tcpRead(1, 2),
         testing.tcpRead(1, 99),
@@ -73,8 +73,8 @@ test "a script that has run out is the far side closing" {
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
-    assert.eq(assert.ok(dialled.read(ctx, 8)), [65]);
-    assert.eq(assert.ok(dialled.read(ctx, 8)), list.empty<U8>());
+    assert.equal(assert.ok(dialled.read(ctx, 8)), [65]);
+    assert.equal(assert.ok(dialled.read(ctx, 8)), list.empty<U8>());
 }
 
 test "a double with no script reads nothing at all" {
@@ -84,7 +84,7 @@ test "a double with no script reads nothing at all" {
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
-    assert.eq(assert.ok(dialled.read(ctx, 8)), list.empty<U8>());
+    assert.equal(assert.ok(dialled.read(ctx, 8)), list.empty<U8>());
 }
 
 test "bytes answers a new double and leaves the receiver alone" {
@@ -95,10 +95,10 @@ test "bytes answers a new double and leaves the receiver alone" {
         Tcp: empty,
     };
     let dialled = assert.ok(dial(empty));
-    assert.eq(assert.ok(dialled.read(ctx, 8)), list.empty<U8>());
+    assert.equal(assert.ok(dialled.read(ctx, 8)), list.empty<U8>());
     // And the scripted one is a world of its own: the dial above is not in its
     // log, and its script is still whole.
-    assert.eq(scripted.calls(), list.empty<testing.TcpCall>());
+    assert.equal(scripted.calls(), list.empty<testing.TcpCall>());
 }
 
 // --- Writing ---------------------------------------------------------------------
@@ -110,9 +110,9 @@ test "a write is recorded whole" {
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
-    assert.eq(assert.ok(dialled.write(ctx, [80, 73, 78, 71])), ());
-    assert.eq(assert.ok(dialled.write(ctx, list.empty<U8>())), ());
-    assert.eq(peer.calls(), [
+    assert.equal(assert.ok(dialled.write(ctx, [80, 73, 78, 71])), ());
+    assert.equal(assert.ok(dialled.write(ctx, list.empty<U8>())), ());
+    assert.equal(peer.calls(), [
         testing.tcpConnect("db.test", 6379, 1),
         testing.tcpWrite(1, [80, 73, 78, 71]),
         testing.tcpWrite(1, list.empty<U8>()),
@@ -128,9 +128,9 @@ test "a closed stream is gone, and reading or writing it is NotFound" {
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
-    assert.eq(dialled.close(ctx), ());
-    assert.eq(assert.err(dialled.read(ctx, 4)), IoError.NotFound);
-    assert.eq(assert.err(dialled.write(ctx, [65])), IoError.NotFound);
+    assert.equal(dialled.close(ctx), ());
+    assert.equal(assert.err(dialled.read(ctx, 4)), IoError.NotFound);
+    assert.equal(assert.err(dialled.write(ctx, [65])), IoError.NotFound);
 }
 
 test "closing one twice is a call that happened twice" {
@@ -140,9 +140,9 @@ test "closing one twice is a call that happened twice" {
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
-    assert.eq(dialled.close(ctx), ());
-    assert.eq(dialled.close(ctx), ());
-    assert.eq(peer.calls(), [
+    assert.equal(dialled.close(ctx), ());
+    assert.equal(dialled.close(ctx), ());
+    assert.equal(peer.calls(), [
         testing.tcpConnect("db.test", 6379, 1),
         testing.tcpClose(1),
         testing.tcpClose(1),
@@ -156,11 +156,11 @@ test "a stream nobody dialled names nothing" {
         Tcp: peer,
     };
     let invented = Stream(41);
-    assert.eq(assert.err(invented.read(ctx, 4)), IoError.NotFound);
-    assert.eq(assert.err(invented.write(ctx, [65])), IoError.NotFound);
+    assert.equal(assert.err(invented.read(ctx, 4)), IoError.NotFound);
+    assert.equal(assert.err(invented.write(ctx, [65])), IoError.NotFound);
     // Closing one is nothing happening, and is still a call the log names.
-    assert.eq(invented.close(ctx), ());
-    assert.eq(peer.calls(), [testing.tcpClose(41)]);
+    assert.equal(invented.close(ctx), ());
+    assert.equal(peer.calls(), [testing.tcpClose(41)]);
 }
 
 // --- One exchange, whole -----------------------------------------------------------
@@ -175,8 +175,8 @@ test "a request and an answer, in the order they happened" {
     let _sent = dialled.write(ctx, [80, 73, 78, 71, 10]);
     let got = assert.ok(dialled.read(ctx, 64));
     let _closed = dialled.close(ctx);
-    assert.eq(got, PONG);
-    assert.eq(peer.calls(), [
+    assert.equal(got, PONG);
+    assert.equal(peer.calls(), [
         testing.tcpConnect("db.test", 6379, 1),
         testing.tcpWrite(1, [80, 73, 78, 71, 10]),
         testing.tcpRead(1, 64),

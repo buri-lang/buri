@@ -37,8 +37,8 @@
 //!
 //! | operation | cost |
 //! |---|---|
-//! | `add`, `sub` | O(n) |
-//! | `mul` | O(n·m) — schoolbook, one column at a time |
+//! | `add`, `subtract` | O(n) |
+//! | `multiply` | O(n·m) — schoolbook, one column at a time |
 //! | `quotientRemainder` | O(n·m·24) — schoolbook, with each quotient limb binary-searched |
 //! | `power` | O(log e) multiplications, so O((n·log e)²) at the top |
 //! | `modularPower` | O(bits(e) · m²) — square and multiply, reduced every round |
@@ -48,7 +48,7 @@
 //! and loses below, and nothing here needs the crossover yet.
 //!
 //! **The limit is about 32768 limbs**, a little over 236,000 decimal digits.
-//! `mul` sums a column of limb products in one `Int`, and past that many terms
+//! `multiply` sums a column of limb products in one `Int`, and past that many terms
 //! the column would overflow.
 
 from "core/character" import * as character;
@@ -56,7 +56,7 @@ from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/number" import { RangeError };
-from "core/order" import { Eq, Hash, Ord, Order };
+from "core/order" import { Equal, Hash, Ordered, Order };
 from "core/str" import * as str;
 
 /// A limb holds twenty-four bits. Two of them multiply to forty-eight, which
@@ -69,7 +69,7 @@ let DECIMAL_CHUNK: Int = 10000000;
 
 let DECIMAL_CHUNK_DIGITS: Int = 7;
 
-derive Eq, Hash for BigInt;
+derive Equal, Hash for BigInt;
 /// An integer of any size.
 ///
 /// Sign and magnitude: `limbs` is base-`2^24`, least significant first, with no
@@ -82,7 +82,7 @@ export struct BigInt {
 
 /// Numeric order, which a derived one would not be: `negative` sorts before
 /// `limbs` in the declaration and `-5` would come out above `3`.
-impl Ord for BigInt {
+impl Ordered for BigInt {
     fn compare(self, other: BigInt): Order {
         if (self.negative && !other.negative) {
             Order.Less
@@ -208,10 +208,10 @@ impl BigInt {
     /// from "core/effect" import { Allocator };
     ///
     /// export fn gap<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
-    ///     a.sub(ctx, b)
+    ///     a.subtract(ctx, b)
     /// }
     /// ```
-    export fn sub<C: Allocator>(self, ctx: C, other: BigInt): BigInt {
+    export fn subtract<C: Allocator>(self, ctx: C, other: BigInt): BigInt {
         self.add(ctx, other.negate())
     }
 
@@ -239,14 +239,14 @@ impl BigInt {
     /// from "core/effect" import { Allocator };
     ///
     /// export fn times<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
-    ///     a.mul(ctx, b)
+    ///     a.multiply(ctx, b)
     /// }
     /// ```
     ///
     /// Schoolbook, one output column at a time: each column is the sum of the
     /// limb products on a diagonal, and the carries are propagated once at the
     /// end rather than after every product. O(n·m).
-    export fn mul<C: Allocator>(self, ctx: C, other: BigInt): BigInt {
+    export fn multiply<C: Allocator>(self, ctx: C, other: BigInt): BigInt {
         if (self.limbs.isEmpty() || other.limbs.isEmpty()) {
             zero()
         } else {
@@ -390,7 +390,7 @@ impl BigInt {
                 if (self.negative) {
                     .Ok(below)
                 } else {
-                    match (0.checkedSub(below)) {
+                    match (0.checkedSubtract(below)) {
                         .None => .Err(tooBig()),
                         .Some(v) => .Ok(v),
                     }
@@ -645,12 +645,12 @@ fn squaring<C: Allocator>(ctx: C, base: BigInt, exponent: Int, acc: BigInt): Big
     if (exponent == 0) {
         acc
     } else {
-        let folded = if (exponent % 2 == 1) { acc.mul(ctx, base) } else { acc };
+        let folded = if (exponent % 2 == 1) { acc.multiply(ctx, base) } else { acc };
         let half = exponent / 2;
         if (half == 0) {
             folded
         } else {
-            squaring(ctx, base.mul(ctx, base), half, folded)
+            squaring(ctx, base.multiply(ctx, base), half, folded)
         }
     }
 }
@@ -683,7 +683,7 @@ fn climb<C: Allocator>(
     } else {
         let (rest, bit) = divModSmall(ctx, exponent, 2);
         let folded = if (bit == 1) {
-            residueOf(ctx, acc.mul(ctx, base), modulus)
+            residueOf(ctx, acc.multiply(ctx, base), modulus)
         } else {
             acc
         };
@@ -692,7 +692,7 @@ fn climb<C: Allocator>(
         } else {
             climb(
                 ctx,
-                residueOf(ctx, base.mul(ctx, base), modulus),
+                residueOf(ctx, base.multiply(ctx, base), modulus),
                 rest,
                 modulus,
                 folded,
@@ -719,8 +719,8 @@ fn fold(limbs: [Int], at: Int, acc: Int): Option<Int> {
         .Some(acc)
     } else {
         acc
-            .checkedMul(BASE)
-            .andThen(fn(scaled) => scaled.checkedSub(limbs.get(at).withDefault(0)))
+            .checkedMultiply(BASE)
+            .andThen(fn(scaled) => scaled.checkedSubtract(limbs.get(at).withDefault(0)))
             .andThen(fn(next) => fold(limbs, at - 1, next))
     }
 }

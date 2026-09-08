@@ -1,4 +1,4 @@
-derive Eq, Show for Cents;
+derive Equal, Show for Cents;
 export struct Cents(export I64);
 
 // Clean, and in a target of its own. Saving this is what used to erase the

@@ -70,7 +70,7 @@ impl<'a> Gen<'a> {
         // The four structural operations are defined for every primitive, and
         // the runtime implements them once rather than per type.
         match parts.last().copied() {
-            Some("eq") if args.len() == 2 => {
+            Some("equal") if args.len() == 2 => {
                 let (x, y) = (args.first()?, args.get(1)?);
                 Some(Expr::bin(BinOp::StrictEq, x.clone(), y.clone()))
             }
@@ -158,7 +158,7 @@ impl<'a> Gen<'a> {
                     Expr::cond(Expr::bin(BinOp::Gt, v, zero.clone()), one, zero),
                 ))
             }
-            "eq" => {
+            "equal" => {
                 let (x, y) = two()?;
                 Some(if from.is_float() {
                     crate::compiler::backend::js::generate::float_eq(x, y)
@@ -199,13 +199,13 @@ impl<'a> Gen<'a> {
                     Expr::call(Expr::ident("$str"), vec![v])
                 })
             }
-            "add" | "sub" | "mul" | "div" | "rem" | "neg" => {
+            "add" | "subtract" | "multiply" | "divide" | "remainder" | "negate" => {
                 let op = match name {
                     "add" => crate::compiler::semantics::typed::PrimOp::Add,
-                    "sub" => crate::compiler::semantics::typed::PrimOp::Sub,
-                    "mul" => crate::compiler::semantics::typed::PrimOp::Mul,
-                    "div" => crate::compiler::semantics::typed::PrimOp::Div,
-                    "rem" => crate::compiler::semantics::typed::PrimOp::Rem,
+                    "subtract" => crate::compiler::semantics::typed::PrimOp::Sub,
+                    "multiply" => crate::compiler::semantics::typed::PrimOp::Mul,
+                    "divide" => crate::compiler::semantics::typed::PrimOp::Div,
+                    "remainder" => crate::compiler::semantics::typed::PrimOp::Rem,
                     _ => crate::compiler::semantics::typed::PrimOp::Neg,
                 };
                 Some(self.prim_op_pub(op, from, args.to_vec()))
@@ -214,14 +214,14 @@ impl<'a> Gen<'a> {
             // alternatives, spelled out where they are used. The bound is the
             // type's own range on every backend, so a `.Some` is always a value
             // the answer really is and `.None` always means overflow.
-            "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv" => {
+            "checkedAdd" | "checkedSubtract" | "checkedMultiply" | "checkedDivide" => {
                 let (x, y) = two()?;
                 let (lo, hi) = from.int_range()?;
                 let bound = if from.is_bigint() { "$checkedInBig" } else { "$checkedIn" };
                 let op = match name {
                     "checkedAdd" => BinOp::Add,
-                    "checkedSub" => BinOp::Sub,
-                    "checkedMul" => BinOp::Mul,
+                    "checkedSubtract" => BinOp::Sub,
+                    "checkedMultiply" => BinOp::Mul,
                     _ => BinOp::Div,
                 };
                 let raw = if op == BinOp::Div {
@@ -253,7 +253,7 @@ impl<'a> Gen<'a> {
                 ))
             }
             // A remainder is smaller than what it came from, so the only way
-            // out is a zero divisor — `checkedDiv`'s shape without the
+            // out is a zero divisor — `checkedDivide`'s shape without the
             // `MIN / -1` case, which as a remainder is `0` and in range.
             "checkedRemainder" => {
                 let (x, y) = two()?;
@@ -289,7 +289,7 @@ impl<'a> Gen<'a> {
             }
             // A loop, so it is the runtime's rather than an expression: the
             // bound is tested after every multiplication, which is the same
-            // promise `checkedMul` makes at each step.
+            // promise `checkedMultiply` makes at each step.
             "checkedPower" => {
                 let (x, e) = two()?;
                 let (lo, hi) = from.int_range()?;
@@ -315,11 +315,11 @@ impl<'a> Gen<'a> {
             // 0xffffffff, 0xffffffff)` is 1, its exact product rounds to an
             // even double, and the wrap of that was 0 — so a product that can
             // leave 2^53 is computed in `BigInt` and wrapped there.
-            "wrappingAdd" | "wrappingSub" | "wrappingMul" => {
+            "wrappingAdd" | "wrappingSubtract" | "wrappingMultiply" => {
                 let (x, y) = two()?;
                 let (op, selector) = match name {
                     "wrappingAdd" => (BinOp::Add, 0.0),
-                    "wrappingSub" => (BinOp::Sub, 1.0),
+                    "wrappingSubtract" => (BinOp::Sub, 1.0),
                     _ => (BinOp::Mul, 2.0),
                 };
                 if from.is_bigint() {
@@ -341,11 +341,11 @@ impl<'a> Gen<'a> {
                     ],
                 ))
             }
-            "saturatingAdd" | "saturatingSub" | "saturatingMul" => {
+            "saturatingAdd" | "saturatingSubtract" | "saturatingMultiply" => {
                 let (x, y) = two()?;
                 let op = match name {
                     "saturatingAdd" => BinOp::Add,
-                    "saturatingSub" => BinOp::Sub,
+                    "saturatingSubtract" => BinOp::Sub,
                     _ => BinOp::Mul,
                 };
                 let (lo, hi) = from.int_range()?;

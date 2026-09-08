@@ -11,7 +11,7 @@ from "//bench/m0016.buri" import { blend16, Node16, reach16, seed16 };
 from "//bench/m0018.buri" import { blend18, Node18, reach18, seed18 };
 from "//bench/m0023.buri" import { blend23, Node23, reach23, seed23 };
 
-derive Eq, Show for Node25;
+derive Equal, Show for Node25;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node25 {
@@ -100,7 +100,7 @@ export fn probe25_2<C: Allocator>(ctx: C): Int {
     label25_2(ctx, a, e).len() + b
 }
 
-derive Eq, Show for Rec25_3;
+derive Equal, Show for Rec25_3;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec25_3 {
     export f0: Int,
@@ -125,7 +125,7 @@ export fn probe25_3<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for Rec25_4;
+derive Equal, Show for Rec25_4;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec25_4 {
     export f0: Int,
@@ -153,7 +153,7 @@ export fn probe25_4<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for Rec25_5;
+derive Equal, Show for Rec25_5;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec25_5 {
     export f0: Int,
@@ -179,7 +179,7 @@ export fn probe25_5<C: Allocator>(ctx: C): Int {
     r.scaled(3) + r.render(ctx).len()
 }
 
-derive Eq, Show for Rec25_6;
+derive Equal, Show for Rec25_6;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec25_6 {
     export f0: Int,
@@ -283,7 +283,7 @@ export fn probe25_10<C: Allocator>(ctx: C): Int {
     label25_10(ctx, a, e).len() + b
 }
 
-derive Eq, Show for State25_11;
+derive Equal, Show for State25_11;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State25_11 {
     Idle,

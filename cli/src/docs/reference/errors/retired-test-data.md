@@ -35,12 +35,12 @@ test "renders the statement" {
     };
     let at = path.of(ctx, "test/golden/statement.txt");
     let want = assert.ok(fs.readText(ctx, at));
-    assert.eq(render(), want);
+    assert.equal(render(), want);
 }
 ```
 
 If the golden is read straight back, the filesystem is doing nothing for it. The
-shorter spelling of the same test is `assert.eq(render(), "coffee  $4.50")`.
+shorter spelling of the same test is `assert.equal(render(), "coffee  $4.50")`.
 
 ## Why
 

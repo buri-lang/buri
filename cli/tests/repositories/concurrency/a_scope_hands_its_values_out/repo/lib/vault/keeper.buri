@@ -25,7 +25,7 @@ export enum Keep {
     Get,
 }
 
-derive Eq, Show for Kept;
+derive Equal, Show for Kept;
 export enum Kept {
     Stored,
     Held(Str),

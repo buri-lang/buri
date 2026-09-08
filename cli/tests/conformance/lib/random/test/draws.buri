@@ -25,7 +25,7 @@ test "a seed replays its own permutation" {
     let items = [1, 2, 3, 4, 5];
     let (a, _) = random.seeded(7).nextShuffle(ctx, items);
     let (b, _) = random.seeded(7).nextShuffle(ctx, items);
-    assert.eq(a, b);
+    assert.equal(a, b);
 }
 
 test "a shuffle is a permutation and nothing else" {
@@ -34,8 +34,8 @@ test "a shuffle is a permutation and nothing else" {
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8];
     let (mixed, _) = random.seeded(11).nextShuffle(ctx, items);
-    assert.eq(mixed.len(), items.len());
-    assert.eq(mixed.sort(ctx), items);
+    assert.equal(mixed.len(), items.len());
+    assert.equal(mixed.sort(ctx), items);
 }
 
 test "two seeds reach two permutations" {
@@ -57,12 +57,12 @@ test "a shuffle steps the generator, and a short list does not" {
     assert.notEq(after, g);
     // Nothing to permute, so nothing is drawn.
     let (one, still) = g.nextShuffle(ctx, [9]);
-    assert.eq(one, [9]);
-    assert.eq(still, g);
+    assert.equal(one, [9]);
+    assert.equal(still, g);
     let none: [Int] = [];
     let (empty, unmoved) = g.nextShuffle(ctx, none);
-    assert.eq(empty, none);
-    assert.eq(unmoved, g);
+    assert.equal(empty, none);
+    assert.equal(unmoved, g);
 }
 
 test "a shuffle of two reaches both orders" {
@@ -87,7 +87,7 @@ test "a shuffle of strings moves the values it was given" {
     };
     let cards = ["ace", "king", "queen", "jack"];
     let (dealt, _) = random.seeded(5).nextShuffle(ctx, cards);
-    assert.eq(dealt.sort(ctx), cards.sort(ctx));
+    assert.equal(dealt.sort(ctx), cards.sort(ctx));
 }
 
 // --- nextPick ------------------------------------------------------------------
@@ -103,13 +103,13 @@ test "nextPick on an empty list answers .None and does not step" {
     let none: [Int] = [];
     let g = random.seeded(4);
     let (picked, after) = g.nextPick(none);
-    assert.eq(picked, .None);
-    assert.eq(after, g);
+    assert.equal(picked, .None);
+    assert.equal(after, g);
 }
 
 test "nextPick on one item is that item" {
     let (picked, after) = random.seeded(4).nextPick([42]);
-    assert.eq(picked, .Some(42));
+    assert.equal(picked, .Some(42));
     assert.notEq(after, random.seeded(4));
 }
 
@@ -137,8 +137,8 @@ test "nextSample draws without replacement" {
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8];
     let (drawn, _) = random.seeded(9).nextSample(ctx, items, 3);
-    assert.eq(drawn.len(), 3);
-    assert.eq(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
+    assert.equal(drawn.len(), 3);
+    assert.equal(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
     assert.isEmpty(drawn.filter(ctx, fn(v) => !items.contains(v)));
 }
 
@@ -148,7 +148,7 @@ test "nextSample stops at the list's own length" {
     };
     let items = [1, 2, 3];
     let (all, _) = random.seeded(9).nextSample(ctx, items, 100);
-    assert.eq(all.sort(ctx), items);
+    assert.equal(all.sort(ctx), items);
     let (none, _) = random.seeded(9).nextSample(ctx, items, 0);
     assert.isEmpty(none);
     let (negative, _) = random.seeded(9).nextSample(ctx, items, -5);
@@ -162,8 +162,8 @@ test "nextSample is the front of the shuffle it is written out of" {
     let items = [1, 2, 3, 4, 5, 6];
     let (mixed, afterShuffle) = random.seeded(21).nextShuffle(ctx, items);
     let (drawn, afterSample) = random.seeded(21).nextSample(ctx, items, 4);
-    assert.eq(drawn, mixed.take(ctx, 4));
-    assert.eq(afterSample, afterShuffle);
+    assert.equal(drawn, mixed.take(ctx, 4));
+    assert.equal(afterSample, afterShuffle);
 }
 
 // --- the Random door ---------------------------------------------------------------
@@ -175,8 +175,8 @@ test "shuffle through a context is a permutation too" {
     };
     let items = [1, 2, 3, 4, 5, 6];
     let mixed = random.shuffle(ctx, items);
-    assert.eq(mixed.len(), items.len());
-    assert.eq(mixed.sort(ctx), items);
+    assert.equal(mixed.len(), items.len());
+    assert.equal(mixed.sort(ctx), items);
 }
 
 test "pick through a context answers a member, and .None from nothing" {
@@ -187,7 +187,7 @@ test "pick through a context answers a member, and .None from nothing" {
     let picked = random.pick(ctx, items);
     assert.isTrue(items.contains(assert.some(picked)));
     let none: [Str] = [];
-    assert.eq(random.pick(ctx, none), .None);
+    assert.equal(random.pick(ctx, none), .None);
 }
 
 test "sample through a context draws without replacement" {
@@ -197,8 +197,8 @@ test "sample through a context draws without replacement" {
     };
     let items = [1, 2, 3, 4, 5, 6, 7];
     let drawn = random.sample(ctx, items, 3);
-    assert.eq(drawn.len(), 3);
-    assert.eq(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
+    assert.equal(drawn.len(), 3);
+    assert.equal(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
     assert.isEmpty(random.sample(ctx, items, -1));
 }
 
@@ -221,9 +221,9 @@ test "sample through a context takes the counts outside the list the same way" {
     assert.isEmpty(random.sample(ctx, items, -100));
     // A count past the length is the whole list, shuffled — not a list with
     // repeats in it, and not a shorter one.
-    assert.eq(random.sample(ctx, items, 5).sort(ctx), items);
-    assert.eq(random.sample(ctx, items, 6).sort(ctx), items);
-    assert.eq(random.sample(ctx, items, 1000).sort(ctx), items);
+    assert.equal(random.sample(ctx, items, 5).sort(ctx), items);
+    assert.equal(random.sample(ctx, items, 6).sort(ctx), items);
+    assert.equal(random.sample(ctx, items, 1000).sort(ctx), items);
     // And an empty list gives nothing back at any count.
     let none: [Int] = [];
     assert.isEmpty(random.sample(ctx, none, 3));
@@ -237,19 +237,19 @@ test "shuffle through a context holds at an empty list and at one item" {
     };
     let none: [Int] = [];
     assert.isEmpty(random.shuffle(ctx, none));
-    assert.eq(random.shuffle(ctx, [9]), [9]);
+    assert.equal(random.shuffle(ctx, [9]), [9]);
     // Two items come back as the two items, in one order or the other.
     let pair = random.shuffle(ctx, [1, 2]);
-    assert.eq(pair.sort(ctx), [1, 2]);
-    assert.eq(pair.len(), 2);
+    assert.equal(pair.sort(ctx), [1, 2]);
+    assert.equal(pair.len(), 2);
 }
 
 test "pick through a context answers the only item there is" {
     let ctx = context {
         Random: rand(),
     };
-    assert.eq(random.pick(ctx, [42]), .Some(42));
-    assert.eq(random.pick(ctx, ["only"]), .Some("only"));
+    assert.equal(random.pick(ctx, [42]), .Some(42));
+    assert.equal(random.pick(ctx, ["only"]), .Some("only"));
 }
 
 test "the same seed gives the same shuffle, sample and pick, every time" {
@@ -261,21 +261,21 @@ test "the same seed gives the same shuffle, sample and pick, every time" {
     // seed replays the run rather than continuing it.
     let (firstShuffle, afterOne) = random.seeded(1234).nextShuffle(ctx, items);
     let (againShuffle, afterTwo) = random.seeded(1234).nextShuffle(ctx, items);
-    assert.eq(firstShuffle, againShuffle);
-    assert.eq(afterOne, afterTwo);
+    assert.equal(firstShuffle, againShuffle);
+    assert.equal(afterOne, afterTwo);
     let (firstSample, _) = random.seeded(1234).nextSample(ctx, items, 4);
     let (againSample, _) = random.seeded(1234).nextSample(ctx, items, 4);
-    assert.eq(firstSample, againSample);
+    assert.equal(firstSample, againSample);
     let (firstPick, _) = random.seeded(1234).nextPick(items);
     let (againPick, _) = random.seeded(1234).nextPick(items);
-    assert.eq(firstPick, againPick);
+    assert.equal(firstPick, againPick);
     // A seed of zero, and a negative one, are seeds like any other.
     let (fromZero, _) = random.seeded(0).nextShuffle(ctx, items);
     let (fromZeroAgain, _) = random.seeded(0).nextShuffle(ctx, items);
-    assert.eq(fromZero, fromZeroAgain);
-    assert.eq(fromZero.sort(ctx), items);
+    assert.equal(fromZero, fromZeroAgain);
+    assert.equal(fromZero.sort(ctx), items);
     let (fromBelow, _) = random.seeded(-1).nextShuffle(ctx, items);
     let (fromBelowAgain, _) = random.seeded(-1).nextShuffle(ctx, items);
-    assert.eq(fromBelow, fromBelowAgain);
-    assert.eq(fromBelow.sort(ctx), items);
+    assert.equal(fromBelow, fromBelowAgain);
+    assert.equal(fromBelow.sort(ctx), items);
 }

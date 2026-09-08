@@ -373,7 +373,7 @@ pub const ENTRIES: &[Entry] = &[
     e("str.indexOf", "buri_rt_str_index_of", Ret::Opt),
     e("str.splitOnce", "buri_rt_str_split_once", Ret::Opt),
     e("str.compare", "buri_rt_str_compare", Ret::Tag),
-    e("str.eq", "buri_rt_str_eq", Ret::Scalar),
+    e("str.equal", "buri_rt_str_eq", Ret::Scalar),
     e("str.hash", "buri_rt_str_hash", Ret::Scalar),
     e("str.toInt", "buri_rt_str_to_int", Ret::Opt),
     e("str.toFloat", "buri_rt_str_to_float", Ret::Opt),
@@ -952,7 +952,7 @@ pub const ENTRIES: &[Entry] = &[
     //
     // The plan itself never crosses. It is a list of Buri values holding an
     // `IoError`, and §2.1 cannot name an error variant that carries a field, so
-    // matching is the `Eq` the `Call` records derive and happens in
+    // matching is the `Equal` the `Call` records derive and happens in
     // `host_testing.buri`. What crosses is the half a program cannot keep:
     // `fsWithPlan`/`netWithPlan` mint the plan, `addFsFault`/`addNetFault` say
     // what each entry would read like in a failure message, `noteFault` records
@@ -1438,7 +1438,7 @@ mod tests {
             let source = module(path).unwrap_or_else(|| panic!("no module at {path}"));
             let name = entry.key.rsplit('.').next().unwrap_or(entry.key);
             let found = declared_ctx(source, name);
-            // `str.eq` and `str.hash` are `semantics/builtins.rs`'s, declared
+            // `str.equal` and `str.hash` are `semantics/builtins.rs`'s, declared
             // on every primitive rather than written in `core/str` — so there
             // is nothing here to read, and neither takes a context.
             if found.is_empty() {

@@ -85,7 +85,7 @@ export fn empty<K, V>(): Map<K, V> {
     Map { buckets: list.empty<[(K, V)]>(), size: 0 }
 }
 
-impl<K: Hash + Eq, V> Map<K, V> {
+impl<K: Hash + Equal, V> Map<K, V> {
     export fn len(self): Int {
         self.size
     }
@@ -450,7 +450,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
 /// ```stdout
 /// a: ant ape
 /// ```
-export fn groupBy<A, K: Hash + Eq, C: Allocator>(
+export fn groupBy<A, K: Hash + Equal, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -471,7 +471,7 @@ export fn groupBy<A, K: Hash + Eq, C: Allocator>(
 ///
 /// This is the index you look a list up through. Reach for `groupBy` when the
 /// key is not unique: this one *silently* keeps the last.
-export fn indexBy<A, K: Hash + Eq, C: Allocator>(
+export fn indexBy<A, K: Hash + Equal, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -480,7 +480,7 @@ export fn indexBy<A, K: Hash + Eq, C: Allocator>(
 }
 
 /// A map holding the given entries, later ones winning.
-export fn of<K: Hash + Eq, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K, V> {
+export fn of<K: Hash + Equal, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K, V> {
     entries.foldCtx(
         ctx,
         fn(c, acc, e) => {
@@ -491,8 +491,8 @@ export fn of<K: Hash + Eq, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K, V
     )
 }
 
-impl<K: Hash + Eq, V: Eq> Map<K, V> {
-    /// Same entries, whatever bucket layout each arrived at. `derive Eq` would
+impl<K: Hash + Equal, V: Equal> Map<K, V> {
+    /// Same entries, whatever bucket layout each arrived at. `derive Equal` would
     /// compare the layout, which two equal maps built in different orders need
     /// not share.
     export fn equals<C: Allocator>(self, ctx: C, other: Map<K, V>): Bool {
@@ -536,7 +536,7 @@ impl<K: Hash + Eq, V: Eq> Map<K, V> {
 /// ```stdout
 /// a: 2
 /// ```
-export fn countBy<A, K: Hash + Eq, C: Allocator>(
+export fn countBy<A, K: Hash + Equal, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -553,6 +553,6 @@ export fn countBy<A, K: Hash + Eq, C: Allocator>(
 
 /// How many times each element appears. `countBy` with the element as its own
 /// key, which is the histogram every word count wants.
-export fn frequencies<T: Hash + Eq, C: Allocator>(ctx: C, xs: [T]): Map<T, Int> {
+export fn frequencies<T: Hash + Equal, C: Allocator>(ctx: C, xs: [T]): Map<T, Int> {
     countBy(ctx, xs, fn(x: T) => x)
 }

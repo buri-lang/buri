@@ -1,4 +1,4 @@
-// `assert.eq` requires `Show`, and does not use it. The runner renders both
+// `assert.equal` requires `Show`, and does not use it. The runner renders both
 // sides from a structural type descriptor, so a hand-written `impl Show` is
 // invisible in a failure report even though the same value printed by the
 // program goes through it.
@@ -13,12 +13,12 @@ from "core/testing/assert" import * as assert;
 from "//lib/money" import { Money, render };
 
 test "the report renders the value structurally" {
-    assert.eq(Money { cents: 1 }, Money { cents: 2 });
+    assert.equal(Money { cents: 1 }, Money { cents: 2 });
 }
 
 test "the program's own Show says something else" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(render(ctx, Money { cents: 1 }), "not this");
+    assert.equal(render(ctx, Money { cents: 1 }), "not this");
 }

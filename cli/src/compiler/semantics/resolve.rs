@@ -133,7 +133,7 @@ pub struct Checked {
 /// tell a method that is missing because nobody wrote it from one that is
 /// missing because the type did not derive the trait it comes from.
 pub const DERIVABLE: &[&str] = &[
-    "Eq", "Ord", "Show", "Hash", "ToJson", "FromJson", "Add", "Sub", "Mul", "Div", "Rem", "Neg",
+    "Equal", "Ordered", "Show", "Hash", "ToJson", "FromJson", "Add", "Subtract", "Multiply", "Divide", "Remainder", "Negate",
 ];
 
 #[derive(Clone, Debug)]
@@ -2633,7 +2633,7 @@ impl<'a> Checker<'a> {
 
     fn register_derive(&mut self, module: ModuleId, d: &tree::DeriveDecl) {
         // A `derive` names a type *constructor*, not an instantiation of one:
-        // `derive Eq for Option;` says every `Option<T>` compares whenever `T`
+        // `derive Equal for Option;` says every `Option<T>` compares whenever `T`
         // does. So the path is resolved directly rather than elaborated, which
         // would demand type arguments there is nothing to bind.
         let Some(self_con) = self.derive_target(module, d.self_ty) else {

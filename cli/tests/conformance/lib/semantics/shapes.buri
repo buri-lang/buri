@@ -15,21 +15,21 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
-from "core/number" import { Add, Div, Mul, Neg, Rem, Sub };
+from "core/number" import { Add, Divide, Multiply, Negate, Remainder, Subtract };
 from "core/order" import * as order;
-from "core/order" import { Eq, Hash, Ord, Order, Show };
+from "core/order" import { Equal, Hash, Ordered, Order, Show };
 from "core/path" import * as path;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
 from "core/time" import { Instant };
 
-derive Eq, Ord, Show, Hash for Version;
+derive Equal, Ordered, Show, Hash for Version;
 // =============================================================================
 // 1. Derived traits — the structural fold over one type definition
 // =============================================================================
 
-/// Fields are in declaration order, which is the order a derived `Ord`
+/// Fields are in declaration order, which is the order a derived `Ordered`
 /// compares them in. `major` decides before `minor`.
 export struct Version {
     export major: Int,
@@ -41,8 +41,8 @@ export fn version(major: Int, minor: Int, patch: Int): Version {
     Version { major, minor, patch }
 }
 
-derive Eq, Ord, Show, Hash for Level;
-/// Variants are in declaration order, which is the order a derived `Ord`
+derive Equal, Ordered, Show, Hash for Level;
+/// Variants are in declaration order, which is the order a derived `Ordered`
 /// ranks them in: `Low < Medium < High`.
 export enum Level {
     Low,
@@ -50,7 +50,7 @@ export enum Level {
     High,
 }
 
-derive Eq, Ord, Show for Shape;
+derive Equal, Ordered, Show for Shape;
 /// A three-shape enum with all three payload forms: tuple, record, and none.
 export enum Shape {
     Circle(Float),
@@ -68,17 +68,17 @@ impl Shape {
     }
 }
 
-derive Add, Sub, Ord, Eq, Show for Meters;
+derive Add, Subtract, Ordered, Equal, Show for Meters;
 // =============================================================================
 // 2. Newtypes with derived operator traits
 // =============================================================================
 
 export struct Meters(export F64);
 
-derive Add, Sub, Mul, Div, Rem, Ord, Eq, Show, Hash for Count;
+derive Add, Subtract, Multiply, Divide, Remainder, Ordered, Equal, Show, Hash for Count;
 export struct Count(export Int);
 
-derive Neg, Add, Eq, Show for Delta;
+derive Negate, Add, Equal, Show for Delta;
 export struct Delta(export Int);
 
 // =============================================================================
@@ -86,16 +86,16 @@ export struct Delta(export Int);
 // =============================================================================
 
 /// Ordered *backwards*: the larger `Int` compares `Less`. If `<` did not go
-/// through `Ord.compare`, every assertion about this type would flip.
+/// through `Ordered.compare`, every assertion about this type would flip.
 export struct Backwards(export Int);
 
-impl Eq for Backwards {
-    fn eq(self, other: Backwards): Bool {
+impl Equal for Backwards {
+    fn equal(self, other: Backwards): Bool {
         self.0 == other.0
     }
 }
 
-impl Ord for Backwards {
+impl Ordered for Backwards {
     fn compare(self, other: Backwards): Order {
         if (self.0 < other.0) {
             Order.Greater
@@ -115,7 +115,7 @@ impl Show for Backwards {
 
 /// Bridge order is Clubs < Diamonds < Hearts < Spades, but the variants are
 /// declared alphabetically-ish and deliberately not in that order — so a
-/// *derived* `Ord` would disagree with the hand-written one on every pair.
+/// *derived* `Ordered` would disagree with the hand-written one on every pair.
 export enum Suit {
     Diamonds,
     Clubs,
@@ -133,7 +133,7 @@ impl Suit {
         }
     }
 
-    /// Declaration index, so a test can say what a *derived* `Ord` would have done.
+    /// Declaration index, so a test can say what a *derived* `Ordered` would have done.
     export fn declIndex(self): Int {
         match (self) {
             .Diamonds => 0,
@@ -144,13 +144,13 @@ impl Suit {
     }
 }
 
-impl Eq for Suit {
-    fn eq(self, other: Suit): Bool {
+impl Equal for Suit {
+    fn equal(self, other: Suit): Bool {
         self.rank() == other.rank()
     }
 }
 
-impl Ord for Suit {
+impl Ordered for Suit {
     fn compare(self, other: Suit): Order {
         order.int(self.rank(), other.rank())
     }
@@ -167,15 +167,15 @@ impl Show for Suit {
     }
 }
 
-/// A hand-written `Eq` need not be structural: this one is case-insensitive on
+/// A hand-written `Equal` need not be structural: this one is case-insensitive on
 /// its first field and ignores the second entirely.
 export struct Loose {
     export word: Str,
     export ignored: Int,
 }
 
-impl Eq for Loose {
-    fn eq(self, other: Loose): Bool {
+impl Equal for Loose {
+    fn equal(self, other: Loose): Bool {
         self.word.len() == other.word.len()
     }
 }
@@ -197,8 +197,8 @@ impl Add for Percent {
     }
 }
 
-impl Eq for Percent {
-    fn eq(self, other: Percent): Bool {
+impl Equal for Percent {
+    fn equal(self, other: Percent): Bool {
         self.0 == other.0
     }
 }
@@ -221,7 +221,7 @@ export trait Label {
     fn label(self): Str;
 }
 
-derive Eq, Show for Brick;
+derive Equal, Show for Brick;
 export struct Brick {
     export kilos: Int,
 }
@@ -238,7 +238,7 @@ impl Label for Brick {
     }
 }
 
-derive Eq, Show for Feather;
+derive Equal, Show for Feather;
 export struct Feather {
     export count: Int,
 }
@@ -269,7 +269,7 @@ export trait Relay {
     fn base(self): Int;
 }
 
-derive Eq, Show for Scale;
+derive Equal, Show for Scale;
 export struct Scale {
     export factor: Int,
 }
@@ -284,7 +284,7 @@ impl Relay for Scale {
     }
 }
 
-derive Eq, Show for Offset;
+derive Equal, Show for Offset;
 export struct Offset {
     export by: Int,
 }
@@ -371,7 +371,7 @@ export fn twice<T: Add>(x: T): T {
     x + x
 }
 
-export fn largest<T: Ord>(xs: [T]): Option<T> {
+export fn largest<T: Ordered>(xs: [T]): Option<T> {
     xs.fold(
         fn(best, x) => {
             match (best) {
@@ -383,7 +383,7 @@ export fn largest<T: Ord>(xs: [T]): Option<T> {
     )
 }
 
-export fn smallest<T: Ord>(xs: [T]): Option<T> {
+export fn smallest<T: Ordered>(xs: [T]): Option<T> {
     xs.fold(
         fn(best, x) => {
             match (best) {
@@ -395,7 +395,7 @@ export fn smallest<T: Ord>(xs: [T]): Option<T> {
     )
 }
 
-export fn between<T: Ord>(lo: T, hi: T, x: T): Bool {
+export fn between<T: Ordered>(lo: T, hi: T, x: T): Bool {
     x >= lo && x <= hi
 }
 
@@ -403,11 +403,11 @@ export fn showAll<T: Show, C: Allocator>(ctx: C, xs: [T]): Str {
     xs.mapCtx(ctx, fn(c, x) => x.show(c)).join(ctx, ",")
 }
 
-export fn sortedShow<T: Ord + Show, C: Allocator>(ctx: C, xs: [T]): Str {
+export fn sortedShow<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str {
     showAll(ctx, xs.sortBy(ctx, fn(a, b) => a.compare(b)))
 }
 
-derive Eq, Show for Pair;
+derive Equal, Show for Pair;
 // =============================================================================
 // 6. Generic structs and enums
 // =============================================================================
@@ -427,10 +427,10 @@ impl<A, B> Pair<A, B> {
     }
 }
 
-derive Eq, Ord, Show for Boxed;
+derive Equal, Ordered, Show for Boxed;
 export struct Boxed<T>(export T);
 
-derive Eq, Show for Slot;
+derive Equal, Show for Slot;
 export enum Slot<T> {
     Filled(T),
     Vacant,
@@ -445,7 +445,7 @@ impl<T> Slot<T> {
     }
 }
 
-derive Eq, Show for Either;
+derive Equal, Show for Either;
 export enum Either<L, R> {
     Left(L),
     Right(R),
@@ -460,7 +460,7 @@ impl<L> Either<L, Int> {
     }
 }
 
-derive Eq, Show for Tree;
+derive Equal, Show for Tree;
 // --- A recursive generic enum, with real recursion over it -------------------
 
 export enum Tree<T> {
@@ -468,11 +468,11 @@ export enum Tree<T> {
     Node(Tree<T>, T, Tree<T>),
 }
 
-derive Eq, Show for Rose;
+derive Equal, Show for Rose;
 // A type that reaches itself *through a container* rather than directly.
 //
 // `Node(Tree<T>, T, Tree<T>)` above recurses immediately; this recurses through
-// `[Rose]`, and deciding whether a derived `Eq` holds means asking the same
+// `[Rose]`, and deciding whether a derived `Equal` holds means asking the same
 // question of the element type — which is this type again. That walk had a
 // guard for the direct case and none for this one, so `a == b` on a `Rose`
 // hung the compiler until it ran out of stack. It is not generic, on purpose:
@@ -490,7 +490,7 @@ export fn roseSum(r: Rose): Int {
     }
 }
 
-impl<T: Ord> Tree<T> {
+impl<T: Ordered> Tree<T> {
     export fn insert(self, value: T): Tree<T> {
         match (self) {
             .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
@@ -507,7 +507,7 @@ impl<T: Ord> Tree<T> {
     }
 }
 
-export fn treeOf<T: Ord>(xs: [T]): Tree<T> {
+export fn treeOf<T: Ordered>(xs: [T]): Tree<T> {
     xs.fold(fn(acc, x) => acc.insert(x), Tree.Leaf)
 }
 
@@ -531,7 +531,7 @@ impl<T> Tree<T> {
     }
 }
 
-impl<T: Ord> Tree<T> {
+impl<T: Ordered> Tree<T> {
     export fn has(self, needle: T): Bool {
         match (self) {
             .Leaf => false,
@@ -620,8 +620,8 @@ impl Report {
 
 /// A lambda may capture a value whose type is a *bounded* type parameter. A
 /// type is either part of the world or part of your data (SPEC 10.1), so a
-/// `T: Eq` is never a context, and the capture rule has nothing to say.
-export fn occursIn<T: Eq>(xs: [T], needle: T): Bool {
+/// `T: Equal` is never a context, and the capture rule has nothing to say.
+export fn occursIn<T: Equal>(xs: [T], needle: T): Bool {
     xs.any(fn(x) => x == needle)
 }
 
@@ -1477,7 +1477,7 @@ export fn runInOrderNamed<C: Allocator + Tasks>(ctx: C, items: [Int]): [Str] {
 // 11.4 A context-bounded parameter is an ordinary bound (SPEC 10.1, 10.8)
 // =============================================================================
 //
-// `<C: Allocator>` and `<T: Ord>` are one feature — "a list of interfaces a type
+// `<C: Allocator>` and `<T: Ordered>` are one feature — "a list of interfaces a type
 // parameter must satisfy" — so the argument at `C` need not be a
 // `context { … }` record. Anything that *implements* `Allocator` satisfies it, and
 // SPEC 10.8's attenuation is the reason the language wants that: `ReadOnly<C>`
@@ -1724,7 +1724,7 @@ export fn cellIndex<T>(cell: Cell<T>): fn() => Int {
     fn() => cell.0
 }
 
-derive Eq, Show for Held;
+derive Equal, Show for Held;
 /// The other direction, so the rule is not mistaken for a weakening: `Held<T>`
 /// stores its `T`, so it does hand one back, and a lambda may capture it only
 /// under an ordinary bound. `cli/tests/reject/covariant_param_not_capturable`
@@ -1734,7 +1734,7 @@ export enum Held<T> {
     Empty,
 }
 
-export fn heldTwice<T: Eq>(held: Held<T>): fn() => (Held<T>, Held<T>) {
+export fn heldTwice<T: Equal>(held: Held<T>): fn() => (Held<T>, Held<T>) {
     fn() => (held, held)
 }
 
@@ -1746,7 +1746,7 @@ export fn heldTwice<T: Eq>(held: Held<T>): fn() => (Held<T>, Held<T>) {
 /// declared `Option<Str>`, so it is elidable for the same reason.
 type Maybe = Option<Str>;
 
-derive Eq, Show, Hash for World;
+derive Equal, Show, Hash for World;
 /// The four shapes elision has to answer for in one type: a required field, a
 /// plain `Option`, one reached through an alias, and a nested one.
 export struct World {
@@ -1756,7 +1756,7 @@ export struct World {
     export nested: Option<Option<Int>>,
 }
 
-derive Eq, Show for Holder;
+derive Equal, Show for Holder;
 /// Elidability is a property of the declaration: `slot` is written `Option<T>`
 /// and may be left out at every instantiation, `only` is written `T` and may
 /// be left out at none — `Holder<Option<Int>>` included.
@@ -1771,7 +1771,7 @@ export fn worldHere(): World {
     World { hi: "hi" }
 }
 
-derive Eq, Show for Hidden;
+derive Equal, Show for Hidden;
 /// A private field that is also elidable. Visibility still decides where the
 /// type can be built: only this module writes the literal, elision or not.
 export struct Hidden {
@@ -1787,7 +1787,7 @@ export fn hiddenPrivate(h: Hidden): Option<Int> {
     h.private
 }
 
-derive Eq, Show for Wrap;
+derive Equal, Show for Wrap;
 // =============================================================================
 // 15. Literals that leave the type name out too (SPEC 5.6, 12.3)
 // =============================================================================

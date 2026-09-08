@@ -24,7 +24,7 @@ error: a call argument ends with `,` [missing-separator]
 error: `_1` has no method `hash` [no-such-method]
   --> main.buri:19:33
    |
-19 |     assert.eq(one.hash(), other.hash());
+19 |     assert.equal(one.hash(), other.hash());
    |                                 ^^^^
    |
    = fix: check the spelling, or declare it in `impl _1 { ... }` in that type's own module — a method may not be added from anywhere else

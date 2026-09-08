@@ -40,23 +40,23 @@ fn octets(text: Str): [U8] {
 // reimplementation is checked against.
 
 test "FNV-1a at 32 bits" {
-    assert.eq(hex32(hash.fnv1a32(list.empty<U8>())), "811c9dc5");
-    assert.eq(hex32(hash.fnv1a32(octets("a"))), "e40c292c");
-    assert.eq(hex32(hash.fnv1a32(octets("foobar"))), "bf9cf968");
+    assert.equal(hex32(hash.fnv1a32(list.empty<U8>())), "811c9dc5");
+    assert.equal(hex32(hash.fnv1a32(octets("a"))), "e40c292c");
+    assert.equal(hex32(hash.fnv1a32(octets("foobar"))), "bf9cf968");
 }
 
 test "FNV-1a at 64 bits" {
-    assert.eq(hex64(hash.fnv1a64(list.empty<U8>())), "cbf29ce484222325");
-    assert.eq(hex64(hash.fnv1a64(octets("a"))), "af63dc4c8601ec8c");
-    assert.eq(hex64(hash.fnv1a64(octets("foobar"))), "85944171f73967e8");
+    assert.equal(hex64(hash.fnv1a64(list.empty<U8>())), "cbf29ce484222325");
+    assert.equal(hex64(hash.fnv1a64(octets("a"))), "af63dc4c8601ec8c");
+    assert.equal(hex64(hash.fnv1a64(octets("foobar"))), "85944171f73967e8");
 }
 
 // The empty input is the offset basis rather than a special case, which is what
 // lets a caller start a rolling hash from the exported constant and get the
 // same answers.
 test "the offset basis is where the fold starts" {
-    assert.eq(hash.fnv1a32(list.empty<U8>()), hash.FNV1A32_OFFSET);
-    assert.eq(hash.fnv1a64(list.empty<U8>()), hash.FNV1A64_OFFSET);
+    assert.equal(hash.fnv1a32(list.empty<U8>()), hash.FNV1A32_OFFSET);
+    assert.equal(hash.fnv1a64(list.empty<U8>()), hash.FNV1A64_OFFSET);
 }
 
 test "stepping one octet at a time is the same hash" {
@@ -66,8 +66,8 @@ test "stepping one octet at a time is the same hash" {
     let body = octets("foobar");
     let stepped32 = body.fold(fn(h, o) => hash.fnv1a32Step(h, o), hash.FNV1A32_OFFSET);
     let stepped64 = body.fold(fn(h, o) => hash.fnv1a64Step(h, o), hash.FNV1A64_OFFSET);
-    assert.eq(stepped32, hash.fnv1a32(body));
-    assert.eq(stepped64, hash.fnv1a64(body));
+    assert.equal(stepped32, hash.fnv1a32(body));
+    assert.equal(stepped64, hash.fnv1a64(body));
     // And splitting the input anywhere gives the same answer, which is the
     // whole property a rolling checksum is used for.
     let head = body.take(ctx, 2);
@@ -76,7 +76,7 @@ test "stepping one octet at a time is the same hash" {
         fn(h, o) => hash.fnv1a64Step(h, o),
         head.fold(fn(h, o) => hash.fnv1a64Step(h, o), hash.FNV1A64_OFFSET),
     );
-    assert.eq(split, hash.fnv1a64(body));
+    assert.equal(split, hash.fnv1a64(body));
 }
 
 // A hash that ignored an octet, or folded them in the wrong order, would still
@@ -91,12 +91,12 @@ test "order and content both matter" {
 // The check value every catalogue of CRC parameters publishes: the CRC of the
 // nine ASCII digits.
 test "the CRC-32C check value" {
-    assert.eq(hex32(hash.crc32c(octets("123456789"))), "e3069283");
+    assert.equal(hex32(hash.crc32c(octets("123456789"))), "e3069283");
 }
 
 test "the empty input is zero" {
     // All-ones in, all-ones out: the two cancel.
-    assert.eq(hash.crc32c(list.empty<U8>()), 0);
+    assert.equal(hash.crc32c(list.empty<U8>()), 0);
 }
 
 // RFC 3720 appendix B.4 — the iSCSI CRC examples.
@@ -105,13 +105,13 @@ test "the RFC 3720 vectors" {
         Allocator: alloc(),
     };
     let zeros: [U8] = list.repeat(ctx, 0, 32);
-    assert.eq(hex32(hash.crc32c(zeros)), "8a9136aa");
+    assert.equal(hex32(hash.crc32c(zeros)), "8a9136aa");
 
     let ascending = list.range(ctx, 0, 32).map(ctx, fn(i) => i.wrapToU8());
-    assert.eq(hex32(hash.crc32c(ascending)), "46dd794e");
+    assert.equal(hex32(hash.crc32c(ascending)), "46dd794e");
 
     let descending = ascending.reverse(ctx);
-    assert.eq(hex32(hash.crc32c(descending)), "113fdb5c");
+    assert.equal(hex32(hash.crc32c(descending)), "113fdb5c");
 }
 
 // --- SipHash-2-4 --------------------------------------------------------------------
@@ -134,13 +134,13 @@ fn vector(n: Int): Str {
 }
 
 test "the SipHash-2-4 reference vectors" {
-    assert.eq(vector(0), "726fdb47dd0e0e31");
-    assert.eq(vector(1), "74f839c593dc67fd");
-    assert.eq(vector(7), "ab0200f58b01d137");
-    assert.eq(vector(8), "93f5f5799a932462");
-    assert.eq(vector(15), "a129ca6149be45e5");
-    assert.eq(vector(16), "3f2acc7f57c29bdb");
-    assert.eq(vector(32), "7127512f72f27cce");
+    assert.equal(vector(0), "726fdb47dd0e0e31");
+    assert.equal(vector(1), "74f839c593dc67fd");
+    assert.equal(vector(7), "ab0200f58b01d137");
+    assert.equal(vector(8), "93f5f5799a932462");
+    assert.equal(vector(15), "a129ca6149be45e5");
+    assert.equal(vector(16), "3f2acc7f57c29bdb");
+    assert.equal(vector(32), "7127512f72f27cce");
 }
 
 // The length goes into the top octet of the final word, so an input and the
@@ -162,6 +162,6 @@ test "the key is part of the answer" {
 // values, so two inputs sharing one is a coincidence rather than a scandal.
 // This is the test that says the module knows what it is.
 test "a checksum is four octets wide and says so" {
-    assert.eq(bytes.fromU32Be(hash.crc32c(octets("x"))).len(), 4);
-    assert.eq(bytes.fromU64Be(hash.fnv1a64(octets("x"))).len(), 8);
+    assert.equal(bytes.fromU32Be(hash.crc32c(octets("x"))).len(), 4);
+    assert.equal(bytes.fromU64Be(hash.fnv1a64(octets("x"))).len(), 8);
 }

@@ -18,7 +18,7 @@ let SEED: [U32] = [
     1541459225,
 ];
 
-derive Eq, Ord for Working;
+derive Equal, Ordered for Working;
 export struct Working {
     export a: U32,
     export b: U32,
@@ -50,7 +50,7 @@ export context Everything {
 export fn everything<C: Allocator>(ctx: C, b: [U8], o: Option<Int>): Str { let hexed = b.mapCtx(ctx, fn(c, x) => { let n = x.toI64(); str.fromChars(c, [HEX.charAt(n)]) }).join(ctx, ""); let matched = match (o) { .None => 0, .Some(n) => n }; str.format(ctx, "${hexed} ${matched}")
 
 test "everything" {
-    assert.eq(
+    assert.equal(
         everything(Everything(), [1, 2, 3], .Some(6)),
         "a string long enough that the call around it cannot stay on one line",
     );

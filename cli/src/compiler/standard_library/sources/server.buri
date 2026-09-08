@@ -353,7 +353,7 @@ export struct Server<C, S> {
     export socketBuffer: Option<Int>,
 }
 
-derive Eq, Show for Tls;
+derive Equal, Show for Tls;
 /// Where a server reads its identity from.
 ///
 /// **Two paths and not two PEM documents**: certificates expire and get
@@ -734,7 +734,7 @@ export fn errorText(e: ServeError): Str {
 
 // --- Sockets ------------------------------------------------------------------
 
-derive Eq, Show for Socket;
+derive Equal, Show for Socket;
 /// An open WebSocket, as a value a program can hold.
 ///
 /// **Inert, and deliberately so.** It is one integer the acceptor minted and
@@ -747,7 +747,7 @@ derive Eq, Show for Socket;
 /// whoever holds the listener.
 export struct Socket(export Int);
 
-derive Eq, Show for Message;
+derive Equal, Show for Message;
 /// One WebSocket message.
 ///
 /// Two variants and not four: a ping and a pong are the transport keeping a
@@ -759,7 +759,7 @@ export enum Message {
     Binary([U8]),
 }
 
-derive Eq, Show for CloseReason;
+derive Equal, Show for CloseReason;
 /// Why a socket closed.
 ///
 /// **An enum and never a wire code.** `codeOf` and `reasonOf` are the two halves

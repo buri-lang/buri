@@ -78,26 +78,26 @@ test "isSome and isNone are complementary" {
 
 test "withDefault returns the wrapped value for Some" {
     let o: Option<Int> = .Some(7);
-    assert.eq(o.withDefault(0), 7);
+    assert.equal(o.withDefault(0), 7);
 }
 
 test "withDefault returns the fallback for None" {
     let o: Option<Int> = .None;
-    assert.eq(o.withDefault(0), 0);
+    assert.equal(o.withDefault(0), 0);
 }
 
 test "withDefault works on strings" {
     let a: Option<Str> = .Some("here");
     let b: Option<Str> = .None;
-    assert.eq(a.withDefault("fallback"), "here");
-    assert.eq(b.withDefault("fallback"), "fallback");
+    assert.equal(a.withDefault("fallback"), "here");
+    assert.equal(b.withDefault("fallback"), "fallback");
 }
 
 // --- Option: map --------------------------------------------------------------
 
 test "option map applies the function to Some" {
     let o: Option<Int> = .Some(3);
-    assert.eq(assert.some(o.map(fn(x) => x * 2)), 6);
+    assert.equal(assert.some(o.map(fn(x) => x * 2)), 6);
 }
 
 test "option map leaves None alone" {
@@ -107,19 +107,19 @@ test "option map leaves None alone" {
 
 test "option map may change the type" {
     let o: Option<Int> = .Some(3);
-    assert.eq(assert.some(o.map(fn(x) => x > 1)), true);
+    assert.equal(assert.some(o.map(fn(x) => x > 1)), true);
 }
 
 test "option map composes" {
     let o: Option<Int> = .Some(2);
-    assert.eq(assert.some(o.map(fn(x) => x + 1).map(fn(x) => x * 10)), 30);
+    assert.equal(assert.some(o.map(fn(x) => x + 1).map(fn(x) => x * 10)), 30);
 }
 
 // --- Option: andThen ----------------------------------------------------------
 
 test "option andThen chains a Some" {
     let o: Option<Int> = .Some(4);
-    assert.eq(assert.some(o.andThen(fn(x) => Option.Some(x + 1))), 5);
+    assert.equal(assert.some(o.andThen(fn(x) => Option.Some(x + 1))), 5);
 }
 
 test "option andThen can produce None from Some" {
@@ -134,7 +134,7 @@ test "option andThen leaves None alone" {
 
 test "option andThen chains through a parse" {
     let o: Option<Str> = .Some("12");
-    assert.eq(assert.some(o.andThen(fn(s) => s.toInt())), 12);
+    assert.equal(assert.some(o.andThen(fn(s) => s.toInt())), 12);
 }
 
 test "option andThen returns None when the inner step fails" {
@@ -149,7 +149,7 @@ test "option mapCtx threads the context into the function" {
         Allocator: alloc(),
     };
     let o: Option<Int> = .Some(7);
-    assert.eq(assert.some(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "7");
+    assert.equal(assert.some(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "7");
 }
 
 test "option mapCtx leaves None alone" {
@@ -166,7 +166,7 @@ test "option andThenCtx threads the context into the continuation" {
     };
     let o: Option<Int> = .Some(6);
     let out = o.andThenCtx(ctx, fn(c, n) => Option.Some(str.fromInt(c, n)));
-    assert.eq(assert.some(out), "6");
+    assert.equal(assert.some(out), "6");
 }
 
 test "option andThenCtx skips the continuation on None" {
@@ -181,7 +181,7 @@ test "option andThenCtx skips the continuation on None" {
 
 test "option filter keeps a Some the predicate accepts" {
     let o: Option<Int> = .Some(4);
-    assert.eq(assert.some(o.filter(fn(x) => x % 2 == 0)), 4);
+    assert.equal(assert.some(o.filter(fn(x) => x % 2 == 0)), 4);
 }
 
 test "option filter drops a Some the predicate rejects" {
@@ -198,17 +198,17 @@ test "option filter leaves None alone" {
 
 test "okOr turns Some into Ok" {
     let o: Option<Int> = .Some(3);
-    assert.eq(assert.ok(o.okOr("missing")), 3);
+    assert.equal(assert.ok(o.okOr("missing")), 3);
 }
 
 test "okOr turns None into Err with the given error" {
     let o: Option<Int> = .None;
-    assert.eq(assert.err(o.okOr("missing")), "missing");
+    assert.equal(assert.err(o.okOr("missing")), "missing");
 }
 
 test "okOr is how an Option reaches ?" {
-    assert.eq(assert.ok(addParsed("1", "2")), 3);
-    assert.eq(assert.err(addParsed("x", "2")), "bad left");
+    assert.equal(assert.ok(addParsed("1", "2")), 3);
+    assert.equal(assert.err(addParsed("x", "2")), "bad left");
 }
 
 // --- Option: or ---------------------------------------------------------------
@@ -216,13 +216,13 @@ test "okOr is how an Option reaches ?" {
 test "or keeps the left when it is Some" {
     let a: Option<Int> = .Some(1);
     let b: Option<Int> = .Some(2);
-    assert.eq(assert.some(a.or(b)), 1);
+    assert.equal(assert.some(a.or(b)), 1);
 }
 
 test "or takes the right when the left is None" {
     let a: Option<Int> = .None;
     let b: Option<Int> = .Some(2);
-    assert.eq(assert.some(a.or(b)), 2);
+    assert.equal(assert.some(a.or(b)), 2);
 }
 
 test "or of two Nones is None" {
@@ -257,47 +257,47 @@ test "isErr is false for Ok" {
 
 test "result withDefault returns the value for Ok" {
     let r: Result<Int, Str> = .Ok(7);
-    assert.eq(r.withDefault(0), 7);
+    assert.equal(r.withDefault(0), 7);
 }
 
 test "result withDefault returns the fallback for Err" {
     let r: Result<Int, Str> = .Err("e");
-    assert.eq(r.withDefault(0), 0);
+    assert.equal(r.withDefault(0), 0);
 }
 
 // --- Result: map / mapErr -----------------------------------------------------
 
 test "result map applies to Ok" {
     let r: Result<Int, Str> = .Ok(3);
-    assert.eq(assert.ok(r.map(fn(x) => x * 2)), 6);
+    assert.equal(assert.ok(r.map(fn(x) => x * 2)), 6);
 }
 
 test "result map leaves Err alone" {
     let r: Result<Int, Str> = .Err("boom");
-    assert.eq(assert.err(r.map(fn(x) => x * 2)), "boom");
+    assert.equal(assert.err(r.map(fn(x) => x * 2)), "boom");
 }
 
 test "result map may change the Ok type" {
     let ctx = context {
     };
     let r: Result<Int, Str> = .Ok(3);
-    assert.eq(assert.ok(r.map(fn(x) => x > 1)), true);
+    assert.equal(assert.ok(r.map(fn(x) => x > 1)), true);
 }
 
 test "mapErr applies to Err" {
     let r: Result<Int, Str> = .Err("boom");
-    assert.eq(assert.err(r.mapErr(fn(e) => e.len())), 4);
+    assert.equal(assert.err(r.mapErr(fn(e) => e.len())), 4);
 }
 
 test "mapErr leaves Ok alone" {
     let r: Result<Int, Str> = .Ok(3);
-    assert.eq(assert.ok(r.mapErr(fn(e) => e.len())), 3);
+    assert.equal(assert.ok(r.mapErr(fn(e) => e.len())), 3);
 }
 
 test "mapErr is how an error crosses a boundary between error types" {
     let r: Result<Int, Str> = .Err("nope");
     let mapped: Result<Int, Int> = r.mapErr(fn(e) => e.len());
-    assert.eq(assert.err(mapped), 4);
+    assert.equal(assert.err(mapped), 4);
 }
 
 // --- Result: mapCtx / mapErrCtx -----------------------------------------------
@@ -307,7 +307,7 @@ test "mapCtx threads the context into the function" {
         Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Ok(9);
-    assert.eq(assert.ok(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "9");
+    assert.equal(assert.ok(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "9");
 }
 
 test "mapCtx leaves Err alone" {
@@ -315,7 +315,7 @@ test "mapCtx leaves Err alone" {
         Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Err("boom");
-    assert.eq(assert.err(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "boom");
+    assert.equal(assert.err(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "boom");
 }
 
 test "mapErrCtx wraps the error with allocated context" {
@@ -324,7 +324,7 @@ test "mapErrCtx wraps the error with allocated context" {
     };
     let r: Result<Int, Str> = .Err("bad left");
     let out = r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"));
-    assert.eq(assert.err(out), "parse: bad left");
+    assert.equal(assert.err(out), "parse: bad left");
 }
 
 test "mapErrCtx leaves Ok alone" {
@@ -332,7 +332,7 @@ test "mapErrCtx leaves Ok alone" {
         Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Ok(3);
-    assert.eq(assert.ok(r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"))), 3);
+    assert.equal(assert.ok(r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"))), 3);
 }
 
 test "mapErrCtx may change the error type" {
@@ -343,29 +343,29 @@ test "mapErrCtx may change the error type" {
     let mapped: Result<Int, Int> = r.mapErrCtx(ctx, fn(c, e) => {
         str.format(c, "e: ${e}").len()
     });
-    assert.eq(assert.err(mapped), 7);
+    assert.equal(assert.err(mapped), 7);
 }
 
 // --- Result: andThen / andThenCtx ---------------------------------------------
 
 test "result andThen chains an Ok" {
     let r: Result<Int, Str> = .Ok(4);
-    assert.eq(assert.ok(r.andThen(doubleOk)), 8);
+    assert.equal(assert.ok(r.andThen(doubleOk)), 8);
 }
 
 test "result andThen can produce Err from Ok" {
     let r: Result<Int, Str> = .Ok(4);
-    assert.eq(assert.err(r.andThen(alwaysErr)), "no");
+    assert.equal(assert.err(r.andThen(alwaysErr)), "no");
 }
 
 test "result andThen leaves Err alone" {
     let r: Result<Int, Str> = .Err("first");
-    assert.eq(assert.err(r.andThen(doubleOk)), "first");
+    assert.equal(assert.err(r.andThen(doubleOk)), "first");
 }
 
 test "result andThen composes twice" {
     let r: Result<Int, Str> = .Ok(1);
-    assert.eq(assert.ok(r.andThen(doubleOk).andThen(doubleOk)), 4);
+    assert.equal(assert.ok(r.andThen(doubleOk).andThen(doubleOk)), 4);
 }
 
 test "andThenCtx threads the context into the continuation" {
@@ -374,7 +374,7 @@ test "andThenCtx threads the context into the continuation" {
     };
     let r: Result<Int, Str> = .Ok(5);
     let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
-    assert.eq(assert.ok(out), "5");
+    assert.equal(assert.ok(out), "5");
 }
 
 test "andThenCtx leaves Err alone" {
@@ -383,14 +383,14 @@ test "andThenCtx leaves Err alone" {
     };
     let r: Result<Int, Str> = .Err("boom");
     let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
-    assert.eq(assert.err(out), "boom");
+    assert.equal(assert.err(out), "boom");
 }
 
 // --- Result: toOption ---------------------------------------------------------
 
 test "toOption turns Ok into Some" {
     let r: Result<Int, Str> = .Ok(3);
-    assert.eq(assert.some(r.toOption()), 3);
+    assert.equal(assert.some(r.toOption()), 3);
 }
 
 test "toOption turns Err into None, discarding the error" {
@@ -415,7 +415,7 @@ test "ignore consumes an Err and returns unit" {
 test "ignore returns unit, so it equals unit" {
     let r: Result<Int, Str> = .Ok(1);
     let u = r.ignore();
-    assert.eq(u, ());
+    assert.equal(u, ());
 }
 
 test "ignore is a method, and there is no free-function spelling of it" {
@@ -445,19 +445,19 @@ test "a wildcard in a match arm inspects rather than discards" {
         .Ok(v) => v,
         .Err(_) => 7,
     };
-    assert.eq(n, 7);
+    assert.equal(n, 7);
 }
 
 test "a nested binding keeps the Result, so the pattern is not a discard" {
     let (count, outcome) = (1, doubleOk(4));
-    assert.eq(count, 1);
-    assert.eq(outcome.withDefault(0), 8);
+    assert.equal(count, 1);
+    assert.equal(outcome.withDefault(0), 8);
 }
 
 // --- `?` on Option (SPEC 6.8) -------------------------------------------------
 
 test "? on Option unwraps a Some and continues" {
-    assert.eq(assert.some(firstEvenTimesTen([1, 2, 3])), 20);
+    assert.equal(assert.some(firstEvenTimesTen([1, 2, 3])), 20);
 }
 
 test "? on Option returns None early" {
@@ -469,67 +469,67 @@ test "? on Option returns None early for an empty list" {
 }
 
 test "? on Option picks the first match" {
-    assert.eq(assert.some(firstEvenTimesTen([5, 4, 2])), 40);
+    assert.equal(assert.some(firstEvenTimesTen([5, 4, 2])), 40);
 }
 
 // --- `?` on Result (SPEC 6.8) -------------------------------------------------
 
 test "? on Result unwraps an Ok and continues" {
-    assert.eq(assert.ok(addParsed("10", "5")), 15);
+    assert.equal(assert.ok(addParsed("10", "5")), 15);
 }
 
 test "? on Result returns the first Err early" {
-    assert.eq(assert.err(addParsed("x", "y")), "bad left");
+    assert.equal(assert.err(addParsed("x", "y")), "bad left");
 }
 
 test "? on Result stops before the second step" {
     // If the first `?` did not return early, the error would be "bad right".
-    assert.eq(assert.err(addParsed("x", "5")), "bad left");
+    assert.equal(assert.err(addParsed("x", "5")), "bad left");
 }
 
 test "? on Result reports the second failure when the first succeeds" {
-    assert.eq(assert.err(addParsed("5", "y")), "bad right");
+    assert.equal(assert.err(addParsed("5", "y")), "bad right");
 }
 
 test "? propagates through two function layers" {
-    assert.eq(assert.ok(chained("4")), 10);
-    assert.eq(assert.err(chained("q")), "bad left");
+    assert.equal(assert.ok(chained("4")), 10);
+    assert.equal(assert.err(chained("q")), "bad left");
 }
 
 test "? on a negative parsed value" {
-    assert.eq(assert.ok(addParsed("-3", "3")), 0);
+    assert.equal(assert.ok(addParsed("-3", "3")), 0);
 }
 
 // --- defaults, composed -------------------------------------------------------
 
 test "withDefault on a chained call" {
-    assert.eq("12".toInt().withDefault(0), 12);
-    assert.eq("xy".toInt().withDefault(0), 0);
+    assert.equal("12".toInt().withDefault(0), 12);
+    assert.equal("xy".toInt().withDefault(0), 0);
 }
 
 test "withDefault nested falls all the way through" {
     let a: Option<Int> = .None;
     let b: Option<Int> = .None;
-    assert.eq(a.withDefault(b.withDefault(3)), 3);
+    assert.equal(a.withDefault(b.withDefault(3)), 3);
 }
 
 test "withDefault nested stops at the first present operand" {
     let a: Option<Int> = .Some(1);
     let b: Option<Int> = .Some(2);
-    assert.eq(a.withDefault(b.withDefault(3)), 1);
+    assert.equal(a.withDefault(b.withDefault(3)), 1);
 }
 
 test "withDefault nested takes the middle value when the first is absent" {
     let a: Option<Int> = .None;
     let b: Option<Int> = .Some(2);
-    assert.eq(a.withDefault(b.withDefault(3)), 2);
+    assert.equal(a.withDefault(b.withDefault(3)), 2);
 }
 
 test "or chains three Options and withDefault ends the chain" {
     let a: Option<Int> = .None;
     let b: Option<Int> = .None;
     let c: Option<Int> = .Some(7);
-    assert.eq(a.or(b).or(c).withDefault(9), 7);
+    assert.equal(a.or(b).or(c).withDefault(9), 7);
 }
 
 test "withDefault evaluates its fallback even when the Option is Some" {
@@ -538,7 +538,7 @@ test "withDefault evaluates its fallback even when the Option is Some" {
     };
     let o: Option<Int> = .Some(1);
     let got = o.withDefault(eagerDefault(ctx));
-    assert.eq(got, 1);
+    assert.equal(got, 1);
     // The fallback is an argument, so it ran: `eagerDefault` consumed the line.
     assert.none(io.readLine(ctx));
 }
@@ -549,7 +549,7 @@ test "withDefault evaluates its fallback when the Option is None" {
     };
     let o: Option<Int> = .None;
     let got = o.withDefault(eagerDefault(ctx));
-    assert.eq(got, 99);
+    assert.equal(got, 99);
     assert.none(io.readLine(ctx));
 }
 
@@ -559,7 +559,7 @@ test "withDefault evaluates its fallback on a Result too" {
     };
     let r: Result<Int, Str> = .Ok(1);
     let got = r.withDefault(eagerDefault(ctx));
-    assert.eq(got, 1);
+    assert.equal(got, 1);
     assert.none(io.readLine(ctx));
 }
 
@@ -569,7 +569,7 @@ test "result withDefault answers the fallback for Err" {
     };
     let r: Result<Int, Str> = .Err("boom");
     let got = r.withDefault(eagerDefault(ctx));
-    assert.eq(got, 99);
+    assert.equal(got, 99);
     assert.none(io.readLine(ctx));
 }
 
@@ -582,26 +582,26 @@ test "a match is how a default is left unevaluated" {
         .Some(v) => v,
         .None => eagerDefault(ctx),
     };
-    assert.eq(got, 1);
+    assert.equal(got, 1);
     // The arm that would have read the line was never taken.
-    assert.eq(assert.some(io.readLine(ctx)), "untouched");
+    assert.equal(assert.some(io.readLine(ctx)), "untouched");
 }
 
 // --- the assert helpers themselves --------------------------------------------
 
 test "assert.some returns the wrapped value" {
     let o: Option<Str> = .Some("v");
-    assert.eq(assert.some(o), "v");
+    assert.equal(assert.some(o), "v");
 }
 
 test "assert.ok returns the wrapped value" {
     let r: Result<Str, Int> = .Ok("v");
-    assert.eq(assert.ok(r), "v");
+    assert.equal(assert.ok(r), "v");
 }
 
 test "assert.err returns the error" {
     let r: Result<Str, Int> = .Err(7);
-    assert.eq(assert.err(r), 7);
+    assert.equal(assert.err(r), 7);
 }
 
 // --- Option and Result in collections -----------------------------------------
@@ -621,7 +621,7 @@ test "a list of Options can be folded into a list of values" {
         },
         list.empty<Int>(),
     );
-    assert.eq(kept, [1, 3]);
+    assert.equal(kept, [1, 3]);
 }
 
 test "a list of Results can be sequenced with foldResult" {
@@ -635,7 +635,7 @@ test "a list of Results can be sequenced with foldResult" {
         },
         0,
     );
-    assert.eq(assert.ok(total), 6);
+    assert.equal(assert.ok(total), 6);
 }
 
 test "foldResult over a list of Results stops at the first bad parse" {
@@ -649,7 +649,7 @@ test "foldResult over a list of Results stops at the first bad parse" {
         },
         0,
     );
-    assert.eq(assert.err(total), "nope");
+    assert.equal(assert.err(total), "nope");
 }
 
 test "mapping a parse over a list yields Options in order" {
@@ -657,10 +657,10 @@ test "mapping a parse over a list yields Options in order" {
         Allocator: alloc(),
     };
     let parsed = ["1", "x", "3"].map(ctx, fn(s) => s.toInt());
-    assert.eq(parsed.len(), 3);
-    assert.eq(assert.some(assert.some(parsed.get(0))), 1);
+    assert.equal(parsed.len(), 3);
+    assert.equal(assert.some(assert.some(parsed.get(0))), 1);
     assert.none(assert.some(parsed.get(1)));
-    assert.eq(assert.some(assert.some(parsed.get(2))), 3);
+    assert.equal(assert.some(assert.some(parsed.get(2))), 3);
 }
 
 // --- option.mapOr / withDefaultWith / orElse / okOrWith --------------------------
@@ -668,37 +668,37 @@ test "mapping a parse over a list yields Options in order" {
 test "mapOr transforms or answers the fallback" {
     let some: Option<Int> = .Some(3);
     let none: Option<Int> = .None;
-    assert.eq(some.mapOr(0, fn(n) => n * 10), 30);
-    assert.eq(none.mapOr(0, fn(n) => n * 10), 0);
+    assert.equal(some.mapOr(0, fn(n) => n * 10), 30);
+    assert.equal(none.mapOr(0, fn(n) => n * 10), 0);
 }
 
 test "mapOr may answer a different type" {
     let some: Option<Int> = .Some(3);
     let none: Option<Int> = .None;
-    assert.eq(some.mapOr("none", fn(_n) => "some"), "some");
-    assert.eq(none.mapOr("none", fn(_n) => "some"), "none");
+    assert.equal(some.mapOr("none", fn(_n) => "some"), "some");
+    assert.equal(none.mapOr("none", fn(_n) => "some"), "none");
 }
 
 test "withDefaultWith runs the fallback only when it is needed" {
     let some: Option<Int> = .Some(3);
     let none: Option<Int> = .None;
-    assert.eq(some.withDefaultWith(fn() => 9), 3);
-    assert.eq(none.withDefaultWith(fn() => 9), 9);
+    assert.equal(some.withDefaultWith(fn() => 9), 3);
+    assert.equal(none.withDefaultWith(fn() => 9), 9);
 }
 
 test "orElse takes the second answer only when the first is absent" {
     let some: Option<Int> = .Some(3);
     let none: Option<Int> = .None;
-    assert.eq(assert.some(some.orElse(fn() => .Some(9))), 3);
-    assert.eq(assert.some(none.orElse(fn() => .Some(9))), 9);
+    assert.equal(assert.some(some.orElse(fn() => .Some(9))), 3);
+    assert.equal(assert.some(none.orElse(fn() => .Some(9))), 9);
     assert.none(none.orElse(fn() => .None));
 }
 
 test "okOrWith builds the error only when there is one" {
     let some: Option<Int> = .Some(3);
     let none: Option<Int> = .None;
-    assert.eq(assert.ok(some.okOrWith(fn() => "gone")), 3);
-    assert.eq(assert.err(none.okOrWith(fn() => "gone")), "gone");
+    assert.equal(assert.ok(some.okOrWith(fn() => "gone")), 3);
+    assert.equal(assert.err(none.okOrWith(fn() => "gone")), "gone");
 }
 
 test "isSomeAnd asks the predicate only when the value is there" {
@@ -715,7 +715,7 @@ test "toList is one element or none" {
     };
     let some: Option<Int> = .Some(3);
     let none: Option<Int> = .None;
-    assert.eq(some.toList(ctx), [3]);
+    assert.equal(some.toList(ctx), [3]);
     assert.isEmpty(none.toList(ctx));
 }
 
@@ -725,7 +725,7 @@ test "flatten takes one Option off" {
     let nested: Option<Option<Int>> = .Some(.Some(1));
     let inner: Option<Option<Int>> = .Some(.None);
     let outer: Option<Option<Int>> = .None;
-    assert.eq(assert.some(option.flatten(nested)), 1);
+    assert.equal(assert.some(option.flatten(nested)), 1);
     assert.none(option.flatten(inner));
     assert.none(option.flatten(outer));
 }
@@ -736,8 +736,8 @@ test "zip answers both values or neither" {
     let missing: Option<Str> = .None;
     let gone: Option<Int> = .None;
     let both = assert.some(option.zip(one, word));
-    assert.eq(both.0, 1);
-    assert.eq(both.1, "a");
+    assert.equal(both.0, 1);
+    assert.equal(both.1, "a");
     assert.none(option.zip(one, missing));
     assert.none(option.zip(gone, word));
     assert.none(option.zip(gone, missing));
@@ -749,15 +749,15 @@ test "errToOption keeps the error half" {
     let ok: Result<Int, Str> = .Ok(2);
     let bad: Result<Int, Str> = .Err("no");
     assert.none(ok.errToOption());
-    assert.eq(assert.some(bad.errToOption()), "no");
+    assert.equal(assert.some(bad.errToOption()), "no");
 }
 
 test "orElse chains the failures" {
     let ok: Result<Int, Str> = .Ok(2);
     let bad: Result<Int, Str> = .Err("no");
-    assert.eq(assert.ok(ok.orElse(fn(_e) => .Ok(9))), 2);
-    assert.eq(assert.ok(bad.orElse(fn(_e) => .Ok(9))), 9);
-    assert.eq(assert.err(bad.orElse(fn(e) => .Err(e))), "no");
+    assert.equal(assert.ok(ok.orElse(fn(_e) => .Ok(9))), 2);
+    assert.equal(assert.ok(bad.orElse(fn(_e) => .Ok(9))), 9);
+    assert.equal(assert.err(bad.orElse(fn(e) => .Err(e))), "no");
 }
 
 test "orElseCtx takes the context instead of capturing it" {
@@ -766,11 +766,11 @@ test "orElseCtx takes the context instead of capturing it" {
     };
     let bad: Result<Int, Str> = .Err("no");
     let ok: Result<Int, Str> = .Ok(2);
-    assert.eq(
+    assert.equal(
         assert.err(bad.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))),
         "<no>",
     );
-    assert.eq(
+    assert.equal(
         assert.ok(ok.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))),
         2,
     );
@@ -779,24 +779,24 @@ test "orElseCtx takes the context instead of capturing it" {
 test "withDefaultWith builds the fallback from the error" {
     let ok: Result<Int, Str> = .Ok(2);
     let bad: Result<Int, Str> = .Err("no");
-    assert.eq(ok.withDefaultWith(fn(e) => e.len()), 2);
-    assert.eq(bad.withDefaultWith(fn(e) => e.len()), 2);
+    assert.equal(ok.withDefaultWith(fn(e) => e.len()), 2);
+    assert.equal(bad.withDefaultWith(fn(e) => e.len()), 2);
 }
 
 test "fold takes both halves onto one type" {
     let ok: Result<Int, Str> = .Ok(2);
     let bad: Result<Int, Str> = .Err("no");
-    assert.eq(ok.fold(fn(v) => v, fn(_e) => -1), 2);
-    assert.eq(bad.fold(fn(v) => v, fn(_e) => -1), -1);
-    assert.eq(ok.fold(fn(_v) => "ok", fn(e) => e), "ok");
-    assert.eq(bad.fold(fn(_v) => "ok", fn(e) => e), "no");
+    assert.equal(ok.fold(fn(v) => v, fn(_e) => -1), 2);
+    assert.equal(bad.fold(fn(v) => v, fn(_e) => -1), -1);
+    assert.equal(ok.fold(fn(_v) => "ok", fn(e) => e), "ok");
+    assert.equal(bad.fold(fn(_v) => "ok", fn(e) => e), "no");
 }
 
 test "result mapOr transforms or answers the fallback" {
     let ok: Result<Int, Str> = .Ok(2);
     let bad: Result<Int, Str> = .Err("no");
-    assert.eq(ok.mapOr(0, fn(v) => v * 10), 20);
-    assert.eq(bad.mapOr(0, fn(v) => v * 10), 0);
+    assert.equal(ok.mapOr(0, fn(v) => v * 10), 20);
+    assert.equal(bad.mapOr(0, fn(v) => v * 10), 0);
 }
 
 test "isOkAnd asks the predicate only when there is a value" {
@@ -831,19 +831,19 @@ fn neverRunText(): Str {
 
 test "withDefaultWith leaves its fallback unrun for a Some" {
     let some: Option<Int> = .Some(1);
-    assert.eq(some.withDefaultWith(fn() => neverRun()), 1);
+    assert.equal(some.withDefaultWith(fn() => neverRun()), 1);
     let none: Option<Int> = .None;
-    assert.eq(none.withDefaultWith(fn() => 9), 9);
+    assert.equal(none.withDefaultWith(fn() => 9), 9);
 }
 
 test "orElse leaves its alternative unrun for a Some" {
     let some: Option<Int> = .Some(1);
-    assert.eq(assert.some(some.orElse(fn() => .Some(neverRun()))), 1);
+    assert.equal(assert.some(some.orElse(fn() => .Some(neverRun()))), 1);
 }
 
 test "okOrWith leaves its error unbuilt for a Some" {
     let some: Option<Int> = .Some(1);
-    assert.eq(assert.ok(some.okOrWith(fn() => neverRunText())), 1);
+    assert.equal(assert.ok(some.okOrWith(fn() => neverRunText())), 1);
 }
 
 test "isSomeAnd does not ask its predicate for a None" {
@@ -857,7 +857,7 @@ test "isSomeAnd does not ask its predicate for a None" {
 // at the call site rather than inside a lambda.
 test "mapOr runs its transform only for a Some" {
     let none: Option<Int> = .None;
-    assert.eq(none.mapOr(0, fn(_n) => neverRun()), 0);
+    assert.equal(none.mapOr(0, fn(_n) => neverRun()), 0);
 }
 
 test "mapOr builds its fallback whichever way the Option went" {
@@ -865,19 +865,19 @@ test "mapOr builds its fallback whichever way the Option went" {
         Stdin: stdin().lines(["untouched"]),
     };
     let some: Option<Int> = .Some(1);
-    assert.eq(some.mapOr(eagerDefault(ctx), fn(n) => n * 10), 10);
+    assert.equal(some.mapOr(eagerDefault(ctx), fn(n) => n * 10), 10);
     // The fallback was never wanted, and was built anyway.
     assert.none(io.readLine(ctx));
 }
 
 test "result withDefaultWith leaves its fallback unrun for an Ok" {
     let ok: Result<Int, Str> = .Ok(1);
-    assert.eq(ok.withDefaultWith(fn(_e) => neverRun()), 1);
+    assert.equal(ok.withDefaultWith(fn(_e) => neverRun()), 1);
 }
 
 test "result orElse leaves its alternative unrun for an Ok" {
     let ok: Result<Int, Str> = .Ok(1);
-    assert.eq(assert.ok(ok.orElse(fn(_e) => .Ok(neverRun()))), 1);
+    assert.equal(assert.ok(ok.orElse(fn(_e) => .Ok(neverRun()))), 1);
 }
 
 test "result orElseCtx leaves its alternative unrun for an Ok" {
@@ -885,19 +885,19 @@ test "result orElseCtx leaves its alternative unrun for an Ok" {
         Allocator: alloc(),
     };
     let ok: Result<Int, Str> = .Ok(1);
-    assert.eq(assert.ok(ok.orElseCtx(ctx, fn(_c, _e) => .Ok(neverRun()))), 1);
+    assert.equal(assert.ok(ok.orElseCtx(ctx, fn(_c, _e) => .Ok(neverRun()))), 1);
 }
 
 test "fold runs one half and not the other" {
     let ok: Result<Int, Str> = .Ok(1);
-    assert.eq(ok.fold(fn(v) => v, fn(_e) => neverRun()), 1);
+    assert.equal(ok.fold(fn(v) => v, fn(_e) => neverRun()), 1);
     let bad: Result<Int, Str> = .Err("no");
-    assert.eq(bad.fold(fn(_v) => neverRun(), fn(_e) => 0 - 1), 0 - 1);
+    assert.equal(bad.fold(fn(_v) => neverRun(), fn(_e) => 0 - 1), 0 - 1);
 }
 
 test "result mapOr runs its transform only for an Ok" {
     let bad: Result<Int, Str> = .Err("no");
-    assert.eq(bad.mapOr(0, fn(_v) => neverRun()), 0);
+    assert.equal(bad.mapOr(0, fn(_v) => neverRun()), 0);
 }
 
 test "isOkAnd does not ask its predicate for an Err" {
@@ -909,20 +909,20 @@ test "isOkAnd does not ask its predicate for an Err" {
 // green cases above are green because nothing called it.
 test "the unrun step is one that would have been noticed" {
     let none: Option<Int> = .None;
-    assert.eq(none.mapOr(7, fn(_n) => 0), 7);
+    assert.equal(none.mapOr(7, fn(_n) => 0), 7);
     let some: Option<Int> = .Some(1);
-    assert.eq(assert.some(some.orElse(fn() => .Some(2))), 1);
+    assert.equal(assert.some(some.orElse(fn() => .Some(2))), 1);
 }
 
 // --- The nested and empty shapes ---------------------------------------------------
 
 test "flatten is one layer only, and takes the empty layer from either side" {
     let deep: Option<Option<Option<Int>>> = .Some(.Some(.Some(1)));
-    assert.eq(assert.some(assert.some(option.flatten(deep))), 1);
+    assert.equal(assert.some(assert.some(option.flatten(deep))), 1);
     let middle: Option<Option<Option<Int>>> = .Some(.Some(.None));
     assert.none(assert.some(option.flatten(middle)));
     // Flattening twice reaches the value.
-    assert.eq(assert.some(option.flatten(option.flatten(deep))), 1);
+    assert.equal(assert.some(option.flatten(option.flatten(deep))), 1);
 }
 
 test "zip and toList over the shapes a caller actually holds" {
@@ -933,18 +933,18 @@ test "zip and toList over the shapes a caller actually holds" {
     let left: Option<(Int, Int)> = .Some((1, 2));
     let right: Option<Str> = .Some("a");
     let pair = assert.some(option.zip(left, right));
-    assert.eq((pair.0).1, 2);
-    assert.eq(pair.1, "a");
+    assert.equal((pair.0).1, 2);
+    assert.equal(pair.1, "a");
     // `toList` and `zip` agree about how many values there are.
     let some: Option<Int> = .Some(1);
     let none: Option<Int> = .None;
-    assert.eq(some.toList(ctx).len(), 1);
-    assert.eq(none.toList(ctx).len(), 0);
-    assert.eq(option.zip(some, some).toList(ctx).len(), 1);
-    assert.eq(option.zip(some, none).toList(ctx).len(), 0);
+    assert.equal(some.toList(ctx).len(), 1);
+    assert.equal(none.toList(ctx).len(), 0);
+    assert.equal(option.zip(some, some).toList(ctx).len(), 1);
+    assert.equal(option.zip(some, none).toList(ctx).len(), 0);
     // A list of Options collapses through `toList` into the values that are there.
     let holes: [Option<Int>] = [.Some(1), .None, .Some(3)];
-    assert.eq(holes.flatMapCtx(ctx, fn(c, o) => o.toList(c)), [1, 3]);
+    assert.equal(holes.flatMapCtx(ctx, fn(c, o) => o.toList(c)), [1, 3]);
 }
 
 test "errToOption and toOption are the two halves of the same Result" {

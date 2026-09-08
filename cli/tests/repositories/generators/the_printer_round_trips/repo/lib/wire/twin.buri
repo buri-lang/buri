@@ -8,7 +8,7 @@ from "//lib/wire/helper.buri" import { helperTag };
 
 export type Size = Int;
 
-derive Eq, Show for Point;
+derive Equal, Show for Point;
 export struct Point {
     export x: Int,
     export y: Size,

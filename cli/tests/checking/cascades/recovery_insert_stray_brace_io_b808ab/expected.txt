@@ -10,7 +10,7 @@ error: expected an identifier, found `,` [unexpected-token]
 error: there is nothing named `ctx` in scope [unresolved-name]
   --> main.buri:32:26
    |
-32 |     assert.eq(io.readAll(ctx), "only");
+32 |     assert.equal(io.readAll(ctx), "only");
    |                          ^^^
    |
    = fix: declare `ctx` as a parameter of this function

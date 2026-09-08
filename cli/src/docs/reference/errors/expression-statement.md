@@ -17,7 +17,7 @@ Bind it — `let _ = ...;` — or make it the block's result expression.
 ## Why
 
 A block is `let`s followed by a result expression; there is no third statement
-form. A test source is the one exception, which is what lets `assert.eq(...)`
+form. A test source is the one exception, which is what lets `assert.equal(...)`
 stand alone: there, any expression of type `()` may stand alone, terminated by
 `;` — a `match` or an `if` whose branches all assert included.
 

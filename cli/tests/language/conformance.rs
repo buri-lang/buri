@@ -62,7 +62,7 @@ fn conformance_suite_can_fail() {
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `edit` panics if the text is not there, so a
     // substitution that silently did nothing cannot pass for a passing test.
-    suite.edit(canary, "assert.eq(6 * 7, 42);", "assert.eq(6 * 7, 43);");
+    suite.edit(canary, "assert.equal(6 * 7, 42);", "assert.equal(6 * 7, 43);");
 
     let run = suite.run(&["test", "//lib/canary", "--force"]);
     assert_ne!(run.code, 0, "a broken assertion still passed:\n{}", indent(&run.all()));
@@ -1923,7 +1923,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
 /// It parses the way a browser parses: one run of text per run however many the
 /// tree that wrote it had, entities read back, an attribute that stands on its
 /// own kept as one, and an element left **open** unless HTML says it holds
-/// nothing — so `<div />` is not a closed `div` here either, which is the whole
+/// nothing — so `<div />` is not a closed `divide` here either, which is the whole
 /// reason the renderer writes a closing tag.
 ///
 /// `browser(sent, at, holds)` installs it; `holds: false` is a platform whose
@@ -2447,7 +2447,7 @@ from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
 from "ui/web" import * as web;
 
-derive Eq, FromJson, ToJson for Row;
+derive Equal, FromJson, ToJson for Row;
 /// One row of the list, keyed by `key`.
 struct Row {
     key: Str,

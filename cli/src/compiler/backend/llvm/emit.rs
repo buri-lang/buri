@@ -937,8 +937,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         // A `Str` is three words and not an integer, so there is no comparison
         // instruction for one. `middle::derives` emits exactly this — a derived
-        // `Eq` or `Ord` over a type with a `Str` in it becomes
-        // `ExprKind::Prim { op: Eq, prim: Str }` (`derives.rs`'s `fn eq`), which
+        // `Equal` or `Ordered` over a type with a `Str` in it becomes
+        // `ExprKind::Prim { op: Equal, prim: Str }` (`derives.rs`'s `fn eq`), which
         // lowers to an `Inst::Binary` at `Prim::Str` — so falling through to the
         // integer path would compare a struct against a struct and answer with
         // whatever the first operand happened to be.
@@ -4967,7 +4967,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let equality = matches!(op, ir::BinOp::Eq | ir::BinOp::Ne);
         let (symbol, width) = if equality {
-            (runtime::entry("str.eq").map_or("buri_rt_str_eq", |e| e.symbol), 8)
+            (runtime::entry("str.equal").map_or("buri_rt_str_eq", |e| e.symbol), 8)
         } else {
             (runtime::entry("str.compare").map_or("buri_rt_str_compare", |e| e.symbol), 32)
         };
@@ -5467,7 +5467,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         let Some(dest) = dests.first().copied() else { return false };
-        // `str.show`, `character.eq`, `bool.compare` and their siblings: the same
+        // `str.show`, `character.equal`, `bool.compare` and their siblings: the same
         // three operations `Unit::numeric` emits, at the three primitives whose
         // defining module is not `core/number` and whose keys are therefore two
         // segments rather than three.
@@ -5480,7 +5480,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
                     self.hash_prim(state, code, dest, prim, seed.into(), x)
                 }
-                "eq" => {
+                "equal" => {
                     let Some(y) = y else { return false };
                     let (l, r) = (self.get(state, x), self.get(state, y));
                     let out = self.binary(state, ir::BinOp::Eq, prim, code.ty_of(x), l, r);
@@ -7185,7 +7185,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         true
     }
 
-    /// `deriveArrayEq` — a derived `Eq` where the field is a `[T]`.
+    /// `deriveArrayEq` — a derived `Equal` where the field is a `[T]`.
     ///
     /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
     /// Bool) -> Bool`, where the third argument is a **code pointer to the
@@ -7872,16 +7872,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // by default. The keys stay separate because the *checker* uses
             // them to say whether a program meant it.
             (
-                "add" | "sub" | "mul" | "div" | "rem" | "wrappingAdd" | "wrappingSub"
-                | "wrappingMul",
+                "add" | "subtract" | "multiply" | "divide" | "remainder" | "wrappingAdd"
+                | "wrappingSubtract" | "wrappingMultiply",
                 Some(x),
                 Some(y),
             ) => {
                 let binop = match *op {
                     "add" | "wrappingAdd" => ir::BinOp::Add,
-                    "sub" | "wrappingSub" => ir::BinOp::Sub,
-                    "mul" | "wrappingMul" => ir::BinOp::Mul,
-                    "div" => ir::BinOp::Div,
+                    "subtract" | "wrappingSubtract" => ir::BinOp::Sub,
+                    "multiply" | "wrappingMultiply" => ir::BinOp::Mul,
+                    "divide" => ir::BinOp::Div,
                     _ => ir::BinOp::Rem,
                 };
                 // Straight through `binary`, so that SPEC 6.2's division abort
@@ -7889,7 +7889,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one place rather than from two that have to agree.
                 self.binary(state, binop, from, code.ty_of(dest), x, y)
             }
-            ("neg", Some(x), _) => self.unary(ir::UnOp::Neg, from, x),
+            ("negate", Some(x), _) => self.unary(ir::UnOp::Neg, from, x),
             ("abs", Some(BasicValueEnum::FloatValue(x)), _) => self.fabs(x),
             // `abs` of a signed minimum overflows, and overflow is undefined
             // (SPEC 6.2), so there is nothing to check.
@@ -7914,7 +7914,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `cli/runtime/hash.rs` rather than an exported symbol, and
             // copying `0x811c9dc5` into a backend is the one thing
             // VALUE-MODEL.md §12 most wants stated once.
-            ("eq", Some(x), Some(y)) => {
+            ("equal", Some(x), Some(y)) => {
                 let operand = args.first().copied().map_or(ir::Type::I64, |v| code.ty_of(v));
                 self.binary(state, ir::BinOp::Eq, from, operand, x, y)
             }
@@ -7933,7 +7933,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `Checked` and `Saturating`, which are integer traits: exact
             // arithmetic in 128 bits, then a range test or a clamp.
             (
-                "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv"
+                "checkedAdd" | "checkedSubtract" | "checkedMultiply" | "checkedDivide"
                 | "checkedRemainder",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
@@ -7953,7 +7953,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 return self.checked_power(state, code, dest, from, x, e, span);
             }
             (
-                "saturatingAdd" | "saturatingSub" | "saturatingMul",
+                "saturatingAdd" | "saturatingSubtract" | "saturatingMultiply",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
             ) => {
@@ -7973,7 +7973,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         true
     }
 
-    /// `checkedAdd`, `checkedSub`, `checkedMul`, `checkedDiv` — `Option<T>`.
+    /// `checkedAdd`, `checkedSubtract`, `checkedMultiply`, `checkedDivide` — `Option<T>`.
     ///
     /// **The bound is the type's own range**, which is where this parts company
     /// with the JavaScript backend: there `js/intrinsics.rs` tests
@@ -8022,10 +8022,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `checkedNegate` arrives here as `0 - x`, which is the whole of it:
             // the range test below is what rejects a signed minimum and every
             // non-zero unsigned value.
-            "checkedSub" | "checkedNegate" => {
+            "checkedSubtract" | "checkedNegate" => {
                 self.builder.build_int_sub(a, b, "ck.sub").unwrap_or(a)
             }
-            "checkedMul" => self.builder.build_int_mul(a, b, "ck.mul").unwrap_or(a),
+            "checkedMultiply" => self.builder.build_int_mul(a, b, "ck.mul").unwrap_or(a),
             // A remainder cannot leave the type's range, so a zero divisor is
             // all there is to guard — and `MIN % -1` is `0`, which `1` in place
             // of `-1` also answers, so the instruction never sees either.
@@ -8310,7 +8310,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         true
     }
 
-    /// `saturatingAdd`, `saturatingSub`, `saturatingMul` — clamped to the
+    /// `saturatingAdd`, `saturatingSubtract`, `saturatingMultiply` — clamped to the
     /// **type's own** bounds, which is `$sat`'s rule on the other backend too:
     /// `Saturating` promises a value in range and says nothing about whether a
     /// double could name it, so it is the one family of the three that never
@@ -8335,7 +8335,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let b = self.widen(y, wide, signed);
         let value = match op {
             "saturatingAdd" => self.builder.build_int_add(a, b, "sat.add").unwrap_or(a),
-            "saturatingSub" => self.builder.build_int_sub(a, b, "sat.sub").unwrap_or(a),
+            "saturatingSubtract" => self.builder.build_int_sub(a, b, "sat.sub").unwrap_or(a),
             _ => self.builder.build_int_mul(a, b, "sat.mul").unwrap_or(a),
         };
         let low = self.int_constant(wide.as_basic_type_enum(), lo.unsigned_abs(), lo < 0);
@@ -8371,8 +8371,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let code = match op {
             "checkedAdd" | "saturatingAdd" => 0,
             // A negation arrives as `0 - x`, which is the subtraction already.
-            "checkedSub" | "saturatingSub" | "checkedNegate" => 1,
-            "checkedMul" | "saturatingMul" => 2,
+            "checkedSubtract" | "saturatingSubtract" | "checkedNegate" => 1,
+            "checkedMultiply" | "saturatingMultiply" => 2,
             "checkedRemainder" => 4,
             "checkedPower" => 5,
             _ => 3,
@@ -8734,16 +8734,16 @@ pub fn implemented(key: &str) -> bool {
         || prim_leaf(key).is_some()
 }
 
-/// `str.show`, `character.eq`, `bool.compare` and their six siblings.
+/// `str.show`, `character.equal`, `bool.compare` and their six siblings.
 ///
-/// `semantics/builtins.rs` declares `eq`, `compare`, `show` and `hash` on
+/// `semantics/builtins.rs` declares `equal`, `compare`, `show` and `hash` on
 /// **every** primitive, and `monomorphize::intrinsic_key` names each after the
 /// type's own module — so `Str`'s live under `str.`, `Char`'s under
 /// `character.` and `Bool`'s under `bool.`, while the numeric ones are three
 /// segments under `number.` because `core/number` defines a dozen types. One rule,
 /// two spellings, and this is the half of it `numeric_op` does not cover.
 ///
-/// `str.eq`, `str.compare` and `str.hash` are absent because the archive has
+/// `str.equal`, `str.compare` and `str.hash` are absent because the archive has
 /// bodies for all three and [`runtime::ENTRIES`] is where a body goes.
 fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
     let (module, op) = key.split_once('.')?;
@@ -8754,7 +8754,9 @@ fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
         _ => return None,
     };
     match (prim, op) {
-        (_, "show") | (Prim::Char | Prim::Bool, "eq" | "compare" | "hash") => Some((prim, op)),
+        (_, "show") | (Prim::Char | Prim::Bool, "equal" | "compare" | "hash") => {
+            Some((prim, op))
+        }
         _ => None,
     }
 }
@@ -8834,8 +8836,8 @@ fn open_coded_key(key: &str) -> bool {
 ///    (`llvm.*.with.overflow`) *and* the enum construction; the second half is
 ///    [`Unit::call_sum`]'s machinery driven by something that is not a call.
 ///  * **`saturating*`** is the same test with a clamp instead of an `Option`.
-///  * **`wrapping*`** is the plain operation — every one of `add`, `sub` and
-///    `mul` already wraps here, because §3.4 declines to set `nsw`/`nuw` — but
+///  * **`wrapping*`** is the plain operation — every one of `add`, `subtract` and
+///    `multiply` already wraps here, because §3.4 declines to set `nsw`/`nuw` — but
 ///    claiming the key without emitting it would be a silent miscompile if that
 ///    ever changed, and emitting it is one line that has not been asked for.
 ///  * **`hash`** is `$hashInto` from the FNV-1a **seed**, and the seed is a
@@ -8864,20 +8866,20 @@ pub fn numeric_op(key: &str) -> bool {
     if matches!(
         *op,
         "add"
-            | "sub"
-            | "mul"
-            | "div"
-            | "rem"
-            | "neg"
+            | "subtract"
+            | "multiply"
+            | "divide"
+            | "remainder"
+            | "negate"
             | "abs"
             | "signum"
-            | "eq"
+            | "equal"
             | "compare"
             | "show"
             | "hash"
             | "wrappingAdd"
-            | "wrappingSub"
-            | "wrappingMul"
+            | "wrappingSubtract"
+            | "wrappingMultiply"
             | "minValue"
             | "maxValue"
     ) {
@@ -8889,15 +8891,15 @@ pub fn numeric_op(key: &str) -> bool {
     if matches!(
         *op,
         "checkedAdd"
-            | "checkedSub"
-            | "checkedMul"
-            | "checkedDiv"
+            | "checkedSubtract"
+            | "checkedMultiply"
+            | "checkedDivide"
             | "checkedRemainder"
             | "checkedNegate"
             | "checkedPower"
             | "saturatingAdd"
-            | "saturatingSub"
-            | "saturatingMul"
+            | "saturatingSubtract"
+            | "saturatingMultiply"
     ) {
         return prim.is_integer();
     }

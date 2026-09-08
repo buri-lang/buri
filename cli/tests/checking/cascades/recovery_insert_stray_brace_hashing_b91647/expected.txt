@@ -18,7 +18,7 @@ error: there is nothing named `id` in scope [unresolved-name]
 error: there is nothing named `id` in scope [unresolved-name]
   --> main.buri:33:25
    |
-33 |     assert.eq(table.get(id), .Some("ada"));
+33 |     assert.equal(table.get(id), .Some("ada"));
    |                         ^^
    |
    = did you mean `Add`?
@@ -26,7 +26,7 @@ error: there is nothing named `id` in scope [unresolved-name]
 error: there is nothing named `id` in scope [unresolved-name]
   --> main.buri:36:52
    |
-36 |     assert.eq(table.get(assert.some(uuid.fromBytes(id.0))), .Some("ada"));
+36 |     assert.equal(table.get(assert.some(uuid.fromBytes(id.0))), .Some("ada"));
    |                                                    ^^
    |
    = did you mean `Add`?

@@ -9,7 +9,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 
-derive Eq, Show for Node1;
+derive Equal, Show for Node1;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node1 {

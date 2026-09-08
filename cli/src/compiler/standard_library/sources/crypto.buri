@@ -81,7 +81,7 @@ from "core/bytes" import * as bytes;
 from "core/effect" import { Allocator, Entropy };
 from "core/list" import * as list;
 
-derive Eq, Show for Digest;
+derive Equal, Show for Digest;
 /// A digest, as many bytes as the function that made it: 32 from SHA-256, 64
 /// from SHA-512, 20 from SHA-1. The type does not say which, so compare two
 /// digests only when the same function made both.

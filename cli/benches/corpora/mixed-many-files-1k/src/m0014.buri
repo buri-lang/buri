@@ -12,7 +12,7 @@ from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
 from "//bench/m0008.buri" import { blend8, Node8, reach8, seed8 };
 from "//bench/m0011.buri" import { blend11, Node11, reach11, seed11 };
 
-derive Eq, Show for Node14;
+derive Equal, Show for Node14;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node14 {

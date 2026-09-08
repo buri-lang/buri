@@ -9,7 +9,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
 
-derive Eq, Show for Node4;
+derive Equal, Show for Node4;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node4 {
@@ -102,7 +102,7 @@ export fn probe4_2<C: Allocator>(ctx: C): Int {
     label4_2(ctx, a, e).len() + b
 }
 
-derive Eq, Show for State4_3;
+derive Equal, Show for State4_3;
 /// An enum of 3 variants, matched exhaustively below.
 export enum State4_3 {
     Idle,
@@ -157,7 +157,7 @@ export fn probe4_4<C: Allocator>(ctx: C): Int {
     digest4_4(ctx) + drain4_4()
 }
 
-derive Eq, Show for State4_5;
+derive Equal, Show for State4_5;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State4_5 {
     Idle,
@@ -249,7 +249,7 @@ export fn probe4_7<C: Allocator>(ctx: C): Int {
     digest4_7(ctx) + drain4_7()
 }
 
-derive Eq, Show for Rec4_8;
+derive Equal, Show for Rec4_8;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec4_8 {
     export f0: Int,
@@ -296,7 +296,7 @@ export fn probe4_9<C: Allocator>(ctx: C): Int {
     label4_9(ctx, a, e).len() + b
 }
 
-derive Eq, Show for State4_10;
+derive Equal, Show for State4_10;
 /// An enum of 3 variants, matched exhaustively below.
 export enum State4_10 {
     Idle,

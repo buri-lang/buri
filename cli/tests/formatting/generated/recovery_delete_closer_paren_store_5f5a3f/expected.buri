@@ -36,7 +36,7 @@ test "append writes the log format" {
     };
     let log = path.of(ctx, "ledger.log");
     assert.ok(append(ctx, log, [entry("coffee", fromCents(450))]));
-    assert.eq(assert.ok(readLog(ctx, log), "coffee\t$4.50");
+    assert.equal(assert.ok(readLog(ctx, log), "coffee\t$4.50");
 }
 
 // Reading is all this one does, so the context binds `FileSystemRead` and nothing that
@@ -61,5 +61,5 @@ test "the golden log round-trips" {
     let want = assert.ok(readLog(ctx, path.of(ctx, "test/golden/log.txt")));
     let out = path.of(ctx, "out.log");
     assert.ok(append(ctx, out, [entry("books", fromCents(3200))]));
-    assert.eq(assert.ok(readLog(ctx, out)), want.trim());
+    assert.equal(assert.ok(readLog(ctx, out)), want.trim());
 }

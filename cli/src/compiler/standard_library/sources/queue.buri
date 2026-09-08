@@ -49,7 +49,7 @@ from "core/list" import * as list;
 /// reversal is what makes both ends an append.
 ///
 /// The fields stay private, because two different pairs can stand for the same
-/// queue. `derive Eq` would compare the representation, so equality is `equals`
+/// queue. `derive Equal` would compare the representation, so equality is `equals`
 /// below instead.
 export struct Queue<T> {
     front: [T],
@@ -151,7 +151,7 @@ impl<T> Queue<T> {
     }
 }
 
-impl<T: Eq> Queue<T> {
+impl<T: Equal> Queue<T> {
     /// Two queues are equal when they hold the same elements in the same order,
     /// whatever split between front and back they happen to have.
     export fn equals<C: Allocator>(self, ctx: C, other: Queue<T>): Bool {

@@ -1,17 +1,17 @@
-error: `Outer` cannot derive `Eq`: `inner` has type `Inner` [underivable]
+error: `Outer` cannot derive `Equal`: `inner` has type `Inner` [underivable]
   --> cmd/derive_unsatisfied_field/main.buri:11:1
    |
-11 | derive Eq for Outer;
+11 | derive Equal for Outer;
    | ^^^^^^^^^^^^^^^^^^^^
    |
-   = a derived implementation is a fold over the type's components, and `Inner` does not satisfy `Eq`
-   = fix: make `Inner` satisfy `Eq` first — `derive Eq for Inner;` in its own module, or an `impl` — or drop `Eq` from this `derive`
+   = a derived implementation is a fold over the type's components, and `Inner` does not satisfy `Equal`
+   = fix: make `Inner` satisfy `Equal` first — `derive Equal for Inner;` in its own module, or an `impl` — or drop `Equal` from this `derive`
 
      What to do
      ──────────
 
-     Make Inner satisfy Eq first — derive Eq for Inner; in its own module, or an
-     impl — or drop Eq from this derive.
+     Make Inner satisfy Equal first — derive Equal for Inner; in its own module, or an
+     impl — or drop Equal from this derive.
 
      Why
      ───
@@ -20,14 +20,14 @@ error: `Outer` cannot derive `Eq`: `inner` has type `Inner` [underivable]
      which is why the diagnostic names the component rather than the type you
      wrote it on.
 
-error: `Outer` does not implement `Eq` [missing-conformance]
+error: `Outer` does not implement `Equal` [missing-conformance]
   --> cmd/derive_unsatisfied_field/main.buri:16:30
    |
 16 |   let _ = io.println(ctx, "${a == a}").ignore();
    |                              ^^^^^^
    |
    = conformance is nominal: a type satisfies a trait only where a declaration says so
-   = fix: add `derive Eq for Outer;` in that type's own module, or write `impl Eq for Outer { ... }` there
+   = fix: add `derive Equal for Outer;` in that type's own module, or write `impl Equal for Outer { ... }` there
 
      What to do
      ──────────

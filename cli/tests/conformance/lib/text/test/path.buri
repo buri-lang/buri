@@ -19,17 +19,17 @@ test "repeated and trailing separators are dropped" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "logs//app/").text(), "logs/app");
-    assert.eq(path.of(ctx, "/var///log//").text(), "/var/log");
-    assert.eq(path.of(ctx, "a/b").text(), "a/b");
+    assert.equal(path.of(ctx, "logs//app/").text(), "logs/app");
+    assert.equal(path.of(ctx, "/var///log//").text(), "/var/log");
+    assert.equal(path.of(ctx, "a/b").text(), "a/b");
 }
 
 test "a `.` component names nothing and is dropped" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "./a/./b").text(), "a/b");
-    assert.eq(path.of(ctx, "/./a").text(), "/a");
+    assert.equal(path.of(ctx, "./a/./b").text(), "a/b");
+    assert.equal(path.of(ctx, "/./a").text(), "/a");
 }
 
 test "the empty path is the current directory" {
@@ -38,17 +38,17 @@ test "the empty path is the current directory" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "").text(), ".");
-    assert.eq(path.of(ctx, ".").text(), ".");
-    assert.eq(path.of(ctx, "./.").text(), ".");
+    assert.equal(path.of(ctx, "").text(), ".");
+    assert.equal(path.of(ctx, ".").text(), ".");
+    assert.equal(path.of(ctx, "./.").text(), ".");
 }
 
 test "the root survives normalizing" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "/").text(), "/");
-    assert.eq(path.of(ctx, "///").text(), "/");
+    assert.equal(path.of(ctx, "/").text(), "/");
+    assert.equal(path.of(ctx, "///").text(), "/");
 }
 
 test "`..` is a component and is NOT resolved" {
@@ -57,16 +57,16 @@ test "`..` is a component and is NOT resolved" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "a/../b").text(), "a/../b");
-    assert.eq(path.of(ctx, "..").text(), "..");
-    assert.eq(path.of(ctx, "/a/..").text(), "/a/..");
+    assert.equal(path.of(ctx, "a/../b").text(), "a/../b");
+    assert.equal(path.of(ctx, "..").text(), "..");
+    assert.equal(path.of(ctx, "/a/..").text(), "/a/..");
 }
 
 test "two spellings of one path are one value" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "logs//app"), path.of(ctx, "./logs/app/"));
+    assert.equal(path.of(ctx, "logs//app"), path.of(ctx, "./logs/app/"));
     assert.isFalse(path.of(ctx, "a/b") == path.of(ctx, "a/../b"));
 }
 
@@ -79,9 +79,9 @@ test "join puts exactly one separator between the two" {
         Allocator: alloc(),
     };
     let dir = path.of(ctx, "var/log");
-    assert.eq(dir.join(ctx, "app.log").text(), "var/log/app.log");
-    assert.eq(dir.join(ctx, "a/b").text(), "var/log/a/b");
-    assert.eq(dir.join(ctx, "").text(), "var/log");
+    assert.equal(dir.join(ctx, "app.log").text(), "var/log/app.log");
+    assert.equal(dir.join(ctx, "a/b").text(), "var/log/a/b");
+    assert.equal(dir.join(ctx, "").text(), "var/log");
 }
 
 test "join NEVER replaces the receiver's root" {
@@ -91,19 +91,19 @@ test "join NEVER replaces the receiver's root" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         path.of(ctx, "/srv/app").join(ctx, "/etc/passwd").text(),
         "/srv/app/etc/passwd",
     );
-    assert.eq(path.of(ctx, "srv").join(ctx, "//x").text(), "srv/x");
+    assert.equal(path.of(ctx, "srv").join(ctx, "//x").text(), "srv/x");
 }
 
 test "joining onto the current directory drops it" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, ".").join(ctx, "a").text(), "a");
-    assert.eq(path.of(ctx, "/").join(ctx, "a").text(), "/a");
+    assert.equal(path.of(ctx, ".").join(ctx, "a").text(), "a");
+    assert.equal(path.of(ctx, "/").join(ctx, "a").text(), "/a");
 }
 
 // -----------------------------------------------------------------------------
@@ -114,12 +114,12 @@ test "parent is the directory the path is in" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(parentText(path.of(ctx, "/var/log/app.log")), .Some("/var/log"));
-    assert.eq(parentText(path.of(ctx, "/var")), .Some("/"));
-    assert.eq(parentText(path.of(ctx, "a/b")), .Some("a"));
+    assert.equal(parentText(path.of(ctx, "/var/log/app.log")), .Some("/var/log"));
+    assert.equal(parentText(path.of(ctx, "/var")), .Some("/"));
+    assert.equal(parentText(path.of(ctx, "a/b")), .Some("a"));
     // A relative name of one component is in the directory a relative path is
     // relative to, and `.` is the path that names it.
-    assert.eq(parentText(path.of(ctx, "app.log")), .Some("."));
+    assert.equal(parentText(path.of(ctx, "app.log")), .Some("."));
 }
 
 test "the root and the current directory have no parent" {
@@ -134,15 +134,15 @@ test "parent is lexical, so a trailing `..` is dropped like any component" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(parentText(path.of(ctx, "a/..")), .Some("a"));
+    assert.equal(parentText(path.of(ctx, "a/..")), .Some("a"));
 }
 
 test "fileName is the last component, where it names a file" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "/var/log/app.log").fileName(), .Some("app.log"));
-    assert.eq(path.of(ctx, "app.log").fileName(), .Some("app.log"));
+    assert.equal(path.of(ctx, "/var/log/app.log").fileName(), .Some("app.log"));
+    assert.equal(path.of(ctx, "app.log").fileName(), .Some("app.log"));
     assert.isTrue(path.of(ctx, "/").fileName().isNone());
     assert.isTrue(path.of(ctx, ".").fileName().isNone());
     // `..` names a directory by where it is resolved from, not by itself.
@@ -153,8 +153,8 @@ test "extension is what follows the last dot" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "a/report.tar.gz").extension(), .Some("gz"));
-    assert.eq(path.of(ctx, "a/report.tar.gz").stem(), .Some("report.tar"));
+    assert.equal(path.of(ctx, "a/report.tar.gz").extension(), .Some("gz"));
+    assert.equal(path.of(ctx, "a/report.tar.gz").stem(), .Some("report.tar"));
 }
 
 test "three names have no extension, and each for its own reason" {
@@ -163,13 +163,13 @@ test "three names have no extension, and each for its own reason" {
     };
     // No dot at all.
     assert.isTrue(path.of(ctx, "README").extension().isNone());
-    assert.eq(path.of(ctx, "README").stem(), .Some("README"));
+    assert.equal(path.of(ctx, "README").stem(), .Some("README"));
     // A dot that begins the name is part of the name.
     assert.isTrue(path.of(ctx, ".gitignore").extension().isNone());
-    assert.eq(path.of(ctx, ".gitignore").stem(), .Some(".gitignore"));
+    assert.equal(path.of(ctx, ".gitignore").stem(), .Some(".gitignore"));
     // A dot that ends it separates nothing.
     assert.isTrue(path.of(ctx, "archive.").extension().isNone());
-    assert.eq(path.of(ctx, "archive.").stem(), .Some("archive."));
+    assert.equal(path.of(ctx, "archive.").stem(), .Some("archive."));
 }
 
 test "a path with no file name has neither stem nor extension" {
@@ -188,7 +188,7 @@ test "isAbsolute is the half components does not answer" {
     assert.isFalse(path.of(ctx, "a/b").isAbsolute());
     assert.isTrue(path.of(ctx, "/").isAbsolute());
     assert.isFalse(path.of(ctx, ".").isAbsolute());
-    assert.eq(
+    assert.equal(
         path.of(ctx, "/a/b").components(ctx),
         path.of(ctx, "a/b").components(ctx),
     );
@@ -198,12 +198,12 @@ test "components are the names, without the root" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "/var/log/app.log").components(ctx), [
+    assert.equal(path.of(ctx, "/var/log/app.log").components(ctx), [
         "var",
         "log",
         "app.log",
     ]);
-    assert.eq(path.of(ctx, "a/../b").components(ctx), ["a", "..", "b"]);
+    assert.equal(path.of(ctx, "a/../b").components(ctx), ["a", "..", "b"]);
     assert.isTrue(path.of(ctx, "/").components(ctx).isEmpty());
     assert.isTrue(path.of(ctx, ".").components(ctx).isEmpty());
 }
@@ -218,9 +218,9 @@ test "withSuffix appends to the whole name, not to the stem" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(suffixText(ctx, path.of(ctx, "a/data.db")), .Some("a/data.db.tmp"));
-    assert.eq(suffixText(ctx, path.of(ctx, "a/data.log")), .Some("a/data.log.tmp"));
-    assert.eq(suffixText(ctx, path.of(ctx, "plain")), .Some("plain.tmp"));
+    assert.equal(suffixText(ctx, path.of(ctx, "a/data.db")), .Some("a/data.db.tmp"));
+    assert.equal(suffixText(ctx, path.of(ctx, "a/data.log")), .Some("a/data.log.tmp"));
+    assert.equal(suffixText(ctx, path.of(ctx, "plain")), .Some("plain.tmp"));
 }
 
 test "a path with no last component has nothing to append to" {
@@ -235,8 +235,8 @@ test "the result of withSuffix is normalized like anything else" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(suffixText(ctx, path.of(ctx, "a/b")), .Some("a/b.tmp"));
-    assert.eq(
+    assert.equal(suffixText(ctx, path.of(ctx, "a/b")), .Some("a/b.tmp"));
+    assert.equal(
         path.of(ctx, "a/b").withSuffix(ctx, "/c").map(fn(p) => p.text()),
         .Some("a/b/c"),
     );
@@ -280,10 +280,10 @@ test "relativeTo writes a path from a directory above it" {
         Allocator: alloc(),
     };
     let root = path.of(ctx, "/srv/app");
-    assert.eq(relative(ctx, "/srv/app/log/today", root), .Some("log/today"));
-    assert.eq(relative(ctx, "/srv/app", root), .Some("."));
-    assert.eq(relative(ctx, "/etc", root), .None);
-    assert.eq(relative(ctx, "/srv/application", root), .None);
+    assert.equal(relative(ctx, "/srv/app/log/today", root), .Some("log/today"));
+    assert.equal(relative(ctx, "/srv/app", root), .Some("."));
+    assert.equal(relative(ctx, "/etc", root), .None);
+    assert.equal(relative(ctx, "/srv/application", root), .None);
 }
 
 test "relativeTo is lexical, so a `..` is a component like any other" {
@@ -293,21 +293,21 @@ test "relativeTo is lexical, so a `..` is a component like any other" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(relative(ctx, "a/../b", path.of(ctx, "a")), .Some("../b"));
-    assert.eq(relative(ctx, "a/../b", path.of(ctx, "a/..")), .Some("b"));
-    assert.eq(relative(ctx, "a/b", path.of(ctx, "a/..")), .None);
+    assert.equal(relative(ctx, "a/../b", path.of(ctx, "a")), .Some("../b"));
+    assert.equal(relative(ctx, "a/../b", path.of(ctx, "a/..")), .Some("b"));
+    assert.equal(relative(ctx, "a/b", path.of(ctx, "a/..")), .None);
     // A base below the path is not a base at all, however the two are spelled.
-    assert.eq(relative(ctx, "/srv", path.of(ctx, "/srv/app")), .None);
-    assert.eq(relative(ctx, "srv/app", path.of(ctx, "/srv")), .None);
+    assert.equal(relative(ctx, "/srv", path.of(ctx, "/srv/app")), .None);
+    assert.equal(relative(ctx, "srv/app", path.of(ctx, "/srv")), .None);
 }
 
 test "relativeTo from the root and from `.` keeps the rest" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(relative(ctx, "/var/log", path.of(ctx, "/")), .Some("var/log"));
-    assert.eq(relative(ctx, "var/log", path.of(ctx, ".")), .Some("var/log"));
-    assert.eq(relative(ctx, "/", path.of(ctx, "/")), .Some("."));
+    assert.equal(relative(ctx, "/var/log", path.of(ctx, "/")), .Some("var/log"));
+    assert.equal(relative(ctx, "var/log", path.of(ctx, ".")), .Some("var/log"));
+    assert.equal(relative(ctx, "/", path.of(ctx, "/")), .Some("."));
 }
 
 // -----------------------------------------------------------------------------
@@ -318,23 +318,23 @@ test "withExtension replaces the extension rather than appending to the name" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(extended(ctx, "/var/log/app.log", "gz"), .Some("/var/log/app.gz"));
-    assert.eq(extended(ctx, "a/report.tar.gz", "txt"), .Some("a/report.tar.txt"));
-    assert.eq(extended(ctx, "README", "md"), .Some("README.md"));
-    assert.eq(extended(ctx, "a/.gitignore", "txt"), .Some("a/.gitignore.txt"));
+    assert.equal(extended(ctx, "/var/log/app.log", "gz"), .Some("/var/log/app.gz"));
+    assert.equal(extended(ctx, "a/report.tar.gz", "txt"), .Some("a/report.tar.txt"));
+    assert.equal(extended(ctx, "README", "md"), .Some("README.md"));
+    assert.equal(extended(ctx, "a/.gitignore", "txt"), .Some("a/.gitignore.txt"));
 }
 
 test "an empty extension drops the one that was there" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(extended(ctx, "a/b.log", ""), .Some("a/b"));
-    assert.eq(path.of(ctx, "a/b.log").withoutExtension(ctx).text(), "a/b");
-    assert.eq(
+    assert.equal(extended(ctx, "a/b.log", ""), .Some("a/b"));
+    assert.equal(path.of(ctx, "a/b.log").withoutExtension(ctx).text(), "a/b");
+    assert.equal(
         path.of(ctx, "a/report.tar.gz").withoutExtension(ctx).text(),
         "a/report.tar",
     );
-    assert.eq(path.of(ctx, "README").withoutExtension(ctx).text(), "README");
+    assert.equal(path.of(ctx, "README").withoutExtension(ctx).text(), "README");
 }
 
 test "a name that ends in a dot separates nothing, so the new dot is a second one" {
@@ -343,35 +343,35 @@ test "a name that ends in a dot separates nothing, so the new dot is a second on
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(extended(ctx, "archive.", "txt"), .Some("archive..txt"));
-    assert.eq(path.of(ctx, "archive.").withoutExtension(ctx).text(), "archive.");
+    assert.equal(extended(ctx, "archive.", "txt"), .Some("archive..txt"));
+    assert.equal(path.of(ctx, "archive.").withoutExtension(ctx).text(), "archive.");
 }
 
 test "an extension with a dot in it is written as it is given" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(extended(ctx, "a/data.db", "tar.gz"), .Some("a/data.tar.gz"));
-    assert.eq(extended(ctx, "a/.gitignore", ""), .Some("a/.gitignore"));
+    assert.equal(extended(ctx, "a/data.db", "tar.gz"), .Some("a/data.tar.gz"));
+    assert.equal(extended(ctx, "a/.gitignore", ""), .Some("a/.gitignore"));
 }
 
 test "a dotfile keeps its whole name, and a second dot is the extension" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(path.of(ctx, "a/.env.local").extension(), .Some("local"));
-    assert.eq(path.of(ctx, "a/.env.local").stem(), .Some(".env"));
-    assert.eq(extended(ctx, "a/.env.local", "prod"), .Some("a/.env.prod"));
-    assert.eq(path.of(ctx, "a/.env.local").withoutExtension(ctx).text(), "a/.env");
+    assert.equal(path.of(ctx, "a/.env.local").extension(), .Some("local"));
+    assert.equal(path.of(ctx, "a/.env.local").stem(), .Some(".env"));
+    assert.equal(extended(ctx, "a/.env.local", "prod"), .Some("a/.env.prod"));
+    assert.equal(path.of(ctx, "a/.env.local").withoutExtension(ctx).text(), "a/.env");
 }
 
 test "a path with no last component has no extension to replace" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(extended(ctx, "/", "txt"), .None);
-    assert.eq(extended(ctx, ".", "txt"), .None);
-    assert.eq(path.of(ctx, "/").withoutExtension(ctx).text(), "/");
+    assert.equal(extended(ctx, "/", "txt"), .None);
+    assert.equal(extended(ctx, ".", "txt"), .None);
+    assert.equal(path.of(ctx, "/").withoutExtension(ctx).text(), "/");
 }
 
 // -----------------------------------------------------------------------------
@@ -383,9 +383,9 @@ test "joinPath is join for a path, and still appends an absolute one" {
         Allocator: alloc(),
     };
     let dir = path.of(ctx, "var/log");
-    assert.eq(dir.joinPath(ctx, path.of(ctx, "app.log")).text(), "var/log/app.log");
-    assert.eq(dir.joinPath(ctx, path.of(ctx, "/etc")).text(), "var/log/etc");
-    assert.eq(dir.joinPath(ctx, path.of(ctx, ".")).text(), "var/log");
+    assert.equal(dir.joinPath(ctx, path.of(ctx, "app.log")).text(), "var/log/app.log");
+    assert.equal(dir.joinPath(ctx, path.of(ctx, "/etc")).text(), "var/log/etc");
+    assert.equal(dir.joinPath(ctx, path.of(ctx, ".")).text(), "var/log");
 }
 
 // -----------------------------------------------------------------------------

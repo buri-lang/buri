@@ -1,4 +1,4 @@
-derive Eq, Show for Cents;
+derive Equal, Show for Cents;
 /// A whole number of cents. The field is not exported, so arithmetic on the
 /// underlying integer is not reachable from outside this module.
 export struct Cents(I64);

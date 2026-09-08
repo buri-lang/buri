@@ -16,5 +16,5 @@ surface is `testing/lib.buri`.
 
 Two things read every field of a type at once, and neither leaves a projection
 behind to find. A `derive` is a fold over the whole type definition, so a type
-with a derived `Eq`, `Ord`, `Hash` or `Show` is never reported. A value handed
+with a derived `Equal`, `Ordered`, `Hash` or `Show` is never reported. A value handed
 to the runtime, or compared structurally, is the other.

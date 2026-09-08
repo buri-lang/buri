@@ -1,7 +1,7 @@
 error: expected an identifier, found `,` [unexpected-token]
   --> main.buri:36:27
    |
-36 |     assert.eq(v.toFloat()., toInt(), v);
+36 |     assert.equal(v.toFloat()., toInt(), v);
    |                           ^
    |
    = expected: an identifier

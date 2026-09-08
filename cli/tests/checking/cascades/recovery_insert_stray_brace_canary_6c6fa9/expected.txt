@@ -15,7 +15,7 @@ error: there is nothing named `extra` in scope [unresolved-name]
 error: expected `[Int]`, found `Int` [type-mismatch]
   --> main.buri:17:24
    |
-17 |     assert.eq(doubled, 6);
+17 |     assert.equal(doubled, 6);
    |                        ^ the parameter type is `[Int]`
    |
    = expected: `[Int]`

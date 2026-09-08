@@ -10,7 +10,7 @@ from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 
-derive Eq, Show for Node2;
+derive Equal, Show for Node2;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node2 {
@@ -127,7 +127,7 @@ export fn probe2_3<C: Allocator>(ctx: C): Int {
     digest2_3(ctx) + drain2_3()
 }
 
-derive Eq, Show for Rec2_4;
+derive Equal, Show for Rec2_4;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec2_4 {
     export f0: Int,
@@ -177,7 +177,7 @@ export fn probe2_5<C: Allocator>(ctx: C): Int {
     useGeneric2_5([1, 2], ["a"]) + describeAll2_5(ctx, [1, 2]).len()
 }
 
-derive Eq, Show for State2_6;
+derive Equal, Show for State2_6;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State2_6 {
     Idle,
@@ -233,7 +233,7 @@ export fn probe2_7<C: Allocator>(ctx: C): Int {
     label2_7(ctx, a, e).len() + b
 }
 
-derive Eq, Show for Rec2_8;
+derive Equal, Show for Rec2_8;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec2_8 {
     export f0: Int,

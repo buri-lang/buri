@@ -1,4 +1,4 @@
-//! core/orderedmap — a persistent B-tree keyed by `Ord`.
+//! core/orderedmap — a persistent B-tree keyed by `Ordered`.
 //!
 //! The collection `core/map` is not: keyed *and* ordered. Lookup, insert and
 //! remove are O(log n). `entries`, `keys` and `values` come out in key order,
@@ -28,11 +28,11 @@
 //! rather than a key — it invents no successor string, and `prefix(ctx, "")` is
 //! every entry.
 //!
-//! **A compound key is a struct with `derive Ord`.** Tuples have no methods, so
-//! a tuple is not `Ord`. A derived `Ord` compares fields in declaration order,
+//! **A compound key is a struct with `derive Ordered`.** Tuples have no methods, so
+//! a tuple is not `Ordered`. A derived `Ordered` compares fields in declaration order,
 //! which is what a multi-column index wants.
 //!
-//! `equals` rather than `derive Eq`: two maps holding the same entries need not
+//! `equals` rather than `derive Equal`: two maps holding the same entries need not
 //! have the same tree, because the shape follows the order the keys arrived in.
 //!
 //! ```buri run
@@ -101,7 +101,7 @@ export fn empty<K, V>(): OrderedMap<K, V> {
 /// A free function rather than a method on `[T]`, because the answer is a map
 /// and `core/list` is the bottom of the dependency order. `core/map` has the
 /// same pair for an unordered answer.
-export fn groupBy<A, K: Ord, C: Allocator>(
+export fn groupBy<A, K: Ordered, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -119,7 +119,7 @@ export fn groupBy<A, K: Ord, C: Allocator>(
 
 /// How many elements answer each key, the keys in key order. `core/map` has the
 /// same pair for an unordered answer.
-export fn countBy<A, K: Ord, C: Allocator>(
+export fn countBy<A, K: Ordered, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -136,7 +136,7 @@ export fn countBy<A, K: Ord, C: Allocator>(
 
 /// One element per key rather than a group of them: `key(x)` to `x`, with a
 /// later element replacing an earlier one that answered the same key.
-export fn indexBy<A, K: Ord, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): OrderedMap<K, A> {
+export fn indexBy<A, K: Ordered, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): OrderedMap<K, A> {
     xs.foldCtx(
         ctx,
         fn(c, acc: OrderedMap<K, A>, x) => acc.insert(c, key(x), x),
@@ -145,7 +145,7 @@ export fn indexBy<A, K: Ord, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): Or
 }
 
 /// A map holding the given entries, later ones winning.
-export fn of<K: Ord, V, C: Allocator>(ctx: C, entries: [(K, V)]): OrderedMap<K, V> {
+export fn of<K: Ordered, V, C: Allocator>(ctx: C, entries: [(K, V)]): OrderedMap<K, V> {
     entries.foldCtx(
         ctx,
         fn(c, acc, e) => {
@@ -215,7 +215,7 @@ fn node<K, V>(entries: [(K, V)], children: [Node<K, V>]): Node<K, V> {
 /// have to capture the list. A node holds at most `MAX_ENTRIES`, so this is a
 /// bounded scan; the module comment says why a short one beats a binary
 /// search.
-fn seek<K: Ord, V>(entries: [(K, V)], key: K, at: Int): (Int, Bool) {
+fn seek<K: Ordered, V>(entries: [(K, V)], key: K, at: Int): (Int, Bool) {
     match (entries.get(at)) {
         .None => (at, false),
         .Some(e) => {
@@ -233,7 +233,7 @@ fn seek<K: Ord, V>(entries: [(K, V)], key: K, at: Int): (Int, Bool) {
 // Reading
 // -----------------------------------------------------------------------------
 
-fn lookup<K: Ord, V>(n: Node<K, V>, key: K): Option<V> {
+fn lookup<K: Ordered, V>(n: Node<K, V>, key: K): Option<V> {
     let entries = entriesOf(n);
     let (at, found) = seek(entries, key, 0);
     if (found) {
@@ -309,7 +309,7 @@ fn overfull<K, V, C: Allocator>(
 /// Answers the subtree after the insert, and whether the key was a new one.
 ///
 /// The `Bool` keeps `size` right without a second descent.
-fn insertInto<K: Ord, V, C: Allocator>(
+fn insertInto<K: Ordered, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     key: K,
@@ -361,7 +361,7 @@ fn insertInto<K: Ord, V, C: Allocator>(
 ///
 /// The result may itself be short, which is what the caller's own `fixChild`
 /// handles; at the root, `shrinkRoot` handles it instead.
-fn fixChild<K: Ord, V, C: Allocator>(
+fn fixChild<K: Ordered, V, C: Allocator>(
     ctx: C,
     entries: [(K, V)],
     children: [Node<K, V>],
@@ -407,7 +407,7 @@ fn fixChild<K: Ord, V, C: Allocator>(
 
 /// The short child and the sibling before it: rotate one entry across, or fuse
 /// the two around the separator that sat between them.
-fn fixWithLeft<K: Ord, V, C: Allocator>(
+fn fixWithLeft<K: Ordered, V, C: Allocator>(
     ctx: C,
     entries: [(K, V)],
     children: [Node<K, V>],
@@ -454,7 +454,7 @@ fn fixWithLeft<K: Ord, V, C: Allocator>(
 }
 
 /// The mirror of [`fixWithLeft`], for the child that has no sibling before it.
-fn fixWithRight<K: Ord, V, C: Allocator>(
+fn fixWithRight<K: Ordered, V, C: Allocator>(
     ctx: C,
     entries: [(K, V)],
     children: [Node<K, V>],
@@ -500,7 +500,7 @@ fn fixWithRight<K: Ord, V, C: Allocator>(
 /// A key found in a branch does not go where it sits: the entry before it in
 /// key order takes its place, and *that* one comes out of a leaf. So every
 /// removal ends up a removal from a leaf.
-fn removeFrom<K: Ord, V, C: Allocator>(ctx: C, n: Node<K, V>, key: K): (Node<K, V>, Bool) {
+fn removeFrom<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>, key: K): (Node<K, V>, Bool) {
     let entries = entriesOf(n);
     let children = childrenOf(n);
     let (at, found) = seek(entries, key, 0);
@@ -551,7 +551,7 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
 /// pays for one root-to-leaf path rather than the two that `first` followed by
 /// `remove` costs. It compares nothing: the smallest key is wherever the shape
 /// says it is.
-fn takeFirst<K: Ord, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
+fn takeFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
     let entries = entriesOf(n);
     let children = childrenOf(n);
     match (children.get(0)) {
@@ -574,7 +574,7 @@ fn takeFirst<K: Ord, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), No
 }
 
 /// The mirror of [`takeFirst`], down the right spine.
-fn takeLast<K: Ord, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
+fn takeLast<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
     let entries = entriesOf(n);
     let children = childrenOf(n);
     let at = children.len() - 1;
@@ -600,7 +600,7 @@ fn takeLast<K: Ord, V, C: Allocator>(ctx: C, n: Node<K, V>): Option<((K, V), Nod
 
 /// The largest entry whose key is at most `key`, carrying the best answer found
 /// above down with it. One descent, and pure.
-fn floorIn<K: Ord, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
+fn floorIn<K: Ordered, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
     let entries = entriesOf(n);
     let (at, found) = seek(entries, key, 0);
     if (found) {
@@ -618,7 +618,7 @@ fn floorIn<K: Ord, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V
 }
 
 /// The mirror of [`floorIn`]: the smallest entry whose key is at least `key`.
-fn ceilingIn<K: Ord, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
+fn ceilingIn<K: Ordered, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
     let entries = entriesOf(n);
     let (at, found) = seek(entries, key, 0);
     if (found) {
@@ -670,7 +670,7 @@ fn walkFrom<K, V, C: Allocator>(
 
 /// The half-open scan. The seek at each node is what makes this visit only the
 /// subtrees that can hold an answer, rather than the whole tree.
-fn walkRange<K: Ord, V, C: Allocator>(
+fn walkRange<K: Ordered, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     start: K,
@@ -682,7 +682,7 @@ fn walkRange<K: Ord, V, C: Allocator>(
     rangeFrom(ctx, entries, childrenOf(n), start, end, at, acc)
 }
 
-fn rangeFrom<K: Ord, V, C: Allocator>(
+fn rangeFrom<K: Ordered, V, C: Allocator>(
     ctx: C,
     entries: [(K, V)],
     children: [Node<K, V>],
@@ -724,7 +724,7 @@ fn rangeFrom<K: Ord, V, C: Allocator>(
 // The map
 // -----------------------------------------------------------------------------
 
-impl<K: Ord, V> OrderedMap<K, V> {
+impl<K: Ordered, V> OrderedMap<K, V> {
     export fn len(self): Int {
         self.size
     }
@@ -1037,8 +1037,8 @@ impl<K: Ord, V> OrderedMap<K, V> {
     }
 }
 
-impl<K: Ord, V: Eq> OrderedMap<K, V> {
-    /// Same entries, whatever order either was built in. `derive Eq` would
+impl<K: Ordered, V: Equal> OrderedMap<K, V> {
+    /// Same entries, whatever order either was built in. `derive Equal` would
     /// compare the trees, which two equal maps need not share.
     export fn equals<C: Allocator>(self, ctx: C, other: OrderedMap<K, V>): Bool {
         if (self.size != other.size) {

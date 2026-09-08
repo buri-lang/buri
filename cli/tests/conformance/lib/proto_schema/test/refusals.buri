@@ -14,7 +14,7 @@ from "//lib/proto_schema" import { FILE, lines, pointsAt, read, under, withEditi
 fn refuses<C: Allocator>(ctx: C, text: Str, code: Str, token: Str): () {
     let parsed = read(ctx, text);
     let d = assert.some(under(parsed, code));
-    assert.eq(pointsAt(ctx, text, d), token);
+    assert.equal(pointsAt(ctx, text, d), token);
     // A refusal with no edit is one nobody can act on.
     assert.isTrue(d.fix.isSome());
 }
@@ -39,7 +39,7 @@ test "a syntax declaration asks for the migration, not for a different word" {
     );
     let parsed = read(ctx, "syntax = \"proto3\";\n");
     let d = assert.some(under(parsed, "proto-syntax-declaration"));
-    assert.eq(d.message, "`syntax = \"proto3\"` is not accepted");
+    assert.equal(d.message, "`syntax = \"proto3\"` is not accepted");
 }
 
 test "an edition before 2026 is refused at the edition it names" {
@@ -49,7 +49,7 @@ test "an edition before 2026 is refused at the edition it names" {
     refuses(ctx, "edition = \"2023\";\n", "proto-edition", "\"2023\"");
     refuses(ctx, "edition = \"2024\";\n", "proto-edition", "\"2024\"");
     let parsed = read(ctx, "edition = \"2023\";\n");
-    assert.eq(
+    assert.equal(
         assert.some(under(parsed, "proto-edition")).message,
         "edition 2023 is not accepted",
     );
@@ -64,9 +64,9 @@ test "a file that declares no edition is refused at the file" {
     let missing = read(ctx, "message M { int32 x = 1; }\n");
     let d = assert.some(under(missing, "proto-edition-missing"));
     let origin = assert.some(d.origin);
-    assert.eq(origin.file, FILE);
-    assert.eq(origin.span.start, 0);
-    assert.eq(origin.span.end, 0);
+    assert.equal(origin.file, FILE);
+    assert.equal(origin.span.start, 0);
+    assert.equal(origin.span.end, 0);
     assert.isTrue(d.fix.isSome());
     // And the edition this reader does implement is accepted in silence.
     assert.isEmpty(read(ctx, withEdition(ctx, "message M { int32 x = 1; }\n")).errors);
@@ -80,7 +80,7 @@ test "service and rpc are refused, because there is no transport to generate aga
     };
     let text = withEdition(ctx, "service S { rpc Go (A) returns (B); }\n");
     refuses(ctx, text, "proto-unsupported", "service");
-    assert.eq(
+    assert.equal(
         assert.some(under(read(ctx, text), "proto-unsupported")).message,
         "`service` is not supported",
     );
@@ -145,7 +145,7 @@ test "the labels editions removed are refused at the label" {
         "required",
     );
     let text = withEdition(ctx, "message M { optional int32 x = 1; }\n");
-    assert.eq(
+    assert.equal(
         assert.some(under(read(ctx, text), "proto-unsupported")).message,
         "the `optional` label is not supported",
     );
@@ -203,7 +203,7 @@ test "the block form of a feature is one spelling too many" {
     };
     let text = withEdition(ctx, "option features = { field_presence: IMPLICIT };\n");
     refuses(ctx, text, "proto-unsupported", "features =");
-    assert.eq(
+    assert.equal(
         assert.some(under(read(ctx, text), "proto-unsupported")).message,
         "`option features = { ... }` is not supported",
     );
@@ -216,11 +216,11 @@ test "a feature nobody has heard of is named, with a near miss offered" {
     let text = withEdition(ctx, "option features.field_presense = EXPLICIT;\n");
     refuses(ctx, text, "proto-unknown-feature", "features.field_presense = EXPLICIT");
     let d = assert.some(under(read(ctx, text), "proto-unknown-feature"));
-    assert.eq(
+    assert.equal(
         d.message,
         "`features.field_presense = EXPLICIT` is not a feature this reader knows",
     );
-    assert.eq(d.fix.withDefault(""), "did you mean `features.field_presence`?");
+    assert.equal(d.fix.withDefault(""), "did you mean `features.field_presence`?");
 }
 
 test "a feature with no near miss gets the list instead" {
@@ -248,7 +248,7 @@ test "a oneof case takes no label, and the case is kept so the rest is still rea
         .some(assert.some(parsed.schema.messages.get(0)).oneofs.get(0))
         .cases;
     assert.len(cases, 2);
-    assert.eq(assert.some(cases.get(0)).name, "a");
+    assert.equal(assert.some(cases.get(0)).name, "a");
 }
 
 test "a field number outside the range, and one protobuf reserves, are refused" {

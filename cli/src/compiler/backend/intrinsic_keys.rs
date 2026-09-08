@@ -16,7 +16,7 @@
 
 use crate::compiler::semantics::types::{Prim, Tables, Ty};
 
-/// The `Eq`/`Ord`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
+/// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
 /// `Char::toU32`, and `Str`'s `show`.
 ///
 /// These are four *language* answers, and two backends must not give different
@@ -24,11 +24,11 @@ use crate::compiler::semantics::types::{Prim, Tables, Ty};
 pub fn prim_trait_op(key: &str) -> bool {
     matches!(
         key,
-        "bool.eq"
+        "bool.equal"
             | "bool.compare"
             | "bool.hash"
             | "bool.show"
-            | "character.eq"
+            | "character.equal"
             | "character.compare"
             | "character.hash"
             | "character.show"

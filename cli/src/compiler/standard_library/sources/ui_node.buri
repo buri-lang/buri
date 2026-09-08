@@ -297,8 +297,8 @@ export fn computed<C>(build: fn(Scope) => Node<C>): Node<C> {
 ///
 /// `T` carries an ordinary bound because the closures below capture a
 /// `Prop<[T]>`, and an unbounded type parameter could be a context
-/// (`design/ui-reactivity.md` rule 5). `derive Eq` supplies it.
-export fn each<C, T: Eq>(
+/// (`design/ui-reactivity.md` rule 5). `derive Equal` supplies it.
+export fn each<C, T: Equal>(
     items: Prop<[T]>,
     key: fn(T) => Str,
     row: fn(C, T, Int) => Node<C>,
@@ -927,7 +927,7 @@ fn cursorName(cursor: Cursor): Str {
     }
 }
 
-/// A state's position in `State`, so two of them compare without an `Eq` the
+/// A state's position in `State`, so two of them compare without an `Equal` the
 /// vocabulary does not derive.
 fn stateRank(state: State): Int {
     match (state) {

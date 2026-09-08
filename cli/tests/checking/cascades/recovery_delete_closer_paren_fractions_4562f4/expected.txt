@@ -1,7 +1,7 @@
-error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
   --> main.buri:19:5
    |
-19 |     assert.eq(time.secondsFloat(0.25, time.millis(250));
+19 |     assert.equal(time.secondsFloat(0.25, time.millis(250));
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 2
@@ -10,7 +10,7 @@ error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
 error: `secondsFloat` takes 1 arguments, but 2 were given [wrong-argument-count]
   --> main.buri:19:15
    |
-19 |     assert.eq(time.secondsFloat(0.25, time.millis(250));
+19 |     assert.equal(time.secondsFloat(0.25, time.millis(250));
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = expected: 1
@@ -19,12 +19,12 @@ error: `secondsFloat` takes 1 arguments, but 2 were given [wrong-argument-count]
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:19:56
    |
-19 |     assert.eq(time.secondsFloat(0.25, time.millis(250));
+19 |     assert.equal(time.secondsFloat(0.25, time.millis(250));
    |                                                        ^
    |
   --> main.buri:19:14
    |
-19 |     assert.eq(time.secondsFloat(0.25, time.millis(250));
+19 |     assert.equal(time.secondsFloat(0.25, time.millis(250));
    |              ^ opened here
    |
    = fix: write `)` here

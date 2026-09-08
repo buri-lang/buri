@@ -4,7 +4,7 @@
 // cannot hand back, which is what makes a phantom handle capturable. `Prop<T>`
 // stores its `T` in `Const`, so it does hand one back — and an unbounded `T`
 // stands for a context type too (guides/compile-speed.md). An ordinary bound
-// such as `T: Eq` is the answer, because an effect-carrying type satisfies
+// such as `T: Equal` is the answer, because an effect-carrying type satisfies
 // none.
 from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;

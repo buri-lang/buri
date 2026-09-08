@@ -47,12 +47,12 @@ from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show for Utf8Error;
+derive Equal, Show for Utf8Error;
 /// Where a byte sequence stopped being UTF-8: the index of the first byte that
 /// could not be part of a valid encoding.
 export struct Utf8Error(export Int);
 
-derive Eq, Show for DecodeError;
+derive Equal, Show for DecodeError;
 /// Where a decoding stopped making sense.
 export struct DecodeError(export Int);
 
@@ -850,7 +850,7 @@ fn octet32(b: [U8], i: Int): U32 {
 // **The methods that only move the cursor are pure; the two that answer a
 // `[U8]` name `Allocator`**, because `[T].slice` copies.
 
-derive Eq, Show for Reader;
+derive Equal, Show for Reader;
 /// A position in a run of octets: the octets, and how far in.
 export struct Reader {
     export bytes: [U8],

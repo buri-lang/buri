@@ -1,14 +1,14 @@
-// EXPECT: `Outer` does not implement `Eq`
+// EXPECT: `Outer` does not implement `Equal`
 from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-from "core/order" import { Eq };
+from "core/order" import { Equal };
 
 struct Inner { export x: Int }
 
 struct Outer { export inner: Inner }
 
-derive Eq for Outer;
+derive Equal for Outer;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };

@@ -16,22 +16,22 @@ from "core/simd" import * as simd;
 from "core/testing/assert" import * as assert;
 
 test "toInt truncates each lane toward zero" {
-    assert.eq(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
-    assert.eq(simd.f32x4(-0.5, 0.5, -2.5, 2.5).toInt(), simd.i32x4(0, 0, -2, 2));
-    assert.eq(simd.ZERO_F.toInt(), simd.ZERO_I);
+    assert.equal(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
+    assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5).toInt(), simd.i32x4(0, 0, -2, 2));
+    assert.equal(simd.ZERO_F.toInt(), simd.ZERO_I);
 }
 
 test "toInt is total, where a plain conversion is not" {
     let nan = 0.0 / 0.0;
     let far = simd.f32x4(nan 1.0e300, -1.0e300, 3.0);
     let got = far.toInt();
-    assert.eq(got.lane(0), 0);
-    assert.eq(got.lane(1), number.maxValue<I64>());
-    assert.eq(got.lane(2), number.minValue<I64>());
-    assert.eq(got.lane(3), 3);
+    assert.equal(got.lane(0), 0);
+    assert.equal(got.lane(1), number.maxValue<I64>());
+    assert.equal(got.lane(2), number.minValue<I64>());
+    assert.equal(got.lane(3), 3);
 }
 
 test "toFloat and toInt round-trip a whole number" {
     let v = simd.i32x4(1, -2, 300, 0);
-    assert.eq(v.toFloat().toInt(), v);
+    assert.equal(v.toFloat().toInt(), v);
 }

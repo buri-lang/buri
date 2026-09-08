@@ -1,7 +1,7 @@
 error: a call argument ends with `,` [missing-separator]
   --> main.buri:21:65
    |
-21 |     assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx "42")).hash());
+21 |     assert.equal(bigint.of(42).hash(), assert.some(bigint.parse(ctx "42")).hash());
    |                                                                 ^
    |
    = fix: write `,` here

@@ -9,7 +9,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0008.buri" import { blend8, Node8, reach8, seed8 };
 
-derive Eq, Show for Node13;
+derive Equal, Show for Node13;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node13 {
@@ -173,7 +173,7 @@ export fn probe13_5<C: Allocator>(ctx: C): Int {
     choose13_5(.Some(3), .None) + extra
 }
 
-derive Eq, Show for State13_6;
+derive Equal, Show for State13_6;
 /// An enum of 6 variants, matched exhaustively below.
 export enum State13_6 {
     Idle,
@@ -254,7 +254,7 @@ export fn probe13_8<C: Allocator>(ctx: C): Int {
     digest13_8(ctx) + drain13_8()
 }
 
-derive Eq, Show for State13_9;
+derive Equal, Show for State13_9;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State13_9 {
     Idle,

@@ -53,13 +53,13 @@ test "an actor whose state and answer are both unit answers every message" {
         Tasks: tasks(),
     };
     let quiet = actor.start(ctx, silent());
-    assert.eq(quiet.sendMessage(ctx, .Ping), .Ok(()));
-    assert.eq(quiet.sendMessage(ctx, .Ping), .Ok(()));
-    assert.eq(sink.captured(), "");
+    assert.equal(quiet.sendMessage(ctx, .Ping), .Ok(()));
+    assert.equal(quiet.sendMessage(ctx, .Ping), .Ok(()));
+    assert.equal(sink.captured(), "");
     // The hook is handed the final state, and the final state is `()`.
-    assert.eq(quiet.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "quiet\n");
-    assert.eq(quiet.sendMessage(ctx, .Ping), .Err(.Stopped));
+    assert.equal(quiet.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "quiet\n");
+    assert.equal(quiet.sendMessage(ctx, .Ping), .Err(.Stopped));
 }
 
 // -----------------------------------------------------------------------------
@@ -75,7 +75,7 @@ enum Bag {
     Drain,
 }
 
-derive Eq, Show for Bagged;
+derive Equal, Show for Bagged;
 enum Bagged {
     Kept(Int),
     Held([Int]),
@@ -103,15 +103,15 @@ test "a message, a state and an answer may each be a list" {
         Tasks: tasks(),
     };
     let held = actor.start(ctx, bag());
-    assert.eq(held.sendMessage(ctx, .Fill([1, 2, 3])), .Ok(.Kept(3)));
-    assert.eq(held.sendMessage(ctx, .Push(4)), .Ok(.Kept(4)));
-    assert.eq(held.sendMessage(ctx, .Push(5)), .Ok(.Kept(5)));
+    assert.equal(held.sendMessage(ctx, .Fill([1, 2, 3])), .Ok(.Kept(3)));
+    assert.equal(held.sendMessage(ctx, .Push(4)), .Ok(.Kept(4)));
+    assert.equal(held.sendMessage(ctx, .Push(5)), .Ok(.Kept(5)));
     // The list that comes back out is the one five messages built, in order.
-    assert.eq(held.sendMessage(ctx, .Drain), .Ok(.Held([1, 2, 3, 4, 5])));
+    assert.equal(held.sendMessage(ctx, .Drain), .Ok(.Held([1, 2, 3, 4, 5])));
     // And the state the drain left behind is the empty list, which is the one
     // shape of `[T]` a program can hand over that has no block under it.
-    assert.eq(held.sendMessage(ctx, .Drain), .Ok(.Held([])));
-    assert.eq(held.stop(ctx), .Ok(()));
+    assert.equal(held.sendMessage(ctx, .Drain), .Ok(.Held([])));
+    assert.equal(held.stop(ctx), .Ok(()));
 }
 
 enum Say {
@@ -119,7 +119,7 @@ enum Say {
     Read,
 }
 
-derive Eq, Show for Said;
+derive Equal, Show for Said;
 enum Said {
     Scalars(Int),
     Text(Str),
@@ -146,22 +146,22 @@ test "text crosses the runtime whatever is in it" {
     // crossing that counted bytes, or that stopped at a byte that is not a
     // whole scalar, gives a different answer to both assertions below.
     let told = actor.start(ctx, scribe("mix日😀éd"));
-    assert.eq(told.sendMessage(ctx, .Read), .Ok(.Text("mix日😀éd")));
-    assert.eq(told.sendMessage(ctx, .Say("héllo wörld 🌍")), .Ok(.Scalars(13)));
-    assert.eq(told.sendMessage(ctx, .Read), .Ok(.Text("héllo wörld 🌍")));
+    assert.equal(told.sendMessage(ctx, .Read), .Ok(.Text("mix日😀éd")));
+    assert.equal(told.sendMessage(ctx, .Say("héllo wörld 🌍")), .Ok(.Scalars(13)));
+    assert.equal(told.sendMessage(ctx, .Read), .Ok(.Text("héllo wörld 🌍")));
     // The empty string is the other end of the same range.
-    assert.eq(told.sendMessage(ctx, .Say("")), .Ok(.Scalars(0)));
-    assert.eq(told.sendMessage(ctx, .Read), .Ok(.Text("")));
-    assert.eq(told.stop(ctx), .Ok(()));
+    assert.equal(told.sendMessage(ctx, .Say("")), .Ok(.Scalars(0)));
+    assert.equal(told.sendMessage(ctx, .Read), .Ok(.Text("")));
+    assert.equal(told.stop(ctx), .Ok(()));
 }
 
-derive Eq, Show for Label;
+derive Equal, Show for Label;
 struct Label {
     name: Str,
     tags: [Str],
 }
 
-derive Eq, Show for Record;
+derive Equal, Show for Record;
 struct Record {
     label: Label,
     counts: [Int],
@@ -173,7 +173,7 @@ enum Filing {
     Look,
 }
 
-derive Eq, Show for Filed;
+derive Equal, Show for Filed;
 enum Filed {
     Was(Record),
 }
@@ -206,18 +206,18 @@ test "a struct inside a struct crosses whole" {
         Tasks: tasks(),
     };
     let filed = actor.start(ctx, cabinet(record("first", .None)));
-    assert.eq(filed.sendMessage(ctx, .Look), .Ok(.Was(record("first", .None))));
+    assert.equal(filed.sendMessage(ctx, .Look), .Ok(.Was(record("first", .None))));
     // The answer to a `File` is the record it replaced, so one send moves a
     // nested value both ways at once.
-    assert.eq(
+    assert.equal(
         filed.sendMessage(ctx, .File(record("second", .Some("kept")))),
         .Ok(.Was(record("first", .None))),
     );
-    assert.eq(
+    assert.equal(
         filed.sendMessage(ctx, .Look),
         .Ok(.Was(record("second", .Some("kept")))),
     );
-    assert.eq(filed.stop(ctx), .Ok(()));
+    assert.equal(filed.stop(ctx), .Ok(()));
 }
 
 // -----------------------------------------------------------------------------
@@ -233,7 +233,7 @@ enum Tally {
     Get,
 }
 
-derive Eq, Show for Tallied;
+derive Equal, Show for Tallied;
 enum Tallied {
     Done,
     Count(Int),
@@ -256,7 +256,7 @@ enum Desk {
     Total,
 }
 
-derive Eq, Show for Desked;
+derive Equal, Show for Desked;
 enum Desked {
     Noted,
     Total(Int),
@@ -298,14 +298,14 @@ test "two actors exchange messages, and one holds the other's address" {
     };
     let counted = actor.start(ctx, tally());
     let front = actor.start(ctx, desk(counted));
-    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Noted));
-    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Noted));
+    assert.equal(front.sendMessage(ctx, .Bump), .Ok(.Noted));
+    assert.equal(front.sendMessage(ctx, .Bump), .Ok(.Noted));
     // Asked through the desk and asked directly: the same actor, so the same
     // number.
-    assert.eq(front.sendMessage(ctx, .Total), .Ok(.Total(2)));
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
-    assert.eq(front.stop(ctx), .Ok(()));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(front.sendMessage(ctx, .Total), .Ok(.Total(2)));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
+    assert.equal(front.stop(ctx), .Ok(()));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "a step that sends to an actor that has stopped is told so" {
@@ -317,13 +317,13 @@ test "a step that sends to an actor that has stopped is told so" {
     // reaches `.Err(.Stopped)` from *inside* a step rather than at a call site.
     let counted = actor.start(ctx, tally());
     let front = actor.start(ctx, desk(counted));
-    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Noted));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(front.sendMessage(ctx, .Bump), .Ok(.Noted));
+    assert.equal(counted.stop(ctx), .Ok(()));
     // The desk is still running, so its own answer is `.Ok`; what it says is
     // that the actor behind it is gone.
-    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Gone));
-    assert.eq(front.sendMessage(ctx, .Total), .Ok(.Gone));
-    assert.eq(front.stop(ctx), .Ok(()));
+    assert.equal(front.sendMessage(ctx, .Bump), .Ok(.Gone));
+    assert.equal(front.sendMessage(ctx, .Total), .Ok(.Gone));
+    assert.equal(front.stop(ctx), .Ok(()));
 }
 
 // -----------------------------------------------------------------------------
@@ -339,7 +339,7 @@ enum Job {
     Run(Scope),
 }
 
-derive Eq, Show for Ran;
+derive Equal, Show for Ran;
 enum Ran {
     Started(Int),
 }
@@ -377,10 +377,10 @@ test "a step may spawn into a scope the message handed it" {
         let _ = io.println(c, "asked twice").ignore();
         [first, second]
     });
-    assert.eq(started, [.Ok(.Started(1)), .Ok(.Started(2))]);
+    assert.equal(started, [.Ok(.Started(1)), .Ok(.Started(2))]);
     // The body is what printed first, so the scope was still its own drain
     // while the steps were spawning — and it waited for both jobs before it
     // answered.
-    assert.eq(out.captured(), "asked twice\nthe job ran\nthe job ran\n");
-    assert.eq(boss.stop(ctx), .Ok(()));
+    assert.equal(out.captured(), "asked twice\nthe job ran\nthe job ran\n");
+    assert.equal(boss.stop(ctx), .Ok(()));
 }

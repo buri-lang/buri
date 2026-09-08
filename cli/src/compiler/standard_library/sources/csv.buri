@@ -51,7 +51,7 @@ from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show for CsvError;
+derive Equal, Show for CsvError;
 /// Why a file is not a table. Both carry a **0-based record index**: the record
 /// that opened the quote, and the record whose width is wrong.
 export enum CsvError {

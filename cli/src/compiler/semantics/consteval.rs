@@ -518,7 +518,7 @@ fn prim_op(op: PrimOp, prim: Prim, args: &[Value]) -> Option<Value> {
 
 /// The six comparisons, at whichever type the operands are.
 ///
-/// `PartialOrd` rather than `Ord` because `F64` is one of the three callers
+/// `PartialOrd` rather than `Ordered` because `F64` is one of the three callers
 /// and NaN is the reason the distinction exists; `<` on `f64` is what `Lt`
 /// means, and this is that operator and not a re-derivation of it. Anything
 /// that is not a comparison answers `None`, which is the arm each caller had

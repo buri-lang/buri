@@ -40,7 +40,7 @@ struct, so every operation in `core/simd` is pure.
 [`core/bits`](../../compiler/standard_library/sources/bits.buri).
 
 `Option`, `Result`, `Order` and the comparison and operator traits are in the
-prelude, so `derive Eq for Point;` works in a module that imports nothing.
+prelude, so `derive Equal for Point;` works in a module that imports nothing.
 
 **An argument is evaluated whether it is needed or not**, so each eager
 combinator has a deferred twin: `withDefaultWith`, `orElse` and `okOrWith` on
@@ -363,8 +363,8 @@ module states its cost rather than leaving you to guess:
 **Two keyed collections, and order is what you choose between.** `Map` hashes,
 and looks one key up faster. `OrderedMap` compares, and answers "every key between
 these two" or "every key starting with this" without visiting the rest. Its keys
-need `Ord` rather than `Hash + Eq`. A compound key is a struct with `derive
-Ord`, and a derived `Ord` compares fields in declaration order, which is what a
+need `Ordered` rather than `Hash + Equal`. A compound key is a struct with `derive
+Ordered`, and a derived `Ordered` compares fields in declaration order, which is what a
 multi-column index wants.
 
 **A fallible step is a traversal, not a fold.** `xs.mapResult(ctx, f)` and
@@ -382,7 +382,7 @@ change, `sortBy` and a walk is the O(n log n) answer.
 overlapping where `windows` slides, `partition` answers both sides in one pass,
 and `insertAt`, `replaceAt`, `updateAt` and `pushFront` are the edits. Searching
 runs both ways: `findLast` and `findLastIndex` from the end, `indexOf` and
-`lastIndexOf` at an `Eq` element, `startsWith` and `endsWith` over a whole
+`lastIndexOf` at an `Equal` element, `startsWith` and `endsWith` over a whole
 sublist. On a list that is already sorted, `binarySearch` and `binarySearchBy`
 are O(log n) and their `.Err` carries the insertion point, and `partitionPoint`
 counts the leading run in the same time. `scan` keeps a fold's working, `reduce`
@@ -415,7 +415,7 @@ one side, `isSupersetOf` is `isSubsetOf` read from the other end, and
 `distinctBy` drop later duplicates and keep the order, in O(n) against
 `core/list`'s `uniqueBy`, which asks about everything already kept and costs
 O(n²); they are free functions for `groupBy`'s reason. `core/orderedset` has the
-same six over `Ord`, plus `floor` and `ceiling`.
+same six over `Ordered`, plus `floor` and `ceiling`.
 
 **Walking a `BitSet` one bit at a time.** `firstSet` and `nextSet` read words
 and skip an empty one whole, so finding a member costs O(n/32) rather than
@@ -423,7 +423,7 @@ and skip an empty one whole, so finding a member costs O(n/32) rather than
 word-at-a-time too, and each stops at the capacity rather than at the word.
 
 `Queue`, `Map`, `Set`, `OrderedMap`, `OrderedSet` and `BitSet` provide `equals` rather
-than deriving `Eq`, because a derived `Eq` would compare the *representation*.
+than deriving `Equal`, because a derived `Equal` would compare the *representation*.
 Two maps built in different orders need not share a bucket layout.
 
 ## Numbers and vectors
@@ -449,11 +449,11 @@ are a single comparison each and let one through.
 [`core/bigint`](../../compiler/standard_library/sources/bigint.buri) is an
 integer with no width. Sign and magnitude over base-`2^24` limbs, pure Buri,
 every operation taking a context because every operation allocates. `add` and
-`sub` cost O(n); `mul` is schoolbook at O(n·m); `quotientRemainder` is
+`subtract` cost O(n); `multiply` is schoolbook at O(n·m); `quotientRemainder` is
 schoolbook long division with each quotient limb binary-searched, at O(n·m·24);
 `parse` and `text` are O(d²) in the digits. Karatsuba wins past a few hundred
 limbs and loses below, and nothing needs the crossover yet. The limit is about
-32768 limbs — a little over 236,000 decimal digits — because `mul` sums a
+32768 limbs — a little over 236,000 decimal digits — because `multiply` sums a
 column of limb products in one `Int`.
 
 [`core/decimal`](../../compiler/standard_library/sources/decimal.buri) is money.
@@ -490,7 +490,7 @@ to the same type.
 A `Duration` counts **nanoseconds**. An `Instant` counts milliseconds, which is
 what the clock reports. `time.seconds(30)`, `millis`, `micros`, `nanos`,
 `minutes`, `hours` and `secondsFloat` build one, `ZERO` is the empty one, and
-`add`, `sub`, `mul`, `divide`, `negate` and `abs` combine them. `ratio` and
+`add`, `subtract`, `multiply`, `divide`, `negate` and `abs` combine them. `ratio` and
 `asSecondsFloat` answer a `Float`, because a length over a length is a number.
 **Every one of those saturates**, because overflow is undefined behaviour and a
 deadline is where a program can least afford it.
@@ -635,7 +635,7 @@ log record where four would do. [`core/hash`](#checksums) covers that case.
 
 [`core/uuid`](../../compiler/standard_library/sources/uuid.buri) — a `Uuid` is
 sixteen octets with RFC 9562's version and variant fields fixed, and it carries
-`Eq`, `Ord`, `Hash` and `Show`.
+`Equal`, `Ordered`, `Hash` and `Show`.
 
 **A `Str` is not a `Uuid`.** `parse` is the only way in from text and answers
 `.None` for anything that is not thirty-six characters in the canonical
@@ -753,14 +753,14 @@ Only a test source may import
 [`core/testing/assert`](../../compiler/standard_library/sources/assert.buri),
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) or
 [`core/host/testing`](../../compiler/standard_library/sources/host_testing.buri).
-`assert` is deliberately wide — `eq`,
+`assert` is deliberately wide — `equal`,
 `eqWith`, `notEq`, `isTrue`, `isFalse`, `contains`, `containsText`,
 `startsWith`, `isEmpty`, `notEmpty`, `len`, `unordered`, `gt`,
 `ge`, `lt`, `le`, `approxEq`, `approxEqRelative`, and the unwrapping `ok`,
 `err`, `some`, `none` —
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
-`eqWith(ctx, actual, expected, same)` is the one for a type with no `Eq`:
+`eqWith(ctx, actual, expected, same)` is the one for a type with no `Equal`:
 `Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
 `equals(ctx, other)` instead, and passing that comparison keeps the report.
 `unordered(ctx, actual, expected)` sorts both lists first and reports the sorted

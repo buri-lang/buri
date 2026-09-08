@@ -12,7 +12,7 @@ from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
 from "//bench/m0009.buri" import { blend9, Node9, reach9, seed9 };
 
-derive Eq, Show for Node12;
+derive Equal, Show for Node12;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node12 {
@@ -40,7 +40,7 @@ export fn lift12(n: Node9): Node12 {
     Node12 { label: n.label, value: n.value + seed12(), weight: n.weight }
 }
 
-derive Eq, Show for State12_0;
+derive Equal, Show for State12_0;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State12_0 {
     Idle,

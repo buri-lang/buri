@@ -17,7 +17,7 @@ test "a signal reads back what was written, whichever backend runs it" {
     };
     let n = signal(ctx, 1);
     let _ = n.set(ctx, 7);
-    assert.eq(n.get(ctx), 7);
+    assert.equal(n.get(ctx), 7);
 }
 
 test "the panel" {

@@ -24,14 +24,14 @@ error: `Allocator` is not a declared effect [not-an-effect]
 error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:21:49
    |
-21 |     assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
+21 |     assert.equal(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Allocator`, or use a type that has one
 error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:22:37
    |
-22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash());
+22 |     assert.equal(bigint.zero().hash(), bigint.of(5).subtract(ctx, bigint.of(5)).hash());
    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Allocator`, or use a type that has one

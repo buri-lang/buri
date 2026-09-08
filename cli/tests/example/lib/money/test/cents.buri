@@ -7,13 +7,13 @@ from "core/testing/assert" import * as assert;
 from "//lib/money" import { fromCents, fromDollars };
 
 test "dollars are a hundred cents" {
-    assert.eq(fromDollars(3), fromCents(300));
+    assert.equal(fromDollars(3), fromCents(300));
 }
 
 test "addition composes" {
     let subtotal = fromDollars(19);
     let shipping = fromCents(499);
-    assert.eq(subtotal.add(shipping), fromCents(2399));
+    assert.equal(subtotal.add(shipping), fromCents(2399));
 }
 
 test "zero is recognized" {
@@ -26,11 +26,11 @@ test "pads the cents place" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.eq(fromCents(1905).format(ctx), "$19.05");
-    assert.eq(fromDollars(19).format(ctx), "$19.00");
+    assert.equal(fromCents(1905).format(ctx), "$19.05");
+    assert.equal(fromDollars(19).format(ctx), "$19.00");
 }
 
-// assert.eq(fromCents(300).toCents(), 300)
+// assert.equal(fromCents(300).toCents(), 300)
 //   ERROR: `toCents` is not on //lib/money's surface. Either it belongs there —
 //   in which case add it to lib.buri and every dependent gets it — or this test
 //   is asserting on an implementation detail.

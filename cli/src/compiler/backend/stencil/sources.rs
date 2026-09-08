@@ -69,7 +69,7 @@ pub enum Level {
     /// the negated `br`/`tagbr` families in the library.
     Br = 7,
     /// (h) the immediate fold: a literal hole becomes the `imm12` field of the
-    /// `add`/`sub`/`cmp` that consumes it, the exact analogue of `Addr` for
+    /// `add`/`subtract`/`cmp` that consumes it, the exact analogue of `Addr` for
     /// [`Loc::Imm`]. Plus compare-against-zero variants, which is the one
     /// constant this ISA has a register for.
     IFold = 8,
@@ -223,7 +223,7 @@ fn op_applies(op: &str, t: Sc) -> bool {
 /// One [`BIN_OPS`] row as a C expression over two already-read operands.
 ///
 /// Every site that spells a binary operation goes through here, and the reason
-/// is `eq`/`ne` at a float. SPEC 7.2 rules that `NaN == NaN` is **true** in
+/// is `equal`/`ne` at a float. SPEC 7.2 rules that `NaN == NaN` is **true** in
 /// this language, so float equality is not C's: both native backends spell it
 /// as `a == b || (a != a && b != b)`, which is the same three comparisons.
 /// `<`, `<=`, `>` and `>=` stay IEEE-754 and so stay C's, which is the
@@ -631,7 +631,7 @@ fn moves(o: &mut Out) {
     for n in ELEM_WIDTHS {
         // The stride-equals-width twin. A `[T]` whose element needs no
         // alignment padding — which is almost every one — has `stride == size`,
-        // and baking that in turns `movz`/`movk`/`mul` into the `ldr`'s own
+        // and baking that in turns `movz`/`movk`/`multiply` into the `ldr`'s own
         // scaled-register form. It is a stencil *variant* in exactly the
         // paper's sense: an operand kind, "an index scaled by a known stride"
         // against "an index scaled by a patched one".
@@ -1180,7 +1180,7 @@ fn control(o: &mut Out, level: Level) {
                         let ra = read(t, *a, "A");
                         let rb = read(t, *b, "B");
                         // The same expression the `bin/*` stencil computes —
-                        // see [`binary_expr`] for why a float `eq`/`ne` is not
+                        // see [`binary_expr`] for why a float `equal`/`ne` is not
                         // C's, and why fusing the branch has to keep it.
                         let test = binary_expr(t, name, cop, &ra, &rb);
                         o.push(

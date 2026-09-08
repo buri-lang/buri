@@ -38,8 +38,8 @@ run {
 # assert about *this* socket rather than about a running total.
 edit {
   file: "lib/room/test/broadcast.buri"
-  replace: "assert.eq(broadcast(ctx, [first, second], .Text(\"after\")), 2);"
-  with: "assert.eq(broadcast(ctx, [first, second], .Text(\"after\")), 1);"
+  replace: "assert.equal(broadcast(ctx, [first, second], .Text(\"after\")), 2);"
+  with: "assert.equal(broadcast(ctx, [first, second], .Text(\"after\")), 1);"
 }
 
 run {

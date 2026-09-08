@@ -14,7 +14,7 @@
 //! | `Bool`, every integer | `number` | `ToUint32(Math.trunc(x) \|\| 0)` — the low 32 bits |
 //! | `F32`, `F64` | `number` | the same, so `1.9` and `1.0` collide, and `NaN` hashes as `0` |
 //!
-//! The float row is what keeps `Eq` and `Hash` agreeing. SPEC 7.2 makes
+//! The float row is what keeps `Equal` and `Hash` agreeing. SPEC 7.2 makes
 //! `NaN == NaN` true, so every `NaN` has to hash alike — and it does, on both
 //! backends, because `|| 0` maps every payload and both signs to zero before
 //! anything is mixed. A hasher that mixed the bit pattern would give two equal
@@ -112,7 +112,7 @@ pub extern "C" fn buri_rt_hash_char(h: u64, c: u32) -> u64 {
     acc
 }
 
-/// `Ord` on a `Char`, as the `Order` tag `0 | 1 | 2`.
+/// `Ordered` on a `Char`, as the `Order` tag `0 | 1 | 2`.
 ///
 /// **Scalar value order**, which is what `Char` *is*: the comparison is on the
 /// code points, and VALUE-MODEL.md §1 already said so.

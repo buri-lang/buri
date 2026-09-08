@@ -10,7 +10,7 @@ from "core/str" import * as str;
 from "//bench/m0003.buri" import { blend3, Node3, reach3, seed3 };
 from "//bench/m0030.buri" import { blend30, Node30, reach30, seed30 };
 
-derive Eq, Show for Node32;
+derive Equal, Show for Node32;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node32 {
@@ -56,7 +56,7 @@ export fn probe32_0<C: Allocator>(ctx: C): Int {
     compute32_0(7)
 }
 
-derive Eq, Show for State32_1;
+derive Equal, Show for State32_1;
 /// An enum of 4 variants, matched exhaustively below.
 export enum State32_1 {
     Idle,
@@ -112,7 +112,7 @@ export fn probe32_2<C: Allocator>(ctx: C): Int {
     label32_2(ctx, a, e).len() + b
 }
 
-derive Eq, Show for State32_3;
+derive Equal, Show for State32_3;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State32_3 {
     Idle,
@@ -260,7 +260,7 @@ export fn probe32_7<C: Allocator>(ctx: C): Int {
     choose32_7(.Some(3), .None) + extra
 }
 
-derive Eq, Show for State32_8;
+derive Equal, Show for State32_8;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State32_8 {
     Idle,

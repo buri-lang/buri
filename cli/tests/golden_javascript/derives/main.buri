@@ -4,13 +4,13 @@ from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-derive Eq, Ord, Show, Hash for Pair;
+derive Equal, Ordered, Show, Hash for Pair;
 struct Pair {
     a: Int,
     b: Str,
 }
 
-derive Eq, Show for Tag;
+derive Equal, Show for Tag;
 enum Tag {
     Low,
     High(Int),

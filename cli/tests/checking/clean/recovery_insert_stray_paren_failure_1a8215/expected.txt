@@ -6,7 +6,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |
   --> main.buri:47:14
    |
-47 |     assert.eq(
+47 |     assert.equal(
    |              ^ opened here
    |
    = fix: write `)` here

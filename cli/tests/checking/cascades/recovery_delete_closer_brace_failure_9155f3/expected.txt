@@ -29,7 +29,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
 error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
   --> main.buri:62:26
    |
-62 |     assert.eq(assert.err(codegen.run(ctx, silent)), "codegen: `inputs` is not a list");
+62 |     assert.equal(assert.err(codegen.run(ctx, silent)), "codegen: `inputs` is not a list");
    |                          ^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Stdout`, or use a type that has one

@@ -1,4 +1,4 @@
-derive Eq, Show for Cents;
+derive Equal, Show for Cents;
 export struct Cents(export I64);
 
 fn export fromCents(c: I64): Cents {

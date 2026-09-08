@@ -359,7 +359,7 @@ A variant's fields are laid out inside the payload area in declaration order,
 independently per variant.
 
 The tag is at **offset 0** and its value is the variant's **index in declaration
-order**, which is the number `derive Ord` compares and the number a decision tree
+order**, which is the number `derive Ordered` compares and the number a decision tree
 switches on. An enum with no variants is uninhabited, has no value, and occupies
 nothing.
 
@@ -512,7 +512,7 @@ its first. Both native backends read it off their runtime tables
 
 Asking the *argument's type* instead — "is it a `Ty::Ctx`?" — is the same question
 only while every `C: Allocator` is instantiated at a `context { … }` record, and it is
-not: `<C: Allocator>` and `<T: Ord>` are one feature (SPEC 10.1), and SPEC 10.8's
+not: `<C: Allocator>` and `<T: Ordered>` are one feature (SPEC 10.1), and SPEC 10.8's
 attenuation exists so that programs pass something that merely implements the
 effect. Such a value spread to a leaf the C signature had no parameter for and
 shifted every argument after it one register down — a fault in `memmove`.
@@ -525,7 +525,7 @@ from a signature, and it is the same one that drops a `()` parameter.
 
 ## 9. Descriptors and derives: generated, not walked
 
-The JS backend has it both ways: `derive Eq` is compiled per type into its own
+The JS backend has it both ways: `derive Equal` is compiled per type into its own
 function (`generate.rs`), while `Show`, `Hash`, `ToJson` and `FromJson` go through
 a runtime walker over a `Desc` value (`monomorphize.rs`). The walker is right
 there — it keeps one `$show` in the artifact instead of one per type, and artifact
@@ -640,13 +640,13 @@ reads this table and fails if a row names a test that is not there.
 |---|---|---|---|---|---|
 | 1 | `Int` overflow | the exact sum, unbounded | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed.** A `BigInt` has no width to overflow *at*, so `maxValue<I64>() + 1` is 9223372036854775808 here and −9223372036854775808 natively. A program that wants the defined answer says `wrappingAdd`, which agrees at every width (row 3). Wrapping every result back with `asIntN` would close the row and was not done: it is a call on every add in every program to make one undefined answer match another. | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
 | 2 | `checkedAdd` above 2^53, within `I64` | `.Some` | `.Some` | **Must agree, and does.** `Checked` is bounded by the numbers the *backend* has (SPEC §6.2.2), and a `BigInt` says which integer the answer is, so `exact_int_range` and `int_range` are the same range at every width. `Saturating` was never bounded this way. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
-| 3 | `wrappingMul` at 64 bits | exact | exact, native | Must agree, at every width. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else; at 64 and 128 the operands are `BigInt`s and the wrap is one `asIntN`. Natively `wrapping*` **is** the machine's own add, subtract and multiply, because §3.4 emits no `nsw`/`nuw`. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
+| 3 | `wrappingMultiply` at 64 bits | exact | exact, native | Must agree, at every width. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else; at 64 and 128 the operands are `BigInt`s and the wrap is one `asIntN`. Natively `wrapping*` **is** the machine's own add, subtract and multiply, because §3.4 emits no `nsw`/`nuw`. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
 | 4 | `I128`/`U128` arithmetic | exact | exact | **Must agree, and does.** Both are `BigInt`s (buri-lang/buri#4). `I128` is the escape hatch the language offers when 64 bits are not enough, and an escape hatch that rounds is not one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
-| 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | **Must agree, and does**, at any nesting depth, through `match`, `Eq` or `Show`. | `row_05_nested_option_is_distinct` |
+| 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | **Must agree, and does**, at any nesting depth, through `match`, `Equal` or `Show`. | `row_05_nested_option_is_distinct` |
 | 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
 | 7 | `str.slice` past the end | clamps (`runtime.js`) | clamps | Must agree. Pinned on the boundary cases. | `row_07_str_slice_clamps` |
 | 8 | Float rendering | JS `Number#toString` | shortest round-trip (SPEC §6.2) | Must agree, character for character. The runtime implements Ryū rather than trusting a libc `printf`. The exhaustive corpus is `native/float_parity.rs`'s 3.8 million doubles; the row here is the end-to-end variant. | `row_08_float_rendering` |
-| 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Eq`, `Ord` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
+| 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Equal`, `Ordered` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
 | 10 | `derive ToJson` output | runtime walker | generated (§9) | Must agree, byte for byte. It is a wire format. The leaf (`stencil/emit.rs::json_prim`, `llvm/emit.rs::json_prim`) builds `Json`'s arm for a primitive — `Bool` to `.Bool`, `Str`/`Char` to `.Str`, every number to `.Num` — and the compound arms are `middle::derives`' own tree. The variant index is read off `core/json`'s declaration by name rather than hard-coded, and the `.Str` arm takes a count, because `middle::rc`'s contract is that an intrinsic borrows and this one's result keeps. `json.stringify` needs closures and is not reachable, so the row's program walks the tree by hand. | `row_10_derived_tojson` |
 | 11 | Division by zero | aborts (`runtime.js`) | aborts | Must agree, including the message. The *whole* stream does not: JavaScript writes `e.stack` after the message, so what is compared is the first line and the status. | `row_11_division_by_zero` |
 | 12 | `Allocator` accounting | `$host_HostAlloc_allocate` | `buri_rt_host_alloc_allocate` | Must agree, and does. The model is *defined* rather than measured (MEMORY.md §7.1), which is what makes agreement checkable: the charge is a function of the argument and the types, so `allocate(64)` is `Region(64)` on both. Nothing accumulates *in* `HostAllocator` on either side; the totals a program can read belong to `core/alloc`'s counters. | `row_12_alloc_accounting` |
@@ -714,7 +714,7 @@ changed:
   `NaN` regardless of payload, so equal values hash equally, which is what a `Map`
   key needs.
 
-Row 9's reason for grouping `Eq` with `Show` — "they are the same generator" — is
+Row 9's reason for grouping `Equal` with `Show` — "they are the same generator" — is
 false and is worth knowing: `derives.rs` runs from `middle::native` and nowhere
 else, so derived equality has **two** implementations, and the only thing
 comparing them is `agreement.rs`.

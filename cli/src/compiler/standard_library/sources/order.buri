@@ -7,24 +7,24 @@
 
 from "core/effect" import { Allocator };
 
-derive Eq, Show for Order;
+derive Equal, Show for Order;
 export enum Order {
     Less,
     Equal,
     Greater,
 }
 
-/// `a == b` and `a != b` are `Eq.eq`. Equality is structural, never
+/// `a == b` and `a != b` are `Equal.equal`. Equality is structural, never
 /// referential: Buri has no references, so there is no identity to compare.
-export trait Eq {
-    fn eq(self, other: Self): Bool;
+export trait Equal {
+    fn equal(self, other: Self): Bool;
 }
 
-/// `<` `<=` `>` `>=` are `Ord.compare`. The built-in orders are the same on
+/// `<` `<=` `>` `>=` are `Ordered.compare`. The built-in orders are the same on
 /// every backend: numbers by value, `Bool` with `false` below `true`, `Char` by
 /// scalar value, and `Str` lexicographically by scalar value. `core/str` states
 /// that last one in full.
-export trait Ord {
+export trait Ordered {
     fn compare(self, other: Self): Order;
 }
 
