@@ -5,13 +5,17 @@
 // And a heading, which is the one element whose type a browser would decide by
 // itself. The picture is what says it does not: an unstyled heading is the size
 // of the text around it, and a styled one is the size it asked for.
+//
+// And a clip, which is the one property that has to be read twice: once for the
+// box it cuts to and once for the corner that box was rounded to. A picture is
+// the only place the second reading shows.
 
 from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/testing" import { headless, snapshot };
-from "//lib/scenes" import { fractions, plate, tinted };
+from "//lib/scenes" import { corners, fractions, plate, tinted };
 
 test "every property at zero" {
     let ctx = context {
@@ -75,4 +79,16 @@ test "a heading is the size its styles say, not the size a browser picked" {
         .Hover,
         [],
     );
+}
+
+test "a box that clips cuts its child to the corner it was given" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // Two boxes that differ in one length. The child fills each of them exactly
+    // and has no radius of its own, so the only thing that can round the left
+    // one's corners is the clip following the parent's. A clip that stopped at
+    // the box would make this picture two identical squares.
+    snapshot(ctx, "rounded-clip", corners(), .Hover, []);
 }
