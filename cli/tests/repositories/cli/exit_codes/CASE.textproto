@@ -33,7 +33,7 @@ edit {
   with: "\"fine\""
 }
 
-# 2: the invocation is wrong. Five ways to ask for something that is not there
+# 2: the invocation is wrong. Six ways to ask for something that is not there
 # or not a thing, each recorded, because "exit 2" without a message is a
 # toolchain refusing to say what it wanted.
 run {
@@ -64,6 +64,21 @@ run {
   args: ["query", "wat(//cmd/ok)"]
   exit: 2
   golden: "unknown_query.txt"
+}
+
+# And a sixth, which is `--output` asked of `buri test`. The flag is spelled the
+# way `buri build` spells it and asks a different question: a suite runs on a
+# **platform**, not on an output some rule declared, so the set is closed and
+# the refusal names the whole of it.
+#
+# It is 2 rather than 1 because nothing was compiled to be wrong about, and it
+# is refused rather than defaulted because a run that quietly used the default
+# would report a pass for a backend nobody chose.
+run {
+  args: ["test", "//cmd/ok", "--output=nonsense"]
+  exit: 2
+  golden: "no_such_platform.txt"
+  stream: ERR
 }
 
 # An unparseable build file is also the thing you asked *with*, not the thing
