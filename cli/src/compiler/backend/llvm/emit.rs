@@ -5818,15 +5818,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .build_int_truncate_or_bit_cast(n, want, "sh.n")
             .unwrap_or(n);
         let value = match op {
-            "shl" | "shiftLeftU8" | "shiftLeftU32" | "shiftLeftU64" => {
+            "shiftLeft" | "shiftLeftU8" | "shiftLeftU32" | "shiftLeftU64" => {
                 self.builder.build_left_shift(x, count, "sh").map(Into::into)
             }
             // Logical, at every width: `shiftRight` reinterprets as unsigned and the
             // `U*` families are unsigned already.
-            "shr" | "shiftRightU8" | "shiftRightU32" | "shiftRightU64" => {
+            "shiftRight" | "shiftRightU8" | "shiftRightU32" | "shiftRightU64" => {
                 self.builder.build_right_shift(x, count, false, "sh").map(Into::into)
             }
-            "sar" => self.builder.build_right_shift(x, count, true, "sar").map(Into::into),
+            "shiftRightArithmetic" => {
+                self.builder.build_right_shift(x, count, true, "sar").map(Into::into)
+            }
             // `llvm.fshl(x, x, n)` *is* a rotate, and it is defined for every
             // count — unlike `(x << n) | (x >> (w - n))`, whose second shift is
             // poison at `n == 0`. The range check has already ruled out `n >= w`.

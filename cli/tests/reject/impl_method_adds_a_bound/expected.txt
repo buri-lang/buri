@@ -2,7 +2,7 @@ error: `write` does not have the signature `Report` declares [signature-mismatch
   --> cmd/impl_method_adds_a_bound/main.buri:23:12
    |
 23 |   fn write<C: Stdout + Allocator>(self, ctx: C): () {
-   |            ^^^^^^^^^^^^^^^^^ expected `C: Stdout`, found `C: Stdout + Allocator`
+   |            ^^^^^^^^^^^^^^^^^^^^^ expected `C: Stdout`, found `C: Stdout + Allocator`
    |
   --> cmd/impl_method_adds_a_bound/main.buri:19:3
    |

@@ -10,7 +10,7 @@ error: a `Result` may not be discarded [result-discarded]
   --> cmd/effect_carrying_type_fails_a_trait_bound/main.buri:22:3
    |
 22 |   let _ = smuggler().inner.println("laundered through Equal");
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
 

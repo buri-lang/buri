@@ -2,15 +2,15 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
   --> cmd/app/main.buri:15:16
    |
 15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
-   |                ^^^^^
+   |                ^^^^^^^^^
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
 
      A ctx parameter says a function touches the world. Its bounds say which
-     parts of it. fn save<C: Allocator + FileSystemWrite>(ctx: C, …) reads as "this
-     allocates and this writes files", and every caller has to be holding a
-     context that can do both. A dead bound spreads, too, because the caller's
+     parts of it. fn save<C: Allocator + FileSystemWrite>(ctx: C, …) reads as
+     "this allocates and this writes files", and every caller has to be holding
+     a context that can do both. A dead bound spreads, too, because the caller's
      own signature has to carry it to satisfy the demand.
 
      There are exactly two ways a body uses a bound, and each of them is a call:
@@ -57,10 +57,11 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
      offered whether or not the name is on the library's surface.
 
      The bytes are per parameter, not per bound. A bound list is one piece of
-     text with shared separators — the ranges that delete FileSystemWrite and Io from
-     <C: Allocator + FileSystemWrite + Io> both claim the + between them — so removing
-     several is one rewrite. Every finding about one parameter carries that same
-     rewrite, buri lint --fix applies it once, and the run after it is clean.
+     text with shared separators — the ranges that delete FileSystemWrite and Io
+     from <C: Allocator + FileSystemWrite + Io> both claim the + between them —
+     so removing several is one rewrite. Every finding about one parameter
+     carries that same rewrite, buri lint --fix applies it once, and the run
+     after it is clean.
 
      The rule withholds the bytes where the text between the bounds is anything
      but the separators. A comment written inside a bound list is a reader's
@@ -71,15 +72,15 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
   --> cmd/app/main.buri:22:13
    |
 22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
-   |             ^^^^^
+   |             ^^^^^^^^^
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
 warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
-  --> cmd/app/main.buri:22:21
+  --> cmd/app/main.buri:22:25
    |
 22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
-   |                     ^^^^^
+   |                         ^^^^^
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound

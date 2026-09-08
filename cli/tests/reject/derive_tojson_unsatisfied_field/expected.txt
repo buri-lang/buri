@@ -10,8 +10,8 @@ error: `Outer` cannot derive `ToJson`: `inner` has type `Inner` [underivable]
      What to do
      ──────────
 
-     Make Inner satisfy Equal first — derive Equal for Inner; in its own module, or an
-     impl — or drop Equal from this derive.
+     Make Inner satisfy Equal first — derive Equal for Inner; in its own module,
+     or an impl — or drop Equal from this derive.
 
      Why
      ───

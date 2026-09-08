@@ -2,7 +2,7 @@ error: `Outer` cannot derive `Equal`: `inner` has type `Inner` [underivable]
   --> cmd/derive_unsatisfied_field/main.buri:11:1
    |
 11 | derive Equal for Outer;
-   | ^^^^^^^^^^^^^^^^^^^^
+   | ^^^^^^^^^^^^^^^^^^^^^^^
    |
    = a derived implementation is a fold over the type's components, and `Inner` does not satisfy `Equal`
    = fix: make `Inner` satisfy `Equal` first — `derive Equal for Inner;` in its own module, or an `impl` — or drop `Equal` from this `derive`
@@ -10,8 +10,8 @@ error: `Outer` cannot derive `Equal`: `inner` has type `Inner` [underivable]
      What to do
      ──────────
 
-     Make Inner satisfy Equal first — derive Equal for Inner; in its own module, or an
-     impl — or drop Equal from this derive.
+     Make Inner satisfy Equal first — derive Equal for Inner; in its own module,
+     or an impl — or drop Equal from this derive.
 
      Why
      ───
