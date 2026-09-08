@@ -5176,20 +5176,23 @@ fn dialling<C: Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
       0
     },
     onMessage: fn(_c, _socket, seen, _message) => seen + 1,
-    onClose: fn(c, _socket, _seen, _reason) => io.println(c, "closed").ignore(),
+    onClose: fn(c, _socket, seen, _reason) => {
+      let _said = io.println(c, "closed").ignore();
+      seen
+    },
   }
 }
 
-fn sentence(r: Result<CloseReason, ServeError>): Str {
+fn sentence(r: Result<(CloseReason, Int), ServeError>): Str {
   match (r) {
-    .Ok(_reason) => "a socket opened",
+    .Ok(_ended) => "a socket opened",
     .Err(e) => websocket.errorText(e),
   }
 }
 
-fn cause(r: Result<CloseReason, ServeError>): ServeFailure {
+fn cause(r: Result<(CloseReason, Int), ServeError>): ServeFailure {
   match (r) {
-    .Ok(_reason) => .Closed,
+    .Ok(_ended) => .Closed,
     .Err(e) => e.cause,
   }
 }

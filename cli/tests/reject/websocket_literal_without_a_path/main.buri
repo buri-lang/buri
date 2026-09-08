@@ -21,7 +21,7 @@ fn plan<C: Allocator>(ctx: C): Server<C, Int> {
     websocket: .Some(WebSocket {
       onOpen: fn(_c, _socket, _request) => 0,
       onMessage: fn(_c, _socket, state, _message) => state,
-      onClose: fn(_c, _socket, _state, _reason) => (),
+      onClose: fn(_c, _socket, state, _reason) => state,
     }),
   }
 }

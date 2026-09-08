@@ -232,7 +232,7 @@
 //!                 },
 //!                 onClose: fn(c, _socket, counted, _reason) => {
 //!                     let _stopped = counted.stop(c);
-//!                     ()
+//!                     counted
 //!                 },
 //!             }),
 //!         })
@@ -245,9 +245,12 @@
 //!   `onRequest`, and that is what a client asking to upgrade `/` is told —
 //!   the same answer it would get from a server with no `websocket` at all.
 //! * **`onOpen` decides what a socket carries.** Every later hook is handed the
-//!   current one, and `onMessage` answers the next — so per-socket state is a
-//!   value on a stack rather than a table keyed by socket. Above it is an
-//!   actor's address; it could as easily be a room name or a count.
+//!   current one and answers the next — so per-socket state is a value on a
+//!   stack rather than a table keyed by socket. Above it is an actor's address;
+//!   it could as easily be a room name or a count.
+//! * **`onClose` answers too, and that answer leaves the server.** `run` reports
+//!   the last socket's, so a socket can hand a value back to the program that
+//!   started the listener. `serve` is `bind` and `run` with it dropped.
 //! * **`Socket` is inert**: one integer, copyable, comparable, and sendable to
 //!   an actor, which can then push on it long after the request that opened it
 //!   returned. `socket.send` and `socket.close` need `C: Sockets` and nothing
@@ -388,14 +391,17 @@ export struct Tls {
 /// port back on that path too.
 ///
 /// A program that needs the port *while* the server runs — anything binding
-/// `port: 0` — wants this function's two halves, `bind` and `run`.
+/// `port: 0` — wants this function's two halves, `bind` and `run`. So does a
+/// program that wants **what its socket ended holding**: `run` answers that and
+/// this drops it, because a server with no `websocket` would otherwise carry an
+/// `Option<()>` through every `main` that ends with a `serve`.
 export fn serve<C: Allocator + Listen + Tasks, S>(
     ctx: C,
     server: Server<C, S>,
 ): Result<(), ServeError> {
     match (bind(ctx, server)) {
         .Err(e) => .Err(e),
-        .Ok(listener) => run(ctx, listener, server),
+        .Ok(listener) => run(ctx, listener, server).map(fn(_last) => ()),
     }
 }
 
@@ -497,17 +503,24 @@ struct Worker<C, S> {
 /// It takes the whole `Server` rather than its `onRequest`, and ignores the
 /// fields `bind` already spent.
 ///
-/// The answer is the **first** failure any worker reported, and `.Ok(())` when
-/// every one of them ended the ordinary way. A worker that fails closes the
+/// The answer is the **first** failure any worker reported, and otherwise
+/// `.Ok(last)`: what the last socket to close answered from its `onClose`, or
+/// `.None` on a server no socket ever opened on. A worker that fails closes the
 /// listener on its way out (see `answering`), so the others are not left waiting
 /// out a server that has already stopped.
+///
+/// **One socket's answer and not every socket's.** A server holding many at once
+/// keeps the last one to end on each worker, and the fan-out keeps the last of
+/// those. It is for a server that holds one — a callback receiver, a bridge, a
+/// test — and a server that wants every socket's answer sends each one somewhere
+/// from the hook.
 export fn run<C: Allocator + Listen + Tasks, S>(
     ctx: C,
     listener: Listener,
     server: Server<C, S>,
-): Result<(), ServeError> {
+): Result<Option<S>, ServeError> {
     let outcome = if (hosted(listener.handlers) <= 1) {
-        answering(ctx, listener.handle, server.onRequest, server.websocket)
+        answering(ctx, listener.handle, server.onRequest, server.websocket, .None)
     } else {
         together(ctx, listener, server)
     };
@@ -520,7 +533,7 @@ fn together<C: Allocator + Listen + Tasks, S>(
     ctx: C,
     listener: Listener,
     server: Server<C, S>,
-): Result<(), ServeError> {
+): Result<Option<S>, ServeError> {
     let worker = Worker {
         handle: listener.handle,
         onRequest: server.onRequest,
@@ -529,16 +542,21 @@ fn together<C: Allocator + Listen + Tasks, S>(
     let outcomes = tasks.parallel(
         ctx,
         list.repeat(ctx, worker, hosted(listener.handlers)),
-        fn(c, _index, w) => answering(c, w.handle, w.onRequest, w.websocket),
+        fn(c, _index, w) => answering(c, w.handle, w.onRequest, w.websocket, .None),
     );
     outcomes.fold(
         fn(sofar, outcome) => {
             match (sofar) {
                 .Err(e) => .Err(e),
-                .Ok(_ok) => outcome,
+                .Ok(kept) => {
+                    match (outcome) {
+                        .Err(e) => .Err(e),
+                        .Ok(mine) => .Ok(mine.or(kept)),
+                    }
+                },
             }
         },
-        .Ok(()),
+        .Ok(.None),
     )
 }
 
@@ -549,11 +567,16 @@ fn together<C: Allocator + Listen + Tasks, S>(
 ///
 /// The third is `taking`, where a connection becomes a socket if the client
 /// asked for one. A socket runs to its close on this worker and then the loop
-/// goes round, so `.Ok(())` from `taking` means the connection is finished with
-/// whichever kind it was.
+/// goes round, so an `.Ok` from `taking` means the connection is finished with
+/// whichever kind it was — carrying the state a socket ended holding, or `.None`
+/// when the connection was an ordinary request.
 ///
-/// `.Closed` is the ordinary end and becomes `.Ok(())` here, so no caller of
-/// this module has to know that a listener signs off by failing. It is read from
+/// **`last` is the loop's memory of that**, threaded through the self tail call
+/// the way a socket's own state is threaded through `pumping`'s, and it is what
+/// this worker answers when the listener signs off.
+///
+/// `.Closed` is the ordinary end and becomes `.Ok` here, so no caller of this
+/// module has to know that a listener signs off by failing. It is read from
 /// **either** call, because an acceptor may notice it is done when it takes the
 /// last response as easily as when it is next asked for a request.
 fn answering<C: Listen, S>(
@@ -561,16 +584,19 @@ fn answering<C: Listen, S>(
     handle: Int,
     onRequest: fn(C, Request) => Response,
     websocket: Option<WebSocket<C, S>>,
-): Result<(), ServeError> {
+    last: Option<S>,
+): Result<Option<S>, ServeError> {
     match (ctx.listenAccept(handle)) {
-        .Err(e) => ending(ctx, handle, e),
+        .Err(e) => ending(ctx, handle, e, last),
         .Ok(connection) => {
             match (ctx.listenRequest(connection)) {
-                .Err(e) => ending(ctx, handle, e),
+                .Err(e) => ending(ctx, handle, e, last),
                 .Ok(request) => {
                     match (taking(ctx, connection, request, onRequest, websocket)) {
-                        .Err(e) => ending(ctx, handle, e),
-                        .Ok(_ok) => answering(ctx, handle, onRequest, websocket),
+                        .Err(e) => ending(ctx, handle, e, last),
+                        .Ok(ended) => {
+                            answering(ctx, handle, onRequest, websocket, ended.or(last))
+                        },
                     }
                 },
             }
@@ -596,7 +622,7 @@ fn taking<C: Listen, S>(
     request: Request,
     onRequest: fn(C, Request) => Response,
     websocket: Option<WebSocket<C, S>>,
-): Result<(), ServeError> {
+): Result<Option<S>, ServeError> {
     match (websocket) {
         .None => answered(ctx, connection, request, onRequest),
         .Some(hooks) => {
@@ -614,16 +640,19 @@ fn taking<C: Listen, S>(
     }
 }
 
-/// The handler, and its answer on the connection it was asked about.
-fn answered<C: Listen>(
+/// The handler, and its answer on the connection it was asked about. A request
+/// is not a socket, so there is no state in what it answers.
+fn answered<C: Listen, S>(
     ctx: C,
     connection: Int,
     request: Request,
     onRequest: fn(C, Request) => Response,
-): Result<(), ServeError> {
+): Result<Option<S>, ServeError> {
     let handler = onRequest;
     let reply = handler(ctx, request);
-    ctx.listenRespond(connection, reply.status, reply.headers, reply.body)
+    ctx
+        .listenRespond(connection, reply.status, reply.headers, reply.body)
+        .map(fn(_answered) => .None)
 }
 
 /// A socket, from the hook that opens it to the hook that closes it.
@@ -633,18 +662,18 @@ fn answered<C: Listen>(
 /// occupies one of `listener.handlers` workers until it closes, so a server
 /// holding more sockets than it has handlers has no worker left to accept with.
 ///
-/// The answer is `.Ok(())` however the socket ended. A socket closing is not a
-/// listener failing, and the worker goes back to accepting.
+/// The answer is `.Ok(.Some(…))` however the socket ended, carrying what
+/// `onClose` answered. A socket closing is not a listener failing, and the
+/// worker goes back to accepting.
 fn opened<C: Listen, S>(
     ctx: C,
     hooks: WebSocket<C, S>,
     socket: Socket,
     request: Request,
-): Result<(), ServeError> {
+): Result<Option<S>, ServeError> {
     let open = hooks.onOpen;
     let state = open(ctx, socket, request);
-    let _closed = pumping(ctx, hooks, socket, state);
-    .Ok(())
+    .Ok(.Some(pumping(ctx, hooks, socket, state)))
 }
 
 /// One message, then the next, then the close.
@@ -656,7 +685,7 @@ fn opened<C: Listen, S>(
 /// listener closed under it, or a handle spent twice — reaches `onClose` as
 /// `.Abnormal` rather than getting dropped, so a program always gets to undo
 /// what `onOpen` did.
-fn pumping<C: Listen, S>(ctx: C, hooks: WebSocket<C, S>, socket: Socket, state: S): () {
+fn pumping<C: Listen, S>(ctx: C, hooks: WebSocket<C, S>, socket: Socket, state: S): S {
     match (ctx.listenReceive(socket.0)) {
         .Err(_gone) => closed(ctx, hooks, socket, state, .Abnormal),
         .Ok(received) => {
@@ -685,28 +714,34 @@ fn pumping<C: Listen, S>(ctx: C, hooks: WebSocket<C, S>, socket: Socket, state: 
     }
 }
 
-/// The close hook, run once, with the state the last message left.
+/// The close hook, run once, with the state the last message left. Its answer is
+/// the socket's, and travels out through `run`.
 fn closed<C: Listen, S>(
     ctx: C,
     hooks: WebSocket<C, S>,
     socket: Socket,
     state: S,
     reason: CloseReason,
-): () {
+): S {
     let close = hooks.onClose;
     close(ctx, socket, state, reason)
 }
 
 /// How a worker ends: the ordinary way, or by taking the listener down with it.
 ///
-/// `.Closed` is the ordinary end and becomes `.Ok(())`. Anything else is a
-/// reason this worker cannot go on, and **it closes the listener before
-/// reporting that**, because the other workers are blocked in an accept nothing
-/// else would interrupt. Closing is idempotent, so every worker doing it is one
-/// close and n - 1 no-ops.
-fn ending<C: Listen>(ctx: C, handle: Int, e: ServeError): Result<(), ServeError> {
+/// `.Closed` is the ordinary end and becomes `.Ok(last)` — the state the last
+/// socket on this worker left. Anything else is a reason this worker cannot go
+/// on, and **it closes the listener before reporting that**, because the other
+/// workers are blocked in an accept nothing else would interrupt. Closing is
+/// idempotent, so every worker doing it is one close and n - 1 no-ops.
+fn ending<C: Listen, S>(
+    ctx: C,
+    handle: Int,
+    e: ServeError,
+    last: Option<S>,
+): Result<Option<S>, ServeError> {
     match (e.cause) {
-        .Closed => .Ok(()),
+        .Closed => .Ok(last),
         _ => {
             let _closed = ctx.listenClose(handle);
             .Err(e)
@@ -810,7 +845,8 @@ export enum CloseReason {
 /// **`onOpen` decides what a socket carries.** It answers the socket's first
 /// state, every later hook gets the current one, and `onMessage` answers the
 /// next. So per-socket state is an ordinary value on an ordinary stack, not a
-/// table somebody has to key by socket.
+/// table somebody has to key by socket. `onClose` answers too, and that answer
+/// is `run`'s.
 ///
 /// **Hooks on one socket run in order; sockets run concurrently.** One worker
 /// owns a socket for its whole life, and the sockets are spread over the same
@@ -844,12 +880,13 @@ export struct WebSocket<C, S> {
     /// A message arrived. Answers the state the next one will see.
     export onMessage: fn(C, Socket, S, Message) => S,
     /// The socket is gone. Runs once, with the last state, and is the last
-    /// thing this socket does.
+    /// thing this socket does. Its answer is what `run` reports for this
+    /// socket, so what a socket learned can leave the server.
     ///
     /// **The socket is already closed when this runs**, so anything sent from
     /// here is dropped. Use it to undo what `onOpen` did — stop the actor,
     /// leave the room — not to say goodbye on the wire.
-    export onClose: fn(C, Socket, S, CloseReason) => (),
+    export onClose: fn(C, Socket, S, CloseReason) => S,
 }
 
 impl Socket {

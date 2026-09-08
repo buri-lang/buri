@@ -1120,8 +1120,8 @@ export fn main(): Result<(), Str> {
       let _said = io.println(ctx, "mounted").ignore();
       match (websocket.connect(ctx, feed())) {
         .Err(e) => .Err(e.detail),
-        .Ok(reason) => {
-          let _ended = io.println(ctx, "page ended ${reason}").ignore();
+        .Ok(ended) => {
+          let _said = io.println(ctx, "page ended ${ended.0} ${ended.1}").ignore();
           .Ok(())
         },
       }
@@ -1151,7 +1151,8 @@ fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(): Client<C, Int> {
       seen + 1
     },
     onClose: fn(c, _socket, seen, reason) => {
-      io.println(c, "page closed after ${seen} ${reason}").ignore()
+      let _said = io.println(c, "page closed after ${seen} ${reason}").ignore();
+      seen
     },
   }
 }
@@ -1223,7 +1224,9 @@ console.log(log.join("\n"));
         "page heard text 0 ",
         "page heard binary 3",
         "page closed after 3 .GoingAway",
-        "page ended .GoingAway",
+        // The reason and the state beside it: three frames left the socket
+        // through `connect` rather than dying with it.
+        "page ended .GoingAway 3",
     ] {
         assert!(stdout.contains(line), "the page never said `{line}`:\n{stdout}{stderr}");
     }
@@ -1342,8 +1345,8 @@ fn dialling<C: Allocator + Sockets + Stdout + WebSocketClient>(ctx: C, port: Str
       let _said = io.println(ctx, "refused ${e.cause}").ignore();
       ()
     },
-    .Ok(reason) => {
-      let _said = io.println(ctx, "opened, and ended ${reason}").ignore();
+    .Ok(ended) => {
+      let _said = io.println(ctx, "opened, and ended ${ended.0}").ignore();
       ()
     },
   }
@@ -1358,7 +1361,10 @@ fn silent<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C
       0
     },
     onMessage: fn(_c, _socket, seen, _message) => seen + 1,
-    onClose: fn(c, _socket, _seen, _reason) => io.println(c, "a hook ran").ignore(),
+    onClose: fn(c, _socket, seen, _reason) => {
+      let _said = io.println(c, "a hook ran").ignore();
+      seen
+    },
   }
 }
 "#,
@@ -1486,7 +1492,8 @@ fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(
       next
     },
     onClose: fn(c, _socket, seen, reason) => {
-      io.println(c, "closed after ${seen} ${reason}").ignore()
+      let _said = io.println(c, "closed after ${seen} ${reason}").ignore();
+      seen
     },
   }
 }
@@ -1504,8 +1511,8 @@ fn dialling<C: Allocator + Sockets + Stdout + WebSocketClient>(
       let _said = io.println(ctx, "refused ${e.cause}").ignore();
       ()
     },
-    .Ok(reason) => {
-      let _said = io.println(ctx, "ended ${reason}").ignore();
+    .Ok(ended) => {
+      let _said = io.println(ctx, "ended ${ended.0} ${ended.1}").ignore();
       ()
     },
   }
@@ -1611,9 +1618,9 @@ export fn main(): Result<(), Str> {
         format!(
             "opened 101\ntext 0 \ntext 1 x\ntext {LARGE} {large}\nbinary 0\nbinary 1\n\
              binary {LARGE}\ntext 12 h\u{e9}llo \u{1f30a} done\n\
-             closed after 7 .Normal\nended .Normal\n\
-             opened 101\ntext 3 bye\nclosed after 1 .Abnormal\nended .Abnormal\n\
-             opened 101\ntext 2 go\nclosed after 1 .Normal\nended .Normal\n"
+             closed after 7 .Normal\nended .Normal 7\n\
+             opened 101\ntext 3 bye\nclosed after 1 .Abnormal\nended .Abnormal 1\n\
+             opened 101\ntext 2 go\nclosed after 1 .Normal\nended .Normal 1\n"
         ),
         "a frame was lost, a ping reached the program, or an ending was read as \
          the wrong one:\n{stderr}"
@@ -1701,7 +1708,7 @@ export fn fetch(request: Request): Response {
   };
   match (websocket.connect(ctx, relaying(request.path()))) {
     .Err(e) => http.text(ctx, str.format(ctx, "no socket: ${e.detail}")),
-    .Ok(reason) => http.text(ctx, str.format(ctx, "ended ${reason}")),
+    .Ok(ended) => http.text(ctx, str.format(ctx, "ended ${ended.0} ${ended.1}")),
   }
 }
 
@@ -1725,7 +1732,7 @@ fn relaying<C: Allocator + Sockets + WebSocketClient>(path: Str): Client<C, Int>
       let _sent = socket.send(c, .Text(said));
       seen + 1
     },
-    onClose: fn(_c, _socket, _seen, _reason) => (),
+    onClose: fn(_c, _socket, seen, _reason) => seen,
   }
 }
 "#,
@@ -1807,9 +1814,9 @@ console.log(log.join("\n"));
     assert!(out.status.success(), "the worker did not answer:\n{stdout}{stderr}");
     assert_eq!(
         stdout,
-        "200 ended .Normal\n\
-         200 ended .Abnormal\n\
-         200 ended .Abnormal\n\
+        "200 ended .Normal 3\n\
+         200 ended .Abnormal 0\n\
+         200 ended .Abnormal 0\n\
          200 no socket: the connection failed before the handshake finished\n\
          200 no socket: the socket closed before the handshake finished\n\
          dialled wss://example.test/relay\n\
