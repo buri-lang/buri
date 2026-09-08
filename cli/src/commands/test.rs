@@ -1347,6 +1347,9 @@ fn run_blocks(
 ) -> std::io::Result<Verdicts> {
     let mut blocks: Vec<Block> = Vec::with_capacity(count);
     let mut from = 0usize;
+    // Whether any process this loop ran was ended by a signal, so that the way
+    // out of this function gives up the runner file — see [`Spent`].
+    let mut spent = Spent { program, killed: false };
     while from < count {
         let start = from.to_string();
         // The snapshot entries are the same for every process this makes, for
@@ -1357,8 +1360,13 @@ fn run_blocks(
         env.extend(snapshots.iter().map(|(name, value)| (*name, value.as_str())));
         let out = match execute(program, None, limit, &env)? {
             Execution::Finished(out) => out,
-            Execution::TimedOut => return Ok(Verdicts::TimedOut),
+            Execution::TimedOut => {
+                // The runner killed it, which is a signal like any other.
+                spent.killed = true;
+                return Ok(Verdicts::TimedOut);
+            }
         };
+        spent.killed |= crate::build::link::killed_by_signal(&out.status);
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         // The heap check's own line is **never swallowed**, whichever way the
         // run ended. A failure comes back as [`Verdicts::HeapCheck`] and is
@@ -1416,6 +1424,36 @@ fn run_blocks(
         from = at + 1;
     }
     Ok(Verdicts::Blocks(blocks))
+}
+
+/// The runner file the blocks ran from, given up on the way out of
+/// [`run_blocks`] where a signal ended **any** of the processes that used it.
+///
+/// `link::spend_identity` is what that means and why. Any rather than the last,
+/// because the last one usually exited cleanly: a block that aborts ends its
+/// process and the next one resumes after it, so a suite with a crashing block
+/// in the middle finishes with a process that ran the rest of the file and
+/// returned 0. The file is spent all the same.
+///
+/// **A guard rather than a line at each exit.** `run_blocks` leaves four ways
+/// and the file is spent on three of them, which is the shape a guard exists
+/// for: the exit added next is covered by having been written at all.
+///
+/// Inside the loop the file is *not* given up, and that is the same rule rather
+/// than an exception to it: the resume run re-executes the very bytes that
+/// died, and an execution with no rewrite between it and the last one is one
+/// macOS is perfectly happy with.
+struct Spent<'a> {
+    program: &'a str,
+    killed: bool,
+}
+
+impl Drop for Spent<'_> {
+    fn drop(&mut self) {
+        if self.killed {
+            crate::build::link::spend_identity(std::path::Path::new(self.program));
+        }
+    }
 }
 
 /// The block a process that said nothing died in: the first one from `from` on
