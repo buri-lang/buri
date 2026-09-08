@@ -82,7 +82,7 @@ test "isZero and isNegative say what the sign is" {
 
 // --- arithmetic ------------------------------------------------------------------
 
-test "add, sub and mul are the arithmetic of lengths" {
+test "add, subtract and multiply are the arithmetic of lengths" {
     assert.equal(time.seconds(1).add(time.milliseconds(500)), time.milliseconds(1500));
     assert.equal(
         time.seconds(1).subtract(time.milliseconds(250)),
@@ -279,7 +279,7 @@ test "asSecondsFloat reads a length as a count of seconds" {
 
 // --- dividing, and the ratio between two lengths ----------------------------------
 
-test "divide is mul's inverse and truncates toward zero" {
+test "divide is multiply's inverse and truncates toward zero" {
     assert.equal(time.seconds(6).divide(2), time.seconds(3));
     assert.equal(time.seconds(3).multiply(4).divide(4), time.seconds(3));
     assert.equal(time.nanoseconds(7).divide(2), time.nanoseconds(3));
