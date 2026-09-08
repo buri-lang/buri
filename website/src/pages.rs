@@ -701,10 +701,10 @@ fn module_markdown(m: &ApiModule) -> String {
 fn item_markdown(item: &ApiItem) -> String {
     let mut out = format!("### {}\n\n```buri sig\n{}\n```\n\n", item.name, item.signature);
     let mut said = String::new();
-    if let Api::Method { owner, via_trait, .. } = &item.api {
+    if let Api::Method { owner, via, .. } = &item.api {
         said.push_str(&format!("A method on `{owner}`"));
-        if let Some(via) = via_trait {
-            said.push_str(&format!(", via `{via}`"));
+        if let Some(via) = via {
+            said.push_str(&format!(", via `{}`", via.trait_name));
         }
         said.push_str(". ");
     }
@@ -1021,7 +1021,7 @@ mod tests {
         let item = ApiItem {
             api: Api::Method {
                 owner: "[A]".to_string(),
-                via_trait: None,
+                via: None,
                 effects: vec!["Alloc".to_string()],
             },
             name: "map".to_string(),
