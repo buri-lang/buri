@@ -728,6 +728,14 @@ Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
 passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is
 the address bar as a cell. `Location` is granted on WEB alone, and it is what
 makes navigating re-run the smallest thing that read the path.
+
+`web.navigate(ctx, path)` is how a page goes somewhere itself: a history entry,
+and the cell `route` wraps written. Nothing is fetched and nothing is rebuilt but
+what read the path, so every signal in the program keeps its value — a store of
+signals survives the navigation, which a `ui.link` cannot manage.
+`web.replace(ctx, path)` writes the same address over the entry the reader is on
+instead of beside it, so Back does not return to it: that is a redirect. Both
+need `Location` and `Ui`, one for the address bar and one for the cell.
 [Build a website](../guides/websites.md) walks both halves end to end.
 
 ## The platform

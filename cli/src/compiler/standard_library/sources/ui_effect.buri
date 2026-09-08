@@ -87,8 +87,19 @@ export struct Event(Int);
 /// It answers a cell rather than a string. `ui/web`'s `path` reads it and
 /// `ui/web`'s `route` wraps it in a `Prop`, so a computation that read the path
 /// re-runs when the reader navigates and nothing else does.
+///
+/// The two writers are the history's, not the cell's: they put an address in
+/// the address bar and say whether the reader can come back to the one they
+/// left. `ui/web`'s `navigate` and `replace` are the doors, and each writes the
+/// cell itself — so the address the graph sees is the address the bar shows,
+/// whichever of the two moved it.
 export effect Location {
     /// The cell holding the path of the page's address, as `/guide/routing`.
     /// The runtime writes it when the reader navigates.
     fn path(self): Int;
+    /// A new history entry at `path`, which the reader can press Back out of.
+    fn push(self, path: Str): ();
+    /// `path` in place of the entry the reader is on, which Back does not
+    /// return to. What a redirect wants.
+    fn replace(self, path: Str): ();
 }

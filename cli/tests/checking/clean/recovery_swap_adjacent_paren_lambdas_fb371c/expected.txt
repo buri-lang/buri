@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-separator]
-  --> main.buri:52:22
-   |
-52 |     assert.equal(f(7)"n=7" ,);
-   |                      ^
-   |
-   = fix: write `,` here

@@ -1855,6 +1855,15 @@ console.log(log.join("\n"));
 ///    label the *server* wrote changes, which is the whole of what resuming is
 ///    for.
 ///
+/// Then the router, which is the same four claims a second time over an address
+/// the reader changed rather than one they arrived at. A press calls
+/// `web.navigate`: the address bar moves, the history grows by one, only the
+/// region that read the path is rebuilt, and the label the press above wrote is
+/// still there — an in-memory signal surviving a navigation is the whole reason
+/// a page routes instead of following a link. A redirect is the other half:
+/// `web.replace` moves the address bar and leaves the history the length it
+/// was.
+///
 /// Then the failure beside it: the same page resumed at an address the server
 /// did not render, so the tree and the markup disagree. It answers `.Err`, and
 /// the artifact exits 1 with the sentence.
@@ -1865,10 +1874,11 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     scratch.run(&["build", "//cmd/site"]).ok();
 
     let driver = scratch.write("drive.mjs", &format!("{DOCUMENT_DOUBLE}\n{WEBSITE_DRIVER}"));
-    let drive = |at: &str| {
+    let drive = |at: &str, asked: &str| {
         let out = Command::new(js_runtime())
             .arg(&driver)
             .arg(at)
+            .arg(asked)
             .output()
             .expect("the javascript runtime runs");
         (
@@ -1878,14 +1888,19 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
         )
     };
 
-    let (code, stdout, stderr) = drive("/");
+    let (code, stdout, stderr) = drive("/", "/");
     assert_eq!(code, 0, "the website did not answer:\n{stdout}{stderr}");
 
     let sent = "<main><h1>Buri</h1>visitors: 3\
-                <button type=\"button\">say thanks</button></main>\
+                <button type=\"button\">say thanks</button>\
+                <button type=\"button\">about</button>\
+                <article>home</article></main>\
                 <script id=\"buri-state\" type=\"application/json\" data-path=\"/\">\
                 {\"title\":\"Buri\",\"visitors\":3}</script>";
     let pressed = sent.replace(">say thanks<", ">thanks<");
+    // Only the region that read the path is rebuilt, so the button above it is
+    // the very node the server wrote and still holds the signal a press wrote.
+    let about = pressed.replace("<article>home</article>", "<article><h2>About</h2></article>");
     assert_eq!(
         stdout,
         format!(
@@ -1893,15 +1908,34 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
              {sent}\n\
              resumed / {{\"title\":\"Buri\",\"visitors\":3}}\n\
              made 0 elements and 0 runs of text\n\
+             at / over 1\n\
              {sent}\n\
-             {pressed}\n"
+             {pressed}\n\
+             at /about over 2\n\
+             navigated 2 elements and 1 runs of text\n\
+             {about}\n"
         ),
         "the website lost a half:\n{stderr}"
     );
 
+    // A redirect. The page is resumed at an address it has no route for, so it
+    // sends the reader on with `replace` — which moves the address bar and
+    // leaves the history exactly as long as it was, so Back does not return to
+    // the address they were just sent away from.
+    let (code, stdout, stderr) = drive("/index.html", "/index.html");
+    assert_eq!(code, 0, "the page did not resume where it redirects from:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("at / over 1\n"),
+        "a redirect must move the address bar and add no entry:\n{stdout}{stderr}"
+    );
+    assert!(
+        stdout.contains("<article>home</article>"),
+        "and the region that read the path must show the page it went to:\n{stdout}{stderr}"
+    );
+
     // The failure. `/about` is a page the server did not send, and `shell` wrote
     // down which page it did send, so this is refused before a node is walked.
-    let (code, stdout, stderr) = drive("/about");
+    let (code, stdout, stderr) = drive("/about", "/");
     assert_eq!(code, 1, "a resume at an address the server did not send must fail:\n{stdout}{stderr}");
     assert!(
         stderr.contains(
@@ -2118,6 +2152,15 @@ const findFirst = (n, name) => {
   return null;
 };
 
+// Every element of a kind, in document order — which is how a driver reaches
+// the second button on a page rather than only the first.
+const findAll = (n, name, out) => {
+  const all = out === undefined ? [] : out;
+  if (n.nodeType === 1 && n.nodeName === name) all.push(n);
+  for (const child of n.childNodes) findAll(child, name, all);
+  return all;
+};
+
 // The window's own listeners. `popstate` is the one a page registers.
 const heard = {};
 globalThis.addEventListener = (type, handler) => {
@@ -2157,6 +2200,23 @@ function browser(sent, at, holds) {
     },
   };
   globalThis.location = { pathname: at };
+  // The history stack a router pushes onto. `pushState` adds an entry and
+  // `replaceState` swaps the one in front, and both move the address bar —
+  // which is what makes `length` the one thing that tells them apart.
+  globalThis.history = {
+    entries: [at],
+    get length() {
+      return this.entries.length;
+    },
+    pushState(_state, _title, url) {
+      this.entries.push(url);
+      globalThis.location.pathname = url;
+    },
+    replaceState(_state, _title, url) {
+      this.entries[this.entries.length - 1] = url;
+      globalThis.location.pathname = url;
+    },
+  };
 }
 
 // The reader going back or forward: the address changes, and the browser says
@@ -2176,7 +2236,9 @@ const WEBSITE_DRIVER: &str = r##"
 import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
 
 const at = process.argv[2];
-const answer = await worker.fetch(new Request("https://example.com/"));
+// The address the worker was asked for, where it differs from the address bar.
+const asked = process.argv[3] === undefined ? "/" : process.argv[3];
+const answer = await worker.fetch(new Request(`https://example.com${asked}`));
 const document_ = await answer.text();
 const sent = document_.split("<body>")[1].split("</body>")[0];
 console.log(`${answer.status} ${answer.headers.get("content-type")}`);
@@ -2187,10 +2249,20 @@ browser(sent, at, true);
 await import("./.buri/out/web/cmd/site/main.mjs");
 
 console.log(`made ${made.elements} elements and ${made.text} runs of text`);
+console.log(`at ${location.pathname} over ${history.length}`);
 console.log(showing());
 
 // The press the server could not have handled.
 press(findFirst(body, "BUTTON"));
+console.log(showing());
+
+// And the press that changes the page. Nothing is fetched, nothing above the
+// routed region is rebuilt, and the button keeps the signal it is bound to.
+made.elements = 0;
+made.text = 0;
+press(findAll(body, "BUTTON")[1]);
+console.log(`at ${location.pathname} over ${history.length}`);
+console.log(`navigated ${made.elements} elements and ${made.text} runs of text`);
 console.log(showing());
 "##;
 

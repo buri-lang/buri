@@ -1,0 +1,23 @@
+error: expected an identifier, found `(` [unexpected-token]
+  --> main.buri:43:23
+   |
+43 |         Ui: headless, (),
+   |                       ^
+   |
+   = expected: an identifier
+   = actual: `(`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:47:17
+   |
+47 |     web.replace(ctx, "/dashboard");
+   |                 ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:48:27
+   |
+48 |     assert.equal(web.path(ctx), "/dashboard");
+   |                           ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
