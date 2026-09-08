@@ -7,7 +7,7 @@ from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/testing" import { headless, snapshot };
-from "//lib/scenes" import { plate, tinted };
+from "//lib/scenes" import { fractions, plate, tinted };
 
 test "every property at zero" {
     let ctx = context {
@@ -40,4 +40,12 @@ test "a style the compiler could not fold still paints" {
         ]),
         .Hover,
     );
+}
+
+test "a fraction track takes its share of what is left" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid-fractions", fractions(), .Hover);
 }

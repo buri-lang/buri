@@ -52,6 +52,12 @@
 //!   compositing the subtree as a group, so two overlapping half-transparent
 //!   children show through each other.
 //!
+//! A run of text answers all three intrinsic-width questions a layout engine
+//! asks it, so `grid-template-columns: 1fr 2fr` divides the room the other
+//! tracks left the way a browser divides it rather than sizing each track to
+//! its own sentence. [`paint_with`]'s measure closure is where the three are
+//! told apart.
+//!
 //! `box-shadow`'s blur is three integer box passes over a coverage mask, which
 //! is what the SVG filter specification writes down for a Gaussian and what a
 //! browser does for a shadow; `overflow: hidden` clips to the box's own
@@ -1078,7 +1084,13 @@ fn transformed(text: &str, case: Case) -> String {
     }
 }
 
-/// One run of text, shaped into a buffer at the given width.
+/// One run of text, shaped into a buffer at the given width, breaking where
+/// `wrap` says it may.
+///
+/// `wrap` is [`Wrap::WordOrGlyph`] everywhere a picture is being laid out or
+/// drawn, and [`Wrap::Word`] in the one place a run is asked how narrow it can
+/// be made. A `.TextWrap(.NoWrap)` run overrides both: it has no break in it to
+/// take.
 ///
 /// **Both metrics are held to a device pixel**, and the line box's is the one
 /// that matters: `.LineHeight(0.0)` is a style a program may write, `0` is a
@@ -1086,12 +1098,18 @@ fn transformed(text: &str, case: Case) -> String {
 /// laying anything out. A line box shorter than a pixel is not a picture either
 /// way, so the floor is the honest answer and it is the same floor the size
 /// takes.
-fn shape(fonts: &mut FontSystem, text: &str, style: &Computed, width: Option<f32>) -> Buffer {
+fn shape(
+    fonts: &mut FontSystem,
+    text: &str,
+    style: &Computed,
+    width: Option<f32>,
+    wrap: Wrap,
+) -> Buffer {
     let size = style.font_size.max(1.0);
     let leading = (size * style.line_height).max(1.0);
     let mut buffer = Buffer::new(fonts, Metrics::new(size, leading));
     buffer.set_hinting(Hinting::Disabled);
-    buffer.set_wrap(if style.nowrap { Wrap::None } else { Wrap::WordOrGlyph });
+    buffer.set_wrap(if style.nowrap { Wrap::None } else { wrap });
     buffer.set_size(width, None);
 
     let mut attrs = Attrs::new()
@@ -1180,11 +1198,30 @@ fn paint_with(
                 let (Some(text), Some(style)) = (node.text.as_deref(), styles.get(index)) else {
                     return Size::ZERO;
                 };
-                let width = known.width.or(match available.width {
-                    AvailableSpace::Definite(w) => Some(w),
-                    _ => None,
-                });
-                let (w, h) = extent(&shape(fonts, text, style, width));
+                // **The three questions a layout engine asks are three
+                // different questions.** How wide is this run under a width I
+                // have in mind, how wide would it be if it never wrapped, and
+                // how narrow can it be made — and the third one is what a
+                // track's automatic minimum, a flex item's automatic minimum
+                // and a content-sized box are all built on. Shaping into
+                // nothing is how the shaper is asked it, and it is asked with
+                // word breaks only, because a word that will not fit still may
+                // not be split: the answer is the longest word, not the widest
+                // letter.
+                //
+                // Answering max-content to all three is what made every `fr`
+                // track as wide as its own text — `minmax(auto, 1fr)` is what
+                // `1fr` means, and an automatic minimum of the whole sentence
+                // holds the track open past its share — so `1fr 2fr` painted as
+                // two content-sized tracks and a row that ran off the page.
+                let (width, wrap) = match (known.width, available.width) {
+                    (Some(w), _) | (None, AvailableSpace::Definite(w)) => {
+                        (Some(w), Wrap::WordOrGlyph)
+                    }
+                    (None, AvailableSpace::MinContent) => (Some(0.0), Wrap::Word),
+                    (None, AvailableSpace::MaxContent) => (None, Wrap::WordOrGlyph),
+                };
+                let (w, h) = extent(&shape(fonts, text, style, width, wrap));
                 Size { width: known.width.unwrap_or(w), height: known.height.unwrap_or(h) }
             })
         },
@@ -1307,7 +1344,7 @@ impl Painter<'_> {
         width: f32,
         clip: Option<&Mask>,
     ) {
-        let mut buffer = shape(self.fonts, text, style, Some(width));
+        let mut buffer = shape(self.fonts, text, style, Some(width), Wrap::WordOrGlyph);
         let colour = premultiply(style.colour, style.opacity);
         if colour[3] == 0 {
             return;
@@ -3084,5 +3121,69 @@ mod tests {
         assert_eq!(parse_selector(".lay > *"), None);
         assert_eq!(parse_selector(".p-8:first-child"), None);
         assert_eq!(parse_selector("p-8"), None);
+    }
+
+    /// Three cells of one row, each painting its run of text in its own
+    /// background colour, so the cell is a solid block and a colour boundary
+    /// along a row is a track edge rather than a claim about a number.
+    ///
+    /// The sentence is far wider than any of the shares below, which is the
+    /// whole question: a track's share is what it gets, not what its text
+    /// would rather have.
+    fn three_cells(columns: &str) -> String {
+        let cell = |colour: &str| {
+            format!(
+                "e 1 background-color:{colour};color:{colour}\n\
+                 t 2 a sentence far too long to sit on one line of a third of this page\n"
+            )
+        };
+        format!(
+            "buri-scene 1\nviewport 800 60\ne 0 display:grid;grid-template-columns:{columns}\n{}{}{}",
+            cell("rgb(255,0,0)"),
+            cell("rgb(0,255,0)"),
+            cell("rgb(0,0,255)")
+        )
+    }
+
+    /// Along row `y`: the x each new colour starts at, and the colour.
+    fn bands(image: &Image, y: u32) -> Vec<(u32, [u8; 4])> {
+        let mut out: Vec<(u32, [u8; 4])> = Vec::new();
+        for x in 0..image.width {
+            let pixel = at(image, x, y);
+            if out.last().is_none_or(|&(_, last)| last != pixel) {
+                out.push((x, pixel));
+            }
+        }
+        out
+    }
+
+    /// `<n>fr` is a share of the room the other tracks left, the way a browser
+    /// divides one: the `80px` track takes its 80 out of the 800 first, and the
+    /// remaining 720 goes one part to two, so the edges are at 80 and 320.
+    ///
+    /// The same three cells under `auto` are sized by what is in them instead,
+    /// which is a different picture — and a painter that read every `fr` as an
+    /// `auto` painted the two byte for byte.
+    #[test]
+    fn a_fraction_track_divides_the_room_the_other_tracks_left() {
+        const RED: [u8; 4] = [255, 0, 0, 255];
+        const GREEN: [u8; 4] = [0, 255, 0, 255];
+        const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+        let after_a_fixed_track = render_ok(&three_cells("80px 1fr 2fr"), "", "rest");
+        assert_eq!(bands(&after_a_fixed_track, 1), [(0, RED), (80, GREEN), (320, BLUE)]);
+
+        // Nothing taken out first, so the two tracks are a third and two
+        // thirds of the whole page. The third cell wraps onto a row of its own
+        // and is nothing to do with the row read here.
+        let whole_page = render_ok(&three_cells("1fr 2fr"), "", "rest");
+        assert_eq!(bands(&whole_page, 1), [(0, RED), (267, GREEN)]);
+
+        // The `auto` twin of the line above: the same two cells, sized by what
+        // is in them rather than by a share, which puts the edge in the middle
+        // instead. A painter that read every `fr` as an `auto` painted these
+        // two byte for byte.
+        let content_sized = render_ok(&three_cells("auto auto"), "", "rest");
+        assert_eq!(bands(&content_sized, 1), [(0, RED), (400, GREEN)]);
     }
 }
