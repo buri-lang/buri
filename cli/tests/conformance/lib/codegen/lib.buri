@@ -16,12 +16,14 @@ from "//lib/codegen/shapes.buri" export {
     adders, addersEven, addersOdd, allBelow, countDownAnd, countDownOr, Deep, evenAnd,
     Flat, floatEqAsCondition, floatEqAsGuard, floatEqAsValue, floatEqBoundThenCondition,
     floatEqNegatedCondition, floatLeAsCondition, floatLtAsCondition, floatNeAsCondition,
-    Floaty, Holder, Hollow, Leaf, Leaves, Listy, mkDeep, mkFloaty, mkHolder, mkHollow,
-    mkLeaf, mkLeaves, mkListy, mkNest, mkOctets, mkPair, mkWords, Nest, notANumber,
-    Octets, oddAnd, Pair, pairs, scalers, Tagged, Wide, Words,
+    Floaty, hexDigitsFrom, Holder, Hollow, Leaf, Leaves, lengthNever, Listy, mkDeep,
+    mkFloaty, mkHolder, mkHollow, mkLeaf, mkLeaves, mkListy, mkNest, mkOctets, mkPair,
+    mkWords, Nest, notANumber, Octets, oddAnd, Pair, pairs, scalers, Tagged,
+    walkSkipping, Wide, Words,
 };
 // closures built inside a tail loop
 // tail position under the short-circuiting operators
+// a loop with two back edges, and a call between them
 // derived structural equality
 // float equality in every position a comparison can be read from
 // derived ordering over a `[T]`

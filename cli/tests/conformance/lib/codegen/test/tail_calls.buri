@@ -13,7 +13,8 @@ from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 from "//lib/codegen" import {
-    adders, addersEven, allBelow, countDownAnd, countDownOr, evenAnd, pairs, scalers,
+    adders, addersEven, allBelow, countDownAnd, countDownOr, evenAnd, hexDigitsFrom,
+    lengthNever, pairs, scalers, walkSkipping,
 };
 
 // -----------------------------------------------------------------------------
@@ -93,4 +94,40 @@ test "&& in tail position still answers what the operator means" {
     assert.isFalse(allBelow([1, 2, 30], 10, 0));
     assert.isFalse(allBelow([30, 1, 2], 10, 0));
     assert.isTrue(allBelow([], 10, 0));
+}
+
+// -----------------------------------------------------------------------------
+// A loop entered from two arms, with a call between them
+// -----------------------------------------------------------------------------
+//
+// The index the second arm hands back has to be the index that arm read, not
+// whatever the call before it left behind. Every answer below is one the walk
+// only reaches by looking at the last element.
+
+test "a walk that recurses from an else-if still tests every element" {
+    // Index 2 holds `'b'`, and index 1 is skipped, so the `'b'` is the only
+    // thing between this and `true`.
+    assert.isFalse(walkSkipping("aab", 0));
+    assert.isFalse(walkSkipping("abb", 0));
+    assert.isTrue(walkSkipping("aba", 0));
+    assert.isTrue(walkSkipping("aaa", 0));
+    // Too short to reach the bound: the `.None` arm answers.
+    assert.isFalse(walkSkipping("a", 0));
+}
+
+test "the UUID validator rejects a bad digit past the first" {
+    assert.isTrue(hexDigitsFrom("f47ac10b-58cc-4372-a567-0e02b2c3d479", 0));
+    // Every one of these begins with a hex digit and goes wrong later, which
+    // is exactly the string the broken walk accepted.
+    assert.isFalse(hexDigitsFrom("f47ac10b-58cc-4372-a567-0e02b2c3d47z", 0));
+    assert.isFalse(hexDigitsFrom("fz7ac10b-58cc-4372-a567-0e02b2c3d479", 0));
+    assert.isFalse(hexDigitsFrom("f47ac10b-58cc-4372-a567-0e02b2c3d4", 0));
+}
+
+test "the index a call ran in front of is still the index" {
+    // `value.len()` is 3 and the index is 0 and then 2, so the test holds
+    // twice and the walk runs off the bound.
+    assert.isTrue(lengthNever("aab", 0));
+    // Length 2: the index reaches 2, `2 != 2` fails, and the answer is false.
+    assert.isFalse(lengthNever("ab", 0));
 }
