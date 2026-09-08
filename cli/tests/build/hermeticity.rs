@@ -344,8 +344,8 @@ fn two_checkouts_of_a_generated_tree_build_identical_bytes() {
 /// ...and the negative twin: a generator whose answer is not a function of its
 /// request is caught by the same flag.
 ///
-/// `core/codegen`'s `run` bounds what it hands `generate` to `Alloc + Stdin +
-/// Stdout`, and `cli/tests/reject/generator_reaches_beyond_its_context` is the
+/// `core/codegen`'s `run` bounds what it hands `generate` to `Allocator +
+/// Stdin + Stdout`, and `cli/tests/reject/generator_reaches_beyond_its_context` is the
 /// half of that a type error covers. A bound is a *floor*, though: a `main`
 /// that binds the disk as well hands `generate` the disk, and nothing at
 /// compile time says otherwise. This is the check that does — the one

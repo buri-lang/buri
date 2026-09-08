@@ -1383,15 +1383,15 @@ impl Jit<'_> {
     ///
     /// `str.concat` has no table row, so the rule [`Entry::ctx`] states for
     /// every other key is stated here instead, and it is the same rule read off
-    /// the same place — the **declaration**. `Str.concat<C: Alloc>(self, ctx: C,
-    /// other: Str)` is three arguments and the middle one is the context;
+    /// the same place — the **declaration**. `Str.concat<C: Allocator>(self,
+    /// ctx: C, other: Str)` is three arguments and the middle one is the context;
     /// `lower::template`'s `str.concat(a, b)` is two and never had one. Either
     /// way `buri_rt_str_concat` sees two `Str`s and nothing else.
     ///
     /// By position rather than by type, for [`Entry::ctx`]'s reason: a `C:
-    /// Alloc` instantiated at a value that merely *implements* `Alloc` is not a
-    /// `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat` as three
-    /// arguments — which this backend refuses by arity, so it was a "report it"
+    /// Allocator` instantiated at a value that merely *implements* `Allocator`
+    /// is not a `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat`
+    /// as three arguments — which this backend refuses by arity, so it was a "report it"
     /// diagnostic on a program the front end was right to accept.
     pub(crate) const fn concat_ctx(argc: usize) -> Option<usize> {
         if argc == 3 { Some(1) } else { None }

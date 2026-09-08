@@ -311,7 +311,7 @@ impl<'a> Gen<'a> {
             //
             // At a `BigInt` width the operation is already exact and the wrap
             // is one `asIntN`. Below it the operands and the answer are exact
-            // doubles but the intermediate need not be — `U32.wrappingMul(
+            // doubles but the intermediate need not be — `U32.wrappingMultiply(
             // 0xffffffff, 0xffffffff)` is 1, its exact product rounds to an
             // even double, and the wrap of that was 0 — so a product that can
             // leave 2^53 is computed in `BigInt` and wrapped there.
