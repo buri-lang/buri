@@ -107,6 +107,7 @@ export fn fetch(request: Request): Response {
         web.shell(
             ctx,
             request.path(),
+            web.Document { ..web.defaultDocument(), title: state.title },
             web.render(
                 page(
                     .Const(request.path()),

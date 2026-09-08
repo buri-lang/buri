@@ -248,6 +248,33 @@ carries nothing only `main` reaches.
 An `entry` naming a function `main.buri` does not export is `entry-not-found`,
 and its page lists what the module does export.
 
+### The page's head
+
+A `WEB` output writes an `.html` beside its module, and `web` is what its
+`<head>` says:
+
+```textproto schema=build
+binary {
+    outputs: [
+        { platform: WEB },
+    ]
+
+    web {
+        title: "Buri Design"
+        lang: "en-GB"
+    }
+}
+```
+
+`title` names the tab, the bookmark and the window switcher; unset, it is the
+artifact's name, which is the package's directory name. `lang` is the BCP 47 tag
+on `<html>`, and unset it is `en`. Both are escaped, so a title is text and not
+markup. Every other platform writes no document and ignores the block.
+
+A *server-rendered* page names its own head instead — `ui/web`'s `Document`, on
+the `shell` call — because there the title follows the route.
+[Build a website](../../guides/websites.md) has both halves.
+
 ### Platforms and effects
 
 A platform *is* the set of effects its host exports. A platform that does not

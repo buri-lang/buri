@@ -23,7 +23,11 @@
 //! }
 //!
 //! fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
-//!     http.html(ctx, web.shell(ctx, path, web.render(page(.Const(path))), state))
+//!     let document = web.Document { ..web.defaultDocument(), title: "Buri" };
+//!     http.html(
+//!         ctx,
+//!         web.shell(ctx, path, document, web.render(page(.Const(path))), state),
+//!     )
 //! }
 //! ```
 //!
@@ -69,6 +73,37 @@ from "ui/prop" import { Prop };
 /// and puts the rest of the page inside it.
 export fn render<C>(root: Node<C>): Str;
 
+/// What a document says about itself: the name of the tab and the language the
+/// page is written in.
+///
+/// A struct rather than more parameters on `shell`, because a head grows and a
+/// call site should not have to be rewritten each time it does. Build one from
+/// `defaultDocument` and write the fields this page differs in:
+///
+/// ```buri role=std
+/// # from "ui/web" import * as web;
+///
+/// export fn document(): web.Document {
+///     web.Document { ..web.defaultDocument(), title: "Buri Design" }
+/// }
+/// ```
+export struct Document {
+    /// The tab, the bookmark, the history entry, and what a screen reader
+    /// announces the document as. Escaped, so a title is text and not markup.
+    export title: Str,
+    /// The BCP 47 tag on `<html lang="…">`: what language the page is in, which
+    /// is what a screen reader picks a voice from and what a translator reads.
+    export lang: Str,
+}
+
+/// A document with nothing said about it yet: no title, and English.
+///
+/// Routing is a match, so a page names its own tab by writing the one field it
+/// differs in over this.
+export fn defaultDocument(): Document {
+    Document { title: "", lang: "en" }
+}
+
 /// The document `body` goes in, with `state` and the `path` it was rendered at
 /// embedded in it for the page to pick up.
 ///
@@ -83,9 +118,19 @@ export fn render<C>(root: Node<C>): Str;
 /// same *shape* resume into each other, and the reader is left looking at one
 /// page's markup with another page's handlers on it.
 ///
+/// `document` says what the head says about the page: its `title` names the tab
+/// and its `lang` names the language. A viewport meta comes with them, because
+/// a page without one is laid out for a desktop and then shrunk on a phone.
+///
 /// The stylesheet the compiler extracted goes in the head. A resumed page keeps
 /// the styles the server sent it.
-export fn shell<C: Allocator>(ctx: C, path: Str, body: Str, state: Json): Str {
+export fn shell<C: Allocator>(
+    ctx: C,
+    path: Str,
+    document: Document,
+    body: Str,
+    state: Json,
+): Str {
     let embedded = json.stringify(ctx, state).replace(ctx, "<", "\\u003c");
     let sheet = stylesheet();
     let styles = if (sheet == "") {
@@ -94,7 +139,11 @@ export fn shell<C: Allocator>(ctx: C, path: Str, body: Str, state: Json): Str {
         ["<style>", sheet, "</style>"].join(ctx, "")
     };
     [
-        "<!doctype html>\n<html>\n<head><meta charset=\"utf-8\" />",
+        "<!doctype html>\n<html lang=\"",
+        attribute(ctx, document.lang),
+        "\">\n<head><meta charset=\"utf-8\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><title>",
+        escaped(ctx, document.title),
+        "</title>",
         styles,
         "</head>\n<body>",
         body,
@@ -106,14 +155,16 @@ export fn shell<C: Allocator>(ctx: C, path: Str, body: Str, state: Json): Str {
     ].join(ctx, "")
 }
 
-/// A string as the value of an attribute. `&` goes first, or the escapes escape
-/// each other.
+/// A string as text between tags. `&` goes first, or the escapes escape each
+/// other. A quote and an apostrophe mean nothing there and are left alone.
+fn escaped<C: Allocator>(ctx: C, text: Str): Str {
+    text.replace(ctx, "&", "&amp;").replace(ctx, "<", "&lt;").replace(ctx, ">", "&gt;")
+}
+
+/// A string as the value of an attribute: the same three, and the quote that
+/// would end it.
 fn attribute<C: Allocator>(ctx: C, text: Str): Str {
-    text
-        .replace(ctx, "&", "&amp;")
-        .replace(ctx, "<", "&lt;")
-        .replace(ctx, ">", "&gt;")
-        .replace(ctx, "\"", "&quot;")
+    escaped(ctx, text).replace(ctx, "\"", "&quot;")
 }
 
 /// The stylesheet the compiler extracted for this artifact.

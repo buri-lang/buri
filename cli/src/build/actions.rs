@@ -6,7 +6,7 @@
 //! cache key: a tag decides whether a build is permitted, never what it
 //! produces.
 
-use crate::build::buildfile::{Output, Platform};
+use crate::build::buildfile::{Output, Platform, Web};
 use crate::build::cache::{hash_bytes, Action, ActionKey, Cache, KeyBuilder};
 use crate::build::link;
 use crate::build::session::Session;
@@ -88,6 +88,7 @@ pub fn build_target(
     // instead would mean parsing generated JavaScript back into a string, and
     // a stale `.css` beside a fresh `.mjs` is exactly the failure a cache is
     // supposed to be incapable of.
+    let web = web_rule(session, target);
     let sheet_key = key.companion("stylesheet");
     // A `core/lazy` chunk is in the cache for the stylesheet's reason and one
     // more: the module *fetches* it by name at run time, so a hit that
@@ -107,7 +108,14 @@ pub fn build_target(
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if std::fs::write(&path, &bytes).is_ok()
-                    && write_companions(&path, output, &stylesheet, &chunks, &mut diagnostics)
+                    && write_companions(
+                        &path,
+                        output,
+                        &stylesheet,
+                        &chunks,
+                        &web,
+                        &mut diagnostics,
+                    )
                 {
                     explain_link(crate::build::cache::Status::Cached);
                     link_out_symlink(session, output);
@@ -134,7 +142,14 @@ pub fn build_target(
         );
         return Err(diagnostics);
     }
-    if !write_companions(&path, output, &compiled.stylesheet, &compiled.chunks, &mut diagnostics) {
+    if !write_companions(
+        &path,
+        output,
+        &compiled.stylesheet,
+        &compiled.chunks,
+        &web,
+        &mut diagnostics,
+    ) {
         return Err(diagnostics);
     }
     link_out_symlink(session, output);
@@ -1819,7 +1834,21 @@ fn frame(bytes: &[u8]) -> Option<(&str, &[u8])> {
     Some((head, bytes.get(end.checked_add(1)?..)?))
 }
 
-pub fn web_companions(module: &Path, output: &Output, stylesheet: &str) -> Vec<(PathBuf, String)> {
+/// What the binary rule says about the document its page loads. An empty block
+/// for anything that is not a binary, which is every rule that writes no page.
+pub fn web_rule(session: &Session, target: TargetId) -> Web {
+    match &session.workspace.package(target.package).build.binary {
+        Some(binary) => binary.web.clone(),
+        None => Web::default(),
+    }
+}
+
+pub fn web_companions(
+    module: &Path,
+    output: &Output,
+    stylesheet: &str,
+    web: &Web,
+) -> Vec<(PathBuf, String)> {
     if output.platform() != Platform::Web {
         return Vec::new();
     }
@@ -1844,9 +1873,12 @@ pub fn web_companions(module: &Path, output: &Output, stylesheet: &str) -> Vec<(
     // A module script is deferred by definition, so it runs after the body is
     // parsed and `mount` has somewhere to mount. That is the whole reason the
     // shell needs no load event and no inline code.
+    // The rule names the tab, and the artifact's own name is what it is called
+    // when the rule says nothing — so a repository that has never heard of the
+    // `web` block writes the page it always wrote.
     let html = format!(
         "<!doctype html>\n\
-         <html lang=\"en\">\n\
+         <html lang=\"{lang}\">\n\
          <head>\n\
          \x20 <meta charset=\"utf-8\">\n\
          \x20 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
@@ -1856,7 +1888,8 @@ pub fn web_companions(module: &Path, output: &Output, stylesheet: &str) -> Vec<(
          \x20 <script type=\"module\" src=\"./{src}.mjs\"></script>\n\
          </body>\n\
          </html>\n",
-        title = escape(&base),
+        lang = escape(web.lang.as_deref().unwrap_or("en")),
+        title = escape(web.title.as_deref().unwrap_or(&base)),
         link = link,
         src = escape(&base),
     );
@@ -1883,6 +1916,7 @@ fn write_companions(
     output: &Output,
     stylesheet: &str,
     chunks: &[String],
+    web: &Web,
     diagnostics: &mut Diagnostics,
 ) -> bool {
     // A chunk left over from a build that had more of them is a file the
@@ -1891,7 +1925,7 @@ fn write_companions(
     while std::fs::remove_file(chunk_path(module, stale)).is_ok() {
         stale = stale.saturating_add(1);
     }
-    let companions = web_companions(module, output, stylesheet)
+    let companions = web_companions(module, output, stylesheet, web)
         .into_iter()
         .chain(chunk_paths(module, chunks));
     for (path, text) in companions {
@@ -2254,7 +2288,7 @@ mod tests {
     fn a_web_output_writes_a_stylesheet_and_a_shell() {
         let module = PathBuf::from("/out/web/cmd/counter/counter.mjs");
         let web = Output::for_platform(Platform::Web, Span::NONE);
-        let files = web_companions(&module, &web, ".p-r1{padding:1rem}");
+        let files = web_companions(&module, &web, ".p-r1{padding:1rem}", &Web::default());
         let names: Vec<String> =
             files.iter().map(|(p, _)| p.display().to_string()).collect();
         assert_eq!(
@@ -2272,13 +2306,13 @@ mod tests {
 
         // No static styles: no file, and nothing linked. An empty stylesheet
         // would be a request a browser makes for nothing.
-        let bare = web_companions(&module, &web, "");
+        let bare = web_companions(&module, &web, "", &Web::default());
         assert_eq!(bare.len(), 1);
         assert!(!bare[0].1.contains("stylesheet"), "{}", bare[0].1);
 
         // A JS output is one file, as it has always been.
         let js = Output::js(Span::NONE);
-        assert!(web_companions(&module, &js, ".p-r1{padding:1rem}").is_empty());
+        assert!(web_companions(&module, &js, ".p-r1{padding:1rem}", &Web::default()).is_empty());
     }
 
     /// The artifact name reaches the shell's `<title>` and its `src`, and it is
@@ -2287,10 +2321,28 @@ mod tests {
     fn the_shell_escapes_the_artifact_name() {
         let module = PathBuf::from("/out/web/cmd/x/a<b&c.mjs");
         let web = Output::for_platform(Platform::Web, Span::NONE);
-        let files = web_companions(&module, &web, "");
+        let files = web_companions(&module, &web, "", &Web::default());
         let html = &files[0].1;
         assert!(html.contains("<title>a&lt;b&amp;c</title>"), "{html}");
         assert!(!html.contains("<title>a<b"), "{html}");
+    }
+
+    /// And the rule wins over the artifact's name. Both fields are strings a
+    /// person writes in a build file, so both are escaped.
+    #[test]
+    fn the_rule_names_the_tab_and_the_language() {
+        let module = PathBuf::from("/out/web/cmd/counter/counter.mjs");
+        let web = Output::for_platform(Platform::Web, Span::NONE);
+        let named = Web {
+            title: Some("Counter & <Friends>".to_string()),
+            lang: Some("en-GB".to_string()),
+        };
+        let files = web_companions(&module, &web, "", &named);
+        let html = &files[0].1;
+        assert!(html.contains("<title>Counter &amp; &lt;Friends&gt;</title>"), "{html}");
+        assert!(html.contains("<html lang=\"en-GB\">"), "{html}");
+        // The module beside it is still named after the artifact.
+        assert!(html.contains("src=\"./counter.mjs\""), "{html}");
     }
 
     // -- what a native refusal says -----------------------------------------
