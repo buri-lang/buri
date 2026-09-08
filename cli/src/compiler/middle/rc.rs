@@ -4845,7 +4845,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_jumping_arm_drops_the_matched_value_after_its_arguments() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -4856,7 +4856,7 @@ struct Box(Held);
 
 /// `nodeLines`'s shape: a match on the value's one field, and an arm that calls
 /// a closure out of the payload and jumps back with what it answered.
-export fn forced<C: Alloc>(ctx: C, held: Box, depth: Int): Str {
+export fn forced<C: Allocator>(ctx: C, held: Box, depth: Int): Str {
   match (held.0) {
     .Ready(s) => str.format(ctx, "${s}/${depth}"),
     .Deferred(build) => forced(ctx, Box(build(depth)), depth + 1),
@@ -4864,7 +4864,7 @@ export fn forced<C: Alloc>(ctx: C, held: Box, depth: Int): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let name = str.format(ctx, "leaf");
   let held = Box(.Deferred(fn(_i) => .Ready(name)));
   let _ = io.println(ctx, forced(ctx, held, 0)).ignore();
