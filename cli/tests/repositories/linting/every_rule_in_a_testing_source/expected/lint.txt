@@ -17,7 +17,7 @@ warning: `core/effect` is imported twice [duplicate-import]
   |
  --> lib/money/testing/fakes.buri:7:6
   |
-7 | from "core/effect" import { Alloc };
+7 | from "core/effect" import { Allocator };
   |      ^^^^^^^^^^^^^ first imported here
   |
   = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
@@ -324,7 +324,7 @@ warning: this is `order.int`, written out [hand-rolled-comparator]
 warning: `ctx` is not used; the function is pure [unused-context]
   --> lib/money/testing/fakes.buri:56:20
    |
-56 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+56 | fn width<C: Allocator>(ctx: C, label: Str): Int {
    |                    ^^^^^^
    |
    = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
@@ -384,17 +384,17 @@ warning: `ctx` is not used; the function is pure [unused-context]
      unused-context-bound's question. This one is only about a context nothing
      in the body names at all.
 
-warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
   --> lib/money/testing/fakes.buri:60:16
    |
-60 | fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+60 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
    |                ^^^^^
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
 
      A ctx parameter says a function touches the world. Its bounds say which
-     parts of it. fn save<C: Alloc + FsWrite>(ctx: C, …) reads as "this
+     parts of it. fn save<C: Allocator + FileSystemWrite>(ctx: C, …) reads as "this
      allocates and this writes files", and every caller has to be holding a
      context that can do both. A dead bound spreads, too, because the caller's
      own signature has to carry it to satisfy the demand.
@@ -443,8 +443,8 @@ warning: bound `Alloc` on `C` is not used by this function [unused-context-bound
      offered whether or not the name is on the library's surface.
 
      The bytes are per parameter, not per bound. A bound list is one piece of
-     text with shared separators — the ranges that delete FsWrite and Io from
-     <C: Alloc + FsWrite + Io> both claim the + between them — so removing
+     text with shared separators — the ranges that delete FileSystemWrite and Io from
+     <C: Allocator + FileSystemWrite + Io> both claim the + between them — so removing
      several is one rewrite. Every finding about one parameter carries that same
      rewrite, buri lint --fix applies it once, and the run after it is clean.
 

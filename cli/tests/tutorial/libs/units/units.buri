@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/str" import * as str;
 
@@ -75,9 +75,9 @@ impl Quantity {
         }
     }
 
-    /// `Alloc` and nothing else: building a `Str` allocates, and that is all
+    /// `Allocator` and nothing else: building a `Str` allocates, and that is all
     /// this does.
-    export fn format<C: Alloc>(self, ctx: C): Str {
+    export fn format<C: Allocator>(self, ctx: C): Str {
         let rounded = math.round(self.amount * 100.0) / 100.0;
         str.format(ctx, "${rounded} ${self.unit.symbol()}")
     }

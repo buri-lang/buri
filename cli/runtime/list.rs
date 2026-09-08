@@ -318,7 +318,7 @@ pub unsafe extern "C" fn buri_rt_list_reverse(
 
 /// `list.slice(self, ctx, start, end) -> [T]`, clamped at both ends.
 ///
-/// A list slice **copies**, unlike a string slice: `slice` is `Alloc`-bounded
+/// A list slice **copies**, unlike a string slice: `slice` is `Allocator`-bounded
 /// in `list.buri:120` and pure in `str.buri:26`, which is the language saying
 /// which of the two is a view.
 ///

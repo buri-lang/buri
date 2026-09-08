@@ -24,7 +24,7 @@
 //! passed.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/time" import * as time;
@@ -32,7 +32,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let started = Instant(1_000);
@@ -51,7 +51,7 @@
 //! 120s later, passed: true
 //! ```
 
-from "core/effect" import { Alloc, Clock };
+from "core/effect" import { Allocator, Clock };
 from "core/order" import { Eq, Ord, Show };
 from "core/str" import * as str;
 
@@ -264,7 +264,7 @@ impl Duration {
 // ASCII throughout: `us` rather than the micro sign, because this goes into
 // logs, file names and terminals that are not all UTF-8.
 impl Show for Duration {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         let sign = if (self.0 < 0) { "-" } else { "" };
         let magnitude = self.abs().0;
         if (magnitude >= NANOS_PER_SECOND) {
@@ -283,7 +283,7 @@ impl Show for Duration {
 
 /// `magnitude` in a unit that is `unit` nanoseconds and `places` decimal digits
 /// wide, with the fraction written out and its trailing zeros dropped.
-fn scaled<C: Alloc>(
+fn scaled<C: Allocator>(
     ctx: C,
     sign: Str,
     magnitude: Int,
@@ -341,7 +341,7 @@ impl Instant {
 }
 
 export fn now<C: Clock>(ctx: C): Instant {
-    Instant(ctx.nowMillis())
+    Instant(ctx.nowMilliseconds())
 }
 
 /// How long since `earlier`. Reading a clock is what makes this effectful; the
@@ -352,13 +352,13 @@ export fn since<C: Clock>(ctx: C, earlier: Instant): Duration {
 
 /// Waits for a length of time, to the millisecond the clock offers.
 export fn sleep<C: Clock>(ctx: C, d: Duration): () {
-    ctx.sleepMillis(d.millis())
+    ctx.sleepMilliseconds(d.millis())
 }
 
 /// The same wait, in the unit the effect itself speaks. Reach for `sleep`
 /// unless you already hold a count of milliseconds.
 export fn sleepMs<C: Clock>(ctx: C, count: Int): () {
-    ctx.sleepMillis(count)
+    ctx.sleepMilliseconds(count)
 }
 
 // -----------------------------------------------------------------------------
@@ -387,14 +387,14 @@ export fn monotonic<C: Clock>(ctx: C): Monotonic {
 /// How long since `started`. This is the one to measure with.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Clock, Stdout };
+/// from "core/effect" import { Allocator, Clock, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/time" import * as time;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Clock: host.clock,
 ///         Stdout: host.stdout,
 ///     };

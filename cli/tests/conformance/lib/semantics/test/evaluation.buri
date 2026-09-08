@@ -6,9 +6,9 @@
 // `captured` read back. Specified evaluation order is what makes effect
 // sequencing meaningful (SPEC 8.2), so the transcript is the observation.
 
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead };
+from "core/fs" import { FileSystemRead };
 from "core/host/testing" import { alloc, clock, fs, stdout };
 from "core/list" import * as list;
 from "core/path" import * as path;
@@ -103,7 +103,7 @@ test "writing the arguments in a different order changes the transcript" {
 test "four call arguments are evaluated left to right" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
     };
     assert.eq(
@@ -559,21 +559,21 @@ test "a lambda captures the value, not a name to look up later" {
 
 test "a lambda passed to list.map" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq([1, 2, 3].map(ctx, fn(x) => x * 2), [2, 4, 6]);
 }
 
 test "a lambda passed to list.map may change the element type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq([1, 2, 3].map(ctx, fn(x) => x > 1), [false, true, true]);
 }
 
 test "a lambda passed to list.map captures a binding" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let factor = 10;
     assert.eq([1, 2, 3].map(ctx, fn(x) => x * factor), [10, 20, 30]);
@@ -581,7 +581,7 @@ test "a lambda passed to list.map captures a binding" {
 
 test "a lambda passed to list.filter" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq([1, 2, 3, 4, 5].filter(ctx, fn(x) => x % 2 == 1), [1, 3, 5]);
 }
@@ -592,7 +592,7 @@ test "a lambda passed to list.fold" {
 
 test "a lambda passed to list.sortBy" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         [3, 1, 2].sortBy(ctx, fn(a, b) => {
@@ -663,7 +663,7 @@ test "a lambda returning a lambda" {
 
 test "a lambda may capture a `self` that carries no effect" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(Report { n: 2 }.above(ctx, [1, 2, 3, 4]), [3, 4]);
     assert.eq(Report { n: 9 }.above(ctx, [1, 2, 3, 4]), list.empty<Int>());
@@ -693,7 +693,7 @@ test "a lambda may capture a closure whatever its type parameters are" {
 test "mapCtx threads the context through" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
     };
     let out = ["a", "b", "c"].mapCtx(ctx, fn(c, s) => noteStr(c, s, s));
@@ -704,7 +704,7 @@ test "mapCtx threads the context through" {
 test "mapCtx visits the elements in order" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
     };
     let out = [1, 2, 3].mapCtx(ctx, fn(c, x) => noteInt(c, "x", x * 2));
@@ -715,7 +715,7 @@ test "mapCtx visits the elements in order" {
 test "filterCtx threads the context through" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
     };
     let out = [1, 2, 3, 4].filterCtx(ctx, fn(c, x) => noteBool(c, "?", x % 2 == 0));
@@ -945,10 +945,10 @@ context Inherited {
 
 context InheritedWithFile {
     ..context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
     },
-    FsRead: fs().files([("spread.txt", "kept")]),
+    FileSystemRead: fs().files([("spread.txt", "kept")]),
 }
 
 test "an effect a spread supplies can actually be called" {

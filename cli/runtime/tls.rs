@@ -1,4 +1,4 @@
-//! TLS for `Net.fetch`, and the trust decision that comes with it.
+//! TLS for `Network.fetch`, and the trust decision that comes with it.
 //!
 //! `http.rs` owns HTTP. This file owns exactly one question — *may this
 //! connection be trusted* — and answers it with `rustls` over the `ring`

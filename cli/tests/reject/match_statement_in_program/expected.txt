@@ -25,13 +25,13 @@ error: an expression statement is legal only in a test source [expression-statem
     Result. So a statement whose type is Result is *both* errors at once, and
     the edit is .ignore() and let _ = together:
 
-      # from "core/effect" import { Alloc, Stdout };
+      # from "core/effect" import { Allocator, Stdout };
       # from "core/host" import * as host;
       # from "core/io" import * as io;
 
       export fn main(): Result<(), Str> {
           let ctx = context {
-              Alloc: host.alloc,
+              Allocator: host.alloc,
               Stdout: host.stdout,
           };
           let _ = io.println(ctx, "ready").ignore();

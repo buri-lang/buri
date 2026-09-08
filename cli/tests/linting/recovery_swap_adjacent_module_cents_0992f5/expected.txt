@@ -1,7 +1,7 @@
-warning: Alloc is imported but not used [unused-import]
+warning: Allocator is imported but not used [unused-import]
  --> lib/recovery_swap_adjacent_module_cents_0992f5/lib.buri:4:29
   |
-4 | from "core/effect" import { Alloc };
+4 | from "core/effect" import { Allocator };
   |                             ^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

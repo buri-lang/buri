@@ -20,7 +20,7 @@
 // (VALUE-MODEL.md §5.2), so it can never be the unique owner these operations
 // are looking for and would prove nothing.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -30,14 +30,14 @@ from "core/testing/assert" import * as assert;
 /// `push` onto `list.empty()` is the shape `filterMap` and every other fold in
 /// `core/list` produces, and it is what makes the answer a block the program
 /// owns outright.
-fn grown<C: Alloc>(ctx: C, n: Int): [Int] {
+fn grown<C: Allocator>(ctx: C, n: Int): [Int] {
     list
         .range(ctx, 0, n)
         .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty())
 }
 
 /// The same, of strings, so a second element type reaches the same code.
-fn grownText<C: Alloc>(ctx: C, n: Int): [Str] {
+fn grownText<C: Allocator>(ctx: C, n: Int): [Str] {
     list
         .range(ctx, 0, n)
         .foldCtx(ctx, fn(c, acc: [Str], _i) => acc.push(c, "x"), list.empty())
@@ -49,7 +49,7 @@ fn grownText<C: Alloc>(ctx: C, n: Int): [Str] {
 
 test "a captured list slices the same way on every call" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     assert.eq(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len()), [
@@ -62,7 +62,7 @@ test "a captured list slices the same way on every call" {
 
 test "a captured list takes the same way on every call" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     assert.eq(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.take(c, i).len()), [
@@ -75,7 +75,7 @@ test "a captured list takes the same way on every call" {
 
 test "a captured list drops the same way on every call" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     assert.eq(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.drop(c, i).len()), [
@@ -88,7 +88,7 @@ test "a captured list drops the same way on every call" {
 
 test "a captured list is not grown in place by the closure that pushes to it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 2);
     assert.eq(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.push(c, i).len()), [
@@ -100,7 +100,7 @@ test "a captured list is not grown in place by the closure that pushes to it" {
 
 test "a captured list is not extended in place by the closure that concatenates it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 2);
     let ys = grown(ctx, 3);
@@ -113,7 +113,7 @@ test "a captured list is not extended in place by the closure that concatenates 
 
 test "a captured list is not turned around in place by the closure that reverses it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     assert.eq(
@@ -130,7 +130,7 @@ test "a captured list is not turned around in place by the closure that reverses
 
 test "a list a closure sliced is the list it was" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     let lengths = list
@@ -142,13 +142,13 @@ test "a list a closure sliced is the list it was" {
 
 /// Calls one closure twice, so a case can say "twice" without going through
 /// `core/list` to say it.
-fn twice<C: Alloc>(ctx: C, f: fn(C, Int) => Int): [Int] {
+fn twice<C: Allocator>(ctx: C, f: fn(C, Int) => Int): [Int] {
     [f(ctx, 1), f(ctx, 1)]
 }
 
 test "a closure that runs twice reads the same capture twice" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 4);
     assert.eq(twice(ctx, fn(c, n) => xs.drop(c, n).len()), [3, 3]);
@@ -158,18 +158,18 @@ test "a closure that runs twice reads the same capture twice" {
 // Through a generic helper, of two element types
 // -----------------------------------------------------------------------------
 
-/// The shape the bug was found in: a `<C: Alloc>` helper over `[T]`, called
+/// The shape the bug was found in: a `<C: Allocator>` helper over `[T]`, called
 /// from inside a closure, with a second instantiation over another element
 /// type beside it. Two monomorphizations of one function reach one closure
 /// body, which is what made it look like a monomorphization bug rather than an
 /// ownership one.
-fn prefixLen<C: Alloc, T>(ctx: C, ps: [T], i: Int): Int {
+fn prefixLen<C: Allocator, T>(ctx: C, ps: [T], i: Int): Int {
     ps.slice(ctx, 0, i).len()
 }
 
 test "two instantiations of one helper read two captures" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ns = grown(ctx, 3);
     let ss = grownText(ctx, 3);
@@ -214,19 +214,19 @@ struct Step<C> {
 }
 
 /// What `f` answers for `0 .. n`, through the combinator the bug was found in.
-fn over<C: Alloc>(ctx: C, n: Int, f: fn(C, Int) => Int): [Int] {
+fn over<C: Allocator>(ctx: C, n: Int, f: fn(C, Int) => Int): [Int] {
     list.range(ctx, 0, n).mapCtx(ctx, f)
 }
 
 /// The same, from the bottom of a recursion rather than from a loop: `f` is
 /// called once per frame, so the capture is read at a depth the combinator
 /// never reaches.
-fn down<C: Alloc>(ctx: C, i: Int, f: fn(C, Int) => Int, acc: [Int]): [Int] {
+fn down<C: Allocator>(ctx: C, i: Int, f: fn(C, Int) => Int, acc: [Int]): [Int] {
     if (i <= 0) { acc } else { down(ctx, i - 1, f, acc.push(ctx, f(ctx, i))) }
 }
 
 /// A string this program grew.
-fn grownWord<C: Alloc>(ctx: C, n: Int): Str {
+fn grownWord<C: Allocator>(ctx: C, n: Int): Str {
     list.range(ctx, 0, n).foldCtx(ctx, fn(c, acc: Str, _i) => acc.concat(c, "x"), "")
 }
 
@@ -240,7 +240,7 @@ fn inside(load: Load): [Int] {
 
 test "a captured struct's list is not written through by the closure that pushes it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let basket = Basket { label: "b", items: grown(ctx, 2) };
     let sizes = over(ctx, 3, fn(c, i) => {
@@ -252,7 +252,7 @@ test "a captured struct's list is not written through by the closure that pushes
 
 test "a captured tuple's two lists are not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let pair = (grown(ctx, 2), grownText(ctx, 2));
     let sizes = over(ctx, 3, fn(c, i) => {
@@ -263,7 +263,7 @@ test "a captured tuple's two lists are not written through" {
 
 test "a captured variant's payload is not written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let load = Load.Full(grown(ctx, 2));
     let sizes = over(ctx, 3, fn(c, i) => inside(load).push(c, i).len());
@@ -272,7 +272,7 @@ test "a captured variant's payload is not written through" {
 
 test "a captured list of lists is not written through at either level" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let rows = list.empty<[Int]>().push(ctx, grown(ctx, 2));
     let sizes = over(ctx, 3, fn(c, i) => {
@@ -284,7 +284,7 @@ test "a captured list of lists is not written through at either level" {
 
 test "a captured string is not extended in place" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let word = grownWord(ctx, 3);
     let sizes = over(ctx, 3, fn(c, _i) => word.concat(c, "!").len());
@@ -297,7 +297,7 @@ test "a captured string is not extended in place" {
 
 test "a struct a closure pushed through is the struct it was" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let basket = Basket { label: "b", items: grown(ctx, 2) };
     let sizes = over(ctx, 2, fn(c, i) => {
@@ -310,7 +310,7 @@ test "a struct a closure pushed through is the struct it was" {
 
 test "a list of lists a closure pushed through is the list it was" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let rows = list.empty<[Int]>().push(ctx, grown(ctx, 2));
     let sizes = over(ctx, 2, fn(c, i) => {
@@ -328,7 +328,7 @@ test "a list of lists a closure pushed through is the list it was" {
 
 test "a capture read by a lambda inside a lambda is read the same way every time" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     // The inner lambda's capture is the outer one's capture, two scopes up
@@ -343,7 +343,7 @@ test "a capture read by a lambda inside a lambda is read the same way every time
 
 test "a lambda kept in a struct reads its capture on every later call" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     // The closure is built once, stored, and called three times afterwards —
@@ -356,7 +356,7 @@ test "a lambda kept in a struct reads its capture on every later call" {
 
 test "a list of closures each reads its own capture" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let short = grown(ctx, 2);
     let long = grown(ctx, 4);
@@ -374,7 +374,7 @@ test "a list of closures each reads its own capture" {
 
 test "a capture read from the bottom of a recursion is read the same way every frame" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     // `drop` rather than `take`, because the frames count down: a `take` that
@@ -389,7 +389,7 @@ test "a capture read from the bottom of a recursion is read the same way every f
 
 test "a closure that reads one capture twice reads it twice every call" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 4);
     // `take(i)` and `drop(i)` between them are the whole list, whatever `i`
@@ -403,7 +403,7 @@ test "a closure that reads one capture twice reads it twice every call" {
 
 test "a closure nobody calls leaves its capture alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     let none = list.empty<Int>().mapCtx(ctx, fn(c, i) => xs.push(c, i).len());
@@ -424,7 +424,7 @@ test "a closure nobody calls leaves its capture alone" {
 
 test "a list a closure grew itself is the closure's own" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 2);
     let sizes = over(ctx, 3, fn(c, i) => {
@@ -438,7 +438,7 @@ test "a list a closure grew itself is the closure's own" {
 
 test "an accumulator threaded through a closure is still written through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = grown(ctx, 3);
     // The accumulator is the lambda's own parameter, so it stays owned; `xs`

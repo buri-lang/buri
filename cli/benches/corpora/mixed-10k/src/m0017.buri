@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0016.buri" import { blend16, Node16, reach16, seed16 };
@@ -71,14 +71,14 @@ export fn start17_0(ticks: Int): State17_0 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_0<C: Alloc>(ctx: C): Int {
+export fn probe17_0<C: Allocator>(ctx: C): Int {
     let s = start17_0(5);
     rank17_0(s) + s.show(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest17_1<C: Alloc>(ctx: C): Int {
+export fn digest17_1<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [725, 556, 5860, 4125, 8038, 1489];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -93,7 +93,7 @@ export fn drain17_1(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_1<C: Alloc>(ctx: C): Int {
+export fn probe17_1<C: Allocator>(ctx: C): Int {
     digest17_1(ctx) + drain17_1()
 }
 
@@ -130,7 +130,7 @@ export fn start17_2(ticks: Int): State17_2 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_2<C: Alloc>(ctx: C): Int {
+export fn probe17_2<C: Allocator>(ctx: C): Int {
     let s = start17_2(5);
     rank17_2(s) + s.show(ctx).len()
 }
@@ -155,7 +155,7 @@ export fn parseBoth17_3(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_3<C: Alloc>(ctx: C): Int {
+export fn probe17_3<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth17_3("1", "2")) {
         .Some(v) => v,
@@ -182,14 +182,14 @@ export fn compute17_4(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_4<C: Alloc>(ctx: C): Int {
+export fn probe17_4<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute17_4(7)
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label17_5<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label17_5<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "delta" } else { "bravo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -202,7 +202,7 @@ export fn constants17_5(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_5<C: Alloc>(ctx: C): Int {
+export fn probe17_5<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants17_5();
     label17_5(ctx, a, e).len() + b
 }
@@ -221,14 +221,14 @@ impl Rec17_6 {
         self.f0 * factor + 827
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec17_6: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_6<C: Alloc>(ctx: C): Int {
+export fn probe17_6<C: Allocator>(ctx: C): Int {
     let r = Rec17_6 { f0: 7, f1: "probe", f2: 1.5 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -243,7 +243,7 @@ export fn firstOr17_7<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll17_7<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll17_7<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -253,7 +253,7 @@ export fn useGeneric17_7(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_7<C: Alloc>(ctx: C): Int {
+export fn probe17_7<C: Allocator>(ctx: C): Int {
     useGeneric17_7([1, 2], ["a"]) + describeAll17_7(ctx, [1, 2]).len()
 }
 
@@ -273,14 +273,14 @@ impl Rec17_8 {
         self.f0 * factor + 185
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec17_8: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_8<C: Alloc>(ctx: C): Int {
+export fn probe17_8<C: Allocator>(ctx: C): Int {
     let r = Rec17_8 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -316,14 +316,14 @@ export fn start17_9(ticks: Int): State17_9 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe17_9<C: Alloc>(ctx: C): Int {
+export fn probe17_9<C: Allocator>(ctx: C): Int {
     let s = start17_9(5);
     rank17_9(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach17<C: Alloc>(ctx: C): Int {
+export fn reach17<C: Allocator>(ctx: C): Int {
     0
         + probe17_0(ctx)
         + probe17_1(ctx)

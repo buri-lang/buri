@@ -525,7 +525,7 @@ impl<'a> Checker<'a> {
                 // something to fix and a miscompiled call is not.
                 //
                 // A *method's* own generics are supported and shipping —
-                // `Show.show<C: Alloc>`, `Ui.memo<T>` — and are what a trait
+                // `Show.show<C: Allocator>`, `Ui.memo<T>` — and are what a trait
                 // parameter would have been used for.
                 let generics = self.generic_shells(module, &d.generics);
                 if let Some(first) = generics.first() {
@@ -1613,7 +1613,7 @@ impl<'a> Checker<'a> {
     /// `fn <entry>(request: Request): Response` — the platform calls it.
     ///
     /// `Request` and `Response` are `core/effect`'s, the ones `core/net/http`
-    /// re-exports and `Net.fetch` already speaks. A worker that has not loaded
+    /// re-exports and `Network.fetch` already speaks. A worker that has not loaded
     /// `core/effect` cannot have named either type, so its parameter and return
     /// types are unresolved already and this says nothing on top.
     fn check_fetch_entry(&mut self, info: &FnInfo, d: &tree::FnDecl, name: &str) {
@@ -1728,7 +1728,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Resolves a possibly-qualified path (`Order`, `effects.Alloc`) in a module's
+    /// Resolves a possibly-qualified path (`Order`, `effects.Allocator`) in a module's
     /// scope.
     pub fn resolve_path(&mut self, module: ModuleId, path: &[flat::Location]) -> Option<Sym> {
         let t = self.tree(module);
@@ -2169,7 +2169,7 @@ impl<'a> Checker<'a> {
             // platform that calls its entry fixes those two types, and the
             // check is a comparison against the ids rather than against a
             // spelling a program could shadow.
-            for name in ["Alloc", "IoError", "Region", "Request", "Response"] {
+            for name in ["Allocator", "IoError", "Region", "Request", "Response"] {
                 match self.scope(m).exports.get(name) {
                     Some(Sym::Trait(t)) => {
                         self.known_traits.insert(name.to_string(), *t);
@@ -2894,7 +2894,7 @@ enum SignatureMismatch {
     /// A different number of parameters, `self` included.
     Arity { expected: usize, found: usize },
     /// The method's `index`th own type parameter carries different bounds.
-    /// Compared as a set, so `C: Alloc + Fs` and `C: Fs + Alloc` are the same
+    /// Compared as a set, so `C: Allocator + Fs` and `C: Fs + Allocator` are the same
     /// declaration and neither is reported against the other; carried in the
     /// order each side wrote them, so the message echoes the source rather
     /// than the comparison's own ordering.
@@ -2912,7 +2912,7 @@ enum SignatureMismatch {
 /// is not `==` on two lists of types:
 ///
 /// * `Self` is abstract in the trait and is the head the `impl` was written
-///   for in the `impl` — `Ty::SelfTy` on one side, `[T]` or `HostFs` on the
+///   for in the `impl` — `Ty::SelfTy` on one side, `[T]` or `HostFileSystem` on the
 ///   other.
 /// * A method's own type parameters are numbered from the end of the *trait's*
 ///   generics on one side and from the end of the *impl head's* on the other,
@@ -3015,7 +3015,7 @@ fn quoted_ty(tables: &Tables, generics: &[GenericInfo], ty: &Ty) -> String {
     format!("`{}`", show(tables, None, generics, ty))
 }
 
-/// A type parameter with its bounds, as a message names it: `` `C: Alloc + Fs` ``,
+/// A type parameter with its bounds, as a message names it: `` `C: Allocator + Fs` ``,
 /// or `` `C` with no bounds `` where there are none to name.
 fn bound_phrase(tables: &Tables, name: &str, bounds: &[TraitId]) -> String {
     if bounds.is_empty() {
@@ -3700,8 +3700,8 @@ from "core/time" import * as time;
 struct Frozen { at: I64 }
 
 impl Clock for Frozen {
-  fn nowMillis(self): I64 { self.at }
-  fn sleepMillis(self, millis: Int): () { () }
+  fn nowMilliseconds(self): I64 { self.at }
+  fn sleepMilliseconds(self, millis: Int): () { () }
   fn monotonicNanoseconds(self): I64 { self.at }
 }
 

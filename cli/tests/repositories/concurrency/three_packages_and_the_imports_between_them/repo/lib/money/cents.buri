@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 
 derive Eq, Show for Cents;
@@ -8,6 +8,6 @@ export fn fromCents(amount: Int): Cents {
     Cents(amount)
 }
 
-export fn show<C: Alloc>(ctx: C, amount: Cents): Str {
+export fn show<C: Allocator>(ctx: C, amount: Cents): Str {
     str.format(ctx, "${amount.0}c")
 }

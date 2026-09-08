@@ -2,14 +2,14 @@
 //
 // `shuffle`, `pick` and `sample` are the module header's own examples of what a
 // generator is for. Each has a `Gen` method that is the whole algorithm and a
-// `Rand` function that is that method over a generator the effect seeded, so
+// `Random` function that is that method over a generator the effect seeded, so
 // what is asserted here is both halves: the exact sequence a seed replays, and
 // the properties that hold whatever the seed was.
 //
 // `nextGaussian` is next door in `gaussian.buri`, because it reaches `math.ln`
 // and this file does not.
 
-from "core/effect" import { Alloc, Rand };
+from "core/effect" import { Allocator, Random };
 from "core/host/testing" import { alloc, rand };
 from "core/list" import * as list;
 from "core/random" import * as random;
@@ -20,7 +20,7 @@ from "core/testing/assert" import * as assert;
 
 test "a seed replays its own permutation" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [1, 2, 3, 4, 5];
     let (a, _) = random.seeded(7).nextShuffle(ctx, items);
@@ -30,7 +30,7 @@ test "a seed replays its own permutation" {
 
 test "a shuffle is a permutation and nothing else" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8];
     let (mixed, _) = random.seeded(11).nextShuffle(ctx, items);
@@ -40,7 +40,7 @@ test "a shuffle is a permutation and nothing else" {
 
 test "two seeds reach two permutations" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let (a, _) = random.seeded(1).nextShuffle(ctx, items);
@@ -50,7 +50,7 @@ test "two seeds reach two permutations" {
 
 test "a shuffle steps the generator, and a short list does not" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let g = random.seeded(3);
     let (_, after) = g.nextShuffle(ctx, [1, 2, 3, 4]);
@@ -67,7 +67,7 @@ test "a shuffle steps the generator, and a short list does not" {
 
 test "a shuffle of two reaches both orders" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Sixteen seeds, and the pair comes out both ways round: the permutation
     // depends on the draw rather than on the list.
@@ -83,7 +83,7 @@ test "a shuffle of two reaches both orders" {
 
 test "a shuffle of strings moves the values it was given" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cards = ["ace", "king", "queen", "jack"];
     let (dealt, _) = random.seeded(5).nextShuffle(ctx, cards);
@@ -115,7 +115,7 @@ test "nextPick on one item is that item" {
 
 test "nextPick reaches every position given enough seeds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seen = list
         .range(ctx, 0, 40)
@@ -133,7 +133,7 @@ test "nextPick reaches every position given enough seeds" {
 
 test "nextSample draws without replacement" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8];
     let (drawn, _) = random.seeded(9).nextSample(ctx, items, 3);
@@ -144,7 +144,7 @@ test "nextSample draws without replacement" {
 
 test "nextSample stops at the list's own length" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [1, 2, 3];
     let (all, _) = random.seeded(9).nextSample(ctx, items, 100);
@@ -157,7 +157,7 @@ test "nextSample stops at the list's own length" {
 
 test "nextSample is the front of the shuffle it is written out of" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [1, 2, 3, 4, 5, 6];
     let (mixed, afterShuffle) = random.seeded(21).nextShuffle(ctx, items);
@@ -166,12 +166,12 @@ test "nextSample is the front of the shuffle it is written out of" {
     assert.eq(afterSample, afterShuffle);
 }
 
-// --- the Rand door ---------------------------------------------------------------
+// --- the Random door ---------------------------------------------------------------
 
 test "shuffle through a context is a permutation too" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand(),
+        Allocator: alloc(),
+        Random: rand(),
     };
     let items = [1, 2, 3, 4, 5, 6];
     let mixed = random.shuffle(ctx, items);
@@ -181,7 +181,7 @@ test "shuffle through a context is a permutation too" {
 
 test "pick through a context answers a member, and .None from nothing" {
     let ctx = context {
-        Rand: rand(),
+        Random: rand(),
     };
     let items = ["a", "b", "c"];
     let picked = random.pick(ctx, items);
@@ -192,8 +192,8 @@ test "pick through a context answers a member, and .None from nothing" {
 
 test "sample through a context draws without replacement" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand(),
+        Allocator: alloc(),
+        Random: rand(),
     };
     let items = [1, 2, 3, 4, 5, 6, 7];
     let drawn = random.sample(ctx, items, 3);
@@ -205,13 +205,13 @@ test "sample through a context draws without replacement" {
 // --- The counts and the lengths a caller gets wrong --------------------------------
 //
 // `nextSample`'s rules for a count outside the list are asserted above. These
-// are the same three counts and the same three lengths at the **`Rand` door**,
+// are the same three counts and the same three lengths at the **`Random` door**,
 // which is a second entry point onto the same algorithm and could drift from it.
 
 test "sample through a context takes the counts outside the list the same way" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand(),
+        Allocator: alloc(),
+        Random: rand(),
     };
     let items = [1, 2, 3, 4, 5];
     // Nothing asked for is nothing given.
@@ -232,8 +232,8 @@ test "sample through a context takes the counts outside the list the same way" {
 
 test "shuffle through a context holds at an empty list and at one item" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand(),
+        Allocator: alloc(),
+        Random: rand(),
     };
     let none: [Int] = [];
     assert.isEmpty(random.shuffle(ctx, none));
@@ -246,7 +246,7 @@ test "shuffle through a context holds at an empty list and at one item" {
 
 test "pick through a context answers the only item there is" {
     let ctx = context {
-        Rand: rand(),
+        Random: rand(),
     };
     assert.eq(random.pick(ctx, [42]), .Some(42));
     assert.eq(random.pick(ctx, ["only"]), .Some("only"));
@@ -254,7 +254,7 @@ test "pick through a context answers the only item there is" {
 
 test "the same seed gives the same shuffle, sample and pick, every time" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     // Four draws from one seed, taken twice: a `Gen` is a value, so replaying a

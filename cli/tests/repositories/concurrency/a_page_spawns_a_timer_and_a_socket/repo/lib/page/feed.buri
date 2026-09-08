@@ -5,7 +5,7 @@
 // library may not spawn: a scope is the application's to open, and this package
 // exposes the two functions an application puts in one.
 
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/io" import * as io;
 from "core/time" import * as time;
 
@@ -16,7 +16,7 @@ from "core/time" import * as time;
 /// cancel: the loop asks whether there is anything left, and ends when there is
 /// not. A real one would ask a socket; this one asks a list, so the answer is
 /// in the file.
-export fn run<C: Alloc + Stdout>(ctx: C, frames: [Str]): () {
+export fn run<C: Allocator + Stdout>(ctx: C, frames: [Str]): () {
     match (frames.first()) {
         .None => {
             let _ = io.println(ctx, "socket closed").ignore();

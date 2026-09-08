@@ -5,14 +5,14 @@
 //! put back together again.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/net/url" import * as url;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let base = url.parse(ctx, "https://example.com/docs/intro").withDefault(url.EMPTY);
@@ -55,7 +55,7 @@
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError };
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -114,16 +114,16 @@ export let EMPTY: Url = Url {
 /// bytes. So `/` is escaped: this encodes a segment, not a path.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
 ///
-/// export fn slug<C: Alloc>(ctx: C, title: Str): Str {
+/// export fn slug<C: Allocator>(ctx: C, title: Str): Str {
 ///     url.encodeComponent(ctx, title)
 /// }
 /// ```
 ///
 /// O(n) in the characters, with one allocation per escaped character.
-export fn encodeComponent<C: Alloc>(ctx: C, text: Str): Str {
+export fn encodeComponent<C: Allocator>(ctx: C, text: Str): Str {
     encoded(ctx, text, false)
 }
 
@@ -133,14 +133,14 @@ export fn encodeComponent<C: Alloc>(ctx: C, text: Str): Str {
 /// path is one string; use [`encodeComponent`] when you are joining segments.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
 ///
-/// export fn encoded<C: Alloc>(ctx: C, path: Str): Str {
+/// export fn encoded<C: Allocator>(ctx: C, path: Str): Str {
 ///     url.encodePath(ctx, path)
 /// }
 /// ```
-export fn encodePath<C: Alloc>(ctx: C, text: Str): Str {
+export fn encodePath<C: Allocator>(ctx: C, text: Str): Str {
     encoded(ctx, text, true)
 }
 
@@ -153,14 +153,14 @@ export fn encodePath<C: Alloc>(ctx: C, text: Str): Str {
 ///
 /// ```buri
 /// from "core/bytes" import { DecodeError };
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
 ///
-/// export fn plain<C: Alloc>(ctx: C, text: Str): Result<Str, DecodeError> {
+/// export fn plain<C: Allocator>(ctx: C, text: Str): Result<Str, DecodeError> {
 ///     url.decodeComponent(ctx, text)
 /// }
 /// ```
-export fn decodeComponent<C: Alloc>(ctx: C, text: Str): Result<Str, DecodeError> {
+export fn decodeComponent<C: Allocator>(ctx: C, text: Str): Result<Str, DecodeError> {
     let cs = text.chars(ctx);
     match (octets(ctx, cs, 0, list.empty<U8>())) {
         .Err(e) => .Err(e),
@@ -185,14 +185,14 @@ export fn decodeComponent<C: Alloc>(ctx: C, text: Str): Result<Str, DecodeError>
 /// query string is where forms arrive. `%2B` is still a plus.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
 ///
-/// export fn page<C: Alloc>(ctx: C, query: Str): Option<Str> {
+/// export fn page<C: Allocator>(ctx: C, query: Str): Option<Str> {
 ///     url.parseQuery(ctx, query).find(fn(kv) => kv.0 == "page").map(fn(kv) => kv.1)
 /// }
 /// ```
-export fn parseQuery<C: Alloc>(ctx: C, query: Str): [(Str, Str)] {
+export fn parseQuery<C: Allocator>(ctx: C, query: Str): [(Str, Str)] {
     query.split(ctx, "&").filterMapCtx(ctx, fn(c, part) => keyed(c, part))
 }
 
@@ -202,14 +202,14 @@ export fn parseQuery<C: Alloc>(ctx: C, query: Str): [(Str, Str)] {
 /// [`parseQuery`] and by every server, and `%20` is the one RFC 3986 defines.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
 ///
-/// export fn search<C: Alloc>(ctx: C, term: Str): Str {
+/// export fn search<C: Allocator>(ctx: C, term: Str): Str {
 ///     url.encodeQuery(ctx, [("q", term), ("page", "2")])
 /// }
 /// ```
-export fn encodeQuery<C: Alloc>(ctx: C, pairs: [(Str, Str)]): Str {
+export fn encodeQuery<C: Allocator>(ctx: C, pairs: [(Str, Str)]): Str {
     pairs
         .mapCtx(ctx, fn(c, kv) => {
             encodeComponent(c, kv.0).concat(c, "=").concat(c, encodeComponent(c, kv.1))
@@ -222,18 +222,18 @@ export fn encodeQuery<C: Alloc>(ctx: C, pairs: [(Str, Str)]): Str {
 /// The URL this text spells.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
 /// from "core/net/url" import { Url, UrlError };
 ///
-/// export fn read<C: Alloc>(ctx: C, text: Str): Result<Url, UrlError> {
+/// export fn read<C: Allocator>(ctx: C, text: Str): Result<Url, UrlError> {
 ///     url.parse(ctx, text)
 /// }
 /// ```
 ///
 /// Absolute only: a text with no `scheme:` is [`UrlError::NoScheme`]. Lowercases
 /// the scheme and the host and changes nothing else.
-export fn parse<C: Alloc>(ctx: C, text: Str): Result<Url, UrlError> {
+export fn parse<C: Allocator>(ctx: C, text: Str): Result<Url, UrlError> {
     let split = parts(ctx, text);
     match (split.scheme) {
         .None => .Err(.NoScheme),
@@ -259,18 +259,18 @@ impl Url {
     /// The URL as one string, which is [`parse`] backwards.
     ///
     /// ```buri
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     /// from "core/net/url" import * as url;
     /// from "core/net/url" import { Url };
     ///
-    /// export fn shown<C: Alloc>(ctx: C, u: Url): Str {
+    /// export fn shown<C: Allocator>(ctx: C, u: Url): Str {
     ///     u.text(ctx)
     /// }
     /// ```
     ///
     /// A host of `""` leaves the `//` off, so `mailto:` comes back as it went
     /// in.
-    export fn text<C: Alloc>(self, ctx: C): Str {
+    export fn text<C: Allocator>(self, ctx: C): Str {
         let place = if (self.host == "") {
             ""
         } else {
@@ -288,7 +288,7 @@ impl Url {
 
     /// The query's `name=value` pairs, decoded — [`parseQuery`] over
     /// [`Url::query`].
-    export fn parameters<C: Alloc>(self, ctx: C): [(Str, Str)] {
+    export fn parameters<C: Allocator>(self, ctx: C): [(Str, Str)] {
         parseQuery(ctx, self.query)
     }
 
@@ -303,7 +303,7 @@ impl Url {
 
     /// The same URL, at another path. Roots the path with a `/` when there is a
     /// host, because a URL with an authority cannot have a relative path.
-    export fn withPath<C: Alloc>(self, ctx: C, path: Str): Url {
+    export fn withPath<C: Allocator>(self, ctx: C, path: Str): Url {
         let rooted = if (self.host != "" && path != "" && !path.startsWith("/")) {
             "/".concat(ctx, path)
         } else {
@@ -321,7 +321,7 @@ impl Url {
 
     /// The same URL, with the query rebuilt from these pairs by
     /// [`encodeQuery`]. An empty list clears the query.
-    export fn withQuery<C: Alloc>(self, ctx: C, pairs: [(Str, Str)]): Url {
+    export fn withQuery<C: Allocator>(self, ctx: C, pairs: [(Str, Str)]): Url {
         Url {
             scheme: self.scheme,
             host: self.host,
@@ -336,14 +336,14 @@ impl Url {
     /// §5.2, dot segments and all.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/net/url" import * as url;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let base = url.parse(ctx, "http://a/b/c/d;p?q").withDefault(url.EMPTY);
@@ -362,7 +362,7 @@ impl Url {
     /// ```
     ///
     /// `.Err` only when `reference` is itself absolute and does not parse.
-    export fn resolve<C: Alloc>(self, ctx: C, reference: Str): Result<Url, UrlError> {
+    export fn resolve<C: Allocator>(self, ctx: C, reference: Str): Result<Url, UrlError> {
         let r = parts(ctx, reference);
         match (r.scheme) {
             .Some(_absolute) => {
@@ -389,13 +389,13 @@ fn unreserved(ch: Char): Bool {
     ch.toDigit(36).isSome() || ch == '-' || ch == '.' || ch == '_' || ch == '~'
 }
 
-fn encoded<C: Alloc>(ctx: C, text: Str, keepSlash: Bool): Str {
+fn encoded<C: Allocator>(ctx: C, text: Str, keepSlash: Bool): Str {
     text.chars(ctx).mapCtx(ctx, fn(c, ch) => escaped(c, ch, keepSlash)).join(ctx, "")
 }
 
 /// One character, kept or escaped. A character outside ASCII escapes to one
 /// `%XX` per UTF-8 byte.
-fn escaped<C: Alloc>(ctx: C, ch: Char, keepSlash: Bool): Str {
+fn escaped<C: Allocator>(ctx: C, ch: Char, keepSlash: Bool): Str {
     if (unreserved(ch) || keepSlash && ch == '/') {
         str.fromChars(ctx, [ch])
     } else {
@@ -408,7 +408,7 @@ fn escaped<C: Alloc>(ctx: C, ch: Char, keepSlash: Bool): Str {
 
 /// `%` and two uppercase hexadecimal digits, which is the spelling RFC 3986
 /// §2.1 asks producers for.
-fn percent<C: Alloc>(ctx: C, b: U8): Str {
+fn percent<C: Allocator>(ctx: C, b: U8): Str {
     let n = b.toI64();
     str.fromChars(ctx, [
         '%',
@@ -418,7 +418,7 @@ fn percent<C: Alloc>(ctx: C, b: U8): Str {
 }
 
 /// The octets a component decodes to, or the index that stopped it.
-fn octets<C: Alloc>(ctx: C, cs: [Char], at: Int, acc: [U8]): Result<[U8], DecodeError> {
+fn octets<C: Allocator>(ctx: C, cs: [Char], at: Int, acc: [U8]): Result<[U8], DecodeError> {
     match (cs.get(at)) {
         .None => .Ok(acc),
         .Some(c) => {
@@ -455,7 +455,7 @@ fn escapeAt(cs: [Char], at: Int): Option<Int> {
 
 /// One `name=value` of a query, with `+` read as a space. `.None` for an empty
 /// pair, which is what `a=1&&b=2` has in the middle.
-fn keyed<C: Alloc>(ctx: C, part: Str): Option<(Str, Str)> {
+fn keyed<C: Allocator>(ctx: C, part: Str): Option<(Str, Str)> {
     if (part == "") {
         .None
     } else {
@@ -468,7 +468,7 @@ fn keyed<C: Alloc>(ctx: C, part: Str): Option<(Str, Str)> {
 
 /// A form's decoding: `+` is a space, and an escape that is not one is left
 /// where it is rather than failing the whole query.
-fn relaxed<C: Alloc>(ctx: C, text: Str): Str {
+fn relaxed<C: Allocator>(ctx: C, text: Str): Str {
     let spaced = text.replace(ctx, "+", " ");
     decodeComponent(ctx, spaced).withDefault(spaced)
 }
@@ -510,7 +510,7 @@ struct Parts {
 
 /// RFC 3986 appendix B, in the order the delimiters bind: fragment, query,
 /// scheme, then authority.
-fn parts<C: Alloc>(ctx: C, text: Str): Parts {
+fn parts<C: Allocator>(ctx: C, text: Str): Parts {
     let (beforeHash, fragment) = match (text.splitOnce("#")) {
         .Some((before, after)) => (before, Option.Some(after)),
         .None => (text, Option.None),
@@ -546,7 +546,7 @@ fn parts<C: Alloc>(ctx: C, text: Str): Parts {
 /// A `:` that comes after the first `/` belongs to a path segment, not to a
 /// scheme, and a prefix that is not `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`
 /// is not one either.
-fn schemeOf<C: Alloc>(ctx: C, text: Str): (Option<Str>, Str) {
+fn schemeOf<C: Allocator>(ctx: C, text: Str): (Option<Str>, Str) {
     match (text.splitOnce(":")) {
         .None => (.None, text),
         .Some((head, tail)) => {
@@ -555,7 +555,7 @@ fn schemeOf<C: Alloc>(ctx: C, text: Str): (Option<Str>, Str) {
     }
 }
 
-fn schemeShaped<C: Alloc>(ctx: C, head: Str): Bool {
+fn schemeShaped<C: Allocator>(ctx: C, head: Str): Bool {
     let cs = head.chars(ctx);
     match (cs.first()) {
         .None => false,
@@ -571,7 +571,7 @@ fn schemeShaped<C: Alloc>(ctx: C, head: Str): Bool {
 
 /// An authority as a host and a port. `.None` for the authority is a reference
 /// with no `//` at all, which has neither.
-fn hostPort<C: Alloc>(ctx: C, text: Option<Str>): Result<(Str, Option<Int>), UrlError> {
+fn hostPort<C: Allocator>(ctx: C, text: Option<Str>): Result<(Str, Option<Int>), UrlError> {
     match (text) {
         .None => .Ok(("", .None)),
         .Some(whole) => {
@@ -599,7 +599,7 @@ fn hostPort<C: Alloc>(ctx: C, text: Option<Str>): Result<(Str, Option<Int>), Url
 }
 
 /// A host and the text that should be its port: `""`, or `:` and the digits.
-fn hosted<C: Alloc>(
+fn hosted<C: Allocator>(
     ctx: C,
     host: Str,
     rest: Str,
@@ -625,14 +625,14 @@ fn hosted<C: Alloc>(
 
 // --- Putting one back together ------------------------------------------------
 
-fn portText<C: Alloc>(ctx: C, p: Option<Int>): Str {
+fn portText<C: Allocator>(ctx: C, p: Option<Int>): Str {
     match (p) {
         .None => "",
         .Some(n) => ":".concat(ctx, str.fromInt(ctx, n)),
     }
 }
 
-fn hashText<C: Alloc>(ctx: C, fragment: Option<Str>): Str {
+fn hashText<C: Allocator>(ctx: C, fragment: Option<Str>): Str {
     match (fragment) {
         .None => "",
         .Some(f) => "#".concat(ctx, f),
@@ -641,7 +641,7 @@ fn hashText<C: Alloc>(ctx: C, fragment: Option<Str>): Str {
 
 /// RFC 3986 §5.2.2, with the reference already split and its authority already
 /// read.
-fn against<C: Alloc>(ctx: C, base: Url, r: Parts, place: (Str, Option<Int>)): Url {
+fn against<C: Allocator>(ctx: C, base: Url, r: Parts, place: (Str, Option<Int>)): Url {
     match (r.authority) {
         .Some(_given) => {
             Url {
@@ -674,7 +674,7 @@ fn against<C: Alloc>(ctx: C, base: Url, r: Parts, place: (Str, Option<Int>)): Ur
 }
 
 /// RFC 3986 §5.2.3: the base's path up to its last `/`, then the reference.
-fn merged<C: Alloc>(ctx: C, base: Url, path: Str): Str {
+fn merged<C: Allocator>(ctx: C, base: Url, path: Str): Str {
     if (base.host != "" && base.path == "") {
         "/".concat(ctx, path)
     } else {
@@ -694,11 +694,11 @@ fn lastSlash(text: Str, start: Int, best: Option<Int>): Option<Int> {
 
 /// RFC 3986 §5.2.4, `remove_dot_segments`, written the way the specification
 /// writes it: move one segment at a time from the input to the output.
-fn tidy<C: Alloc>(ctx: C, path: Str): Str {
+fn tidy<C: Allocator>(ctx: C, path: Str): Str {
     walking(ctx, path, list.empty<Str>()).join(ctx, "")
 }
 
-fn walking<C: Alloc>(ctx: C, input: Str, out: [Str]): [Str] {
+fn walking<C: Allocator>(ctx: C, input: Str, out: [Str]): [Str] {
     if (input == "") {
         out
     } else if (input.startsWith("../")) {
@@ -722,6 +722,6 @@ fn walking<C: Alloc>(ctx: C, input: Str, out: [Str]): [Str] {
     }
 }
 
-fn dropLast<C: Alloc>(ctx: C, out: [Str]): [Str] {
+fn dropLast<C: Allocator>(ctx: C, out: [Str]): [Str] {
     if (out.isEmpty()) { out } else { out.take(ctx, out.len() - 1) }
 }

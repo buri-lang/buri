@@ -3,7 +3,7 @@
 // nothing effectful, which is precisely what SPEC 10.6 says must not happen:
 // "a value of type `fn(Str) => Str` could smuggle a file handle past a
 // signature with no `ctx` parameter, and the purity theorem would be false."
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -12,7 +12,7 @@ fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let sneaky = wrap(ctx, fn(c) => io.println(c, "SMUGGLED: I/O from fn() => ()").ignore());
   let _ = sneaky();
   .Ok(())

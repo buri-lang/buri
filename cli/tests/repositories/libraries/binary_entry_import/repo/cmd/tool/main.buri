@@ -1,7 +1,7 @@
 // The entry point, and this binary's surface for its own tests: the suite sees
 // what this file exports and nothing more.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -17,7 +17,7 @@ export fn banner(): Str {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io

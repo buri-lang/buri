@@ -10,14 +10,14 @@
 //! which is what `core/json` does for exactly this reason.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/map" import * as map;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let counts = map.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 9);
@@ -33,7 +33,7 @@
 //! ```
 
 from "core/bits" import * as bits;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 
 /// The buckets, and how many entries are spread across them.
@@ -66,7 +66,7 @@ fn bucketOf(h: U64, count: Int): Int {
 /// A free function rather than a lambda at each use site: a lambda may not
 /// capture a value whose type could be a context, and `V` is unbounded here, so
 /// `[[(K, V)]]` is exactly such a type (SPEC 10.6).
-fn replaceAt<K, V, C: Alloc>(
+fn replaceAt<K, V, C: Allocator>(
     ctx: C,
     buckets: [[(K, V)]],
     at: Int,
@@ -116,7 +116,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     }
 
     /// Stores `value` under `key`, replacing whatever was there.
-    export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): Map<K, V> {
+    export fn insert<C: Allocator>(self, ctx: C, key: K, value: V): Map<K, V> {
         let grown = if (self.size + 1 > self.buckets.len() * LOAD) {
             self.grow(ctx)
         } else {
@@ -145,7 +145,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     }
 
     /// Removes `key`, if it is there. Removing what is absent is not an error.
-    export fn remove<C: Alloc>(self, ctx: C, key: K): Map<K, V> {
+    export fn remove<C: Allocator>(self, ctx: C, key: K): Map<K, V> {
         let buckets = self.buckets;
         let target = bucketOf(key.hash(), buckets.len());
         let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
@@ -162,11 +162,11 @@ impl<K: Hash + Eq, V> Map<K, V> {
     }
 
     /// Every entry, in no particular order — see the module comment.
-    export fn entries<C: Alloc>(self, ctx: C): [(K, V)] {
+    export fn entries<C: Allocator>(self, ctx: C): [(K, V)] {
         self.buckets.flatten(ctx)
     }
 
-    export fn keys<C: Alloc>(self, ctx: C): [K] {
+    export fn keys<C: Allocator>(self, ctx: C): [K] {
         self
             .entries(ctx)
             .map(ctx, fn(e) => {
@@ -175,7 +175,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
             })
     }
 
-    export fn values<C: Alloc>(self, ctx: C): [V] {
+    export fn values<C: Allocator>(self, ctx: C): [V] {
         self
             .entries(ctx)
             .map(ctx, fn(e) => {
@@ -192,7 +192,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     /// `core/orderedmap` has the same method with the same meaning.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/map" import * as map;
@@ -200,7 +200,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let counts = map.of(ctx, [("a", 1)]);
@@ -219,7 +219,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     /// ```stdout
     /// b=1
     /// ```
-    export fn alter<C: Alloc>(
+    export fn alter<C: Allocator>(
         self,
         ctx: C,
         key: K,
@@ -235,7 +235,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     ///
     /// It rebuilds the map rather than copying the buckets, so it costs one
     /// insert per entry. The iteration order is still unspecified.
-    export fn mapValues<W, C: Alloc>(self, ctx: C, transform: fn(V) => W): Map<K, W> {
+    export fn mapValues<W, C: Allocator>(self, ctx: C, transform: fn(V) => W): Map<K, W> {
         self
             .entries(ctx)
             .foldCtx(
@@ -250,7 +250,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
 
     /// The same keys, each value `transform` keeps. A `.None` drops the entry,
     /// so this is `mapValues` and `filter` in one pass.
-    export fn filterMapValues<W, C: Alloc>(
+    export fn filterMapValues<W, C: Allocator>(
         self,
         ctx: C,
         transform: fn(V) => Option<W>,
@@ -274,7 +274,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     ///
     /// Right-biased on purpose: `defaults.merge(ctx, overrides)` reads the way
     /// it is used. Reach for `mergeWith` when a collision is not a replacement.
-    export fn merge<C: Alloc>(self, ctx: C, other: Map<K, V>): Map<K, V> {
+    export fn merge<C: Allocator>(self, ctx: C, other: Map<K, V>): Map<K, V> {
         other
             .entries(ctx)
             .foldCtx(
@@ -291,7 +291,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     /// in both. `combine` is called only for those keys.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/map" import * as map;
@@ -299,7 +299,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let monday = map.of(ctx, [("ana", 2), ("bo", 1)]);
@@ -315,7 +315,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     /// ```stdout
     /// ana=5 cy=5
     /// ```
-    export fn mergeWith<C: Alloc>(
+    export fn mergeWith<C: Allocator>(
         self,
         ctx: C,
         other: Map<K, V>,
@@ -337,7 +337,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     }
 
     /// The entries `keep` answers true for.
-    export fn filter<C: Alloc>(self, ctx: C, keep: fn(K, V) => Bool): Map<K, V> {
+    export fn filter<C: Allocator>(self, ctx: C, keep: fn(K, V) => Bool): Map<K, V> {
         self
             .entries(ctx)
             .foldCtx(
@@ -353,7 +353,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     /// The value under `key` and the map without it, or `.None` when the key is
     /// not there. Taking an entry out and using it is one call rather than a
     /// `get` beside a `remove`.
-    export fn pop<C: Alloc>(self, ctx: C, key: K): Option<(V, Map<K, V>)> {
+    export fn pop<C: Allocator>(self, ctx: C, key: K): Option<(V, Map<K, V>)> {
         match (self.get(key)) {
             .None => .None,
             .Some(v) => .Some((v, self.remove(ctx, key))),
@@ -362,7 +362,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
 
     /// Only the entries whose keys are in `keys`. A key that is not in the map
     /// is skipped rather than an error.
-    export fn takeKeys<C: Alloc>(self, ctx: C, keys: [K]): Map<K, V> {
+    export fn takeKeys<C: Allocator>(self, ctx: C, keys: [K]): Map<K, V> {
         let wanted = of(ctx, keys.map(ctx, fn(k) => (k, ())));
         self
             .entries(ctx)
@@ -377,7 +377,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     }
 
     /// Everything but the entries whose keys are in `keys`.
-    export fn dropKeys<C: Alloc>(self, ctx: C, keys: [K]): Map<K, V> {
+    export fn dropKeys<C: Allocator>(self, ctx: C, keys: [K]): Map<K, V> {
         let unwanted = of(ctx, keys.map(ctx, fn(k) => (k, ())));
         self
             .entries(ctx)
@@ -394,7 +394,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
     /// Twice the buckets, everything rehashed. `insert` calls it once the entries
     /// outgrow the load factor, so the association lists stay short and lookup
     /// stays expected-constant.
-    fn grow<C: Alloc>(self, ctx: C): Map<K, V> {
+    fn grow<C: Allocator>(self, ctx: C): Map<K, V> {
         // From nothing, the initial size; otherwise twice what there was.
         let count = if (self.buckets.len() == 0) {
             INITIAL
@@ -429,14 +429,14 @@ impl<K: Hash + Eq, V> Map<K, V> {
 /// of the dependency order and cannot name a `Map`.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/map" import * as map;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let words = ["ant", "bee", "ape", "bat"];
@@ -450,7 +450,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
 /// ```stdout
 /// a: ant ape
 /// ```
-export fn groupBy<A, K: Hash + Eq, C: Alloc>(
+export fn groupBy<A, K: Hash + Eq, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -471,7 +471,7 @@ export fn groupBy<A, K: Hash + Eq, C: Alloc>(
 ///
 /// This is the index you look a list up through. Reach for `groupBy` when the
 /// key is not unique: this one *silently* keeps the last.
-export fn indexBy<A, K: Hash + Eq, C: Alloc>(
+export fn indexBy<A, K: Hash + Eq, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -480,7 +480,7 @@ export fn indexBy<A, K: Hash + Eq, C: Alloc>(
 }
 
 /// A map holding the given entries, later ones winning.
-export fn of<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
+export fn of<K: Hash + Eq, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K, V> {
     entries.foldCtx(
         ctx,
         fn(c, acc, e) => {
@@ -495,7 +495,7 @@ impl<K: Hash + Eq, V: Eq> Map<K, V> {
     /// Same entries, whatever bucket layout each arrived at. `derive Eq` would
     /// compare the layout, which two equal maps built in different orders need
     /// not share.
-    export fn equals<C: Alloc>(self, ctx: C, other: Map<K, V>): Bool {
+    export fn equals<C: Allocator>(self, ctx: C, other: Map<K, V>): Bool {
         if (self.size != other.size) {
             false
         } else {
@@ -514,7 +514,7 @@ impl<K: Hash + Eq, V: Eq> Map<K, V> {
 /// `groupBy` costs without building the groups.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/map" import * as map;
@@ -522,7 +522,7 @@ impl<K: Hash + Eq, V: Eq> Map<K, V> {
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let words = ["ant", "bee", "ape", "bat"];
@@ -536,7 +536,7 @@ impl<K: Hash + Eq, V: Eq> Map<K, V> {
 /// ```stdout
 /// a: 2
 /// ```
-export fn countBy<A, K: Hash + Eq, C: Alloc>(
+export fn countBy<A, K: Hash + Eq, C: Allocator>(
     ctx: C,
     xs: [A],
     key: fn(A) => K,
@@ -553,6 +553,6 @@ export fn countBy<A, K: Hash + Eq, C: Alloc>(
 
 /// How many times each element appears. `countBy` with the element as its own
 /// key, which is the histogram every word count wants.
-export fn frequencies<T: Hash + Eq, C: Alloc>(ctx: C, xs: [T]): Map<T, Int> {
+export fn frequencies<T: Hash + Eq, C: Allocator>(ctx: C, xs: [T]): Map<T, Int> {
     countBy(ctx, xs, fn(x: T) => x)
 }

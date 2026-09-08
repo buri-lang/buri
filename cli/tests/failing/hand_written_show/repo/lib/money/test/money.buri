@@ -7,7 +7,7 @@
 // the structural rendering, the second fails on `render`'s answer and shows
 // what `Show` actually produces.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/money" import { Money, render };
@@ -18,7 +18,7 @@ test "the report renders the value structurally" {
 
 test "the program's own Show says something else" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(render(ctx, Money { cents: 1 }), "not this");
 }

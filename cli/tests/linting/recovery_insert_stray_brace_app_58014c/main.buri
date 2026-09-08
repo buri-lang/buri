@@ -10,7 +10,7 @@
 // edits below remove both, one with `?` and one with `mapErr`, which are two of
 // the answers the diagnostic names.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -20,7 +20,7 @@ fn record(): Result<(), Str> {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = record().ignore();

@@ -2,14 +2,14 @@
 //!
 //! `Str` is an immutable UTF-8 string. `trim`, `slice`, and `splitOnce` are
 //! pure because it is immutable and sliceable: they return views, not copies.
-//! Anything whose result length depends on runtime data names `Alloc`.
+//! Anything whose result length depends on runtime data names `Allocator`.
 //!
 //! There is no overloading, so a pure variant and an allocating variant of the
 //! same idea get different names: `splitOnce` returns two slices and is pure;
 //! `split` returns `[Str]` and allocates.
 
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/order" import { Order };
 
@@ -26,7 +26,7 @@ impl Str {
     export fn charAt(self, index: Int): Option<Char>;
 
     /// A view into `self`, not a copy — which is why it is pure and takes no
-    /// `Alloc`. The view keeps the whole parent string alive for as long as it
+    /// `Allocator`. The view keeps the whole parent string alive for as long as it
     /// lives, so holding three bytes of a ten-megabyte line holds ten megabytes.
     /// Copy with `format` when the parent is large and the view is small.
     export fn slice(self, start: Int, end: Int): Str;
@@ -151,45 +151,45 @@ fn digitsOf(text: Str, radix: Int, at: Int, acc: Int): Option<Int> {
     }
 }
 
-// --- Deterministic: bounded by <C: Alloc> --------------------------------------
+// --- Deterministic: bounded by <C: Allocator> --------------------------------------
 
 impl Str {
-    export fn concat<C: Alloc>(self, ctx: C, other: Str): Str;
+    export fn concat<C: Allocator>(self, ctx: C, other: Str): Str;
 
-    export fn split<C: Alloc>(self, ctx: C, separator: Str): [Str];
+    export fn split<C: Allocator>(self, ctx: C, separator: Str): [Str];
 
     /// Splits on any of the characters in `separators`, dropping empty pieces.
-    export fn splitAny<C: Alloc>(self, ctx: C, separators: Str): [Str];
+    export fn splitAny<C: Allocator>(self, ctx: C, separators: Str): [Str];
 
-    export fn lines<C: Alloc>(self, ctx: C): [Str];
+    export fn lines<C: Allocator>(self, ctx: C): [Str];
 
-    export fn replace<C: Alloc>(self, ctx: C, needle: Str, replacement: Str): Str;
+    export fn replace<C: Allocator>(self, ctx: C, needle: Str, replacement: Str): Str;
 
-    export fn repeat<C: Alloc>(self, ctx: C, times: Int): Str;
+    export fn repeat<C: Allocator>(self, ctx: C, times: Int): Str;
 
-    export fn toUpper<C: Alloc>(self, ctx: C): Str;
+    export fn toUpper<C: Allocator>(self, ctx: C): Str;
 
-    export fn toLower<C: Alloc>(self, ctx: C): Str;
+    export fn toLower<C: Allocator>(self, ctx: C): Str;
 
-    export fn chars<C: Alloc>(self, ctx: C): [Char];
+    export fn chars<C: Allocator>(self, ctx: C): [Char];
 }
 
-export fn fromChars<C: Alloc>(ctx: C, cs: [Char]): Str;
+export fn fromChars<C: Allocator>(ctx: C, cs: [Char]): Str;
 
-export fn fromInt<C: Alloc>(ctx: C, n: Int): Str;
+export fn fromInt<C: Allocator>(ctx: C, n: Int): Str;
 
-export fn fromFloat<C: Alloc>(ctx: C, x: Float): Str;
+export fn fromFloat<C: Allocator>(ctx: C, x: Float): Str;
 
 impl Str {
-    export fn padStart<C: Alloc>(self, ctx: C, width: Int, fill: Char): Str;
+    export fn padStart<C: Allocator>(self, ctx: C, width: Int, fill: Char): Str;
 
-    export fn padEnd<C: Alloc>(self, ctx: C, width: Int, fill: Char): Str;
+    export fn padEnd<C: Allocator>(self, ctx: C, width: Int, fill: Char): Str;
 }
 
 /// Turning a `Template` into a `Str` is the point at which interpolation
 /// allocates. Constructing the `Template` itself allocates nothing, which is
 /// why `io.println(ctx, "hi ${name}")` needs only `Stdout`.
-export fn format<C: Alloc>(ctx: C, template: Template): Str;
+export fn format<C: Allocator>(ctx: C, template: Template): Str;
 
 // --- Prefixes, suffixes, and searching from the right --------------------------
 
@@ -377,7 +377,7 @@ impl Str {
     /// whole of the rest, separators and all.
     ///
     /// A `limit` of zero or less has no pieces at all.
-    export fn splitLimit<C: Alloc>(self, ctx: C, separator: Str, limit: Int): [Str] {
+    export fn splitLimit<C: Allocator>(self, ctx: C, separator: Str, limit: Int): [Str] {
         if (limit <= 0) {
             list.empty<Str>()
         } else {
@@ -387,7 +387,7 @@ impl Str {
 
     /// `replace` for the first occurrence only. An empty needle changes
     /// nothing, which is `replace`'s rule too.
-    export fn replaceFirst<C: Alloc>(self, ctx: C, needle: Str, replacement: Str): Str {
+    export fn replaceFirst<C: Allocator>(self, ctx: C, needle: Str, replacement: Str): Str {
         if (needle.isEmpty()) {
             self
         } else {
@@ -405,7 +405,7 @@ impl Str {
     /// Scalars, not graphemes: reversing `"e\u{301}"` puts the accent first and
     /// it lands on whatever follows. Reverse `graphemes(ctx)` instead when the
     /// answer has to look like the input backwards.
-    export fn reverse<C: Alloc>(self, ctx: C): Str {
+    export fn reverse<C: Allocator>(self, ctx: C): Str {
         fromChars(ctx, self.chars(ctx).reverse(ctx))
     }
 
@@ -414,7 +414,7 @@ impl Str {
     ///
     /// Whitespace is `character.isSpace`, which is the set JavaScript's `\s`
     /// matches.
-    export fn words<C: Alloc>(self, ctx: C): [Str] {
+    export fn words<C: Allocator>(self, ctx: C): [Str] {
         wordsFrom(ctx, self, 0, list.empty<Str>())
     }
 
@@ -446,13 +446,13 @@ impl Str {
     /// agrees, not where the column does.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let _ = io.println(ctx, "    one\n      two".dedent(ctx)).ignore();
@@ -464,7 +464,7 @@ impl Str {
     /// one
     ///   two
     /// ```
-    export fn dedent<C: Alloc>(self, ctx: C): Str {
+    export fn dedent<C: Allocator>(self, ctx: C): Str {
         let rows = self.lines(ctx);
         let margin = rows.fold(
             fn(best: Int, row) => {
@@ -487,7 +487,7 @@ impl Str {
 
     /// `prefix` in front of every line that has anything on it. An empty line
     /// stays empty, so no trailing whitespace is invented.
-    export fn indent<C: Alloc>(self, ctx: C, prefix: Str): Str {
+    export fn indent<C: Allocator>(self, ctx: C, prefix: Str): Str {
         self
             .lines(ctx)
             .mapCtx(ctx, fn(c, row) => {
@@ -502,12 +502,12 @@ impl Str {
     /// every gap comes back as one space. A word longer than `width` gets a
     /// line of its own and overflows it rather than being cut, and a `width` of
     /// zero or less is one word per line.
-    export fn wrap<C: Alloc>(self, ctx: C, width: Int): [Str] {
+    export fn wrap<C: Allocator>(self, ctx: C, width: Int): [Str] {
         wrapFrom(ctx, self.words(ctx), width, 0, "", list.empty<Str>())
     }
 }
 
-fn limitedFrom<C: Alloc>(
+fn limitedFrom<C: Allocator>(
     ctx: C,
     rest: Str,
     separator: Str,
@@ -526,7 +526,7 @@ fn limitedFrom<C: Alloc>(
     }
 }
 
-fn wordsFrom<C: Alloc>(ctx: C, text: Str, at: Int, acc: [Str]): [Str] {
+fn wordsFrom<C: Allocator>(ctx: C, text: Str, at: Int, acc: [Str]): [Str] {
     let start = spanSpace(text, at);
     if (start >= text.len()) {
         acc
@@ -567,7 +567,7 @@ fn utf16From(text: Str, at: Int, acc: Int): Int {
     }
 }
 
-fn wrapFrom<C: Alloc>(
+fn wrapFrom<C: Allocator>(
     ctx: C,
     words: [Str],
     width: Int,
@@ -596,14 +596,14 @@ fn wrapFrom<C: Alloc>(
 /// from the right. A negative number keeps its `-` and groups the rest.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/str" import * as str;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let _ = io.println(ctx, str.fromIntGrouped(ctx, -1234567, ",")).ignore();
@@ -614,7 +614,7 @@ fn wrapFrom<C: Alloc>(
 /// ```stdout
 /// -1,234,567
 /// ```
-export fn fromIntGrouped<C: Alloc>(ctx: C, value: Int, separator: Str): Str {
+export fn fromIntGrouped<C: Allocator>(ctx: C, value: Int, separator: Str): Str {
     let text = fromInt(ctx, value);
     let negative = text.startsWith("-");
     let digits = if (negative) { text.slice(1, text.len()) } else { text };
@@ -622,7 +622,7 @@ export fn fromIntGrouped<C: Alloc>(ctx: C, value: Int, separator: Str): Str {
     if (negative) { "-".concat(ctx, grouped) } else { grouped }
 }
 
-fn groupedFrom<C: Alloc>(ctx: C, digits: Str, separator: Str, at: Int, acc: Str): Str {
+fn groupedFrom<C: Allocator>(ctx: C, digits: Str, separator: Str, at: Int, acc: Str): Str {
     if (at >= digits.len()) {
         acc
     } else {
@@ -651,14 +651,14 @@ fn groupedFrom<C: Alloc>(ctx: C, digits: Str, separator: Str, at: Int, acc: Str)
 /// `NaN`, `inf` and `-inf` come back as themselves.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/str" import * as str;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let _ = io.println(ctx, str.fromFloatFixed(ctx, 3.14159, 2)).ignore();
@@ -671,7 +671,7 @@ fn groupedFrom<C: Alloc>(ctx: C, digits: Str, separator: Str, at: Int, acc: Str)
 /// 3.14
 /// 2.000
 /// ```
-export fn fromFloatFixed<C: Alloc>(ctx: C, value: Float, decimals: Int): Str {
+export fn fromFloatFixed<C: Allocator>(ctx: C, value: Float, decimals: Int): Str {
     let places = if (decimals < 0) { 0 } else { decimals };
     let shown = fromFloat(ctx, value);
     let negative = shown.startsWith("-");
@@ -690,7 +690,7 @@ export fn fromFloatFixed<C: Alloc>(ctx: C, value: Float, decimals: Int): Str {
 
 /// A plain or exponent-notation decimal as its digits and where the point sits:
 /// the value is `0.<digits>` times ten to the second field.
-fn significand<C: Alloc>(ctx: C, text: Str): (Str, Int) {
+fn significand<C: Allocator>(ctx: C, text: Str): (Str, Int) {
     let marker = text.indexOfAny("eE");
     let mantissa = match (marker) {
         .None => text,
@@ -714,7 +714,7 @@ fn significand<C: Alloc>(ctx: C, text: Str): (Str, Int) {
 
 /// `digits` cut to `keep` of them, rounded half up on the first one dropped.
 /// A carry off the front makes the answer one longer than `keep`.
-fn roundTo<C: Alloc>(ctx: C, digits: Str, keep: Int): Str {
+fn roundTo<C: Allocator>(ctx: C, digits: Str, keep: Int): Str {
     if (keep >= digits.len()) {
         digits
     } else {
@@ -729,7 +729,7 @@ fn roundTo<C: Alloc>(ctx: C, digits: Str, keep: Int): Str {
 }
 
 /// `digits` with one added to its last digit, carrying leftwards.
-fn carry<C: Alloc>(ctx: C, digits: Str, at: Int): Str {
+fn carry<C: Allocator>(ctx: C, digits: Str, at: Int): Str {
     if (at < 0) {
         "1".concat(ctx, digits)
     } else {
@@ -745,7 +745,7 @@ fn carry<C: Alloc>(ctx: C, digits: Str, at: Int): Str {
     }
 }
 
-fn writeAt<C: Alloc>(ctx: C, text: Str, at: Int, c: Char): Str {
+fn writeAt<C: Allocator>(ctx: C, text: Str, at: Int, c: Char): Str {
     text
         .slice(0, at)
         .concat(ctx, fromChars(ctx, [c]))
@@ -754,7 +754,7 @@ fn writeAt<C: Alloc>(ctx: C, text: Str, at: Int, c: Char): Str {
 
 /// `0.<digits>` times ten to the `point`, as a plain decimal with `places`
 /// digits after the point.
-fn renderFixed<C: Alloc>(ctx: C, digits: Str, point: Int, places: Int): Str {
+fn renderFixed<C: Allocator>(ctx: C, digits: Str, point: Int, places: Int): Str {
     let whole = if (point <= 0) {
         "0"
     } else {
@@ -820,13 +820,13 @@ impl Str {
     /// conjunct. So `"👨‍👩‍👦"` is one piece where `chars` gives five.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let text = "👍🏽!";
@@ -838,7 +838,7 @@ impl Str {
     /// ```stdout
     /// 2 3
     /// ```
-    export fn graphemes<C: Alloc>(self, ctx: C): [Str] {
+    export fn graphemes<C: Allocator>(self, ctx: C): [Str] {
         let cs = self.chars(ctx);
         if (cs.isEmpty()) {
             list.empty<Str>()
@@ -885,14 +885,14 @@ impl Str {
     /// entries.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/str" import { Normalization };
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let tight = "é";
@@ -906,7 +906,7 @@ impl Str {
     /// ```stdout
     /// 1 2 true
     /// ```
-    export fn normalize<C: Alloc>(self, ctx: C, form: Normalization): Str {
+    export fn normalize<C: Allocator>(self, ctx: C, form: Normalization): Str {
         let cs = self.chars(ctx);
         // Nothing below U+00A0 decomposes and nothing below U+0300 combines,
         // so a string of them is already in all four forms.
@@ -915,7 +915,7 @@ impl Str {
 }
 
 /// `normalize` once the string is known to hold something that decomposes.
-fn normalized<C: Alloc>(ctx: C, cs: [Char], form: Normalization): Str {
+fn normalized<C: Allocator>(ctx: C, cs: [Char], form: Normalization): Str {
     let compatible = match (form) {
         .Nfkc => true,
         .Nfkd => true,
@@ -990,13 +990,13 @@ impl Str {
     /// both sides and compare, and do not show the answer to anyone.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let same = "STRASSE".caseFold(ctx) == "Straße".caseFold(ctx);
@@ -1008,7 +1008,7 @@ impl Str {
     /// ```stdout
     /// true
     /// ```
-    export fn caseFold<C: Alloc>(self, ctx: C): Str {
+    export fn caseFold<C: Allocator>(self, ctx: C): Str {
         let cs = self.chars(ctx);
         // Full folding at an ASCII scalar is lowercasing it, and the runtime
         // already does that in one call.
@@ -1017,7 +1017,7 @@ impl Str {
 }
 
 /// `caseFold` once the ASCII answer is ruled out.
-fn folded<C: Alloc>(ctx: C, cs: [Char]): Str {
+fn folded<C: Allocator>(ctx: C, cs: [Char]): Str {
     let table = Mapping {
         keys: FOLD_KEYS.chars(ctx),
         offsets: FOLD_OFFSETS.chars(ctx),
@@ -1147,7 +1147,7 @@ fn isExtender(packed: Int): Bool {
     packed / 128 % 2 == 1
 }
 
-fn clustersFrom<C: Alloc>(
+fn clustersFrom<C: Allocator>(
     ctx: C,
     text: Str,
     cs: [Char],
@@ -1354,7 +1354,7 @@ fn pairIndex(keys: [Char], a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
 }
 
 /// What `cp` maps to, or `.None` when the table says nothing about it.
-fn mapped<C: Alloc>(ctx: C, table: Mapping, cp: Int): Option<[Char]> {
+fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: Int): Option<[Char]> {
     match (keyIndex(table.keys, cp, 0, table.keys.len() / 4)) {
         .None => .None,
         .Some(found) => {
@@ -1364,7 +1364,7 @@ fn mapped<C: Alloc>(ctx: C, table: Mapping, cp: Int): Option<[Char]> {
     }
 }
 
-fn foldFrom<C: Alloc>(
+fn foldFrom<C: Allocator>(
     ctx: C,
     cs: [Char],
     table: Mapping,
@@ -1383,7 +1383,7 @@ fn foldFrom<C: Alloc>(
     }
 }
 
-fn decomposeFrom<C: Alloc>(
+fn decomposeFrom<C: Allocator>(
     ctx: C,
     cs: [Char],
     table: Mapping,
@@ -1409,7 +1409,7 @@ fn decomposeFrom<C: Alloc>(
 }
 
 /// A Hangul syllable's two or three jamo, by the arithmetic in UAX #15 §3.12.
-fn hangulParts<C: Alloc>(ctx: C, jamo: Hangul, syllable: Char, index: Int): [Char] {
+fn hangulParts<C: Allocator>(ctx: C, jamo: Hangul, syllable: Char, index: Int): [Char] {
     let none: [Char] = [];
     match ((jamo.leading.get(index / 588), jamo.vowel.get(index % 588 / 28))) {
         (.Some(lead), .Some(vowel)) => {
@@ -1432,7 +1432,7 @@ fn hangulParts<C: Alloc>(ctx: C, jamo: Hangul, syllable: Char, index: Int): [Cha
 ///
 /// Adjacent swaps until nothing moves, which is O(n²) on the run — and a run is
 /// two or three marks in real text.
-fn reorder<C: Alloc>(ctx: C, cs: [Char], classes: [Char], fuel: Int): [Char] {
+fn reorder<C: Allocator>(ctx: C, cs: [Char], classes: [Char], fuel: Int): [Char] {
     if (fuel <= 0) {
         cs
     } else {
@@ -1441,7 +1441,7 @@ fn reorder<C: Alloc>(ctx: C, cs: [Char], classes: [Char], fuel: Int): [Char] {
     }
 }
 
-fn swapPass<C: Alloc>(ctx: C, cs: [Char], classes: [Char], at: Int): [Char] {
+fn swapPass<C: Allocator>(ctx: C, cs: [Char], classes: [Char], at: Int): [Char] {
     match ((cs.get(at), cs.get(at + 1))) {
         (.Some(a), .Some(b)) => {
             let first = combiningClass(classes, a);
@@ -1459,7 +1459,7 @@ fn swapPass<C: Alloc>(ctx: C, cs: [Char], classes: [Char], at: Int): [Char] {
 
 /// The canonical composition algorithm: each character joined to the last
 /// starter where the pair is a primary composite and nothing blocks it.
-fn composeFrom<C: Alloc>(
+fn composeFrom<C: Allocator>(
     ctx: C,
     cs: [Char],
     classes: [Char],

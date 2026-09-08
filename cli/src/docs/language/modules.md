@@ -10,8 +10,8 @@ here; which module may import which is in
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/effect" import { Alloc, Stdout };
-from "core/fs" import { FsRead, FsWrite };
+from "core/effect" import { Allocator, Stdout };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/list" import * as list;
 from "core/list" import { filter, map };
 from "core/list" import { map as listMap };

@@ -11,7 +11,7 @@
 # behaviour. The steps below are the whole matrix, in both directions:
 #
 #   * the clean repository, which is most of the value — a library taking an
-#     `FsRead` bound, a suite built on `core/host/testing`'s doubles, and a page
+#     `FileSystemRead` bound, a suite built on `core/host/testing`'s doubles, and a page
 #     with both in its closure, none of which may light up;
 #   * a named import of `fs` in a page's `main.buri`, refused on the name
 #     inside the braces;
@@ -47,18 +47,18 @@ run {
 
 # A named import: the caret lands on the name inside the braces, which is where
 # the program asked for it. One diagnostic, not two — `fs` is still bound to
-# what `core/host` declares, so the `FsRead: fs` below does not go on to report
+# what `core/host` declares, so the `FileSystemRead: fs` below does not go on to report
 # an unresolved name underneath.
 edit {
   file: "cmd/page/main.buri"
   replace: "from \"core/io\" import * as io;"
-  with: "from \"core/fs\" import { FsRead };\nfrom \"core/host\" import { fs };\nfrom \"core/io\" import * as io;"
+  with: "from \"core/fs\" import { FileSystemRead };\nfrom \"core/host\" import { fs };\nfrom \"core/io\" import * as io;"
 }
 
 edit {
   file: "cmd/page/main.buri"
   replace: "        Stdout: host.stdout,"
-  with: "        Stdout: host.stdout,\n        FsRead: fs,"
+  with: "        Stdout: host.stdout,\n        FileSystemRead: fs,"
 }
 
 run {
@@ -84,8 +84,8 @@ edit {
 
 edit {
   file: "cmd/page/main.buri"
-  replace: "        FsRead: fs,"
-  with: "        FsRead: host.fs,"
+  replace: "        FileSystemRead: fs,"
+  with: "        FileSystemRead: host.fs,"
 }
 
 run {
@@ -145,8 +145,8 @@ run {
 # only from the module that exports `main`.
 edit {
   file: "lib/native/lib.buri"
-  replace: "from \"core/fs\" import { FsRead };"
-  with: "from \"core/fs\" import { FsRead };\nfrom \"core/host\" import { fs };"
+  replace: "from \"core/fs\" import { FileSystemRead };"
+  with: "from \"core/fs\" import { FileSystemRead };\nfrom \"core/host\" import { fs };"
 }
 
 run {

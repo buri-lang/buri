@@ -1,4 +1,4 @@
-export fn aFunctionWhoseSignatureIsTooWide<@ C: Alloc>(
+export fn aFunctionWhoseSignatureIsTooWide<@ C: Allocator>(
     ctx: C,
     first: Str,
     second: Str,

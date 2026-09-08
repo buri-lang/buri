@@ -63,7 +63,7 @@ pub const FIXED_CLOCK_JS: &str = concat!(
     "try{Date.now=function(){return 0;};}catch(e){}\n",
     "try{if(typeof $host_HostClock_nowMillis===\"function\")",
     "$host_HostClock_nowMillis=function(){return 0;};}catch(e){}\n",
-    // Replaced rather than left alone: the runtime's own `sleepMillis` waits
+    // Replaced rather than left alone: the runtime's own `sleepMilliseconds` waits
     // on a real timer, which a frozen `Date.now` does not shorten by a
     // millisecond. Where no time elapses, sleeping for it takes no time.
     //

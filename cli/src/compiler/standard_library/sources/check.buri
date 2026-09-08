@@ -5,14 +5,14 @@
 //! claim.
 //!
 //! ```buri role=test
-//! from "core/effect" import { Alloc };
+//! from "core/effect" import { Allocator };
 //! from "core/host/testing" import { alloc };
 //! from "core/list" import * as list;
 //! from "core/testing/check" import * as check;
 //!
 //! test "reversing twice gives the list back" {
 //!     let ctx = context {
-//!         Alloc: alloc(),
+//!         Allocator: alloc(),
 //!     };
 //!     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 100), 8), fn(c, items) => {
 //!         items.reverse(c).reverse(c).compare(items) == .Equal
@@ -47,7 +47,7 @@
 //! report the way every other assertion does: the file, the line, and both
 //! values.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/random" import * as random;
 from "core/random" import { Gen };
@@ -102,21 +102,21 @@ export fn forAll<T>(generator: fn(Gen) => (T, Gen), property: fn(T) => Bool): ()
 /// which anything that builds a list does.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/list" import * as list;
 /// from "core/testing/check" import * as check;
 ///
 /// test "sorting keeps the length" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
 ///         items.sort(c).len() == items.len()
 ///     });
 /// }
 /// ```
-export fn forAllCtx<T, C: Alloc>(
+export fn forAllCtx<T, C: Allocator>(
     ctx: C,
     generator: fn(C, Gen) => (T, Gen),
     property: fn(C, T) => Bool,
@@ -150,14 +150,14 @@ export fn int(low: Int, high: Int): fn(Gen) => (Int, Gen) {
 /// generator [`forAllCtx`] takes, never [`forAll`]'s.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/list" import * as list;
 /// from "core/testing/check" import * as check;
 ///
 /// test "a drawn list is never longer than the bound" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 5), fn(_c, items) => {
 ///         items.len() <= 5
@@ -166,7 +166,7 @@ export fn int(low: Int, high: Int): fn(Gen) => (Int, Gen) {
 /// ```
 ///
 /// A negative `maxLength` gives the empty list every time.
-export fn listOf<T, C: Alloc>(
+export fn listOf<T, C: Allocator>(
     ctx: C,
     item: fn(Gen) => (T, Gen),
     maxLength: Int,
@@ -200,7 +200,7 @@ fn firstFailure<T>(
     }
 }
 
-fn firstFailureCtx<T, C: Alloc>(
+fn firstFailureCtx<T, C: Allocator>(
     ctx: C,
     generator: fn(C, Gen) => (T, Gen),
     property: fn(C, T) => Bool,
@@ -220,7 +220,7 @@ fn firstFailureCtx<T, C: Alloc>(
 }
 
 /// `count` draws, appended in the order they came out.
-fn drawn<T, C: Alloc>(
+fn drawn<T, C: Allocator>(
     ctx: C,
     item: fn(Gen) => (T, Gen),
     remaining: Int,

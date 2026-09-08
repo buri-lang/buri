@@ -12,7 +12,7 @@
 // unpainted element is exactly what this refuses.
 //
 // The fix is the diagnostic's: add the arm.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Scope, Ui, Watch };
@@ -57,6 +57,6 @@ fn cardTheme(t: Token): Color {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack([], []), [themed(cardTheme)])
 }

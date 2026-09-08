@@ -6,7 +6,7 @@
 // look up.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/hash" import * as hash;
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
@@ -15,21 +15,21 @@ from "core/testing/assert" import * as assert;
 // The eight hex digits of a 32-bit answer, and the sixteen of a 64-bit one.
 fn hex32(x: U32): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     bytes.toHex(ctx, bytes.fromU32Be(x))
 }
 
 fn hex64(x: U64): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     bytes.toHex(ctx, bytes.fromU64Be(x))
 }
 
 fn octets(text: Str): [U8] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     bytes.toUtf8(ctx, text)
 }
@@ -61,7 +61,7 @@ test "the offset basis is where the fold starts" {
 
 test "stepping one octet at a time is the same hash" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let body = octets("foobar");
     let stepped32 = body.fold(fn(h, o) => hash.fnv1a32Step(h, o), hash.FNV1A32_OFFSET);
@@ -102,7 +102,7 @@ test "the empty input is zero" {
 // RFC 3720 appendix B.4 — the iSCSI CRC examples.
 test "the RFC 3720 vectors" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let zeros: [U8] = list.repeat(ctx, 0, 32);
     assert.eq(hex32(hash.crc32c(zeros)), "8a9136aa");
@@ -128,7 +128,7 @@ let K1: U64 = 0x0f0e0d0c0b0a0908;
 
 fn vector(n: Int): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     hex64(hash.siphash24(K0, K1, list.range(ctx, 0, n).map(ctx, fn(i) => i.wrapToU8())))
 }

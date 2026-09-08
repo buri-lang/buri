@@ -1,12 +1,12 @@
 error: this import list is missing its closing `}` [unclosed-delimiter]
  --> lib/recovery_delete_closer_module_cents_fc20ca/lib.buri:4:35
   |
-4 | from "core/effect" import { Alloc ;
+4 | from "core/effect" import { Allocator ;
   |                                   ^
   |
  --> lib/recovery_delete_closer_module_cents_fc20ca/lib.buri:4:27
   |
-4 | from "core/effect" import { Alloc ;
+4 | from "core/effect" import { Allocator ;
   |                           ^ opened here
   |
   = fix: write `}` here

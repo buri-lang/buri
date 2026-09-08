@@ -7,13 +7,13 @@
 //!
 //! ```buri run
 //! from "core/bigint" import * as bigint;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let big = bigint.of(2).power(ctx, 100);
@@ -52,7 +52,7 @@
 //! the column would overflow.
 
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/number" import { RangeError };
@@ -147,9 +147,9 @@ export fn of(value: Int): BigInt {
 ///
 /// ```buri
 /// from "core/bigint" import * as bigint;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn read<C: Alloc>(ctx: C, text: Str): Option<bigint.BigInt> {
+/// export fn read<C: Allocator>(ctx: C, text: Str): Option<bigint.BigInt> {
 ///     bigint.parse(ctx, text)
 /// }
 /// ```
@@ -157,7 +157,7 @@ export fn of(value: Int): BigInt {
 /// Strict, and `str.toInt`'s strictness exactly: an optional leading `-`, then
 /// one digit or more, and nothing else — no spaces, no separators, no sign in
 /// the middle. `"-0"` parses and equals `zero()`.
-export fn parse<C: Alloc>(ctx: C, text: Str): Option<BigInt> {
+export fn parse<C: Allocator>(ctx: C, text: Str): Option<BigInt> {
     let negative = text.startsWith("-");
     let first = if (negative) { 1 } else { 0 };
     if (text.len() <= first) {
@@ -168,7 +168,7 @@ export fn parse<C: Alloc>(ctx: C, text: Str): Option<BigInt> {
 }
 
 /// The decimal digits from `at`, folded into limbs one at a time.
-fn digitsOf<C: Alloc>(ctx: C, text: Str, at: Int, limbs: [Int]): Option<[Int]> {
+fn digitsOf<C: Allocator>(ctx: C, text: Str, at: Int, limbs: [Int]): Option<[Int]> {
     match (text.charAt(at)) {
         .None => .Some(limbs),
         .Some(c) => {
@@ -185,13 +185,13 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn total<C: Alloc>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
+    /// export fn total<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
     ///     a.add(ctx, b)
     /// }
     /// ```
-    export fn add<C: Alloc>(self, ctx: C, other: BigInt): BigInt {
+    export fn add<C: Allocator>(self, ctx: C, other: BigInt): BigInt {
         if (self.negative == other.negative) {
             build(self.negative, addLimbs(ctx, self.limbs, other.limbs, 0, 0, []))
         } else if (compareLimbs(self.limbs, other.limbs) == Order.Less) {
@@ -205,13 +205,13 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn gap<C: Alloc>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
+    /// export fn gap<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
     ///     a.sub(ctx, b)
     /// }
     /// ```
-    export fn sub<C: Alloc>(self, ctx: C, other: BigInt): BigInt {
+    export fn sub<C: Allocator>(self, ctx: C, other: BigInt): BigInt {
         self.add(ctx, other.negate())
     }
 
@@ -236,9 +236,9 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn times<C: Alloc>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
+    /// export fn times<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
     ///     a.mul(ctx, b)
     /// }
     /// ```
@@ -246,7 +246,7 @@ impl BigInt {
     /// Schoolbook, one output column at a time: each column is the sum of the
     /// limb products on a diagonal, and the carries are propagated once at the
     /// end rather than after every product. O(n·m).
-    export fn mul<C: Alloc>(self, ctx: C, other: BigInt): BigInt {
+    export fn mul<C: Allocator>(self, ctx: C, other: BigInt): BigInt {
         if (self.limbs.isEmpty() || other.limbs.isEmpty()) {
             zero()
         } else {
@@ -263,9 +263,9 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn split<C: Alloc>(
+    /// export fn split<C: Allocator>(
     ///     ctx: C,
     ///     a: bigint.BigInt,
     ///     b: bigint.BigInt,
@@ -281,7 +281,7 @@ impl BigInt {
     /// Schoolbook long division, with each quotient limb found by binary search
     /// over the twenty-four bits it could be. O(n·m·24), and no estimate to
     /// correct.
-    export fn quotientRemainder<C: Alloc>(
+    export fn quotientRemainder<C: Allocator>(
         self,
         ctx: C,
         other: BigInt,
@@ -305,9 +305,9 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn twoTo<C: Alloc>(ctx: C, n: Int): bigint.BigInt {
+    /// export fn twoTo<C: Allocator>(ctx: C, n: Int): bigint.BigInt {
     ///     bigint.of(2).power(ctx, n)
     /// }
     /// ```
@@ -321,7 +321,7 @@ impl BigInt {
     /// Exponentiation by squaring, so about `log2(exponent)` multiplications.
     /// They are not cheap ones: the last squaring is over a number the size of
     /// the answer.
-    export fn power<C: Alloc>(self, ctx: C, exponent: Int): BigInt {
+    export fn power<C: Allocator>(self, ctx: C, exponent: Int): BigInt {
         if (exponent < 0) {
             reciprocal(self, exponent)
         } else {
@@ -333,9 +333,9 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn residue<C: Alloc>(
+    /// export fn residue<C: Allocator>(
     ///     ctx: C,
     ///     base: bigint.BigInt,
     ///     e: bigint.BigInt,
@@ -353,7 +353,7 @@ impl BigInt {
     ///
     /// Square and multiply, reducing after every step, so the working numbers
     /// never grow past twice the modulus. O(bits(exponent) · m²).
-    export fn modularPower<C: Alloc>(
+    export fn modularPower<C: Allocator>(
         self,
         ctx: C,
         exponent: BigInt,
@@ -403,16 +403,16 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn written<C: Alloc>(ctx: C, a: bigint.BigInt): Str {
+    /// export fn written<C: Allocator>(ctx: C, a: bigint.BigInt): Str {
     ///     a.text(ctx)
     /// }
     /// ```
     ///
     /// `parse` reads back exactly what this writes. Seven digits come out per
     /// division, so it costs O(d²) in the digits.
-    export fn text<C: Alloc>(self, ctx: C): Str {
+    export fn text<C: Allocator>(self, ctx: C): Str {
         if (self.limbs.isEmpty()) {
             "0"
         } else {
@@ -468,7 +468,7 @@ fn fromTop(a: [Int], b: [Int], at: Int): Order {
 }
 
 /// `a + b`, with the carry threaded through.
-fn addLimbs<C: Alloc>(
+fn addLimbs<C: Allocator>(
     ctx: C,
     a: [Int],
     b: [Int],
@@ -485,7 +485,7 @@ fn addLimbs<C: Alloc>(
 }
 
 /// `a - b`, where `a` is at least `b`, with the borrow threaded through.
-fn subLimbs<C: Alloc>(
+fn subLimbs<C: Allocator>(
     ctx: C,
     a: [Int],
     b: [Int],
@@ -524,7 +524,7 @@ fn diagonal(a: [Int], b: [Int], k: Int, i: Int, acc: Int): Int {
 }
 
 /// Carries propagated through a list of unnormalised columns.
-fn carry<C: Alloc>(ctx: C, columns: [Int], at: Int, carried: Int, acc: [Int]): [Int] {
+fn carry<C: Allocator>(ctx: C, columns: [Int], at: Int, carried: Int, acc: [Int]): [Int] {
     if (at >= columns.len() && carried == 0) {
         trim(ctx, acc)
     } else {
@@ -534,11 +534,11 @@ fn carry<C: Alloc>(ctx: C, columns: [Int], at: Int, carried: Int, acc: [Int]): [
 }
 
 /// `limbs * factor + addend`, where both fit in a limb. Used by `parse`.
-fn mulAddSmall<C: Alloc>(ctx: C, limbs: [Int], factor: Int, addend: Int): [Int] {
+fn mulAddSmall<C: Allocator>(ctx: C, limbs: [Int], factor: Int, addend: Int): [Int] {
     smallStep(ctx, limbs, factor, 0, addend, [])
 }
 
-fn smallStep<C: Alloc>(
+fn smallStep<C: Allocator>(
     ctx: C,
     limbs: [Int],
     factor: Int,
@@ -556,12 +556,12 @@ fn smallStep<C: Alloc>(
 
 /// `limbs / divisor` and the remainder, where `divisor` fits in a limb. Used by
 /// `text`.
-fn divModSmall<C: Alloc>(ctx: C, limbs: [Int], divisor: Int): ([Int], Int) {
+fn divModSmall<C: Allocator>(ctx: C, limbs: [Int], divisor: Int): ([Int], Int) {
     let (digits, rest) = downFrom(ctx, limbs, divisor, limbs.len() - 1, 0, []);
     (trim(ctx, digits.reverse(ctx)), rest)
 }
 
-fn downFrom<C: Alloc>(
+fn downFrom<C: Allocator>(
     ctx: C,
     limbs: [Int],
     divisor: Int,
@@ -586,7 +586,7 @@ fn downFrom<C: Alloc>(
 
 /// Schoolbook long division: bring one limb down, find the quotient limb, take
 /// that many divisors away.
-fn divide<C: Alloc>(
+fn divide<C: Allocator>(
     ctx: C,
     a: [Int],
     b: [Int],
@@ -608,7 +608,7 @@ fn divide<C: Alloc>(
 ///
 /// A binary search rather than an estimate from the top limbs: twenty-four
 /// comparisons, and nothing to correct afterwards.
-fn searchDigit<C: Alloc>(ctx: C, r: [Int], b: [Int], lo: Int, hi: Int): Int {
+fn searchDigit<C: Allocator>(ctx: C, r: [Int], b: [Int], lo: Int, hi: Int): Int {
     if (lo >= hi) {
         lo
     } else {
@@ -623,7 +623,7 @@ fn searchDigit<C: Alloc>(ctx: C, r: [Int], b: [Int], lo: Int, hi: Int): Int {
 }
 
 /// Trailing zero limbs dropped, which is what keeps one value to one shape.
-fn trim<C: Alloc>(ctx: C, limbs: [Int]): [Int] {
+fn trim<C: Allocator>(ctx: C, limbs: [Int]): [Int] {
     let top = topNonZero(limbs, limbs.len() - 1);
     if (top + 1 == limbs.len()) { limbs } else { limbs.take(ctx, top + 1) }
 }
@@ -641,7 +641,7 @@ fn topNonZero(limbs: [Int], at: Int): Int {
 // --- The rest of the arithmetic ----------------------------------------------------
 
 /// One round of squaring, over `BigInt` rather than `Int`.
-fn squaring<C: Alloc>(ctx: C, base: BigInt, exponent: Int, acc: BigInt): BigInt {
+fn squaring<C: Allocator>(ctx: C, base: BigInt, exponent: Int, acc: BigInt): BigInt {
     if (exponent == 0) {
         acc
     } else {
@@ -671,7 +671,7 @@ fn reciprocal(base: BigInt, exponent: Int): BigInt {
 ///
 /// The bits come out of a division by two rather than a shift, because a
 /// `BigInt` is limbs rather than a machine word.
-fn climb<C: Alloc>(
+fn climb<C: Allocator>(
     ctx: C,
     base: BigInt,
     exponent: [Int],
@@ -702,7 +702,7 @@ fn climb<C: Alloc>(
 }
 
 /// `value` reduced into `0` to `|modulus| - 1`.
-fn residueOf<C: Alloc>(ctx: C, value: BigInt, modulus: BigInt): BigInt {
+fn residueOf<C: Allocator>(ctx: C, value: BigInt, modulus: BigInt): BigInt {
     let size = build(false, modulus.limbs);
     match (value.quotientRemainder(ctx, size)) {
         .None => zero(),
@@ -730,7 +730,7 @@ fn tooBig(): RangeError {
 }
 
 /// The decimal text, seven digits at a time from the bottom.
-fn groups<C: Alloc>(ctx: C, limbs: [Int], tail: [Str]): Str {
+fn groups<C: Allocator>(ctx: C, limbs: [Int], tail: [Str]): Str {
     let (rest, chunk) = divModSmall(ctx, limbs, DECIMAL_CHUNK);
     if (rest.isEmpty()) {
         // The top group carries no leading zeros.
@@ -744,7 +744,7 @@ fn groups<C: Alloc>(ctx: C, limbs: [Int], tail: [Str]): Str {
 }
 
 /// One group of digits, most significant first, with no padding.
-fn plainDigits<C: Alloc>(ctx: C, n: Int, acc: [Char]): [Char] {
+fn plainDigits<C: Allocator>(ctx: C, n: Int, acc: [Char]): [Char] {
     let digit = character.fromDigit(n % 10, 10).withDefault('0');
     let rest = n / 10;
     let next = [digit].concat(ctx, acc);

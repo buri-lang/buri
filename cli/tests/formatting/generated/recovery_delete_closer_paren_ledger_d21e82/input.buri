@@ -5,7 +5,7 @@
 // The fixture comes from this library's own testing surface rather than from a
 // private helper, because //tools/report's suite wants the same one.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/ledger" import { apply, Rule, total };
@@ -18,7 +18,7 @@ test "total sums every entry" {
 
 test "DropZero removes zero-amount entries" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let kept = apply(ctx, sample(), Rule.DropZero);
     assert.eq(kept.len(), 2);
@@ -27,7 +27,7 @@ test "DropZero removes zero-amount entries" {
 
 test "MemoPrefix keeps matching memos" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let kept = apply(ctx, sample(), Rule.MemoPrefix { prefix: "co" });
     assert.eq(kept.len(), 1);

@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/json" import { FromJson, ToJson };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -29,7 +29,7 @@ export fn blend0(base: Int): Int {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest0_0<C: Alloc>(ctx: C): Int {
+export fn digest0_0<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [4887, 4492, 6163, 9249, 6360];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -44,7 +44,7 @@ export fn drain0_0(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_0<C: Alloc>(ctx: C): Int {
+export fn probe0_0<C: Allocator>(ctx: C): Int {
     digest0_0(ctx) + drain0_0()
 }
 
@@ -61,14 +61,14 @@ impl Rec0_1 {
         self.f0 * factor + 893
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec0_1: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_1<C: Alloc>(ctx: C): Int {
+export fn probe0_1<C: Allocator>(ctx: C): Int {
     let r = Rec0_1 { f0: 7, f1: "probe" };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -108,14 +108,14 @@ export fn start0_2(ticks: Int): State0_2 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_2<C: Alloc>(ctx: C): Int {
+export fn probe0_2<C: Allocator>(ctx: C): Int {
     let s = start0_2(5);
     rank0_2(s) + s.show(ctx).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label0_3<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label0_3<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "echo" } else { "bravo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -128,7 +128,7 @@ export fn constants0_3(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_3<C: Alloc>(ctx: C): Int {
+export fn probe0_3<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants0_3();
     label0_3(ctx, a, e).len() + b
 }
@@ -170,7 +170,7 @@ export fn start0_4(ticks: Int): State0_4 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_4<C: Alloc>(ctx: C): Int {
+export fn probe0_4<C: Allocator>(ctx: C): Int {
     let s = start0_4(5);
     rank0_4(s) + s.show(ctx).len()
 }
@@ -191,21 +191,21 @@ impl Rec0_5 {
         self.f0 * factor + 963
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec0_5: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_5<C: Alloc>(ctx: C): Int {
+export fn probe0_5<C: Allocator>(ctx: C): Int {
     let r = Rec0_5 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest0_6<C: Alloc>(ctx: C): Int {
+export fn digest0_6<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [9911, 5863, 8785, 2858, 2247, 9325, 7428, 5205, 1220, 3379];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -220,13 +220,13 @@ export fn drain0_6(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_6<C: Alloc>(ctx: C): Int {
+export fn probe0_6<C: Allocator>(ctx: C): Int {
     digest0_6(ctx) + drain0_6()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest0_7<C: Alloc>(ctx: C): Int {
+export fn digest0_7<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [6308, 9379, 262, 1021, 8784, 2362];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -241,7 +241,7 @@ export fn drain0_7(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_7<C: Alloc>(ctx: C): Int {
+export fn probe0_7<C: Allocator>(ctx: C): Int {
     digest0_7(ctx) + drain0_7()
 }
 
@@ -280,7 +280,7 @@ export fn start0_8(ticks: Int): State0_8 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_8<C: Alloc>(ctx: C): Int {
+export fn probe0_8<C: Allocator>(ctx: C): Int {
     let s = start0_8(5);
     rank0_8(s) + s.show(ctx).len()
 }
@@ -318,14 +318,14 @@ export fn start0_9(ticks: Int): State0_9 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_9<C: Alloc>(ctx: C): Int {
+export fn probe0_9<C: Allocator>(ctx: C): Int {
     let s = start0_9(5);
     rank0_9(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach0<C: Alloc>(ctx: C): Int {
+export fn reach0<C: Allocator>(ctx: C): Int {
     0
         + probe0_0(ctx)
         + probe0_1(ctx)

@@ -6,14 +6,14 @@
 
 from "core/buri/ast" import * as ast;
 from "core/codegen" import { Request };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "std/codegen/proto" import * as proto;
 
 test "one module per input, named after the schema, reaching the others" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let request = Request {
         inputs: [
@@ -42,7 +42,7 @@ test "one module per input, named after the schema, reaching the others" {
 
 test "a schema the reader refuses answers its diagnostics and no module" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     }
     let request = Request {
         inputs: [("lib/wire/old.proto", "syntax = \"proto3\";\n")],

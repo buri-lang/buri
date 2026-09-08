@@ -16,13 +16,13 @@
 //!
 //! ```buri run
 //! from "core/bytes" import * as bytes;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let raw = bytes.toUtf8(ctx, "hi €");
@@ -43,7 +43,7 @@
 
 from "core/bits" import * as bits;
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -57,10 +57,10 @@ derive Eq, Show for DecodeError;
 export struct DecodeError(export Int);
 
 /// The UTF-8 encoding of a string.
-export fn toUtf8<C: Alloc>(ctx: C, s: Str): [U8];
+export fn toUtf8<C: Allocator>(ctx: C, s: Str): [U8];
 
 /// The string those bytes encode, or where they stopped being one.
-export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
+export fn fromUtf8<C: Allocator>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 
 /// The same decoding, with every byte that cannot be part of a valid encoding
 /// replaced by U+FFFD instead of refused.
@@ -77,13 +77,13 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 ///
 /// ```buri run
 /// from "core/bytes" import * as bytes;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     // "hi", then a euro sign with its last byte cut off.
@@ -97,7 +97,7 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 /// ```stdout
 /// hi� 3
 /// ```
-export fn fromUtf8Lossy<C: Alloc>(ctx: C, bytes: [U8]): Str {
+export fn fromUtf8Lossy<C: Allocator>(ctx: C, bytes: [U8]): Str {
     // The substitution happens in the *octets*, and `fromUtf8` then reads them.
     // What `cleaned` answers is valid UTF-8 by construction, so the decoder
     // cannot refuse it and the fallback is unreachable. Building the octets
@@ -111,7 +111,7 @@ let REPLACEMENT: [U8] = [0xef, 0xbf, 0xbd];
 
 /// The input with every maximal subpart that is not a valid sequence swapped for
 /// U+FFFD. Tail-recursive over the whole run.
-fn cleaned<C: Alloc>(ctx: C, b: [U8], i: Int, acc: [U8]): [U8] {
+fn cleaned<C: Allocator>(ctx: C, b: [U8], i: Int, acc: [U8]): [U8] {
     if (i >= b.len()) {
         acc
     } else {
@@ -200,7 +200,7 @@ fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int
 // --- Hexadecimal ---------------------------------------------------------------
 
 /// Lowercase, two characters per byte, no separator.
-export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
+export fn toHex<C: Allocator>(ctx: C, b: [U8]): Str {
     str.fromChars(
         ctx,
         list
@@ -215,7 +215,7 @@ export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
 
 /// Reads either case. An odd number of digits, or a character that is not one,
 /// is an error at the offending index.
-export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+export fn fromHex<C: Allocator>(ctx: C, text: Str): Result<[U8], DecodeError> {
     let cs = text.chars(ctx);
     if (cs.len() % 2 != 0) {
         .Err(DecodeError(cs.len()))
@@ -251,7 +251,7 @@ let B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
 /// RFC 4648 §5: `-` and `_` where the standard alphabet has `+` and `/`.
 let B64URL: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
+export fn toBase64<C: Allocator>(ctx: C, b: [U8]): Str {
     encode64(ctx, b, B64)
 }
 
@@ -261,13 +261,13 @@ export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
 ///
 /// ```buri run
 /// from "core/bytes" import * as bytes;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let raw: [U8] = [251, 255];
@@ -281,11 +281,11 @@ export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
 /// ```stdout
 /// +/8= -_8
 /// ```
-export fn toBase64Url<C: Alloc>(ctx: C, bytes: [U8]): Str {
+export fn toBase64Url<C: Allocator>(ctx: C, bytes: [U8]): Str {
     withoutPadding(encode64(ctx, bytes, B64URL))
 }
 
-fn encode64<C: Alloc>(ctx: C, b: [U8], alphabet: Str): Str {
+fn encode64<C: Allocator>(ctx: C, b: [U8], alphabet: Str): Str {
     let n = b.len();
     list
         .range(ctx, 0, (n + 2) / 3)
@@ -322,13 +322,13 @@ fn withoutPadding(text: Str): Str {
     }
 }
 
-export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+export fn fromBase64<C: Allocator>(ctx: C, text: Str): Result<[U8], DecodeError> {
     decode64(ctx, text, B64)
 }
 
 /// Reads the URL-safe alphabet, padded or not. A length that no base64 has —
 /// one character past a group of four — is an error at the end of the input.
-export fn fromBase64Url<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+export fn fromBase64Url<C: Allocator>(ctx: C, text: Str): Result<[U8], DecodeError> {
     let short = text.len() % 4;
     if (short == 1) {
         .Err(DecodeError(text.len()))
@@ -339,7 +339,7 @@ export fn fromBase64Url<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> 
     }
 }
 
-fn decode64<C: Alloc>(ctx: C, text: Str, alphabet: Str): Result<[U8], DecodeError> {
+fn decode64<C: Allocator>(ctx: C, text: Str, alphabet: Str): Result<[U8], DecodeError> {
     let cs = text.chars(ctx);
     if (cs.len() % 4 != 0 || cs.len() == 0) {
         if (cs.len() == 0) {
@@ -487,7 +487,7 @@ fn equalAt(haystack: [U8], needle: [U8], at: Int, i: Int): Bool {
 /// The pieces between the occurrences of `separator`, empty ones included: n
 /// separators give n + 1 pieces. An empty separator answers the whole input as
 /// one piece rather than one piece per byte.
-export fn split<C: Alloc>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
+export fn split<C: Allocator>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
     if (separator.isEmpty()) {
         [bytes]
     } else {
@@ -495,7 +495,7 @@ export fn split<C: Alloc>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
     }
 }
 
-fn splitFrom<C: Alloc>(ctx: C, b: [U8], separator: [U8], at: Int, acc: [[U8]]): [[U8]] {
+fn splitFrom<C: Allocator>(ctx: C, b: [U8], separator: [U8], at: Int, acc: [[U8]]): [[U8]] {
     match (indexOfFrom(b, separator, at)) {
         .Some(i) => {
             splitFrom(
@@ -512,7 +512,7 @@ fn splitFrom<C: Alloc>(ctx: C, b: [U8], separator: [U8], at: Int, acc: [[U8]]): 
 
 /// The parts with `separator` between each pair — `split`'s inverse when no part
 /// holds the separator.
-export fn join<C: Alloc>(ctx: C, parts: [[U8]], separator: [U8]): [U8] {
+export fn join<C: Allocator>(ctx: C, parts: [[U8]], separator: [U8]): [U8] {
     list
         .range(ctx, 0, parts.len())
         .mapCtx(ctx, fn(c, i) => {
@@ -539,7 +539,7 @@ let TWO32: Int = 4294967296;
 /// protocol buffers writes a negative `int64`. Encode a negative number as a
 /// zigzag instead — `toVarint(ctx, zigzag(x))` — and -1 costs two bytes rather
 /// than ten, which is the whole reason `sint64` exists.
-export fn toVarint<C: Alloc>(ctx: C, value: Int): [U8] {
+export fn toVarint<C: Allocator>(ctx: C, value: Int): [U8] {
     if (value < 0) {
         let a = 0 - value;
         let alo = a % TWO32;
@@ -554,7 +554,7 @@ export fn toVarint<C: Alloc>(ctx: C, value: Int): [U8] {
 
 /// Seven bits at a time off the low end of a 64-bit value held as two halves.
 /// The carry from the high half into the low one is `hi % 128` scaled by 2^25.
-fn varintBytes<C: Alloc>(ctx: C, hi: Int, lo: Int): [U8] {
+fn varintBytes<C: Allocator>(ctx: C, hi: Int, lo: Int): [U8] {
     let byte = lo % 128;
     let nextLo = (lo - byte) / 128 + hi % 128 * 33554432;
     let nextHi = (hi - hi % 128) / 128;
@@ -652,7 +652,7 @@ export fn unzigzag(n: Int): Int {
 // field uses.
 
 /// The eight bytes of an IEEE 754 double.
-export fn f64ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
+export fn f64ToBytes<C: Allocator>(ctx: C, x: Float): [U8];
 
 /// The double encoded by the eight bytes at `at`, or `.None` if there are not
 /// eight. A NaN comes back as the canonical quiet NaN on every backend — the
@@ -662,7 +662,7 @@ export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
 
 /// The four bytes of an IEEE 754 single. A `Float` that single precision cannot
 /// represent rounds, exactly as storing one in a `float` field does.
-export fn f32ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
+export fn f32ToBytes<C: Allocator>(ctx: C, x: Float): [U8];
 
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
 /// A NaN canonicalizes, as it does at eight bytes.
@@ -675,7 +675,7 @@ export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
 //
 // **Writing is pure.** An array literal of a fixed size allocates nothing a
 // context has to grant, so `fromU64Be(x)` is a pure function; only the readers
-// that produce a *slice* name `Alloc`.
+// that produce a *slice* name `Allocator`.
 
 /// Eight octets, most significant first.
 export fn fromU64Be(x: U64): [U8] {
@@ -848,7 +848,7 @@ fn octet32(b: [U8], i: Int): U32 {
 // the one it started from. For building, `[[U8]].flatten` is the answer.
 //
 // **The methods that only move the cursor are pure; the two that answer a
-// `[U8]` name `Alloc`**, because `[T].slice` copies.
+// `[U8]` name `Allocator`**, because `[T].slice` copies.
 
 derive Eq, Show for Reader;
 /// A position in a run of octets: the octets, and how far in.
@@ -878,13 +878,13 @@ impl Reader {
     ///
     /// ```buri run
     /// from "core/bytes" import * as bytes;
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     // A tag octet, then a length-prefixed body: the shape every wire
@@ -918,7 +918,7 @@ impl Reader {
     ///
     /// A negative `n`, or one that runs off the end, is an error at the index
     /// the read began.
-    export fn takeSlice<C: Alloc>(
+    export fn takeSlice<C: Allocator>(
         self,
         ctx: C,
         n: Int,
@@ -936,7 +936,7 @@ impl Reader {
     ///
     /// The error index is where the *frame* began rather than where its body
     /// did.
-    export fn takeFramed<C: Alloc>(self, ctx: C): Result<([U8], Reader), DecodeError> {
+    export fn takeFramed<C: Allocator>(self, ctx: C): Result<([U8], Reader), DecodeError> {
         let (n, afterLength) = self.takeVarint()?;
         match (afterLength.takeSlice(ctx, n)) {
             .Ok(pair) => .Ok(pair),

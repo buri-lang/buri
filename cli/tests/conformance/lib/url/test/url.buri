@@ -2,7 +2,7 @@
 // §5.4 examples, normal and abnormal, against the base it names.
 
 from "core/bytes" import { DecodeError };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/net/url" import * as url;
@@ -14,56 +14,56 @@ let BASE: Str = "http://a/b/c/d;p?q";
 
 fn encodeOne(text: Str): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     url.encodeComponent(ctx, text)
 }
 
 fn encodeWhole(text: Str): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     url.encodePath(ctx, text)
 }
 
 fn decodeOne(text: Str): Result<Str, DecodeError> {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     url.decodeComponent(ctx, text)
 }
 
 fn query(text: Str): [(Str, Str)] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     url.parseQuery(ctx, text)
 }
 
 fn unquery(pairs: [(Str, Str)]): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     url.encodeQuery(ctx, pairs)
 }
 
 fn read(text: Str): Result<Url, UrlError> {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     url.parse(ctx, text)
 }
 
 fn shown(u: Url): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     u.text(ctx)
 }
 
 fn roundTrip(text: Str): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     match (url.parse(ctx, text)) {
         .Err(_e) => "<not a url>",
@@ -73,7 +73,7 @@ fn roundTrip(text: Str): Str {
 
 fn resolved(reference: Str): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     match (url.parse(ctx, BASE)) {
         .Err(_e) => "<not a base>",
@@ -275,7 +275,7 @@ test "text leaves the dot segments alone" {
 
 test "parameters decode and parameter does not" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let u = assert.ok(read("http://a/b?q=one%20two&n=2"));
     assert.eq(u.parameters(ctx), [("q", "one two"), ("n", "2")]);
@@ -292,7 +292,7 @@ test "a bare parameter has an empty value" {
 
 test "no query means no parameters" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let u = assert.ok(read("http://a/b"));
     assert.eq(u.parameters(ctx), list.empty<(Str, Str)>());
@@ -303,7 +303,7 @@ test "no query means no parameters" {
 
 test "withPath roots the path when there is a host" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let u = assert.ok(read("http://a/b?x=1"));
     assert.eq(shown(u.withPath(ctx, "c/d")), "http://a/c/d?x=1");
@@ -313,7 +313,7 @@ test "withPath roots the path when there is a host" {
 
 test "withQuery rebuilds the query and clears it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let u = assert.ok(read("http://a/b?x=1"));
     assert.eq(shown(u.withQuery(ctx, [("q", "one two")])), "http://a/b?q=one%20two");
@@ -407,7 +407,7 @@ test "a reference with a scheme is absolute, strictly" {
 
 test "a reference that is absolute and broken reports why" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = assert.ok(read(BASE));
     assert.eq(assert.err(base.resolve(ctx, "http://a:x/")), UrlError.BadPort("x"));
@@ -604,7 +604,7 @@ test "an empty authority is dropped, so a file URL loses two slashes" {
 
 test "parameter answers the first of a repeated name, and parameters keeps both" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let u = assert.ok(read("http://a/b?k=1&k=2"));
     assert.eq(u.parameter("k"), .Some("1"));
@@ -621,7 +621,7 @@ test "parameter compares the name as the query spells it" {
 
 test "withPath on a URL with no host leaves the path alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let u = assert.ok(read("mailto:ada@example.com"));
     assert.eq(shown(u.withPath(ctx, "bob@example.com")), "mailto:bob@example.com");
@@ -629,7 +629,7 @@ test "withPath on a URL with no host leaves the path alone" {
 
 test "withQuery keeps the fragment and the port" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let u = assert.ok(read("http://a:8080/b?x=1#top"));
     assert.eq(shown(u.withQuery(ctx, [("y", "2")])), "http://a:8080/b?y=2#top");
@@ -653,7 +653,7 @@ test "an empty query on a reference clears the base's" {
 
 test "a reference resolved against a base with no path" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = assert.ok(read("http://a"));
     assert.eq(shown(assert.ok(base.resolve(ctx, "g"))), "http://a/g");
@@ -662,7 +662,7 @@ test "a reference resolved against a base with no path" {
 
 test "resolving against a base twice over is the same as resolving once" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = assert.ok(read(BASE));
     let once = assert.ok(base.resolve(ctx, "x/y/../z"));

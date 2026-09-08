@@ -6,7 +6,7 @@
 // `failWith`, and `ok`, `err`, `some` and `none` through `failExpected`, which
 // renders the *expected* side as a variant name rather than as a value.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
@@ -18,7 +18,7 @@ test "eq" {
 
 test "eqWith" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = map.empty<Str, Int>().insert(ctx, "a", 1);
     let two = map.empty<Str, Int>().insert(ctx, "a", 2);
@@ -63,7 +63,7 @@ test "len" {
 
 test "unordered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.unordered(ctx, [3, 1, 2], [1, 2, 4]);
 }

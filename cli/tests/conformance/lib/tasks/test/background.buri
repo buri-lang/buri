@@ -7,7 +7,7 @@
 // task is waited for too. This file holds the cases around it, and every one of
 // them is a value written into the file rather than a timing.
 
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host/testing" import { alloc, clock, stdout, task, TaskCall, tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -26,7 +26,7 @@ fn say<C: Stdout>(ctx: C, what: Str): () {
 test "a body that answers an error still waits for what it spawned" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -44,7 +44,7 @@ test "a body that answers an error still waits for what it spawned" {
 
 test "a scope answers a value of any shape, including nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: tasks(),
     };
@@ -59,7 +59,7 @@ test "a scope answers a value of any shape, including nothing" {
 test "a scope opened inside a scope closes first" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -83,7 +83,7 @@ test "a scope waits for as many tasks as were spawned into it" {
     let out = stdout();
     let scheduler = tasks();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: scheduler,
     };
@@ -96,7 +96,7 @@ test "a scope waits for as many tasks as were spawned into it" {
 }
 
 /// Spawns `n` tasks, each saying which it is.
-fn spawnMany<C: Alloc + Stdout + Tasks>(ctx: C, here: Scope, n: Int): () {
+fn spawnMany<C: Allocator + Stdout + Tasks>(ctx: C, here: Scope, n: Int): () {
     match (n <= 0) {
         true => (),
         false => {
@@ -112,7 +112,7 @@ test "a timer of no time at all is still a task" {
     let out = stdout();
     let ticking = clock();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: ticking,
         Stdout: out,
         Tasks: tasks(),
@@ -134,7 +134,7 @@ test "a timer may be as long as a month" {
     let out = stdout();
     let ticking = clock();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: ticking,
         Stdout: out,
         Tasks: tasks(),
@@ -164,7 +164,7 @@ test "a timer may be as long as a month" {
 test "anyOrder runs every spawned task once, in an order the program names" {
     let scheduler = tasks().anyOrder();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: scheduler,
     };
@@ -177,7 +177,7 @@ test "anyOrder runs every spawned task once, in an order the program names" {
 test "everyOrder runs the body once per order of the tasks it spawned" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: scheduler,
     };
@@ -192,7 +192,7 @@ test "everyOrder runs the body once per order of the tasks it spawned" {
 test "everyOrder over two spawns is two runs" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: scheduler,
     };
@@ -208,7 +208,7 @@ test "everyOrder over two spawns is two runs" {
 test "a scope that spawns nothing is one run under everyOrder" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: scheduler,
     };
@@ -223,7 +223,7 @@ test "a scope that spawns nothing is one run under everyOrder" {
 test "a seed replays one of the orders a scope's tasks ran in" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks().seed(3),
     };
@@ -234,7 +234,7 @@ test "a seed replays one of the orders a scope's tasks ran in" {
 }
 
 /// Three tasks, spawned in a written order, each saying which it is.
-fn spawnThree<C: Alloc + Stdout + Tasks>(ctx: C, here: Scope): () {
+fn spawnThree<C: Allocator + Stdout + Tasks>(ctx: C, here: Scope): () {
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "a"));
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "b"));
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "c"));

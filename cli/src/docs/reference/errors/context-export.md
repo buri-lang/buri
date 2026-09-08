@@ -6,12 +6,12 @@ fix: drop the `export`, or move it into a test-only module
 ---
 
 ```buri fail code=context-export
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 export context Fixture {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
 }
 
@@ -25,7 +25,7 @@ export fn main(): Result<(), Str> {
 To fix, drop the `export`, or move the context into a test-only module:
 
 ```buri ignore why="the fixture lives in a second module, and a doctest block is one file"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 

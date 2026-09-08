@@ -17,7 +17,7 @@
 //! named by an index nothing else can produce, so a test can only reach the
 //! cells it made.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/node" import * as node;
 from "ui/node" import { Node };
@@ -159,7 +159,7 @@ export fn variables(): Str;
 ///
 /// The name is a file name and nothing more. It may not be empty and may not
 /// hold a path separator.
-export fn snapshot<C: Alloc + Ui>(ctx: C, name: Str, root: Node<C>, state: State): () {
+export fn snapshot<C: Allocator + Ui>(ctx: C, name: Str, root: Node<C>, state: State): () {
     paint(name, node.describe(ctx, root, state), stateName(state))
 }
 

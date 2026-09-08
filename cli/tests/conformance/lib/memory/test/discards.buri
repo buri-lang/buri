@@ -27,7 +27,7 @@
 // over-release is a use-after-free, which the heap check's quarantine stops
 // with a different message than a leak.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -47,19 +47,19 @@ struct Pair {
 }
 
 /// A string this program grew, rather than one the compiler interned.
-fn grown<C: Alloc>(ctx: C, s: Str): Str {
+fn grown<C: Allocator>(ctx: C, s: Str): Str {
     s.concat(ctx, "")
 }
 
 /// A list this program grew, for a skipped position of another counted shape.
-fn grownList<C: Alloc>(ctx: C, n: Int): [Int] {
+fn grownList<C: Allocator>(ctx: C, n: Int): [Int] {
     list
         .range(ctx, 0, n)
         .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty())
 }
 
 /// The reader's own shape: a cursor, and the token it just read.
-fn next<C: Alloc>(ctx: C, at: Int, word: Str): (Int, Token) {
+fn next<C: Allocator>(ctx: C, at: Int, word: Str): (Int, Token) {
     (at + 1, Token.Word(grown(ctx, word)))
 }
 
@@ -69,7 +69,7 @@ fn next<C: Alloc>(ctx: C, at: Int, word: Str): (Int, Token) {
 
 test "a tuple element the pattern skips is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `skipStatement`, in one line: step over a token and keep only where the
     // cursor now is.
@@ -79,7 +79,7 @@ test "a tuple element the pattern skips is given back" {
 
 test "the skipped element may be the first one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (_, t) = (grown(ctx, "syntax"), 7);
     assert.eq(t, 7);
@@ -87,7 +87,7 @@ test "the skipped element may be the first one" {
 
 test "a skipped element is given back however many there are" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (_, n, _) = (grown(ctx, "extend"), 2, grownList(ctx, 3));
     assert.eq(n, 2);
@@ -95,7 +95,7 @@ test "a skipped element is given back however many there are" {
 
 test "a struct field the pattern skips is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let Pair { kept, dropped: _ } = Pair { kept: 4, dropped: grown(ctx, "group") };
     assert.eq(kept, 4);
@@ -103,7 +103,7 @@ test "a struct field the pattern skips is given back" {
 
 test "a skipped position nested under a kept one is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (n, (_, m)) = (1, (grown(ctx, "optional"), 2));
     assert.eq(n + m, 3);
@@ -111,7 +111,7 @@ test "a skipped position nested under a kept one is given back" {
 
 test "the value being destructured may be a local rather than a call" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let token = next(ctx, 0, "required");
     let (at, _) = token;
@@ -120,7 +120,7 @@ test "the value being destructured may be a local rather than a call" {
 
 test "a payload the pattern never reaches is given back with its token" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Two of them, because the reader peeks and then consumes: one call's
     // answer is looked at and the other's is thrown away whole.
@@ -132,7 +132,7 @@ test "a payload the pattern never reaches is given back with its token" {
 
 test "a `let` that keeps nothing at all is still a statement that gives back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Nothing is bound, so there is nothing to name — the value is the
     // statement's own temporary, and the statement drops it.
@@ -147,7 +147,7 @@ test "a `let` that keeps nothing at all is still a statement that gives back" {
 
 test "a skipped position of a value still in use is not given back twice" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let token = next(ctx, 0, "reserved");
     let (at, _) = token;
@@ -159,7 +159,7 @@ test "a skipped position of a value still in use is not given back twice" {
 
 test "a skipped field of a struct still in use is not given back twice" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let p = Pair { kept: 9, dropped: grown(ctx, "extensions") };
     let Pair { kept, dropped: _ } = p;
@@ -169,7 +169,7 @@ test "a skipped field of a struct still in use is not given back twice" {
 
 test "the same position skipped in a loop is given back every time round" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let steps = list
         .range(ctx, 0, 8)
@@ -218,17 +218,17 @@ struct Holder {
 }
 
 /// A `Deep` this program built, every counted leaf of it grown.
-fn deep<C: Alloc>(ctx: C, word: Str): Deep {
+fn deep<C: Allocator>(ctx: C, word: Str): Deep {
     .Only(Nest { tag: 1, both: (grown(ctx, word), grownList(ctx, 2)) })
 }
 
 /// A `Holder` this program built.
-fn holder<C: Alloc>(ctx: C, word: Str): Holder {
+fn holder<C: Allocator>(ctx: C, word: Str): Holder {
     Holder { label: grown(ctx, word), token: Token.Word(grown(ctx, word)) }
 }
 
 /// A list of strings, so a skipped position may be a block of blocks.
-fn grownWords<C: Alloc>(ctx: C, n: Int): [Str] {
+fn grownWords<C: Allocator>(ctx: C, n: Int): [Str] {
     list
         .range(ctx, 0, n)
         .foldCtx(ctx, fn(c, acc: [Str], _i) => acc.push(c, grown(c, "w")), list.empty())
@@ -236,7 +236,7 @@ fn grownWords<C: Alloc>(ctx: C, n: Int): [Str] {
 
 test "a position skipped three levels down is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `tag` is kept, so the walk goes on under `Only` and under `Nest`; the
     // tuple's first element is where it stops, and that `Str` is what nothing
@@ -248,7 +248,7 @@ test "a position skipped three levels down is given back" {
 
 test "two positions skipped at one depth are both given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let .Only(Nest { tag, both: (_, _) }) = deep(ctx, "import");
     assert.eq(tag, 1);
@@ -256,7 +256,7 @@ test "two positions skipped at one depth are both given back" {
 
 test "a position skipped either side of a kept one, two levels down, is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (_, (_, n, _), _) = (
         grown(ctx, "package"),
@@ -268,7 +268,7 @@ test "a position skipped either side of a kept one, two levels down, is given ba
 
 test "a struct field the pattern does not name at all is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `..` names no field, so the fields it stands for are skipped positions
     // the pattern never wrote down.
@@ -281,7 +281,7 @@ test "a struct field the pattern does not name at all is given back" {
 
 test "a skipped position may hold a list of blocks" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (n, _) = (6, grownWords(ctx, 3));
     assert.eq(n, 6);
@@ -289,7 +289,7 @@ test "a skipped position may hold a list of blocks" {
 
 test "a skipped position may hold an option that is there" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (n, _) = (7, Option.Some(grown(ctx, "returns")));
     assert.eq(n, 7);
@@ -297,7 +297,7 @@ test "a skipped position may hold an option that is there" {
 
 test "a skipped position may hold a struct with a list in it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (n, _) = (8, Nest { tag: 0, both: (grown(ctx, "rpc"), grownList(ctx, 2)) });
     assert.eq(n, 8);
@@ -305,7 +305,7 @@ test "a skipped position may hold a struct with a list in it" {
 
 test "a position named but never read is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The other half of the rule: a name nobody reads is not a skipped
     // position at all — it is a binding the scan drops where it is bound —
@@ -326,7 +326,7 @@ test "a position named but never read is given back" {
 
 test "a payload a match arm skips is given back with its scrutinee" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (_, token) = next(ctx, 0, "rpc");
     let n = match (token) {
@@ -338,7 +338,7 @@ test "a payload a match arm skips is given back with its scrutinee" {
 
 test "a payload a match arm skips under a field it keeps is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let n = match (holder(ctx, "service")) {
         Holder { label, token: .Word(_) } => label.len(),
@@ -349,7 +349,7 @@ test "a payload a match arm skips under a field it keeps is given back" {
 
 test "an arm that keeps a payload leaves the value it came out of whole" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let held = holder(ctx, "message");
     let word = match (held) {
@@ -368,7 +368,7 @@ test "an arm that keeps a payload leaves the value it came out of whole" {
 
 test "a skipped position of a fold's accumulator is given back every round" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The accumulator carries a string it does not keep, and every round drops
     // the previous one on the floor by not naming it.
@@ -388,7 +388,7 @@ test "a skipped position of a fold's accumulator is given back every round" {
 
 test "a position skipped inside a mapped closure is given back every element" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let steps = list
         .range(ctx, 0, 8)
@@ -405,7 +405,7 @@ test "a position skipped inside a mapped closure is given back every element" {
 
 test "a deep skipped position of a value still in use is not given back twice" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let whole = deep(ctx, "extend");
     let .Only(Nest { tag, both: (_, kept) }) = whole;
@@ -417,7 +417,7 @@ test "a deep skipped position of a value still in use is not given back twice" {
 
 test "a field `..` stood for is not given back twice while the struct is read" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let nest = Nest { tag: 2, both: (grown(ctx, "public"), grownList(ctx, 2)) };
     let Nest { tag, .. } = nest;

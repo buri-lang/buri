@@ -6,19 +6,19 @@
 //!
 //! A program that never names `host.net` cannot open a socket anywhere in its
 //! transitive call graph, because nothing anywhere can obtain a value bounded
-//! by `Net`. A platform that does not grant an effect simply does not export
+//! by `Network`. A platform that does not grant an effect simply does not export
 //! it, so requesting one is an ordinary unresolved-name error at the one line
 //! that asked for it.
 
 from "core/effect" import {
-    Alloc, Clock, Connected, Entropy, Env, Header, IoError, Listen, Listener, Net,
-    NetError, Proc, Rand, Received, Region, Request, Response, Serve, ServeError,
+    Allocator, Clock, Connected, Entropy, Environment, Header, IoError, Listen, Listener, Network,
+    NetError, Process, Random, Received, Region, Request, Response, Serve, ServeError,
     Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
 };
 
 // The filesystem's two effects are declared in `core/fs` rather than
 // `core/effect`, because their methods name `Path`. See that module's header.
-from "core/fs" import { FsRead, FsWrite, Metadata };
+from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata };
 from "core/path" import { Path };
 
 // And `Spawn` is declared in `core/proc` for the same reason: it names that
@@ -28,9 +28,9 @@ from "core/process" import { Output, Spawn };
 // One `Request`, and it is `core/effect`'s.
 from "ui/effect" import { Location, Scope, Ui, Watch };
 
-export struct HostAlloc {}
+export struct HostAllocator {}
 
-impl Alloc for HostAlloc {
+impl Allocator for HostAllocator {
     fn allocate(self, bytes: Int): Region;
 }
 
@@ -64,11 +64,11 @@ impl Stdin for HostStdin {
 ///
 /// **Granted on LINUX, MACOS and JS.** Not on WEB: a page has no filesystem.
 ///
-/// One value and two effects. A program that binds `FsRead: host.fs` and no
-/// `FsWrite` cannot write anywhere in its transitive call graph.
-export struct HostFs {}
+/// One value and two effects. A program that binds `FileSystemRead: host.fs` and no
+/// `FileSystemWrite` cannot write anywhere in its transitive call graph.
+export struct HostFileSystem {}
 
-impl FsRead for HostFs {
+impl FileSystemRead for HostFileSystem {
     fn readFile(self, path: Path): Result<Str, IoError>;
 
     fn fileExists(self, path: Path): Bool;
@@ -84,7 +84,7 @@ impl FsRead for HostFs {
     fn realPath(self, path: Path): Result<Str, IoError>;
 }
 
-impl FsWrite for HostFs {
+impl FileSystemWrite for HostFileSystem {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError>;
 
     fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError>;
@@ -104,31 +104,31 @@ impl FsWrite for HostFs {
     fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 
-export struct HostNet {}
+export struct HostNetwork {}
 
-impl Net for HostNet {
+impl Network for HostNetwork {
     fn fetch(self, request: Request): Result<Response, NetError>;
 }
 
 export struct HostClock {}
 
 impl Clock for HostClock {
-    fn nowMillis(self): I64;
+    fn nowMilliseconds(self): I64;
 
-    fn sleepMillis(self, millis: Int): ();
+    fn sleepMilliseconds(self, millis: Int): ();
 
     fn monotonicNanoseconds(self): I64;
 }
 
-export struct HostRand {}
+export struct HostRandom {}
 
-impl Rand for HostRand {
+impl Random for HostRandom {
     fn nextInt(self, lo: Int, hi: Int): Int;
 
     fn nextFloat(self): Float;
 }
 
-/// The operating system's own generator, for the one thing `HostRand` does not
+/// The operating system's own generator, for the one thing `HostRandom` does not
 /// promise.
 ///
 /// **Granted on every platform.** The toolchain varies instead: a runtime archive
@@ -140,12 +140,12 @@ impl Entropy for HostEntropy {
     fn bytes(self, count: Int): [U8];
 }
 
-export struct HostEnv {}
+export struct HostEnvironment {}
 
-impl Env for HostEnv {
+impl Environment for HostEnvironment {
     fn variable(self, name: Str): Option<Str>;
 
-    fn args(self): [Str];
+    fn arguments(self): [Str];
 
     fn currentDirectory(self): Str;
 
@@ -154,9 +154,9 @@ impl Env for HostEnv {
     fn operatingSystemName(self): Str;
 }
 
-export struct HostProc {}
+export struct HostProcess {}
 
-impl Proc for HostProc {
+impl Process for HostProcess {
     fn exitWith(self, code: Int): ();
 }
 
@@ -165,7 +165,7 @@ impl Proc for HostProc {
 /// **Granted on LINUX, MACOS and JS.** Not on WEB or a worker: neither has a
 /// process table to put a child in.
 ///
-/// It is a separate grant from `HostProc` because starting a program is a
+/// It is a separate grant from `HostProcess` because starting a program is a
 /// bigger authority than ending one — a context that can run `sh` can do
 /// anything its user can. `core/proc` is the module a program calls; this is
 /// what a context binds.
@@ -239,7 +239,7 @@ impl Listen for HostListen {
 /// **Granted on LINUX and MACOS**, beside `HostListen`: a page and a worker have
 /// no sockets of their own. The client is `cli/runtime/tcp.rs`, and it is plain
 /// `std::net` — no TLS, so a program that needs it speaks it itself or uses
-/// `HostNet`.
+/// `HostNetwork`.
 export struct HostTcp {}
 
 impl Tcp for HostTcp {
@@ -275,7 +275,7 @@ impl Sockets for HostSockets {
 /// **Granted on every platform.** Holding a port open is a native program's
 /// authority; dialling out is not, and a page does it every day. On `WEB` both
 /// methods suspend without holding the event loop, which is the same thing that
-/// let `HostNet` onto a page.
+/// let `HostNetwork` onto a page.
 ///
 /// Natively the two are `cli/runtime/net.rs`'s, over the same RFC 6455 framing:
 /// the socket a client dials and the socket a server accepts are the same value
@@ -327,7 +327,7 @@ impl Location for HostLocation {
     fn path(self): Int;
 }
 
-export let alloc: HostAlloc = HostAlloc { };
+export let alloc: HostAllocator = HostAllocator { };
 
 export let stdout: HostStdout = HostStdout { };
 
@@ -335,19 +335,19 @@ export let stderr: HostStderr = HostStderr { };
 
 export let stdin: HostStdin = HostStdin { };
 
-export let fs: HostFs = HostFs { };
+export let fs: HostFileSystem = HostFileSystem { };
 
-export let net: HostNet = HostNet { };
+export let net: HostNetwork = HostNetwork { };
 
 export let clock: HostClock = HostClock { };
 
-export let rand: HostRand = HostRand { };
+export let rand: HostRandom = HostRandom { };
 
 export let entropy: HostEntropy = HostEntropy { };
 
-export let env: HostEnv = HostEnv { };
+export let env: HostEnvironment = HostEnvironment { };
 
-export let proc: HostProc = HostProc { };
+export let proc: HostProcess = HostProcess { };
 
 export let spawn: HostSpawn = HostSpawn { };
 

@@ -73,12 +73,12 @@ export fn main(): Result<(), Str> {
 
 /// The same, as a test block, so that the binary `buri test` spawns has a heap
 /// to be audited.
-const COUNTING_TEST: &str = r#"from "core/effect" import { Alloc };
+const COUNTING_TEST: &str = r#"from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 
 test "a suite that allocates" {
-    let ctx = context { Alloc: alloc() };
+    let ctx = context { Allocator: alloc() };
     let letters = [1, 2, 3].mapCtx(ctx, fn(c, n) => "buri".repeat(c, n));
     assert.eq(letters.len(), 3);
 }

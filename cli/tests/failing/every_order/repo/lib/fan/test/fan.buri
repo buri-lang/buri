@@ -6,7 +6,7 @@
 // fails it on the way out; and the block that asks for a seventh task's worth of
 // orders is refused before it runs, so it never reaches an assertion at all.
 
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 from "core/host/testing" import { alloc, task, tasks };
 from "core/tasks" import * as tasks;
 from "core/tasks" import { Scope };
@@ -16,7 +16,7 @@ from "//lib/fan" import { labelled };
 test "everyOrder reaches the sixth order of three tasks" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     let _ = labelled(ctx, [1, 2, 3]);
@@ -29,7 +29,7 @@ test "everyOrder reaches the sixth order of three tasks" {
 test "a fault ends the block at the task it names" {
     let scheduler = tasks().faults([task(1).fails("upstream went away")]);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     // Task 0 runs; task 1 is the one the plan fails, and nothing after it starts.
@@ -39,7 +39,7 @@ test "a fault ends the block at the task it names" {
 test "a fault whose task is never reached fails the test" {
     let scheduler = tasks().faults([task(4).fails("never reached")]);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     assert.eq(labelled(ctx, [1, 2]), [1, 102]);
@@ -48,7 +48,7 @@ test "a fault whose task is never reached fails the test" {
 test "everyOrder over seven spawned tasks is refused" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     // Seven tasks are 5040 runs of this block, so `everyOrder` refuses rather
@@ -62,7 +62,7 @@ test "everyOrder over seven spawned tasks is refused" {
 
 /// Spawns `left` tasks, which do nothing: what is under test is how many there
 /// are, not what they say.
-fn spawnEach<C: Alloc + Tasks>(ctx: C, here: Scope, left: Int): () {
+fn spawnEach<C: Allocator + Tasks>(ctx: C, here: Scope, left: Int): () {
     match (left <= 0) {
         true => (),
         false => {

@@ -9,7 +9,7 @@
 // so every one of these is a case where the hand-written `checkedMul`,
 // `checkedSub`, decide-from-the-sign shape had to get the answer right.
 
-from "core/effect" import { Alloc, Clock };
+from "core/effect" import { Allocator, Clock };
 from "core/host/testing" import { alloc, clock };
 from "core/list" import * as list;
 from "core/math" import * as math;
@@ -126,7 +126,7 @@ test "durations compare as lengths" {
 
 test "a length shows in the largest unit it reaches" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(time.millis(1500).show(ctx), "1.5s");
     assert.eq(time.millis(300).show(ctx), "300ms");
@@ -138,7 +138,7 @@ test "a length shows in the largest unit it reaches" {
 
 test "the fraction is exact and carries no trailing zeros" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(time.nanos(1000000001).show(ctx), "1.000000001s");
     assert.eq(time.nanos(999999999).show(ctx), "999.999999ms");
@@ -149,7 +149,7 @@ test "the fraction is exact and carries no trailing zeros" {
 
 test "the sign is in front of the number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(time.millis(-1500).show(ctx), "-1.5s");
     assert.eq(time.nanos(-1).show(ctx), "-1ns");
@@ -217,7 +217,7 @@ test "instants compare as points" {
 test "since answers a length rather than a count" {
     let dial = clock().at(500);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: dial,
     };
     let start = time.now(ctx);
@@ -345,7 +345,7 @@ test "a clock the test moves by hand moves the monotonic reading too" {
 
 test "a run of readings off one clock never goes backwards" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
     };
     // Thirty readings, with a sleep of nothing between some pairs and a longer
@@ -371,7 +371,7 @@ test "a run of readings off one clock never goes backwards" {
 
 test "elapsed measures from a reading taken before the work, not after" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_000),
     };
     let started = time.monotonic(ctx);

@@ -6,7 +6,7 @@
 // that says only "wrong type" of a hundred-line document is a decode error
 // nobody can act on.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, Json, ToJson };
@@ -18,7 +18,7 @@ from "//lib/json" import {
 
 /// The document `text` describes, or `Json.Null` if it is not one. Every text
 /// here is a literal in this file, so `.Null` is unreachable.
-fn doc<C: Alloc>(ctx: C, text: Str): Json {
+fn doc<C: Allocator>(ctx: C, text: Str): Json {
     match (json.parse(ctx, text)) {
         .Ok(v) => v,
         .Err(_e) => Json.Null,
@@ -32,7 +32,7 @@ fn doc<C: Alloc>(ctx: C, text: Str): Json {
 
 test "a struct round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = point(1, 2);
     let back: Result<Point, DecodeError> = json.decode(ctx, json.encode(ctx, v));
@@ -41,7 +41,7 @@ test "a struct round-trips" {
 
 test "a nested struct round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = Segment {
         start: point(0, 0),
@@ -55,7 +55,7 @@ test "a nested struct round-trips" {
 
 test "a positional struct round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one: Result<Meters, DecodeError> = json.decode(
         ctx,
@@ -71,7 +71,7 @@ test "a positional struct round-trips" {
 
 test "a struct with nothing in it round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Hollow, DecodeError> = json.decode(
         ctx,
@@ -82,7 +82,7 @@ test "a struct with nothing in it round-trips" {
 
 test "a payload-free enum round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Colour, DecodeError> = json.decode(
         ctx,
@@ -93,7 +93,7 @@ test "a payload-free enum round-trips" {
 
 test "an enum with payloads round-trips at every variant shape" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let empty: Result<Shape, DecodeError> = json.decode(
         ctx,
@@ -119,7 +119,7 @@ test "an enum with payloads round-trips at every variant shape" {
 
 test "one of everything round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = everything();
     let back: Result<Everything, DecodeError> = json.decode(ctx, json.encode(ctx, v));
@@ -128,7 +128,7 @@ test "one of everything round-trips" {
 
 test "a recursive type round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let tree = rose(8);
     let back: Result<Rose, DecodeError> = json.decode(ctx, json.encode(ctx, tree));
@@ -137,7 +137,7 @@ test "a recursive type round-trips" {
 
 test "recursion through an Option of a list round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let c = chain(5);
     let back: Result<Chain, DecodeError> = json.decode(ctx, json.encode(ctx, c));
@@ -146,7 +146,7 @@ test "recursion through an Option of a list round-trips" {
 
 test "a list and a tuple round-trip" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs: Result<[Point], DecodeError> = json.decode(
         ctx,
@@ -162,7 +162,7 @@ test "a list and a tuple round-trip" {
 
 test "an absent Option comes back absent" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let none: Option<Point> = .None;
     let back: Result<Option<Point>, DecodeError> = json.decode(
@@ -174,7 +174,7 @@ test "an absent Option comes back absent" {
 
 test "a generic type round-trips at each instantiation" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let p = Wrapper { value: point(1, 2), tag: "p" };
     let l = Wrapper { value: [1, 2], tag: "l" };
@@ -187,14 +187,14 @@ test "a generic type round-trips at each instantiation" {
 /// The bound is discharged at the *call*, so a function generic over `T` gets
 /// its descriptor from wherever it is instantiated rather than from a witness
 /// passed in.
-fn roundTrips<T: ToJson + FromJson + Eq, C: Alloc>(ctx: C, value: T): Bool {
+fn roundTrips<T: ToJson + FromJson + Eq, C: Allocator>(ctx: C, value: T): Bool {
     let back: Result<T, DecodeError> = json.decode(ctx, json.encode(ctx, value));
     back == .Ok(value)
 }
 
 test "a function generic over the pair of traits round-trips whatever it is given" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(roundTrips(ctx, point(1, 2)));
     assert.isTrue(roundTrips(ctx, Shape.Rect { width: 3, height: 4 }));
@@ -206,7 +206,7 @@ test "a function generic over the pair of traits round-trips whatever it is give
 
 test "a document written by hand decodes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Point, DecodeError> = json.decode(
         ctx,
@@ -217,7 +217,7 @@ test "a document written by hand decodes" {
 
 test "an integer field takes a whole number and nothing else" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ok: Result<Point, DecodeError> = json.decode(
         ctx,
@@ -236,7 +236,7 @@ test "an integer field takes a whole number and nothing else" {
 
 test "member order in the document does not matter" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Point, DecodeError> = json.decode(
         ctx,
@@ -249,7 +249,7 @@ test "member order in the document does not matter" {
 
 test "a missing field names the path it was looked for at" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "{\"x\":1}"));
     assert.eq(back, .Err(.Missing { path: "$.y" }));
@@ -257,7 +257,7 @@ test "a missing field names the path it was looked for at" {
 
 test "a missing field inside a nested struct names the whole path" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text =
         "{\"start\":{\"x\":0},\"stop\":{\"x\":1,\"y\":1},\"label\":\"d\",\"waypoints\":[]}";
@@ -267,7 +267,7 @@ test "a missing field inside a nested struct names the whole path" {
 
 test "a wrong type says what was wanted and what was there" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Point, DecodeError> = json.decode(
         ctx,
@@ -281,7 +281,7 @@ test "a wrong type says what was wanted and what was there" {
 
 test "a wrong type at the root names the root" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Point, DecodeError> = json.decode(ctx, doc(ctx, "[1,2]"));
     assert.eq(
@@ -292,7 +292,7 @@ test "a wrong type at the root names the root" {
 
 test "a wrong type inside a list names the index" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text =
         "{\"start\":{\"x\":0,\"y\":0},\"stop\":{\"x\":1,\"y\":1},\"label\":\"d\",\"waypoints\":[{\"x\":1,\"y\":1},3]}";
@@ -309,7 +309,7 @@ test "a wrong type inside a list names the index" {
 
 test "an unknown variant names the tag it did not recognise" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let bare: Result<Colour, DecodeError> = json.decode(ctx, doc(ctx, "\"Purple\""));
     let tagged: Result<Shape, DecodeError> = json.decode(
@@ -322,7 +322,7 @@ test "an unknown variant names the tag it did not recognise" {
 
 test "a variant with fields written as a bare string is the wrong shape" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Shape, DecodeError> = json.decode(ctx, doc(ctx, "\"Circle\""));
     assert.eq(
@@ -337,7 +337,7 @@ test "a variant with fields written as a bare string is the wrong shape" {
 
 test "a variant payload of the wrong arity is the wrong shape" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Shape, DecodeError> = json.decode(
         ctx,
@@ -355,7 +355,7 @@ test "a variant payload of the wrong arity is the wrong shape" {
 
 test "a variant payload names its own path" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Shape, DecodeError> = json.decode(
         ctx,
@@ -366,7 +366,7 @@ test "a variant payload names its own path" {
 
 test "an object naming two variants at once is not one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Shape, DecodeError> = json.decode(
         ctx,
@@ -384,7 +384,7 @@ test "an object naming two variants at once is not one" {
 
 test "a positional struct of the wrong arity is the wrong shape" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back: Result<Pair, DecodeError> = json.decode(ctx, doc(ctx, "[1]"));
     assert.eq(
@@ -399,7 +399,7 @@ test "a positional struct of the wrong arity is the wrong shape" {
 
 test "a failure deep inside a recursive value still names its place" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = "{\"Branch\":[[{\"Leaf\":[1]},{\"Leaf\":[\"x\"]}]]}";
     let back: Result<Rose, DecodeError> = json.decode(ctx, doc(ctx, text));
@@ -415,7 +415,7 @@ test "a failure deep inside a recursive value still names its place" {
 
 test "the scalars each refuse the other shapes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let b: Result<Bool, DecodeError> = json.decode(ctx, doc(ctx, "1"));
     let s: Result<Str, DecodeError> = json.decode(ctx, doc(ctx, "1"));
@@ -432,7 +432,7 @@ test "the scalars each refuse the other shapes" {
 
 test "a Char is one character, not a word" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one: Result<Char, DecodeError> = json.decode(ctx, doc(ctx, "\"q\""));
     let two: Result<Char, DecodeError> = json.decode(ctx, doc(ctx, "\"qq\""));
@@ -449,7 +449,7 @@ test "a Char is one character, not a word" {
 
 test "null reads as an absent Option whatever the payload" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let none: Result<Option<Point>, DecodeError> = json.decode(ctx, doc(ctx, "null"));
     let some: Result<Option<Point>, DecodeError> = json.decode(

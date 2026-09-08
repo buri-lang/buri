@@ -70,7 +70,7 @@
 //! * A producer whose body contains `?`, a `Continue` or a `Loop`. `?` exits the
 //!   lambda it is written in, and splicing a body moves which lambda that is.
 //! * A dropped `ctx` argument that is anything but a read. The fused call does
-//!   not build the producer's list, so the producer's `Alloc` argument is never
+//!   not build the producer's list, so the producer's `Allocator` argument is never
 //!   evaluated, and an argument that was a call would have been.
 //! * `filter(map(…))` and `map(filter(…))`, which are not fusions: the first
 //!   would have to answer source elements where it answers mapped ones, and the
@@ -296,7 +296,7 @@ impl Fuse<'_> {
         if !movable(producer_body) {
             return None;
         }
-        // `map` and `filter` both take an `Alloc` for the block they build, and
+        // `map` and `filter` both take an `Allocator` for the block they build, and
         // the fused call builds no such block.
         if !readonly(producer_args.get(1)?) {
             return None;

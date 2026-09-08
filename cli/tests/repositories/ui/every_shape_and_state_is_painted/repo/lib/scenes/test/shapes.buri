@@ -1,7 +1,7 @@
 // The shapes a tree can be, at both ends: nothing at all, one run of text,
 // a hundred boxes deep, and a thousand boxes wide.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -10,7 +10,7 @@ from "//lib/scenes" import { deep, siblings };
 
 test "an empty tree is a page with nothing on it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "empty", ui.nothing(), .Hover);
@@ -18,7 +18,7 @@ test "an empty tree is a page with nothing on it" {
 
 test "a tree of one run of text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "one-run-of-text", ui.text(.Const("Ada")), .Hover);
@@ -26,7 +26,7 @@ test "a tree of one run of text" {
 
 test "a hundred stacks deep" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "a-hundred-deep", deep(100), .Hover);
@@ -34,7 +34,7 @@ test "a hundred stacks deep" {
 
 test "a thousand siblings" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "a-thousand-siblings", siblings(ctx, 1000), .Hover);

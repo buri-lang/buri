@@ -13,7 +13,7 @@
 // `main` answers `.Ok(())`, the entry wrapper exits only on an `.Err`, and the
 // listeners this registered are what happens next. Under `bun` there is no
 // document, so the runtime supplies one — see `$dom_body`.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
@@ -82,7 +82,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Ui: host.ui,
         Watch: host.watch,

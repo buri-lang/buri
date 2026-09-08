@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc, Clock, IoError, Stdout };
+from "core/effect" import { Allocator, Clock, IoError, Stdout };
 from "core/io" import * as io;
 
 /// `io.println` asks for `Stdout` and for nothing else, so two of the three

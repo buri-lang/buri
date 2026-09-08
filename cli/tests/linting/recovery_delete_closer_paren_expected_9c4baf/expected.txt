@@ -1,19 +1,19 @@
 error: this function type is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_expected_9c4baf/main.buri:34:49
    |
-34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
    |                                                 ^^
    |
   --> lib/recovery_delete_closer_paren_expected_9c4baf/main.buri:34:41
    |
-34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
    |                                         ^ opened here
    |
    = fix: write `)` here
 error: expected `=>`, found `:` [unexpected-token]
   --> lib/recovery_delete_closer_paren_expected_9c4baf/main.buri:34:68
    |
-34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
    |                                                                    ^
    |
    = expected: `=>`

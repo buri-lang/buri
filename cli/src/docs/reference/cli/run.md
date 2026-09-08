@@ -29,4 +29,4 @@ outside the build graph, with the real filesystem and the real environment.
 
 The context its entry builds still bounds what the program can do. A program
 whose entry never names `host.net` cannot open a socket, because nothing
-anywhere in it can obtain a value bounded by `Net`.
+anywhere in it can obtain a value bounded by `Network`.

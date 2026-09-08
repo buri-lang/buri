@@ -1,1 +1,1 @@
-export context Everything { Clock: Fixed(0) Alloc: System(), Stdout: Buffered() }
+export context Everything { Clock: Fixed(0) Allocator: System(), Stdout: Buffered() }

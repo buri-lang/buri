@@ -202,12 +202,12 @@ binary {
 ```
 
 ```buri role=entry
-# from "core/effect" import { Alloc, Request, Response };
+# from "core/effect" import { Allocator, Request, Response };
 # from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     .Ok(())
 }
@@ -254,7 +254,7 @@ A platform *is* the set of effects its host exports. A platform that does not
 grant an effect does not export the name for it, so asking for it fails to
 compile at the line that asked, as `effect-not-on-platform`. An entry binding
 `Ui: host.ui` under `platform: JS` does not compile, and neither does one
-binding `FsRead: host.fs` under `platform: WEB`.
+binding `FileSystemRead: host.fs` under `platform: WEB`.
 `buri docs error effect-not-on-platform` has the table of what each platform
 grants.
 
@@ -262,7 +262,7 @@ The check does not wait for a build. An entry's body is checked against the
 outputs that enter through it, plus every platform its suite names in
 `test.platforms`, since a test binary links the entry point in. Everything else
 in `main.buri` is checked against every platform the `outputs` name. So a binary
-declaring `[MACOS, WEB]` whose helper binds `FsRead: host.fs` is refused
+declaring `[MACOS, WEB]` whose helper binds `FileSystemRead: host.fs` is refused
 whichever output you ask for, and `buri lint`, `buri test` and the language
 server all refuse it before anything is produced. Every other module is checked
 against the platforms **its own rule declared**, and a rule that declared none is
@@ -396,12 +396,12 @@ closure.
   scope, so
 
   ```buri repo=cli/tests/example
-  # from "core/effect" import { Alloc };
+  # from "core/effect" import { Allocator };
   from "//lib/ledger" import { Entry };
 
   // `amount` is a Cents from //lib/money, and `format` is one of its methods —
   // no import names //lib/money, and this target still depends on it.
-  fn line<C: Alloc>(ctx: C, e: Entry): Str {
+  fn line<C: Allocator>(ctx: C, e: Entry): Str {
       e.amount.format(ctx)
   }
   ```

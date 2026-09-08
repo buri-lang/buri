@@ -5,7 +5,7 @@
 // discovered, because the compiler indexes the text with these numbers.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/buri_ast" import { ex, item, itemAt, n, nAt, one, ty };
@@ -24,7 +24,7 @@ fn alias(name: ast.Name, target: ast.Type, exported: Bool): ast.ItemKind {
 
 test "a node with an origin gets an anchor over its own printed text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = ast.Module {
         items: [itemAt(alias(n("Id"), ty("Int"), true), FILE, 3, 9)],
@@ -40,7 +40,7 @@ test "a node with an origin gets an anchor over its own printed text" {
 
 test "a node whose origin names no file gets none" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = one(alias(n("Id"), ty("Int"), true));
     assert.isEmpty(ast.print(ctx, m).anchors);
@@ -48,7 +48,7 @@ test "a node whose origin names no file gets none" {
 
 test "anchors come back sorted, and the outermost first where two start together" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `Option` is the name of the return type and the head of it, so the two
     // nodes are printed from the same offset and only their ends part them.
@@ -74,7 +74,7 @@ test "anchors come back sorted, and the outermost first where two start together
 
 test "an anchor counts UTF-8 bytes, not scalar values" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `é` is one scalar value and two bytes, so the second declaration starts
     // one byte further along than a character count would say.
@@ -100,7 +100,7 @@ test "an anchor counts UTF-8 bytes, not scalar values" {
 
 test "every node kind that carries an origin records one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let field = ast.FieldDecl {
         name: nAt("x", FILE, 4, 5),

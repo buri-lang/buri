@@ -31,14 +31,14 @@
 //!
 //! ```buri run
 //! from "core/bytes" import * as bytes;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/hash" import * as hash;
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let body = bytes.toUtf8(ctx, "foobar");
@@ -156,7 +156,7 @@ struct State {
 /// program it is a fast 64-bit hash and nothing more.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/hash" import * as hash;
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
@@ -164,7 +164,7 @@ struct State {
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     // The reference implementation's key, and its vector for the empty

@@ -6,7 +6,7 @@
 // symbol that is not punctuation, a format character that is not a control, an
 // unassigned code point that is neither.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 
@@ -252,7 +252,7 @@ let C0: [Char] = [
 // all six classifiers at once, with the counts the categories promise.
 test "the classifiers agree over the whole of printable ASCII" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cs = PRINTABLE_ASCII.chars(ctx);
     assert.eq(cs.len(), 95);
@@ -290,7 +290,7 @@ test "the classifiers agree over the whole of the C0 block" {
 // characters read out of a string give the same answers as the literals above.
 test "a classifier reads the same off a string as off a literal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cs = "a1 !é😀".chars(ctx);
     assert.eq(cs.count(fn(c) => c.isAscii()), 4);

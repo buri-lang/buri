@@ -6,13 +6,13 @@
 //! ```buri run
 //! from "core/bytes" import * as bytes;
 //! from "core/compression" import * as compression;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let raw = bytes.toUtf8(ctx, "ha ha ha ha ha ha ha ha ha ha ha ha!");
@@ -53,7 +53,7 @@
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 
 from "core/bytes" export { DecodeError };
@@ -64,9 +64,9 @@ from "core/bytes" export { DecodeError };
 ///
 /// ```buri
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn packed<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+/// export fn packed<C: Allocator>(ctx: C, raw: [U8]): [U8] {
 ///     compression.deflate(ctx, raw)
 /// }
 /// ```
@@ -74,7 +74,7 @@ from "core/bytes" export { DecodeError };
 /// One fixed-Huffman block, always the last one. The empty input is a
 /// three-bit stream rather than nothing at all, because a reader has to be told
 /// where the data ends.
-export fn deflate<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+export fn deflate<C: Allocator>(ctx: C, raw: [U8]): [U8] {
     let started = putBits(ctx, list.empty<U8>(), 0, 0, 3, 3);
     let body = emitting(ctx, raw, chains(ctx, raw), 0, started.0, started.1, started.2);
     let ended = putCode(ctx, body.0, body.1, body.2, 0, 7);
@@ -86,9 +86,9 @@ export fn deflate<C: Alloc>(ctx: C, raw: [U8]): [U8] {
 /// ```buri
 /// from "core/bytes" import { DecodeError };
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn unpacked<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+/// export fn unpacked<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 ///     compression.inflate(ctx, body)
 /// }
 /// ```
@@ -96,7 +96,7 @@ export fn deflate<C: Alloc>(ctx: C, raw: [U8]): [U8] {
 /// `.Err` carries the **input** offset the reader stopped at: a stream that ran
 /// out, a block type that does not exist, a Huffman tree that claims more codes
 /// than its lengths allow, or a match that copies from before the start.
-export fn inflate<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+export fn inflate<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
     let done = inflating(
         ctx,
         body,
@@ -110,9 +110,9 @@ export fn inflate<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 ///
 /// ```buri
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn wrapped<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+/// export fn wrapped<C: Allocator>(ctx: C, raw: [U8]): [U8] {
 ///     compression.gzip(ctx, raw)
 /// }
 /// ```
@@ -120,7 +120,7 @@ export fn inflate<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 /// The header carries no modification time, no name and no operating system, so
 /// the same bytes always give the same bytes. The trailer is the CRC-32 of the
 /// input and its length modulo 2^32, both little-endian.
-export fn gzip<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+export fn gzip<C: Allocator>(ctx: C, raw: [U8]): [U8] {
     let head: [U8] = [31, 139, 8, 0, 0, 0, 0, 0, 0, 255];
     head
         .concat(ctx, deflate(ctx, raw))
@@ -134,9 +134,9 @@ export fn gzip<C: Alloc>(ctx: C, raw: [U8]): [U8] {
 /// ```buri
 /// from "core/bytes" import { DecodeError };
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 ///
-/// export fn unwrapped<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+/// export fn unwrapped<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 ///     compression.gunzip(ctx, body)
 /// }
 /// ```
@@ -149,7 +149,7 @@ export fn gzip<C: Alloc>(ctx: C, raw: [U8]): [U8] {
 /// `.Err` carries the input offset that failed — a bad magic number, a
 /// compression method that is not DEFLATE, a truncated header, whatever
 /// [`inflate`] refused, or a trailer that does not match what came out.
-export fn gunzip<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+export fn gunzip<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
     match (memberStart(body)) {
         .Err(e) => .Err(e),
         .Ok(start) => {
@@ -443,7 +443,7 @@ let NONE: Int = -1;
 // makes appending amortized O(1) rather than a copy of the whole output.
 
 /// A plain field: the low bit goes out first.
-fn putBits<C: Alloc>(
+fn putBits<C: Allocator>(
     ctx: C,
     out: [U8],
     held: Int,
@@ -456,7 +456,7 @@ fn putBits<C: Alloc>(
 }
 
 /// A Huffman code: the high bit goes out first.
-fn putCode<C: Alloc>(
+fn putCode<C: Allocator>(
     ctx: C,
     out: [U8],
     held: Int,
@@ -472,7 +472,7 @@ fn putCode<C: Alloc>(
     }
 }
 
-fn draining<C: Alloc>(ctx: C, out: [U8], held: Int, count: Int): ([U8], Int, Int) {
+fn draining<C: Allocator>(ctx: C, out: [U8], held: Int, count: Int): ([U8], Int, Int) {
     if (count < 8) {
         (out, held, count)
     } else {
@@ -486,7 +486,7 @@ fn draining<C: Alloc>(ctx: C, out: [U8], held: Int, count: Int): ([U8], Int, Int
 }
 
 /// The last partial byte, padded with zeroes.
-fn finish<C: Alloc>(ctx: C, out: [U8], held: Int, count: Int): [U8] {
+fn finish<C: Allocator>(ctx: C, out: [U8], held: Int, count: Int): [U8] {
     if (count > 0) { out.push(ctx, (held & 255).wrapToU8()) } else { out }
 }
 
@@ -514,7 +514,7 @@ fn fixedCode(symbol: Int): (Int, Int) {
 
 /// For each position, the nearest earlier one starting with the same three
 /// bytes, or [`NONE`].
-fn chains<C: Alloc>(ctx: C, raw: [U8]): [Int] {
+fn chains<C: Allocator>(ctx: C, raw: [U8]): [Int] {
     let n = raw.len();
     let m = if (n >= MIN_MATCH) { n - 2 } else { 0 };
     let keys = list.range(ctx, 0, m).map(ctx, fn(i) => keyAt(raw, i));
@@ -558,7 +558,7 @@ fn at(xs: [Int], i: Int): Int {
 
 /// One symbol at a time until the input runs out. A self tail call, so a
 /// megabyte costs one frame.
-fn emitting<C: Alloc>(
+fn emitting<C: Allocator>(
     ctx: C,
     raw: [U8],
     prev: [Int],
@@ -588,7 +588,7 @@ fn emitting<C: Alloc>(
 }
 
 /// One length-and-distance pair, as its four fields.
-fn backRef<C: Alloc>(
+fn backRef<C: Allocator>(
     ctx: C,
     out: [U8],
     held: Int,
@@ -752,7 +752,7 @@ struct Huffman {
 /// The code those lengths describe. `ok` is false for an over-subscribed set —
 /// more codes claimed at some length than the lengths above it leave room for —
 /// which is corruption rather than a legal incomplete tree.
-fn huffmanOf<C: Alloc>(ctx: C, lengths: [Int]): Huffman {
+fn huffmanOf<C: Allocator>(ctx: C, lengths: [Int]): Huffman {
     let counts = list
         .range(ctx, 0, 16)
         .map(ctx, fn(len) => {
@@ -815,7 +815,7 @@ fn stepping(
 }
 
 /// Block after block until the one marked last.
-fn inflating<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
+fn inflating<C: Allocator>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
     let last = takeBits(data, c, 1);
     let kind = takeBits(data, last.1, 2);
     if (kind.1.error >= 0) {
@@ -840,7 +840,7 @@ fn inflating<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8])
 
 /// A stored block: to the next byte boundary, then a length, its complement,
 /// and that many bytes as they are.
-fn storedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
+fn storedBlock<C: Allocator>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
     let aligned = if (c.bit == 0) { c } else { Cursor { ..c, at: c.at + 1, bit: 0 } };
     let len = takeBits(data, aligned, 16);
     let nlen = takeBits(data, len.1, 16);
@@ -853,7 +853,7 @@ fn storedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8
     }
 }
 
-fn storedBytes<C: Alloc>(
+fn storedBytes<C: Allocator>(
     ctx: C,
     data: [U8],
     c: Cursor,
@@ -878,7 +878,7 @@ fn storedBytes<C: Alloc>(
     }
 }
 
-fn fixedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
+fn fixedBlock<C: Allocator>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
     let literals = huffmanOf(
         ctx,
         list
@@ -901,7 +901,7 @@ fn fixedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]
 
 /// A dynamic block: the two trees are written into the stream ahead of the
 /// data, themselves compressed by a third.
-fn dynamicBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
+fn dynamicBlock<C: Allocator>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
     let hlit = takeBits(data, c, 5);
     let hdist = takeBits(data, hlit.1, 5);
     let hclen = takeBits(data, hdist.1, 4);
@@ -940,7 +940,7 @@ fn dynamicBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U
 }
 
 /// `n` three-bit values, in the order the stream writes them.
-fn threeBits<C: Alloc>(
+fn threeBits<C: Allocator>(
     ctx: C,
     data: [U8],
     c: Cursor,
@@ -957,7 +957,7 @@ fn threeBits<C: Alloc>(
 
 /// The nineteen code lengths, put back into symbol order from the order RFC
 /// 1951 §3.2.7 writes them in.
-fn ordered<C: Alloc>(ctx: C, read: [Int]): [Int] {
+fn ordered<C: Allocator>(ctx: C, read: [Int]): [Int] {
     list
         .range(ctx, 0, 19)
         .map(ctx, fn(i) => (at(LENGTH_ORDER, i), read.get(i).withDefault(0)))
@@ -966,7 +966,7 @@ fn ordered<C: Alloc>(ctx: C, read: [Int]): [Int] {
 }
 
 /// `want` code lengths, with the three repeat symbols expanded.
-fn runLengths<C: Alloc>(
+fn runLengths<C: Allocator>(
     ctx: C,
     data: [U8],
     c: Cursor,
@@ -1025,7 +1025,7 @@ fn runLengths<C: Alloc>(
 
 /// The body of a compressed block: literals and back-references until the
 /// end-of-block symbol.
-fn pairs<C: Alloc>(
+fn pairs<C: Allocator>(
     ctx: C,
     data: [U8],
     c: Cursor,
@@ -1077,7 +1077,7 @@ fn pairs<C: Alloc>(
 
 /// `length` bytes copied from `distance` back, one at a time — the source may
 /// overlap the destination, which is how DEFLATE spells a run.
-fn copyBack<C: Alloc>(ctx: C, out: [U8], distance: Int, length: Int): [U8] {
+fn copyBack<C: Allocator>(ctx: C, out: [U8], distance: Int, length: Int): [U8] {
     if (length <= 0) {
         out
     } else {

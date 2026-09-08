@@ -1,6 +1,6 @@
 // Boolean-valued conditionals. A branch that yields `true` or `false` is the
 // condition itself, and an `if` in value position is a ternary.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -22,7 +22,7 @@ fn pick(flag: Bool, a: Int, b: Int): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io.println(ctx, "${inRange(5, 1, 10)} ${inRange(50, 1, 10)}").ignore();

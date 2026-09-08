@@ -7,7 +7,7 @@
 // lowering for, and one that could take a node apart would be a second reader
 // of a shape only the runtime is meant to read. Both halves are refused here:
 // the pattern destructures, and the expression constructs.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
@@ -21,6 +21,6 @@ fn rewrap<C>(n: Node<C>): Node<C> {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, rewrap(ui.stack([], [])), [])
 }

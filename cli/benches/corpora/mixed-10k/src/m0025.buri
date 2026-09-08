@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0016.buri" import { blend16, Node16, reach16, seed16 };
@@ -40,7 +40,7 @@ export fn lift25(n: Node16): Node25 {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest25_0<C: Alloc>(ctx: C): Int {
+export fn digest25_0<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [3866, 2845, 696, 7112, 1101, 4084, 6083, 9158, 4936, 5901];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -55,13 +55,13 @@ export fn drain25_0(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_0<C: Alloc>(ctx: C): Int {
+export fn probe25_0<C: Allocator>(ctx: C): Int {
     digest25_0(ctx) + drain25_0()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest25_1<C: Alloc>(ctx: C): Int {
+export fn digest25_1<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [1150, 4825, 2607, 6030, 40];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -76,13 +76,13 @@ export fn drain25_1(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_1<C: Alloc>(ctx: C): Int {
+export fn probe25_1<C: Allocator>(ctx: C): Int {
     digest25_1(ctx) + drain25_1()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label25_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label25_2<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "golf" } else { "golf" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -95,7 +95,7 @@ export fn constants25_2(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_2<C: Alloc>(ctx: C): Int {
+export fn probe25_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants25_2();
     label25_2(ctx, a, e).len() + b
 }
@@ -113,14 +113,14 @@ impl Rec25_3 {
         self.f0 * factor + 181
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec25_3: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_3<C: Alloc>(ctx: C): Int {
+export fn probe25_3<C: Allocator>(ctx: C): Int {
     let r = Rec25_3 { f0: 7, f1: "probe" };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -141,14 +141,14 @@ impl Rec25_4 {
         self.f0 * factor + 954
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec25_4: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_4<C: Alloc>(ctx: C): Int {
+export fn probe25_4<C: Allocator>(ctx: C): Int {
     let r = Rec25_4 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -167,14 +167,14 @@ impl Rec25_5 {
         self.f0 * factor + 930
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec25_5: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_5<C: Alloc>(ctx: C): Int {
+export fn probe25_5<C: Allocator>(ctx: C): Int {
     let r = Rec25_5 { f0: 7, f1: "probe", f2: 1.5 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -192,14 +192,14 @@ impl Rec25_6 {
         self.f0 * factor + 163
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec25_6: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_6<C: Alloc>(ctx: C): Int {
+export fn probe25_6<C: Allocator>(ctx: C): Int {
     let r = Rec25_6 { f0: 7, f1: "probe" };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -216,7 +216,7 @@ export fn compute25_7(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_7<C: Alloc>(ctx: C): Int {
+export fn probe25_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute25_7(7)
 }
@@ -237,14 +237,14 @@ export fn compute25_8(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_8<C: Alloc>(ctx: C): Int {
+export fn probe25_8<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute25_8(7)
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest25_9<C: Alloc>(ctx: C): Int {
+export fn digest25_9<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [1253, 3359, 4576, 3954, 6827, 5898, 1912, 969];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -259,13 +259,13 @@ export fn drain25_9(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_9<C: Alloc>(ctx: C): Int {
+export fn probe25_9<C: Allocator>(ctx: C): Int {
     digest25_9(ctx) + drain25_9()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label25_10<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label25_10<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "golf" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -278,7 +278,7 @@ export fn constants25_10(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_10<C: Alloc>(ctx: C): Int {
+export fn probe25_10<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants25_10();
     label25_10(ctx, a, e).len() + b
 }
@@ -318,14 +318,14 @@ export fn start25_11(ticks: Int): State25_11 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe25_11<C: Alloc>(ctx: C): Int {
+export fn probe25_11<C: Allocator>(ctx: C): Int {
     let s = start25_11(5);
     rank25_11(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach25<C: Alloc>(ctx: C): Int {
+export fn reach25<C: Allocator>(ctx: C): Int {
     0
         + probe25_0(ctx)
         + probe25_1(ctx)

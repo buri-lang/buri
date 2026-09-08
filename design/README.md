@@ -37,7 +37,7 @@ carried, so look one up here.
 |---|---|
 | 0 | `transform` → `middle`; the `Backend`/`Linker` traits and `Emitted`; `Action::Codegen`; the cargo features; `middle/mod.rs` declaring every module the later waves fill in |
 | 1a | `middle::ir` and `middle::lower` — the block-argument SSA CFG |
-| 1b | `middle::layout` — the value model as a memoised table, plus the `Alloc` cost model |
+| 1b | `middle::layout` — the value model as a memoised table, plus the `Allocator` cost model |
 | 1c | `cli/runtime` — the C-ABI runtime, and the `build.rs` that builds it |
 | 1d | `middle::{decision, closures, dce, tail_calls}` — the tree passes, and the tail-call *rewrite* that replaced the emitter consulting a `Plan` |
 | 1e | `middle::{derives, rc}` — generated derives, and own/borrow inference with reuse |
@@ -48,7 +48,7 @@ carried, so look one up here.
 | 3b | `buri test --watch` |
 | 3c | The `host_platform()` switch, the SPEC amendment, and the golden re-record |
 | 3d | The `buri_rt_*` runtime surface as both backends call it |
-| 4 | The allocator types and `Alloc` accounting |
+| 4 | The allocator types and `Allocator` accounting |
 
 **A second set of labels sits beside these.** The concurrency-and-servers
 program that followed was cut into slices named by a letter and a number — `B6`,

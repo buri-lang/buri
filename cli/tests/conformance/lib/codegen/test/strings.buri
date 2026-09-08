@@ -15,7 +15,7 @@
 // The answers here are what `len` meant before there was a fast path, so this
 // is the test that the two agree.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -108,7 +108,7 @@ test "indexOf counts an astral scalar in the prefix once" {
 
 test "padding measures the width in scalars" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("abc".padStart(ctx, 5, '.'), "..abc");
     assert.eq("abc".padEnd(ctx, 5, '.'), "abc..");
@@ -118,7 +118,7 @@ test "padding measures the width in scalars" {
 
 test "padding counts an astral scalar as one wide" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `😀` is one scalar, so it needs four more to reach five.
     assert.eq("😀".padStart(ctx, 5, '.'), "....😀");
@@ -130,7 +130,7 @@ test "padding counts an astral scalar as one wide" {
 
 test "chars agrees with len and charAt" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let mixed = "mix日😀éd";
     assert.eq(mixed.chars(ctx).len(), mixed.len());

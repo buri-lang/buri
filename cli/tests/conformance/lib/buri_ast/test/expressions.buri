@@ -6,7 +6,7 @@
 // about a wrapper.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/buri_ast" import {
@@ -21,7 +21,7 @@ fn bin(op: ast.BinOp, lhs: ast.Expr, rhs: ast.Expr): ast.Expr {
 
 test "a sum under a product keeps its parentheses" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let e = bin(.Mul, bin(.Add, id("a"), id("b")), id("c"));
     assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (a + b) * c;\n");
@@ -29,7 +29,7 @@ test "a sum under a product keeps its parentheses" {
 
 test "a product under a sum needs none" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let e = bin(.Add, id("a"), bin(.Mul, id("b"), id("c")));
     assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = a + b * c;\n");
@@ -37,7 +37,7 @@ test "a product under a sum needs none" {
 
 test "the ladder associates left, so only the right operand is parenthesised" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let left = bin(.Sub, bin(.Sub, id("a"), id("b")), id("c"));
     let right = bin(.Sub, id("a"), bin(.Sub, id("b"), id("c")));
@@ -47,7 +47,7 @@ test "the ladder associates left, so only the right operand is parenthesised" {
 
 test "a comparison does not associate, so both operands are parenthesised" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let e = bin(.Ne, bin(.Lt, id("a"), id("b")), bin(.Lt, id("c"), id("d")));
     assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (a < b) != (c < d);\n");
@@ -55,7 +55,7 @@ test "a comparison does not associate, so both operands are parenthesised" {
 
 test "a unary operand binds tighter than any operator" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let e = ex(.Unary(.Neg, [bin(.Add, id("a"), id("b"))]));
     assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = -(a + b);\n");
@@ -63,7 +63,7 @@ test "a unary operand binds tighter than any operator" {
 
 test "a lambda cannot head a chain without parentheses" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let f = ex(.Lambda([ast.LambdaParam { name: n("x"), ty: [] }], [], [id("x")]));
     assert.eq(
@@ -74,7 +74,7 @@ test "a lambda cannot head a chain without parentheses" {
 
 test "a block-like expression heading a chain takes parentheses" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let branch = ex(
         .If([id("a")], [block([], [id("b")])], [ex(.Block(block([], [id("c")])))]),
@@ -87,7 +87,7 @@ test "a block-like expression heading a chain takes parentheses" {
 
 test "a nested tuple index takes parentheses" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let e = ex(.TupleIndex([ex(.TupleIndex([id("t")], 0))], 1));
     assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (t.0).1;\n");
@@ -95,7 +95,7 @@ test "a nested tuple index takes parentheses" {
 
 test "the postfix operators print in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let indexed = ex(.Index([id("xs")], [ex(.Int(0))]));
     let e = ex(.Try([indexed]));
@@ -109,11 +109,11 @@ test "the postfix operators print in order" {
 
 // --- literals -------------------------------------------------------------------
 
-fn strLine<C: Alloc>(ctx: C, text: Str): Str {
+fn strLine<C: Allocator>(ctx: C, text: Str): Str {
     ast.print(ctx, letOf(ex(.Str(text)))).text
 }
 
-fn charLine<C: Alloc>(ctx: C, ch: Char): Str {
+fn charLine<C: Allocator>(ctx: C, ch: Char): Str {
     ast.print(ctx, letOf(ex(.Char(ch)))).text
 }
 
@@ -123,7 +123,7 @@ fn charLine<C: Alloc>(ctx: C, ch: Char): Str {
 // carriage return and line feed is a file whose bytes an author never wrote.
 test "a string literal comes back spelled the way it was written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let e = ex(.Str("a\"b\\c\nd\te"));
     assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = \"a\\\"b\\\\c\\nd\\te\";\n");
@@ -139,7 +139,7 @@ test "a string literal comes back spelled the way it was written" {
 
 test "a template escapes the dollar its own text carries" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let e = ex(.Template([.Text("cost $"), .Hole(id("count")), .Text(" each")]));
     let want = "let X: Int = \"cost \\$"
@@ -156,7 +156,7 @@ test "a template escapes the dollar its own text carries" {
 
 test "a character literal escapes what it has to" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(charLine(ctx, '\n'), "let X: Int = '\\n';\n");
     assert.eq(charLine(ctx, '\''), "let X: Int = '\\'';\n");
@@ -171,7 +171,7 @@ test "a character literal escapes what it has to" {
 
 test "a float always carries a point" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(ast.print(ctx, letOf(ex(.Float(2.0)))).text, "let X: Int = 2.0;\n");
     assert.eq(ast.print(ctx, letOf(ex(.Float(2.5)))).text, "let X: Int = 2.5;\n");
@@ -179,7 +179,7 @@ test "a float always carries a point" {
 
 test "the small expressions print" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(ast.print(ctx, letOf(ex(.Unit))).text, "let X: Int = ();\n");
     assert.eq(ast.print(ctx, letOf(ex(.Bool(true)))).text, "let X: Int = true;\n");
@@ -200,7 +200,7 @@ test "the small expressions print" {
 
 test "a trailing lambda hugs the call that carries it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let body = ex(
         .Block(block([st(.Let(pat(.Bind(n("t"), [])), [], id("s")))], [id("t")])),
@@ -218,7 +218,7 @@ test "a trailing lambda hugs the call that carries it" {
 
 test "a block-like trailing argument hugs too" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let arms = [
         ast.Arm { pattern: pat(.Path(n("A"), true, [])), guard: [], body: ex(.Int(1)) },
@@ -232,7 +232,7 @@ test "a block-like trailing argument hugs too" {
 
 test "a match arm with a guard, and a body that has to break" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let inner = ex(
         .Match([id("y")], [
@@ -255,15 +255,15 @@ test "a match arm with a guard, and a body that has to break" {
 
 test "a context expression is always on lines of its own" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let bindings = [
-        ast.Binding { effectTy: ty("Alloc"), value: call(id("alloc"), []) },
+        ast.Binding { effectTy: ty("Allocator"), value: call(id("alloc"), []) },
     ];
     let stmt = st(.LetCtx(ex(.Context([], bindings))));
     assert.eq(
         ast.print(ctx, fnOf([stmt], [id("n")])).text,
-        "export fn go(): Int {\n    let ctx = context {\n        Alloc: alloc(),\n".concat(
+        "export fn go(): Int {\n    let ctx = context {\n        Allocator: alloc(),\n".concat(
             ctx,
             "    };\n    n\n}\n",
         ),
@@ -274,7 +274,7 @@ test "a context expression is always on lines of its own" {
 
 test "the pattern shapes print on one line" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let payload: ast.Payload = .Record(
         [ast.FieldPat { name: n("id"), pattern: [] }],
@@ -312,7 +312,7 @@ test "the pattern shapes print on one line" {
 
 test "a float and a character pattern print the literal's own spelling" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let arms = [
         ast.Arm { pattern: pat(.LitFloat(1.5)), guard: [], body: ex(.Int(1)) },
@@ -330,7 +330,7 @@ test "a float and a character pattern print the literal's own spelling" {
 
 test "an array pattern closed by a bare rest prints the two dots alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let arms = [
         ast.Arm {
@@ -357,7 +357,7 @@ test "an array pattern closed by a bare rest prints the two dots alone" {
 
 test "a tree that leans right needs no parentheses on any rung" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let product = bin(.Rem, bin(.Div, bin(.Mul, id("h"), id("i")), id("j")), id("k"));
     let sum = bin(.Add, id("g"), product);
@@ -371,7 +371,7 @@ test "a tree that leans right needs no parentheses on any rung" {
 
 test "a lower rung under a higher one is parenthesised on every rung" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         ast.print(ctx, letOf(bin(.And, bin(.Or, id("a"), id("b")), id("c")))).text,
@@ -415,7 +415,7 @@ test "a lower rung under a higher one is parenthesised on every rung" {
 
 test "the unary operators print in front of their operand" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         ast.print(ctx, letOf(ex(.Unary(.Not, [id("ok")])))).text,
@@ -431,7 +431,7 @@ test "the unary operators print in front of their operand" {
 
 test "an else that is neither a block nor an if is wrapped in braces" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `If`'s third position is an expression, and `else c` is not Buri. A tree
     // holds no parse error, so the printer may not write one.
@@ -441,7 +441,7 @@ test "an else that is neither a block nor an if is wrapped in braces" {
 
 test "an else that is an if is the chain, unwrapped" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let last = ex(.Block(block([], [ex(.Int(3))])));
     let inner = ex(.If([id("b")], [block([], [ex(.Int(2))])], [last]));
@@ -456,7 +456,7 @@ test "an else that is an if is the chain, unwrapped" {
 
 test "a wide integer prints the digits it was given" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         ast.print(ctx, letOf(ex(.WideInt("18446744073709551615")))).text,

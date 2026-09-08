@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
@@ -48,7 +48,7 @@ export fn firstOr8_0<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll8_0<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll8_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -58,12 +58,12 @@ export fn useGeneric8_0(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe8_0<C: Alloc>(ctx: C): Int {
+export fn probe8_0<C: Allocator>(ctx: C): Int {
     useGeneric8_0([1, 2], ["a"]) + describeAll8_0(ctx, [1, 2]).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach8<C: Alloc>(ctx: C): Int {
+export fn reach8<C: Allocator>(ctx: C): Int {
     0 + probe8_0(ctx) + reach4(ctx) + reach1(ctx) + reach0(ctx)
 }

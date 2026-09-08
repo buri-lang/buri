@@ -1,6 +1,6 @@
 // A match over string literals: a run of `===` comparisons where a JavaScript
 // `switch` would do.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -18,7 +18,7 @@ fn code(name: Str): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io

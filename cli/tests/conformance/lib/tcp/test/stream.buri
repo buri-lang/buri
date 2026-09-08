@@ -4,7 +4,7 @@
 // here is about what the module does and about what the code under test asked
 // for. A real socket is `native::e2e`'s row.
 
-from "core/effect" import { Alloc, IoError, Tcp };
+from "core/effect" import { Allocator, IoError, Tcp };
 from "core/host/testing" import * as testing;
 from "core/host/testing" import { alloc, tcp, TestTcp };
 from "core/list" import * as list;
@@ -19,7 +19,7 @@ let PONG: [U8] = [80, 79, 78, 71, 10];
 // what `effect-param-not-ctx` asks of anything holding an effect.
 fn dial(ctx: TestTcp): Result<Stream, IoError> {
     let dialling = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: ctx,
     };
     stream.connect(dialling, "db.test", 6379)
@@ -53,7 +53,7 @@ test "a fresh double has recorded nothing" {
 test "a read takes a prefix of the script, and the log says what was asked for" {
     let peer = tcp().bytes(PONG);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
@@ -69,7 +69,7 @@ test "a read takes a prefix of the script, and the log says what was asked for" 
 test "a script that has run out is the far side closing" {
     let peer = tcp().bytes([65]);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
@@ -80,7 +80,7 @@ test "a script that has run out is the far side closing" {
 test "a double with no script reads nothing at all" {
     let peer = tcp();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
@@ -91,7 +91,7 @@ test "bytes answers a new double and leaves the receiver alone" {
     let empty = tcp();
     let scripted = empty.bytes(PONG);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: empty,
     };
     let dialled = assert.ok(dial(empty));
@@ -106,7 +106,7 @@ test "bytes answers a new double and leaves the receiver alone" {
 test "a write is recorded whole" {
     let peer = tcp();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
@@ -124,7 +124,7 @@ test "a write is recorded whole" {
 test "a closed stream is gone, and reading or writing it is NotFound" {
     let peer = tcp().bytes(PONG);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
@@ -136,7 +136,7 @@ test "a closed stream is gone, and reading or writing it is NotFound" {
 test "closing one twice is a call that happened twice" {
     let peer = tcp();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));
@@ -152,7 +152,7 @@ test "closing one twice is a call that happened twice" {
 test "a stream nobody dialled names nothing" {
     let peer = tcp();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let invented = Stream(41);
@@ -168,7 +168,7 @@ test "a stream nobody dialled names nothing" {
 test "a request and an answer, in the order they happened" {
     let peer = tcp().bytes(PONG);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tcp: peer,
     };
     let dialled = assert.ok(dial(peer));

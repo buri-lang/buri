@@ -908,7 +908,7 @@ fn mixed_module(
     ));
     s.push_str("from \"core/str\" import * as str;\n");
     s.push_str("from \"core/list\" import * as list;\n");
-    s.push_str("from \"core/effect\" import { Alloc };\n");
+    s.push_str("from \"core/effect\" import { Allocator };\n");
     // `Eq`, `Show`, `Ord` and `Hash` are in scope everywhere; the JSON pair is
     // not. The import appears only when `derives` reaches them, so the default
     // corpus is unchanged.
@@ -1011,7 +1011,7 @@ fn mixed_module(
     s.push_str(&format!(
         "/// Every declaration in this module, reachable from one call, so that\n\
          /// monomorphization has to visit the whole of it.\n\
-         export fn reach{index}<C: Alloc>(ctx: C): Int {{\n\
+         export fn reach{index}<C: Allocator>(ctx: C): Int {{\n\
          \x20 0\n"
     ));
     if p.reach {
@@ -1072,8 +1072,8 @@ fn chunk_record_struct(out: &mut String, index: usize, name: &str, params: &Para
          \x20 export fn scaled(self, factor: Int): Int {{\n\
          \x20   {scaled} + {}\n\
          \x20 }}\n\n\
-         \x20 /// Allocates, and says so with `C: Alloc`.\n\
-         \x20 export fn render<C: Alloc>(self, ctx: C): Str {{\n\
+         \x20 /// Allocates, and says so with `C: Allocator`.\n\
+         \x20 export fn render<C: Allocator>(self, ctx: C): Str {{\n\
          \x20   str.format(ctx, \"rec{index}_{name}{shown}\")\n\
          \x20 }}\n",
         rng.below(1000)
@@ -1097,7 +1097,7 @@ fn chunk_record_struct(out: &mut String, index: usize, name: &str, params: &Para
     let calls: String = (0..extra).map(|j| format!(" + r.extra{j}(2)")).collect();
     out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 let r = Rec{index}_{name} {{ {} }};\n\
          \x20 r.scaled(3) + r.render(ctx).len(){calls}\n\
          }}\n\n",
@@ -1151,7 +1151,7 @@ fn chunk_enum(out: &mut String, index: usize, name: &str, params: &Params, rng: 
     ));
     // `show` is a method the type has only while `derives` reaches `Show`.
     // Below that the probe allocates through `str` instead, so it still needs
-    // the `C: Alloc` its signature declares. `Show` is the second of
+    // the `C: Allocator` its signature declares. `Show` is the second of
     // `DERIVABLE`, so every draw at the default of 2 or above is unchanged.
     let allocates = if derives_trait(params.derives, "Show") {
         String::from("s.show(ctx).len()")
@@ -1160,7 +1160,7 @@ fn chunk_enum(out: &mut String, index: usize, name: &str, params: &Params, rng: 
     };
     out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 let s = start{index}_{name}(5);\n\
          \x20 rank{index}_{name}(s) + {allocates}\n\
          }}\n\n"
@@ -1190,7 +1190,7 @@ fn chunk_generic_fn(out: &mut String, index: usize, name: &str, params: &Params)
          }}\n\n\
          /// A generic with a bound, which is the case the checker does real\n\
          /// work for: the bound has to be discharged at each instantiation.\n\
-         export fn describeAll{index}_{name}<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {{\n\
+         export fn describeAll{index}_{name}<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {{\n\
          \x20 xs.mapCtx(ctx, fn(c, x) => x.show(c))\n\
          }}\n\n"
     ));
@@ -1218,7 +1218,7 @@ fn chunk_generic_fn(out: &mut String, index: usize, name: &str, params: &Params)
          firstOr{index}_{name}<Str>(ss, \"\").len(){more}\n\
          }}\n\n\
          /// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 useGeneric{index}_{name}([1, 2], [\"a\"]) + \
          describeAll{index}_{name}(ctx, [1, 2]).len()\n\
          }}\n\n"
@@ -1257,7 +1257,7 @@ fn chunk_arithmetic_fn(out: &mut String, index: usize, name: &str, params: &Para
     ));
     out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 let _ = ctx;\n\
          \x20 compute{index}_{name}(7)\n\
          }}\n\n"
@@ -1314,7 +1314,7 @@ fn chunk_match_fn(
     let extra = if arms == 0 { String::new() } else { format!(" + bucket{index}_{name}(3)") };
     out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 let _ = ctx;\n\
          \x20 let extra = match (parseBoth{index}_{name}(\"1\", \"2\")) {{\n\
          \x20   .Some(v) => v,\n\
@@ -1332,7 +1332,7 @@ fn chunk_string_fn(out: &mut String, index: usize, name: &str, rng: &mut Rng) {
     out.push_str(&format!(
         "/// String building through interpolation, which is a template\n\
          /// literal in the lexer and a `format` call in the backend.\n\
-         export fn label{index}_{name}<C: Alloc>(ctx: C, id: Int, name: Str): Str {{\n\
+         export fn label{index}_{name}<C: Allocator>(ctx: C, id: Int, name: Str): Str {{\n\
          \x20 let prefix = if (id < 0) {{ \"{w0}\" }} else {{ \"{w1}\" }};\n\
          \x20 let body = str.format(ctx, \"${{prefix}}-${{name}}-${{id}}\");\n\
          \x20 body.toUpper(ctx)\n\
@@ -1343,7 +1343,7 @@ fn chunk_string_fn(out: &mut String, index: usize, name: &str, rng: &mut Rng) {
          \x20 ({}, 0x{:04X}, {}.{:03}, 'q', \"a\\ttab and a \\\"quote\\\"\")\n\
          }}\n\n\
          /// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 let (a, b, _, _, e) = constants{index}_{name}();\n\
          \x20 label{index}_{name}(ctx, a, e).len() + b\n\
          }}\n\n",
@@ -1360,7 +1360,7 @@ fn chunk_list_fn(out: &mut String, index: usize, name: &str, rng: &mut Rng) {
     out.push_str(&format!(
         "/// A fold and a filter over a literal list, with lambdas — closures\n\
          /// are their own path in both the checker and the backend.\n\
-         export fn digest{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn digest{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 let xs: [Int] = [{}];\n\
          \x20 let kept = xs.filter(ctx, fn(x) => x % 2 == 0);\n\
          \x20 let total = kept.fold(fn(acc, x) => acc + x, 0);\n\
@@ -1373,7 +1373,7 @@ fn chunk_list_fn(out: &mut String, index: usize, name: &str, rng: &mut Rng) {
          \x20 empty.len()\n\
          }}\n\n\
          /// Reaches everything above from one call. See `reach` below.\n\
-         export fn probe{index}_{name}<C: Alloc>(ctx: C): Int {{\n\
+         export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
          \x20 digest{index}_{name}(ctx) + drain{index}_{name}()\n\
          }}\n\n",
         items.join(", ")
@@ -1404,7 +1404,7 @@ fn main_module(count: usize, p: &Params) -> String {
          //! monomorphization reaches the whole program from `main` and the\n\
          //! lowering benchmark is not measuring dead-code elimination.\n\n",
     );
-    s.push_str("from \"core/effect\" import { Alloc };\n");
+    s.push_str("from \"core/effect\" import { Allocator };\n");
     s.push_str("from \"core/host\" import * as host;\n");
     for i in 0..count {
         s.push_str(&format!("from \"//bench/m{i:04}.buri\" import {{ blend{i}, reach{i} }};\n"));
@@ -1420,7 +1420,7 @@ fn main_module(count: usize, p: &Params) -> String {
         "\n/// The entry point. `main` is the only module that may import\n\
          /// `core/host`, so it is the only place the context can be built.\n\
          export fn main(): Result<(), Str> {\n\
-         \x20 let ctx = context { Alloc: host.alloc };\n\
+         \x20 let ctx = context { Allocator: host.alloc };\n\
          \x20 let total = 0\n",
     );
     for i in 0..count {
@@ -1444,7 +1444,7 @@ fn main_module(count: usize, p: &Params) -> String {
 /// is a real limit rather than one this generator may pretend does not apply.
 ///
 /// The helpers are generic over the capability for the same reason `reach` is:
-/// the context is a value of an anonymous capability record and `Alloc` is the
+/// the context is a value of an anonymous capability record and `Allocator` is the
 /// bound every module's `reach` already states.
 fn main_module_parts(mut s: String, count: usize, p: &Params) -> String {
     let parts = count.div_ceil(MODULES_PER_PART);
@@ -1453,7 +1453,7 @@ fn main_module_parts(mut s: String, count: usize, p: &Params) -> String {
         let hi = ((k + 1) * MODULES_PER_PART).min(count);
         s.push_str(&format!(
             "\n/// Modules {lo} to {} of the entry point's sum. See `main`.\n\
-             fn part{k}<C: Alloc>(ctx: C): Int {{\n\
+             fn part{k}<C: Allocator>(ctx: C): Int {{\n\
              \x20 0\n",
             hi - 1
         ));
@@ -1470,7 +1470,7 @@ fn main_module_parts(mut s: String, count: usize, p: &Params) -> String {
         "\n/// The entry point. `main` is the only module that may import\n\
          /// `core/host`, so it is the only place the context can be built.\n\
          export fn main(): Result<(), Str> {\n\
-         \x20 let ctx = context { Alloc: host.alloc };\n\
+         \x20 let ctx = context { Allocator: host.alloc };\n\
          \x20 let total = 0\n",
     );
     for k in 0..parts {

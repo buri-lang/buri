@@ -5,7 +5,7 @@
 // reads. A round trip alone is symmetric: it would pass just as happily if
 // both halves changed together.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { Json, ToJson };
@@ -16,7 +16,7 @@ from "//lib/json" import {
 };
 
 /// The document a value writes.
-fn text<T: ToJson, C: Alloc>(ctx: C, value: T): Str {
+fn text<T: ToJson, C: Allocator>(ctx: C, value: T): Str {
     json.stringify(ctx, json.encode(ctx, value))
 }
 
@@ -24,7 +24,7 @@ fn text<T: ToJson, C: Alloc>(ctx: C, value: T): Str {
 
 test "a Bool is a JSON boolean" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, true), "true");
     assert.eq(text(ctx, false), "false");
@@ -32,7 +32,7 @@ test "a Bool is a JSON boolean" {
 
 test "an Int is a JSON number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, 0), "0");
     assert.eq(text(ctx, -17), "-17");
@@ -40,7 +40,7 @@ test "an Int is a JSON number" {
 
 test "a Float is a JSON number, and a whole one keeps no point" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, 1.5), "1.5");
     assert.eq(text(ctx, 3.0), "3");
@@ -48,7 +48,7 @@ test "a Float is a JSON number, and a whole one keeps no point" {
 
 test "a Str is a JSON string, escaped" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, "hi"), "\"hi\"");
     assert.eq(text(ctx, "a\"b"), "\"a\\\"b\"");
@@ -56,14 +56,14 @@ test "a Str is a JSON string, escaped" {
 
 test "a Char is a one-character JSON string" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, 'q'), "\"q\"");
 }
 
 test "unit is null" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, ()), "null");
 }
@@ -73,7 +73,7 @@ test "unit is null" {
 /// the seam, so it is asserted directly rather than through `stringify`.
 test "the encoder builds the Json this module declares" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(json.encode(ctx, ()), Json.Null);
     assert.eq(json.encode(ctx, true), Json.Bool(true));
@@ -90,7 +90,7 @@ test "the encoder builds the Json this module declares" {
 
 test "a list is an array" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, [1, 2, 3]), "[1,2,3]");
     assert.eq(text(ctx, [point(1, 2)]), "[{\"x\":1,\"y\":2}]");
@@ -98,7 +98,7 @@ test "a list is an array" {
 
 test "an empty list is an empty array" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let empty: [Int] = [];
     assert.eq(text(ctx, empty), "[]");
@@ -106,14 +106,14 @@ test "an empty list is an empty array" {
 
 test "a tuple is an array, because a tuple is positional" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, (1, "a")), "[1,\"a\"]");
 }
 
 test "an Option is its payload, or null" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let some: Option<Int> = .Some(4);
     let none: Option<Int> = .None;
@@ -123,7 +123,7 @@ test "an Option is its payload, or null" {
 
 test "JSON has one null, so a nested Option flattens onto it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let inner: Option<Option<Int>> = .Some(.None);
     let outer: Option<Option<Int>> = .None;
@@ -135,14 +135,14 @@ test "JSON has one null, so a nested Option flattens onto it" {
 
 test "a struct with named fields is an object, in declaration order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, point(1, 2)), "{\"x\":1,\"y\":2}");
 }
 
 test "a struct nests" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = Segment {
         start: point(0, 0),
@@ -158,7 +158,7 @@ test "a struct nests" {
 
 test "a struct with positional fields is an array, a one-field one included" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, Meters(5)), "[5]");
     assert.eq(text(ctx, Pair(1, "a")), "[1,\"a\"]");
@@ -166,14 +166,14 @@ test "a struct with positional fields is an array, a one-field one included" {
 
 test "a struct with nothing in it is an empty object" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, Hollow { }), "{}");
 }
 
 test "one of everything" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         text(ctx, everything()),
@@ -183,7 +183,7 @@ test "one of everything" {
 
 test "one derive over a generic type writes a document per instantiation" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         text(ctx, Wrapper { value: point(1, 2), tag: "p" }),
@@ -199,7 +199,7 @@ test "one derive over a generic type writes a document per instantiation" {
 
 test "a variant with no fields is its own name" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, Colour.Red), "\"Red\"");
     assert.eq(text(ctx, Colour.Blue), "\"Blue\"");
@@ -208,7 +208,7 @@ test "a variant with no fields is its own name" {
 
 test "a variant with positional fields is a one-member object holding an array" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, Shape.Circle(2)), "{\"Circle\":[2]}");
     assert.eq(
@@ -219,7 +219,7 @@ test "a variant with positional fields is a one-member object holding an array" 
 
 test "a variant with named fields is a one-member object holding an object" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         text(ctx, Shape.Rect { width: 3, height: 4 }),
@@ -231,7 +231,7 @@ test "a variant with named fields is a one-member object holding an object" {
 
 test "a type that recurses through a list encodes to the bottom" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, rose(0)), "{\"Leaf\":[0]}");
     assert.eq(text(ctx, rose(1)), "{\"Branch\":[[{\"Leaf\":[1]},{\"Leaf\":[0]}]]}");
@@ -239,7 +239,7 @@ test "a type that recurses through a list encodes to the bottom" {
 
 test "a type that recurses through an Option of a list encodes to the bottom" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(text(ctx, chain(0)), "{\"head\":0,\"rest\":null}");
     assert.eq(
@@ -250,7 +250,7 @@ test "a type that recurses through an Option of a list encodes to the bottom" {
 
 test "recursion is not a fixed depth" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Deep enough that a walker that unrolled a fixed number of levels, or that
     // built a descriptor per level, would be visible.

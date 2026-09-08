@@ -5,7 +5,7 @@
 // buckets), collisions (two keys in one bucket), and replacement (which must
 // not change the size).
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
@@ -30,7 +30,7 @@ test "an empty map holds nothing" {
 
 test "insert then get" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
     assert.eq(assert.some(m.get("a")), 1);
@@ -41,7 +41,7 @@ test "insert then get" {
 
 test "inserting the same key replaces the value and does not change the size" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "a", 99);
     assert.eq(assert.some(m.get("a")), 99);
@@ -50,7 +50,7 @@ test "inserting the same key replaces the value and does not change the size" {
 
 test "a map is a value: inserting produces a new one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let before = map.empty<Str, Int>().insert(ctx, "a", 1);
     let after = before.insert(ctx, "b", 2);
@@ -63,7 +63,7 @@ test "a map is a value: inserting produces a new one" {
 
 test "remove takes a key out" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
     assert.isTrue(m.get("a").isNone());
@@ -73,7 +73,7 @@ test "remove takes a key out" {
 
 test "removing a key that is not there changes nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]);
     assert.eq(m.remove(ctx, "zzz").len(), 1);
@@ -83,7 +83,7 @@ test "removing a key that is not there changes nothing" {
 
 test "of holds every entry, later ones winning" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
     assert.eq(m.len(), 2);
@@ -92,7 +92,7 @@ test "of holds every entry, later ones winning" {
 
 test "keys and values are as many as there are entries" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
     assert.eq(m.entries(ctx).len(), 3);
@@ -105,7 +105,7 @@ test "keys and values are as many as there are entries" {
 // the one way a rehash can go wrong.
 test "a map that outgrows its buckets keeps every entry" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let n = 200;
     let m = list
@@ -124,7 +124,7 @@ test "a map that outgrows its buckets keeps every entry" {
 
 test "growth does not duplicate entries" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = list
         .range(ctx, 0, 100)
@@ -138,7 +138,7 @@ test "growth does not duplicate entries" {
 
 test "equals compares entries rather than layout" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Built in opposite orders, so the buckets were filled differently.
     let a = map.of(ctx, [("x", 1), ("y", 2), ("z", 3)]);
@@ -154,7 +154,7 @@ test "NaN is an ordinary key" {
     // never found again. `Hash` agrees by construction — every NaN mixes as
     // zero — so lookup finds the bucket and `==` finds the entry in it.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let nan = 0.0 / 0.0;
     let m = map.empty<F64, Str>().insert(ctx, nan, "n").insert(ctx, 1.5, "a");
@@ -171,7 +171,7 @@ test "NaN is an ordinary key" {
 
 test "groupBy collects the elements that answer the same key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let words = ["ant", "bee", "ape", "bat"];
     let m = map.groupBy(ctx, words, fn(w: Str) => w.slice(0, 1));
@@ -185,7 +185,7 @@ test "groupBy collects the elements that answer the same key" {
 // grouped report depends on.
 test "a group keeps the order of the list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.groupBy(ctx, [3, 1, 4, 1, 5], fn(n: Int) => n % 2);
     assert.eq(assert.some(m.get(1)), [3, 1, 1, 5]);
@@ -194,7 +194,7 @@ test "a group keeps the order of the list" {
 
 test "groupBy of the empty list is the empty map" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.groupBy(ctx, list.empty<Int>(), fn(n: Int) => n);
     assert.isTrue(m.isEmpty());
@@ -202,7 +202,7 @@ test "groupBy of the empty list is the empty map" {
 
 test "indexBy keeps one element per key, the last one winning" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let words = ["ant", "bee", "ape"];
     let m = map.indexBy(ctx, words, fn(w: Str) => w.slice(0, 1));
@@ -213,7 +213,7 @@ test "indexBy keeps one element per key, the last one winning" {
 
 test "indexBy of the empty list is the empty map" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.indexBy(ctx, list.empty<Int>(), fn(n: Int) => n);
     assert.isTrue(m.isEmpty());
@@ -223,7 +223,7 @@ test "indexBy of the empty list is the empty map" {
 
 test "a set collapses duplicates" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = set.of(ctx, [1, 2, 2, 3, 1]);
     assert.eq(s.len(), 3);
@@ -232,7 +232,7 @@ test "a set collapses duplicates" {
 
 test "insert, has, and remove" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = set.empty<Str>().insert(ctx, "a");
     assert.isTrue(s.has("a"));
@@ -243,7 +243,7 @@ test "insert, has, and remove" {
 
 test "union, intersect and difference" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = set.of(ctx, [1, 2, 3]);
     let b = set.of(ctx, [3, 4]);
@@ -255,7 +255,7 @@ test "union, intersect and difference" {
 
 test "isSubsetOf and equals" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = set.of(ctx, [1, 2]);
     let b = set.of(ctx, [1, 2, 3]);
@@ -268,7 +268,7 @@ test "isSubsetOf and equals" {
 
 test "a set of many members survives growth too" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = set.of(ctx, list.range(ctx, 0, 150));
     assert.eq(s.len(), 150);
@@ -280,7 +280,7 @@ test "a set of many members survives growth too" {
 
 test "alter inserts, replaces and removes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let counts = map.of(ctx, [("a", 1)]);
     let bump = fn(n: Option<Int>): Option<Int> => .Some(n.withDefault(0) + 1);
@@ -296,7 +296,7 @@ test "alter inserts, replaces and removes" {
 
 test "altering a missing key to nothing changes nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]).alter(ctx, "zzz", fn(_n) => .None);
     assert.eq(m.len(), 1);
@@ -304,7 +304,7 @@ test "altering a missing key to nothing changes nothing" {
 
 test "alter sees exactly what is stored" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The update runs on the stored value, so what it answers proves what it
     // was handed.
@@ -319,7 +319,7 @@ test "alter sees exactly what is stored" {
 
 test "mapValues keeps every key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]).mapValues(ctx, fn(v) => v * 10);
     assert.eq(m.len(), 2);
@@ -329,7 +329,7 @@ test "mapValues keeps every key" {
 
 test "mapValues may change the value type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]).mapValues(ctx, fn(v) => [v, v]);
     assert.eq(assert.some(m.get("a")), [1, 1]);
@@ -337,14 +337,14 @@ test "mapValues may change the value type" {
 
 test "mapValues of the empty map is the empty map" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(map.empty<Str, Int>().mapValues(ctx, fn(v) => v).isEmpty());
 }
 
 test "filterMapValues drops what it answers nothing for" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map
         .of(ctx, [("a", 1), ("b", 2), ("c", 3)])
@@ -357,7 +357,7 @@ test "filterMapValues drops what it answers nothing for" {
 
 test "filterMapValues that keeps nothing is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]).filterMapValues(ctx, fn(_v) => .None);
     assert.isTrue(m.isEmpty());
@@ -368,7 +368,7 @@ test "filterMapValues that keeps nothing is empty" {
 
 test "merge is right-biased" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let defaults = map.of(ctx, [("host", "localhost"), ("port", "80")]);
     let overrides = map.of(ctx, [("port", "8080")]);
@@ -383,7 +383,7 @@ test "merge is right-biased" {
 
 test "merging with the empty map answers the same entries" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]);
     assert.isTrue(m.merge(ctx, map.empty<Str, Int>()).equals(ctx, m));
@@ -392,7 +392,7 @@ test "merging with the empty map answers the same entries" {
 
 test "mergeWith combines only the keys in both" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let monday = map.of(ctx, [("ana", 2), ("bo", 1)]);
     let tuesday = map.of(ctx, [("ana", 3), ("cy", 5)]);
@@ -407,7 +407,7 @@ test "mergeWith combines only the keys in both" {
 
 test "mergeWith over two hundred keys keeps every one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let evens = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, i) => i % 2 == 0);
     let odds = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, i) => i % 2 == 1);
@@ -422,7 +422,7 @@ test "mergeWith over two hundred keys keeps every one" {
 
 test "filter keeps what the predicate keeps" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("bb", 2), ("c", 3)]);
     let short = m.filter(ctx, fn(k, _v) => k.len() == 1);
@@ -434,7 +434,7 @@ test "filter keeps what the predicate keeps" {
 
 test "filter that keeps nothing, and filter that keeps everything" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
     assert.isTrue(m.filter(ctx, fn(_k, _v) => false).isEmpty());
@@ -446,7 +446,7 @@ test "filter that keeps nothing, and filter that keeps everything" {
 
 test "pop answers the value and the map without it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
     let (v, rest) = assert.some(m.pop(ctx, "a"));
@@ -459,7 +459,7 @@ test "pop answers the value and the map without it" {
 
 test "popping what is not there is nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(map.of(ctx, [("a", 1)]).pop(ctx, "zzz").isNone());
     assert.isTrue(map.empty<Str, Int>().pop(ctx, "a").isNone());
@@ -469,7 +469,7 @@ test "popping what is not there is nothing" {
 
 test "takeKeys keeps the keys it names and skips the ones it does not have" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
     let kept = m.takeKeys(ctx, ["a", "c", "zzz"]);
@@ -480,7 +480,7 @@ test "takeKeys keeps the keys it names and skips the ones it does not have" {
 
 test "dropKeys is takeKeys' complement" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
     let left = m.dropKeys(ctx, ["a", "c", "zzz"]);
@@ -491,7 +491,7 @@ test "dropKeys is takeKeys' complement" {
 
 test "a repeated key is not counted twice" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
     assert.eq(m.takeKeys(ctx, ["a", "a", "a"]).len(), 1);
@@ -502,7 +502,7 @@ test "a repeated key is not counted twice" {
 
 test "countBy counts the elements under each key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let words = ["ant", "bee", "ape", "bat", "cow"];
     let counts = map.countBy(ctx, words, fn(w: Str) => w.slice(0, 1));
@@ -515,14 +515,14 @@ test "countBy counts the elements under each key" {
 
 test "countBy of the empty list is the empty map" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(map.countBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
 }
 
 test "countBy agrees with groupBy's sizes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ns = list.range(ctx, 0, 200);
     let key = fn(n: Int) => n % 7;
@@ -538,7 +538,7 @@ test "countBy agrees with groupBy's sizes" {
 
 test "frequencies is a histogram of the list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let f = map.frequencies(ctx, [1, 2, 2, 3, 3, 3]);
     assert.eq(assert.some(f.get(1)), 1);
@@ -559,7 +559,7 @@ fn neverCombined(_a: Int, _b: Int): Int {
 
 test "mergeWith over disjoint keys never combines anything" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = map.of(ctx, [("a", 1), ("b", 2)]);
     let b = map.of(ctx, [("c", 3), ("d", 4)]);
@@ -571,7 +571,7 @@ test "mergeWith over disjoint keys never combines anything" {
 
 test "mergeWith with the empty map on either side never combines anything" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1)]);
     let none = map.empty<Str, Int>();
@@ -582,7 +582,7 @@ test "mergeWith with the empty map on either side never combines anything" {
 
 test "mergeWith over the same map combines every key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
     let doubled = m.mergeWith(ctx, m, fn(x, y) => x + y);
@@ -595,7 +595,7 @@ test "mergeWith over the same map combines every key" {
 
 test "alter leaves the map alone when it hands back what it was given" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2)]);
     let same = m.alter(ctx, "a", fn(v) => v);
@@ -609,7 +609,7 @@ test "alter leaves the map alone when it hands back what it was given" {
 // The counter idiom the method exists for, run until the map has to grow.
 test "alter counts three hundred keys from nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let counted = list
         .range(ctx, 0, 900)
@@ -637,7 +637,7 @@ test "alter counts three hundred keys from nothing" {
 
 test "popping the only entry leaves the empty map" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = map.of(ctx, [("a", 1)]);
     let (value, rest) = assert.some(one.pop(ctx, "a"));
@@ -650,7 +650,7 @@ test "popping the only entry leaves the empty map" {
 
 test "takeKeys and dropKeys given nothing, everything, and a repeated key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
     assert.isTrue(m.takeKeys(ctx, list.empty<Str>()).isEmpty());
@@ -670,7 +670,7 @@ test "takeKeys and dropKeys given nothing, everything, and a repeated key" {
 
 test "mapValues and filterMapValues on a map of one, and on a large one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = map.of(ctx, [("a", 1)]);
     assert.eq(assert.some(one.mapValues(ctx, fn(v) => v * 10).get("a")), 10);
@@ -692,7 +692,7 @@ test "mapValues and filterMapValues on a map of one, and on a large one" {
 
 test "countBy and frequencies over one element and over three hundred" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = map.countBy(ctx, ["ant"], fn(w: Str) => w.len());
     assert.eq(one.len(), 1);
@@ -718,13 +718,13 @@ test "countBy and frequencies over one element and over three hundred" {
 
 /// A fold onto a persistent map, written by hand rather than taken from
 /// `core/map`, so the rule holds for a program that writes its own.
-fn keyedBy<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
+fn keyedBy<K: Hash + Eq, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K, V> {
     entries.foldCtx(ctx, fn(c, acc, e) => acc.insert(c, e.0, e.1), map.empty<K, V>())
 }
 
 test "map.of over a list mapped inside the call keeps every entry" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
     assert.eq(
@@ -737,7 +737,7 @@ test "map.of over a list mapped inside the call keeps every entry" {
 
 test "the same for mapCtx and filterMap" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         map.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
@@ -753,7 +753,7 @@ test "the same for mapCtx and filterMap" {
 
 test "a hand-written fold onto a map answers the same" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(keyedBy(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
     let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
@@ -762,7 +762,7 @@ test "a hand-written fold onto a map answers the same" {
 
 test "set.of over a list mapped inside the call keeps every item" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
     assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => i)).len(), 40);

@@ -2,7 +2,7 @@
 // `check_ctx_rule` runs on the pre-instantiation signature. So a generic
 // closure-builder should typecheck, and instantiating T at a context type
 // would put a capability in a closure the capture rule never inspected.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -13,7 +13,7 @@ fn hide<T>(x: T): fn() => T {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 

@@ -1,7 +1,7 @@
 export context C {
   // why this one
   Clock: Fixed(0),
-  Alloc: System(),
+  Allocator: System(),
 }
 
 test "a test" {

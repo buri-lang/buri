@@ -21,11 +21,11 @@ applied:
 | Tier | Shape | Example |
 |---|---|---|
 | **Pure** | no `ctx` parameter | `xs.len()`, `date.weekday(d)`, `v.dot(o)` |
-| **Deterministic** | `ctx` bounded by `Alloc` only | `xs.map(ctx, f)`, `json.stringify(ctx, v)` |
+| **Deterministic** | `ctx` bounded by `Allocator` only | `xs.map(ctx, f)`, `json.stringify(ctx, v)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)`, `time.now(ctx)` |
 
 One rule decides the tier. An operation with a fixed result size is pure. An
-operation whose result size depends on runtime data names `Alloc`. So `len` and
+operation whose result size depends on runtime data names `Allocator`. So `len` and
 `fold` are pure, and `map` and `filter` are not. A `F32x4` is four numbers in a
 struct, so every operation in `core/simd` is pure.
 
@@ -172,7 +172,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   `takeByte`, `takeVarint`, `takeSlice` and `takeFramed` each answer the value
   and the *next* reader, rather than moving this one, so a decoder that looks
   ahead and changes its mind still holds the reader it started from. The methods
-  that only move the cursor are pure. The two that answer a `[U8]` name `Alloc`,
+  that only move the cursor are pure. The two that answer a `[U8]` name `Allocator`,
   because a Buri list is a value and not a view, so slicing one copies. For the
   same reason there is **no `Builder`**: `[[U8]].flatten` is what building looks
   like here.
@@ -300,7 +300,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   line from `Stdin`, hands your function the `Request`, and writes the
   `Response` back as one JSON line on `Stdout`. It calls `core/buri/ast`'s
   `print` for you, so what goes over the wire is text plus anchors and never a
-  tree. The function `run` takes is handed a context bounded by `Alloc`, `Stdin`
+  tree. The function `run` takes is handed a context bounded by `Allocator`, `Stdin`
   and `Stdout`, so a generator written the documented way cannot reach the clock
   or the disk — that is the determinism, and it is a type error rather than a
   rule. `run` answers `.Err` when there was no
@@ -532,7 +532,7 @@ which reads 00-68 as 2000-2068 because no pure function can ask what year it is.
 doors, and the split follows one principle: **an RNG either takes a seed or
 takes a context**.
 
-`int`, `float` and `bytes` take a context and perform the `Rand` effect. `Gen`
+`int`, `float` and `bytes` take a context and perform the `Random` effect. `Gen`
 takes a seed and performs nothing. `random.seeded(7)` is an ordinary value,
 every method answers `(value, Gen)`, and the same seed gives the same sequence
 on every backend and in every process. `Gen` is splitmix64, published in the
@@ -675,7 +675,7 @@ the state it rendered from with it; the page reads that state back, builds the
 same tree, and resumes on the markup that arrived.
 
 ```buri
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/json" import { Json };
 from "core/net/http" import * as http;
 from "core/net/http" import { Response };
@@ -688,7 +688,7 @@ fn page<C>(path: Prop<Str>): Node<C> {
     ui.region(.Main, [], [ui.heading(1, path)])
 }
 
-fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
+fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
     http.html(ctx, web.shell(ctx, path, web.render(page(.Const(path))), state))
 }
 ```
@@ -783,10 +783,10 @@ property costs one draw rather than a hundred.
 [Tasks and actors](../guides/concurrency.md) is the concurrency model
 underneath. What follows is the map.
 
-`core/process` carries two authorities. `process.exit(ctx, code)` is `Proc`'s one
+`core/process` carries two authorities. `process.exit(ctx, code)` is `Process`'s one
 operation. `Spawn` is the other, and it is the largest authority a context can
 hold: a program that can run `sh` can do anything its user can, so it is its own
-effect and its own grant rather than a second method on `Proc`.
+effect and its own grant rather than a second method on `Process`.
 `process.command(program, arguments)` builds a `Command`, `process.run(ctx, command)`
 runs it and waits, and `process.which(ctx, program)` is where `PATH` says a program
 is. **The exit code is not an error**: a child that ran and failed is `.Ok` with
@@ -795,7 +795,7 @@ so a value with a space or a `;` in it is one argument and never a second
 command. `run` reads both streams while the child runs, so a child that writes
 more than a pipe holds does not deadlock.
 
-`core/env` and `core/cli` are the two halves of a command line. `env.args(ctx)`
+`core/env` and `core/cli` are the two halves of a command line. `env.arguments(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 `argv[0]`, and you have to *tell* a help page what to call the program.
 `env.all(ctx)` is every variable as `(name, value)` pairs, in the platform's own
@@ -824,8 +824,8 @@ one, or fires the command. A parse error goes to stderr with the usage under it
 and comes back as `.Err`, which `main`'s contract turns into exit 1. A handler
 takes an `Arguments` and asks it by name — `on`, `value`, `many`, `arg`,
 `positionals` — rather than a struct of its own fields. Everything under `run`
-sits at the `Alloc` tier, which lets a test hand it `core/host/testing`'s
-`env().arguments([...])` and read the answer out of a captured stream.
+sits at the `Allocator` tier, which lets a test hand it `core/host/testing`'s
+`env().withArguments([...])` and read the answer out of a captured stream.
 `buri docs core/cli` is the module's own page, with the five spellings a flag
 may take and a program worked end to end.
 
@@ -872,7 +872,7 @@ only with TLS, because ALPN chooses it inside the handshake: a `Server` naming
 `.Http2` without a certificate fails at the bind, and one with a certificate and
 no `protocols` offers HTTP/1.1. The server answers as many requests at once as
 the acceptor said it would host, because `run` puts each handler on a task of
-its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
+its own, which is why `serve` needs `Tasks` and `Allocator` beside `Listen`. Only
 `LINUX` and `MACOS` grant `Listen`, so only they can serve — `Tasks` itself is
 granted everywhere, a page included.
 
@@ -965,11 +965,11 @@ like a click. A worker dials the same way while it answers a request.
 headers. A token or a subprotocol goes in the URL, which is what every browser
 client does, and what came back is on the response in `onOpen`.
 
-`core/fs` declares its own effects, and it declares **two**. `FsRead` is seven
-methods and `FsWrite` is nine. Reading and writing
+`core/fs` declares its own effects, and it declares **two**. `FileSystemRead` is seven
+methods and `FileSystemWrite` is nine. Reading and writing
 are two grants rather than two spellings of one: a program that reads its
 configuration has not thereby earned the right to delete it. `core/fs`
-re-exports `Path`, so `from "core/fs" import { FsRead, Path }` is one import.
+re-exports `Path`, so `from "core/fs" import { FileSystemRead, Path }` is one import.
 
 Beyond the wrappers over those sixteen methods it has operations of its own.
 `readBytesIfExists` folds
@@ -990,7 +990,7 @@ head of a log costs the head. `canonicalize` resolves every link and every `..`,
 which is the one question `core/path` cannot answer. And
 `makeTemporaryDirectory` makes a directory under `TMPDIR` named for a prefix and
 sixteen hex characters of the operating system's own entropy — `Entropy` rather
-than `Rand`, because a predictable name in a shared directory is one somebody
+than `Random`, because a predictable name in a shared directory is one somebody
 else can create first.
 
 `core/path` says where a file *is*, as a type. Every `Path` has been through
@@ -1004,7 +1004,7 @@ different files, so `..` stays a component and the filesystem decides what it
 means. `parent`, `fileName`, `stem`, `extension`, `isAbsolute`, `startsWith` and
 `matchesGlob` are views and take no context. `of`, `join`, `joinPath`,
 `withSuffix`, `withExtension`, `withoutExtension`, `relativeTo` and `components`
-build something new and name `Alloc`. `join` never substitutes an absolute
+build something new and name `Allocator`. `join` never substitutes an absolute
 argument for the receiver, so `path.of(ctx, "/srv").join(ctx, "/etc")` is
 `/srv/etc`, and `joinPath` is the same call for a `Path`. The other
 behaviour is how a program that joined a user's string onto its own directory
@@ -1026,10 +1026,10 @@ finished in, handing each call the item's own index. Every task finishes before
 `parallel` returns, so nothing outlives the context that granted it:
 
 ```buri
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 from "core/tasks" import * as tasks;
 
-fn squares<C: Alloc + Tasks>(ctx: C, ns: [Int]): [Int] {
+fn squares<C: Allocator + Tasks>(ctx: C, ns: [Int]): [Int] {
     tasks.parallel(ctx, ns, fn(c, i, n) => n * n)
 }
 ```
@@ -1052,12 +1052,12 @@ have finished, so the waiting moves from the call to the scope and nothing
 still escapes the context that granted it:
 
 ```buri
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
 
-fn page<C: Alloc + Clock + Stdout + Tasks>(ctx: C): () {
+fn page<C: Allocator + Clock + Stdout + Tasks>(ctx: C): () {
     tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
             let _ = time.sleepMs(c2, 5 * 60 * 1000);
@@ -1076,7 +1076,7 @@ a scope to a handler that spawns later. A library cannot spawn: it exposes a
 a loop ends by finding its socket closed or by asking an actor whether to carry
 on, because there is no way to unwind a task from outside it.
 
-Both carry `Alloc` beside `Tasks`: `spawn` copies the task out of whatever arena
+Both carry `Allocator` beside `Tasks`: `spawn` copies the task out of whatever arena
 it was written in, and a scope drains its rounds through `parallel`.
 
 Rounds are why the platform table above covers a spawned task too. They are also
@@ -1127,16 +1127,16 @@ the only way to reach the bound, since nothing drains while a step holds the
 state, so a step that posts a sixty-fifth message waits for room nobody is
 coming to make.
 
-`core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
+`core/net/http` documents `Request` and `Response`, the two types `Network.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own
 signature names them. You build a message with a free function and then by
 chaining:
 
 ```buri
-from "core/effect" import { Alloc, Net };
+from "core/effect" import { Allocator, Network };
 from "core/net/http" import * as http;
 
-fn ping<C: Alloc + Net>(ctx: C): Str {
+fn ping<C: Allocator + Network>(ctx: C): Str {
     match (http.send(ctx, http.request(.Get, "http://example.com/ping"))) {
         .Ok(reply) => http.bodyText(ctx, reply.body).withDefault("not text"),
         .Err(e) => http.errorText(e),
@@ -1157,7 +1157,7 @@ mutation. The language has no associated functions, since a function inside an
 them, so
 each call mints a fresh double. A method configures one by answering a new one:
 `clock().at(1000)`, `rand().seed(7)`, `entropy().seed(7)`,
-`env().variables([...]).arguments([...])`, `fs().files([...]).readOnly()`.
+`env().variables([...]).withArguments([...])`, `fs().files([...]).readOnly()`.
 
 `net()` **refuses** every request until `net().respond(fn(request) => ...)` says
 what to answer. That responder is a pure function of the `Request`, because
@@ -1216,8 +1216,8 @@ source may import `core/host/testing`. See [testing](./build/testing.md).
 ## Allocators
 
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri) —
-`GeneralPurpose`, `Arena`, `FixedBuffer`. Three implementations of `Alloc`, and
-anything may import them. `Alloc` is the one effect whose implementation carries
+`GeneralPurpose`, `Arena`, `FixedBuffer`. Three implementations of `Allocator`, and
+anything may import them. `Allocator` is the one effect whose implementation carries
 no authority: a `Region` is a number, so a library that builds its own allocator
 has been granted nothing.
 
@@ -1235,17 +1235,17 @@ has been granted nothing.
 
 ```buri
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, Path };
+from "core/fs" import { FileSystemRead, Path };
 
-fn inAScope<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
+fn inAScope<C: Allocator + FileSystemRead>(ctx: C, at: Path): Bool {
     alloc.scoped(ctx, fn(c) => fs.exists(c, at))
 }
 ```
 
 `scoped(ctx, body)` runs `body` with a `Scoped<C>`, an attenuating wrapper that
-forwards every effect `ctx` grants and replaces one. Its `Alloc` is the scope's
+forwards every effect `ctx` grants and replaces one. Its `Allocator` is the scope's
 own arena. A charge inside reserves from that arena, and the caller's
 allocator's totals do not move. When `body` returns, the arena's pages go back
 to the platform. Nothing else changes: the body prints on the same stdout, reads
@@ -1266,7 +1266,7 @@ backends: **every `allocate(ctx, n)`, and nothing else.** The charge for an
 operation is *defined* rather than measured. A `Str` of *n* UTF-8 bytes charges
 `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, and a view charges
 nothing. Those rows are charged by definition and reported to no allocator. The
-model sits beside `Alloc` in `core/effect`.
+model sits beside `Allocator` in `core/effect`.
 
 ## Loading code later
 

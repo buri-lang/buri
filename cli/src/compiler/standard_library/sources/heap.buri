@@ -17,7 +17,7 @@
 //! `core/order`'s `reverse` is the same idea one level down.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/heap" import * as heap;
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
@@ -25,7 +25,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let work = heap.of(ctx, [30, 10, 20]).push(ctx, 5);
@@ -43,7 +43,7 @@
 //! 5 first, then 5 10 20 30
 //! ```
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 
 /// A node and everything under it, or nothing.
@@ -73,7 +73,7 @@ export fn empty<T>(): Heap<T> {
 }
 
 /// A heap holding every item, duplicates and all.
-export fn of<T: Ord, C: Alloc>(ctx: C, items: [T]): Heap<T> {
+export fn of<T: Ord, C: Allocator>(ctx: C, items: [T]): Heap<T> {
     items.foldCtx(ctx, fn(c, acc: Heap<T>, x) => acc.push(c, x), empty<T>())
 }
 
@@ -82,7 +82,7 @@ export fn of<T: Ord, C: Alloc>(ctx: C, items: [T]): Heap<T> {
 /// This is the whole data structure. `push` melds a one-element tree, `merge`
 /// melds two heaps, and `pop` melds what is left of the root's children — each
 /// of them one comparison and one `push` onto a child list.
-fn meld<T: Ord, C: Alloc>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
+fn meld<T: Ord, C: Allocator>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
     match (a) {
         .Empty => b,
         .Node(x, xs) => {
@@ -107,7 +107,7 @@ fn meld<T: Ord, C: Alloc>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
 /// next `pop` walks all of it. Both passes are folds rather than recursion,
 /// because a root that has just taken n pushes has n children and a recursion
 /// per pair would be n/2 frames deep.
-fn mergePairs<T: Ord, C: Alloc>(ctx: C, children: [Tree<T>]): Tree<T> {
+fn mergePairs<T: Ord, C: Allocator>(ctx: C, children: [Tree<T>]): Tree<T> {
     let paired = list
         .range(ctx, 0, (children.len() + 1) / 2)
         .mapCtx(ctx, fn(c, i) => {
@@ -122,7 +122,7 @@ fn mergePairs<T: Ord, C: Alloc>(ctx: C, children: [Tree<T>]): Tree<T> {
 
 /// Pops until there is nothing left, in a tail call rather than a `map` over
 /// something no one has yet.
-fn drain<T: Ord, C: Alloc>(ctx: C, h: Heap<T>, acc: [T]): [T] {
+fn drain<T: Ord, C: Allocator>(ctx: C, h: Heap<T>, acc: [T]): [T] {
     match (h.pop(ctx)) {
         .None => acc,
         .Some(taken) => {
@@ -151,7 +151,7 @@ impl<T: Ord> Heap<T> {
     }
 
     /// The heap with `item` in it. O(1): one comparison against the root.
-    export fn push<C: Alloc>(self, ctx: C, item: T): Heap<T> {
+    export fn push<C: Allocator>(self, ctx: C, item: T): Heap<T> {
         Heap {
             root: meld(ctx, self.root, .Node(item, list.empty<Tree<T>>())),
             size: self.size + 1,
@@ -161,7 +161,7 @@ impl<T: Ord> Heap<T> {
     /// The smallest element and the heap without it, or `.None` when there is
     /// nothing left. O(log n) amortized — the root goes and its children are
     /// melded back together in pairs.
-    export fn pop<C: Alloc>(self, ctx: C): Option<(T, Heap<T>)> {
+    export fn pop<C: Allocator>(self, ctx: C): Option<(T, Heap<T>)> {
         match (self.root) {
             .Empty => .None,
             .Node(x, children) => {
@@ -174,12 +174,12 @@ impl<T: Ord> Heap<T> {
 
     /// Both heaps' elements, duplicates kept. O(1): one comparison between the
     /// two roots.
-    export fn merge<C: Alloc>(self, ctx: C, other: Heap<T>): Heap<T> {
+    export fn merge<C: Allocator>(self, ctx: C, other: Heap<T>): Heap<T> {
         Heap { root: meld(ctx, self.root, other.root), size: self.size + other.size }
     }
 
     /// Every element, smallest first. O(n log n): it is `pop` until empty.
-    export fn toSortedList<C: Alloc>(self, ctx: C): [T] {
+    export fn toSortedList<C: Allocator>(self, ctx: C): [T] {
         drain(ctx, self, list.empty<T>())
     }
 }

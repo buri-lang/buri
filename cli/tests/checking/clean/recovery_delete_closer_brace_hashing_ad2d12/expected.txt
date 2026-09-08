@@ -1,7 +1,7 @@
 error: expected an expression, found `,` [unexpected-token]
   --> main.buri:31:22
    |
-31 |         Alloc: alloc(,
+31 |         Allocator: alloc(,
    |                      ^
    |
    = expected: an expression

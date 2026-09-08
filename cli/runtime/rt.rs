@@ -73,7 +73,7 @@
 //! compute at once. Everything else in this runtime was already thread-safe
 //! and was checked rather than assumed: `host.rs`'s four streams are
 //! process-global `Mutex`es, `memory.rs`'s counters are atomics and its caches
-//! are per-thread, `rng.rs` and the `Alloc` counters are `Mutex`es.
+//! are per-thread, `rng.rs` and the `Allocator` counters are `Mutex`es.
 //!
 //! ## 2. What creates a second carrier, and what still does not
 //!
@@ -98,7 +98,7 @@
 //! carrier, in index order, answering the same `[B]`. The order promise is
 //! what makes those two the same program; the timing is not part of it.
 //!
-//! [`Clock::sleepMillis`][slp] and [`Net::fetch`][fch] route through
+//! [`Clock::sleepMilliseconds`][slp] and [`Network::fetch`][fch] route through
 //! [`park_on`], so two steps that wait overlap. **Two steps that compute now
 //! overlap too**, which is the whole of what this slice changed at this level:
 //! `the_steps_of_one_fan_out_compute_at_the_same_time` is the case that would
@@ -128,7 +128,7 @@
 //! Rust-only, because `core/actor` still does not exist and their signatures
 //! would still be guesses.
 //!
-//! [slp]: crate::buri_rt_host_clock_sleep_millis
+//! [slp]: crate::buri_rt_host_clock_sleep_milliseconds
 //! [fch]: crate::buri_rt_host_net_fetch
 //!
 //! ## 3. Threads, locks and poisoning
@@ -2382,12 +2382,12 @@ mod tests {
         assert_eq!(CARRIER_STACK_BYTES, 512 * 1024);
     }
 
-    /// `Clock.sleepMillis` still waits and still answers nothing, having gone
+    /// `Clock.sleepMilliseconds` still waits and still answers nothing, having gone
     /// through the timer wheel instead of `thread::sleep`.
     #[test]
     fn the_sleep_intrinsic_still_sleeps() {
         let started = Instant::now();
-        crate::buri_rt_host_clock_sleep_millis(30);
+        crate::buri_rt_host_clock_sleep_milliseconds(30);
         assert!(started.elapsed() >= Duration::from_millis(25));
 
         // A duration that is not positive returns at once, exactly as before.
@@ -2397,8 +2397,8 @@ mod tests {
         // process never comes back. A tight bound would buy nothing and would
         // fail on a loaded machine.
         let started = Instant::now();
-        crate::buri_rt_host_clock_sleep_millis(0);
-        crate::buri_rt_host_clock_sleep_millis(-5);
+        crate::buri_rt_host_clock_sleep_milliseconds(0);
+        crate::buri_rt_host_clock_sleep_milliseconds(-5);
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 
@@ -2592,7 +2592,7 @@ mod tests {
     /// waiting for a step that has not started.
     ///
     /// The wait goes through [`park_on`], which is the door
-    /// `Clock::sleepMillis` waits at (`host.rs`), so what overlaps here is two
+    /// `Clock::sleepMilliseconds` waits at (`host.rs`), so what overlaps here is two
     /// *parked* tasks and not two blocked threads. That is B9's sentence about
     /// this case, now asserted rather than implied: what two waiting steps cost
     /// is two saved stacks, so a test that insisted on two threads would be
@@ -2770,7 +2770,7 @@ mod tests {
             // How many steps finish before this one: every later index, so the
             // last step waits for nobody and the first waits for all of them.
             let after_me = STEPS - 1 - index as usize;
-            // Through `park_on` and its timer, the way `Clock::sleepMillis`
+            // Through `park_on` and its timer, the way `Clock::sleepMilliseconds`
             // waits, so a step that is waiting is parked rather than sitting on
             // a carrier. The sleep is built inside the future for `host.rs`'s
             // reason: a `tokio` timer registers where it is constructed.

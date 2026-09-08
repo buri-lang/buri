@@ -29,7 +29,7 @@ the only two traits this applies to.
 ## A program that provokes it
 
 ```buri fail code=derive-only-trait
-# from "core/effect" import { Alloc };
+# from "core/effect" import { Allocator };
 # from "core/json" import { Json, ToJson };
 
 struct Point {
@@ -38,7 +38,7 @@ struct Point {
 }
 
 impl ToJson for Point {
-    fn toJson<C: Alloc>(self, ctx: C): Json {
+    fn toJson<C: Allocator>(self, ctx: C): Json {
         Json.Num(0.0)
     }
 }

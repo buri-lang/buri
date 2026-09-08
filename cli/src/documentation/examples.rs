@@ -564,25 +564,25 @@ pub fn rendered(body: &str) -> String {
 /// server.
 ///
 /// **The type is qualified because the effects are not all in one module.**
-/// `core/fs` declares `FsRead` and `FsWrite` — their methods name a `Path`, and
-/// `core/path` names `Alloc`, so `core/effect` is below the type they take —
-/// and a row that named only `FsRead` would build a wrapper importing it from
+/// `core/fs` declares `FileSystemRead` and `FileSystemWrite` — their methods name a `Path`, and
+/// `core/path` names `Allocator`, so `core/effect` is below the type they take —
+/// and a row that named only `FileSystemRead` would build a wrapper importing it from
 /// the module that does not have it. `fs` is deliberately not a row: the
 /// filesystem is two grants, and a fence says which one it wants.
 fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
-        "alloc" => ("__effect.Alloc", "alloc"),
+        "alloc" => ("__effect.Allocator", "alloc"),
         "stdout" => ("__effect.Stdout", "stdout"),
         "stderr" => ("__effect.Stderr", "stderr"),
         "stdin" => ("__effect.Stdin", "stdin"),
-        "fsread" => ("__fs.FsRead", "fs"),
-        "fswrite" => ("__fs.FsWrite", "fs"),
-        "net" => ("__effect.Net", "net"),
+        "fsread" => ("__fs.FileSystemRead", "fs"),
+        "fswrite" => ("__fs.FileSystemWrite", "fs"),
+        "net" => ("__effect.Network", "net"),
         "clock" => ("__effect.Clock", "clock"),
-        "rand" => ("__effect.Rand", "rand"),
+        "rand" => ("__effect.Random", "rand"),
         "entropy" => ("__effect.Entropy", "entropy"),
-        "env" => ("__effect.Env", "env"),
-        "proc" => ("__effect.Proc", "proc"),
+        "env" => ("__effect.Environment", "env"),
+        "proc" => ("__effect.Process", "proc"),
         "tasks" => ("__effect.Tasks", "tasks"),
         "listen" => ("__effect.Listen", "listen"),
         "sockets" => ("__effect.Sockets", "sockets"),
@@ -697,7 +697,7 @@ pub fn assemble(
         Wrap::Body | Wrap::Expr => {
             body.push_str("from \"core/effect\" import * as __effect;\n");
             // `core/fs` beside it, and hidden for the same reason: it is where
-            // `FsRead` and `FsWrite` are declared, so a fence naming either has
+            // `FileSystemRead` and `FileSystemWrite` are declared, so a fence naming either has
             // to reach a second module for a name it never writes.
             body.push_str("from \"core/fs\" import * as __fs;\n");
             body.push_str("from \"core/host\" import * as __host;\n");

@@ -1,20 +1,20 @@
-from "core/effect" import { Alloc, Env, Stdout };
+from "core/effect" import { Allocator, Environment, Stdout };
 from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
 from "//libs/convert" import { ConvertError, parseRequest, run };
 
-/// A test double for `Env`: an ordinary struct with the effect's methods, and
+/// A test double for `Environment`: an ordinary struct with the effect's methods, and
 /// nothing but `args` doing any work.
 struct FixedArgs {
     export words: [Str],
 }
 
-impl Env for FixedArgs {
+impl Environment for FixedArgs {
     fn variable(self, name: Str): Option<Str> {
         .None
     }
 
-    fn args(self): [Str] {
+    fn arguments(self): [Str] {
         self.words
     }
 
@@ -45,8 +45,8 @@ test "an unknown unit has a line for the user" {
 test "run reads its arguments and prints one line" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
-        Env: FixedArgs { words: ["10", "km", "mi"] },
+        Allocator: alloc(),
+        Environment: FixedArgs { words: ["10", "km", "mi"] },
         Stdout: out,
     };
     assert.ok(run(ctx));

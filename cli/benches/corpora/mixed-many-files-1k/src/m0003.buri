@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
@@ -52,20 +52,20 @@ impl Rec3_0 {
         self.f0 * factor + 53
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec3_0: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe3_0<C: Alloc>(ctx: C): Int {
+export fn probe3_0<C: Allocator>(ctx: C): Int {
     let r = Rec3_0 { f0: 7, f1: "probe", f2: 1.5 };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach3<C: Alloc>(ctx: C): Int {
+export fn reach3<C: Allocator>(ctx: C): Int {
     0 + probe3_0(ctx) + reach2(ctx) + reach0(ctx) + reach1(ctx)
 }

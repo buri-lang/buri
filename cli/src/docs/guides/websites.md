@@ -34,7 +34,7 @@ that cannot. [Build files](../reference/build/build-files.md) has the rules.
 ```buri repo=cli/tests/repositories/concurrency/website/repo package=//cmd/site role=entry
 // A website: one binary, two entries, one tree.
 
-from "core/effect" import { Alloc, Request, Response, Stdout };
+from "core/effect" import { Allocator, Request, Response, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -99,7 +99,7 @@ fn at<C>(
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Ui: host.ui,
         Watch: host.watch,
@@ -133,7 +133,7 @@ export fn main(): Result<(), Str> {
 
 export fn fetch(request: Request): Response {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     let state = site();
     http.html(

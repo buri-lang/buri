@@ -9,7 +9,7 @@
 
 from "core/bytes" import * as bytes;
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/number" import * as number;
@@ -43,7 +43,7 @@ test "fromDigit refuses a radix outside 2 to 36" {
 
 test "fromDigit inverts toDigit over every base-36 digit" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let mismatched = list
         .range(ctx, 0, 36)
@@ -79,7 +79,7 @@ test "isHexDigit refuses what is not a hexadecimal digit" {
 
 test "toHex renders the shortest form when no width is asked for" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toHex(ctx, 0, 0), "0");
     assert.eq(number.toHex(ctx, 15, 0), "f");
@@ -89,7 +89,7 @@ test "toHex renders the shortest form when no width is asked for" {
 
 test "toHex pads to the width and never truncates past it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toHex(ctx, 255, 4), "00ff");
     assert.eq(number.toHex(ctx, 0, 8), "00000000");
@@ -100,7 +100,7 @@ test "toHex pads to the width and never truncates past it" {
 
 test "toHex renders a negative number as its two's complement" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toHex(ctx, -1, 0), "ffffffffffffffff");
     assert.eq(number.toHex(ctx, -1, 4), "ffffffffffffffff");
@@ -109,7 +109,7 @@ test "toHex renders a negative number as its two's complement" {
 
 test "toHex reaches both ends of the range" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toHex(ctx, number.maxValue<I64>(), 16), "7fffffffffffffff");
     assert.eq(number.toHex(ctx, number.minValue<I64>(), 16), "8000000000000000");
@@ -117,14 +117,14 @@ test "toHex reaches both ends of the range" {
 
 test "toHex pads wider than the type is" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toHex(ctx, 255, 20), "000000000000000000ff");
 }
 
 test "sixteen digits of a U64 is toHex at a width of sixteen" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The shape a program writes out as a sixteen-call unrolled `nibble`: one
     // 64-bit value, sixteen lowercase digits. A `U64` past the signed maximum
@@ -205,7 +205,7 @@ test "toRadix in base ten agrees with toInt" {
 
 test "toRadix reads back what toHex wrote" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let values = [0, 1, 15, 16, 255, 4886718345, number.maxValue<I64>()];
     let broken = values.filterCtx(ctx, fn(c, v) => {
@@ -218,7 +218,7 @@ test "toRadix reads back what toHex wrote" {
 
 test "toHex is two lowercase digits a byte" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.toHex(ctx, [0, 1, 15, 16, 255]), "00010f10ff");
     assert.eq(bytes.toHex(ctx, []), "");
@@ -227,7 +227,7 @@ test "toHex is two lowercase digits a byte" {
 
 test "toHex of one byte is toHex of the number at width two" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let disagreed = list
         .range(ctx, 0, 256)
@@ -239,7 +239,7 @@ test "toHex of one byte is toHex of the number at width two" {
 
 test "fromHex reads back every byte toHex wrote" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let all = list.range(ctx, 0, 256).map(ctx, fn(n) => n.wrapToU8());
     assert.eq(assert.ok(bytes.fromHex(ctx, bytes.toHex(ctx, all))), all);
@@ -247,7 +247,7 @@ test "fromHex reads back every byte toHex wrote" {
 
 test "fromHex reads uppercase too" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.ok(bytes.fromHex(ctx, "ABCD")), [171, 205]);
 }
@@ -260,7 +260,7 @@ test "fromHex reads uppercase too" {
 
 test "toRadix writes the digits of a base" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toRadix(ctx, 0, 10), "0");
     assert.eq(number.toRadix(ctx, 255, 16), "ff");
@@ -273,7 +273,7 @@ test "toRadix writes the digits of a base" {
 
 test "toRadix writes a sign rather than a two's complement" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toRadix(ctx, -5, 2), "-101");
     assert.eq(number.toRadix(ctx, -255, 16), "-ff");
@@ -284,7 +284,7 @@ test "toRadix writes a sign rather than a two's complement" {
 
 test "toRadix reaches both ends of Int" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(number.toRadix(ctx, number.maxValue<I64>(), 10), "9223372036854775807");
     assert.eq(number.toRadix(ctx, number.minValue<I64>(), 10), "-9223372036854775808");
@@ -293,7 +293,7 @@ test "toRadix reaches both ends of Int" {
 
 test "toRadix clamps a radix it has no alphabet for" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Below two is read as two, above thirty-six as thirty-six.
     assert.eq(number.toRadix(ctx, 5, 1), "101");
@@ -318,7 +318,7 @@ test "toRadix clamps a radix it has no alphabet for" {
 
 test "str.toRadix reads back what number.toRadix wrote" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let values = [0, 1, -1, 7, -7, 255, -256, 1234567890, number.maxValue<I64>()];
     let broken = values.filterCtx(ctx, fn(c, v) => {

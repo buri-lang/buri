@@ -11,7 +11,7 @@
 // and `order.int` takes an `Int`: a fix that would not type-check is not one
 // this rule offers.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/math" import * as math;
@@ -57,7 +57,7 @@ fn label(ordered: Order): Str {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let said = [

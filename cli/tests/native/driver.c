@@ -134,14 +134,14 @@ extern int32_t buri_rt_host_net_fetch(int32_t method, uint8_t *ubase, const uint
 extern int64_t buri_rt_net_capabilities(void);
 extern int32_t buri_rt_net_available(void);
 extern int32_t buri_rt_net_h3_available(void);
-extern int64_t buri_rt_host_clock_now_millis(void);
-extern void buri_rt_host_clock_sleep_millis(int64_t millis);
+extern int64_t buri_rt_host_clock_now_milliseconds(void);
+extern void buri_rt_host_clock_sleep_milliseconds(int64_t millis);
 extern int64_t buri_rt_host_rand_next_int(int64_t lo, int64_t hi);
 extern void buri_rt_host_entropy_bytes(int64_t count, BuriList *out);
 extern double buri_rt_host_rand_next_float(void);
 extern int32_t buri_rt_host_env_variable(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out);
-extern void buri_rt_host_env_args(BuriList *out);
+extern void buri_rt_host_env_arguments(BuriList *out);
 extern void buri_rt_host_proc_exit_with(int64_t code);
 
 /* rendering — `cli/runtime/fmt.rs`. Every one writes an owned `Str` through an
@@ -161,7 +161,7 @@ extern uint64_t buri_rt_hash_char(uint64_t h, uint32_t c);
 extern uint64_t buri_rt_hash_str(uint64_t h, uint8_t *base, const uint8_t *ptr, uint64_t len);
 
 /* core/str — `cli/runtime/text.rs`. The pure entries answer *views* and take a
- * count on the receiver's base; the `Alloc`-bounded ones answer fresh blocks.
+ * count on the receiver's base; the `Allocator`-bounded ones answer fresh blocks.
  * An `Option` is `BURI_OK` or `0` with the out-pointer untouched (§2 rule 3). */
 extern int32_t buri_rt_str_char_at(uint8_t *base, const uint8_t *ptr, uint64_t len, int64_t index,
                                    uint32_t *out);
@@ -294,7 +294,7 @@ static int mode_memory(void) {
   uint64_t leaked = stats.live_blocks - base_live;
 
   if (buri_rt_host_alloc_allocate(4096) != 4096) {
-    fprintf(stderr, "Alloc::allocate did not report its own charge\n");
+    fprintf(stderr, "Allocator::allocate did not report its own charge\n");
     return 1;
   }
 
@@ -503,7 +503,7 @@ static int mode_env(void) {
   int32_t missing = buri_rt_host_env_variable(S("BURI_RT_DEFINITELY_NOT_SET"), &absent);
 
   BuriList args;
-  buri_rt_host_env_args(&args);
+  buri_rt_host_env_arguments(&args);
 
   printf("var=%.*s missing=%s args=%llu:", present == BURI_OK ? bytes_of(value) : 0,
          present == BURI_OK ? chars_of(value) : "", missing == BURI_OK ? "some" : "none",
@@ -518,11 +518,11 @@ static int mode_env(void) {
 }
 
 static int mode_clock_rand(void) {
-  int64_t start = buri_rt_host_clock_now_millis();
+  int64_t start = buri_rt_host_clock_now_milliseconds();
   /* 2020-01-01T00:00:00Z, which any working clock is past. */
   int after_2020 = start > 1577836800000LL;
-  buri_rt_host_clock_sleep_millis(5);
-  int slept = buri_rt_host_clock_now_millis() - start >= 1;
+  buri_rt_host_clock_sleep_milliseconds(5);
+  int slept = buri_rt_host_clock_now_milliseconds() - start >= 1;
 
   int in_range = 0;
   int varies = 0;

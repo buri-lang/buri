@@ -22,7 +22,7 @@ trait Store {
 ```
 
 A method may take its own type parameters anywhere a trait or an effect can go.
-`Show.show<C: Alloc>` and `Ui.memo<T>` are both in the standard library.
+`Show.show<C: Allocator>` and `Ui.memo<T>` are both in the standard library.
 
 ## Why
 

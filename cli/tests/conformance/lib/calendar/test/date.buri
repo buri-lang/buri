@@ -6,7 +6,7 @@
 
 from "core/date" import * as date;
 from "core/date" import { Date, DateTime, Duration, Weekday };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -255,7 +255,7 @@ test "the calendar's Duration is core/time's, re-exported and not a copy" {
 
 test "dates format with fixed width" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(date.formatDate(ctx, d(2024, 2, 29)), "2024-02-29");
     assert.eq(date.formatDate(ctx, d(999, 1, 2)), "0999-01-02");
@@ -263,7 +263,7 @@ test "dates format with fixed width" {
 
 test "date-times format as UTC with milliseconds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let dt = DateTime {
         date: d(2026, 8, 15),
@@ -274,7 +274,7 @@ test "date-times format as UTC with milliseconds" {
 
 test "parseDate reads what formatDate writes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cases = [d(1970, 1, 1), d(2024, 2, 29), d(2100, 12, 31)];
     // `mapCtx`, then check: a lambda may not capture a context, so the round
@@ -287,7 +287,7 @@ test "parseDate reads what formatDate writes" {
 
 test "parseDate is strict" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(date.parseDate(ctx, "2024-2-29").isSome());
     assert.isTrue(date.parseDate(ctx, "2023-02-29").isNone());
@@ -300,7 +300,7 @@ test "parseDate is strict" {
 
 test "dates and times order chronologically" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(d(2023, 1, 1) < d(2023, 1, 2));
     assert.isTrue(d(2023, 1, 31) < d(2023, 2, 1));
@@ -342,7 +342,7 @@ test "a December day can belong to the next year's first week" {
 
 test "every day of one week has the same week number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 2026-08-10 is a Monday.
     let monday = d(2026, 8, 10);
@@ -418,7 +418,7 @@ test "the end of a month is the day before the start of the next" {
 
 test "the ISO week of every day from the 29th of December to the 3rd of January" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let expected: [(Int, Int)] = [
         (2015, 53),
@@ -552,7 +552,7 @@ test "the ISO week of every day from the 29th of December to the 3rd of January"
 
 test "a week number is between 1 and 53, and a whole week shares its Thursday's" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Eight hundred consecutive days, which is two New Years with every weekday
     // in every position around them.
@@ -588,7 +588,7 @@ fn isoWeekday(day: Date): Int {
 
 test "the first and last day of every month in a leap year and a common one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let leap = list
         .range(ctx, 1, 13)
@@ -617,7 +617,7 @@ test "the first and last day of every month in a leap year and a common one" {
 
 test "the day after the end of every month is the first of the next" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let bad = list
         .range(ctx, 0, 24)
@@ -630,7 +630,7 @@ test "the day after the end of every month is the first of the next" {
 
 test "addMonths of monthsUntil lands on or before the date it counted to" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The clamping and the counting are two different rules, and the doc
     // comment claims they meet here. Month ends against month ends is where

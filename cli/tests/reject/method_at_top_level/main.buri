@@ -2,7 +2,7 @@
 // A method is declared inside an `impl` block for its type. Taking `self` at
 // the top level names the shape of a method in a place that has no receiver
 // type to attach it to.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -13,7 +13,7 @@ fn area(self): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${Square { side: 3 }.area()}").ignore();
   .Ok(())
 }

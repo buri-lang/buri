@@ -2,7 +2,7 @@
 // missing abstraction the rule is about rather than the count itself. `self`
 // and `ctx` are not counted: neither is data a caller assembled.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -12,7 +12,7 @@ fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
 
 export fn main(): Result<(), Str? > {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io

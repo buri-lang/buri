@@ -20,17 +20,17 @@
 //! and [`Path::isAbsolute`] are **views** into a path that already exists, so
 //! they are pure and take no context (SPEC 10.5). [`of`], [`Path::join`],
 //! [`Path::withSuffix`] and [`Path::components`] build something new, so they
-//! name `Alloc`.
+//! name `Allocator`.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/path" import * as path;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let dir = path.of(ctx, "var//log/./");
@@ -46,7 +46,7 @@
 //! var/log/app.log — app then log
 //! ```
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 
 derive Eq, Show for Path;
@@ -63,14 +63,14 @@ export struct Path(Str);
 /// relative path is relative to.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/path" import * as path;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let tidied = path.of(ctx, "logs//app/").text();
@@ -86,7 +86,7 @@ export struct Path(Str);
 /// ```stdout
 /// logs/app . / a/../b
 /// ```
-export fn of<C: Alloc>(ctx: C, text: Str): Path {
+export fn of<C: Allocator>(ctx: C, text: Str): Path {
     let body = named(ctx, text).join(ctx, "/");
     if (text.startsWith("/")) {
         Path("/".concat(ctx, body))
@@ -98,7 +98,7 @@ export fn of<C: Alloc>(ctx: C, text: Str): Path {
 }
 
 /// The components of `text` that name something: neither empty nor `.`.
-fn named<C: Alloc>(ctx: C, text: Str): [Str] {
+fn named<C: Allocator>(ctx: C, text: Str): [Str] {
     text.split(ctx, "/").filter(ctx, fn(part) => part != "" && part != ".")
 }
 
@@ -159,14 +159,14 @@ impl Path {
     /// onto its own directory ends up reading `/etc/passwd`.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let dir = path.of(ctx, "var/log");
@@ -181,7 +181,7 @@ impl Path {
     /// ```stdout
     /// var/log/app.log var/log/a/b var/log/etc
     /// ```
-    export fn join<C: Alloc>(self, ctx: C, other: Str): Path {
+    export fn join<C: Allocator>(self, ctx: C, other: Str): Path {
         let left = self.0;
         of(ctx, str.format(ctx, "${left}/${other}"))
     }
@@ -195,14 +195,14 @@ impl Path {
     /// `parent` drops the last component, and `..` is a component.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let deep = path.of(ctx, "/var/log").parent().map(fn(p) => p.text());
@@ -266,14 +266,14 @@ impl Path {
     /// from it, and `archive.`'s dot ends the name.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let archive = path.of(ctx, "a/report.tar.gz");
@@ -311,7 +311,7 @@ impl Path {
     ///
     /// `.None` where there is no last component to append to: the root and
     /// `.`.
-    export fn withSuffix<C: Alloc>(self, ctx: C, suffix: Str): Option<Path> {
+    export fn withSuffix<C: Allocator>(self, ctx: C, suffix: Str): Option<Path> {
         match (self.fileName()) {
             .None => .None,
             .Some(_name) => .Some(of(ctx, self.0.concat(ctx, suffix))),
@@ -323,7 +323,7 @@ impl Path {
     ///
     /// `/a/b` and `a/b` answer the same two, and [`Path::isAbsolute`] tells
     /// them apart. The root and `.` answer the empty list.
-    export fn components<C: Alloc>(self, ctx: C): [Str] {
+    export fn components<C: Allocator>(self, ctx: C): [Str] {
         named(ctx, self.0)
     }
 
@@ -334,14 +334,14 @@ impl Path {
     /// path the way `/` starts every absolute one.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let base = path.of(ctx, "/srv/a");
@@ -379,14 +379,14 @@ impl Path {
     /// path that *is* `base` answers `.`.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let root = path.of(ctx, "/srv/app");
@@ -401,7 +401,7 @@ impl Path {
     /// ```stdout
     /// log/today none
     /// ```
-    export fn relativeTo<C: Alloc>(self, ctx: C, base: Path): Option<Path> {
+    export fn relativeTo<C: Allocator>(self, ctx: C, base: Path): Option<Path> {
         if (!self.startsWith(base)) {
             .None
         } else if (self.0 == base.0) {
@@ -426,14 +426,14 @@ impl Path {
     /// in `..`.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let file = path.of(ctx, "/var/log/app.log");
@@ -447,7 +447,7 @@ impl Path {
     /// ```stdout
     /// /var/log/app.gz /var/log/app
     /// ```
-    export fn withExtension<C: Alloc>(self, ctx: C, extension: Str): Option<Path> {
+    export fn withExtension<C: Allocator>(self, ctx: C, extension: Str): Option<Path> {
         match (self.fileName()) {
             .None => .None,
             .Some(name) => {
@@ -470,7 +470,7 @@ impl Path {
 
     /// This path with its extension dropped, or the path unchanged where there
     /// is none to drop.
-    export fn withoutExtension<C: Alloc>(self, ctx: C): Path {
+    export fn withoutExtension<C: Allocator>(self, ctx: C): Path {
         self.withExtension(ctx, "").withDefault(self)
     }
 
@@ -479,7 +479,7 @@ impl Path {
     /// It appends an absolute `other` exactly as `join` does — the root never
     /// changes — so joining a path a caller supplied cannot walk out of this
     /// one.
-    export fn joinPath<C: Alloc>(self, ctx: C, other: Path): Path {
+    export fn joinPath<C: Allocator>(self, ctx: C, other: Path): Path {
         self.join(ctx, other.text())
     }
 
@@ -504,14 +504,14 @@ impl Path {
     /// backtracking costs.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/path" import * as path;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let file = path.of(ctx, "src/net/http.buri");
@@ -538,7 +538,7 @@ impl Path {
 // Globbing
 //
 // Index arithmetic over two views rather than two lists of components: a list
-// would need an `Alloc`, and `matchesGlob` is pure.
+// would need an `Allocator`, and `matchesGlob` is pure.
 // -----------------------------------------------------------------------------
 
 /// The components of a path or a pattern as one string, without the leading

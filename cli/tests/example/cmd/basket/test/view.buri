@@ -9,10 +9,10 @@
 //
 // The response body is recorded rather than fetched. A suite that needed
 // //cmd/server running would be a suite that fails for reasons that have
-// nothing to do with the page, and `Net` is an effect, so the way to supply
+// nothing to do with the page, and `Network` is an effect, so the way to supply
 // one is to write one.
 
-from "core/effect" import { Alloc, Net, NetError, Request, Response };
+from "core/effect" import { Allocator, Network, NetError, Request, Response };
 from "core/host/testing" import { alloc, net };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
@@ -74,7 +74,7 @@ let RECORDED: [U8] = [
 /// A platform that answers every request with the recording.
 ///
 /// An effect is an interface, and a test supplies its own implementation the
-/// same way the runner supplies `TestFs`: there is no distinction between the
+/// same way the runner supplies `TestFileSystem`: there is no distinction between the
 /// runner's implementations and yours. This one answers on the spot, where a
 /// real one would wait — and the page cannot tell, because what it asked for
 /// is a response and not a moment. That is the whole of what retiring the
@@ -82,7 +82,7 @@ let RECORDED: [U8] = [
 /// //cmd/server's own suite would write.
 struct Recorded {}
 
-impl Net for Recorded {
+impl Network for Recorded {
     fn fetch(self, request: Request): Result<Response, NetError> {
         .Ok(Response { status: 200, headers: [], body: RECORDED })
     }
@@ -91,7 +91,7 @@ impl Net for Recorded {
 /// A platform whose server is there but unhappy.
 struct Broken {}
 
-impl Net for Broken {
+impl Network for Broken {
     fn fetch(self, request: Request): Result<Response, NetError> {
         .Ok(Response { status: 503, headers: [], body: [] })
     }
@@ -101,10 +101,10 @@ impl Net for Broken {
 
 test "an empty basket says so, and puts no list on the page" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     assert.isTrue(seen.text().contains("Nothing in the basket"));
@@ -115,10 +115,10 @@ test "an empty basket says so, and puts no list on the page" {
 
 test "typing a line and submitting the form adds it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
 
@@ -138,10 +138,10 @@ test "typing a line and submitting the form adds it" {
 
 test "the Add button does what submitting the form does" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.fill("Item", "books");
@@ -153,10 +153,10 @@ test "the Add button does what submitting the form does" {
 
 test "an amount nobody can read is quoted back, and nothing is added" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.fill("Item", "coffee");
@@ -171,10 +171,10 @@ test "an amount nobody can read is quoted back, and nothing is added" {
 
 test "there is no live region at all while there is nothing to say" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     assert.isFalse(seen.markup().contains("role=\"alert\""));
@@ -184,10 +184,10 @@ test "there is no live region at all while there is nothing to say" {
 
 test "settling a line moves the row rather than rebuilding it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let state = newState(ctx);
     let seen = render(ctx, page(ctx, state));
@@ -209,10 +209,10 @@ test "settling a line moves the row rather than rebuilding it" {
 
 test "what changes about a settled row is its class and nothing else" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let state = newState(ctx);
     let seen = render(ctx, page(ctx, state));
@@ -235,10 +235,10 @@ test "what changes about a settled row is its class and nothing else" {
 
 test "the running total is the sum of the lines, announced politely" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     assert.isTrue(seen.text().contains("$0.00"));
@@ -252,10 +252,10 @@ test "the running total is the sum of the lines, announced politely" {
 
 test "the meter's width is inline, and follows what is settled" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
@@ -271,10 +271,10 @@ test "the meter's width is inline, and follows what is settled" {
 
 test "a refused request says why, and leaves the basket alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: net(),
+        Network: net(),
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
@@ -284,10 +284,10 @@ test "a refused request says why, and leaves the basket alone" {
 
 test "a response that is not a 200 is reported as the number it was" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Broken { },
+        Network: Broken { },
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
@@ -299,10 +299,10 @@ test "a response that is not a 200 is reported as the number it was" {
 
 test "dark mode rewrites the values and changes no class" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Net: Recorded { },
+        Network: Recorded { },
     };
     let state = newState(ctx);
     // Exactly what main.buri hands to `mount`: one theme per package whose

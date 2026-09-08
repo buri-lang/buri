@@ -122,7 +122,7 @@
 //!   would add twenty minutes and no coverage.
 //! * **What the native surface cannot reach.** `derive ToJson` and a `[T]`
 //!   inside a derived `Show` are both refused by `missing_intrinsics`, and
-//!   `Alloc` accounting exists on neither backend. Each is covered twice: an
+//!   `Allocator` accounting exists on neither backend. Each is covered twice: an
 //!   `#[ignore]`d agreement test that runs the day the gap closes, and a test
 //!   asserting the gap is *still there*, so the ignore cannot rot into a lie.
 //!   That is `native/conformance.rs`'s pattern, for its reason.
@@ -1969,8 +1969,8 @@ export fn main(): Result<(), Str> {
 ///
 /// The divisor is `"".len()` rather than a literal zero because a division
 /// by a literal is decided at compile time and there is nothing left to
-/// ask; `cli/tests/crash/` reaches for `env.args(ctx).len()` instead, which
-/// is `host.HostEnv.args` and has no native body yet.
+/// ask; `cli/tests/crash/` reaches for `env.withArguments(ctx).len()` instead, which
+/// is `host.HostEnvironment.arguments` and has no native body yet.
 #[test]
 fn row_11_division_by_zero() {
     rows_or_skip!();
@@ -2066,12 +2066,12 @@ export fn main(): Result<(), Str> {
 }
 
 // -------------------------------------------------------------------
-// Row 12 — `Alloc` accounting
+// Row 12 — `Allocator` accounting
 // -------------------------------------------------------------------
 
 // `row_12_alloc_accounting_is_a_gap` stood here and is gone with the
 // `#[ignore]` beside it, for the reason row 10's did: it pinned
-// `host.HostAlloc.allocate` having no native body, and the debug backend has
+// `host.HostAllocator.allocate` having no native body, and the debug backend has
 // one now — `runtime_table.rs`'s row reaches
 // `buri_rt_host_alloc_allocate`, which is the same archive body the release
 // backend has always called.
@@ -2079,7 +2079,7 @@ export fn main(): Result<(), Str> {
 /// MEMORY.md §7's model, on both backends, at the one row that charges its
 /// own argument.
 ///
-/// `HostAlloc` is zero-sized and unbounded (§7.2), so `allocate(64)` is
+/// `HostAllocator` is zero-sized and unbounded (§7.2), so `allocate(64)` is
 /// `Region(64)` and nothing accumulates *in the allocator* — the accounting a
 /// program can read is `core/alloc`'s counters, which are a different four
 /// keys and a different question. So the agreement this pins is the one §7.1
@@ -2093,7 +2093,7 @@ fn row_12_alloc_accounting() {
 
 const ALLOCATE: &str = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Region };
+from "core/effect" import { Allocator, Region };
 from "core/host" import { alloc as platform, stdout };
 from "core/io" import * as io;
 
@@ -2496,17 +2496,17 @@ fn the_task_scheduler_answers_in_input_order_on_every_backend() {
     agree(
         "tasks.parallel",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 
-fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
+fn show<C: Allocator>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
 
   // The index is the item's own, and the answer is in the items' order.
   let ns = [10, 20, 30, 40];
@@ -2587,7 +2587,7 @@ fn a_shared_list_is_counted_correctly_by_every_task() {
     agree(
         "tasks.parallel shared",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -2597,7 +2597,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
+    Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
 
   // One list, read whole by every step. The closure captures it, so the
@@ -2670,7 +2670,7 @@ fn a_shared_buffer_is_never_appended_to_in_place_by_two_tasks() {
     agree(
         "tasks.parallel in-place",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -2680,7 +2680,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
+    Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
 
   // A heap Str with room to grow, owned by the closure's environment.
@@ -2728,7 +2728,7 @@ export fn main(): Result<(), Str> {
 ///
 ///  * **one effect out of the context** — `time.now(c)` inside a step. The
 ///    reduced repro: `[7, 9]` where `[12, 14]` was promised.
-///  * **two effects at once** — `str.format` needs the `Alloc` and reads the
+///  * **two effects at once** — `str.format` needs the `Allocator` and reads the
 ///    `Clock`, so a step handed a value satisfying only `Tasks` could satisfy
 ///    neither.
 ///  * **nested** — the inner `parallel`'s receiver is the context the outer
@@ -2743,7 +2743,7 @@ fn a_task_is_handed_the_callers_context_on_every_backend() {
     agree(
         "tasks.parallel context",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -2757,16 +2757,16 @@ struct Ticker {
 }
 
 impl Clock for Ticker {
-  fn nowMillis(self): I64 { self.at }
-  fn sleepMillis(self, millis: Int): () { () }
+  fn nowMilliseconds(self): I64 { self.at }
+  fn sleepMilliseconds(self, millis: Int): () { () }
   fn monotonicNanoseconds(self): I64 { self.at }
 }
 
-fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
+fn show<C: Allocator>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Clock: Ticker { at: 5 },
     Stdout: host.stdout,
     Tasks: host.tasks,
@@ -2776,7 +2776,7 @@ export fn main(): Result<(), Str> {
   let stamped = tasks.parallel(ctx, [7, 9], fn(c, i, x) => time.now(c).0 + x);
   let _ = io.println(ctx, show(ctx, stamped.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)))).ignore();
 
-  // Two effects in one expression: `Alloc` to build the string, `Clock` to
+  // Two effects in one expression: `Allocator` to build the string, `Clock` to
   // fill it.
   let both = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${time.now(c).0}:${i}:${x}"));
   let _ = io.println(ctx, show(ctx, both)).ignore();
@@ -2861,19 +2861,19 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
         "rebuilt handler",
         r#"
 from "core/effect" import {
-  Alloc, Header, IoError, Listen, Listener, Received, Region, Request, Response,
+  Allocator, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout, Tasks,
 };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/server" import * as server;
 
-/// An `Alloc` that is not zero-sized, so the context binding it is a word wide.
+/// An `Allocator` that is not zero-sized, so the context binding it is a word wide.
 struct Plain {
   n: I64,
 }
 
-impl Alloc for Plain {
+impl Allocator for Plain {
   fn allocate(self, bytes: Int): Region { Region(bytes + self.n) }
 }
 
@@ -2945,7 +2945,7 @@ impl Listen for OneShot {
 /// The wrapper: unbounded in `C`, exactly like `Scoped<C>`.
 struct Wrap<C>(C, I64);
 
-impl<C> Alloc for Wrap<C> {
+impl<C> Allocator for Wrap<C> {
   fn allocate(self, bytes: Int): Region { Region(bytes) }
 }
 
@@ -3011,7 +3011,7 @@ impl<C: Listen> Listen for Wrap<C> {
 /// `server.bind` — before the loop or after it — passed on the broken
 /// toolchain while this one faulted. The `bind` half is a row of its own
 /// below, for exactly that reason.
-fn served<C: Alloc + Listen + Stdout + Tasks>(ctx: C): Int {
+fn served<C: Allocator + Listen + Stdout + Tasks>(ctx: C): Int {
   let plan = server.Server {
     port: 0,
     address: .Some("10.0.0.1"),
@@ -3033,7 +3033,7 @@ fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: Plain { n: 0 },
+    Allocator: Plain { n: 0 },
     Stdout: host.stdout,
     Listen: OneShot { binds: 1 },
     Tasks: host.tasks,
@@ -3079,7 +3079,7 @@ fn a_bound_listener_crosses_a_wrapper_on_every_backend() {
         "bound listener",
         r#"
 from "core/effect" import {
-  Alloc, Header, IoError, Listen, Listener, Received, Region, Request, Response,
+  Allocator, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout,
 };
 from "core/host" import * as host;
@@ -3141,7 +3141,7 @@ impl Listen for Gate {
 /// aggregates.
 struct Wrap<C>(C, I64);
 
-impl<C> Alloc for Wrap<C> {
+impl<C> Allocator for Wrap<C> {
   fn allocate(self, bytes: Int): Region { Region(bytes) }
 }
 
@@ -3194,7 +3194,7 @@ impl<C: Listen> Listen for Wrap<C> {
 
 /// Binds, and answers what the acceptor said — the port it chose and the
 /// number of handlers it will host, both read off the `.Ok` payload.
-fn published<C: Alloc + Listen + Stdout>(ctx: C, opens: Bool): Str {
+fn published<C: Allocator + Listen + Stdout>(ctx: C, opens: Bool): Str {
   let plan = server.Server {
     port: 0,
     address: .Some(if (opens) { "10.0.0.1" } else { "0.0.0.0" }),
@@ -3212,8 +3212,8 @@ fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
 }
 
 export fn main(): Result<(), Str> {
-  let open = context { Alloc: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 1 } };
-  let shut = context { Alloc: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 0 } };
+  let open = context { Allocator: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 1 } };
+  let shut = context { Allocator: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 0 } };
   let _ = io.println(host.stdout, wrapped(open, fn(c) => published(c, true))).ignore();
   let _ = io.println(host.stdout, wrapped(shut, fn(c) => published(c, false))).ignore();
   .Ok(())
@@ -3251,7 +3251,7 @@ fn a_value_leaves_a_scope_alive_on_every_backend() {
         "copy out of a scope",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -3263,16 +3263,16 @@ enum Answer {
 }
 
 /// A `Str` this program allocated, rather than one the compiler interned.
-fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str {
+fn built<C: Allocator>(ctx: C, unit: Str, times: Int): Str {
   unit.repeat(ctx, times)
 }
 
-fn flatten<C: Alloc>(ctx: C, xss: [[Str]]): Str {
+fn flatten<C: Allocator>(ctx: C, xss: [[Str]]): Str {
   xss.mapCtx(ctx, fn(c, xs) => xs.join(c, "+")).join(ctx, "|")
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
 
   let nested = alloc.scoped(ctx, fn(c) => [
     [built(c, "a", 2), built(c, "b", 3)],
@@ -3330,14 +3330,14 @@ fn a_scope_per_task_answers_on_every_backend() {
         "a scope per task",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
   let out = tasks.parallel(ctx, ns, fn(c, i, n) =>
     alloc.scoped(c, fn(d) => "-".repeat(d, n + 1)));
@@ -3376,13 +3376,13 @@ fn a_spawned_task_runs_before_its_scope_returns_on_every_backend() {
     agree(
         "tasks.scope",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "before").ignore();
   let later = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
@@ -3436,7 +3436,7 @@ fn a_task_spawned_inside_an_arena_keeps_what_it_captured_on_every_backend() {
         "tasks.spawn inside an arena",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3447,7 +3447,7 @@ let LOOSE: Int = 70000;
 
 /// Scopes that map and release pages of their own, so an arena the spawn left
 /// behind is one this allocator is entitled to hand out again.
-fn churn<C: Alloc>(ctx: C): Int {
+fn churn<C: Allocator>(ctx: C): Int {
   let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
     alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
   });
@@ -3457,7 +3457,7 @@ fn churn<C: Alloc>(ctx: C): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -3507,7 +3507,7 @@ fn the_edges_of_a_scope_agree_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3523,7 +3523,7 @@ enum Ran {
 
 /// An actor that spawns rather than working. A `Scope` holds no context, so it
 /// fits in a message the way an address fits in a state.
-fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
+fn foreman<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
   Actor {
     state: 0,
     step: fn(c, started, message) => {
@@ -3542,7 +3542,7 @@ fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -3607,7 +3607,7 @@ export fn main(): Result<(), Str> {
 ///
 /// The row above proves the order; this one proves the waiting. `core/tasks`
 /// ships no `Timer` and no `setTimeout` — the whole claim is that
-/// `clock.sleepMillis` inside a spawned task is one — so a backend where the
+/// `clock.sleepMilliseconds` inside a spawned task is one — so a backend where the
 /// sleep answered without waiting would pass every ordering assertion in this
 /// file and still have no timers in it.
 ///
@@ -3622,7 +3622,7 @@ fn a_spawned_timer_waits_on_the_clock_on_every_backend() {
     agree(
         "tasks.scope timer",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3630,7 +3630,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
+    Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
   };
   let started = time.now(ctx).0;
   let _ = tasks.scope(ctx, fn(c, here) => {
@@ -3675,7 +3675,7 @@ fn the_monotonic_clock_never_goes_backwards_on_every_backend() {
     agree(
         "time.monotonic",
         r#"
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -3690,7 +3690,7 @@ fn verdict(ok: Bool): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout,
+    Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout,
   };
 
   // Two hundred readings back to back, with nothing between them but the call.
@@ -3736,7 +3736,7 @@ fn a_spawned_loop_stops_when_its_actor_says_so_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -3750,7 +3750,7 @@ enum Turn {
   Stop,
 }
 
-fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+fn gate<C: Allocator + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
   Actor {
     state: turns,
     step: fn(c, left, message) => {
@@ -3762,7 +3762,7 @@ fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
   }
 }
 
-fn frames<C: Alloc + Stdout + Tasks>(
+fn frames<C: Allocator + Stdout + Tasks>(
   ctx: C,
   keeper: Address<C, Int, Ask, Turn>,
   n: Int,
@@ -3780,7 +3780,7 @@ fn frames<C: Alloc + Stdout + Tasks>(
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let keeper = actor.start(ctx, gate(3));
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
@@ -3820,7 +3820,7 @@ fn a_waiting_step_runs_under_every_ctx_combinator_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -3835,7 +3835,7 @@ enum Heard {
   Log(Int),
 }
 
-fn recorder<C: Alloc + Tasks>(): Actor<C, Int, Note, Heard> {
+fn recorder<C: Allocator + Tasks>(): Actor<C, Int, Note, Heard> {
   Actor {
     state: 0,
     step: fn(c, seen, note) => {
@@ -3861,12 +3861,12 @@ fn heardSoFar(r: Result<Heard, Stopped>): Int {
   }
 }
 
-fn shown<C: Alloc>(ctx: C, xs: [Int]): Str {
+fn shown<C: Allocator>(ctx: C, xs: [Int]): Str {
   xs.mapCtx(ctx, fn(c, v) => str.fromInt(c, v)).join(ctx, ",")
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
 
   let mapping = actor.start(ctx, recorder());
   let mapped = [1, 2, 3].mapCtx(ctx, fn(c, x) => noted(mapping.sendMessage(c, .Saw(x))));
@@ -3955,7 +3955,7 @@ fn an_abort_inside_a_task_stops_the_program_the_same_way() {
     abort_agrees(
         "tasks.parallel abort",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -3964,7 +3964,7 @@ from "core/tasks" import * as tasks;
 fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "before").ignore();
   let answers = tasks.parallel(ctx, [4, 2, 0], fn(c, i, n) => ratio(8, n));
   let _ = io.println(ctx, "${answers.len()}").ignore();
@@ -3995,7 +3995,7 @@ fn an_abort_inside_a_spawned_task_stops_the_program_the_same_way() {
     abort_agrees(
         "tasks.spawn abort",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -4003,7 +4003,7 @@ from "core/tasks" import * as tasks;
 fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
       let _ = io.println(c2, "${ratio(8, 0)}").ignore();
@@ -4055,7 +4055,7 @@ fn an_actor_counts_the_same_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4070,7 +4070,7 @@ enum CounterAnswer {
   Count(Int),
 }
 
-fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
+fn counter<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -4084,7 +4084,7 @@ fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAn
   }
 }
 
-fn pump<C: Alloc + Stdout + Tasks>(
+fn pump<C: Allocator + Stdout + Tasks>(
   ctx: C,
   address: Address<C, Int, CounterMessage, CounterAnswer>,
   left: Int,
@@ -4108,7 +4108,7 @@ fn total(r: Result<CounterAnswer, Stopped>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -4194,7 +4194,7 @@ fn a_step_that_sends_to_its_own_actor_is_refused_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4212,7 +4212,7 @@ enum Reentered {
   Count(Int),
 }
 
-fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
+fn reentrant<C: Allocator + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -4229,7 +4229,7 @@ fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
   }
 }
 
-fn ticks<C: Alloc + Tasks>(
+fn ticks<C: Allocator + Tasks>(
   ctx: C,
   address: Address<C, Int, Reentrant<C>, Reentered>,
   left: Int,
@@ -4248,7 +4248,7 @@ fn ticks<C: Alloc + Tasks>(
 
 /// Posts `left` messages that answer with a **block** rather than a number, and
 /// counts how many were answered on the spot, which is none of them.
-fn says<C: Alloc + Tasks>(
+fn says<C: Allocator + Tasks>(
   ctx: C,
   address: Address<C, Int, Reentrant<C>, Reentered>,
   left: Int,
@@ -4284,7 +4284,7 @@ fn said(answered: Result<Reentered, Stopped>): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -4353,7 +4353,7 @@ fn what_an_actors_messages_carry_agrees_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -4364,7 +4364,7 @@ enum Ping {
   Ping,
 }
 
-fn silent<C: Alloc + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
+fn silent<C: Allocator + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
   Actor {
     state: (),
     step: fn(c, held, message) => Stepped { state: (), answer: () },
@@ -4392,7 +4392,7 @@ enum Bagged {
   Held([Int]),
 }
 
-fn bag<C: Alloc + Tasks>(): Actor<C, [Int], Bag, Bagged> {
+fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
   Actor {
     state: [],
     step: fn(c, held, message) => {
@@ -4426,7 +4426,7 @@ enum Said {
   Text(Str),
 }
 
-fn scribe<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
+fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
   Actor {
     state: initial,
     step: fn(c, held, message) => {
@@ -4476,7 +4476,7 @@ enum Filed {
   Was(Record),
 }
 
-fn cabinet<C: Alloc + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
+fn cabinet<C: Allocator + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
   Actor {
     state: initial,
     step: fn(c, held, message) => {
@@ -4496,7 +4496,7 @@ fn record(name: Str, note: Option<Str>): Record {
   }
 }
 
-fn shown<C: Alloc>(ctx: C, r: Result<Filed, Stopped>): Str {
+fn shown<C: Allocator>(ctx: C, r: Result<Filed, Stopped>): Str {
   match (r) {
     .Ok(.Was(rec)) => {
       let note = match (rec.note) {
@@ -4524,7 +4524,7 @@ enum Tallied {
   Count(Int),
 }
 
-fn tally<C: Alloc + Tasks>(): Actor<C, Int, Tally, Tallied> {
+fn tally<C: Allocator + Tasks>(): Actor<C, Int, Tally, Tallied> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -4547,7 +4547,7 @@ enum Desked {
   Gone,
 }
 
-fn desk<C: Alloc + Tasks>(
+fn desk<C: Allocator + Tasks>(
   behind: Address<C, Int, Tally, Tallied>,
 ): Actor<C, Address<C, Int, Tally, Tallied>, Desk, Desked> {
   Actor {
@@ -4591,7 +4591,7 @@ fn totalled(r: Result<Desked, Stopped>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -4673,7 +4673,7 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped, Stopped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4687,7 +4687,7 @@ enum Kept {
   Held(Str),
 }
 
-fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
+fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
   Actor {
     state: initial,
     step: fn(c, held, message) => {
@@ -4708,7 +4708,7 @@ struct Escaped<C> {
 }
 
 /// Bigger than one arena block, so its mapping is unmapped rather than pooled.
-fn big<C: Alloc>(ctx: C, unit: Str): Str {
+fn big<C: Allocator>(ctx: C, unit: Str): Str {
   unit.repeat(ctx, 70000)
 }
 
@@ -4734,7 +4734,7 @@ fn ended(r: Result<(), Stopped>): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
@@ -5159,7 +5159,7 @@ fn a_websocket_client_refuses_a_scheme_it_cannot_speak_on_every_backend() {
         "websocket client refusal",
         r#"
 from "core/effect" import {
-  Alloc, ServeError, ServeFailure, Sockets, Stdout, WebSocketClient,
+  Allocator, ServeError, ServeFailure, Sockets, Stdout, WebSocketClient,
 };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -5196,7 +5196,7 @@ fn cause(r: Result<CloseReason, ServeError>): ServeFailure {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Sockets: host.sockets,
     Stdout: host.stdout,
     WebSocketClient: host.websocketClient,

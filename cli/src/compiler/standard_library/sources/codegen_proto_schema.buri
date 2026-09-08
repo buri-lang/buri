@@ -41,14 +41,14 @@
 //! `Str` is measured in scalar values.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "std/codegen/proto/schema" import * as schema;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let text = "edition = \"2026\";\nmessage Person { string name = 1; }\n";
@@ -68,7 +68,7 @@
 
 from "core/buri/ast" import * as ast;
 from "core/codegen" import * as codegen;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/order" import { Order };
 from "core/str" import * as str;
@@ -284,7 +284,7 @@ export struct Parsed {
 ///
 /// `file` is the repository-relative path, and every diagnostic's origin names
 /// it. Offsets are bytes, which is what the compiler resolves a span against.
-export fn parse<C: Alloc>(ctx: C, text: Str, file: Str): Parsed {
+export fn parse<C: Allocator>(ctx: C, text: Str, file: Str): Parsed {
     let cs = text.chars(ctx);
     let start = P {
         cs: cs,
@@ -352,7 +352,7 @@ let KNOWN_FEATURES: [Str] = [
 ///
 /// A `Str` indexes by scalar value and a span is measured in bytes, so this
 /// converts between them once.
-fn byteOffsets<C: Alloc>(ctx: C, cs: [Char]): [Int] {
+fn byteOffsets<C: Allocator>(ctx: C, cs: [Char]): [Int] {
     let first: [Int] = [0];
     cs.foldCtx(
         ctx,
@@ -394,7 +394,7 @@ fn step(p: P): P {
     P { ..p, at: p.at + 1 }
 }
 
-fn text<C: Alloc>(ctx: C, p: P, start: Int, end: Int): Str {
+fn text<C: Allocator>(ctx: C, p: P, start: Int, end: Int): Str {
     str.fromChars(ctx, p.cs.slice(ctx, start, end))
 }
 
@@ -402,7 +402,7 @@ fn text<C: Alloc>(ctx: C, p: P, start: Int, end: Int): Str {
 
 /// Every way a schema can be malformed shares one code, so the sentence and the
 /// edit are what each site supplies.
-fn err<C: Alloc>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P {
+fn err<C: Allocator>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P {
     capped(ctx, p, codegen.Diagnostic {
         code: "proto-schema",
         message: problem,
@@ -414,7 +414,7 @@ fn err<C: Alloc>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P
 
 /// A construct this reader refuses rather than ignores. Named, always: an
 /// "unsupported" with no noun is a message you cannot act on.
-fn unsupported<C: Alloc>(
+fn unsupported<C: Allocator>(
     ctx: C,
     p: P,
     origin: ast.Origin,
@@ -431,19 +431,19 @@ fn unsupported<C: Alloc>(
     })
 }
 
-fn capped<C: Alloc>(ctx: C, p: P, d: codegen.Diagnostic): P {
+fn capped<C: Allocator>(ctx: C, p: P, d: codegen.Diagnostic): P {
     if (p.errors.len() >= LIMIT) { p } else { record(ctx, p, d) }
 }
 
 /// A diagnostic the limit does not apply to. Every file gets to hear about its
 /// edition, however much else is wrong with it.
-fn record<C: Alloc>(ctx: C, p: P, d: codegen.Diagnostic): P {
+fn record<C: Allocator>(ctx: C, p: P, d: codegen.Diagnostic): P {
     P { ..p, errors: p.errors.push(ctx, d) }
 }
 
 // --- the lexer ----------------------------------------------------------------
 
-fn skipTrivia<C: Alloc>(ctx: C, p: P): P {
+fn skipTrivia<C: Allocator>(ctx: C, p: P): P {
     if (p.at >= p.cs.len()) {
         p
     } else {
@@ -465,7 +465,7 @@ fn skipLine(p: P): P {
     if (p.at >= p.cs.len() || charAt(p, p.at) == '\n') { p } else { skipLine(step(p)) }
 }
 
-fn skipBlock<C: Alloc>(ctx: C, p: P, start: Int): P {
+fn skipBlock<C: Allocator>(ctx: C, p: P, start: Int): P {
     if (p.at + 1 >= p.cs.len()) {
         let ended = P { ..p, at: p.cs.len() };
         err(
@@ -503,7 +503,7 @@ fn isWordPart(c: Char): Bool {
 }
 
 /// The next token, consuming it.
-fn nextToken<C: Alloc>(ctx: C, p0: P): (P, Token) {
+fn nextToken<C: Allocator>(ctx: C, p0: P): (P, Token) {
     let p = skipTrivia(ctx, p0);
     if (p.at >= p.cs.len()) {
         (p, Token.End)
@@ -538,7 +538,7 @@ fn alnumEnd(p: P, index: Int): Int {
     }
 }
 
-fn number<C: Alloc>(ctx: C, p: P): (P, Token) {
+fn number<C: Allocator>(ctx: C, p: P): (P, Token) {
     let start = p.at;
     let digits = if (charAt(p, start) == '-') { start + 1 } else { start };
     let end = alnumEnd(p, digits);
@@ -570,7 +570,7 @@ fn readInt(raw: Str): Option<Int> {
 }
 
 /// The rest of a quoted string, from just past its opening quote.
-fn quoted<C: Alloc>(ctx: C, p: P, quote: Char, start: Int, acc: [Char]): (P, Token) {
+fn quoted<C: Allocator>(ctx: C, p: P, quote: Char, start: Int, acc: [Char]): (P, Token) {
     if (p.at >= p.cs.len() || charAt(p, p.at) == '\n') {
         let q = err(
             ctx,
@@ -619,12 +619,12 @@ fn escape(c: Char): Char {
 
 /// The next token without consuming it. Anything the lexer had to say about it
 /// is kept, so a broken token is reported once rather than at every look.
-fn peekToken<C: Alloc>(ctx: C, p: P): (P, Token) {
+fn peekToken<C: Allocator>(ctx: C, p: P): (P, Token) {
     let (q, t) = nextToken(ctx, p);
     (P { ..q, at: p.at }, t)
 }
 
-fn describe<C: Alloc>(ctx: C, t: Token): Str {
+fn describe<C: Allocator>(ctx: C, t: Token): Str {
     match (t) {
         .Word(w) => str.format(ctx, "`${w}`"),
         .Num(n) => str.format(ctx, "`${n}`"),
@@ -635,7 +635,7 @@ fn describe<C: Alloc>(ctx: C, t: Token): Str {
 }
 
 /// Consumes one punctuation character, reporting when it is not there.
-fn expect<C: Alloc>(ctx: C, p0: P, want: Str, after: Str): (P, Bool) {
+fn expect<C: Allocator>(ctx: C, p0: P, want: Str, after: Str): (P, Bool) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (q, t) = nextToken(ctx, p);
@@ -656,7 +656,7 @@ fn expect<C: Alloc>(ctx: C, p0: P, want: Str, after: Str): (P, Bool) {
     }
 }
 
-fn word<C: Alloc>(ctx: C, p0: P, what: Str): (P, Option<(Str, ast.Origin)>) {
+fn word<C: Allocator>(ctx: C, p0: P, what: Str): (P, Option<(Str, ast.Origin)>) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (q, t) = nextToken(ctx, p);
@@ -680,7 +680,7 @@ fn word<C: Alloc>(ctx: C, p0: P, what: Str): (P, Option<(Str, ast.Origin)>) {
 
 /// Everything up to and including the next `;`, for the statements this reader
 /// records nothing from.
-fn skipStatement<C: Alloc>(ctx: C, p: P): P {
+fn skipStatement<C: Allocator>(ctx: C, p: P): P {
     let (q, t) = nextToken(ctx, p);
     match (t) {
         .End => q,
@@ -698,7 +698,7 @@ fn skipStatement<C: Alloc>(ctx: C, p: P): P {
     }
 }
 
-fn skipBraces<C: Alloc>(ctx: C, p: P, depth: Int): P {
+fn skipBraces<C: Allocator>(ctx: C, p: P, depth: Int): P {
     let (q, t) = nextToken(ctx, p);
     match (t) {
         .End => q,
@@ -719,7 +719,7 @@ fn skipBraces<C: Alloc>(ctx: C, p: P, depth: Int): P {
 
 /// After an unsupported block-shaped declaration: step over the block if there
 /// is one, so one refusal does not become twenty.
-fn recoverBlock<C: Alloc>(ctx: C, p: P): P {
+fn recoverBlock<C: Allocator>(ctx: C, p: P): P {
     let (p1, t) = peekToken(ctx, p);
     let (q, _) = nextToken(ctx, p1);
     match (t) {
@@ -744,7 +744,7 @@ fn recoverBlock<C: Alloc>(ctx: C, p: P): P {
 /// A `features.…` one is read; everything else is skipped, because an ordinary
 /// option is how a schema talks to code generators that are not this one and
 /// says nothing about the shape of a message.
-fn featureOption<C: Alloc>(ctx: C, p0: P): (P, Option<Features>) {
+fn featureOption<C: Allocator>(ctx: C, p0: P): (P, Option<Features>) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (p1, t) = nextToken(ctx, p);
@@ -764,7 +764,7 @@ fn featureOption<C: Alloc>(ctx: C, p0: P): (P, Option<Features>) {
 
 /// `option features = { ... };` sets several at once. Refused rather than read,
 /// because the block form nests.
-fn featureBlock<C: Alloc>(ctx: C, p: P, start: Int): (P, Option<Features>) {
+fn featureBlock<C: Allocator>(ctx: C, p: P, start: Int): (P, Option<Features>) {
     let (p1, t) = peekToken(ctx, p);
     if (t != Token.Punctuation("=")) {
         (skipStatement(ctx, P { ..p1, at: start }), .None)
@@ -787,7 +787,7 @@ fn featureBlock<C: Alloc>(ctx: C, p: P, start: Int): (P, Option<Features>) {
     }
 }
 
-fn featureAssignment<C: Alloc>(
+fn featureAssignment<C: Allocator>(
     ctx: C,
     p: P,
     start: Int,
@@ -821,7 +821,7 @@ fn featureAssignment<C: Alloc>(
 ///
 /// Every value protobuf's `FeatureSet` admits is named here, and each one is
 /// either honoured or refused *by name*.
-fn feature<C: Alloc>(
+fn feature<C: Allocator>(
     ctx: C,
     p: P,
     name: Str,
@@ -918,7 +918,7 @@ fn feature<C: Alloc>(
     }
 }
 
-fn unknownFeature<C: Alloc>(
+fn unknownFeature<C: Allocator>(
     ctx: C,
     p: P,
     name: Str,
@@ -952,7 +952,7 @@ fn unknownFeature<C: Alloc>(
 ///
 /// Costs one edit-distance table per candidate, O(k·n·m), paid only when a
 /// feature name was already wrong.
-fn nearest<C: Alloc>(ctx: C, word: Str, known: [Str]): Option<Str> {
+fn nearest<C: Allocator>(ctx: C, word: Str, known: [Str]): Option<Str> {
     let best = known.foldCtx(
         ctx,
         fn(c, acc: Option<(Int, Str)>, k) => {
@@ -978,7 +978,7 @@ fn nearest<C: Alloc>(ctx: C, word: Str, known: [Str]): Option<Str> {
     best.map(fn(b) => b.1)
 }
 
-fn editDistance<C: Alloc>(ctx: C, a: Str, b: Str): Int {
+fn editDistance<C: Allocator>(ctx: C, a: Str, b: Str): Int {
     let bs = b.chars(ctx);
     let first = list.range(ctx, 0, bs.len() + 1);
     let last = a
@@ -988,7 +988,7 @@ fn editDistance<C: Alloc>(ctx: C, a: Str, b: Str): Int {
 }
 
 /// One row of the Levenshtein table, from the row above it.
-fn nextRow<C: Alloc>(ctx: C, prev: [Int], bs: [Char], ca: Char): [Int] {
+fn nextRow<C: Allocator>(ctx: C, prev: [Int], bs: [Char], ca: Char): [Int] {
     let start: [Int] = [prev.get(0).withDefault(0) + 1];
     list
         .range(ctx, 0, bs.len())
@@ -1014,7 +1014,7 @@ fn least(a: Int, b: Int): Int {
 
 // --- the file -----------------------------------------------------------------
 
-fn declarations<C: Alloc>(ctx: C, p0: P, schema: Schema, seen: Bool): (P, Schema) {
+fn declarations<C: Allocator>(ctx: C, p0: P, schema: Schema, seen: Bool): (P, Schema) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (p1, t) = nextToken(ctx, p);
@@ -1042,7 +1042,7 @@ fn declarations<C: Alloc>(ctx: C, p0: P, schema: Schema, seen: Bool): (P, Schema
     }
 }
 
-fn endOfFile<C: Alloc>(ctx: C, p: P, seen: Bool): P {
+fn endOfFile<C: Allocator>(ctx: C, p: P, seen: Bool): P {
     if (seen) {
         p
     } else {
@@ -1063,7 +1063,7 @@ fn endOfFile<C: Alloc>(ctx: C, p: P, seen: Bool): P {
     }
 }
 
-fn declaration<C: Alloc>(
+fn declaration<C: Allocator>(
     ctx: C,
     p: P,
     start: Int,
@@ -1147,7 +1147,7 @@ fn declaration<C: Alloc>(
 /// The diagnostic is about migrating rather than about the word: presence,
 /// defaults and enum openness all differ, so a file that says `proto3` means
 /// something this mapping no longer implements.
-fn syntaxDeclaration<C: Alloc>(ctx: C, p: P, start: Int): P {
+fn syntaxDeclaration<C: Allocator>(ctx: C, p: P, start: Int): P {
     let (p1, _) = expect(ctx, p, "=", "`syntax`");
     let p2 = skipTrivia(ctx, p1);
     let valueAt = p2.at;
@@ -1177,7 +1177,7 @@ fn syntaxDeclaration<C: Alloc>(ctx: C, p: P, start: Int): P {
     q2
 }
 
-fn editionDeclaration<C: Alloc>(ctx: C, p: P): P {
+fn editionDeclaration<C: Allocator>(ctx: C, p: P): P {
     let (p1, _) = expect(ctx, p, "=", "`edition`");
     let p2 = skipTrivia(ctx, p1);
     let valueAt = p2.at;
@@ -1209,7 +1209,7 @@ fn editionDeclaration<C: Alloc>(ctx: C, p: P): P {
     q2
 }
 
-fn importDeclaration<C: Alloc>(
+fn importDeclaration<C: Allocator>(
     ctx: C,
     p0: P,
     schema: Schema,
@@ -1248,7 +1248,7 @@ fn importDeclaration<C: Alloc>(
     }
 }
 
-fn badImport<C: Alloc>(ctx: C, p: P, at: Int, found: Token): P {
+fn badImport<C: Allocator>(ctx: C, p: P, at: Int, found: Token): P {
     let shown = describe(ctx, found);
     let q = err(
         ctx,
@@ -1266,7 +1266,7 @@ fn badImport<C: Alloc>(ctx: C, p: P, at: Int, found: Token): P {
 /// nothing but `message M {` would otherwise exhaust the stack.
 let MAX_NESTING: Int = 16;
 
-fn message<C: Alloc>(ctx: C, p: P): (P, Option<Message>) {
+fn message<C: Allocator>(ctx: C, p: P): (P, Option<Message>) {
     let (p1, named) = word(ctx, p, "a message name");
     match (named) {
         .None => (p1, .None),
@@ -1301,7 +1301,7 @@ fn message<C: Alloc>(ctx: C, p: P): (P, Option<Message>) {
     }
 }
 
-fn messageBody<C: Alloc>(ctx: C, p0: P, m: Message): (P, Message) {
+fn messageBody<C: Allocator>(ctx: C, p0: P, m: Message): (P, Message) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (p1, t) = peekToken(ctx, p);
@@ -1331,7 +1331,7 @@ fn messageBody<C: Alloc>(ctx: C, p0: P, m: Message): (P, Message) {
     }
 }
 
-fn messageItem<C: Alloc>(ctx: C, p: P, start: Int, w: Str, m: Message): (P, Message) {
+fn messageItem<C: Allocator>(ctx: C, p: P, start: Int, w: Str, m: Message): (P, Message) {
     if (w == "message") {
         let (p1, inner) = message(ctx, nextToken(ctx, p).0);
         let next = match (inner) {
@@ -1412,7 +1412,7 @@ fn messageItem<C: Alloc>(ctx: C, p: P, start: Int, w: Str, m: Message): (P, Mess
     }
 }
 
-fn messageField<C: Alloc>(ctx: C, p: P, m: Message): (P, Message) {
+fn messageField<C: Allocator>(ctx: C, p: P, m: Message): (P, Message) {
     let (q, f) = field(ctx, p);
     match (f) {
         .Some(one) => {
@@ -1422,7 +1422,7 @@ fn messageField<C: Alloc>(ctx: C, p: P, m: Message): (P, Message) {
     }
 }
 
-fn oneof<C: Alloc>(ctx: C, p: P): (P, Option<Oneof>) {
+fn oneof<C: Allocator>(ctx: C, p: P): (P, Option<Oneof>) {
     let (p1, named) = word(ctx, p, "a oneof name");
     match (named) {
         .None => (p1, .None),
@@ -1443,7 +1443,7 @@ fn oneof<C: Alloc>(ctx: C, p: P): (P, Option<Oneof>) {
     }
 }
 
-fn oneofBody<C: Alloc>(ctx: C, p0: P, o: Oneof): (P, Oneof) {
+fn oneofBody<C: Allocator>(ctx: C, p0: P, o: Oneof): (P, Oneof) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (p1, t) = peekToken(ctx, p);
@@ -1483,7 +1483,7 @@ fn oneofBody<C: Alloc>(ctx: C, p0: P, o: Oneof): (P, Oneof) {
 /// The one place a [`Field`] becomes a [`OneofCase`], and so the only place a
 /// label can be refused — past here a case has nowhere to keep one. The case is
 /// still kept, so one broken field does not hide the rest of the schema.
-fn oneofCase<C: Alloc>(ctx: C, p: P, o: Oneof): (P, Oneof) {
+fn oneofCase<C: Allocator>(ctx: C, p: P, o: Oneof): (P, Oneof) {
     let (q, f) = field(ctx, p);
     match (f) {
         .None => oneofBody(ctx, skipStatement(ctx, q), o),
@@ -1514,7 +1514,7 @@ fn oneofCase<C: Alloc>(ctx: C, p: P, o: Oneof): (P, Oneof) {
 // --- fields -------------------------------------------------------------------
 
 /// `[repeated] Type name = N [options];`
-fn field<C: Alloc>(ctx: C, p0: P): (P, Option<Field>) {
+fn field<C: Allocator>(ctx: C, p0: P): (P, Option<Field>) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (p1, first) = word(ctx, p, "a field type");
@@ -1550,7 +1550,7 @@ fn field<C: Alloc>(ctx: C, p0: P): (P, Option<Field>) {
     }
 }
 
-fn fieldRest<C: Alloc>(
+fn fieldRest<C: Allocator>(
     ctx: C,
     p: P,
     start: Int,
@@ -1585,7 +1585,7 @@ fn fieldRest<C: Alloc>(
     }
 }
 
-fn fieldNumbered<C: Alloc>(
+fn fieldNumbered<C: Allocator>(
     ctx: C,
     p: P,
     start: Int,
@@ -1671,7 +1671,7 @@ fn fieldNumbered<C: Alloc>(
 
 /// The field's own options. `features.…` is read and everything else —
 /// `ctype`, `deprecated`, `json_name` — is stepped over.
-fn fieldOptions<C: Alloc>(ctx: C, p: P, features: Features): (P, Features) {
+fn fieldOptions<C: Allocator>(ctx: C, p: P, features: Features): (P, Features) {
     let (p1, bracket) = peekToken(ctx, p);
     if (bracket != Token.Punctuation("[")) {
         (p1, features)
@@ -1680,7 +1680,7 @@ fn fieldOptions<C: Alloc>(ctx: C, p: P, features: Features): (P, Features) {
     }
 }
 
-fn fieldOption<C: Alloc>(ctx: C, p0: P, features: Features): (P, Features) {
+fn fieldOption<C: Allocator>(ctx: C, p0: P, features: Features): (P, Features) {
     let p = skipTrivia(ctx, p0);
     let at = p.at;
     let (p1, t) = nextToken(ctx, p);
@@ -1759,7 +1759,7 @@ fn scalar(word: Str): Option<Scalar> {
 
 // --- enums --------------------------------------------------------------------
 
-fn enumDeclaration<C: Alloc>(ctx: C, p: P): (P, Option<Enum>) {
+fn enumDeclaration<C: Allocator>(ctx: C, p: P): (P, Option<Enum>) {
     let (p1, named) = word(ctx, p, "an enum name");
     match (named) {
         .None => (p1, .None),
@@ -1780,7 +1780,7 @@ fn enumDeclaration<C: Alloc>(ctx: C, p: P): (P, Option<Enum>) {
     }
 }
 
-fn enumBody<C: Alloc>(ctx: C, p0: P, e: Enum): (P, Enum) {
+fn enumBody<C: Allocator>(ctx: C, p0: P, e: Enum): (P, Enum) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (p1, t) = peekToken(ctx, p);
@@ -1822,7 +1822,7 @@ fn enumBody<C: Alloc>(ctx: C, p0: P, e: Enum): (P, Enum) {
     }
 }
 
-fn enumValue<C: Alloc>(ctx: C, p: P, e: Enum): (P, Enum) {
+fn enumValue<C: Allocator>(ctx: C, p: P, e: Enum): (P, Enum) {
     let (p1, named) = word(ctx, p, "an enum value name");
     match (named) {
         .None => enumBody(ctx, skipStatement(ctx, p1), e),
@@ -1869,7 +1869,7 @@ fn enumValue<C: Alloc>(ctx: C, p: P, e: Enum): (P, Enum) {
     }
 }
 
-fn skipEnumValueOptions<C: Alloc>(ctx: C, p: P): P {
+fn skipEnumValueOptions<C: Allocator>(ctx: C, p: P): P {
     let (p1, bracket) = peekToken(ctx, p);
     if (bracket != Token.Punctuation("[")) {
         p1
@@ -1878,7 +1878,7 @@ fn skipEnumValueOptions<C: Alloc>(ctx: C, p: P): P {
     }
 }
 
-fn skipToBracket<C: Alloc>(ctx: C, p: P): P {
+fn skipToBracket<C: Allocator>(ctx: C, p: P): P {
     let (q, t) = nextToken(ctx, p);
     match (t) {
         .End => q,
@@ -1889,7 +1889,7 @@ fn skipToBracket<C: Alloc>(ctx: C, p: P): P {
 
 /// An open enum's first value must be zero, and the mapping leans on it: it is
 /// what an unset field decodes to.
-fn enumStartsAtZero<C: Alloc>(ctx: C, p: P, e: Enum): P {
+fn enumStartsAtZero<C: Allocator>(ctx: C, p: P, e: Enum): P {
     match (e.values.first()) {
         .None => {
             err(

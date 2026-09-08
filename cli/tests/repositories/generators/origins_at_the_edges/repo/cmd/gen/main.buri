@@ -5,7 +5,7 @@
 //! it, and one naming a file this repository does not have. What the case is
 //! for is the caret each of them draws.
 
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -15,7 +15,7 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdin: host.stdin,
         Stdout: host.stdout,
     };
@@ -27,7 +27,7 @@ export fn main(): Result<(), Str> {
         .mapErr(fn(_e) => "could not write the response")
 }
 
-fn respond<C: Alloc>(ctx: C, inputs: [(Str, Str)]): Json {
+fn respond<C: Allocator>(ctx: C, inputs: [(Str, Str)]): Json {
     let first = inputs.get(0).map(fn(i) => i.0).withDefault("");
     let text = inputs.get(0).map(fn(i) => i.1).withDefault("");
     .Object([
@@ -52,7 +52,7 @@ fn respond<C: Alloc>(ctx: C, inputs: [(Str, Str)]): Json {
 
 /// One diagnostic per edge. The offsets are written down rather than found, so
 /// that what the case records is what the toolchain does with each of them.
-fn edges<C: Alloc>(ctx: C, path: Str, len: Int): [Json] {
+fn edges<C: Allocator>(ctx: C, path: Str, len: Int): [Json] {
     let last = if (len == 0) { 0 } else { len - 1 };
     [
         at(ctx, "the first byte", path, 0, 1),
@@ -63,7 +63,7 @@ fn edges<C: Alloc>(ctx: C, path: Str, len: Int): [Json] {
     ]
 }
 
-fn at<C: Alloc>(ctx: C, message: Str, file: Str, start: Int, end: Int): Json {
+fn at<C: Allocator>(ctx: C, message: Str, file: Str, start: Int, end: Int): Json {
     .Object([
         ("code", .Str("units-edge")),
         ("message", .Str(str.format(ctx, "${message}"))),
@@ -85,7 +85,7 @@ fn at<C: Alloc>(ctx: C, message: Str, file: Str, start: Int, end: Int): Json {
     ])
 }
 
-fn allInputs<C: Alloc>(ctx: C, request: Json): Option<[(Str, Str)]> {
+fn allInputs<C: Allocator>(ctx: C, request: Json): Option<[(Str, Str)]> {
     field(request, "inputs")
         .andThen(fn(v) => asArray(v))
         .andThenCtx(ctx, fn(c, items) => {

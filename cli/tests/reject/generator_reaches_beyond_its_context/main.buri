@@ -1,7 +1,7 @@
 // EXPECT: `a context` does not satisfy `Clock`
 //
 // What makes a generator deterministic. `codegen.run` hands `generate` the
-// context `main` built, bounded by `Alloc + Stdin + Stdout` and nothing more —
+// context `main` built, bounded by `Allocator + Stdin + Stdout` and nothing more —
 // so a generator that reaches for the clock or for the disk does not compile,
 // and what it writes stays a function of what it was handed.
 //
@@ -10,7 +10,7 @@
 from "core/buri/ast" import * as ast;
 from "core/codegen" import * as codegen;
 from "core/codegen" import { Response };
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/path" import * as path;
@@ -18,7 +18,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdin: host.stdin,
         Stdout: host.stdout,
     };

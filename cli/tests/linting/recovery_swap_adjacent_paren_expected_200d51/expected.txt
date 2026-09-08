@@ -1,7 +1,7 @@
 error: expected `=>`, found `Str` [unexpected-token]
   --> lib/recovery_swap_adjacent_paren_expected_200d51/main.buri:42:58
    |
-42 | fn rendered<C: Alloc + Clock>(ctx: C, render: fn(C, Str) Str =>, label: Str): Str {
+42 | fn rendered<C: Allocator + Clock>(ctx: C, render: fn(C, Str) Str =>, label: Str): Str {
    |                                                          ^^^
    |
    = expected: `=>`

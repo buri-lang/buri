@@ -12,51 +12,51 @@
 //!
 //! Configuration is a **method on the value that answers a new handle**:
 //! `clock().at(1000)`, `rand().seed(7)`,
-//! `env().variables([...]).arguments([...])`.
+//! `env().variables([...]).withArguments([...])`.
 //! There is no free-function spelling of any of them.
 //!
 //! Most structs carry an `I64` handle rather than their state. A captured stdout
 //! accumulates what a test writes to it, and Buri has no mutation, so the state
 //! lives on the runner's side and the value here names it.
 //!
-//! `TestNet` is the exception. Its configuration is a **responder**, which is
+//! `TestNetwork` is the exception. Its configuration is a **responder**, which is
 //! behaviour rather than state, and behaviour is what a runner written in Rust
 //! and JavaScript cannot hold for a program. So it carries the function itself
 //! and `fetch` is a Buri body. The handle beside the responder names its **log**,
 //! and a log is state like any other.
 //!
-//! `TestFs` is the second value that is not a bare handle. A fault plan holds
+//! `TestFileSystem` is the second value that is not a bare handle. A fault plan holds
 //! `IoError` *values* and `IoError.Other` carries a `Str`, which
 //! `cli/runtime/lib.rs` §2.1 cannot hand back across a row. So the plan travels
-//! in the program, and the sixteen methods of `FsRead` and `FsWrite` are Buri
+//! in the program, and the sixteen methods of `FileSystemRead` and `FileSystemWrite` are Buri
 //! bodies over rows that take the handle. The runner holds the log, the files,
 //! and which entries of the plan have fired.
 //!
-//! **One `TestFs` implements both effects, and a context that reads and writes
+//! **One `TestFileSystem` implements both effects, and a context that reads and writes
 //! has to bind that one value to both names.** Two `fs()` calls are two
-//! filesystems, so `FsRead: fs(), FsWrite: fs()` is a world where a write lands
+//! filesystems, so `FileSystemRead: fs(), FileSystemWrite: fs()` is a world where a write lands
 //! where the read cannot see it. A block that does both therefore names its
 //! double first:
 //!
 //! ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
 //! let disk = fs().files([("config.toml", "port=8080")]);
-//! let ctx = context { Alloc: alloc(), FsRead: disk, FsWrite: disk };
+//! let ctx = context { Allocator: alloc(), FileSystemRead: disk, FileSystemWrite: disk };
 //! ```
 //!
 //! A *named* `context` declaration cannot do that at all — its bindings are two
 //! separate expressions — so a declaration binds the half it needs, which is
-//! usually `FsRead`.
+//! usually `FileSystemRead`.
 //!
 //! ## The call log
 //!
-//! `TestFs`, `TestNet` and `TestStdin` each keep every call made through the
+//! `TestFileSystem`, `TestNetwork` and `TestStdin` each keep every call made through the
 //! handle, and `calls()` answers them **in the order they completed**. The log is
 //! for the assertions an outcome cannot make: that a cache was consulted once and
 //! not twice, that nothing was written at all, that a retry went to the same URL.
 //! One `Call` record per double, built by a constructor named after the method it
 //! records, compared by `Eq` and printed by `Show`.
 //!
-//! `TestProc` has nothing to read back. `exitWith` absorbs the call so that a
+//! `TestProcess` has nothing to read back. `exitWith` absorbs the call so that a
 //! test which exits keeps running, and what a test asserts is what it does
 //! *after* the exit.
 //!
@@ -105,20 +105,21 @@
 //!
 //! ## `arguments`
 //!
-//! A type's methods are one map keyed by name, so `Env`'s reader and this
-//! builder cannot both be `arguments`. The reader is `args(self): [Str]` on
-//! `core/effect`'s `Env` — the name `core/env` already used — which leaves
-//! `TestEnv.arguments([Str])` as the builder.
+//! A type's methods are one map keyed by name, so the reader and the builder
+//! cannot both be `arguments`. The reader is the one that takes the name:
+//! `arguments(self): [Str]` on `core/effect`'s `Environment`, the same name `core/env`
+//! spells. That leaves `TestEnvironment.withArguments([Str])` as the builder, which is
+//! how the rest of this module names a method that answers a **new** double.
 
 from "core/effect" import {
-    Alloc, Clock, Connected, Entropy, Env, Frame, Header, IoError, Method, Net,
-    NetError, Proc, Rand, Received, Region, Request, Response, ServeError, Sockets,
+    Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Method, Network,
+    NetError, Process, Random, Received, Region, Request, Response, ServeError, Sockets,
     Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
 };
 
 // The filesystem's two effects, declared in `core/fs` because their methods
 // name a `Path`.
-from "core/fs" import { FsRead, FsWrite, Metadata };
+from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata };
 
 // The one module above `core/effect` this one imports, and it is the surface
 // rather than the authority: `Socket` and `Message` are inert data that
@@ -130,20 +131,20 @@ from "core/path" import { Path };
 // module's own `Output`.
 from "core/process" import { Output, Spawn };
 
-// --- Alloc --------------------------------------------------------------------
+// --- Allocator --------------------------------------------------------------------
 
 /// Real, from a per-test arena the runner reclaims.
 ///
 /// The one double with no state at all. The charge comes from the *types*
-/// (`core/effect`'s `Alloc`), so `allocate` answers the byte count it was asked
+/// (`core/effect`'s `Allocator`), so `allocate` answers the byte count it was asked
 /// for and the handle names nothing.
-export struct TestAlloc(I64);
+export struct TestAllocator(I64);
 
-impl Alloc for TestAlloc {
+impl Allocator for TestAllocator {
     fn allocate(self, bytes: Int): Region;
 }
 
-export fn alloc(): TestAlloc;
+export fn alloc(): TestAllocator;
 
 // --- Output -------------------------------------------------------------------
 
@@ -238,19 +239,19 @@ impl TestStdin {
 /// rename replacing one, removing what is not there — answers exactly what a real
 /// filesystem answers.
 ///
-/// ## Two fields, for `TestNet`'s reason
+/// ## Two fields, for `TestNetwork`'s reason
 ///
 /// `handle` names the runner-side state — the files, the attenuation, the log,
 /// and the plan's own bookkeeping — and `plan` is the fault plan, which stays in
 /// the program because `cli/runtime/lib.rs` §2.1 cannot hand an error variant
 /// with a field back across a row. So the match is the `Eq` the `FsCall` records
 /// derive, and every method here asks the plan before it calls its row.
-export struct TestFs {
+export struct TestFileSystem {
     handle: I64,
     plan: [FsFault],
 }
 
-impl FsRead for TestFs {
+impl FileSystemRead for TestFileSystem {
     fn readFile(self, path: Path): Result<Str, IoError> {
         let at = path.text();
         match (self.planned(readFile(at))) {
@@ -313,7 +314,7 @@ impl FsRead for TestFs {
     }
 }
 
-impl FsWrite for TestFs {
+impl FileSystemWrite for TestFileSystem {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
         let at = path.text();
         match (self.planned(writeFile(at, body))) {
@@ -390,22 +391,22 @@ impl FsWrite for TestFs {
     }
 }
 
-export fn fs(): TestFs {
-    TestFs { handle: newFs(), plan: [] }
+export fn fs(): TestFileSystem {
+    TestFileSystem { handle: newFs(), plan: [] }
 }
 
-impl TestFs {
+impl TestFileSystem {
     /// A **new** filesystem holding this one's files and these as well, as the
     /// UTF-8 the text spells. The last entry for a path wins, and so does a later
     /// builder: `fs().files(a).files(b)` is `a` overwritten by `b`.
-    export fn files(self, entries: [(Str, Str)]): TestFs {
-        TestFs { handle: fsFiles(self.handle, entries), plan: self.plan }
+    export fn files(self, entries: [(Str, Str)]): TestFileSystem {
+        TestFileSystem { handle: fsFiles(self.handle, entries), plan: self.plan }
     }
 
     /// The byte twin, for a fixture that is not text. It composes with `files` in
     /// either order, because both write into the one map a file lives in.
-    export fn filesBytes(self, entries: [(Str, [U8])]): TestFs {
-        TestFs { handle: fsFilesBytes(self.handle, entries), plan: self.plan }
+    export fn filesBytes(self, entries: [(Str, [U8])]): TestFileSystem {
+        TestFileSystem { handle: fsFilesBytes(self.handle, entries), plan: self.plan }
     }
 
     /// A **new** handle onto the *same* files, through which every write fails
@@ -418,10 +419,10 @@ impl TestFs {
     ///
     /// It attenuates *this* filesystem and no other. A test that wants to
     /// attenuate a filesystem of its own writes an ordinary
-    /// `impl<C: FsWrite> FsWrite for Wrapper<C>`, which needs nothing from this
+    /// `impl<C: FileSystemWrite> FileSystemWrite for Wrapper<C>`, which needs nothing from this
     /// module (SPEC 10.8).
-    export fn readOnly(self): TestFs {
-        TestFs { handle: fsReadOnly(self.handle), plan: self.plan }
+    export fn readOnly(self): TestFileSystem {
+        TestFileSystem { handle: fsReadOnly(self.handle), plan: self.plan }
     }
 
     /// A **new** filesystem onto the same files, failing the calls this plan
@@ -445,15 +446,15 @@ impl TestFs {
     /// `faults` **replaces** rather than composing, as `respond` does: two plans
     /// for one call have no answer to which of them wins. The plan it replaced is
     /// retired, and its promise with it.
-    export fn faults(self, plan: [FsFault]): TestFs {
+    export fn faults(self, plan: [FsFault]): TestFileSystem {
         let handle = fsWithPlan(self.handle);
         let _ = describeFsPlan(handle, plan, 0);
-        TestFs { handle: handle, plan: plan }
+        TestFileSystem { handle: handle, plan: plan }
     }
 
     /// What this filesystem holds at `path`, or `.Err(.NotFound)`.
     ///
-    /// The same answer `readFile` gives, reachable without `FsRead`, because
+    /// The same answer `readFile` gives, reachable without `FileSystemRead`, because
     /// reading an environment back is not performing an effect. A read-back is not
     /// a call, and no fault fires on one.
     export fn read(self, path: Str): Result<Str, IoError> {
@@ -637,9 +638,9 @@ fn fsSnapshot(handle: I64): [(Str, Str)];
 /// Every call made through this handle, in the order they completed.
 fn fsCalls(handle: I64): [FsCall];
 
-/// The sixteen methods of `Fs`, as rows over a handle.
+/// The sixteen methods of `FileSystem`, as rows over a handle.
 ///
-/// Free functions rather than methods on `TestFs`, because a `TestFs` is a handle
+/// Free functions rather than methods on `TestFileSystem`, because a `TestFileSystem` is a handle
 /// *and* a plan and an argument is flattened into its leaves: a row taking `self`
 /// would be handed three values where it expects one.
 fn fsReadFile(handle: I64, path: Str): Result<Str, IoError>;
@@ -704,13 +705,13 @@ fn fsCopyFile(handle: I64, source: Str, destination: Str): Result<(), IoError>;
 /// The handle beside the responder names the **log**, which `calls()` reads. The
 /// third field is the **fault plan**, in the value because a `NetError` carries a
 /// `Str` on two variants and could not come back out of a row.
-export struct TestNet {
+export struct TestNetwork {
     handle: I64,
     responder: fn(Request) => Result<Response, NetError>,
     plan: [NetFault],
 }
 
-impl Net for TestNet {
+impl Network for TestNetwork {
     /// The plan first, the responder second, and the log last.
     ///
     /// A request the plan fails never reaches the responder, so `respond` and
@@ -737,8 +738,8 @@ impl Net for TestNet {
     }
 }
 
-export fn net(): TestNet {
-    TestNet { handle: newNet(), responder: fn(_request) => .Err(.Refused), plan: [] }
+export fn net(): TestNetwork {
+    TestNetwork { handle: newNet(), responder: fn(_request) => .Err(.Refused), plan: [] }
 }
 
 /// A fresh, empty log, and the handle that names it.
@@ -809,7 +810,7 @@ fn netPayload(error: NetError): Str {
     }
 }
 
-impl TestNet {
+impl TestNetwork {
     /// A **new** network answering through this function, which is handed every
     /// request the code under test makes and either answers it or fails it.
     ///
@@ -820,8 +821,8 @@ impl TestNet {
     export fn respond(
         self,
         responder: fn(Request) => Result<Response, NetError>,
-    ): TestNet {
-        TestNet {
+    ): TestNetwork {
+        TestNetwork {
             handle: netRebind(self.handle),
             responder: responder,
             plan: self.plan,
@@ -831,16 +832,16 @@ impl TestNet {
     /// A **new** network failing the requests this plan names — and a promise that
     /// every one of them is made.
     ///
-    /// `TestFs::faults` states the whole rule, and it is the same rule here.
+    /// `TestFileSystem::faults` states the whole rule, and it is the same rule here.
     /// Matching is `NetCall`'s derived `Eq`, so two requests differing in a header
     /// are two calls and a fault names one of them. `fails` fails every matching
     /// request and `failsOnCall(n, e)` the `n`th. A failed request never reaches
     /// the responder and is still in `calls()`. A fault whose request is never
     /// made fails the test.
-    export fn faults(self, plan: [NetFault]): TestNet {
+    export fn faults(self, plan: [NetFault]): TestNetwork {
         let handle = netWithPlan(self.handle);
         let _ = describeNetPlan(handle, plan, 0);
-        TestNet { handle: handle, responder: self.responder, plan: plan }
+        TestNetwork { handle: handle, responder: self.responder, plan: plan }
     }
 
     /// Every request made through this handle, in the order they were answered.
@@ -854,7 +855,7 @@ impl TestNet {
 
     /// The plan's answer for a request about to be made, recorded and consumed.
     ///
-    /// `TestFs::planned`, for the other double: the log counts the matching
+    /// `TestFileSystem::planned`, for the other double: the log counts the matching
     /// requests, and an empty plan is answered without reading it.
     fn planned(self, call: NetCall): Option<NetError> {
         if (self.plan.len() == 0) {
@@ -926,18 +927,18 @@ fn netCalls(handle: I64): [NetCall];
 
 // --- Clock --------------------------------------------------------------------
 
-/// Starts at zero and advances only when the test advances it. `sleepMillis`
+/// Starts at zero and advances only when the test advances it. `sleepMilliseconds`
 /// advances it without sleeping, which is the whole point of a test clock.
 ///
-/// **One reading, two clocks.** `monotonicNanoseconds` is `nowMillis` in
+/// **One reading, two clocks.** `monotonicNanoseconds` is `nowMilliseconds` in
 /// nanoseconds, so advancing the clock advances both together and a test can
 /// assert an elapsed measurement without waiting for one.
 export struct TestClock(I64);
 
 impl Clock for TestClock {
-    fn nowMillis(self): I64;
+    fn nowMilliseconds(self): I64;
 
-    fn sleepMillis(self, millis: Int): ();
+    fn sleepMilliseconds(self, millis: Int): ();
 
     fn monotonicNanoseconds(self): I64;
 }
@@ -953,20 +954,20 @@ impl TestClock {
 // --- Randomness ---------------------------------------------------------------
 
 /// Seeded — at zero unless a test says otherwise — so a failure reproduces.
-export struct TestRand(I64);
+export struct TestRandom(I64);
 
-impl Rand for TestRand {
+impl Random for TestRandom {
     fn nextInt(self, lo: Int, hi: Int): Int;
 
     fn nextFloat(self): Float;
 }
 
-export fn rand(): TestRand;
+export fn rand(): TestRandom;
 
-impl TestRand {
+impl TestRandom {
     /// A **new** generator, at that seed and drawing from the start of its
     /// sequence.
-    export fn seed(self, n: Int): TestRand;
+    export fn seed(self, n: Int): TestRandom;
 }
 
 // --- Entropy ------------------------------------------------------------------
@@ -998,12 +999,12 @@ impl TestEntropy {
 // --- Environment --------------------------------------------------------------
 
 /// Empty: no variables and no arguments, whatever the host happens to have.
-export struct TestEnv(I64);
+export struct TestEnvironment(I64);
 
-impl Env for TestEnv {
+impl Environment for TestEnvironment {
     fn variable(self, name: Str): Option<Str>;
 
-    fn args(self): [Str];
+    fn arguments(self): [Str];
 
     /// `/` — a double is not standing in any directory, and a hermetic test
     /// that read the runner's own would answer differently on every machine.
@@ -1016,15 +1017,15 @@ impl Env for TestEnv {
     fn operatingSystemName(self): Str;
 }
 
-export fn env(): TestEnv;
+export fn env(): TestEnvironment;
 
-impl TestEnv {
+impl TestEnvironment {
     /// A **new** environment with these variables and this one's arguments, so
     /// the two builders compose in either order. The last binding of a name wins.
-    export fn variables(self, vars: [(Str, Str)]): TestEnv;
+    export fn variables(self, vars: [(Str, Str)]): TestEnvironment;
 
     /// A **new** environment with these arguments and this one's variables.
-    export fn arguments(self, args: [Str]): TestEnv;
+    export fn withArguments(self, arguments: [Str]): TestEnvironment;
 }
 
 // --- Process ------------------------------------------------------------------
@@ -1037,16 +1038,16 @@ impl TestEnv {
 /// that the *test* carried on, which the assertions after the call say. The exit
 /// code is not kept, so this double has no runner-side state and its handle names
 /// nothing.
-export struct TestProc(I64);
+export struct TestProcess(I64);
 
-impl Proc for TestProc {
+impl Process for TestProcess {
     fn exitWith(self, code: Int): () {
         let _ = code;
     }
 }
 
-export fn proc(): TestProc {
-    TestProc(0)
+export fn proc(): TestProcess {
+    TestProcess(0)
 }
 
 /// Runs nothing, and refuses every command until a test says what to answer.
@@ -1056,7 +1057,7 @@ export fn proc(): TestProc {
 /// an answer nobody wrote. `answers` scripts the success and `fails` the
 /// failure.
 ///
-/// Two fields, for `TestFs`'s reason. The handle names the runner-side log and
+/// Two fields, for `TestFileSystem`'s reason. The handle names the runner-side log and
 /// the answer stays in the program, because `IoError.Other` carries a `Str` and
 /// `cli/runtime/lib.rs` §2.1 cannot hand one back across a row.
 ///
@@ -1080,7 +1081,7 @@ impl Spawn for TestSpawn {
         let _replaces = replaceEnvironment;
         let _input = stdin;
         // The whole plan, because splitting it into a program and its arguments
-        // would need an `Alloc` and an effect method takes only `self`. The
+        // would need an `Allocator` and an effect method takes only `self`. The
         // runner does the split, which is where `SpawnCall` is built anyway.
         let _recorded = recordSpawn(self.handle, plan);
         self.answer
@@ -1346,13 +1347,13 @@ derive Eq, Show for FsCall;
 // asked and never what came back: the answer is the return value the test
 // already has.
 
-/// One call to a `TestFs`, as `calls()` reports it and as a test writes it down.
+/// One call to a `TestFileSystem`, as `calls()` reports it and as a test writes it down.
 ///
 /// A record with private fields, so the constructors below are the only way to
 /// build one. `derive Eq` is what an assertion compares — two calls differ as
 /// soon as an argument does — and `derive Show` is what a failing one prints.
 ///
-/// One record rather than an enum of eleven variants. Every method of `Fs` takes
+/// One record rather than an enum of eleven variants. Every method of `FileSystem` takes
 /// a path and at most one thing more, so `path` is the first argument and `body`
 /// the second — the text written, `renameFile`'s destination, or the empty string
 /// where the method takes only a path. Octets are recorded as **the text they
@@ -1458,9 +1459,9 @@ export fn copyFile(source: Str, destination: Str): FsCall {
 fn spelled(body: [U8]): Str;
 
 derive Eq, Show for NetCall;
-/// One request made through a `TestNet`.
+/// One request made through a `TestNetwork`.
 ///
-/// The whole request, because `Net` has one method and it takes one value: two
+/// The whole request, because `Network` has one method and it takes one value: two
 /// requests that differ in a header are two calls.
 export struct NetCall(Request);
 
@@ -1475,14 +1476,14 @@ export fn fetch(request: Request): NetCall {
 /// writes are recorded, and no socket is opened anywhere.
 ///
 /// ```buri ignore why="a test source is the one place `core/host/testing` may be imported, and this file is not one"
-/// from "core/effect" import { Alloc, Tcp };
+/// from "core/effect" import { Allocator, Tcp };
 /// from "core/host/testing" import { alloc, tcp };
 /// from "core/net/tcp" import * as stream;
 ///
 /// export fn howMuchCameBack(): Int {
 ///     let peer = tcp().bytes([80, 79, 78, 71]);
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///         Tcp: peer,
 ///     };
 ///     match (stream.connect(ctx, "db.test", 6379)) {
@@ -1646,7 +1647,7 @@ export fn readBytes(n: Int): StdinCall {
 // Neither `Fault` record derives anything: a fault is matched by its call, and
 // the runner prints it from the pieces `addFsFault` sends.
 
-/// One planned failure of a `TestFs`.
+/// One planned failure of a `TestFileSystem`.
 ///
 /// `nth` is the call number `failsOnCall` named, counted from one over the
 /// matching calls, and **zero for `fails`**, which is every call. Zero rather than
@@ -1673,7 +1674,7 @@ impl FsCall {
     }
 }
 
-/// One planned failure of a `TestNet`. `FsFault`'s two fields at the network's
+/// One planned failure of a `TestNetwork`. `FsFault`'s two fields at the network's
 /// two types.
 export struct NetFault {
     call: NetCall,
@@ -1728,7 +1729,7 @@ impl NetCall {
 ///
 /// A task has no error to carry — `parallel` answers `[B]` — so a fault here is an
 /// *index*, a count and a sentence, all three of which cross the boundary. This
-/// double is a bare handle where `TestFs` and `TestNet` carry a plan as well.
+/// double is a bare handle where `TestFileSystem` and `TestNetwork` carry a plan as well.
 export struct TestTasks(I64);
 
 impl Tasks for TestTasks {
@@ -1787,7 +1788,7 @@ impl TestTasks {
     /// and the block fails with that reason. The tasks scheduled before it have run
     /// and had their effects; the ones after it have not started.
     ///
-    /// The rules are `TestFs::faults`' rules. `task(k).fails(why)` fails that task
+    /// The rules are `TestFileSystem::faults`' rules. `task(k).fails(why)` fails that task
     /// every time it is reached, and `task(k).failsOnCall(n, why)` the `n`th time,
     /// counted from one over the matching tasks — which counts `parallel` calls,
     /// since one call reaches each index once. A fault whose task is never reached

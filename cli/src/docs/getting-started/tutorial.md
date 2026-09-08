@@ -54,7 +54,7 @@ Write `libs/units/units.buri`. This is the whole of what the program knows about
 lengths, and none of it can touch the world:
 
 ```buri repo=cli/tests/tutorial package=//libs/units
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/str" import * as str;
 
@@ -131,9 +131,9 @@ impl Quantity {
         }
     }
 
-    /// `Alloc` and nothing else: building a `Str` allocates, and that is all
+    /// `Allocator` and nothing else: building a `Str` allocates, and that is all
     /// this does.
-    export fn format<C: Alloc>(self, ctx: C): Str {
+    export fn format<C: Allocator>(self, ctx: C): Str {
         let rounded = math.round(self.amount * 100.0) / 100.0;
         str.format(ctx, "${rounded} ${self.unit.symbol()}")
     }
@@ -157,7 +157,7 @@ Write `libs/units/test/units.buri`. The suite imports the library by label, as a
 dependent does, so it can only assert on what dependents can call:
 
 ```buri repo=cli/tests/tutorial package=//libs/units role=test
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//libs/units" import { ParseError, parseQuantity, Quantity, Unit };
@@ -176,7 +176,7 @@ test "a word that names no unit comes back with the word" {
 
 test "a marathon is 42.16 kilometres, to two places" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let marathon = Quantity { amount: 26.2, unit: Unit.Miles };
     assert.eq(marathon.into(.Kilometres).format(ctx), "42.16 km");
@@ -213,7 +213,7 @@ one function that reads the world and writes to it, and its bounds say which
 parts of the world it gets:
 
 ```buri repo=cli/tests/tutorial package=//libs/convert
-from "core/effect" import { Alloc, Env, Stdout };
+from "core/effect" import { Allocator, Environment, Stdout };
 from "core/env" import * as env;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -266,15 +266,15 @@ export fn parseRequest(words: [Str]): Result<Request, ConvertError> {
 }
 
 /// The line the program prints.
-export fn describe<C: Alloc>(ctx: C, request: Request): Str {
+export fn describe<C: Allocator>(ctx: C, request: Request): Str {
     let before = request.quantity.format(ctx);
     let after = request.quantity.into(request.target).format(ctx);
     str.format(ctx, "${before} = ${after}")
 }
 
 /// The edge: the one function here that reads the world and writes to it.
-export fn run<C: Alloc + Env + Stdout>(ctx: C): Result<(), ConvertError> {
-    let request = parseRequest(env.args(ctx))?;
+export fn run<C: Allocator + Environment + Stdout>(ctx: C): Result<(), ConvertError> {
+    let request = parseRequest(env.arguments(ctx))?;
     io.println(ctx, describe(ctx, request)).mapErr(fn(e) => ConvertError.CouldNotPrint)
 }
 ```
@@ -291,30 +291,30 @@ from "//libs/convert/convert.buri" export {
 
 ## 4. A test that hands `run` a world of our own
 
-`run` needs `Env` to read the command line, and a test hands it one: a struct
+`run` needs `Environment` to read the command line, and a test hands it one: a struct
 with the effect's two methods. There is no mocking framework and nothing global
 to stub.
 
 Write `libs/convert/test/convert.buri`:
 
 ```buri repo=cli/tests/tutorial package=//libs/convert role=test
-from "core/effect" import { Alloc, Env, Stdout };
+from "core/effect" import { Allocator, Environment, Stdout };
 from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
 from "//libs/convert" import { ConvertError, parseRequest, run };
 
-/// A test double for `Env`: an ordinary struct with the effect's methods, and
+/// A test double for `Environment`: an ordinary struct with the effect's methods, and
 /// nothing but `args` doing any work.
 struct FixedArgs {
     export words: [Str],
 }
 
-impl Env for FixedArgs {
+impl Environment for FixedArgs {
     fn variable(self, name: Str): Option<Str> {
         .None
     }
 
-    fn args(self): [Str] {
+    fn arguments(self): [Str] {
         self.words
     }
 
@@ -345,8 +345,8 @@ test "an unknown unit has a line for the user" {
 test "run reads its arguments and prints one line" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
-        Env: FixedArgs { words: ["10", "km", "mi"] },
+        Allocator: alloc(),
+        Environment: FixedArgs { words: ["10", "km", "mi"] },
         Stdout: out,
     };
     assert.ok(run(ctx));
@@ -381,14 +381,14 @@ Write `apps/convert/main.buri`. This is the only file allowed to import
 budget:
 
 ```buri repo=cli/tests/tutorial package=//apps/convert role=entry
-from "core/effect" import { Alloc, Env, Stdout };
+from "core/effect" import { Allocator, Environment, Stdout };
 from "core/host" import * as host;
 from "//libs/convert" import { run };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
+        Allocator: host.alloc,
+        Environment: host.env,
         Stdout: host.stdout,
     };
 

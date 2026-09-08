@@ -2,7 +2,7 @@
 // in it, so a badge that paints differently in each of the five states is five
 // goldens that have to differ from one another.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -30,7 +30,7 @@ fn badge<C>(): Node<C> {
 
 test "hovered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-hover", badge(), .Hover);
@@ -38,7 +38,7 @@ test "hovered" {
 
 test "focused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-focus", badge(), .Focus);
@@ -46,7 +46,7 @@ test "focused" {
 
 test "pressed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-active", badge(), .Active);
@@ -54,7 +54,7 @@ test "pressed" {
 
 test "refusing input" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-disabled", badge(), .Disabled);
@@ -62,7 +62,7 @@ test "refusing input" {
 
 test "on" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-checked", badge(), .Checked);

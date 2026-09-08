@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0010.buri" import { blend10, Node10, reach10, seed10 };
@@ -67,14 +67,14 @@ export fn start27_0(ticks: Int): State27_0 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_0<C: Alloc>(ctx: C): Int {
+export fn probe27_0<C: Allocator>(ctx: C): Int {
     let s = start27_0(5);
     rank27_0(s) + s.show(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest27_1<C: Alloc>(ctx: C): Int {
+export fn digest27_1<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [2678, 5188, 1910, 8050, 5605, 8125, 3904];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -89,7 +89,7 @@ export fn drain27_1(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_1<C: Alloc>(ctx: C): Int {
+export fn probe27_1<C: Allocator>(ctx: C): Int {
     digest27_1(ctx) + drain27_1()
 }
 
@@ -103,7 +103,7 @@ export fn firstOr27_2<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll27_2<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll27_2<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -113,7 +113,7 @@ export fn useGeneric27_2(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_2<C: Alloc>(ctx: C): Int {
+export fn probe27_2<C: Allocator>(ctx: C): Int {
     useGeneric27_2([1, 2], ["a"]) + describeAll27_2(ctx, [1, 2]).len()
 }
 
@@ -129,7 +129,7 @@ export fn compute27_3(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_3<C: Alloc>(ctx: C): Int {
+export fn probe27_3<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute27_3(7)
 }
@@ -151,7 +151,7 @@ export fn compute27_4(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_4<C: Alloc>(ctx: C): Int {
+export fn probe27_4<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute27_4(7)
 }
@@ -166,7 +166,7 @@ export fn firstOr27_5<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll27_5<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll27_5<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -176,7 +176,7 @@ export fn useGeneric27_5(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_5<C: Alloc>(ctx: C): Int {
+export fn probe27_5<C: Allocator>(ctx: C): Int {
     useGeneric27_5([1, 2], ["a"]) + describeAll27_5(ctx, [1, 2]).len()
 }
 
@@ -195,21 +195,21 @@ impl Rec27_6 {
         self.f0 * factor + 427
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec27_6: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_6<C: Alloc>(ctx: C): Int {
+export fn probe27_6<C: Allocator>(ctx: C): Int {
     let r = Rec27_6 { f0: 7, f1: "probe", f2: 1.5, f3: true };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest27_7<C: Alloc>(ctx: C): Int {
+export fn digest27_7<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [1165, 2881, 9968, 8001, 8609, 573, 9389, 9115];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -224,7 +224,7 @@ export fn drain27_7(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_7<C: Alloc>(ctx: C): Int {
+export fn probe27_7<C: Allocator>(ctx: C): Int {
     digest27_7(ctx) + drain27_7()
 }
 
@@ -245,14 +245,14 @@ export fn compute27_8(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_8<C: Alloc>(ctx: C): Int {
+export fn probe27_8<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute27_8(7)
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label27_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label27_9<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "charlie" } else { "golf" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -265,7 +265,7 @@ export fn constants27_9(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_9<C: Alloc>(ctx: C): Int {
+export fn probe27_9<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants27_9();
     label27_9(ctx, a, e).len() + b
 }
@@ -303,14 +303,14 @@ export fn start27_10(ticks: Int): State27_10 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe27_10<C: Alloc>(ctx: C): Int {
+export fn probe27_10<C: Allocator>(ctx: C): Int {
     let s = start27_10(5);
     rank27_10(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach27<C: Alloc>(ctx: C): Int {
+export fn reach27<C: Allocator>(ctx: C): Int {
     0
         + probe27_0(ctx)
         + probe27_1(ctx)

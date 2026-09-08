@@ -13,13 +13,13 @@ error: `Fs` is not a trait or effect [not-a-trait]
     Name a declared trait or effect, or declare the one you meant. There are no
     where clauses and no structural constraints.
 
-error: `C` does not satisfy `Alloc` [unsatisfied-bound]
+error: `C` does not satisfy `Allocator` [unsatisfied-bound]
  --> lib/db/manager.buri:7:5
   |
 7 |     str.format(ctx, "db/${name}")
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = fix: bound the type parameter with `Alloc`, or use a type that has one
+  = fix: bound the type parameter with `Allocator`, or use a type that has one
 error: expected `Str`, found `Int` [type-mismatch]
   --> lib/db/manager.buri:10:24
    |
@@ -55,7 +55,7 @@ error: `Fs` is not a declared effect [not-an-effect]
 14 |         Fs: alloc(),
    |         ^^
    |
-   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Fs` is not one
+   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Fs` is not one
 
      What to do
      ──────────
@@ -81,13 +81,13 @@ error: `Fs` is not a trait or effect [not-a-trait]
   |
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Fs` as one
-error: `C` does not satisfy `Alloc` [unsatisfied-bound]
+error: `C` does not satisfy `Allocator` [unsatisfied-bound]
  --> lib/db/testing/fakes.buri:7:5
   |
 7 |     str.format(ctx, "fake/${name}")
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = fix: bound the type parameter with `Alloc`, or use a type that has one
+  = fix: bound the type parameter with `Allocator`, or use a type that has one
 error: expected `Str`, found `Int` [type-mismatch]
   --> lib/db/testing/fakes.buri:10:28
    |

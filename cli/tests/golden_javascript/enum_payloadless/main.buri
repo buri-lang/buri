@@ -1,6 +1,6 @@
 // Every variant nullary, so the enum is already a bare integer tag. The match
 // over it is the cheapest one the backend has to compile.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -26,7 +26,7 @@ fn name(c: Colour): Str {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io.println(ctx, "${name(Colour.Red)} ${name(Colour.Yellow)}").ignore();

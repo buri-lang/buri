@@ -1,9 +1,9 @@
-from "core/effect" import { Alloc }, ;
+from "core/effect" import { Allocator }, ;
 
 /// Reported, and not rewritten. `lib.buri` publishes this name, so a caller
 /// may be in a package no analysis here has loaded — and a fix that took the
 /// parameter out of the signature and left that caller passing a context would
 /// be worse than no fix at all.
-export fn stamp<C: Alloc>(ctx: C, label: Str): Int {
+export fn stamp<C: Allocator>(ctx: C, label: Str): Int {
     label.len()
 }

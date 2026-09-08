@@ -12,7 +12,7 @@
 // `cli/tests/native/agreement.rs` runs the same shape through both native
 // backends and compares the message and the status; this file is what runs
 // wherever the JavaScript corpus runs.
-from "core/effect" import { Alloc, Env, Stdout, Tasks };
+from "core/effect" import { Allocator, Environment, Stdout, Tasks };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -23,13 +23,13 @@ fn ratio(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
-    Env: host.env,
+    Environment: host.env,
     Tasks: host.tasks,
   };
   // A zero the compiler cannot fold: the process was given no arguments.
-  let zero = env.args(ctx).len();
+  let zero = env.arguments(ctx).len();
   let _ = io.println(ctx, "the first task finished").ignore();
   let answers = tasks.parallel(ctx, [2, 1, zero], fn(c, i, n) => ratio(12, n));
   let _ = io.println(ctx, "${answers.len()}").ignore();

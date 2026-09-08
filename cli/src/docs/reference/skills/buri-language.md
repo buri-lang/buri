@@ -40,7 +40,7 @@ Hand-roll one and you get a wrong answer that compiles.
   value carrying it (`effect-method-call`). The doors are `core/io`, `core/fs`,
   `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
   `core/net/server`, `core/process`, `core/tasks` and `ui/signal`. The
-  filesystem is **two** effects, `FsRead` and `FsWrite`. `core/fs` declares
+  filesystem is **two** effects, `FileSystemRead` and `FileSystemWrite`. `core/fs` declares
   both, not `core/effect`, and every function there takes a `Path` from
   `core/path` rather than a `Str`. See the `buri-types` skill.
 - **A bare identifier in a pattern is always a binding.** `None` binds a
@@ -63,7 +63,7 @@ Hand-roll one and you get a wrong answer that compiles.
 ## A whole program
 
 ```buri
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -93,7 +93,7 @@ impl Shape {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 
@@ -110,8 +110,8 @@ only an entry may build a context; only `main.buri` may import `core/host`.
 `outputs` may name a second entry — `{ platform: CLOUDFLARE_WORKER, entry:
 "fetch" }` enters at `fn fetch(request: Request): Response`.
 
-**Import the effect names.** `context { Alloc: host.alloc }` without
-`from "core/effect" import { Alloc };` above it fails with `not-an-effect`.
+**Import the effect names.** `context { Allocator: host.alloc }` without
+`from "core/effect" import { Allocator };` above it fails with `not-an-effect`.
 
 ## Modules
 
@@ -212,7 +212,7 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ### `?` and defaults
 
 ```buri
-fn loadPort<C: Alloc + FsRead>(ctx: C, at: Path): Result<Int, ConfigError> {
+fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, ConfigError> {
     let text = fs.readText(ctx, at)?;         // Err(e) => return Err(e)
     let cfg = parseConfig(text)?;
     .Ok(cfg.port.withDefault(8080))

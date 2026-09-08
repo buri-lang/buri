@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
@@ -42,7 +42,7 @@ export fn lift14(n: Node11): Node14 {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest14_0<C: Alloc>(ctx: C): Int {
+export fn digest14_0<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [1978, 7983, 6903, 7119, 9903, 3484];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -57,12 +57,12 @@ export fn drain14_0(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_0<C: Alloc>(ctx: C): Int {
+export fn probe14_0<C: Allocator>(ctx: C): Int {
     digest14_0(ctx) + drain14_0()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach14<C: Alloc>(ctx: C): Int {
+export fn reach14<C: Allocator>(ctx: C): Int {
     0 + probe14_0(ctx) + reach11(ctx) + reach4(ctx) + reach8(ctx) + reach0(ctx)
 }

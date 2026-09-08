@@ -131,7 +131,7 @@ let maybe = xs[0];             // Option<Int>, not Int
 
 An array literal has a statically known length, so it is not by itself an
 allocation you must account for. Any operation whose result length depends on
-runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs an `Alloc`
+runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs an `Allocator`
 effect.
 
 ### 5.5 No records
@@ -390,9 +390,9 @@ enum.
 You declare type parameters in angle brackets. There are no row parameters.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Allocator, Stdout };
 fn identity<T>(x: T): T { x }
-fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B] { ... }
+fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
 ```
 
@@ -400,9 +400,9 @@ A parameter may carry one or more **bounds**, naming traits the argument type
 must satisfy. Multiple bounds are joined with `+`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc };
+# from "core/effect" import { Allocator };
 fn largest<T: Ord>(xs: [T]): Option<T> { ... }
-fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
+fn report<T: Ord + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
 ```
 
 Inside such a function you may call the bound's methods on the parameter —
@@ -472,14 +472,14 @@ A trait is an **interface**: a named set of method signatures that a type may
 satisfy.
 
 ```buri
-# from "core/effect" import { Alloc };
+# from "core/effect" import { Allocator };
 
 trait Ord {
     fn compare(self, other: Self): Order;
 }
 
 trait Show {
-    fn show<C: Alloc>(self, ctx: C): Str;
+    fn show<C: Allocator>(self, ctx: C): Str;
 }
 ```
 

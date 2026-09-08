@@ -1,27 +1,27 @@
 //! core/fs — the filesystem: two effects, and the doors onto them.
 //!
-//! Every function here names `FsRead` or `FsWrite` in its bounds. The disk is
+//! Every function here names `FileSystemRead` or `FileSystemWrite` in its bounds. The disk is
 //! visible in the signature, and so is *which half* of the disk.
 //!
 //! ## Reading and writing are two authorities
 //!
-//! `FsRead` has seven methods, `FsWrite` has nine. They are two grants: a
+//! `FileSystemRead` has seven methods, `FileSystemWrite` has nine. They are two grants: a
 //! program that reads its configuration hasn't thereby earned the right to
 //! delete it.
 //!
 //! ```buri sig
-//! # from "core/effect" import { Alloc, IoError };
+//! # from "core/effect" import { Allocator, IoError };
 //! # from "core/fs" import * as fs;
-//! # from "core/fs" import { FsRead, Path };
+//! # from "core/fs" import { FileSystemRead, Path };
 //! #
-//! export fn settings<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, IoError> {
+//! export fn settings<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError> {
 //!     fs.readText(ctx, at)
 //! }
 //! ```
 //!
 //! Nothing `settings` calls can write, because nothing it hands `ctx` to can
-//! ask for `FsWrite` from a context that doesn't bind it. A program doing both
-//! binds both: `FsRead: host.fs, FsWrite: host.fs`.
+//! ask for `FileSystemWrite` from a context that doesn't bind it. A program doing both
+//! binds both: `FileSystemRead: host.fs, FileSystemWrite: host.fs`.
 //!
 //! ## Every operation takes a `Path`
 //!
@@ -66,7 +66,7 @@
 //! | native, Linux | `fsync(2)` | the process, and the operating system |
 //! | native, macOS | `fcntl(F_FULLFSYNC)` | those two, and the drive's own cache |
 //! | JavaScript runner | `fs.fsyncSync` | the process, and the operating system |
-//! | `core/host/testing`'s `TestFs` | nothing to flush | the test that wrote it |
+//! | `core/host/testing`'s `TestFileSystem` | nothing to flush | the test that wrote it |
 //!
 //! Watch the macOS rows. Node's `fsync` is the plain `fsync(2)`, which on
 //! macOS asks the drive to write its cache and does not wait for it. The
@@ -79,7 +79,7 @@
 //! — and [`writeAtomic`] is those four written once.
 
 from "core/crypto" import * as crypto;
-from "core/effect" import { Alloc, Entropy, Env, IoError };
+from "core/effect" import { Allocator, Entropy, Environment, IoError };
 from "core/env" import * as env;
 from "core/path" import * as path;
 from "core/path" import { Path };
@@ -124,8 +124,8 @@ export struct Metadata {
 /// Looking at what is on the filesystem.
 ///
 /// The half of the filesystem that changes nothing. A context that binds this
-/// and not `FsWrite` grants a program authority to read and none to write.
-export effect FsRead {
+/// and not `FileSystemWrite` grants a program authority to read and none to write.
+export effect FileSystemRead {
     fn readFile(self, path: Path): Result<Str, IoError>;
     fn fileExists(self, path: Path): Bool;
     fn readDir(self, path: Path): Result<[Str], IoError>;
@@ -150,7 +150,7 @@ export effect FsRead {
 ///
 /// Nine methods, none of which reads. A program that only writes — a logger, a
 /// recorder — binds this and nothing else.
-export effect FsWrite {
+export effect FileSystemWrite {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError>;
     /// Truncates an existing file, and creates one that is absent.
     fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError>;
@@ -174,11 +174,11 @@ export effect FsWrite {
     fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 
-export fn readText<C: Alloc + FsRead>(ctx: C, path: Path): Result<Str, IoError> {
+export fn readText<C: Allocator + FileSystemRead>(ctx: C, path: Path): Result<Str, IoError> {
     ctx.readFile(path)
 }
 
-export fn writeText<C: Alloc + FsWrite>(
+export fn writeText<C: Allocator + FileSystemWrite>(
     ctx: C,
     path: Path,
     body: Str,
@@ -186,7 +186,7 @@ export fn writeText<C: Alloc + FsWrite>(
     ctx.writeFile(path, body)
 }
 
-export fn exists<C: FsRead>(ctx: C, path: Path): Bool {
+export fn exists<C: FileSystemRead>(ctx: C, path: Path): Bool {
     ctx.fileExists(path)
 }
 
@@ -197,7 +197,7 @@ export fn exists<C: FsRead>(ctx: C, path: Path): Bool {
 ///
 /// Names, not paths: `directory.join(ctx, name)` is the path, and
 /// [`listDirectoryEntries`] is the same call with what each name *is* beside it.
-export fn listDir<C: Alloc + FsRead>(ctx: C, path: Path): Result<[Str], IoError> {
+export fn listDir<C: Allocator + FileSystemRead>(ctx: C, path: Path): Result<[Str], IoError> {
     ctx.readDir(path)
 }
 
@@ -207,7 +207,7 @@ export fn listDir<C: Alloc + FsRead>(ctx: C, path: Path): Result<[Str], IoError>
 /// The only difference from `readText` is the encoding step: a file holding a
 /// protobuf message or a log record wants this one, because `readText` would
 /// substitute U+FFFD into it.
-export fn readBytes<C: Alloc + FsRead>(ctx: C, path: Path): Result<[U8], IoError> {
+export fn readBytes<C: Allocator + FileSystemRead>(ctx: C, path: Path): Result<[U8], IoError> {
     ctx.readFileBytes(path)
 }
 
@@ -222,17 +222,17 @@ export fn readBytes<C: Alloc + FsRead>(ctx: C, path: Path): Result<[U8], IoError
 /// read is `.Err(.PermissionDenied)`, not `.Ok(.None)`.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/fs" import * as fs;
-/// from "core/fs" import { FsRead };
+/// from "core/fs" import { FileSystemRead };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/path" import * as path;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
-///         FsRead: host.fs,
+///         Allocator: host.alloc,
+///         FileSystemRead: host.fs,
 ///         Stdout: host.stdout,
 ///     };
 ///     let answer = match (fs.readBytesIfExists(ctx, path.of(ctx, "no-such-file"))) {
@@ -248,7 +248,7 @@ export fn readBytes<C: Alloc + FsRead>(ctx: C, path: Path): Result<[U8], IoError
 /// ```stdout
 /// absent
 /// ```
-export fn readBytesIfExists<C: Alloc + FsRead>(
+export fn readBytesIfExists<C: Allocator + FileSystemRead>(
     ctx: C,
     path: Path,
 ): Result<Option<[U8]>, IoError> {
@@ -263,7 +263,7 @@ export fn readBytesIfExists<C: Alloc + FsRead>(
 /// absent.
 ///
 /// Durable only after `sync`; see the module header.
-export fn writeBytes<C: Alloc + FsWrite>(
+export fn writeBytes<C: Allocator + FileSystemWrite>(
     ctx: C,
     path: Path,
     body: [U8],
@@ -289,7 +289,7 @@ export fn writeBytes<C: Alloc + FsWrite>(
 ///
 /// `.Err(.Other)` where the path has no last component — the root, and `.` —
 /// because there is no sibling to write beside it.
-export fn writeAtomic<C: Alloc + FsWrite>(
+export fn writeAtomic<C: Allocator + FileSystemWrite>(
     ctx: C,
     path: Path,
     body: [U8],
@@ -315,7 +315,7 @@ export fn writeAtomic<C: Alloc + FsWrite>(
 /// records rather than overwriting each other.
 ///
 /// Durable only after `sync`.
-export fn append<C: Alloc + FsWrite>(
+export fn append<C: Allocator + FileSystemWrite>(
     ctx: C,
     path: Path,
     body: [U8],
@@ -332,7 +332,7 @@ export fn append<C: Alloc + FsWrite>(
 ///
 /// The rename is *visible* when this returns and *durable* after you `sync`
 /// the directory holding it. `writeAtomic` is the whole sequence.
-export fn rename<C: FsWrite>(
+export fn rename<C: FileSystemWrite>(
     ctx: C,
     source: Path,
     destination: Path,
@@ -347,7 +347,7 @@ export fn rename<C: FsWrite>(
 /// it is there" is `result.ignore(fs.remove(ctx, p))`.
 ///
 /// Files only. `removeDir` is the directory half, and neither is recursive.
-export fn remove<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
+export fn remove<C: FileSystemWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.removeFile(path)
 }
 
@@ -365,7 +365,7 @@ export fn remove<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 /// `.Err(.NotFound)` where the path names nothing, and `.Err(.NotADirectory)`
 /// where the path names a file. "Remove it if it is there" is
 /// `fs.removeDir(ctx, p).ignore()`.
-export fn removeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
+export fn removeDir<C: FileSystemWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.removeDir(path)
 }
 
@@ -377,7 +377,7 @@ export fn removeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 ///
 /// Unlike `remove`, this states a postcondition — this directory exists — that
 /// somebody else reaching it first does not violate.
-export fn makeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
+export fn makeDir<C: FileSystemWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.makeDir(path)
 }
 
@@ -390,7 +390,7 @@ export fn makeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 ///
 /// The module header's table says what each backend promises. They are not all
 /// the same promise, and the two macOS rows differ.
-export fn sync<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
+export fn sync<C: FileSystemWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.syncFile(path)
 }
 
@@ -401,17 +401,17 @@ export fn sync<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 /// What the filesystem knows about `path`, without opening it.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/fs" import * as fs;
-/// from "core/fs" import { FsRead };
+/// from "core/fs" import { FileSystemRead };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/path" import * as path;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
-///         FsRead: host.fs,
+///         Allocator: host.alloc,
+///         FileSystemRead: host.fs,
 ///         Stdout: host.stdout,
 ///     };
 ///     let here = fs.metadata(ctx, path.of(ctx, "."));
@@ -437,7 +437,7 @@ export fn sync<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 /// asks about the target instead.
 ///
 /// `.Err(.NotFound)` where the path names nothing.
-export fn metadata<C: FsRead>(ctx: C, path: Path): Result<Metadata, IoError> {
+export fn metadata<C: FileSystemRead>(ctx: C, path: Path): Result<Metadata, IoError> {
     ctx.metadata(path)
 }
 
@@ -447,7 +447,7 @@ export fn metadata<C: FsRead>(ctx: C, path: Path): Result<Metadata, IoError> {
 /// cannot be read included: this is the question `readDir` is about to be
 /// asked, and the honest answer to all three is the same. Use [`metadata`] to
 /// tell a missing path from an unreadable one.
-export fn isDirectory<C: FsRead>(ctx: C, path: Path): Bool {
+export fn isDirectory<C: FileSystemRead>(ctx: C, path: Path): Bool {
     match (ctx.metadata(path)) {
         .Ok(info) => info.kind == .Directory,
         .Err(_e) => false,
@@ -458,7 +458,7 @@ export fn isDirectory<C: FsRead>(ctx: C, path: Path): Bool {
 ///
 /// `false` for a symbolic link to one, because [`metadata`] does not follow
 /// links.
-export fn isFile<C: FsRead>(ctx: C, path: Path): Bool {
+export fn isFile<C: FileSystemRead>(ctx: C, path: Path): Bool {
     match (ctx.metadata(path)) {
         .Ok(info) => info.kind == .File,
         .Err(_e) => false,
@@ -475,7 +475,7 @@ export fn isFile<C: FsRead>(ctx: C, path: Path): Bool {
 /// Names, not paths, exactly as `listDir` gives them — `directory.join(ctx,
 /// name)` is the path — and in the platform's own order, which is not sorted.
 /// The first failure is the answer.
-export fn listDirectoryEntries<C: Alloc + FsRead>(
+export fn listDirectoryEntries<C: Allocator + FileSystemRead>(
     ctx: C,
     path: Path,
 ): Result<[(Str, EntryKind)], IoError> {
@@ -483,7 +483,7 @@ export fn listDirectoryEntries<C: Alloc + FsRead>(
     kindedEntries(ctx, path, names, 0, [])
 }
 
-fn kindedEntries<C: Alloc + FsRead>(
+fn kindedEntries<C: Allocator + FileSystemRead>(
     ctx: C,
     at: Path,
     names: [Str],
@@ -510,16 +510,16 @@ fn kindedEntries<C: Alloc + FsRead>(
 ///
 /// `.Err` at the first directory that will not open — including `root`, so a
 /// `root` that names a file is `.Err(.NotADirectory)`.
-export fn walk<C: Alloc + FsRead>(ctx: C, root: Path): Result<[Path], IoError> {
+export fn walk<C: Allocator + FileSystemRead>(ctx: C, root: Path): Result<[Path], IoError> {
     walked(ctx, root, [])
 }
 
-fn walked<C: Alloc + FsRead>(ctx: C, at: Path, sofar: [Path]): Result<[Path], IoError> {
+fn walked<C: Allocator + FileSystemRead>(ctx: C, at: Path, sofar: [Path]): Result<[Path], IoError> {
     let entries = listDirectoryEntries(ctx, at)?;
     walkedEntries(ctx, at, entries, 0, sofar)
 }
 
-fn walkedEntries<C: Alloc + FsRead>(
+fn walkedEntries<C: Allocator + FileSystemRead>(
     ctx: C,
     at: Path,
     entries: [(Str, EntryKind)],
@@ -551,7 +551,7 @@ fn walkedEntries<C: Alloc + FsRead>(
 ///
 /// An `at` past the end is the empty list rather than an error, which is what a
 /// read at end of file is. A negative `at` or `count` is `.Err(.Other)`.
-export fn readRange<C: Alloc + FsRead>(
+export fn readRange<C: Allocator + FileSystemRead>(
     ctx: C,
     path: Path,
     at: Int,
@@ -567,7 +567,7 @@ export fn readRange<C: Alloc + FsRead>(
 /// really names. Every component has to exist: `.Err(.NotFound)` otherwise.
 ///
 /// What comes back is absolute.
-export fn canonicalize<C: Alloc + FsRead>(ctx: C, at: Path): Result<Path, IoError> {
+export fn canonicalize<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Path, IoError> {
     match (ctx.realPath(at)) {
         .Ok(text) => .Ok(path.of(ctx, text)),
         .Err(e) => .Err(e),
@@ -587,7 +587,7 @@ export fn canonicalize<C: Alloc + FsRead>(ctx: C, at: Path): Result<Path, IoErro
 ///
 /// Contents only. Permissions, ownership and timestamps are not carried over,
 /// and a `source` that is a directory is `.Err(.Other)`.
-export fn copy<C: FsRead + FsWrite>(
+export fn copy<C: FileSystemRead + FileSystemWrite>(
     ctx: C,
     source: Path,
     destination: Path,
@@ -607,7 +607,7 @@ export fn copy<C: FsRead + FsWrite>(
 /// `.Err(.NotFound)` where the path names nothing, as `remove` is. The first
 /// failure stops the walk, so a partly removed tree is a real outcome and the
 /// error names what stopped it.
-export fn removeTree<C: Alloc + FsRead + FsWrite>(
+export fn removeTree<C: Allocator + FileSystemRead + FileSystemWrite>(
     ctx: C,
     path: Path,
 ): Result<(), IoError> {
@@ -621,7 +621,7 @@ export fn removeTree<C: Alloc + FsRead + FsWrite>(
     }
 }
 
-fn removedEntries<C: Alloc + FsRead + FsWrite>(
+fn removedEntries<C: Allocator + FileSystemRead + FileSystemWrite>(
     ctx: C,
     at: Path,
     entries: [(Str, EntryKind)],
@@ -640,7 +640,7 @@ fn removedEntries<C: Alloc + FsRead + FsWrite>(
 /// A new directory under the temporary directory, named `prefix` and sixteen
 /// hex characters nobody can guess.
 ///
-/// `Entropy` rather than `Rand`, and that is the whole of why this is not three
+/// `Entropy` rather than `Random`, and that is the whole of why this is not three
 /// lines a caller writes: a predictable name in a shared directory is a
 /// predictable name somebody else can create first. `core/env`'s
 /// `temporaryDirectory` says where it goes.
@@ -650,7 +650,7 @@ fn removedEntries<C: Alloc + FsRead + FsWrite>(
 /// rather than a path unless that is what you meant.
 ///
 /// The caller owns it, and nothing removes it: [`removeTree`] is the other half.
-export fn makeTemporaryDirectory<C: Alloc + Entropy + Env + FsWrite>(
+export fn makeTemporaryDirectory<C: Allocator + Entropy + Environment + FileSystemWrite>(
     ctx: C,
     prefix: Str,
 ): Result<Path, IoError> {

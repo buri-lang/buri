@@ -1,7 +1,7 @@
 // Tests for //lib/money. They import the library by label, exactly as any
 // dependent does, so they can only assert on what dependents can call.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/money" import { fromCents, fromDollars };
@@ -24,7 +24,7 @@ test "pads the cents place" {
     // Only this test needs a context: formatting allocates, and nothing else
     // here does. You can see which is which without leaving the test.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(fromCents(1905).format(ctx), "$19.05");
     assert.eq(fromDollars(19).format(ctx), "$19.00");

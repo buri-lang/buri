@@ -1,7 +1,7 @@
 error: expected `Str`, found `()` [type-mismatch]
   --> main.buri:38:51
    |
-38 |     export fn format<C: Alloc>(self, ctx: C): Str {
+38 |     export fn format<C: Allocator>(self, ctx: C): Str {
    |                                                   ^ the declared return type is `Str`
    |
    = expected: `Str`
@@ -46,7 +46,7 @@ error: this function body is missing its closing `}` [unclosed-delimiter]
    |
   --> main.buri:38:51
    |
-38 |     export fn format<C: Alloc>(self, ctx: C): Str {
+38 |     export fn format<C: Allocator>(self, ctx: C): Str {
    |                                                   ^ opened here
    |
    = fix: write `}` here

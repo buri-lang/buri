@@ -9,7 +9,7 @@
 
 from "core/date" import * as date;
 from "core/date" import { Date, DateTime, Time, Zoned };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -28,7 +28,7 @@ fn clock(hour: Int, minute: Int, second: Int, milli: Int): Time {
 
 test "a time of day formats with its milliseconds and reads back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(date.formatTime(ctx, clock(13, 45, 0, 0)), "13:45:00.000");
     assert.eq(date.formatTime(ctx, clock(0, 0, 0, 0)), "00:00:00.000");
@@ -39,7 +39,7 @@ test "a time of day formats with its milliseconds and reads back" {
 
 test "a fraction of a second truncates at the millisecond" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.some(date.parseTime(ctx, "00:00:00.5")), clock(0, 0, 0, 500));
     assert.eq(assert.some(date.parseTime(ctx, "00:00:00.05")), clock(0, 0, 0, 50));
@@ -54,7 +54,7 @@ test "a fraction of a second truncates at the millisecond" {
 
 test "a time the clock does not have is refused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.none(date.parseTime(ctx, "24:00:00"));
     assert.none(date.parseTime(ctx, "13:60:00"));
@@ -73,7 +73,7 @@ test "a time the clock does not have is refused" {
 
 test "parseDateTime inverts formatDateTime" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let moment = DateTime { date: day(2026, 8, 15), time: clock(13, 45, 0, 123) };
     assert.eq(date.formatDateTime(ctx, moment), "2026-08-15T13:45:00.123Z");
@@ -85,7 +85,7 @@ test "parseDateTime inverts formatDateTime" {
 
 test "an offset is applied, so two spellings of one moment agree" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let utc = assert.some(date.parseDateTime(ctx, "2026-08-15T13:45:00Z"));
     assert.eq(assert.some(date.parseDateTime(ctx, "2026-08-15T15:45:00+02:00")), utc);
@@ -98,7 +98,7 @@ test "an offset is applied, so two spellings of one moment agree" {
 
 test "parseZoned keeps the offset the text carried" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let read = assert.some(date.parseZoned(ctx, "2026-08-15T15:45:00.500+02:00"));
     assert.eq(read.offsetMinutes, 120);
@@ -116,7 +116,7 @@ test "parseZoned keeps the offset the text carried" {
 
 test "formatZoned writes the offset back, and Z for zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let east = Zoned {
         at: DateTime { date: day(2026, 8, 15), time: clock(15, 45, 0, 0) },
@@ -133,7 +133,7 @@ test "formatZoned writes the offset back, and Z for zero" {
 
 test "formatZoned and parseZoned invert each other" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cases = [
         "2026-08-15T15:45:00.000+02:00",
@@ -152,7 +152,7 @@ test "formatZoned and parseZoned invert each other" {
 
 test "an RFC 3339 timestamp that is not one is refused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A space in place of the `T`: admitted only by prior agreement, and there
     // is none here.
@@ -199,7 +199,7 @@ test "an offset that crosses midnight moves the day" {
 
 test "formatHttpDate writes IMF-fixdate" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let moment = date.fromInstant(Instant(784_111_777_000));
     assert.eq(date.formatHttpDate(ctx, moment), "Sun, 06 Nov 1994 08:49:37 GMT");
@@ -214,7 +214,7 @@ test "formatHttpDate writes IMF-fixdate" {
 
 test "parseHttpDate reads all three spellings RFC 9110 names" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let moment = date.fromInstant(Instant(784_111_777_000));
     assert.eq(
@@ -236,7 +236,7 @@ test "parseHttpDate reads all three spellings RFC 9110 names" {
 
 test "formatHttpDate and parseHttpDate invert each other" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cases = [
         DateTime { date: day(1994, 11, 6), time: clock(8, 49, 37, 0) },
@@ -252,7 +252,7 @@ test "formatHttpDate and parseHttpDate invert each other" {
 
 test "a two-digit year splits at 69" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Only the RFC 850 form has a two-digit year, and it hyphenates the date.
     assert.eq(
@@ -289,7 +289,7 @@ test "a two-digit year splits at 69" {
 
 test "an HTTP date that is not one is refused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.none(date.parseHttpDate(ctx, "Sun, 06 Nov 1994 08:49:37 UTC"));
     assert.none(date.parseHttpDate(ctx, "Sun 06 Nov 1994 08:49:37 GMT"));
@@ -305,7 +305,7 @@ test "an HTTP date that is not one is refused" {
 
 test "every offset the grammar admits, and every one it does not" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Zero, written four ways. `-00:00` means "offset unknown" in RFC 3339 and
     // this reads it as zero like the rest, because a `Zoned` has nowhere to
@@ -333,7 +333,7 @@ test "every offset the grammar admits, and every one it does not" {
 
 test "a fraction of a second of every length, in a whole timestamp" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let fractions = [
         ".1",
@@ -376,7 +376,7 @@ test "a fraction of a second of every length, in a whole timestamp" {
 
 test "a leap second is refused wherever a time of day is read" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 23:59:60 is a real moment and `Time` has nowhere to put it, so every door
     // into this module turns it away rather than guessing at midnight.
@@ -393,7 +393,7 @@ test "a leap second is refused wherever a time of day is read" {
 
 test "the 29th of February exists in a leap year and in no other" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(date.parseDate(ctx, "2024-02-29").isSome());
     assert.isTrue(date.parseDate(ctx, "2000-02-29").isSome());
@@ -418,7 +418,7 @@ test "the 29th of February exists in a leap year and in no other" {
 
 test "the first and last year four digits can spell" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(date.formatDate(ctx, day(0, 1, 1)), "0000-01-01");
     assert.eq(date.formatDate(ctx, day(9999, 12, 31)), "9999-12-31");
@@ -442,7 +442,7 @@ test "the first and last year four digits can spell" {
 
 test "a year outside four digits writes, and only the wide end reads back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A `Date` takes any year, and `pad` widens rather than truncating, so a
     // five-digit year writes five digits — and reads back, because nothing in
@@ -463,7 +463,7 @@ test "a year outside four digits writes, and only the wide end reads back" {
 
 test "every timestamp formatDateTime writes reads back as itself" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let moments = [
         DateTime { date: day(1970, 1, 1), time: clock(0, 0, 0, 0) },
@@ -492,7 +492,7 @@ test "every timestamp formatDateTime writes reads back as itself" {
 
 test "a single-digit day is asctime's alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let moment = DateTime { date: day(1994, 11, 6), time: clock(8, 49, 37, 0) };
     // asctime pads to two columns with a space, and the reader treats a run of
@@ -509,7 +509,7 @@ test "a single-digit day is asctime's alone" {
 
 test "every month and weekday name RFC 9110 fixes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let months = list
         .range(ctx, 1, 13)
@@ -570,7 +570,7 @@ test "every month and weekday name RFC 9110 fixes" {
 
 test "a month name in the wrong case or spelling is not a month" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // RFC 9110's grammar writes exactly these three letters, so the reader is
     // case-sensitive and does not take a longer name.
@@ -593,13 +593,13 @@ test "a month name in the wrong case or spelling is not a month" {
 
 /// A `Zoned`'s offset, or nothing where the text is not one. Written out here
 /// rather than in the test, because a closure cannot take a context.
-fn offsetOf<C: Alloc>(ctx: C, text: Str): Option<Int> {
+fn offsetOf<C: Allocator>(ctx: C, text: Str): Option<Int> {
     date.parseZoned(ctx, text).map(fn(z) => z.offsetMinutes)
 }
 
 test "formatZoned writes back every offset parseZoned reads" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let offsets = [0, 1, 0 - 1, 120, 0 - 330, 1439, 0 - 1439];
     let written = offsets.mapCtx(ctx, fn(c, minutes) => {
@@ -650,7 +650,7 @@ test "an offset at either extreme still names one moment" {
 
 test "an HTTP date from before the epoch" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The weekday comes off a day count that is negative here, which is the
     // one place the name and the date could come apart.

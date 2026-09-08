@@ -6,7 +6,7 @@
 //   * **every effect forwards** — a scope narrows nothing but allocation, so a
 //     body prints on the same stdout, reads the same files, waits on the same
 //     clock and fans out onto the same tasks as its caller;
-//   * **`Alloc` does not** — a charge inside a scope reaches the scope's own
+//   * **`Allocator` does not** — a charge inside a scope reaches the scope's own
 //     arena and the wrapped allocator's totals do not move.
 //
 // The second is asserted as a *divergence* rather than as a number, and that is
@@ -24,12 +24,12 @@
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Stats };
 from "core/effect" import {
-    Alloc, Clock, Env, Header, Listen, Listener, Net, NetError, Proc, Rand, Received,
+    Allocator, Clock, Environment, Header, Listen, Listener, Network, NetError, Process, Random, Received,
     Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/host/testing" import * as testing;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -171,7 +171,7 @@ impl Sockets for Quiet {
 // point: a scope's body hands the wrapper to code written against the bound,
 // and the wrapper has to satisfy it.
 
-fn charge<C: Alloc>(ctx: C, bytes: Int): Int {
+fn charge<C: Allocator>(ctx: C, bytes: Int): Int {
     let region = alloc.allocate(ctx, bytes);
     region.0
 }
@@ -191,17 +191,17 @@ fn firstLine<C: Stdin>(ctx: C): Str {
     io.readLine(ctx).withDefault("none")
 }
 
-fn readBack<C: Alloc + FsRead>(ctx: C, at: Str): Str {
+fn readBack<C: Allocator + FileSystemRead>(ctx: C, at: Str): Str {
     match (fs.readText(ctx, path.of(ctx, at))) {
         .Ok(text) => text,
         .Err(_e) => "missing",
     }
 }
 
-/// The six writing methods of `FsWrite`, called by name so a missing forward
-/// is a build error. The answers are not asserted — a `TestFs` under a scope answers
+/// The six writing methods of `FileSystemWrite`, called by name so a missing forward
+/// is a build error. The answers are not asserted — a `TestFileSystem` under a scope answers
 /// exactly what it answers without one — only that each call reaches one.
-fn wroteEveryWay<C: Alloc + FsWrite>(ctx: C): Int {
+fn wroteEveryWay<C: Allocator + FileSystemWrite>(ctx: C): Int {
     let wroteBytes = match (fs.writeBytes(ctx, path.of(ctx, "b"), [1])) {
         .Ok(_u) => 8,
         .Err(_e) => 0,
@@ -232,7 +232,7 @@ fn wroteEveryWay<C: Alloc + FsWrite>(ctx: C): Int {
 /// The four reading methods beyond `readFile`, on `wroteEveryWay`'s terms.
 /// `syncFile` is here rather than there because it is not a write — it is the
 /// commit point of one, and there is nothing it could be hiding.
-fn readEveryWay<C: Alloc + FsRead + FsWrite>(ctx: C): Int {
+fn readEveryWay<C: Allocator + FileSystemRead + FileSystemWrite>(ctx: C): Int {
     let exists = if (fs.exists(ctx, path.of(ctx, "a"))) { 1 } else { 0 };
     let dir = match (fs.listDir(ctx, path.of(ctx, "."))) {
         .Ok(_e) => 2,
@@ -250,13 +250,13 @@ fn readEveryWay<C: Alloc + FsRead + FsWrite>(ctx: C): Int {
 }
 
 /// Ten calls, ten bits. Writes first, so `syncFile` has a file to commit.
-fn touchedEveryFile<C: Alloc + FsRead + FsWrite>(ctx: C): Int {
+fn touchedEveryFile<C: Allocator + FileSystemRead + FileSystemWrite>(ctx: C): Int {
     let wrote = wroteEveryWay(ctx);
     let read = readEveryWay(ctx);
     wrote + read
 }
 
-fn status<C: Net>(ctx: C): Int {
+fn status<C: Network>(ctx: C): Int {
     let request = Request {
         method: .Get,
         url: "http://x/",
@@ -275,24 +275,24 @@ fn ticked<C: Clock>(ctx: C): I64 {
     time.now(ctx).0
 }
 
-fn rolled<C: Rand>(ctx: C): Int {
+fn rolled<C: Random>(ctx: C): Int {
     random.int(ctx, 1, 1000)
 }
 
-fn variable<C: Env>(ctx: C, name: Str): Str {
+fn variable<C: Environment>(ctx: C, name: Str): Str {
     env.get(ctx, name).withDefault("unset")
 }
 
-fn firstArgument<C: Env>(ctx: C): Str {
-    env.args(ctx)[0].withDefault("none")
+fn firstArgument<C: Environment>(ctx: C): Str {
+    env.arguments(ctx)[0].withDefault("none")
 }
 
-fn exited<C: Proc>(ctx: C): Int {
+fn exited<C: Process>(ctx: C): Int {
     let _ = process.exit(ctx, 0);
     1
 }
 
-fn indexed<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
+fn indexed<C: Allocator + Tasks>(ctx: C, items: [Int]): Int {
     let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
     out[0].withDefault(0) + out[1].withDefault(0)
 }
@@ -311,7 +311,7 @@ fn pushed<C: Sockets>(ctx: C): Int {
 /// A whole server reached through `core/net/server`, with a handler written
 /// against the very type the call hands it — a `Scoped<C>` when the caller is
 /// inside a scope, and the bare `C` when it is not.
-fn served<C: Alloc + Listen + Tasks>(ctx: C): Bool {
+fn served<C: Allocator + Listen + Tasks>(ctx: C): Bool {
     server
         .serve(ctx, server.Server {
             port: 8080,
@@ -330,7 +330,7 @@ fn served<C: Alloc + Listen + Tasks>(ctx: C): Bool {
 /// therefore charge the scope and print on the caller's stdout, neither of
 /// which the acceptor grants. A handler that ignored its first parameter, like
 /// `served` above, would pass whatever arrived.
-fn servedUsing<C: Alloc + Listen + Stdout + Tasks>(ctx: C): Bool {
+fn servedUsing<C: Allocator + Listen + Stdout + Tasks>(ctx: C): Bool {
     server
         .serve(ctx, server.Server {
             port: 8080,
@@ -345,13 +345,13 @@ fn servedUsing<C: Alloc + Listen + Stdout + Tasks>(ctx: C): Bool {
 }
 
 // -----------------------------------------------------------------------------
-// `Alloc` does not forward
+// `Allocator` does not forward
 // -----------------------------------------------------------------------------
 
 test "a charge inside a scope reaches the scope and not the wrapped allocator" {
     let gp = alloc.generalPurpose();
     let ctx = context {
-        Alloc: gp,
+        Allocator: gp,
     };
 
     // Once outside the scope, so the two totals are distinguishable by more
@@ -370,7 +370,7 @@ test "a charge inside a scope reaches the scope and not the wrapped allocator" {
 
 test "a scope's own totals are the charges it took" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
     };
     let inside = alloc.scoped(ctx, fn(c) => {
         let _ = charge(c, 64);
@@ -383,7 +383,7 @@ test "a scope's own totals are the charges it took" {
 test "two scopes over one context count separately" {
     let gp = alloc.generalPurpose();
     let ctx = context {
-        Alloc: gp,
+        Allocator: gp,
     };
     let first = alloc.scoped(ctx, fn(c) => {
         let _ = charge(c, 8);
@@ -401,7 +401,7 @@ test "two scopes over one context count separately" {
 test "a scope inside a scope is a scope of its own" {
     let gp = alloc.generalPurpose();
     let ctx = context {
-        Alloc: gp,
+        Allocator: gp,
     };
     let both = alloc.scoped(ctx, fn(outer) => {
         let _ = charge(outer, 5);
@@ -423,7 +423,7 @@ test "a scope that outlives its body charges nothing" {
     // a charge afterwards moves no counter — a number that stops, never a use
     // of memory that has been given back.
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
     };
     let escaped = alloc.scoped(ctx, fn(c) => c);
     let after = charge(escaped, 512);
@@ -438,7 +438,7 @@ test "a scope that outlives its body charges nothing" {
 test "a scope forwards standard output" {
     let out = testing.stdout();
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Stdout: out,
     };
     let _ = alloc.scoped(ctx, fn(c) => printed(c));
@@ -448,7 +448,7 @@ test "a scope forwards standard output" {
 test "a scope forwards standard error" {
     let err = testing.stderr();
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Stderr: err,
     };
     let _ = alloc.scoped(ctx, fn(c) => warned(c));
@@ -457,7 +457,7 @@ test "a scope forwards standard error" {
 
 test "a scope forwards standard input" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Stdin: testing.stdin().lines(["one", "two"]),
     };
     assert.eq(alloc.scoped(ctx, fn(c) => firstLine(c)), "one");
@@ -465,30 +465,30 @@ test "a scope forwards standard input" {
 
 test "a scope forwards the filesystem" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
-        FsRead: testing.fs().files([("a", "A")]),
+        Allocator: alloc.generalPurpose(),
+        FileSystemRead: testing.fs().files([("a", "A")]),
     };
     assert.eq(alloc.scoped(ctx, fn(c) => readBack(c, "a")), "A");
     assert.eq(alloc.scoped(ctx, fn(c) => readBack(c, "nope")), "missing");
 }
 
 test "a scope forwards every method of the filesystem" {
-    // Ten calls, ten bits. What matters is that each reached the `TestFs`
+    // Ten calls, ten bits. What matters is that each reached the `TestFileSystem`
     // rather than a wrapper that answered for it, and a scope that dropped one
     // of them would not compile.
-    // One double bound to both halves: `FsRead` and `FsWrite` are two effects
+    // One double bound to both halves: `FileSystemRead` and `FileSystemWrite` are two effects
     // over one filesystem, and two `fs()` calls would be two filesystems.
     let bareDisk = testing.fs().files([("a", "A")]);
     let bare = context {
-        Alloc: alloc.generalPurpose(),
-        FsRead: bareDisk,
-        FsWrite: bareDisk,
+        Allocator: alloc.generalPurpose(),
+        FileSystemRead: bareDisk,
+        FileSystemWrite: bareDisk,
     };
     let wrappedDisk = testing.fs().files([("a", "A")]);
     let wrapped = context {
-        Alloc: alloc.generalPurpose(),
-        FsRead: wrappedDisk,
-        FsWrite: wrappedDisk,
+        Allocator: alloc.generalPurpose(),
+        FileSystemRead: wrappedDisk,
+        FileSystemWrite: wrappedDisk,
     };
     assert.eq(
         alloc.scoped(wrapped, fn(c) => touchedEveryFile(c)),
@@ -503,15 +503,15 @@ test "a scope forwards the network" {
         .net()
         .respond(fn(_request) => .Ok(Response { status: 418, headers: [], body: [] }));
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
-        Net: teapot,
+        Allocator: alloc.generalPurpose(),
+        Network: teapot,
     };
     assert.eq(alloc.scoped(ctx, fn(c) => status(c)), 418);
 }
 
 test "a scope forwards the clock" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Clock: testing.clock().at(1234),
     };
     assert.eq(alloc.scoped(ctx, fn(c) => ticked(c)), 1234);
@@ -521,20 +521,20 @@ test "a scope forwards randomness" {
     // Two contexts at one seed: the scoped draw and the bare draw are the same
     // number, which they could not be if the wrapper had answered.
     let bare = context {
-        Alloc: alloc.generalPurpose(),
-        Rand: testing.rand().seed(7),
+        Allocator: alloc.generalPurpose(),
+        Random: testing.rand().seed(7),
     };
     let wrapped = context {
-        Alloc: alloc.generalPurpose(),
-        Rand: testing.rand().seed(7),
+        Allocator: alloc.generalPurpose(),
+        Random: testing.rand().seed(7),
     };
     assert.eq(alloc.scoped(wrapped, fn(c) => rolled(c)), rolled(bare));
 }
 
 test "a scope forwards the environment" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
-        Env: testing.env().variables([("HOME", "/h")]).arguments(["first", "second"]),
+        Allocator: alloc.generalPurpose(),
+        Environment: testing.env().variables([("HOME", "/h")]).withArguments(["first", "second"]),
     };
     assert.eq(alloc.scoped(ctx, fn(c) => variable(c, "HOME")), "/h");
     assert.eq(alloc.scoped(ctx, fn(c) => variable(c, "NOPE")), "unset");
@@ -543,11 +543,11 @@ test "a scope forwards the environment" {
 
 test "a scope forwards the process" {
     // `exitWith` cannot be called for its effect in a test — the double absorbs
-    // it — so the claim here is that a `Scoped<C>` satisfies `Proc` where `C`
+    // it — so the claim here is that a `Scoped<C>` satisfies `Process` where `C`
     // does and the method is reachable through it by name.
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
-        Proc: testing.proc(),
+        Allocator: alloc.generalPurpose(),
+        Process: testing.proc(),
     };
     assert.eq(alloc.scoped(ctx, fn(c) => exited(c)), 1);
 }
@@ -557,7 +557,7 @@ test "a scope forwards tasks" {
     // otherwise — and the results are in the items' order whatever it
     // schedules, which is `Tasks`' own promise.
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Tasks: testing.tasks(),
     };
     assert.eq(alloc.scoped(ctx, fn(c) => indexed(c, [7, 9])), 116);
@@ -565,7 +565,7 @@ test "a scope forwards tasks" {
 
 test "a scope forwards sockets" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Sockets: Quiet { },
     };
     assert.eq(alloc.scoped(ctx, fn(c) => pushed(c)), 1);
@@ -595,7 +595,7 @@ test "a scope forwards listening" {
     // A real server through the wrapper: the bind is refused, and the refusal
     // comes back out through the scope.
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Listen: OneShot { binds: 0 },
         Tasks: testing.tasks(),
     };
@@ -608,7 +608,7 @@ test "a scope forwards listening onto a handler the loop calls" {
     let out = testing.stdout();
     let gp = alloc.generalPurpose();
     let ctx = context {
-        Alloc: gp,
+        Allocator: gp,
         Listen: OneShot { binds: 1 },
         Stdout: out,
         Tasks: testing.tasks(),
@@ -624,13 +624,13 @@ test "a server answers the handler it is given" {
     // The context is the ordinary three now rather than the bare fake, because
     // `serve` fans its loop out and a fan-out needs somewhere to run.
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Listen: OneShot { binds: 1 },
         Tasks: testing.tasks(),
     };
     assert.isTrue(served(ctx));
     let refused = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Listen: OneShot { binds: 0 },
         Tasks: testing.tasks(),
     };
@@ -651,7 +651,7 @@ test "a server answers the handler it is given" {
 // scope's context to the handler. When `core/net/server` lands, its hook takes
 // this expression unchanged.
 
-fn handle<C: Alloc + FsRead + Stdout>(ctx: C, request: Request): Response {
+fn handle<C: Allocator + FileSystemRead + Stdout>(ctx: C, request: Request): Response {
     let _ = io.println(ctx, "serving").ignore();
     // The charge a handler makes on its own behalf, which under `dispatch` is
     // the scope's and not the server's.
@@ -663,7 +663,7 @@ fn handle<C: Alloc + FsRead + Stdout>(ctx: C, request: Request): Response {
 }
 
 /// The wrapping itself, as a plain function over a context and a request.
-fn dispatch<C: Alloc + FsRead + Stdout>(ctx: C, request: Request): Response {
+fn dispatch<C: Allocator + FileSystemRead + Stdout>(ctx: C, request: Request): Response {
     alloc.scoped(ctx, fn(c) => handle(c, request))
 }
 
@@ -671,8 +671,8 @@ test "a request handler wrapped in a scope is an ordinary call" {
     let out = testing.stdout();
     let gp = alloc.generalPurpose();
     let ctx = context {
-        Alloc: gp,
-        FsRead: testing.fs().files([("index.html", "<p>")]),
+        Allocator: gp,
+        FileSystemRead: testing.fs().files([("index.html", "<p>")]),
         Stdout: out,
     };
 

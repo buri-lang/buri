@@ -9,7 +9,7 @@ warning: this comment is marked `TODO` [warning-comment]
 error: expected an identifier, found `.` [unexpected-token]
   --> lib/recovery_insert_stray_brace_app_8c669f/main.buri:16:22
    |
-16 |         Alloc: host, .alloc,
+16 |         Allocator: host, .alloc,
    |                      ^
    |
    = expected: an identifier

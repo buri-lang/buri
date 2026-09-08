@@ -46,14 +46,14 @@ one library, listing its sources and its tests one path at a time.
 effect budget: this program can allocate and print, and nothing else.
 
 ```buri repo=cli/src/docs/init package=//apps/hello role=entry
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//libs/greeting" import { greeting };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 

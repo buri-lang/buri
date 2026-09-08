@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -16,14 +16,14 @@ export fn deep<C>(levels: Int): Node<C> {
 
 /// `n` rows in one column, one run of text each, built through `each` — the
 /// one constructor whose children the walk asks for rather than being handed.
-export fn siblings<C: Alloc>(ctx: C, n: Int): Node<C> {
+export fn siblings<C: Allocator>(ctx: C, n: Int): Node<C> {
     ui.each(.Const(labels(ctx, n, 0, [])), fn(label) => label, fn(_c, label, _at) => {
         ui.text(.Const(label))
     })
 }
 
 /// `n` labels, "0" to "n - 1".
-fn labels<C: Alloc>(ctx: C, n: Int, at: Int, acc: [Str]): [Str] {
+fn labels<C: Allocator>(ctx: C, n: Int, at: Int, acc: [Str]): [Str] {
     if (at >= n) {
         acc
     } else {

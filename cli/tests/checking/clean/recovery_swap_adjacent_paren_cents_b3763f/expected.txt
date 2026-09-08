@@ -1,7 +1,7 @@
 error: expected a type, found `)` [unexpected-token]
   --> main.buri:38:44
    |
-38 |     export fn format<C: Alloc>(self, ctxC :): Str {
+38 |     export fn format<C: Allocator>(self, ctxC :): Str {
    |                                            ^
    |
    = expected: a type

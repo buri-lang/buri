@@ -267,7 +267,7 @@ impl MemoryEffects {
 
     /// The allocator's own effects, which are three locations and not one.
     ///
-    /// CODEGEN-LLVM.md §3.1's `Alloc`-bounded row said `inaccessiblemem:
+    /// CODEGEN-LLVM.md §3.1's `Allocator`-bounded row said `inaccessiblemem:
     /// readwrite` and stopped there. Two things are missing from that, and both
     /// are checkable against LLVM's own inference — `opt -passes=function-attrs`
     /// on `%p = call noalias ptr @alloc(...)` / `store ..., ptr %p` answers

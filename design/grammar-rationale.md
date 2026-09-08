@@ -143,7 +143,7 @@ its absence makes it the type's own methods.
 Whether an IDENT or a `{` follows tells them apart: one token of lookahead, no
 name resolution. Braces terminate the expression and it delimits itself, so it
 joins `{}`, `if`, and `match` as a block-like operand under 12.11 and 12.13.
-Reusing struct-literal syntax (`Ctx { Alloc: ... }`) would have needed a declared
+Reusing struct-literal syntax (`Ctx { Allocator: ... }`) would have needed a declared
 type to name, and the whole point is that nobody ever writes a context's type
 (Section 11.3). *Cost:* one keyword, which no program could have used as an
 identifier anyway once contexts existed.

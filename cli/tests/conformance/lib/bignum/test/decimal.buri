@@ -9,7 +9,7 @@
 
 from "core/decimal" import * as decimal;
 from "core/decimal" import { Decimal };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/math" import * as math;
@@ -21,7 +21,7 @@ from "core/testing/assert" import * as assert;
 
 test "of puts the point where the scale says" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(1999, 2).text(ctx), "19.99");
     assert.eq(decimal.of(5, 2).text(ctx), "0.05");
@@ -42,7 +42,7 @@ test "a trailing zero is absorbed into the scale" {
 
 test "a negative scale is read as zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(5, -2), decimal.of(5, 0));
     assert.eq(decimal.of(5, -2).text(ctx), "5");
@@ -61,7 +61,7 @@ test "equality is numeric because the shape is canonical" {
 
 test "parse reads a decimal numeral" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.parse("0"), .Some(decimal.of(0, 0)));
     assert.eq(decimal.parse("-0"), .Some(decimal.of(0, 0)));
@@ -102,7 +102,7 @@ test "parse answers .None past what an Int holds" {
 
 test "parse and text round-trip" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let written = ["0", "1", "-1", "19.99", "-0.05", "1234567.891", "0.000001"];
     let broken = written.filterCtx(ctx, fn(c, t) => {
@@ -118,7 +118,7 @@ test "parse and text round-trip" {
 
 test "add raises both sides to the larger scale" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.some(decimal.of(10, 1).add(decimal.of(20, 2))).text(ctx), "1.2");
     assert.eq(assert.some(decimal.of(1, 0).add(decimal.of(1, 2))).text(ctx), "1.01");
@@ -128,7 +128,7 @@ test "add raises both sides to the larger scale" {
 
 test "the sum a Float gets wrong" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `0.1 + 0.2` is `0.30000000000000004` as doubles.
     assert.notEq(0.1 + 0.2, 0.3);
@@ -139,7 +139,7 @@ test "the sum a Float gets wrong" {
 
 test "sub is add with the other sign" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.some(decimal.of(1999, 2).sub(decimal.of(99, 2))).text(ctx), "19");
     assert.eq(assert.some(decimal.of(1, 0).sub(decimal.of(1, 2))).text(ctx), "0.99");
@@ -149,7 +149,7 @@ test "sub is add with the other sign" {
 
 test "mul adds the scales and keeps every digit" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.some(decimal.of(5, 1).mul(decimal.of(5, 1))).text(ctx), "0.25");
     assert.eq(
@@ -180,7 +180,7 @@ test "add and sub undo each other" {
 
 test "negate flips the sign, and fails only where the negation does not fit" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.some(decimal.of(1999, 2).negate()).text(ctx), "-19.99");
     assert.eq(assert.some(decimal.of(0, 0).negate()), decimal.of(0, 0));
@@ -193,7 +193,7 @@ test "negate flips the sign, and fails only where the negation does not fit" {
 
 test "roundTo sends a tie to the even neighbour" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(25, 2).roundTo(1).text(ctx), "0.2");
     assert.eq(decimal.of(35, 2).roundTo(1).text(ctx), "0.4");
@@ -206,7 +206,7 @@ test "roundTo sends a tie to the even neighbour" {
 
 test "roundTo takes a negative tie to the even neighbour too" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(-25, 2).roundTo(1).text(ctx), "-0.2");
     assert.eq(decimal.of(-35, 2).roundTo(1).text(ctx), "-0.4");
@@ -216,7 +216,7 @@ test "roundTo takes a negative tie to the even neighbour too" {
 
 test "roundTo rounds to the nearer number where there is one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(24, 2).roundTo(1).text(ctx), "0.2");
     assert.eq(decimal.of(26, 2).roundTo(1).text(ctx), "0.3");
@@ -227,7 +227,7 @@ test "roundTo rounds to the nearer number where there is one" {
 
 test "a column of ties does not drift" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Four ties, two up and two down, so the rounded total is the true total.
     let ties = [
@@ -250,7 +250,7 @@ test "roundTo at or above the current scale changes nothing" {
 
 test "roundTo with a negative scale is roundTo zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(1999, 2).roundTo(-3), decimal.of(1999, 2).roundTo(0));
     assert.eq(decimal.of(1999, 2).roundTo(0).text(ctx), "20");
@@ -258,7 +258,7 @@ test "roundTo with a negative scale is roundTo zero" {
 
 test "roundTo drops more digits than an Int has powers of ten" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The scale is past 10^19, so the quotient is zero and only the halfway
     // test can lift it.
@@ -310,7 +310,7 @@ test "order is exact even where the common scale would not fit" {
 
 test "sorting puts them in numeric order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let values = [
         decimal.of(1, 0),
@@ -324,7 +324,7 @@ test "sorting puts them in numeric order" {
 
 test "Show is text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(1999, 2).show(ctx), "19.99");
     assert.eq(decimal.of(0, 0).show(ctx), "0");
@@ -333,7 +333,7 @@ test "Show is text" {
 
 test "text reaches both ends of Int with a scale on it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(number.maxValue<I64>(), 2).text(ctx), "92233720368547758.07");
     assert.eq(decimal.of(number.minValue<I64>(), 2).text(ctx), "-92233720368547758.08");
@@ -348,7 +348,7 @@ test "text reaches both ends of Int with a scale on it" {
 
 test "at scale zero a Decimal is the Int it holds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.of(0, 0).text(ctx), "0");
     assert.eq(decimal.of(7, 0).text(ctx), "7");
@@ -393,7 +393,7 @@ test "the largest scale is reachable and answers everywhere it can" {
 
 test "the largest scale a value can be written at" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Eighteen zeros and a one: the smallest number `parse` and `text` still
     // round-trip, because raising a scale-zero value to it is nineteen powers
@@ -480,7 +480,7 @@ test "parse answers .None at every shape and at every overflow" {
 
 test "parse reads leading zeros and a signed zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decimal.parse("007"), .Some(decimal.of(7, 0)));
     assert.eq(decimal.parse("-007"), .Some(decimal.of(-7, 0)));

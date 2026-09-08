@@ -9,14 +9,14 @@
 // backends, which is what lets a value that was minted here be written into an
 // assertion at all.
 //
-// The sequence itself is `TestRand`'s. `entropy()` and `rand()` are two handles
+// The sequence itself is `TestRandom`'s. `entropy()` and `rand()` are two handles
 // onto one generator, so `crypto.randomBytes` and `random.bytes` at the same
 // seed are the same octets — the second half of this file is that agreement,
 // asserted rather than assumed.
 
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
-from "core/effect" import { Alloc, Entropy, Rand };
+from "core/effect" import { Allocator, Entropy, Random };
 from "core/host/testing" import { alloc, entropy, rand };
 from "core/random" import * as random;
 from "core/testing/assert" import * as assert;
@@ -25,7 +25,7 @@ from "core/testing/assert" import * as assert;
 
 test "the unseeded generator draws the same octets on every backend" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
     };
     assert.eq(
@@ -36,11 +36,11 @@ test "the unseeded generator draws the same octets on every backend" {
 
 test "a seed picks a different sequence, and picks the same one twice" {
     let one = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy().seed(7),
     };
     let two = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy().seed(7),
     };
     assert.eq(
@@ -57,7 +57,7 @@ test "a seed picks a different sequence, and picks the same one twice" {
 
 test "one generator is drawn down rather than restarted" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
     };
     let first = crypto.randomBytes(ctx, 8);
@@ -70,7 +70,7 @@ test "one generator is drawn down rather than restarted" {
 
 test "the count is the number of octets, and zero is the empty list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
     };
     assert.eq(crypto.randomBytes(ctx, 0).len(), 0);
@@ -83,7 +83,7 @@ test "the count is the number of octets, and zero is the empty list" {
 
 test "a token is hex, twice as long as the entropy it carries" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy().seed(7),
     };
     let t = crypto.token(ctx, 16);
@@ -95,7 +95,7 @@ test "a token is hex, twice as long as the entropy it carries" {
 
 test "a token of no octets is the empty string" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
     };
     assert.eq(crypto.token(ctx, 0), "");
@@ -103,14 +103,14 @@ test "a token of no octets is the empty string" {
 
 // --- the two generators are one generator ---------------------------------------
 
-test "the seeded Entropy and the seeded Rand draw the same octets" {
+test "the seeded Entropy and the seeded Random draw the same octets" {
     let secret = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy().seed(99),
     };
     let uniform = context {
-        Alloc: alloc(),
-        Rand: rand().seed(99),
+        Allocator: alloc(),
+        Random: rand().seed(99),
     };
     // `random.bytes` takes the low byte of each step, which is what
     // `nextInt(0, 256)` is, and `crypto.randomBytes` takes the same one. The
@@ -123,8 +123,8 @@ test "the seeded Entropy and the seeded Rand draw the same octets" {
 
 test "core/random answers octets of its own, and a negative count is empty" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand(),
+        Allocator: alloc(),
+        Random: rand(),
     };
     assert.eq(random.bytes(ctx, 4).len(), 4);
     assert.eq(random.bytes(ctx, 0).len(), 0);

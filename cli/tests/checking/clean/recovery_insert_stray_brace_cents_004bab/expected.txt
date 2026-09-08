@@ -1,7 +1,7 @@
 error: expected an identifier, found `@` [unexpected-token]
   --> main.buri:38:25
    |
-38 |     export fn format<C: @ Alloc>(self, ctx: C): Str {
+38 |     export fn format<C: @ Allocator>(self, ctx: C): Str {
    |                         ^
    |
    = expected: an identifier

@@ -3,7 +3,7 @@
 // finding — a rule about the hexadecimal digits is about those sixteen and
 // nothing else.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -36,13 +36,13 @@ fn nibble(value: Int, shift: Int): Char {
     }
 }
 
-fn hexByte<C: Alloc>(ctx: C, octet: Int): Str {
+fn hexByte<C: Allocator>(ctx: C, octet: Int): Str {
     str.fromChars(ctx, [nibble(octet, 16), ? nibble(octet, 1)])
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io

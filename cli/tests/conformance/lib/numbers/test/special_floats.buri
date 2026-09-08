@@ -18,7 +18,7 @@
 // classifiers, `sqrt`, `floor`, `ceil` and `absFloat` are each exactly
 // specified, and every rendering here is a name rather than a digit.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/math" import * as math;
 from "core/number" import * as number;
@@ -135,7 +135,7 @@ test "number's free functions order the three the way the operators do" {
 
 test "the three render the same text on every backend" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A name rather than digits, on both backends: SPEC 6.2 says rendering a
     // float is the shortest decimal that round-trips, and none of these three
@@ -151,7 +151,7 @@ test "the three render the same text on every backend" {
 
 test "the three render the same in a hole as they do through show" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // SPEC 3.6: a `Float` hole renders exactly as `show` renders it. This is
     // where the two rendering paths a backend has — the interpolation one and
@@ -223,7 +223,7 @@ test "copySign takes the magnitude from one side and the sign from the other" {
 
 test "copySign reads a negative zero's sign" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(str.fromFloat(ctx, math.copySign(1.0, -0.0)), "-1.0");
     assert.eq(str.fromFloat(ctx, math.copySign(1.0, 0.0)), "1.0");
@@ -262,7 +262,7 @@ test "roundEven rounds to the nearer number where there is one" {
 
 test "roundEven keeps the sign of a zero and passes the rest through" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(str.fromFloat(ctx, math.roundEven(-0.4)), "-0.0");
     assert.eq(str.fromFloat(ctx, math.roundEven(-0.0)), "-0.0");
@@ -381,7 +381,7 @@ test "the two ends of the format are the values they are named for" {
 
 test "roundEven and roundTo at the subnormals and at the largest value" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A subnormal is far below a half, so it rounds to a zero of its own sign.
     assert.eq(math.roundEven(smallest()), 0.0);
@@ -431,7 +431,7 @@ test "roundTo rounds the double and not the decimal that was typed" {
 
 test "the exact functions at the largest value and at a subnormal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `copySign` is sign bit work, so it reaches both ends unchanged.
     assert.eq(math.copySign(largest(), -1.0), 0.0 - largest());

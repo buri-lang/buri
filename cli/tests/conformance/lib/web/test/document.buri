@@ -14,7 +14,7 @@
 // drives a built artifact against a document holding what the worker sent, and
 // presses the button.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, Json, ToJson };
@@ -228,7 +228,7 @@ test "an attribute is escaped too, quotes included" {
 
 test "the document carries the body and the state beside it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let state = Reading { title: "Titles", note: "plain" };
     let document = web.shell(ctx, "/", web.render(tree()), state.toJson(ctx));
@@ -239,7 +239,7 @@ test "the document carries the body and the state beside it" {
 
 test "a state that ends the script it sits in closes nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let state = Reading { title: "Titles", note: "</script><b>" };
     let document = web.shell(ctx, "/", "", state.toJson(ctx));
@@ -254,7 +254,7 @@ test "a state that ends the script it sits in closes nothing" {
 
 test "the state crosses as every shape JSON has" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let shapes: Json = .Object([
         ("nothing", .Null),
@@ -280,7 +280,7 @@ test "the state crosses as every shape JSON has" {
 
 test "a state with no fields at all still crosses" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(embedded(web.shell(ctx, "/", "", .Object([]))), "{}");
     assert.eq(embedded(web.shell(ctx, "/", "", .Null)), "null");
@@ -288,7 +288,7 @@ test "a state with no fields at all still crosses" {
 
 test "an empty body is still a whole document" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let document = web.shell(ctx, "/", "", .Object([]));
     assert.isTrue(document.startsWith("<!doctype html>"));
@@ -298,7 +298,7 @@ test "an empty body is still a whole document" {
 
 test "the document says which address it was rendered for" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let state = Reading { title: "Titles", note: "plain" };
     let document = web.shell(
@@ -316,7 +316,7 @@ test "the document says which address it was rendered for" {
 
 test "a path that could end the attribute it sits in ends nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let document = web.shell(ctx, "/a\"><b>&x", "", .Object([]));
     assert.eq(renderedAt(document), "/a&quot;&gt;&lt;b&gt;&amp;x");
@@ -326,7 +326,7 @@ test "a path that could end the attribute it sits in ends nothing" {
 
 test "a document is answered as HTML" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let answer = http.html(ctx, "<p>hello</p>");
     assert.eq(answer.status, 200);

@@ -1,7 +1,7 @@
 error: expected a type, found `?` [unexpected-token]
   --> main.buri:30:31
    |
-30 | export fn read<C: Alloc>(ctx: ? C, text: Str): schema.Parsed {
+30 | export fn read<C: Allocator>(ctx: ? C, text: Str): schema.Parsed {
    |                               ^
    |
    = expected: a type

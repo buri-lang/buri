@@ -323,7 +323,7 @@ pub struct Effects {
 #[derive(Clone, Debug, Default)]
 pub struct ConEffects {
     /// The constructor implements an effect, so a value of it *is* a
-    /// capability — `Tables::con_carries_effect`. `core/host`'s `HostFs` is
+    /// capability — `Tables::con_carries_effect`. `core/host`'s `HostFileSystem` is
     /// one; `ui/effect`'s `Scope` is the one the standard library passes
     /// *as an ordinary argument*, and so the one this question is asked
     /// about most.
@@ -2009,7 +2009,7 @@ fn self_positions(ty: &Ty) -> Vec<usize> {
 //   impl<C: Fs> Fs for ReadOnly<C>      supplies          FnInfo.generics = impl generics ++ method generics
 //
 // So the method's own arguments carry over unchanged, and the impl's have to
-// be read back off the receiver — `ReadOnly<HostFs>` says `C = HostFs`. That is
+// be read back off the receiver — `ReadOnly<HostFileSystem>` says `C = HostFileSystem`. That is
 // a match of the impl's head against the receiver, and it is written as one
 // here. It used to be arithmetic: take the receiver's arguments, append the
 // method's, pad with `Ty::Unit` and truncate to the declared count. That is
@@ -2201,7 +2201,7 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 ///   type — `json.decode` and the two `core/testing/assert` entries.
 ///
 /// A key whose erased parameter is only ever a **context** needs none of the
-/// three: a `C: Alloc` appears in argument position, and rule 1 of the emission
+/// three: a `C: Allocator` appears in argument position, and rule 1 of the emission
 /// order flattens an argument into its leaves whatever its type is. That is
 /// most of this list, and it is still listed, because "the parameter happens to
 /// be a context" is a fact about today's signature rather than a rule the next
@@ -2268,11 +2268,11 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // answer.
     "alloc.copyOut",
     // `core/bool` and `core/character`: `show` and `toJson` are minted by
-    // `semantics::builtins` at every primitive and both name `C: Alloc`,
+    // `semantics::builtins` at every primitive and both name `C: Allocator`,
     // because rendering allocates. The type is in the key already.
     "bool.show",
     "bool.toJson",
-    // `core/bytes`: four `C: Alloc` conversions. Every one of them answers a
+    // `core/bytes`: four `C: Allocator` conversions. Every one of them answers a
     // `[U8]` or takes one, and the element type is fixed at `U8` — which is
     // why `runtime_table` gives them `Extra::None` and the stride is known.
     "bytes.f32ToBytes",
@@ -2381,7 +2381,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // so the erasure is repaired by there being no runtime call to erase into.
     "number.maxValue",
     "number.minValue",
-    // `core/str`. Every one names `C: Alloc` for the block it builds and
+    // `core/str`. Every one names `C: Allocator` for the block it builds and
     // nothing else; `Str` is three leaves at every instantiation, so there is
     // no element pair to supply and `runtime_table` gives them `Extra::None`.
     "str.chars",
@@ -2457,7 +2457,7 @@ fn generic_intrinsic_allowed(key: &str) -> bool {
 /// Read off `Prim::all()` rather than written out, for the reason
 /// `backend::intrinsic_keys::derive_key` is: the family is *every* primitive,
 /// and a hand-written list of thirteen is a list that can be short by one.
-/// Both methods name `C: Alloc` and nothing else — the type they are at is in
+/// Both methods name `C: Allocator` and nothing else — the type they are at is in
 /// the key, which is what `short != "number"` in `intrinsic_key` arranges.
 fn prim_show_or_to_json(key: &str) -> bool {
     let Some(rest) = key.strip_prefix("number.") else { return false };
@@ -2586,7 +2586,7 @@ mod tests {
     }
 
     /// Shape one: neither the `impl` nor the method is generic. Every `impl`
-    /// in `core/host` is this — `impl Fs for HostFs`, reached as
+    /// in `core/host` is this — `impl FileSystemRead for HostFileSystem`, reached as
     /// `fs.readText(ctx, p)` and dispatched on `ctx`.
     #[test]
     fn a_plain_impl_of_a_plain_method_instantiates_at_nothing() {
@@ -2596,7 +2596,7 @@ mod tests {
     }
 
     /// Shape two: the method has generics of its own and the `impl` has none.
-    /// `impl Show for Order { fn show<C: Alloc>(self, ctx: C): Str }` — the
+    /// `impl Show for Order { fn show<C: Allocator>(self, ctx: C): Str }` — the
     /// call site's `C` carries over untouched.
     #[test]
     fn a_method_generic_carries_over_from_the_call_site() {
@@ -2607,7 +2607,7 @@ mod tests {
 
     /// Shape three: the `impl` head is generic and the method is not.
     /// `impl<C: Fs> Fs for Guarded<C>` — an attenuating wrapper over any
-    /// filesystem — reached as `Guarded<HostFs>`. The old arithmetic got this
+    /// filesystem — reached as `Guarded<HostFileSystem>`. The old arithmetic got this
     /// one right by
     /// coincidence — the receiver's arguments happened to be the impl's, in
     /// order.

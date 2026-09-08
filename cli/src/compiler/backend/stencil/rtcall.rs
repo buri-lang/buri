@@ -175,12 +175,12 @@ impl Jit<'_> {
             // Which argument that is comes from the row ([`Entry::ctx`]) rather
             // than from the value's type, and the difference is not academic.
             // Asking "is this a `Ty::Ctx`?" was the rule here, and it is the
-            // right answer only while every `C: Alloc` is instantiated at a
+            // right answer only while every `C: Allocator` is instantiated at a
             // `context { … }`. `C` is an ordinary type parameter with an
-            // ordinary bound (SPEC 10.1), so a value that *implements* `Alloc`
+            // ordinary bound (SPEC 10.1), so a value that *implements* `Allocator`
             // satisfies it without being a context — SPEC 10.8's attenuating
             // `ReadOnly<C>`, and `core/host/testing`'s `alloc()`, which is a
-            // `struct TestAlloc(I64)` carrying a handle. One of those slipped
+            // `struct TestAllocator(I64)` carrying a handle. One of those slipped
             // past the type test, spread to a leaf, and shifted every argument
             // after it one register down: `push` reached `buri_rt_list_push`
             // with the handle where the pointer belongs and died in `memmove`
@@ -329,7 +329,7 @@ impl Jit<'_> {
         //
         // Whether an entry *uses* the third one's message is the one thing here
         // that is a column ([`Ret::ResMsg`]), and it is about the entry rather
-        // than about `E`: `HostFs` can meet an `EISDIR` and `TestFs` is a map
+        // than about `E`: `HostFileSystem` can meet an `EISDIR` and `TestFileSystem` is a map
         // in memory, and the five stream writers stay out of it because the
         // pointer is an address into this destination and a function that
         // prints would stop keeping its `Result` in registers.
@@ -376,8 +376,8 @@ impl Jit<'_> {
                     // is zeroed here, so an entry that answered a classified
                     // variant and wrote nothing leaves an empty `Str` behind
                     // rather than whatever the frame held. Writing it here is
-                    // what lets the same C signature serve `HostFs`, which has
-                    // a message for `.Other`, and `TestFs`, which never
+                    // what lets the same C signature serve `HostFileSystem`, which has
+                    // a message for `.Other`, and `TestFileSystem`, which never
                     // produces one — and on the `.Ok` path the entry's own
                     // out-pointer write lands on top of these zeros, because
                     // the two payloads share the destination's payload area and

@@ -2,14 +2,14 @@
 // and the imports that make them resolve.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/proto_gen" import { block, generatedWith, HEAD, lines };
 
 test "a module says where it came from and imports what it uses" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = lines(ctx, [HEAD, "message M { int32 a = 1; }\n"].join(ctx, ""));
     assert.eq(
@@ -26,7 +26,7 @@ test "a module says where it came from and imports what it uses" {
             "//! What the mapping is, and why: `buri docs build/proto`.",
             "",
             "from \"core/bytes\" import * as bytes;",
-            "from \"core/effect\" import { Alloc };",
+            "from \"core/effect\" import { Allocator };",
             "from \"core/json\" import { Json };",
             "from \"core/list\" import * as list;",
             "from \"core/proto\" import * as proto;",
@@ -37,39 +37,39 @@ test "a module says where it came from and imports what it uses" {
 
 test "a message brings five exported functions, and the two the rest of them share" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = lines(ctx, [HEAD, "message M { int32 a = 1; }\n"].join(ctx, ""));
     assert.contains(out, "export fn defaultM(): M {");
-    assert.contains(out, "export fn encodeM<C: Alloc>(ctx: C, value: M): [U8] {");
+    assert.contains(out, "export fn encodeM<C: Allocator>(ctx: C, value: M): [U8] {");
     assert.contains(
         out,
-        "export fn decodeM<C: Alloc>(ctx: C, b: [U8]): Result<M, ProtoError> {",
+        "export fn decodeM<C: Allocator>(ctx: C, b: [U8]): Result<M, ProtoError> {",
     );
-    assert.contains(out, "export fn encodeMJson<C: Alloc>(ctx: C, value: M): Json {");
+    assert.contains(out, "export fn encodeMJson<C: Allocator>(ctx: C, value: M): Json {");
     assert.contains(
         out,
-        "export fn decodeMJson<C: Alloc>(ctx: C, doc: Json): Result<M, ProtoError> {",
+        "export fn decodeMJson<C: Allocator>(ctx: C, doc: Json): Result<M, ProtoError> {",
     );
     assert.contains(
         out,
-        "export fn decodeMJsonAt<C: Alloc>(ctx: C, doc: Json, path: Str): Result<M, ProtoError> {",
+        "export fn decodeMJsonAt<C: Allocator>(ctx: C, doc: Json, path: Str): Result<M, ProtoError> {",
     );
     // `mergeM` is the reader a repeated encoding of one message folds through,
     // and `readM` is the loop under both of them.
     assert.contains(
         out,
-        "export fn mergeM<C: Alloc>(ctx: C, b: [U8], into: M): Result<M, ProtoError> {",
+        "export fn mergeM<C: Allocator>(ctx: C, b: [U8], into: M): Result<M, ProtoError> {",
     );
     assert.contains(
         out,
-        "fn readM<C: Alloc>(ctx: C, b: [U8], at: Int, acc: M): Result<M, ProtoError> {",
+        "fn readM<C: Allocator>(ctx: C, b: [U8], at: Int, acc: M): Result<M, ProtoError> {",
     );
 }
 
 test "an enum brings four" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = lines(ctx, [HEAD, "enum E { E_UNSPECIFIED = 0; }\n"].join(ctx, ""));
     assert.contains(out, "export fn encodeE(value: E): Int {");
@@ -83,7 +83,7 @@ test "an enum brings four" {
 
 test "a type from another schema arrives with its codecs" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let here = [
         HEAD,
@@ -104,7 +104,7 @@ test "a type from another schema arrives with its codecs" {
 
 test "a message with no fields still round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = lines(ctx, [HEAD, "message Empty {}\n"].join(ctx, ""));
     assert.contains(out, "export struct Empty {}");

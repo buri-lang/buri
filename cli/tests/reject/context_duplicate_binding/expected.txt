@@ -1,7 +1,7 @@
-error: `Alloc` is bound twice [duplicate-bound]
+error: `Allocator` is bound twice [duplicate-bound]
  --> cmd/context_duplicate_binding/main.buri:7:42
   |
-7 |   let ctx = context { Alloc: host.alloc, Alloc: host.alloc, Stdout: host.stdout };
+7 |   let ctx = context { Allocator: host.alloc, Allocator: host.alloc, Stdout: host.stdout };
   |                                          ^^^^^^^^^^^^^^^^^
   |
   = a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake
@@ -16,6 +16,6 @@ error: `Alloc` is bound twice [duplicate-bound]
     ───
 
     An explicit binding replaces a spread's binding: context { ..Fixture(),
-    FsRead: fs().files([]) } is how a test overrides a default. Two explicit
+    FileSystemRead: fs().files([]) } is how a test overrides a default. Two explicit
     bindings have no such reading, so the later one does not silently win.
 

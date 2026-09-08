@@ -262,7 +262,7 @@ fn staged() -> &'static (PathBuf, Vec<String>) {
 //
 // `effect Listen`'s acceptor is `cli/runtime/net.rs` and reaching it needs a
 // *client*, which no Buri program can be on a native backend yet:
-// `host.HostNet.fetch` has a body in the archive and no row in either runtime
+// `host.HostNetwork.fetch` has a body in the archive and no row in either runtime
 // table, because `NetError` carries a payload on two of its variants and
 // `lib.rs` §2.1's `Result` shape restricts the variant a discriminant names to
 // carrying none. So the client here is Rust, on the far side of a loopback
@@ -294,7 +294,7 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// still running*, and a native Buri program has exactly one channel out of
 /// itself: `cli/runtime/host.rs` buffers standard output until eight kilobytes
 /// or exit. A file and an environment variable are both unavailable — neither
-/// `host.HostFs.*` nor `host.HostEnv.*` has a row in either runtime table — so
+/// `host.HostFileSystem.*` nor `host.HostEnvironment.*` has a row in either runtime table — so
 /// filling that buffer is what makes the first line readable now rather than at
 /// exit. The day one of those families gets a row this becomes two lines and a
 /// path.
@@ -304,7 +304,7 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// between is a flake rather than a failure.
 pub fn one_shot_server() -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -312,7 +312,7 @@ from "core/net/server" import * as server;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Stdout: host.stdout,
     Tasks: host.tasks,
@@ -344,7 +344,7 @@ export fn main(): Result<(), Str> {{
 }
 
 /// A server that answers `requests` requests, each handler sleeping for
-/// `sleep_millis` before it answers.
+/// `sleep_milliseconds` before it answers.
 ///
 /// **The sleep is the whole instrument.** A handler that computes proves nothing
 /// about concurrency on a machine with one processor free, and a handler that
@@ -357,9 +357,9 @@ export fn main(): Result<(), Str> {{
 /// and `run` fans out to it. That constant being a constant — sixty-four, and
 /// not a function of this machine's processor count — is what makes the timing
 /// assertion predictable, and `net.rs` says so where it is declared.
-pub fn concurrent_server(requests: usize, sleep_millis: usize) -> String {
+pub fn concurrent_server(requests: usize, sleep_milliseconds: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Clock, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -368,7 +368,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Clock: host.clock,
     Listen: host.listen,
     Stdout: host.stdout,
@@ -400,7 +400,7 @@ export fn main(): Result<(), Str> {{
 }}
 "#,
         requests = requests,
-        sleep = sleep_millis,
+        sleep = sleep_milliseconds,
         pad = STDOUT_BUFFER
     )
 }
@@ -662,9 +662,9 @@ unsafe extern "C" {
 /// handler prints a line, fills the output buffer to flush it (the same eight
 /// kilobytes and the same reason as the port above), and only then sleeps: when
 /// the test sees that line, the request is provably inside a handler.
-pub fn draining_server(sleep_millis: usize) -> String {
+pub fn draining_server(sleep_milliseconds: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Clock, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -673,7 +673,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Clock: host.clock,
     Listen: host.listen,
     Stdout: host.stdout,
@@ -706,7 +706,7 @@ export fn main(): Result<(), Str> {{
   }}
 }}
 "#,
-        sleep = sleep_millis,
+        sleep = sleep_milliseconds,
         pad = STDOUT_BUFFER
     )
 }
@@ -1124,7 +1124,7 @@ pub fn tls_identity(row: &str) -> (PathBuf, PathBuf, PathBuf) {
 ///   the pair.
 pub fn tls_server(certificate: &Path, key: &Path, absent: &Path) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -1132,7 +1132,7 @@ from "core/net/server" import * as server;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Stdout: host.stdout,
     Tasks: host.tasks,
@@ -1264,7 +1264,7 @@ pub fn counting_socket_server() -> String {
     format!(
         r#"from "core/actor" import * as actor;
 from "core/actor" import {{ Actor, Stepped }};
-from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -1275,7 +1275,7 @@ enum Counting {{
   Increment,
 }}
 
-fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting, Int> {{
+fn counter<C: Allocator + Tasks>(): Actor<C, Int, Counting, Int> {{
   Actor {{
     state: 0,
     step: fn(c, count, message) => {{
@@ -1288,7 +1288,7 @@ fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting, Int> {{
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Sockets: host.sockets,
     Stdout: host.stdout,
@@ -1360,7 +1360,7 @@ pub fn broadcasting_socket_server(members: usize) -> String {
     format!(
         r#"from "core/actor" import * as actor;
 from "core/actor" import {{ Actor, Stepped }};
-from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -1373,7 +1373,7 @@ enum Room {{
   Publish(Message),
 }}
 
-fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
+fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
   Actor {{
     state: [],
     step: fn(c, members, message) => {{
@@ -1401,7 +1401,7 @@ fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Sockets: host.sockets,
     Stdout: host.stdout,

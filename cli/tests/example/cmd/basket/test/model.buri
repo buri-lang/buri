@@ -6,7 +6,7 @@
 // check one of them is a suite that will be slow and vague about which thing
 // broke. What needs a document is in test/view.buri, and it is the smaller file.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//cmd/basket/main.buri" import {
@@ -16,13 +16,13 @@ from "//lib/ledger" import { entry, total };
 from "//lib/money" import { fromCents };
 
 /// What //cmd/server's `/entries` route answers, recorded. The same text
-/// test/view.buri feeds through a stub `Net`, as the octets a body is made
+/// test/view.buri feeds through a stub `Network`, as the octets a body is made
 /// of.
 let RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
 
 test "a recorded response becomes entries" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let lines = entriesFrom(ctx, RECORDED);
     assert.eq(lines.len(), 3);
@@ -37,7 +37,7 @@ test "a recorded response becomes entries" {
 
 test "a line nobody can read is dropped, and the rest survive" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let lines = entriesFrom(
         ctx,
@@ -52,7 +52,7 @@ test "a line nobody can read is dropped, and the rest survive" {
 
 test "an empty body is an empty basket rather than a failure" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(entriesFrom(ctx, "").isEmpty());
 }
@@ -78,7 +78,7 @@ test "a complete draft is a line, trimmed" {
 
 test "flipping a memo adds it, and flipping it again takes it away" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let once = flip(ctx, [], "coffee");
     assert.eq(once, ["coffee"]);
@@ -91,7 +91,7 @@ test "flipping a memo adds it, and flipping it again takes it away" {
 
 test "flipping one memo leaves the others alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(flip(ctx, ["coffee", "books"], "coffee"), ["books"]);
     assert.eq(flip(ctx, ["coffee"], "tram"), ["coffee", "tram"]);

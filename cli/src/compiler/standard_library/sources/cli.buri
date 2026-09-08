@@ -1,6 +1,6 @@
 //! core/cli — a command-line interface, declared once and read four ways.
 //!
-//! `core/env` is the raw half: `env.args(ctx)` is the `[Str]` the process got,
+//! `core/env` is the raw half: `env.arguments(ctx)` is the `[Str]` the process got,
 //! with the program's own name already dropped. This is the opinionated half.
 //! One `Cli` value carries the flags, the subcommands, *and the function each
 //! subcommand runs*, so parsing, `--help`, `--version` and the error message a
@@ -8,11 +8,11 @@
 //!
 //! ```buri run
 //! from "core/cli" import * as cli;
-//! from "core/effect" import { Alloc, Env, Stderr, Stdout };
+//! from "core/effect" import { Allocator, Environment, Stderr, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
-//! fn greet<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+//! fn greet<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
 //!     let who = arguments.arg("name").withDefault("world");
 //!     let mark = match (arguments.on("shout")) {
 //!         true => "!",
@@ -22,14 +22,14 @@
 //!     .Ok(())
 //! }
 //!
-//! fn count<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+//! fn count<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
 //!     let _ = io.println(ctx, "${arguments.positionals().len()}").ignore();
 //!     .Ok(())
 //! }
 //!
 //! // The spec is a value, so it is a function of the context — exactly as
 //! // `core/actor`'s `counter()` is.
-//! fn tool<C: Alloc + Stdout>(): cli.Cli<C> {
+//! fn tool<C: Allocator + Stdout>(): cli.Cli<C> {
 //!     cli.Cli {
 //!         name: "hi",
 //!         version: "1.0.0",
@@ -62,8 +62,8 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
-//!         Env: host.env,
+//!         Allocator: host.alloc,
+//!         Environment: host.env,
 //!         Stdout: host.stdout,
 //!         Stderr: host.stderr,
 //!     };
@@ -123,25 +123,25 @@
 //!
 //! ## Testing a spec
 //!
-//! `run` reads `env.args`, and a test hands it `core/host/testing`'s
+//! `run` reads `env.arguments`, and a test hands it `core/host/testing`'s
 //! environment double instead — with a captured `Stdout` and `Stderr` to read
 //! the answer back out of. No file, no process, no real host:
 //!
 //! ```buri role=test
 //! from "core/cli" import * as cli;
-//! from "core/effect" import { Alloc, Env, Stderr, Stdout };
+//! from "core/effect" import { Allocator, Environment, Stderr, Stdout };
 //! from "core/host/testing" import { alloc, env, stderr, stdout };
 //! from "core/io" import * as io;
 //! from "core/testing/assert" import * as assert;
 //!
-//! fn greet<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+//! fn greet<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
 //!     let _ = io
 //!         .println(ctx, "hello, ${arguments.arg("name").withDefault("world")}")
 //!         .ignore();
 //!     .Ok(())
 //! }
 //!
-//! fn tool<C: Alloc + Stdout>(): cli.Cli<C> {
+//! fn tool<C: Allocator + Stdout>(): cli.Cli<C> {
 //!     cli.Cli {
 //!         name: "hi",
 //!         version: "1.0.0",
@@ -162,8 +162,8 @@
 //! test "the command fires with its argument bound" {
 //!     let out = stdout();
 //!     let ctx = context {
-//!         Alloc: alloc(),
-//!         Env: env().arguments(["greet", "buri"]),
+//!         Allocator: alloc(),
+//!         Environment: env().withArguments(["greet", "buri"]),
 //!         Stdout: out,
 //!         Stderr: stderr(),
 //!     };
@@ -174,8 +174,8 @@
 //! test "a missing argument is a message on stderr and exit 1" {
 //!     let err = stderr();
 //!     let ctx = context {
-//!         Alloc: alloc(),
-//!         Env: env().arguments(["greet"]),
+//!         Allocator: alloc(),
+//!         Environment: env().withArguments(["greet"]),
 //!         Stdout: stdout(),
 //!         Stderr: err,
 //!     };
@@ -199,7 +199,7 @@
 //! **There is no `argv[0]`.** Both hosts drop the program's own name before a
 //! Buri program sees it, so `Cli.name` is what `--help` calls the program.
 
-from "core/effect" import { Alloc, Env, Stderr, Stdout };
+from "core/effect" import { Allocator, Environment, Stderr, Stdout };
 from "core/env" import * as env;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -352,7 +352,7 @@ enum ParseError {
 /// What the parse decided: fire a command, or print a page.
 ///
 /// `--help` and `--version` answer *here* rather than printing, which keeps
-/// `parse` and everything under it at the `Alloc` tier. The runner is the only
+/// `parse` and everything under it at the `Allocator` tier. The runner is the only
 /// thing here that needs a `Stdout`.
 enum Selection<C> {
     Fire { command: Command<C>, arguments: Arguments },
@@ -391,13 +391,13 @@ struct Step {
 /// `.Ok(())` is exit 0. A parse error goes to stderr with the usage under it
 /// and comes back as `.Err`, which `main`'s contract turns into exit 1
 /// (SPEC 11.4). `--help` and `--version` print and answer `.Ok(())`.
-export fn run<C: Alloc + Env + Stderr + Stdout>(ctx: C, spec: Cli<C>): Result<(), Str> {
-    fire(ctx, spec, env.args(ctx))
+export fn run<C: Allocator + Environment + Stderr + Stdout>(ctx: C, spec: Cli<C>): Result<(), Str> {
+    fire(ctx, spec, env.arguments(ctx))
 }
 
 /// `run`, with the arguments given rather than read. Private: a caller with an
 /// argv in hand is a test, which `core/host/testing` already serves.
-fn fire<C: Alloc + Stderr + Stdout>(
+fn fire<C: Allocator + Stderr + Stdout>(
     ctx: C,
     spec: Cli<C>,
     argv: [Str],
@@ -434,7 +434,7 @@ fn empty(): Arguments {
     }
 }
 
-fn parse<C: Alloc, X>(
+fn parse<C: Allocator, X>(
     ctx: C,
     spec: Cli<X>,
     argv: [Str],
@@ -446,7 +446,7 @@ fn parse<C: Alloc, X>(
 }
 
 /// The first phase: the global flags, up to the subcommand's name.
-fn globals<C: Alloc, X>(
+fn globals<C: Allocator, X>(
     ctx: C,
     spec: Cli<X>,
     argv: [Str],
@@ -491,7 +491,7 @@ fn globals<C: Alloc, X>(
 }
 
 /// The token at `at` names the command. Look it up, then read its own tail.
-fn chosen<C: Alloc, X>(
+fn chosen<C: Allocator, X>(
     ctx: C,
     spec: Cli<X>,
     argv: [Str],
@@ -510,7 +510,7 @@ fn chosen<C: Alloc, X>(
 }
 
 /// The second phase: the command's own flags and its positionals.
-fn tail<C: Alloc, X>(
+fn tail<C: Allocator, X>(
     ctx: C,
     spec: Cli<X>,
     command: Command<X>,
@@ -623,7 +623,7 @@ fn reserved(long: Option<Str>): Option<Str> {
     }
 }
 
-fn answer<C: Alloc, X>(
+fn answer<C: Allocator, X>(
     ctx: C,
     spec: Cli<X>,
     which: Str,
@@ -635,7 +635,7 @@ fn answer<C: Alloc, X>(
 }
 
 /// One flag token, resolved against `flags` and folded into the accumulator.
-fn apply<C: Alloc>(
+fn apply<C: Allocator>(
     ctx: C,
     flags: [Flag],
     display: Str,
@@ -726,15 +726,15 @@ fn taken(
     }
 }
 
-fn switched<C: Alloc>(ctx: C, acc: Arguments, long: Str): Arguments {
+fn switched<C: Allocator>(ctx: C, acc: Arguments, long: Str): Arguments {
     Arguments { ..acc, switches: acc.switches.insert(ctx, long) }
 }
 
-fn valued<C: Alloc>(ctx: C, acc: Arguments, long: Str, value: Str): Arguments {
+fn valued<C: Allocator>(ctx: C, acc: Arguments, long: Str, value: Str): Arguments {
     Arguments { ..acc, values: acc.values.insert(ctx, long, value) }
 }
 
-fn added<C: Alloc>(ctx: C, acc: Arguments, long: Str, value: Str): Arguments {
+fn added<C: Allocator>(ctx: C, acc: Arguments, long: Str, value: Str): Arguments {
     let sofar = acc.multiples.get(long).withDefault(list.empty<Str>());
     Arguments {
         ..acc,
@@ -742,14 +742,14 @@ fn added<C: Alloc>(ctx: C, acc: Arguments, long: Str, value: Str): Arguments {
     }
 }
 
-fn positional<C: Alloc>(ctx: C, acc: Arguments, word: Str): Arguments {
+fn positional<C: Allocator>(ctx: C, acc: Arguments, word: Str): Arguments {
     Arguments { ..acc, positionalValues: acc.positionalValues.push(ctx, word) }
 }
 
 /// Bind the declared positionals, in declaration order, to the positionals the
 /// line supplied. Extra ones are not an error: they stay in `positionals`,
 /// which is what a command that takes a list of files reads.
-fn bind<C: Alloc>(
+fn bind<C: Allocator>(
     ctx: C,
     args: [Arg],
     at: Int,
@@ -920,7 +920,7 @@ fn commandNamed<C>(commands: [Command<C>], at: Int, name: Str): Option<Command<C
 // The help page
 // ---------------------------------------------------------------------------
 
-fn help<C: Alloc, X>(ctx: C, spec: Cli<X>): Str {
+fn help<C: Allocator, X>(ctx: C, spec: Cli<X>): Str {
     let head = str.format(ctx, "${spec.name} ${spec.version} — ${spec.about}");
     let usage = str.format(ctx, "usage: ${spec.name} [options] <command> [arguments]");
     let commands = spec
@@ -936,7 +936,7 @@ fn help<C: Alloc, X>(ctx: C, spec: Cli<X>): Str {
     page(ctx, sections)
 }
 
-fn commandHelp<C: Alloc, X>(ctx: C, spec: Cli<X>, command: Command<X>): Str {
+fn commandHelp<C: Allocator, X>(ctx: C, spec: Cli<X>, command: Command<X>): Str {
     let head = str.format(ctx, "${spec.name} ${command.name} — ${command.about}");
     let global = match (flagsOf(spec.flags).isEmpty()) {
         true => "",
@@ -960,7 +960,7 @@ fn commandHelp<C: Alloc, X>(ctx: C, spec: Cli<X>, command: Command<X>): Str {
 /// One titled two-column section, or nothing at all when it has no rows — a
 /// command with no positionals gets no `arguments:` heading rather than an
 /// empty one.
-fn section<C: Alloc>(ctx: C, title: Str, rows: [(Str, Str)]): Str {
+fn section<C: Allocator>(ctx: C, title: Str, rows: [(Str, Str)]): Str {
     match (rows.isEmpty()) {
         true => "",
         false => str.format(ctx, "${title}:\n${table(ctx, rows)}"),
@@ -968,12 +968,12 @@ fn section<C: Alloc>(ctx: C, title: Str, rows: [(Str, Str)]): Str {
 }
 
 /// The sections that have something in them, a blank line between each.
-fn page<C: Alloc>(ctx: C, sections: [Str]): Str {
+fn page<C: Allocator>(ctx: C, sections: [Str]): Str {
     sections.filter(ctx, fn(s) => s.isEmpty().not()).join(ctx, "\n\n")
 }
 
 /// `<file> [tag]` — the declared positionals as the usage line spells them.
-fn slots<C: Alloc>(ctx: C, args: [Arg]): Str {
+fn slots<C: Allocator>(ctx: C, args: [Arg]): Str {
     args.foldCtx(
         ctx,
         fn(c, out, arg) => {
@@ -986,13 +986,13 @@ fn slots<C: Alloc>(ctx: C, args: [Arg]): Str {
     )
 }
 
-fn argRows<C: Alloc>(ctx: C, args: [Arg]): [(Str, Str)] {
+fn argRows<C: Allocator>(ctx: C, args: [Arg]): [(Str, Str)] {
     args.mapCtx(ctx, fn(c, arg) => (str.format(c, "<${arg.name}>"), arg.help))
 }
 
 /// The declared flags, then the two every interface has. `--version` belongs to
 /// the top-level page alone: a subcommand has no version of its own.
-fn optionRows<C: Alloc>(ctx: C, flags: [Flag], top: Bool): [(Str, Str)] {
+fn optionRows<C: Allocator>(ctx: C, flags: [Flag], top: Bool): [(Str, Str)] {
     let declared = flags.mapCtx(ctx, fn(c, flag) => (flagColumn(c, flag), flag.help));
     let builtin = match (top) {
         true => {
@@ -1006,7 +1006,7 @@ fn optionRows<C: Alloc>(ctx: C, flags: [Flag], top: Bool): [(Str, Str)] {
     declared.concat(ctx, builtin)
 }
 
-fn flagColumn<C: Alloc>(ctx: C, flag: Flag): Str {
+fn flagColumn<C: Allocator>(ctx: C, flag: Flag): Str {
     let head = match (flag.short) {
         .Some(letter) => {
             str.format(ctx, "-${str.fromChars(ctx, [letter])}, --${flag.long}")
@@ -1022,7 +1022,7 @@ fn flagColumn<C: Alloc>(ctx: C, flag: Flag): Str {
 
 /// Two columns, indented two and separated by two, with the left one padded to
 /// the widest entry in *this* table.
-fn table<C: Alloc>(ctx: C, rows: [(Str, Str)]): Str {
+fn table<C: Allocator>(ctx: C, rows: [(Str, Str)]): Str {
     let width = rows.foldCtx(
         ctx,
         fn(_c, widest, row) => {
@@ -1045,7 +1045,7 @@ fn table<C: Alloc>(ctx: C, rows: [(Str, Str)]): Str {
 // The error line
 // ---------------------------------------------------------------------------
 
-fn errorText<C: Alloc>(ctx: C, e: ParseError): Str {
+fn errorText<C: Allocator>(ctx: C, e: ParseError): Str {
     match (e) {
         .UnknownFlag(token) => str.format(ctx, "unknown flag ${token}"),
         .MissingValue(token) => str.format(ctx, "${token} needs a value"),

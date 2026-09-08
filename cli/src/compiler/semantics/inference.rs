@@ -387,8 +387,8 @@ pub struct Infer<'a, 'b> {
     /// is the standard library, which [`Infer::role`] names. It is what keeps
     /// SPEC 10.8's attenuation wrapper writable: `ReadOnly<C>`'s `readFile`
     /// delegates with `self.0.readFile(path)`, and cannot delegate to
-    /// `core/fs`'s wrapper, which is bounded `Alloc + Fs` where the `impl`
-    /// carries only `C: Fs`. See `expressions.rs`'s `report_effect_method`.
+    /// `core/fs`'s wrapper, which is bounded `Allocator + FileSystemRead` where
+    /// the `impl` carries only `C: FileSystemRead`. See `expressions.rs`'s `report_effect_method`.
     pub(crate) in_effect_impl: bool,
     /// Whether the body being checked is an entry's. A context may be built in
     /// an entry's body, not merely anywhere in the module that exports it.
@@ -1059,7 +1059,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// type's shape that the *runtime* performs — `middle::monomorphize` drops
     /// the context from `x.show(ctx)` at a derived impl already — so admitting
     /// those holes adds no bound to any signature. A hand-written
-    /// `impl Show`'s `show<C: Alloc>(self, ctx: C)` has to be *called*, and
+    /// `impl Show`'s `show<C: Allocator>(self, ctx: C)` has to be *called*, and
     /// there is no context here to call it with, so that conversion stays the
     /// author's: `${p.show(ctx)}`.
     /// Every call to a **bodyless declaration** was made at a type the body
@@ -1151,7 +1151,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             // component, the component is what the author has to look at.
             if let Some(hand) = self.hand_written_show(&resolved, &mut Vec::new()) {
                 d = d.with_note(format!(
-                    "`{hand}`'s `Show` is written by hand, and `show<C: Alloc>(self, ctx: C)` \
+                    "`{hand}`'s `Show` is written by hand, and `show<C: Allocator>(self, ctx: C)` \
                      names a context a hole has no way to reach"
                 ));
                 if hand == shown {

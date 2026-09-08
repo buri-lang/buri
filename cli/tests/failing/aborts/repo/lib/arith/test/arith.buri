@@ -5,7 +5,7 @@
 // make, and it is why the passing test sits at the bottom of this file.
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "//lib/arith" import { leftover, push, ratio };
 
@@ -24,7 +24,7 @@ test "a shift as wide as the type" {
 test "an allocation past a fixed budget" {
     let buffer = alloc.fixedBuffer(64);
     let ctx = context {
-        Alloc: buffer,
+        Allocator: buffer,
     };
     let _ = alloc.allocate(ctx, 32);
     let _ = alloc.allocate(ctx, 40);

@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0014.buri" import { blend14, Node14, reach14, seed14 };
@@ -52,7 +52,7 @@ export fn compute29_0(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_0<C: Alloc>(ctx: C): Int {
+export fn probe29_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute29_0(7)
 }
@@ -77,7 +77,7 @@ export fn parseBoth29_1(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_1<C: Alloc>(ctx: C): Int {
+export fn probe29_1<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth29_1("1", "2")) {
         .Some(v) => v,
@@ -102,21 +102,21 @@ impl Rec29_2 {
         self.f0 * factor + 357
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec29_2: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_2<C: Alloc>(ctx: C): Int {
+export fn probe29_2<C: Allocator>(ctx: C): Int {
     let r = Rec29_2 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest29_3<C: Alloc>(ctx: C): Int {
+export fn digest29_3<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [8326, 2497, 1820, 3308, 2187, 4833, 9815, 8798, 771, 7880];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -131,7 +131,7 @@ export fn drain29_3(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_3<C: Alloc>(ctx: C): Int {
+export fn probe29_3<C: Allocator>(ctx: C): Int {
     digest29_3(ctx) + drain29_3()
 }
 
@@ -145,7 +145,7 @@ export fn firstOr29_4<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll29_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll29_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -155,13 +155,13 @@ export fn useGeneric29_4(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_4<C: Alloc>(ctx: C): Int {
+export fn probe29_4<C: Allocator>(ctx: C): Int {
     useGeneric29_4([1, 2], ["a"]) + describeAll29_4(ctx, [1, 2]).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label29_5<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label29_5<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "golf" } else { "echo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -174,7 +174,7 @@ export fn constants29_5(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_5<C: Alloc>(ctx: C): Int {
+export fn probe29_5<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants29_5();
     label29_5(ctx, a, e).len() + b
 }
@@ -192,14 +192,14 @@ impl Rec29_6 {
         self.f0 * factor + 73
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec29_6: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_6<C: Alloc>(ctx: C): Int {
+export fn probe29_6<C: Allocator>(ctx: C): Int {
     let r = Rec29_6 { f0: 7, f1: "probe" };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -214,7 +214,7 @@ export fn firstOr29_7<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll29_7<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll29_7<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -224,7 +224,7 @@ export fn useGeneric29_7(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_7<C: Alloc>(ctx: C): Int {
+export fn probe29_7<C: Allocator>(ctx: C): Int {
     useGeneric29_7([1, 2], ["a"]) + describeAll29_7(ctx, [1, 2]).len()
 }
 
@@ -248,7 +248,7 @@ export fn parseBoth29_8(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_8<C: Alloc>(ctx: C): Int {
+export fn probe29_8<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth29_8("1", "2")) {
         .Some(v) => v,
@@ -259,7 +259,7 @@ export fn probe29_8<C: Alloc>(ctx: C): Int {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest29_9<C: Alloc>(ctx: C): Int {
+export fn digest29_9<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [8048, 9739, 4889, 7807, 8539, 5344, 7213, 3977, 4985, 6115, 8161];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -274,7 +274,7 @@ export fn drain29_9(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_9<C: Alloc>(ctx: C): Int {
+export fn probe29_9<C: Allocator>(ctx: C): Int {
     digest29_9(ctx) + drain29_9()
 }
 
@@ -294,21 +294,21 @@ impl Rec29_10 {
         self.f0 * factor + 656
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec29_10: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe29_10<C: Alloc>(ctx: C): Int {
+export fn probe29_10<C: Allocator>(ctx: C): Int {
     let r = Rec29_10 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach29<C: Alloc>(ctx: C): Int {
+export fn reach29<C: Allocator>(ctx: C): Int {
     0
         + probe29_0(ctx)
         + probe29_1(ctx)

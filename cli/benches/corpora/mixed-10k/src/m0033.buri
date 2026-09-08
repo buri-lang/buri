@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0011.buri" import { blend11, Node11, reach11, seed11 };
@@ -47,14 +47,14 @@ impl Rec33_0 {
         self.f0 * factor + 808
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec33_0: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_0<C: Alloc>(ctx: C): Int {
+export fn probe33_0<C: Allocator>(ctx: C): Int {
     let r = Rec33_0 { f0: 7, f1: "probe" };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -90,7 +90,7 @@ export fn start33_1(ticks: Int): State33_1 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_1<C: Alloc>(ctx: C): Int {
+export fn probe33_1<C: Allocator>(ctx: C): Int {
     let s = start33_1(5);
     rank33_1(s) + s.show(ctx).len()
 }
@@ -105,7 +105,7 @@ export fn firstOr33_2<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll33_2<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll33_2<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -115,7 +115,7 @@ export fn useGeneric33_2(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_2<C: Alloc>(ctx: C): Int {
+export fn probe33_2<C: Allocator>(ctx: C): Int {
     useGeneric33_2([1, 2], ["a"]) + describeAll33_2(ctx, [1, 2]).len()
 }
 
@@ -156,7 +156,7 @@ export fn start33_3(ticks: Int): State33_3 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_3<C: Alloc>(ctx: C): Int {
+export fn probe33_3<C: Allocator>(ctx: C): Int {
     let s = start33_3(5);
     rank33_3(s) + s.show(ctx).len()
 }
@@ -171,7 +171,7 @@ export fn firstOr33_4<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll33_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll33_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -181,7 +181,7 @@ export fn useGeneric33_4(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_4<C: Alloc>(ctx: C): Int {
+export fn probe33_4<C: Allocator>(ctx: C): Int {
     useGeneric33_4([1, 2], ["a"]) + describeAll33_4(ctx, [1, 2]).len()
 }
 
@@ -205,7 +205,7 @@ export fn parseBoth33_5(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_5<C: Alloc>(ctx: C): Int {
+export fn probe33_5<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth33_5("1", "2")) {
         .Some(v) => v,
@@ -234,7 +234,7 @@ export fn parseBoth33_6(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_6<C: Alloc>(ctx: C): Int {
+export fn probe33_6<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth33_6("1", "2")) {
         .Some(v) => v,
@@ -245,7 +245,7 @@ export fn probe33_6<C: Alloc>(ctx: C): Int {
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label33_7<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label33_7<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "delta" } else { "echo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -258,7 +258,7 @@ export fn constants33_7(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_7<C: Alloc>(ctx: C): Int {
+export fn probe33_7<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants33_7();
     label33_7(ctx, a, e).len() + b
 }
@@ -283,7 +283,7 @@ export fn parseBoth33_8(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_8<C: Alloc>(ctx: C): Int {
+export fn probe33_8<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth33_8("1", "2")) {
         .Some(v) => v,
@@ -294,7 +294,7 @@ export fn probe33_8<C: Alloc>(ctx: C): Int {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest33_9<C: Alloc>(ctx: C): Int {
+export fn digest33_9<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [7650, 6049, 9087, 3174, 5695, 5028, 9848, 9352, 5245, 3180];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -309,13 +309,13 @@ export fn drain33_9(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe33_9<C: Alloc>(ctx: C): Int {
+export fn probe33_9<C: Allocator>(ctx: C): Int {
     digest33_9(ctx) + drain33_9()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach33<C: Alloc>(ctx: C): Int {
+export fn reach33<C: Allocator>(ctx: C): Int {
     0
         + probe33_0(ctx)
         + probe33_1(ctx)

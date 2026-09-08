@@ -1,6 +1,6 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "//lib/one" import { hold };
 
-export fn written<C: Alloc>(ctx: C, n: I64): I64 {
+export fn written<C: Allocator>(ctx: C, n: I64): I64 {
     hold(ctx, n).len()
 }

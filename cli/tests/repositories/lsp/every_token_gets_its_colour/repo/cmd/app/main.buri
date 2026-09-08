@@ -1,6 +1,6 @@
 // The shelf edge, written so that every colour this server can produce
 // appears at least once.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//lib/shop" import { Item, listing, Stock };
@@ -26,7 +26,7 @@ fn first<A, B>(pair: (A, B)): A {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let pair = (restock(listing("apple", 300), 12), "shelf");
