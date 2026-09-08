@@ -1,8 +1,8 @@
 error: `fs` implements `FileSystemRead` or `FileSystemWrite`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/counter/main.buri:31:22
+  --> cmd/counter/main.buri:31:30
    |
 31 |         FileSystemRead: host.fs,
-   |                      ^^
+   |                              ^^
    |
    = a platform is the set of effects its host exports; neither a page nor a worker has a filesystem to read
    = fix: drop `FileSystemRead` or `FileSystemWrite` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
@@ -34,17 +34,17 @@ error: `fs` implements `FileSystemRead` or `FileSystemWrite`, which is not allow
 
      - Anywhere else in `main.buri` — a helper, a top-level named import — is
      checked against every platform the outputs name, because any of them may
-     reach it. So a binary declaring [MACOS, WEB] whose helper binds FileSystemRead:
-     host.fs is refused, naming WEB.
+     reach it. So a binary declaring [MACOS, WEB] whose helper binds
+     FileSystemRead: host.fs is refused, naming WEB.
 
      - Every other module is checked against the platforms **its own rule
      declared**. A rule that declared none is never checked, because a library
      that says nothing about platforms is platform-generic.
 
-     An effect type is never platform-bound. from "core/fs" import { FileSystemRead } is
-     legal on every platform, a page included, and so is core/host/testing's
-     double for every effect. A platform binds the host half — the value main
-     binds.
+     An effect type is never platform-bound. from "core/fs" import {
+     FileSystemRead } is legal on every platform, a page included, and so is
+     core/host/testing's double for every effect. A platform binds the host half
+     — the value main binds.
 
      Why
      ───
