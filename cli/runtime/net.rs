@@ -530,7 +530,7 @@ const BODY_LIMIT: usize = 8 * 1024 * 1024;
 /// long one client may take to say what it wants, and ten is how long a server
 /// that has been asked to stop should keep a deployment waiting for a client
 /// that is not going to finish. A program that knows its own handlers take
-/// longer says so — `Server.drainMillis` is that sentence, and it is one
+/// longer says so — `Server.drain` is that sentence, and it is one
 /// [`ServePlan`] variant rather than one more argument.
 const DRAIN_DEADLINE: Duration = Duration::from_secs(10);
 

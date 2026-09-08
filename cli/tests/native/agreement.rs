@@ -13,7 +13,7 @@
 //!
 //!  * **Row 3 was false.** `wrappingMultiply` was not exact on JavaScript at any
 //!    width where the product leaves 2^53 — the `BigInt` in `$wrapTo` wraps a
-//!    double that has *already* been rounded, so `U32.wrappingMul(0xffffffff,
+//!    double that has *already* been rounded, so `U32.wrappingMultiply(0xffffffff,
 //!    0xffffffff)` answered 0 where the answer is 1. Not a precision ceiling: a
 //!    wrong answer, at 32 bits, with exact operands and an exact answer, from
 //!    the operation a checksum is written with. `$wrapOp` fixes it wherever the

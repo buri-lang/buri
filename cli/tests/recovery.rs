@@ -392,7 +392,7 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // Re-read again when `cli/tests/conformance/lib/actor/` landed, for the
         // same reason and with the same evidence: `delete-closer` went from
         // 12.6% to 13.2% of a population that grew by one file. That file is
-        // dense in nested closers — `assert.eq(counted.ask(ctx, fn(reply) =>
+        // dense in nested closers — `assert.equal(counted.ask(ctx, fn(reply) =>
         // .Get(reply)), .Ok(2))` ends in four of them — and deleting one leaves
         // a call the checker can still count the arguments of, so it counts
         // them and says so. That is the residue this row measures rather than a

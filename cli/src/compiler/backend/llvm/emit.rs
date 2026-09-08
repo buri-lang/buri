@@ -4866,8 +4866,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// `str.concat` has no [`runtime::ENTRIES`] row, so the `Arg::Dropped` that
     /// answers this for every other key is spelled here instead, off the same
-    /// source: the **declaration**. `Str.concat<C: Alloc>(self, ctx: C, other:
-    /// Str)` is three arguments and the middle one is the context;
+    /// source: the **declaration**. `Str.concat<C: Allocator>(self, ctx: C,
+    /// other: Str)` is three arguments and the middle one is the context;
     /// `lower::template`'s `str.concat(a, b)` is two and never had one.
     ///
     /// By position rather than by type. This asked `Ty::Ctx` once, which is the

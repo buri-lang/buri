@@ -906,7 +906,7 @@ when a shutdown begins closes with `.GoingAway`, and `onClose` still runs.
 holding a port. The platform stops accepting connections, lets the program
 answer the requests already in flight, then tells the accept loop the listener
 is closed. `serve` returns `.Ok(())`, and whatever a program does after `serve`
-still happens. `drainMillis` bounds how long the middle step may take, and a
+still happens. `drain` bounds how long the middle step may take, and a
 second signal is the operating system's own, so `Ctrl-C` twice stops a process
 that will not drain. The platform holds the signals only while it holds a port.
 
