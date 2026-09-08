@@ -3596,6 +3596,21 @@ fn fresh_leaf(e: &Expr) -> bool {
         // fires here is a drop of a count the promotion took.
         return fresh(base) || compound(base);
     }
+    // `x?` hands back the payload out of the value it was given, and the
+    // payload **inherits** that value's count: nothing releases the `Result`
+    // shell, because releasing it would release the payload with it. So the
+    // question is the projection's exactly — is the operand a temporary? —
+    // and where it is, what `?` produces is an owned reference with no name.
+    //
+    // Saying otherwise is saying nobody has to drop it, and
+    // `asArray(v, p)?.foldResultCtx(…)` is the shape that showed it: the list
+    // the `?` unwrapped was handed to a borrowing loop and then leaked, once
+    // per repeated field of a generated proto JSON decoder. The `let ys = …?;`
+    // spelling never leaked, because a binding is a name and a name is what
+    // `Scan` releases by.
+    if let ExprKind::Try { base, .. } = &e.kind {
+        return fresh(base);
+    }
     matches!(
         e.kind,
         ExprKind::CallFn { .. }

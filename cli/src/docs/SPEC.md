@@ -1104,6 +1104,10 @@ only in import specifiers (`design/grammar-rationale.md` 12.5).
 `Char` and `U32` convert the same way: `c.toU32()` is exact, `n.toChar()` yields
 `Result<Char, RangeError>`.
 
+A float into an integer fails unless the value is already whole and in range, so
+`2.5.toI64()`, `NaN` and the infinities are all `.Err`. Reach for `wrapToT` where
+you want the truncation.
+
 #### 6.2.2 Checked and wrapping arithmetic
 
 The default `+` leaves overflow undefined. The alternatives are trait methods, so
