@@ -7,7 +7,7 @@
 //! the markup that arrived.
 //!
 //! ```buri
-//! from "core/effect" import { Alloc };
+//! from "core/effect" import { Allocator };
 //! from "core/json" import { Json };
 //! from "core/net/http" import * as http;
 //! from "core/net/http" import { Response };
@@ -19,10 +19,10 @@
 //! /// The whole site, as one function of the path. The worker calls it with
 //! /// `.Const(request.path())`; the page calls it with `web.route(ctx)`.
 //! fn page<C>(path: Prop<Str>): Node<C> {
-//!     ui.region(.Main, [], [ui.heading(1, path)])
+//!     ui.region(.Main, [], [ui.heading(1, [], path)])
 //! }
 //!
-//! fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
+//! fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
 //!     http.html(ctx, web.shell(ctx, path, web.render(page(.Const(path))), state))
 //! }
 //! ```
@@ -46,7 +46,7 @@
 //! and no address bar over it, so a native build that reaches one of these
 //! stops at code generation naming the operation.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/json" import * as json;
 from "core/json" import { Json };
 from "ui/effect" import { Location, Ui, Watch };
@@ -85,7 +85,7 @@ export fn render<C>(root: Node<C>): Str;
 ///
 /// The stylesheet the compiler extracted goes in the head. A resumed page keeps
 /// the styles the server sent it.
-export fn shell<C: Alloc>(ctx: C, path: Str, body: Str, state: Json): Str {
+export fn shell<C: Allocator>(ctx: C, path: Str, body: Str, state: Json): Str {
     let embedded = json.stringify(ctx, state).replace(ctx, "<", "\\u003c");
     let sheet = stylesheet();
     let styles = if (sheet == "") {
@@ -108,7 +108,7 @@ export fn shell<C: Alloc>(ctx: C, path: Str, body: Str, state: Json): Str {
 
 /// A string as the value of an attribute. `&` goes first, or the escapes escape
 /// each other.
-fn attribute<C: Alloc>(ctx: C, text: Str): Str {
+fn attribute<C: Allocator>(ctx: C, text: Str): Str {
     text
         .replace(ctx, "&", "&amp;")
         .replace(ctx, "<", "&lt;")

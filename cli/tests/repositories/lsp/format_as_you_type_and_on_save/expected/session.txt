@@ -3,7 +3,7 @@
 {"id":2,"jsonrpc":"2.0","result":[{"newText":"export fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n","range":{"end":{"character":0,"line":13},"start":{"character":0,"line":11}}}]}
 {"id":3,"jsonrpc":"2.0","result":[]}
 {"id":4,"jsonrpc":"2.0","result":[]}
-{"id":5,"jsonrpc":"2.0","result":[{"newText":"derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n}\n","range":{"end":{"character":0,"line":14},"start":{"character":0,"line":0}}}]}
-{"id":6,"jsonrpc":"2.0","result":[{"newText":"derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n}\n","range":{"end":{"character":0,"line":14},"start":{"character":0,"line":0}}}]}
+{"id":5,"jsonrpc":"2.0","result":[{"newText":"derive Equal, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n}\n","range":{"end":{"character":0,"line":14},"start":{"character":0,"line":0}}}]}
+{"id":6,"jsonrpc":"2.0","result":[{"newText":"derive Equal, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n}\n","range":{"end":{"character":0,"line":14},"start":{"character":0,"line":0}}}]}
 {"id":7,"jsonrpc":"2.0","result":[]}
 {"id":8,"jsonrpc":"2.0","result":null}

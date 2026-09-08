@@ -356,11 +356,11 @@ fn module_page(modules: &[reference::ApiModule], id: &str, kind: &'static str) -
 /// duplication was only tolerable while the rows were anonymous triples.
 ///
 /// A **derived** conformance is on its type's page and is not a row of its
-/// own. `derive Eq, Ord, Show` is ninety lines of the standard library, so
+/// own. `derive Equal, Ordered, Show` is ninety lines of the standard library, so
 /// indexing each method it generates would answer "compare ints" with eight
 /// identical `compare`s and push the page that explains comparison off the
 /// end. Nothing is lost by leaving them out: a derived method has no prose of
-/// its own — the sentence saying what `eq` means is on `Eq`, which has a row —
+/// its own — the sentence saying what `equal` means is on `Equal`, which has a row —
 /// and `buri docs core/time` still lists every one of them.
 fn module_entries(modules: &[reference::ApiModule]) -> Vec<Entry> {
     let mut out = Vec::new();
@@ -1037,7 +1037,7 @@ const CONCEPTS: &[(&[&str], &[&str])] = &[
     (&["assert", "assertion", "expect"], &["core/testing/assert"]),
     (&["file", "filesystem", "directory", "path"], &["core/fs"]),
     (&["print", "println", "log", "stdout", "output"], &["core/io"]),
-    (&["dictionary", "hashmap", "lookup", "keyed"], &["core/map", "core/ordmap"]),
+    (&["dictionary", "hashmap", "lookup", "keyed"], &["core/map", "core/orderedmap"]),
     (&["clock", "timestamp", "duration", "elapsed"], &["core/time", "core/date"]),
     (&["encode", "decode", "serialize", "parse"], &["core/json", "core/proto"]),
     (&["boolean", "predicate", "truthy"], &["core/bool"]),

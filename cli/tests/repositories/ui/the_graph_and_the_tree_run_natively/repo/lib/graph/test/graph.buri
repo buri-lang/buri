@@ -7,7 +7,7 @@
 // it in tail position, and the recursion is what once released the row before
 // it read it.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
@@ -25,45 +25,45 @@ fn ignore(value: Int): () {
 
 test "a signal holds what it was given, and gives back what was written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
     };
     let cell = signal(ctx, 1);
-    assert.eq(cell.get(ctx), 1);
+    assert.equal(cell.get(ctx), 1);
     let _ = cell.set(ctx, 7);
-    assert.eq(cell.get(ctx), 7);
+    assert.equal(cell.get(ctx), 7);
 }
 
 test "a memo recomputes once per change to what it read" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(scope) => log.note(n.get(scope) * 2));
     let _ = watch(ctx, fn(scope) => ignore(doubled.read(scope)));
-    assert.eq(log.noted(), [4]);
+    assert.equal(log.noted(), [4]);
     let _ = n.set(ctx, 5);
-    assert.eq(log.noted(), [4, 10]);
+    assert.equal(log.noted(), [4, 10]);
 }
 
 test "a watcher runs when it is registered and again on every change" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     let log = recorder();
     let n = signal(ctx, 3);
     let _ = watch(ctx, fn(scope) => ignore(log.note(n.get(scope))));
     let _ = n.set(ctx, 4);
-    assert.eq(log.noted(), [3, 4]);
+    assert.equal(log.noted(), [3, 4]);
 }
 
 test "a choose inside an each row is described" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     let scene = ui.describe(ctx, options(["a", "b", "c"], "b"), .Checked);

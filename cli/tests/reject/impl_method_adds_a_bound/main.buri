@@ -1,7 +1,7 @@
 // EXPECT: `write` does not have the signature `Report` declares
 //
 // The counts agree, the types agree, and the signatures still disagree: the
-// `impl` asks its context for `Alloc` as well as `Stdout`, which its callers
+// `impl` asks its context for `Allocator` as well as `Stdout`, which its callers
 // were never told to supply. A call through a `Report` bound is checked
 // against the trait's declaration, so the extra bound is a requirement nothing
 // upstream of it enforces — it would surface at monomorphization, in a program
@@ -9,7 +9,7 @@
 //
 // The bounds are compared as a set, so an `impl` that writes the same bounds
 // in another order is not reported.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -20,13 +20,13 @@ export trait Report {
 }
 
 impl Report for Ledger {
-  fn write<C: Stdout + Alloc>(self, ctx: C): () {
+  fn write<C: Stdout + Allocator>(self, ctx: C): () {
     io.println(ctx, "${self.lines}").ignore()
   }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let book = Ledger { lines: 1 };
   let _ = book.write(ctx);
   .Ok(())

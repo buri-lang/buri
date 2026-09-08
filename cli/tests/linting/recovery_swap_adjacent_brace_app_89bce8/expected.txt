@@ -9,7 +9,7 @@ warning: io is imported but not used [unused-import]
 error: expected an identifier, found `.` [unexpected-token]
   --> lib/recovery_swap_adjacent_brace_app_89bce8/main.buri:19:9
    |
-19 |         .Ok(_written) => .Ok(line.len()),
+19 |         .Ok(_written) => .Ok(line.length()),
    |         ^
    |
    = expected: an identifier

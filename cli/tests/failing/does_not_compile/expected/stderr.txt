@@ -1,8 +1,8 @@
 error: expected `Str`, found `Int` [type-mismatch]
- --> lib/broken/test/broken.buri:9:18
+ --> lib/broken/test/broken.buri:9:21
   |
-9 |     assert.eq(1, "one");
-  |                  ^^^^^ the parameter type is `Str`
+9 |     assert.equal(1, "one");
+  |                     ^^^^^ the parameter type is `Str`
   |
   = expected: `Str`
   = actual: `Int`

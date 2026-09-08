@@ -583,7 +583,7 @@ fn the_streams_interleave_as_written() {
     assert!(out.status.success());
 }
 
-/// `Fs`, end to end, including the two error shapes a program can match on.
+/// `FileSystem`, end to end, including the two error shapes a program can match on.
 #[test]
 fn the_filesystem_effect_works() {
     if skip() {
@@ -603,7 +603,7 @@ fn the_filesystem_effect_works() {
     assert!(out.status.success());
 }
 
-/// The write-ahead log the seven new `Fs` operations exist for, against a real
+/// The write-ahead log the seven new `FileSystem` operations exist for, against a real
 /// filesystem.
 ///
 /// `conformance/lib/semantics/test/effects.buri` runs the same sequence against
@@ -638,7 +638,7 @@ fn a_write_ahead_log_commits_through_append_sync_and_rename() {
     assert!(out.status.success());
 }
 
-/// `Env`, both halves — and the argument vector the entry point hands over.
+/// `Environment`, both halves — and the argument vector the entry point hands over.
 #[test]
 fn the_environment_effect_works() {
     if skip() {
@@ -654,7 +654,7 @@ fn the_environment_effect_works() {
     assert!(out.status.success());
 }
 
-/// `Clock` and `Rand`. Neither has a fixed answer, so what is asserted is the
+/// `Clock` and `Random`. Neither has a fixed answer, so what is asserted is the
 /// range each one promises.
 #[test]
 fn the_clock_and_random_effects_work() {
@@ -708,7 +708,7 @@ fn the_standard_input_effect_works() {
     assert_eq!(stdout(&out).trim_end(), "end");
 }
 
-/// `Proc::exitWith` flushes and does not return.
+/// `Process::exitWith` flushes and does not return.
 #[test]
 fn the_process_effect_exits() {
     if skip() {
@@ -719,7 +719,7 @@ fn the_process_effect_exits() {
     assert_eq!(out.status.code(), Some(7));
 }
 
-/// `Net::fetch` against a socket this test owns.
+/// `Network::fetch` against a socket this test owns.
 ///
 /// A real HTTP server rather than a mock: the point of the client is that it
 /// speaks the protocol to something that did not come out of the same file.
@@ -853,7 +853,7 @@ fn the_network_effect_answers_https_according_to_its_features() {
         assert_eq!(
             stdout(&out).trim_end(),
             "err=3 message=https is not supported by this toolchain's native runtime: it was \
-             built without the runtime's `net` feature, so it carries no TLS code. `Net.fetch` \
+             built without the runtime's `net` feature, so it carries no TLS code. `Network.fetch` \
              speaks cleartext http only"
         );
     }

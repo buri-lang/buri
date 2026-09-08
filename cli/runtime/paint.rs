@@ -2032,7 +2032,7 @@ fn narrow(mask: &mut Mask, other: &Mask) {
 /// **Integers all the way**, on purpose: the passes are running sums over
 /// `u8`s with one rounded divide, so the answer is the same answer on every
 /// target. Only the box width is computed in floating point, and it is one
-/// `sqrt` of a constant times a length both platforms already agree on.
+/// `squareRoot` of a constant times a length both platforms already agree on.
 fn blur(mask: &mut Mask, radius: f32) {
     let sigma = radius / 2.0;
     if sigma <= 0.0 || !sigma.is_finite() {

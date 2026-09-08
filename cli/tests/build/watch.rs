@@ -39,7 +39,7 @@ fn suite(label: &str) -> String {
         "from \"{label}/lib.buri\" import {{ answer }};\n\
          from \"core/testing/assert\" import * as assert;\n\
          \n\
-         test \"answers\" {{\n  assert.eq(answer(), 21);\n}}\n"
+         test \"answers\" {{\n  assert.equal(answer(), 21);\n}}\n"
     )
 }
 
@@ -203,7 +203,7 @@ fn a_test_only_dependency_is_watched() {
         "from \"//lib/subject\" import { answer };\n\
          from \"//lib/helper\" import { double };\n\
          from \"core/testing/assert\" import * as assert;\n\
-         \ntest \"answers\" {\n  assert.eq(answer(), double(0) + 21);\n}\n",
+         \ntest \"answers\" {\n  assert.equal(answer(), double(0) + 21);\n}\n",
     );
 
     let set = declared_set(&scratch.root);

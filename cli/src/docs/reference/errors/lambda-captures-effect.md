@@ -23,11 +23,11 @@ a context would carry authority behind a type mentioning no effect.
 ## A program that provokes it
 
 ```buri fail code=lambda-captures-effect
-# from "core/effect" import { Alloc };
+# from "core/effect" import { Allocator };
 # from "core/fs" import * as fs;
-# from "core/fs" import { FsRead, Path };
+# from "core/fs" import { FileSystemRead, Path };
 
-fn checkAll<C: Alloc + FsRead>(ctx: C, paths: [Path]): [Bool] {
+fn checkAll<C: Allocator + FileSystemRead>(ctx: C, paths: [Path]): [Bool] {
     paths.map(ctx, fn(p) => fs.exists(ctx, p))
 }
 ```

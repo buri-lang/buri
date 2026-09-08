@@ -1,12 +1,12 @@
 //! The methods and trait impls the primitive types carry.
 //!
-//! SPEC 6.2.1 says there are a lot of these in `core/num` — one per
+//! SPEC 6.2.1 says there are a lot of these in `core/number` — one per
 //! source-and-target pair — and that they are ordinary methods rather than
 //! cast operators. They are registered here rather than written out in Buri
 //! for one reason: `i32.toI64()` and `i16.toI64()` are different operations
 //! that share a name, which is fine for a method (resolved by the receiver's
 //! type) and would be overloading for a free function. Registering them
-//! directly keeps them methods and keeps `core/num`'s module scope honest.
+//! directly keeps them methods and keeps `core/number`'s module scope honest.
 
 use crate::compiler::semantics::resolve::Checker;
 use crate::compiler::semantics::types::*;
@@ -80,12 +80,12 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `fn toJson<C: Alloc>(self, ctx: C): Json` — `Show.show`'s shape,
+    /// `fn toJson<C: Allocator>(self, ctx: C): Json` — `Show.show`'s shape,
     /// because encoding allocates for the same reason rendering does.
     fn declare_to_json(&mut self, p: Prim, json_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
-        let alloc = self.known_traits.get("Alloc").copied();
+        let alloc = self.known_traits.get("Allocator").copied();
         let generics = vec![GenericInfo {
             name: "C".into(),
             bounds: alloc.into_iter().collect(),
@@ -157,7 +157,7 @@ impl<'a> Checker<'a> {
     /// counterexample is that there is no bound `I64` fails and another
     /// integer type satisfies.
     ///
-    /// That is true today and nothing states it: `I64` gets `Neg`, which the
+    /// That is true today and nothing states it: `I64` gets `Negate`, which the
     /// unsigned types lack, and every other trait a primitive gets is given to
     /// all of them alike. design/static-rules.md rule 22 keeps a user from
     /// adding to another type's set from outside its defining module, so the
@@ -277,19 +277,19 @@ impl<'a> Checker<'a> {
         // compiles to the operation directly; these exist so a bound like
         // `<N: Add>` is satisfiable by a primitive.
         let mut op_methods: Vec<(&str, FnId)> = Vec::new();
-        for op in ["add", "sub", "mul", "div", "rem"] {
+        for op in ["add", "subtract", "multiply", "divide", "remainder"] {
             let fid = self.method(p, op, vec![self_ty.clone()], self_ty.clone());
             op_methods.push((op, fid));
         }
         if p.is_signed() || p.is_float() {
-            let fid = self.method(p, "neg", Vec::new(), self_ty.clone());
-            op_methods.push(("neg", fid));
+            let fid = self.method(p, "negate", Vec::new(), self_ty.clone());
+            op_methods.push(("negate", fid));
         }
 
-        let eq = self.method(p, "eq", vec![self_ty.clone()], bool_ty);
+        let eq = self.method(p, "equal", vec![self_ty.clone()], bool_ty);
         let compare =
             order.as_ref().map(|o| self.method(p, "compare", vec![self_ty.clone()], o.clone()));
-        // Rendering allocates, so `show` names `Alloc`.
+        // Rendering allocates, so `show` names `Allocator`.
         let show = self.show_method(p, str_ty);
         let hash = self.method(p, "hash", Vec::new(), u64_ty);
 
@@ -300,7 +300,7 @@ impl<'a> Checker<'a> {
             if let Some(opt) = option {
                 let opt_self = Ty::Con(opt, vec![self_ty.clone()]);
                 for name in
-                    ["checkedAdd", "checkedSub", "checkedMul", "checkedDiv", "checkedRemainder"]
+                    ["checkedAdd", "checkedSubtract", "checkedMultiply", "checkedDivide", "checkedRemainder"]
                 {
                     checked.push(self.method(p, name, vec![self_ty.clone()], opt_self.clone()));
                 }
@@ -312,36 +312,36 @@ impl<'a> Checker<'a> {
                 let int_ty = self.tables.prim(Prim::I64);
                 checked.push(self.method(p, "checkedPower", vec![int_ty], opt_self));
             }
-            for name in ["wrappingAdd", "wrappingSub", "wrappingMul"] {
+            for name in ["wrappingAdd", "wrappingSubtract", "wrappingMultiply"] {
                 wrapping.push(self.method(p, name, vec![self_ty.clone()], self_ty.clone()));
             }
-            for name in ["saturatingAdd", "saturatingSub", "saturatingMul"] {
+            for name in ["saturatingAdd", "saturatingSubtract", "saturatingMultiply"] {
                 saturating.push(self.method(p, name, vec![self_ty.clone()], self_ty.clone()));
             }
         }
 
         // `Bounded`'s methods take no `self`, so they get no entry in the
-        // method table; `num.minValue<U8>()` reaches them.
+        // method table; `number.minValue<U8>()` reaches them.
         let con = self.tables.prim_id(p);
         let bounded_methods = vec![
             self.static_method(p, "minValue", self_ty.clone()),
             self.static_method(p, "maxValue", self_ty.clone()),
         ];
 
-        self.add_impl("Eq", con, vec![eq]);
+        self.add_impl("Equal", con, vec![eq]);
         if let Some(c) = compare {
-            self.add_impl("Ord", con, vec![c]);
+            self.add_impl("Ordered", con, vec![c]);
         }
         self.add_impl("Show", con, vec![show]);
         self.add_impl("Hash", con, vec![hash]);
         for (name, fid) in op_methods {
             let trait_name = match name {
                 "add" => "Add",
-                "sub" => "Sub",
-                "mul" => "Mul",
-                "div" => "Div",
-                "rem" => "Rem",
-                _ => "Neg",
+                "subtract" => "Subtract",
+                "multiply" => "Multiply",
+                "divide" => "Divide",
+                "remainder" => "Remainder",
+                _ => "Negate",
             };
             self.add_impl(trait_name, con, vec![fid]);
         }
@@ -357,11 +357,11 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `fn show<C: Alloc>(self, ctx: C): Str`
+    /// `fn show<C: Allocator>(self, ctx: C): Str`
     fn show_method(&mut self, p: Prim, str_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
-        let alloc = self.known_traits.get("Alloc").copied();
+        let alloc = self.known_traits.get("Allocator").copied();
         let generics = vec![GenericInfo {
             name: "C".into(),
             bounds: alloc.into_iter().collect(),
@@ -438,30 +438,31 @@ impl<'a> Checker<'a> {
         let u64_ty = self.tables.prim(Prim::U64);
         let order = self.known_types.get("Order").map(|c| Ty::Con(*c, Vec::new()));
 
-        let eq = self.method(Prim::Char, "eq", vec![self_of(self, Prim::Char)], bool_ty.clone());
+        let eq =
+            self.method(Prim::Char, "equal", vec![self_of(self, Prim::Char)], bool_ty.clone());
         let show = self.show_method(Prim::Char, str_ty.clone());
         let hash = self.method(Prim::Char, "hash", Vec::new(), u64_ty.clone());
-        self.add_impl("Eq", char_con, vec![eq]);
+        self.add_impl("Equal", char_con, vec![eq]);
         self.add_impl("Show", char_con, vec![show]);
         self.add_impl("Hash", char_con, vec![hash]);
         if let Some(o) = &order {
             let cmp =
                 self.method(Prim::Char, "compare", vec![self_of(self, Prim::Char)], o.clone());
-            self.add_impl("Ord", char_con, vec![cmp]);
+            self.add_impl("Ordered", char_con, vec![cmp]);
         }
 
         // Str, Bool and Template.
         for p in [Prim::Str, Prim::Bool] {
             let con = self.tables.prim_id(p);
-            let eq = self.method(p, "eq", vec![self_of(self, p)], bool_ty.clone());
+            let eq = self.method(p, "equal", vec![self_of(self, p)], bool_ty.clone());
             let show = self.show_method(p, str_ty.clone());
             let hash = self.method(p, "hash", Vec::new(), u64_ty.clone());
-            self.add_impl("Eq", con, vec![eq]);
+            self.add_impl("Equal", con, vec![eq]);
             self.add_impl("Show", con, vec![show]);
             self.add_impl("Hash", con, vec![hash]);
             if let Some(o) = &order {
                 let cmp = self.method(p, "compare", vec![self_of(self, p)], o.clone());
-                self.add_impl("Ord", con, vec![cmp]);
+                self.add_impl("Ordered", con, vec![cmp]);
             }
         }
     }

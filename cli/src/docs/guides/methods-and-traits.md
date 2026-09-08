@@ -29,11 +29,11 @@ sq.scaled(2).area()                      // both resolve with no further imports
 Resolution stays one type, one module, one lookup.
 
 A **trait is an interface**, and conformance is **nominal**: a type satisfies it
-only where an `impl` or `derive` says so, never by accident of shape. `Ord` is
+only where an `impl` or `derive` says so, never by accident of shape. `Ordered` is
 one such interface, declared in the prelude as:
 
 ```buri sig
-trait Ord {
+trait Ordered {
     fn compare(self, other: Self): Order;
 }
 ```
@@ -43,10 +43,10 @@ and a type takes it on in one of two ways:
 ```buri
 # struct Version(Int);
 
-# derive Eq, Ord, Show for Playlist; // generates them structurally
+# derive Equal, Ordered, Show for Playlist; // generates them structurally
 struct Playlist(Int);
 
-impl Ord for Version {
+impl Ordered for Version {
     // supplies the methods, checked against the trait
     fn compare(self, other: Version): Order {
         self.0.compare(other.0)
@@ -68,7 +68,7 @@ search.
 Operators are trait methods, which is what makes newtypes usable:
 
 ```buri
-derive Add, Sub, Ord, Show for Meters;
+derive Add, Subtract, Ordered, Show for Meters;
 struct Meters(F64);
 
 # fn demo(): Meters {

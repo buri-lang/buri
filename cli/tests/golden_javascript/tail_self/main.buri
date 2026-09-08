@@ -1,6 +1,6 @@
 // Self tail recursion, which becomes a loop with the parameters rebound. The
 // rebinding is a parallel move, and most of these need no temporary at all.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -24,7 +24,7 @@ fn swapDown(a: Int, b: Int, fuel: Int): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io

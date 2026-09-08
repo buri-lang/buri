@@ -17,7 +17,7 @@ error: an expression statement is legal only in a test source [expression-statem
 
      A block is lets followed by a result expression; there is no third
      statement form. A test source is the one exception, which is what lets
-     assert.eq(...) stand alone: there, any expression of type () may stand
+     assert.equal(...) stand alone: there, any expression of type () may stand
      alone, terminated by ; — a match or an if whose branches all assert
      included.
 
@@ -26,13 +26,13 @@ error: an expression statement is legal only in a test source [expression-statem
      Result. So a statement whose type is Result is *both* errors at once, and
      the edit is .ignore() and let _ = together:
 
-       # from "core/effect" import { Alloc, Stdout };
+       # from "core/effect" import { Allocator, Stdout };
        # from "core/host" import * as host;
        # from "core/io" import * as io;
 
        export fn main(): Result<(), Str> {
            let ctx = context {
-               Alloc: host.alloc,
+               Allocator: host.alloc,
                Stdout: host.stdout,
            };
            let _ = io.println(ctx, "ready").ignore();

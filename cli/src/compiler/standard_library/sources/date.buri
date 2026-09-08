@@ -17,13 +17,13 @@
 //!
 //! ```buri run
 //! from "core/date" import * as date;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     // `date` is the only way to build one, so no `Date` is ever a day the
@@ -44,8 +44,8 @@
 //! 2024-02-29 is .Thursday, +1y is 2025-02-28
 //! ```
 
-from "core/effect" import { Alloc };
-from "core/num" import * as num;
+from "core/effect" import { Allocator };
+from "core/number" import * as number;
 from "core/str" import * as str;
 from "core/time" import { Duration, Instant };
 
@@ -53,7 +53,7 @@ from "core/time" import { Duration, Instant };
 // `from "core/date" import { Duration }` resolving, to that same type.
 from "core/time" export { Duration };
 
-derive Eq, Ord, Show, Hash for Date;
+derive Equal, Ordered, Show, Hash for Date;
 /// A civil date. Any year, including negative ones: the calendar is proleptic
 /// Gregorian, so it extends backwards past its own adoption.
 export struct Date {
@@ -64,22 +64,22 @@ export struct Date {
     export day: Int,
 }
 
-derive Eq, Ord, Show, Hash for Time;
+derive Equal, Ordered, Show, Hash for Time;
 /// A time of day, to the millisecond.
 export struct Time {
     export hour: Int,
     export minute: Int,
     export second: Int,
-    export milli: Int,
+    export millisecond: Int,
 }
 
-derive Eq, Ord, Show, Hash for DateTime;
+derive Equal, Ordered, Show, Hash for DateTime;
 export struct DateTime {
     export date: Date,
     export time: Time,
 }
 
-derive Eq, Show for Zoned;
+derive Equal, Show for Zoned;
 /// A civil date-time and the fixed offset it is expressed in.
 export struct Zoned {
     export at: DateTime,
@@ -87,7 +87,7 @@ export struct Zoned {
     export offsetMinutes: Int,
 }
 
-derive Eq, Show, Hash for Weekday;
+derive Equal, Show, Hash for Weekday;
 export enum Weekday {
     Monday,
     Tuesday,
@@ -98,13 +98,13 @@ export enum Weekday {
     Sunday,
 }
 
-export let MILLIS_PER_SECOND: Int = 1000;
+export let MILLISECONDS_PER_SECOND: Int = 1000;
 
-export let MILLIS_PER_MINUTE: Int = 60000;
+export let MILLISECONDS_PER_MINUTE: Int = 60000;
 
-export let MILLIS_PER_HOUR: Int = 3600000;
+export let MILLISECONDS_PER_HOUR: Int = 3600000;
 
-export let MILLIS_PER_DAY: Int = 86400000;
+export let MILLISECONDS_PER_DAY: Int = 86400000;
 
 // -----------------------------------------------------------------------------
 // The calendar
@@ -146,7 +146,7 @@ export fn date(year: Int, month: Int, day: Int): Option<Date> {
     }
 }
 
-export fn time(hour: Int, minute: Int, second: Int, milli: Int): Option<Time> {
+export fn time(hour: Int, minute: Int, second: Int, millisecond: Int): Option<Time> {
     if (
         hour < 0
             || hour > 23
@@ -154,18 +154,26 @@ export fn time(hour: Int, minute: Int, second: Int, milli: Int): Option<Time> {
             || minute > 59
             || second < 0
             || second > 59
-            || milli < 0
-            || milli > 999
+            || millisecond < 0
+            || millisecond > 999
     ) {
         .None
     } else {
-        .Some(Time { hour: hour, minute: minute, second: second, milli: milli })
+        .Some(Time {
+            hour: hour,
+            minute: minute,
+            second: second,
+            millisecond: millisecond,
+        })
     }
 }
 
 /// Midnight, which every date has.
-export fn midnight(d: Date): DateTime {
-    DateTime { date: d, time: Time { hour: 0, minute: 0, second: 0, milli: 0 } }
+export fn midnight(date: Date): DateTime {
+    DateTime {
+        date: date,
+        time: Time { hour: 0, minute: 0, second: 0, millisecond: 0 },
+    }
 }
 
 // --- days since the epoch -------------------------------------------------------
@@ -175,12 +183,12 @@ export fn midnight(d: Date): DateTime {
 // count era by era. Exact, and integer-only.
 
 /// Days from 1970-01-01 to this date. Negative before it.
-export fn toDays(d: Date): Int {
-    let y = if (d.month <= 2) { d.year - 1 } else { d.year };
-    let era = num.divFloor(y, 400);
+export fn toDays(date: Date): Int {
+    let y = if (date.month <= 2) { date.year - 1 } else { date.year };
+    let era = number.divideFloor(y, 400);
     let yoe = y - era * 400;
-    let mp = (d.month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d.day - 1;
+    let mp = (date.month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + date.day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe - 719468
 }
@@ -188,7 +196,7 @@ export fn toDays(d: Date): Int {
 /// The inverse.
 export fn fromDays(days: Int): Date {
     let z = days + 719468;
-    let era = num.divFloor(z, 146097);
+    let era = number.divideFloor(z, 146097);
     let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe + era * 400;
@@ -200,8 +208,8 @@ export fn fromDays(days: Int): Date {
 }
 
 /// 1970-01-01 was a Thursday, which is what anchors this.
-export fn weekday(d: Date): Weekday {
-    let n = num.remEuclid(toDays(d) + 3, 7);
+export fn weekday(date: Date): Weekday {
+    let n = number.remainderEuclidean(toDays(date) + 3, 7);
     if (n == 0) {
         .Monday
     } else if (n == 1) {
@@ -220,13 +228,13 @@ export fn weekday(d: Date): Weekday {
 }
 
 /// 1 on the first of January.
-export fn dayOfYear(d: Date): Int {
-    toDays(d) - toDays(Date { year: d.year, month: 1, day: 1 }) + 1
+export fn dayOfYear(date: Date): Int {
+    toDays(date) - toDays(Date { year: date.year, month: 1, day: 1 }) + 1
 }
 
 impl Date {
-    export fn addDays(self, n: Int): Date {
-        fromDays(toDays(self) + n)
+    export fn addDays(self, count: Int): Date {
+        fromDays(toDays(self) + count)
     }
 
     /// How many days from `self` to `other`, negative if `other` is earlier.
@@ -237,10 +245,10 @@ impl Date {
     /// Adds months, clamping the day to what the resulting month holds — so
     /// January 31st plus one month is the 28th or the 29th, not the 3rd of
     /// March.
-    export fn addMonths(self, n: Int): Date {
-        let total = self.year * 12 + (self.month - 1) + n;
-        let year = num.divFloor(total, 12);
-        let month = num.remEuclid(total, 12) + 1;
+    export fn addMonths(self, count: Int): Date {
+        let total = self.year * 12 + (self.month - 1) + count;
+        let year = number.divideFloor(total, 12);
+        let month = number.remainderEuclidean(total, 12) + 1;
         let last = daysInMonth(year, month);
         Date {
             year: year,
@@ -249,8 +257,8 @@ impl Date {
         }
     }
 
-    export fn addYears(self, n: Int): Date {
-        self.addMonths(n * 12)
+    export fn addYears(self, count: Int): Date {
+        self.addMonths(count * 12)
     }
 
     /// How many *whole* months from `self` to `other`, negative if `other` is
@@ -302,13 +310,13 @@ impl Date {
 ///
 /// ```buri run
 /// from "core/date" import * as date;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let newYear = date.date(2027, 1, 1).withDefault(date.fromDays(0));
@@ -330,7 +338,7 @@ export fn isoWeek(date: Date): (Int, Int) {
 
 /// Monday is 1 and Sunday is 7, which is the numbering ISO 8601 uses.
 fn isoWeekday(d: Date): Int {
-    num.remEuclid(toDays(d) + 3, 7) + 1
+    number.remainderEuclidean(toDays(d) + 3, 7) + 1
 }
 
 // -----------------------------------------------------------------------------
@@ -338,43 +346,43 @@ fn isoWeekday(d: Date): Int {
 // -----------------------------------------------------------------------------
 
 /// The UTC date-time an instant names.
-export fn fromInstant(i: Instant): DateTime {
-    let millis = i.0;
+export fn fromInstant(instant: Instant): DateTime {
+    let milliseconds = instant.0;
     // Floor division and a never-negative remainder, so an instant before the
     // epoch lands on the right day at a real time of day.
-    let days = num.divFloor(millis, MILLIS_PER_DAY);
-    let rest = num.remEuclid(millis, MILLIS_PER_DAY);
+    let days = number.divideFloor(milliseconds, MILLISECONDS_PER_DAY);
+    let rest = number.remainderEuclidean(milliseconds, MILLISECONDS_PER_DAY);
     DateTime {
         date: fromDays(days),
         time: Time {
-            hour: rest / MILLIS_PER_HOUR,
-            minute: rest % MILLIS_PER_HOUR / MILLIS_PER_MINUTE,
-            second: rest % MILLIS_PER_MINUTE / MILLIS_PER_SECOND,
-            milli: rest % MILLIS_PER_SECOND,
+            hour: rest / MILLISECONDS_PER_HOUR,
+            minute: rest % MILLISECONDS_PER_HOUR / MILLISECONDS_PER_MINUTE,
+            second: rest % MILLISECONDS_PER_MINUTE / MILLISECONDS_PER_SECOND,
+            millisecond: rest % MILLISECONDS_PER_SECOND,
         },
     }
 }
 
 /// The inverse, reading the date-time as UTC.
-export fn toInstant(dt: DateTime): Instant {
+export fn toInstant(dateTime: DateTime): Instant {
     Instant(
-        toDays(dt.date) * MILLIS_PER_DAY
-            + dt.time.hour * MILLIS_PER_HOUR
-            + dt.time.minute * MILLIS_PER_MINUTE
-            + dt.time.second * MILLIS_PER_SECOND
-            + dt.time.milli,
+        toDays(dateTime.date) * MILLISECONDS_PER_DAY
+            + dateTime.time.hour * MILLISECONDS_PER_HOUR
+            + dateTime.time.minute * MILLISECONDS_PER_MINUTE
+            + dateTime.time.second * MILLISECONDS_PER_SECOND
+            + dateTime.time.millisecond,
     )
 }
 
 /// The length of time between two instants. `b.duration(a)` says the same thing
 /// on the receiver, and is the spelling to reach for.
-export fn between(a: Instant, b: Instant): Duration {
-    b.duration(a)
+export fn between(start: Instant, end: Instant): Duration {
+    end.duration(start)
 }
 
 /// A point, moved by a length. `i.plus(d)`, likewise.
-export fn plus(i: Instant, d: Duration): Instant {
-    i.plus(d)
+export fn plus(i: Instant, duration: Duration): Instant {
+    i.plus(duration)
 }
 
 // -----------------------------------------------------------------------------
@@ -385,31 +393,31 @@ export fn plus(i: Instant, d: Duration): Instant {
 ///
 /// A year before zero writes a leading minus, which `parseDate` does not read:
 /// the calendar goes back further than the format does.
-export fn formatDate<C: Alloc>(ctx: C, d: Date): Str {
-    let y = pad(ctx, d.year, 4);
-    let m = pad(ctx, d.month, 2);
-    let day = pad(ctx, d.day, 2);
+export fn formatDate<C: Allocator>(ctx: C, date: Date): Str {
+    let y = pad(ctx, date.year, 4);
+    let m = pad(ctx, date.month, 2);
+    let day = pad(ctx, date.day, 2);
     str.format(ctx, "${y}-${m}-${day}")
 }
 
 /// `13:45:00.000` — always with milliseconds, which is what `parseTime` reads
 /// back.
-export fn formatTime<C: Alloc>(ctx: C, time: Time): Str {
+export fn formatTime<C: Allocator>(ctx: C, time: Time): Str {
     let h = pad(ctx, time.hour, 2);
     let mi = pad(ctx, time.minute, 2);
     let s = pad(ctx, time.second, 2);
-    let ms = pad(ctx, time.milli, 3);
+    let ms = pad(ctx, time.millisecond, 3);
     str.format(ctx, "${h}:${mi}:${s}.${ms}")
 }
 
 /// `2026-08-15T13:45:00.000Z` — always UTC, always with milliseconds.
-export fn formatDateTime<C: Alloc>(ctx: C, dt: DateTime): Str {
-    let d = formatDate(ctx, dt.date);
-    let t = formatTime(ctx, dt.time);
+export fn formatDateTime<C: Allocator>(ctx: C, dateTime: DateTime): Str {
+    let d = formatDate(ctx, dateTime.date);
+    let t = formatTime(ctx, dateTime.time);
     str.format(ctx, "${d}T${t}Z")
 }
 
-fn pad<C: Alloc>(ctx: C, n: Int, width: Int): Str {
+fn pad<C: Allocator>(ctx: C, n: Int, width: Int): Str {
     let negative = n < 0;
     let digits = str
         .fromInt(ctx, if (negative) { -n } else { n })
@@ -419,9 +427,9 @@ fn pad<C: Alloc>(ctx: C, n: Int, width: Int): Str {
 
 /// Reads `YYYY-MM-DD`. Strict: exactly that shape, and a date the calendar
 /// has. Anything else is `None` rather than a guess.
-export fn parseDate<C: Alloc>(ctx: C, text: Str): Option<Date> {
+export fn parseDate<C: Allocator>(ctx: C, text: Str): Option<Date> {
     let parts = text.split(ctx, "-");
-    if (parts.len() != 3) {
+    if (parts.length() != 3) {
         .None
     } else {
         let y = parts.get(0).andThen(fn(p) => p.toInt());
@@ -440,7 +448,7 @@ export fn parseDate<C: Alloc>(ctx: C, text: Str): Option<Date> {
 /// there is one. Anything finer than a millisecond is dropped rather than
 /// rounded, so `.9999` is 999 milliseconds. A second of 60 is refused — a leap
 /// second is a real time of day that `Time` has nowhere to put.
-export fn parseTime<C: Alloc>(ctx: C, text: Str): Option<Time> {
+export fn parseTime<C: Allocator>(ctx: C, text: Str): Option<Time> {
     match (text.splitOnce(".")) {
         .Some(split) => {
             let (clock, fraction) = split;
@@ -458,9 +466,9 @@ fn milliOf(fraction: Str): Option<Int> {
     } else {
         let three = fraction.slice(0, 3);
         let n = three.toInt().withDefault(0);
-        if (three.len() == 1) {
+        if (three.length() == 1) {
             .Some(n * 100)
-        } else if (three.len() == 2) {
+        } else if (three.length() == 2) {
             .Some(n * 10)
         } else {
             .Some(n)
@@ -468,14 +476,18 @@ fn milliOf(fraction: Str): Option<Int> {
     }
 }
 
-fn hourMinuteSecond<C: Alloc>(ctx: C, clock: Str, milli: Option<Int>): Option<Time> {
+fn hourMinuteSecond<C: Allocator>(
+    ctx: C,
+    clock: Str,
+    millisecond: Option<Int>,
+): Option<Time> {
     let parts = clock.split(ctx, ":");
-    if (parts.len() != 3) {
+    if (parts.length() != 3) {
         .None
     } else {
         match ((twoDigits(parts.get(0)), twoDigits(parts.get(1)))) {
             (.Some(h), .Some(m)) => {
-                match ((twoDigits(parts.get(2)), milli)) {
+                match ((twoDigits(parts.get(2)), millisecond)) {
                     (.Some(s), .Some(ms)) => time(h, m, s, ms),
                     _ => .None,
                 }
@@ -490,7 +502,11 @@ fn twoDigits(part: Option<Str>): Option<Int> {
     match (part) {
         .None => .None,
         .Some(text) => {
-            if (text.len() != 2 || !allDigits(text, 0)) { .None } else { text.toInt() }
+            if (text.length() != 2 || !allDigits(text, 0)) {
+                .None
+            } else {
+                text.toInt()
+            }
         },
     }
 }
@@ -518,13 +534,13 @@ fn allDigits(text: Str, i: Int): Bool {
 ///
 /// ```buri run
 /// from "core/date" import * as date;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let text = match (date.parseDateTime(ctx, "2026-08-15T15:45:00+02:00")) {
@@ -539,7 +555,7 @@ fn allDigits(text: Str, i: Int): Bool {
 /// ```stdout
 /// 2026-08-15T13:45:00.000Z
 /// ```
-export fn parseDateTime<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
+export fn parseDateTime<C: Allocator>(ctx: C, text: Str): Option<DateTime> {
     parseZoned(ctx, text).map(fn(z) => fromInstant(zonedToInstant(z)))
 }
 
@@ -549,14 +565,14 @@ export fn parseDateTime<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
 /// about everything else: four digits of year, two of everything else, seconds
 /// present, and an offset present. A space in place of the `T` is refused — RFC
 /// 3339 admits it only by prior agreement, and there is none here.
-export fn parseZoned<C: Alloc>(ctx: C, text: Str): Option<Zoned> {
+export fn parseZoned<C: Allocator>(ctx: C, text: Str): Option<Zoned> {
     match (text.charAt(10)) {
         .Some(c) => {
             if (c != 'T' && c != 't') {
                 .None
             } else {
                 match (parseDate(ctx, text.slice(0, 10))) {
-                    .Some(d) => timeAndOffset(ctx, d, text.slice(11, text.len())),
+                    .Some(d) => timeAndOffset(ctx, d, text.slice(11, text.length())),
                     .None => .None,
                 }
             }
@@ -566,8 +582,8 @@ export fn parseZoned<C: Alloc>(ctx: C, text: Str): Option<Zoned> {
 }
 
 /// Everything after the `T`: the time of day, then `Z` or `+HH:MM`.
-fn timeAndOffset<C: Alloc>(ctx: C, d: Date, rest: Str): Option<Zoned> {
-    let n = rest.len();
+fn timeAndOffset<C: Allocator>(ctx: C, d: Date, rest: Str): Option<Zoned> {
+    let n = rest.length();
     let zulu = match (rest.charAt(n - 1)) {
         .Some(c) => c == 'Z' || c == 'z',
         .None => false,
@@ -604,9 +620,9 @@ fn at(d: Date, t: Time, offsetMinutes: Int): Zoned {
 
 /// `HH:MM` as minutes. Refuses an hour past 23 or a minute past 59, so `+99:99`
 /// is not an offset.
-fn offsetOf<C: Alloc>(ctx: C, text: Str): Option<Int> {
+fn offsetOf<C: Allocator>(ctx: C, text: Str): Option<Int> {
     let parts = text.split(ctx, ":");
-    if (parts.len() != 2) {
+    if (parts.length() != 2) {
         .None
     } else {
         match ((twoDigits(parts.get(0)), twoDigits(parts.get(1)))) {
@@ -622,26 +638,26 @@ fn offsetOf<C: Alloc>(ctx: C, text: Str): Option<Int> {
 /// UTC-05:00 writes it.
 export fn zoned(instant: Instant, offsetMinutes: Int): Zoned {
     Zoned {
-        at: fromInstant(Instant(instant.0 + offsetMinutes * MILLIS_PER_MINUTE)),
+        at: fromInstant(Instant(instant.0 + offsetMinutes * MILLISECONDS_PER_MINUTE)),
         offsetMinutes: offsetMinutes,
     }
 }
 
 /// Back to the moment: the civil time, less its offset.
 export fn zonedToInstant(zoned: Zoned): Instant {
-    Instant(toInstant(zoned.at).0 - zoned.offsetMinutes * MILLIS_PER_MINUTE)
+    Instant(toInstant(zoned.at).0 - zoned.offsetMinutes * MILLISECONDS_PER_MINUTE)
 }
 
 /// `2026-08-15T13:45:00.000+02:00`, and `Z` for an offset of zero — which makes
 /// it read exactly as `formatDateTime` writes the same moment.
-export fn formatZoned<C: Alloc>(ctx: C, zoned: Zoned): Str {
+export fn formatZoned<C: Allocator>(ctx: C, zoned: Zoned): Str {
     let d = formatDate(ctx, zoned.at.date);
     let t = formatTime(ctx, zoned.at.time);
     let o = offsetText(ctx, zoned.offsetMinutes);
     str.format(ctx, "${d}T${t}${o}")
 }
 
-fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
+fn offsetText<C: Allocator>(ctx: C, offsetMinutes: Int): Str {
     if (offsetMinutes == 0) {
         "Z"
     } else {
@@ -669,14 +685,14 @@ fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
 ///
 /// ```buri run
 /// from "core/date" import * as date;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/time" import { Instant };
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let moment = date.fromInstant(Instant(784_111_777_000));
@@ -688,7 +704,7 @@ fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
 /// ```stdout
 /// Sun, 06 Nov 1994 08:49:37 GMT
 /// ```
-export fn formatHttpDate<C: Alloc>(ctx: C, dateTime: DateTime): Str {
+export fn formatHttpDate<C: Allocator>(ctx: C, dateTime: DateTime): Str {
     let day = pad(ctx, dateTime.date.day, 2);
     let year = pad(ctx, dateTime.date.year, 4);
     let h = pad(ctx, dateTime.time.hour, 2);
@@ -714,13 +730,13 @@ export fn formatHttpDate<C: Alloc>(ctx: C, dateTime: DateTime): Str {
 /// **A two-digit year reads 00-68 as 2000-2068 and 69-99 as 1969-1999.** RFC
 /// 9110 asks for "more than fifty years in the future" measured against now, and
 /// now is a clock reading this cannot take.
-export fn parseHttpDate<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
+export fn parseHttpDate<C: Allocator>(ctx: C, text: Str): Option<DateTime> {
     let fields = text.trim().splitAny(ctx, " ").filter(ctx, fn(f) => !f.isEmpty());
-    if (fields.len() == 6) {
+    if (fields.length() == 6) {
         imfFixdate(ctx, fields)
-    } else if (fields.len() == 4) {
+    } else if (fields.length() == 4) {
         rfc850(ctx, fields)
-    } else if (fields.len() == 5) {
+    } else if (fields.length() == 5) {
         asctime(ctx, fields)
     } else {
         .None
@@ -728,7 +744,7 @@ export fn parseHttpDate<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
 }
 
 /// `Sun, 06 Nov 1994 08:49:37 GMT`.
-fn imfFixdate<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+fn imfFixdate<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
     if (!endsGmt(fields, 5) || !isDayComma(fields.get(0))) {
         .None
     } else {
@@ -740,9 +756,9 @@ fn imfFixdate<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
 }
 
 /// `Sunday, 06-Nov-94 08:49:37 GMT`.
-fn rfc850<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+fn rfc850<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
     let parts = fields.get(1).withDefault("").split(ctx, "-");
-    if (!endsGmt(fields, 3) || !isDayComma(fields.get(0)) || parts.len() != 3) {
+    if (!endsGmt(fields, 3) || !isDayComma(fields.get(0)) || parts.length() != 3) {
         .None
     } else {
         let day = twoDigits(parts.get(0));
@@ -757,12 +773,12 @@ fn rfc850<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
 /// `Sun Nov  6 08:49:37 1994`. The day is one or two digits and there is no
 /// `GMT` on the end — asctime has no timezone at all, and RFC 9110 reads it as
 /// UTC.
-fn asctime<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+fn asctime<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
     let month = fields.get(1).andThen(fn(name) => monthNumber(name));
     let day = fields
         .get(2)
         .andThen(fn(text) => {
-            if (text.isEmpty() || text.len() > 2 || !allDigits(text, 0)) {
+            if (text.isEmpty() || text.length() > 2 || !allDigits(text, 0)) {
                 .None
             } else {
                 text.toInt()
@@ -773,7 +789,7 @@ fn asctime<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
 }
 
 /// The three numbers and the clock, if every one of them is there.
-fn civil<C: Alloc>(
+fn civil<C: Allocator>(
     ctx: C,
     year: Option<Int>,
     month: Option<Int>,
@@ -808,13 +824,13 @@ fn endsGmt(fields: [Str], index: Int): Bool {
 /// name itself is not checked: the standard calls it redundant with the date.
 fn isDayComma(field: Option<Str>): Bool {
     match (field) {
-        .Some(text) => text.endsWith(",") && text.len() > 3,
+        .Some(text) => text.endsWith(",") && text.length() > 3,
         .None => false,
     }
 }
 
 fn fourDigits(text: Str): Option<Int> {
-    if (text.len() != 4 || !allDigits(text, 0)) { .None } else { text.toInt() }
+    if (text.length() != 4 || !allDigits(text, 0)) { .None } else { text.toInt() }
 }
 
 /// `Mon` .. `Sun`, in English and never localised — the abbreviations RFC 9110

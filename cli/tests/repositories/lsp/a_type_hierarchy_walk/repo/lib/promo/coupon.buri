@@ -1,6 +1,6 @@
 from "//lib/shop" import { Priced };
 
-derive Eq for Coupon;
+derive Equal for Coupon;
 /// Money off, in whole cents.
 export struct Coupon {
     export off: I64,

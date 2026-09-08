@@ -4,12 +4,12 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0016.buri" import { blend16, Node16, reach16, seed16 };
 
-derive Eq, Show for Node21;
+derive Equal, Show for Node21;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node21 {
@@ -34,7 +34,7 @@ export fn lift21(n: Node16): Node21 {
     Node21 { label: n.label, value: n.value + seed21(), weight: n.weight }
 }
 
-derive Eq, Show for State21_0;
+derive Equal, Show for State21_0;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State21_0 {
     Idle,
@@ -71,9 +71,9 @@ export fn start21_0(ticks: Int): State21_0 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_0<C: Alloc>(ctx: C): Int {
+export fn probe21_0<C: Allocator>(ctx: C): Int {
     let s = start21_0(5);
-    rank21_0(s) + s.show(ctx).len()
+    rank21_0(s) + s.show(ctx).length()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
@@ -86,18 +86,18 @@ export fn firstOr21_1<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll21_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll21_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric21_1(ns: [Int], ss: [Str]): Int {
-    firstOr21_1<Int>(ns, 0) + firstOr21_1<Str>(ss, "").len()
+    firstOr21_1<Int>(ns, 0) + firstOr21_1<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_1<C: Alloc>(ctx: C): Int {
-    useGeneric21_1([1, 2], ["a"]) + describeAll21_1(ctx, [1, 2]).len()
+export fn probe21_1<C: Allocator>(ctx: C): Int {
+    useGeneric21_1([1, 2], ["a"]) + describeAll21_1(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -120,7 +120,7 @@ export fn parseBoth21_2(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_2<C: Alloc>(ctx: C): Int {
+export fn probe21_2<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth21_2("1", "2")) {
         .Some(v) => v,
@@ -131,7 +131,7 @@ export fn probe21_2<C: Alloc>(ctx: C): Int {
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label21_3<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label21_3<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "bravo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -144,29 +144,29 @@ export fn constants21_3(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_3<C: Alloc>(ctx: C): Int {
+export fn probe21_3<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_3();
-    label21_3(ctx, a, e).len() + b
+    label21_3(ctx, a, e).length() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest21_4<C: Alloc>(ctx: C): Int {
+export fn digest21_4<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [1369, 8272, 4205, 6661, 6600, 9595, 9959];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain21_4(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_4<C: Alloc>(ctx: C): Int {
+export fn probe21_4<C: Allocator>(ctx: C): Int {
     digest21_4(ctx) + drain21_4()
 }
 
@@ -188,14 +188,14 @@ export fn compute21_5(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_5<C: Alloc>(ctx: C): Int {
+export fn probe21_5<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute21_5(7)
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label21_6<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label21_6<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "echo" } else { "hotel" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -208,9 +208,9 @@ export fn constants21_6(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_6<C: Alloc>(ctx: C): Int {
+export fn probe21_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_6();
-    label21_6(ctx, a, e).len() + b
+    label21_6(ctx, a, e).length() + b
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
@@ -230,14 +230,14 @@ export fn compute21_7(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_7<C: Alloc>(ctx: C): Int {
+export fn probe21_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute21_7(7)
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label21_8<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label21_8<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "alpha" } else { "golf" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -250,14 +250,14 @@ export fn constants21_8(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_8<C: Alloc>(ctx: C): Int {
+export fn probe21_8<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_8();
-    label21_8(ctx, a, e).len() + b
+    label21_8(ctx, a, e).length() + b
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label21_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label21_9<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "alpha" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -270,9 +270,9 @@ export fn constants21_9(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_9<C: Alloc>(ctx: C): Int {
+export fn probe21_9<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants21_9();
-    label21_9(ctx, a, e).len() + b
+    label21_9(ctx, a, e).length() + b
 }
 
 /// A body of 4 bindings over integer arithmetic — the shape most
@@ -286,7 +286,7 @@ export fn compute21_10(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_10<C: Alloc>(ctx: C): Int {
+export fn probe21_10<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute21_10(7)
 }
@@ -301,23 +301,23 @@ export fn firstOr21_11<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll21_11<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll21_11<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric21_11(ns: [Int], ss: [Str]): Int {
-    firstOr21_11<Int>(ns, 0) + firstOr21_11<Str>(ss, "").len()
+    firstOr21_11<Int>(ns, 0) + firstOr21_11<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe21_11<C: Alloc>(ctx: C): Int {
-    useGeneric21_11([1, 2], ["a"]) + describeAll21_11(ctx, [1, 2]).len()
+export fn probe21_11<C: Allocator>(ctx: C): Int {
+    useGeneric21_11([1, 2], ["a"]) + describeAll21_11(ctx, [1, 2]).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach21<C: Alloc>(ctx: C): Int {
+export fn reach21<C: Allocator>(ctx: C): Int {
     0
         + probe21_0(ctx)
         + probe21_1(ctx)

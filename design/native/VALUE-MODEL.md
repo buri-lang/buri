@@ -164,7 +164,7 @@ literal string is three immediate constants and touches no allocator.
 
 ### 3.1 `len` is scalars, and the top bit of `len` says how much that costs
 
-`str.len()` is "the number of Unicode scalar values, not the number of UTF-8
+`str.length()` is "the number of Unicode scalar values, not the number of UTF-8
 bytes" (`str.buri`), so the byte length in the value and the number the language
 reports are different numbers and one of them has to be computed.
 
@@ -174,7 +174,7 @@ below 0x80, so the scalar count equals the byte count and `len()` is a mask.
 Clear means counting bytes with `(b & 0xC0) != 0x80` — a loop that vectorizes to
 one compare and one popcount per 16 or 32 bytes.
 
-This mirrors the JavaScript backend, whose `$str_len` is
+This mirrors the JavaScript backend, whose `$str_length` is
 `$wide(s) ? $chars(s).length : s.length` (`runtime.js`). The boundary is drawn in
 a different place — JavaScript's fast path is "no astral characters", ours is "no
 non-ASCII" — but no program's asymptotics change between backends on the input
@@ -215,11 +215,11 @@ struct List { ptr: *const T, len: u64 }                    // 16 bytes
 Elements are contiguous, at `layout(T).stride`. The header is at `ptr - 16`,
 because unlike `Str` a list is **never a view**: every one of `slice`, `take`,
 `drop`, `concat`, `push`, `reverse` and `filter` in `core/list` is bounded by
-`Alloc` (`list.buri`), which is the language saying they allocate. So `ptr` is
+`Allocator` (`list.buri`), which is the language saying they allocate. So `ptr` is
 always a payload start and 16 bytes suffice.
 
 `len` is the element count, exactly. There is no ASCII-flag equivalent because
-`list.len()` is the element count and always O(1) (`list.buri`).
+`list.length()` is the element count and always O(1) (`list.buri`).
 
 ### 4.1 A flat array, not a persistent vector
 
@@ -228,7 +228,7 @@ on append.
 
 The stdlib's list surface is bulk producers — `map`, `filter`, `fold`, `range`,
 `repeat`, `zip`, `flatten` — which build a whole array at once and read it
-linearly, and `push` is `Alloc`-bounded, which is the language stating that it
+linearly, and `push` is `Allocator`-bounded, which is the language stating that it
 copies. More decisively: `sum` (`list.buri`) and `core/simd` want a contiguous
 `i64*`. A flat array is the only representation where a fold over `[Int]` compiles
 to a vectorizable loop, and vectorizing folds is most of what a native backend is
@@ -359,7 +359,7 @@ A variant's fields are laid out inside the payload area in declaration order,
 independently per variant.
 
 The tag is at **offset 0** and its value is the variant's **index in declaration
-order**, which is the number `derive Ord` compares and the number a decision tree
+order**, which is the number `derive Ordered` compares and the number a decision tree
 switches on. An enum with no variants is uninhabited, has no value, and occupies
 nothing.
 
@@ -412,11 +412,11 @@ both arms carry payloads.
 ## 7. Closures
 
 ```
-struct Closure { code: *const fn, env: *const Env }        // 16 bytes
+struct Closure { code: *const fn, env: *const Environment }        // 16 bytes
 ```
 
 `middle::closures` (ARCHITECTURE.md §2.2) lifts every lambda to a top-level
-function taking `env` as an extra first parameter, and builds `Env` as an
+function taking `env` as an extra first parameter, and builds `Environment` as an
 ordinary struct of the captured locals — which `ExprKind::Lambda { captures }`
 already lists (`typed.rs`).
 
@@ -442,7 +442,7 @@ site holding `{ code, env }` therefore cannot know. `code` instead points at a
 two-line function
 
 ```
-thunk(env: *const Env, args...) -> R = f(load-leaves(env), args...)
+thunk(env: *const Environment, args...) -> R = f(load-leaves(env), args...)
 ```
 
 whose first parameter is the environment *pointer*. A capture-free lambda gets one
@@ -487,7 +487,7 @@ Monomorphization resolves every effect call to a direct call and
 statically known answer and the only question is whether the *implementation
 value* carries data.
 
-Every implementation `core/host` exports is a zero-sized struct — `struct HostFs {}`,
+Every implementation `core/host` exports is a zero-sized struct — `struct HostFileSystem {}`,
 `struct HostStdout {}`, fifteen of them (`host.buri`), of which any one platform
 grants at most thirteen. A context of zero-sized values is zero-sized. So in a
 program built on `core/host`, **`ctx` is not a parameter**: the layout pass drops
@@ -511,8 +511,8 @@ its first. Both native backends read it off their runtime tables
 `Arg::Dropped`).
 
 Asking the *argument's type* instead — "is it a `Ty::Ctx`?" — is the same question
-only while every `C: Alloc` is instantiated at a `context { … }` record, and it is
-not: `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1), and SPEC 10.8's
+only while every `C: Allocator` is instantiated at a `context { … }` record, and it is
+not: `<C: Allocator>` and `<T: Ordered>` are one feature (SPEC 10.1), and SPEC 10.8's
 attenuation exists so that programs pass something that merely implements the
 effect. Such a value spread to a leaf the C signature had no parameter for and
 shifted every argument after it one register down — a fault in `memmove`.
@@ -525,7 +525,7 @@ from a signature, and it is the same one that drops a `()` parameter.
 
 ## 9. Descriptors and derives: generated, not walked
 
-The JS backend has it both ways: `derive Eq` is compiled per type into its own
+The JS backend has it both ways: `derive Equal` is compiled per type into its own
 function (`generate.rs`), while `Show`, `Hash`, `ToJson` and `FromJson` go through
 a runtime walker over a `Desc` value (`monomorphize.rs`). The walker is right
 there — it keeps one `$show` in the artifact instead of one per type, and artifact
@@ -562,8 +562,8 @@ Reimplementing that surface once per native backend is not a plan.
 
 **`cli/runtime` is a Rust static library with a C ABI, built for the host by
 `cli/build.rs` and embedded with `include_bytes!`.** Every intrinsic key becomes
-one symbol: `list.map` -> `buri_rt_list_map`, `host.HostFs.readFile` ->
-`buri_rt_host_fs_read_file`. Both backends emit an ordinary call; neither knows
+one symbol: `list.map` -> `buri_rt_list_map`, `host.HostFileSystem.readFile` ->
+`buri_rt_host_file_system_read_file`. Both backends emit an ordinary call; neither knows
 what is behind it.
 
 **One prefix, `buri_rt_`, with no exceptions**, including the host capabilities
@@ -615,7 +615,7 @@ should not be:
   gone: `I64`, `U64`, `I128` and `U128` are `BigInt`s on JavaScript
   (buri-lang/buri#8, #4), at the cost §12's table measures.
 - Two documents outside §6.2 were amended with it: `docs/build/proto.md`'s 64-bit
-  caveat, now the JavaScript backend's rather than the language's, and `core/num`'s
+  caveat, now the JavaScript backend's rather than the language's, and `core/number`'s
   own module comment.
 - **A native backend that also stopped at 2^53 shipped for a wave and was
   reversed.** It makes `Checked` useless on `I64` natively, which is exactly where
@@ -640,16 +640,16 @@ reads this table and fails if a row names a test that is not there.
 |---|---|---|---|---|---|
 | 1 | `Int` overflow | the exact sum, unbounded | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed.** A `BigInt` has no width to overflow *at*, so `maxValue<I64>() + 1` is 9223372036854775808 here and −9223372036854775808 natively. A program that wants the defined answer says `wrappingAdd`, which agrees at every width (row 3). Wrapping every result back with `asIntN` would close the row and was not done: it is a call on every add in every program to make one undefined answer match another. | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
 | 2 | `checkedAdd` above 2^53, within `I64` | `.Some` | `.Some` | **Must agree, and does.** `Checked` is bounded by the numbers the *backend* has (SPEC §6.2.2), and a `BigInt` says which integer the answer is, so `exact_int_range` and `int_range` are the same range at every width. `Saturating` was never bounded this way. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
-| 3 | `wrappingMul` at 64 bits | exact | exact, native | Must agree, at every width. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else; at 64 and 128 the operands are `BigInt`s and the wrap is one `asIntN`. Natively `wrapping*` **is** the machine's own add, subtract and multiply, because §3.4 emits no `nsw`/`nuw`. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
+| 3 | `wrappingMultiply` at 64 bits | exact | exact, native | Must agree, at every width. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else; at 64 and 128 the operands are `BigInt`s and the wrap is one `asIntN`. Natively `wrapping*` **is** the machine's own add, subtract and multiply, because §3.4 emits no `nsw`/`nuw`. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
 | 4 | `I128`/`U128` arithmetic | exact | exact | **Must agree, and does.** Both are `BigInt`s (buri-lang/buri#4). `I128` is the escape hatch the language offers when 64 bits are not enough, and an escape hatch that rounds is not one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
-| 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | **Must agree, and does**, at any nesting depth, through `match`, `Eq` or `Show`. | `row_05_nested_option_is_distinct` |
-| 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
+| 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | **Must agree, and does**, at any nesting depth, through `match`, `Equal` or `Show`. | `row_05_nested_option_is_distinct` |
+| 6 | `str.length()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
 | 7 | `str.slice` past the end | clamps (`runtime.js`) | clamps | Must agree. Pinned on the boundary cases. | `row_07_str_slice_clamps` |
 | 8 | Float rendering | JS `Number#toString` | shortest round-trip (SPEC §6.2) | Must agree, character for character. The runtime implements Ryū rather than trusting a libc `printf`. The exhaustive corpus is `native/float_parity.rs`'s 3.8 million doubles; the row here is the end-to-end variant. | `row_08_float_rendering` |
-| 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Eq`, `Ord` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
+| 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Equal`, `Ordered` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
 | 10 | `derive ToJson` output | runtime walker | generated (§9) | Must agree, byte for byte. It is a wire format. The leaf (`stencil/emit.rs::json_prim`, `llvm/emit.rs::json_prim`) builds `Json`'s arm for a primitive — `Bool` to `.Bool`, `Str`/`Char` to `.Str`, every number to `.Num` — and the compound arms are `middle::derives`' own tree. The variant index is read off `core/json`'s declaration by name rather than hard-coded, and the `.Str` arm takes a count, because `middle::rc`'s contract is that an intrinsic borrows and this one's result keeps. `json.stringify` needs closures and is not reachable, so the row's program walks the tree by hand. | `row_10_derived_tojson` |
 | 11 | Division by zero | aborts (`runtime.js`) | aborts | Must agree, including the message. The *whole* stream does not: JavaScript writes `e.stack` after the message, so what is compared is the first line and the status. | `row_11_division_by_zero` |
-| 12 | `Alloc` accounting | `$host_HostAlloc_allocate` | `buri_rt_host_alloc_allocate` | Must agree, and does. The model is *defined* rather than measured (MEMORY.md §7.1), which is what makes agreement checkable: the charge is a function of the argument and the types, so `allocate(64)` is `Region(64)` on both. Nothing accumulates *in* `HostAlloc` on either side; the totals a program can read belong to `core/alloc`'s counters. | `row_12_alloc_accounting` |
+| 12 | `Allocator` accounting | `$host_HostAllocator_allocate` | `buri_rt_host_allocator_allocate` | Must agree, and does. The model is *defined* rather than measured (MEMORY.md §7.1), which is what makes agreement checkable: the charge is a function of the argument and the types, so `allocate(64)` is `Region(64)` on both. Nothing accumulates *in* `HostAllocator` on either side; the totals a program can read belong to `core/alloc`'s counters. | `row_12_alloc_accounting` |
 | 13 | Tail calls in constant stack | rewritten to a loop | rewritten to a loop | Must agree. A merged group's forwarders were labelled `()` for a while, so a mutually recursive `Bool` came back as nothing. | `row_13_tail_calls_run_in_constant_stack` |
 | 14 | Abort message and exit status | stderr, exit 1 (`generate.rs`) | stderr, exit 1 | Must agree. The `.Err` return is the one failure whose whole stream agrees, because nothing was thrown. | `row_14_shift_out_of_range`, `row_14_an_error_return` |
 | 15 | `character.toUpper` / `toLower` where the full case mapping is not one scalar | `"SS"` — a `Char` of two scalars | `'S'` — the **first** scalar of the full mapping | **Divergence, listed**, and the JavaScript side is the one outside the type: `Char` is one Unicode scalar value (`character.buri`), and `"ß".toUpperCase()` is two characters. The *simple* case mapping (`'ß'` unchanged) was the tidier answer and disagrees with JavaScript at `toU32` as well, where the first scalar agrees. So the divergence is confined to **rendering the whole `Char`**, and every use that reads it as a scalar agrees. `cli/runtime/character.rs` §3. | `row_15_char_case_of_a_multi_scalar_mapping` |
@@ -686,8 +686,8 @@ two types, so a `match` whose arms are a string literal and an interpolation —
 shape of every function that returns a message — did not verify natively at all;
 §3.3 says the two *are* one type and the interner now says so too. And
 `cli/tests/crash/` cannot be run through this file as it stands, because every
-case there makes its divisor opaque with `env.args(ctx).len()` and
-`host.HostEnv.args` has no native body; the rows here use `"".len()` instead.
+case there makes its divisor opaque with `env.arguments(ctx).length()` and
+`host.HostEnvironment.arguments` has no native body; the rows here use `"".length()` instead.
 
 **A third, fixed by a ruling rather than by a fifteenth row.** A struct holding
 `NaN` compared with **itself** used to answer `true` on JavaScript and `false` on
@@ -714,7 +714,7 @@ changed:
   `NaN` regardless of payload, so equal values hash equally, which is what a `Map`
   key needs.
 
-Row 9's reason for grouping `Eq` with `Show` — "they are the same generator" — is
+Row 9's reason for grouping `Equal` with `Show` — "they are the same generator" — is
 false and is worth knowing: `derives.rs` runs from `middle::native` and nowhere
 else, so derived equality has **two** implementations, and the only thing
 comparing them is `agreement.rs`.

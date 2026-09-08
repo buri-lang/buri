@@ -356,7 +356,7 @@ pub enum Inst {
         args: Vec<ValueId>,
     },
     /// An operation the runtime supplies, by intrinsic key — `str.concat`,
-    /// `host.HostFs.readFile`. One symbol each (VALUE-MODEL.md §10).
+    /// `host.HostFileSystem.readFile`. One symbol each (VALUE-MODEL.md §10).
     CallIntrinsic {
         dests: Vec<ValueId>,
         key: String,
@@ -566,7 +566,7 @@ pub enum Ownership {
 pub enum Purity {
     /// No `ctx`, no effect-carrying `self`, cannot abort: `memory(none)`.
     Pure,
-    /// Bounded only by `Alloc`, which is inaccessible memory.
+    /// Bounded only by `Allocator`, which is inaccessible memory.
     Allocating,
     /// Bounded by an observable effect: no memory attribute at all.
     Effectful,

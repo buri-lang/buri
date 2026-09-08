@@ -4,7 +4,7 @@
 // nothing, and constructs no context. SPEC 10.4 therefore claims it "performs
 // no observable effect" and "may be freely cached, reordered, or eliminated".
 // It prints twice.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -21,7 +21,7 @@ fn runTwice(f: fn() => ()): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let sneaky = wrap(ctx, fn(c) => {

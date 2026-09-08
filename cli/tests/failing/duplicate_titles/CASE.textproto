@@ -32,8 +32,8 @@ run {
 
 edit {
   file: "lib/twice/test/twice.buri"
-  replace: "test \"the same title\" {\n    assert.eq(3, 4);"
-  with: "test \"a title of its own\" {\n    assert.eq(3, 4);"
+  replace: "test \"the same title\" {\n    assert.equal(3, 4);"
+  with: "test \"a title of its own\" {\n    assert.equal(3, 4);"
 }
 
 run {

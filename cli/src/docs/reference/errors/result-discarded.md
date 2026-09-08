@@ -28,16 +28,16 @@ The compiler looks for the `_` anywhere in the pattern, not only at its head, so
 ## A program that provokes it
 
 ```buri fail code=result-discarded
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Allocator, Stdout };
 # from "core/fs" import * as fs;
-# from "core/fs" import { FsRead };
+# from "core/fs" import { FileSystemRead };
 # from "core/host" import * as host;
 # from "core/path" import * as path;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        FsRead: host.fs,
+        Allocator: host.alloc,
+        FileSystemRead: host.fs,
         Stdout: host.stdout,
     };
     let _ = fs.readText(ctx, path.of(ctx, "config.toml"));

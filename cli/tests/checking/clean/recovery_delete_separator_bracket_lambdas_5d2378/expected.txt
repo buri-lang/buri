@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-separator]
+   --> main.buri:105:20
+    |
+105 |     assert.equal([1 2, 3].map(ctx, fn(n) => n * 2), [2, 4, 6]);
+    |                    ^
+    |
+    = fix: write `,` here

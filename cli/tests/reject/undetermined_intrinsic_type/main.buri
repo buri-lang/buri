@@ -16,6 +16,6 @@ from "core/list" import * as list;
 export fn main(): Result<(), Str> {
     let ctx = context { Stdout: host.stdout };
     let nothing = list.empty();
-    let _ = io.println(ctx, "len ${nothing.len()}").ignore();
+    let _ = io.println(ctx, "length ${nothing.length()}").ignore();
     .Ok(())
 }

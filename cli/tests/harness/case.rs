@@ -884,7 +884,7 @@ pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
 /// while everything they were written to assert is gone.
 ///
 /// That is not hypothetical and it is why this exists. `164a9279` rewrote
-/// `ctx.parallel(…)` to `tasks.parallel(…)`, which asks for `Alloc + Tasks`
+/// `ctx.parallel(…)` to `tasks.parallel(…)`, which asks for `Allocator + Tasks`
 /// where `failing/task_order` and `failing/every_order`'s fixture offered
 /// `Tasks`; `2c92e7c9` — a commit about a lint — then blessed both goldens down
 /// from eighteen and fourteen lines to one, and the only end-to-end coverage of

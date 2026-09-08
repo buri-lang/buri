@@ -1,4 +1,4 @@
-derive Eq, Show for Celsius;
+derive Equal, Show for Celsius;
 export struct Celsius(I64);
 
 export fn fromCelsius(d: I64): Celsius {

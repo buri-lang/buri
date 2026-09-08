@@ -3,7 +3,7 @@
 //! `lang/modules.md` 4.1. Every construct here is one `check_highlighting.sh`
 //! asserts a colour for, in both layers — the grammar's and the server's.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/math" import { round as rounded };
 from "core/str" import { fromFloat, fromInt };
@@ -38,7 +38,7 @@ export enum Source {
    layers go looking for one. */
 
 /// Every struct form the reference writes, in one body.
-export fn describe<C: Alloc>(ctx: C, hash: Str): Str {
+export fn describe<C: Allocator>(ctx: C, hash: Str): Str {
     let id = UserId("u1");
     let name = "Ada";
     let passwordHash = hash;
@@ -51,7 +51,7 @@ export fn describe<C: Alloc>(ctx: C, hash: Str): Str {
     let counts = list.range(ctx, 0, MAX_RETRIES);
     let nothing = list.empty<Int>();
     let origin = Source.Catalogue {
-        page: u2.name.len() + counts.len() + nothing.len(),
+        page: u2.name.length() + counts.length() + nothing.length(),
     };
     let shelf: Source = .Shelf;
     match (origin) {

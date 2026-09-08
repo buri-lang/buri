@@ -10,10 +10,10 @@
 //! # Why a table and not a mangling
 //!
 //! `cli/runtime/lib.rs` §1 states the rule — "every exported symbol is
-//! `buri_rt_` followed by `snake_case`", so `host.HostFs.readFile` is
-//! `buri_rt_host_fs_read_file` — and a fifteen-line mangler would produce that
+//! `buri_rt_` followed by `snake_case`", so `host.HostFileSystem.readFile` is
+//! `buri_rt_host_file_system_read_file` — and a fifteen-line mangler would produce that
 //! string. It would also produce `buri_rt_str_concat` for `str.concat` and
-//! `buri_rt_list_len` for `list.len`, **neither of which exists**: the archive
+//! `buri_rt_list_len` for `list.length`, **neither of which exists**: the archive
 //! is deliberately not the whole of the 203-function intrinsic surface
 //! (`cli/runtime/lib.rs` §0), and what is not in it is either generated code —
 //! `str.concat` is an allocation and two copies — or a later wave.
@@ -159,7 +159,7 @@ pub enum Ret {
     /// One integer of exactly this many bits, which is **not** the dest's
     /// register shape and is narrowed to it at the call site.
     ///
-    /// The C boundary has no `i1` and no `i8` enum tag: `buri_rt_str_eq`
+    /// The C boundary has no `i1` and no `i8` enum tag: `buri_rt_str_equal`
     /// returns `u8` and `buri_rt_str_compare` returns `i32`, while `Bool` is an
     /// `i1` and `Order` is whatever width `middle::layout` gave a three-variant
     /// bare tag. Declaring the import at the dest's width instead would be a
@@ -193,7 +193,7 @@ pub enum Ret {
     /// `backend/runtime_table.rs`'s twin states in full: whether an enum error
     /// is named by an index is the type's business, and whether an entry has
     /// anything to *say* when it names the payload-carrying variant is the
-    /// implementation's. `Fs` carries a message because `ENOTEMPTY` and
+    /// implementation's. `FileSystem` carries a message because `ENOTEMPTY` and
     /// `EISDIR` have no `IoError` variant at all; the stream writers do not,
     /// because the pointer is an address into the destination and a function
     /// that prints would stop keeping its `Result` in registers.
@@ -208,7 +208,7 @@ pub enum Ret {
     /// carrying no fields, so the tag is the whole of it.
     ///
     /// The out-pointer is **omitted where `T` is zero-sized**
-    /// (`TestFs.writeFile`'s `Result<(), IoError>`), for the reason [`Ret::Out`]
+    /// (`TestFileSystem.writeFile`'s `Result<(), IoError>`), for the reason [`Ret::Out`]
     /// omits it: a parameter for a value with no bytes is one the archive and
     /// the backend can disagree about for free.
     Res,
@@ -248,7 +248,7 @@ pub const BURI_OK: i64 = -1;
 /// What is deliberately still out, and why, so that a reader looking for one of
 /// these finds the reason rather than an absence:
 ///
-///  * **`str.concat`, `str.format`, `str.len`, `list.len`.** Open-coded in
+///  * **`str.concat`, `str.format`, `str.length`, `list.length`.** Open-coded in
 ///    [`super::emit::Unit::open_coded`]: each is an allocation and two copies,
 ///    a no-op, a masked load, or a word this backend already has the address
 ///    of, and a call would cost more than the sequence it stands for.
@@ -301,10 +301,10 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::List],
         ret: Ret::Res,
     },
-    // -- Fs, the whole effect ----------------------------------------------
+    // -- FileSystem, the whole effect ----------------------------------------------
     //
     // Twelve operations, and until they landed no native backend had one of
-    // them: a binary that bound `Fs: host.fs` was refused before code
+    // them: a binary that bound `FileSystemRead: host.fs` was refused before code
     // generation while `cli/runtime/host.rs` had a body for every one
     // (buri-lang/buri#36). What was missing was never the body and never the
     // shape of the *arguments* — it was the shape of the **error**. All eleven
@@ -317,45 +317,45 @@ pub const ENTRIES: &[Entry] = &[
     // off `IoError`'s layout. *Whether an entry has one* is [`Ret::ResMsg`],
     // which these eleven carry and the five stream writers above do not.
     //
-    // `self` is `HostFs`, an empty struct, so `Arg::Dropped` leads every row.
+    // `self` is `HostFileSystem`, an empty struct, so `Arg::Dropped` leads every row.
     // A `Str` body is three parameters and a `[U8]` body is two, which is the
     // difference between `writeFile` and `writeFileBytes`.
     Entry {
-        key: "host.HostFs.readFile",
-        symbol: "buri_rt_host_fs_read_file",
+        key: "host.HostFileSystem.readFile",
+        symbol: "buri_rt_host_file_system_read_file",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.writeFile",
-        symbol: "buri_rt_host_fs_write_file",
+        key: "host.HostFileSystem.writeFile",
+        symbol: "buri_rt_host_file_system_write_file",
         args: &[Arg::Dropped, Arg::Str, Arg::Str],
         ret: Ret::ResMsg,
     },
-    // The one operation of `Fs` that cannot fail, so the one that is not a
+    // The one operation of `FileSystem` that cannot fail, so the one that is not a
     // `Result`: a `Bool` comes back as the `u8` a C boundary has for it.
     Entry {
-        key: "host.HostFs.fileExists",
-        symbol: "buri_rt_host_fs_file_exists",
+        key: "host.HostFileSystem.fileExists",
+        symbol: "buri_rt_host_file_system_file_exists",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "host.HostFs.readDir",
-        symbol: "buri_rt_host_fs_read_dir",
+        key: "host.HostFileSystem.readDir",
+        symbol: "buri_rt_host_file_system_read_dir",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.readFileBytes",
-        symbol: "buri_rt_host_fs_read_file_bytes",
+        key: "host.HostFileSystem.readFileBytes",
+        symbol: "buri_rt_host_file_system_read_file_bytes",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     // `Tcp`'s four, from `cli/runtime/tcp.rs`. `self` is zero-sized and
     // dropped; a host is a `Str` and so three parameters; a body is a `[U8]`
     // and so two. All three fallible ones are `Ret::ResMsg` for
-    // `host.HostFs`'s reason — a socket meets failures `IoError` has no variant
+    // `host.HostFileSystem`'s reason — a socket meets failures `IoError` has no variant
     // for — and `tcpClose` answers `()` and cannot fail at all.
     Entry {
         key: "host.HostTcp.tcpConnect",
@@ -382,44 +382,44 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Void,
     },
     Entry {
-        key: "host.HostFs.writeFileBytes",
-        symbol: "buri_rt_host_fs_write_file_bytes",
+        key: "host.HostFileSystem.writeFileBytes",
+        symbol: "buri_rt_host_file_system_write_file_bytes",
         args: &[Arg::Dropped, Arg::Str, Arg::List],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.appendFile",
-        symbol: "buri_rt_host_fs_append_file",
+        key: "host.HostFileSystem.appendFile",
+        symbol: "buri_rt_host_file_system_append_file",
         args: &[Arg::Dropped, Arg::Str, Arg::List],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.renameFile",
-        symbol: "buri_rt_host_fs_rename_file",
+        key: "host.HostFileSystem.renameFile",
+        symbol: "buri_rt_host_file_system_rename_file",
         args: &[Arg::Dropped, Arg::Str, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.removeFile",
-        symbol: "buri_rt_host_fs_remove_file",
+        key: "host.HostFileSystem.removeFile",
+        symbol: "buri_rt_host_file_system_remove_file",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.removeDir",
-        symbol: "buri_rt_host_fs_remove_dir",
+        key: "host.HostFileSystem.removeDir",
+        symbol: "buri_rt_host_file_system_remove_dir",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.makeDir",
-        symbol: "buri_rt_host_fs_make_dir",
+        key: "host.HostFileSystem.makeDir",
+        symbol: "buri_rt_host_file_system_make_dir",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.syncFile",
-        symbol: "buri_rt_host_fs_sync_file",
+        key: "host.HostFileSystem.syncFile",
+        symbol: "buri_rt_host_file_system_sync_file",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
@@ -427,26 +427,26 @@ pub const ENTRIES: &[Entry] = &[
     // it: `Ret::Out`'s pointer is the destination's own slot, so the entry
     // writes `Metadata`'s three fields where they already belong.
     Entry {
-        key: "host.HostFs.metadata",
-        symbol: "buri_rt_host_fs_metadata",
+        key: "host.HostFileSystem.metadata",
+        symbol: "buri_rt_host_file_system_metadata",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.readRange",
-        symbol: "buri_rt_host_fs_read_range",
+        key: "host.HostFileSystem.readRange",
+        symbol: "buri_rt_host_file_system_read_range",
         args: &[Arg::Dropped, Arg::Str, Arg::Scalar, Arg::Scalar],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.realPath",
-        symbol: "buri_rt_host_fs_real_path",
+        key: "host.HostFileSystem.realPath",
+        symbol: "buri_rt_host_file_system_real_path",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
-        key: "host.HostFs.copyFile",
-        symbol: "buri_rt_host_fs_copy_file",
+        key: "host.HostFileSystem.copyFile",
+        symbol: "buri_rt_host_file_system_copy_file",
         args: &[Arg::Dropped, Arg::Str, Arg::Str],
         ret: Ret::ResMsg,
     },
@@ -459,32 +459,32 @@ pub const ENTRIES: &[Entry] = &[
     // wired the host surface up, and a program cannot read its own arguments
     // without them.
     Entry {
-        key: "host.HostEnv.variable",
-        symbol: "buri_rt_host_env_variable",
+        key: "host.HostEnvironment.variable",
+        symbol: "buri_rt_host_environment_variable",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::Sum,
     },
     Entry {
-        key: "host.HostEnv.args",
-        symbol: "buri_rt_host_env_args",
+        key: "host.HostEnvironment.arguments",
+        symbol: "buri_rt_host_environment_arguments",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
     Entry {
-        key: "host.HostEnv.currentDirectory",
-        symbol: "buri_rt_host_env_current_directory",
+        key: "host.HostEnvironment.currentDirectory",
+        symbol: "buri_rt_host_environment_current_directory",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
     Entry {
-        key: "host.HostEnv.allVariables",
-        symbol: "buri_rt_host_env_all_variables",
+        key: "host.HostEnvironment.allVariables",
+        symbol: "buri_rt_host_environment_all_variables",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
     Entry {
-        key: "host.HostEnv.operatingSystemName",
-        symbol: "buri_rt_host_env_operating_system_name",
+        key: "host.HostEnvironment.operatingSystemName",
+        symbol: "buri_rt_host_environment_operating_system_name",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
@@ -511,14 +511,14 @@ pub const ENTRIES: &[Entry] = &[
     },
     // -- the scalar capabilities -------------------------------------------
     Entry {
-        key: "host.HostClock.nowMillis",
-        symbol: "buri_rt_host_clock_now_millis",
+        key: "host.HostClock.nowMilliseconds",
+        symbol: "buri_rt_host_clock_now_milliseconds",
         args: &[Arg::Dropped],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "host.HostClock.sleepMillis",
-        symbol: "buri_rt_host_clock_sleep_millis",
+        key: "host.HostClock.sleepMilliseconds",
+        symbol: "buri_rt_host_clock_sleep_milliseconds",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Void,
     },
@@ -529,14 +529,14 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Scalar,
     },
     Entry {
-        key: "host.HostRand.nextInt",
-        symbol: "buri_rt_host_rand_next_int",
+        key: "host.HostRandom.nextInt",
+        symbol: "buri_rt_host_random_next_int",
         args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "host.HostRand.nextFloat",
-        symbol: "buri_rt_host_rand_next_float",
+        key: "host.HostRandom.nextFloat",
+        symbol: "buri_rt_host_random_next_float",
         args: &[Arg::Dropped],
         ret: Ret::Scalar,
     },
@@ -548,17 +548,17 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Out,
     },
-    // The `Alloc` capability's charge, which is the identity function plus a
+    // The `Allocator` capability's charge, which is the identity function plus a
     // budget check in the runtime (`memory.rs:330`).
     Entry {
-        key: "host.HostAlloc.allocate",
-        symbol: "buri_rt_host_alloc_allocate",
+        key: "host.HostAllocator.allocate",
+        symbol: "buri_rt_host_allocator_allocate",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "host.HostProc.exitWith",
-        symbol: "buri_rt_host_proc_exit_with",
+        key: "host.HostProcess.exitWith",
+        symbol: "buri_rt_host_process_exit_with",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::NoReturn,
     },
@@ -961,17 +961,17 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Int(32),
     },
     // Not declared in `core/str`: this is the `Str` arm of an `Inst::Binary`
-    // at `Prim::Str`, which is what `middle::derives` emits for a derived `Eq`
-    // over a type with a `Str` in it (`derives.rs`'s `fn eq`).
+    // at `Prim::Str`, which is what `middle::derives` emits for a derived `Equal`
+    // over a type with a `Str` in it (`derives.rs`'s `fn equal`).
     Entry {
-        key: "str.eq",
-        symbol: "buri_rt_str_eq",
+        key: "str.equal",
+        symbol: "buri_rt_str_equal",
         args: &[Arg::Str, Arg::Str],
         ret: Ret::Int(8),
     },
     Entry { key: "str.toInt", symbol: "buri_rt_str_to_int", args: &[Arg::Str], ret: Ret::Sum },
     Entry { key: "str.toFloat", symbol: "buri_rt_str_to_float", args: &[Arg::Str], ret: Ret::Sum },
-    // -- core/str, the `<C: Alloc>` half ------------------------------------
+    // -- core/str, the `<C: Allocator>` half ------------------------------------
     //
     // The context is an empty record in every implementation `core/host`
     // supplies, so it is zero-sized and dropped (VALUE-MODEL.md §8) — it is
@@ -1141,16 +1141,16 @@ pub const ENTRIES: &[Entry] = &[
     // -- core/math (`cli/runtime/math.rs`) ----------------------------------
     //
     // Nine of the twenty-two. The other thirteen are the transcendentals —
-    // `cbrt`, `pow`, `exp`, `ln`, `log10`, `log2`, the six trigonometric ones
+    // `cubeRoot`, `power`, `exp`, `ln`, `log10`, `log2`, the six trigonometric ones
     // and `atan2` — and they are **deliberately** absent rather than a call to
     // libm. IEEE 754 does not fix their answers, so V8's fdlibm port and a
     // platform libm differ in the last bit, and a rendered `Float` shows all
     // seventeen digits of that difference. A named gap is a diagnostic; a libm
     // call is a conformance failure nobody can attribute.
-    Entry { key: "math.sqrt", symbol: "buri_rt_math_sqrt", args: &[Arg::Scalar], ret: Ret::Scalar },
+    Entry { key: "math.squareRoot", symbol: "buri_rt_math_square_root", args: &[Arg::Scalar], ret: Ret::Scalar },
     Entry {
-        key: "math.absFloat",
-        symbol: "buri_rt_math_abs_float",
+        key: "math.absoluteFloat",
+        symbol: "buri_rt_math_absolute_float",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
@@ -1160,10 +1160,10 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
-    Entry { key: "math.ceil", symbol: "buri_rt_math_ceil", args: &[Arg::Scalar], ret: Ret::Scalar },
+    Entry { key: "math.ceiling", symbol: "buri_rt_math_ceiling", args: &[Arg::Scalar], ret: Ret::Scalar },
     Entry {
-        key: "math.trunc",
-        symbol: "buri_rt_math_trunc",
+        key: "math.truncate",
+        symbol: "buri_rt_math_truncate",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
@@ -1213,7 +1213,7 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `Arg::Elems` and not `Arg::List`, because the source's element type is
     // what `generic_element` answers and what the entry thunk is generated at.
-    // `Arg::Dropped` for the `Alloc` context, as every other `core/list` row
+    // `Arg::Dropped` for the `Allocator` context, as every other `core/list` row
     // has it: the runtime allocates through `buri_rt_alloc`.
     Entry {
         key: "list.mapCtxStep",
@@ -1352,11 +1352,11 @@ pub const ENTRIES: &[Entry] = &[
     // list flattened, and dropping a parameter because one implementation has
     // no use for it is exactly the kind of disagreement nothing diagnoses.
     //
-    // `proc` and `TestProc.exitWith` have no rows, for `TestNet.fetch`'s reason
+    // `proc` and `TestProcess.exitWith` have no rows, for `TestNetwork.fetch`'s reason
     // rather than the allocator's: both are Buri bodies, so no key reaches this
-    // table. `TestProc` records nothing because nothing can read it back.
+    // table. `TestProcess` records nothing because nothing can read it back.
     //
-    // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`).
+    // `alloc` and `TestAllocator.allocate` are open-coded (`emit.rs`).
     Entry {
         key: "host_testing.stdout",
         symbol: "buri_rt_host_testing_stdout",
@@ -1450,10 +1450,10 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
-    // `TestFs`'s twenty-two, every one over a **handle**: a `TestFs` is a handle
+    // `TestFileSystem`'s twenty-two, every one over a **handle**: a `TestFileSystem` is a handle
     // and a fault plan since the plan landed, and an argument crosses as its
     // leaves, so a row taking `self` would be handed three values where it
-    // expects one. The eleven methods of `Fs` are Buri bodies over these rows,
+    // expects one. The eleven methods of `FileSystem` are Buri bodies over these rows,
     // and `host_testing.buri` says why the plan stays in the program — an
     // `IoError` carries a `Str` on `.Other`, which §2.1 cannot name.
     //
@@ -1608,7 +1608,7 @@ pub const ENTRIES: &[Entry] = &[
     },
     // The fault plan's promise. The plan never crosses — it is a list of Buri
     // values holding an `IoError`, and §2.1 cannot name an error variant that
-    // carries a field, so matching is the `Eq` the `Call` records derive and
+    // carries a field, so matching is the `Equal` the `Call` records derive and
     // happens in `host_testing.buri`. These carry the half a program cannot
     // keep: `addFsFault` and `addNetFault` say what an entry would read like in
     // a failure message, `noteFault` records that one fired, and `test.leave`
@@ -1661,15 +1661,15 @@ pub const ENTRIES: &[Entry] = &[
     // decode and not a filesystem operation: a test writing a call down performs
     // no effect and so has no context to reach `bytes.fromUtf8` with.
     //
-    // The other three are `TestNet`'s. `net()` and `TestNet.fetch` are Buri
+    // The other three are `TestNetwork`'s. `net()` and `TestNetwork.fetch` are Buri
     // bodies and have no row — the absent-key list below says why — but a log is
     // state, so the handle naming it is minted here (`alloc.newCounter`'s
     // shape), written by `recordFetch` once the responder has answered, and read
     // back by `netCalls`. `recordFetch` is handed `Request` flattened by §2 rule
     // 1: the method's variant index as an `Int`, the URL's three leaves, two
     // `(ptr, len)` pairs and the bound in milliseconds —
-    // `buri_rt_host_net_fetch`'s argument list without its answer. `netCalls`
-    // takes the handle rather than the `TestNet`, because that value carries the
+    // `buri_rt_host_network_fetch`'s argument list without its answer. `netCalls`
+    // takes the handle rather than the `TestNetwork`, because that value carries the
     // responder too and an argument crosses as its leaves.
     Entry {
         key: "host_testing.spelled",
@@ -1695,7 +1695,7 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
-    // `tcp()`'s seven. `TestStdin`'s arrangement rather than `TestNet`'s: the
+    // `tcp()`'s seven. `TestStdin`'s arrangement rather than `TestNetwork`'s: the
     // handle names the script, the open streams and the log, so every one of
     // these leads with it and none of them needs a plan.
     Entry {
@@ -1726,7 +1726,7 @@ pub const ENTRIES: &[Entry] = &[
         key: "host_testing.recordTcpWrite",
         symbol: "buri_rt_host_testing_record_tcp_write",
         args: &[Arg::Scalar, Arg::Scalar, Arg::List],
-        // A `Bool`, and the archive answers a `u8` — `host.HostFs.fileExists`'s
+        // A `Bool`, and the archive answers a `u8` — `host.HostFileSystem.fileExists`'s
         // shape, and for its reason: the C boundary has no `i1`.
         ret: Ret::Int(8),
     },
@@ -1825,14 +1825,14 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestClock.nowMillis",
-        symbol: "buri_rt_host_testing_test_clock_now_millis",
+        key: "host_testing.TestClock.nowMilliseconds",
+        symbol: "buri_rt_host_testing_test_clock_now_milliseconds",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestClock.sleepMillis",
-        symbol: "buri_rt_host_testing_test_clock_sleep_millis",
+        key: "host_testing.TestClock.sleepMilliseconds",
+        symbol: "buri_rt_host_testing_test_clock_sleep_milliseconds",
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
@@ -1849,20 +1849,20 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestRand.seed",
-        symbol: "buri_rt_host_testing_test_rand_seed",
+        key: "host_testing.TestRandom.seed",
+        symbol: "buri_rt_host_testing_test_random_seed",
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestRand.nextInt",
-        symbol: "buri_rt_host_testing_test_rand_next_int",
+        key: "host_testing.TestRandom.nextInt",
+        symbol: "buri_rt_host_testing_test_random_next_int",
         args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestRand.nextFloat",
-        symbol: "buri_rt_host_testing_test_rand_next_float",
+        key: "host_testing.TestRandom.nextFloat",
+        symbol: "buri_rt_host_testing_test_random_next_float",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
@@ -1886,44 +1886,44 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry { key: "host_testing.env", symbol: "buri_rt_host_testing_env", args: &[], ret: Ret::Out },
     Entry {
-        key: "host_testing.TestEnv.variables",
-        symbol: "buri_rt_host_testing_test_env_variables",
+        key: "host_testing.TestEnvironment.variables",
+        symbol: "buri_rt_host_testing_test_environment_variables",
         args: &[Arg::Scalar, Arg::List],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.arguments",
-        symbol: "buri_rt_host_testing_test_env_arguments",
+        key: "host_testing.TestEnvironment.withArguments",
+        symbol: "buri_rt_host_testing_test_environment_with_arguments",
         args: &[Arg::Scalar, Arg::List],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.variable",
-        symbol: "buri_rt_host_testing_test_env_variable",
+        key: "host_testing.TestEnvironment.variable",
+        symbol: "buri_rt_host_testing_test_environment_variable",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Sum,
     },
     Entry {
-        key: "host_testing.TestEnv.args",
-        symbol: "buri_rt_host_testing_test_env_args",
+        key: "host_testing.TestEnvironment.arguments",
+        symbol: "buri_rt_host_testing_test_environment_arguments",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.currentDirectory",
-        symbol: "buri_rt_host_testing_test_env_current_directory",
+        key: "host_testing.TestEnvironment.currentDirectory",
+        symbol: "buri_rt_host_testing_test_environment_current_directory",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.allVariables",
-        symbol: "buri_rt_host_testing_test_env_all_variables",
+        key: "host_testing.TestEnvironment.allVariables",
+        symbol: "buri_rt_host_testing_test_environment_all_variables",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.operatingSystemName",
-        symbol: "buri_rt_host_testing_test_env_operating_system_name",
+        key: "host_testing.TestEnvironment.operatingSystemName",
+        symbol: "buri_rt_host_testing_test_environment_operating_system_name",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -1951,7 +1951,7 @@ pub const ENTRIES: &[Entry] = &[
     // double is small: the double itself, the mint, the three methods of
     // `Sockets`, and the two readers.
     //
-    // `socketsSent` and `socketsIsOpen` take the **handle** in `TestFs`'s
+    // `socketsSent` and `socketsIsOpen` take the **handle** in `TestFileSystem`'s
     // shape, but for a different reason: a `TestSockets` *is* a bare handle, so
     // `self` would have crossed fine — these two are Buri bodies because one
     // builds a `Message` out of the flat record the archive writes
@@ -2284,7 +2284,7 @@ pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `Unit::call_sum` — which translates an `i32` discriminant into whatever
 /// `middle::layout` chose for the `Option` — can be driven by something that is
 /// not an [`ENTRIES`] row: this operation has no intrinsic key of its own, it is
-/// the 128-bit arm of `num.I128.checkedAdd`.
+/// the 128-bit arm of `number.I128.checkedAdd`.
 const I128_CHECKED: &str = "buri_rt_i128_checked";
 pub const I128_SATURATING: &str = "buri_rt_i128_saturating";
 
@@ -2292,14 +2292,14 @@ pub const I128_SATURATING: &str = "buri_rt_i128_saturating";
 /// call path can be reused. `args` is empty because the argument list is built
 /// at the call site from a 128-bit pair rather than from a Buri signature.
 pub const I128_CHECKED_ENTRY: Entry = Entry {
-    key: "num.<128>.checked",
+    key: "number.<128>.checked",
     symbol: I128_CHECKED,
     args: &[],
     ret: Ret::Sum,
 };
 
 /// `buri_rt_str_scalar_len(ptr, byte_len) -> u64` — the slow half of
-/// `str.len`, called only where the ASCII flag is clear.
+/// `str.length`, called only where the ASCII flag is clear.
 pub const STR_SCALAR_LEN: &str = "buri_rt_str_scalar_len";
 
 // -- rendering: a template hole, and `derivePrimShow` ------------------------
@@ -2411,16 +2411,16 @@ mod tests {
         for e in ENTRIES {
             assert_eq!(symbol_for(e.key), e.symbol, "{}", e.key);
         }
-        assert_eq!(symbol_for("host.HostFs.readFile"), "buri_rt_host_fs_read_file");
-        assert_eq!(symbol_for("host.HostProc.exitWith"), "buri_rt_host_proc_exit_with");
+        assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_file_system_read_file");
+        assert_eq!(symbol_for("host.HostProcess.exitWith"), "buri_rt_host_process_exit_with");
         assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
         // The one that does not collapse, because the repetition is real:
         // `memory.rs:330` exports it under this name.
-        assert_eq!(symbol_for("host.HostAlloc.allocate"), "buri_rt_host_alloc_allocate");
+        assert_eq!(symbol_for("host.HostAllocator.allocate"), "buri_rt_host_allocator_allocate");
         assert_eq!(symbol_for("list.map"), "buri_rt_list_map");
     }
 
-    /// **Every operation of `FsRead`, `FsWrite`, `Env` and `Stdin` has a row
+    /// **Every operation of `FileSystemRead`, `FileSystemWrite`, `Environment` and `Stdin` has a row
     /// here too.**
     ///
     /// buri-lang/buri#36, on this side of `cli/tests/README.md`'s bar. The two
@@ -2442,9 +2442,9 @@ mod tests {
         };
         let mut checked = 0usize;
         for (source, effect, host) in [
-            (module("core/fs"), "FsRead", "HostFs"),
-            (module("core/fs"), "FsWrite", "HostFs"),
-            (module("core/effect"), "Env", "HostEnv"),
+            (module("core/fs"), "FileSystemRead", "HostFileSystem"),
+            (module("core/fs"), "FileSystemWrite", "HostFileSystem"),
+            (module("core/effect"), "Environment", "HostEnvironment"),
             (module("core/effect"), "Stdin", "HostStdin"),
         ] {
             let body = source
@@ -2472,7 +2472,7 @@ mod tests {
     /// these ever gains a symbol, this test is the reminder to add its shape
     /// rather than to let the mangler invent it.
     ///
-    /// `str.concat`, `str.format`, `str.len`, `list.len` and `list.empty` are
+    /// `str.concat`, `str.format`, `str.length`, `list.length` and `list.empty` are
     /// open-coded; `derivePrimShow` and `derivePrimHash` arrive qualified by
     /// their primitive (`derivePrimShow.U8`) and so have no key of their own;
     /// `json.decode` and every `list.*` entry taking a closure are outside the
@@ -2482,8 +2482,8 @@ mod tests {
         for absent in [
             "str.concat",
             "str.format",
-            "str.len",
-            "list.len",
+            "str.length",
+            "list.length",
             "json.decode",
             "derivePrimShow",
             "derivePrimHash",
@@ -2495,30 +2495,30 @@ mod tests {
             // backend cannot compile it" stay two different statements: the
             // allocator is two instructions on both native backends.
             "host_testing.alloc",
-            "host_testing.TestAlloc.allocate",
+            "host_testing.TestAllocator.allocate",
             // Buri bodies, for the reason two paragraphs up.
             "host_testing.fs",
-            "host_testing.TestFs.readFile",
-            "host_testing.TestFs.faults",
-            // `host.HostFs`'s twelve, `host.HostEnv`'s two and
+            "host_testing.TestFileSystem.readFile",
+            "host_testing.TestFileSystem.faults",
+            // `host.HostFileSystem`'s twelve, `host.HostEnvironment`'s two and
             // `host.HostStdin`'s two used to be here — sixteen keys with a body
             // in `cli/runtime/host.rs`, no row in either runtime table, and a
             // native binary that could not touch a file or read its own
             // arguments (buri-lang/buri#36). They are rows now, and the two
-            // halves of that gap were different: `Env` and `Stdin` were waiting
-            // on nothing but the row, and `Fs` was waiting on §2.1's message
+            // halves of that gap were different: `Environment` and `Stdin` were waiting
+            // on nothing but the row, and `FileSystem` was waiting on §2.1's message
             // shape.
             //
-            // `host.HostNet.fetch` has a body in the archive and no row, and
+            // `host.HostNetwork.fetch` has a body in the archive and no row, and
             // not because nobody got to it: `Ret::Res` names the error variant
             // by index and `lib.rs` §2.1 restricts that variant to carrying no
             // fields, while `NetError` carries a `Str` on `BadUrl` and on
             // `Transport`. The row waits on §2.1, not on a table edit — the
             // same statement `runtime_table.rs`'s list makes.
-            "host.HostNet.fetch",
+            "host.HostNetwork.fetch",
             // `core/host/testing`'s `net()` answers the same shape and needs
-            // no row at all: `TestNet` carries its responder as a value and
-            // `TestNet.fetch` is a Buri body that calls it, so no key is
+            // no row at all: `TestNetwork` carries its responder as a value and
+            // `TestNetwork.fetch` is a Buri body that calls it, so no key is
             // produced for it here. That is the same wall read from the other
             // side — a responder is a `{ code, env }` pair the archive has no
             // way to invoke, and its answer is the `Result<Response, NetError>`
@@ -2531,14 +2531,14 @@ mod tests {
             // program and only its rendering and its fired flags cross.
             //
             // `host_testing.fs` is absent for a different reason and is not a
-            // gap: `fs()` is a Buri body too now, because a `TestFs` is a handle
+            // gap: `fs()` is a Buri body too now, because a `TestFileSystem` is a handle
             // and a plan. `newFs` is the row that mints the handle.
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
     }
 
-    /// `host.HostNet.fetch`, in both directions.
+    /// `host.HostNetwork.fetch`, in both directions.
     ///
     /// The archive exports exactly the symbol the mangling rule produces — so
     /// a row added later needs no invention — and this table has no row for
@@ -2547,8 +2547,8 @@ mod tests {
     /// exists" and "this backend can call it" two separate claims.
     #[test]
     fn host_net_fetch_has_a_symbol_and_no_row() {
-        assert_eq!(symbol_for("host.HostNet.fetch"), "buri_rt_host_net_fetch");
-        assert!(entry("host.HostNet.fetch").is_none());
+        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_network_fetch");
+        assert!(entry("host.HostNetwork.fetch").is_none());
     }
 
     /// The two shapes the backend supplies for itself emit a parameter and
@@ -2676,7 +2676,7 @@ mod tests {
     /// receiver — `HostStdout` is an empty struct — which `runtime_table.rs`
     /// needs no column for, because a value of no bytes spreads to no leaves
     /// there anyway. A **context** is the case where that reasoning fails: it
-    /// is dropped whatever it weighs, and `C: Alloc` is an ordinary bound that
+    /// is dropped whatever it weighs, and `C: Allocator` is an ordinary bound that
     /// an ordinary implementing value satisfies (SPEC 10.1), so the argument
     /// can arrive carrying a handle. Hence: every context the other table names
     /// must be dropped here.

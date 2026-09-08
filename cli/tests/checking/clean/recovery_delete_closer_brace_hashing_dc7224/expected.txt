@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:33:45
+   |
+33 |     assert.equal(table.get(id), .Some("ada");
+   |                                             ^
+   |
+  --> main.buri:33:17
+   |
+33 |     assert.equal(table.get(id), .Some("ada");
+   |                 ^ opened here
+   |
+   = fix: write `)` here

@@ -195,7 +195,7 @@ ExportableBody  ::= FnDecl
 
 (* A declaration with no body ends in `;` instead of a Block. It is how the
    bundled standard library declares the operations the runtime supplies
-   (`export fn len(self): Int;`, std/str.buri:18) and, as MethodSig below,
+   (`export fn length(self): Int;`, std/str.buri:18) and, as MethodSig below,
    how a trait or an effect states a method.
 
    The two are one production because they are one shape to the parser, which
@@ -348,7 +348,7 @@ DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" type=NamedType ";"
    grammar one.
 
    The left side of a binding is a NamedType because it names an effect, which
-   may be written qualified (`effects.Alloc`). The right side is any expression. *)
+   may be written qualified (`effects.Allocator`). The right side is any expression. *)
 
 ContextDecl     ::= "context" name=IDENT ContextBody
 
@@ -907,7 +907,7 @@ TEMPLATE_TAIL   ::= "}"  StrChar* '"'
 (* --- Punctuation and operators ---------------------------------------------
    Longest-match wins. Note the deliberate absences:
      * there is no ">>" or "<<" token, so `Map<Str, List<Int>>` never
-       mis-lexes; use bits.shl / bits.shr instead.
+       mis-lexes; use bits.shiftLeft / bits.shiftRight instead.
      * there is no "?." token, so `x?.field` is `x` `?` `.` `field`.
      * there is no "..." token; "``..``" serves in patterns and struct
        spreads alike.                                                        *)

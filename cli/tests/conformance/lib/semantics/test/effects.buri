@@ -3,7 +3,7 @@
 // This file used to carry a recorded compiler bug in this comment: an effect
 // *inherited* through a `..spread` could not be used, because the binding the
 // spread copied did not carry the implementing type the base had recorded, and
-// so `context { ..Defaults(), FsRead: fs() }` typechecked but any call through
+// so `context { ..Defaults(), FileSystemRead: fs() }` typechecked but any call through
 // the inherited `Clock` failed at monomorphization with "`Clock` could not be
 // resolved to a concrete type". It is fixed — the spread keeps that type
 // (`semantics/expressions.rs`, `check_context_body`) — and the section
@@ -13,15 +13,16 @@
 
 from "core/bytes" import * as bytes;
 from "core/effect" import {
-    Alloc, Clock, Env, Header, IoError, Listen, Listener, Net, Rand, Received, Request,
-    Response, Serve, ServeError, ServeFailure, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, Random,
+    Received, Request, Response, Serve, ServeError, ServeFailure, Sockets, Stderr,
+    Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/host/testing" import {
     alloc, clock, env, fs, net, rand, readFileBytes, renameFile, stderr, stdin, stdout,
-    syncFile, TestFs, TestStdout, writeFileBytes,
+    syncFile, TestFileSystem, TestStdout, writeFileBytes,
 };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -53,35 +54,35 @@ from "//lib/semantics" import {
 /// never names has to arrive from somewhere, and this is the somewhere.
 ///
 /// **The filesystem is here read-only, and that is a fact about declarations
-/// rather than a preference.** `FsRead` and `FsWrite` are two effects over one
+/// rather than a preference.** `FileSystemRead` and `FileSystemWrite` are two effects over one
 /// filesystem, so a context that has both has to bind *one* double to both
 /// names — and a declaration's bindings are two separate expressions, so
-/// `FsRead: fs(), FsWrite: fs()` would be two filesystems and a write would
+/// `FileSystemRead: fs(), FileSystemWrite: fs()` would be two filesystems and a write would
 /// land where the read cannot see it. A block that writes therefore names its
 /// double first and builds the context around it, which is what every writing
 /// test below does.
 context Defaults {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Stdout: stdout(),
     Stderr: stderr(),
     Stdin: stdin(),
-    FsRead: fs(),
-    Net: net(),
+    FileSystemRead: fs(),
+    Network: net(),
     Clock: clock(),
-    Rand: rand(),
-    Env: env(),
+    Random: rand(),
+    Environment: env(),
 }
 
 /// Begins with a spread and replaces one binding.
 context Fixture {
     ..Defaults(),
-    FsRead: fs().files([("config.toml", "port=8080"), ("empty.txt", "")]),
+    FileSystemRead: fs().files([("config.toml", "port=8080"), ("empty.txt", "")]),
 }
 
 /// A second declaration built from the first, replacing that same binding.
 context OtherPort {
     ..Fixture(),
-    FsRead: fs().files([("config.toml", "port=9999")]),
+    FileSystemRead: fs().files([("config.toml", "port=9999")]),
 }
 
 /// A third, built from the second: two spreads between this and `Defaults`,
@@ -92,44 +93,44 @@ context DeepFixture {
 }
 
 /// A spread whose replacement is a *generic* wrapper. The binding written here
-/// is `Guarded<TestFs>`, so what a later spread carries is an implementing type
+/// is `Guarded<TestFileSystem>`, so what a later spread carries is an implementing type
 /// with type arguments of its own rather than a bare one.
 context WrappedFixture {
     ..Defaults(),
-    FsRead: guarded(fs().files([("a", "A")])),
+    FileSystemRead: guarded(fs().files([("a", "A")])),
 }
 
 /// A context assembled from scratch, naming only two effects.
 context Tiny {
-    Alloc: alloc(),
-    FsRead: fs().files([("a", "A")]),
+    Allocator: alloc(),
+    FileSystemRead: fs().files([("a", "A")]),
 }
 
 /// A context that binds *my* implementations rather than the runner's.
 context Mine {
-    Alloc: alloc(),
+    Allocator: alloc(),
     // Four methods and a complete implementation: `StaticFs` reads, has no
-    // `FsWrite` at all, and before the split paid eight bodies to say
+    // `FileSystemWrite` at all, and before the split paid eight bodies to say
     // `.PermissionDenied`.
-    FsRead: StaticFs { only: "known.txt", body: "from my own Fs" },
+    FileSystemRead: StaticFs { only: "known.txt", body: "from my own Fs" },
     Clock: FrozenClock { at: 424242 },
-    Env: EchoEnv { always: "echo" },
+    Environment: EchoEnv { always: "echo" },
     // "teapot" as octets — see `TeapotNet`: an effect method takes only `self`,
     // so the fake is handed the bytes rather than encoding them.
-    Net: TeapotNet { body: [116, 101, 97, 112, 111, 116] },
+    Network: TeapotNet { body: [116, 101, 97, 112, 111, 116] },
 }
 
 /// The whole world, written out, so a test can use every effect in it.
 context World {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Stdout: stdout(),
     Stderr: stderr(),
     Stdin: stdin().lines(["a line"]),
-    FsRead: fs().files([("w", "W")]),
-    Net: net(),
+    FileSystemRead: fs().files([("w", "W")]),
+    Network: net(),
     Clock: clock().at(1000),
-    Rand: rand().seed(4),
-    Env: env().variables([("K", "V")]).arguments(["arg"]),
+    Random: rand().seed(4),
+    Environment: env().variables([("K", "V")]).withArguments(["arg"]),
 }
 
 // -----------------------------------------------------------------------------
@@ -139,50 +140,50 @@ context World {
 test "a context binds one implementation per effect it names" {
     let ctx = World();
     assert.isTrue(fs.exists(ctx, path.of(ctx, "w")));
-    assert.eq(time.now(ctx).0, 1000);
-    assert.eq(assert.some(io.readLine(ctx)), "a line");
-    assert.eq(env.args(ctx), ["arg"]);
+    assert.equal(time.now(ctx).0, 1000);
+    assert.equal(assert.some(io.readLine(ctx)), "a line");
+    assert.equal(env.arguments(ctx), ["arg"]);
     greet(ctx, "world");
     io.eprintln(ctx, "err").ignore();
-    assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+    assert.equal(assert.err(http.get(ctx, "http://example.com")), .Refused);
     assert.isTrue(random.int(ctx, 0, 10) >= 0);
 }
 
 test "a declaration may bind every effect at its double's default" {
     let ctx = Defaults();
     assert.isFalse(fs.exists(ctx, path.of(ctx, "nothing")));
-    assert.eq(time.now(ctx).0, 0);
+    assert.equal(time.now(ctx).0, 0);
     assert.none(io.readLine(ctx));
-    assert.eq(env.args(ctx), []);
+    assert.equal(env.arguments(ctx), []);
     greet(ctx, "hermetic");
-    assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+    assert.equal(assert.err(http.get(ctx, "http://example.com")), .Refused);
     assert.isTrue(random.int(ctx, 0, 10) >= 0);
 }
 
 test "a context expression binds the effects it names" {
     let disk = fs().files([("x", "1")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "x")), "1");
+    assert.equal(assert.ok(loadText(ctx, "x")), "1");
 }
 
 test "a named context declaration is constructed by calling it" {
     let ctx = Fixture();
-    assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=8080");
+    assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=8080");
 }
 
 test "a context naming only two effects satisfies a two-effect bound" {
     let ctx = Tiny();
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "a context is accepted by a bound naming a subset of its effects" {
     // `elapsed` names Clock alone; World names nine effects.
     let ctx = World();
-    assert.eq(elapsed(ctx, stamp(ctx)), 0);
+    assert.equal(elapsed(ctx, stamp(ctx)), 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -191,12 +192,12 @@ test "a context is accepted by a bound naming a subset of its effects" {
 
 test "an explicit binding after a spread replaces the inherited one" {
     let ctx = Fixture();
-    assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=8080");
+    assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=8080");
 }
 
 test "a spread of a spread replaces the same binding again" {
     let ctx = OtherPort();
-    assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=9999");
+    assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=9999");
 }
 
 test "a replacement replaces wholesale rather than merging" {
@@ -210,26 +211,26 @@ test "an inline context expression may start from a named one" {
     let disk = fs().files([("config.toml", "port=1")]);
     let ctx = context {
         ..Fixture(),
-        FsRead: disk,
-        FsWrite: disk,
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=1");
+    assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=1");
 }
 
 test "an inline context expression may start from another inline one" {
     let baseDisk = fs().files([("a", "1")]);
     let base = context {
-        Alloc: alloc(),
-        FsRead: baseDisk,
-        FsWrite: baseDisk,
+        Allocator: alloc(),
+        FileSystemRead: baseDisk,
+        FileSystemWrite: baseDisk,
     };
     let disk = fs().files([("a", "2")]);
     let ctx = context {
         ..base,
-        FsRead: disk,
-        FsWrite: disk,
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "2");
+    assert.equal(assert.ok(loadText(ctx, "a")), "2");
 }
 
 // -----------------------------------------------------------------------------
@@ -243,60 +244,60 @@ test "an inline context expression may start from another inline one" {
 // -----------------------------------------------------------------------------
 
 test "an effect inherited through a spread can be called" {
-    // `Fixture` names `Fs` and nothing else; `Clock` is `Defaults`'s.
+    // `Fixture` names `FileSystem` and nothing else; `Clock` is `Defaults`'s.
     let ctx = Fixture();
-    assert.eq(stamp(ctx).0, 0);
+    assert.equal(stamp(ctx).0, 0);
 }
 
 test "every effect a spread supplies can be called, not only the one replaced" {
     let ctx = Fixture();
-    assert.eq(time.now(ctx).0, 0);
+    assert.equal(time.now(ctx).0, 0);
     assert.none(io.readLine(ctx));
-    assert.eq(env.args(ctx), []);
+    assert.equal(env.arguments(ctx), []);
     greet(ctx, "inherited");
     io.eprintln(ctx, "inherited").ignore();
-    assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+    assert.equal(assert.err(http.get(ctx, "http://example.com")), .Refused);
     assert.isTrue(random.int(ctx, 0, 10) >= 0);
     // ...and the one it did replace, which is the only half that used to work.
-    assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=8080");
+    assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=8080");
 }
 
 test "an inherited effect survives a second spread" {
     // Two levels: `OtherPort` spreads `Fixture`, which spreads `Defaults`.
     let ctx = OtherPort();
-    assert.eq(stamp(ctx).0, 0);
+    assert.equal(stamp(ctx).0, 0);
     assert.isTrue(random.int(ctx, 0, 10) >= 0);
-    assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=9999");
+    assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=9999");
 }
 
 test "a binding written after two spreads beats the twice-inherited one" {
     let ctx = DeepFixture();
     // Written here, over the `Clock` two spreads had carried down.
-    assert.eq(stamp(ctx).0, 1234);
+    assert.equal(stamp(ctx).0, 1234);
     // One level up, and two: neither was disturbed by the replacement.
-    assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=9999");
-    assert.eq(env.args(ctx), []);
+    assert.equal(assert.ok(loadText(ctx, "config.toml")), "port=9999");
+    assert.equal(env.arguments(ctx), []);
 }
 
 test "an inherited effect can be called from an inline context expression" {
     let disk = fs().files([("a", "1")]);
     let ctx = context {
         ..Defaults(),
-        FsRead: disk,
-        FsWrite: disk,
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(stamp(ctx).0, 0);
-    assert.eq(assert.ok(loadText(ctx, "a")), "1");
-    assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+    assert.equal(stamp(ctx).0, 0);
+    assert.equal(assert.ok(loadText(ctx, "a")), "1");
+    assert.equal(assert.err(http.get(ctx, "http://example.com")), .Refused);
 }
 
 test "a spread with nothing written after it inherits every binding" {
     let ctx = context {
         ..Defaults(),
     };
-    assert.eq(stamp(ctx).0, 0);
+    assert.equal(stamp(ctx).0, 0);
     assert.isFalse(fs.exists(ctx, path.of(ctx, "nothing")));
-    assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+    assert.equal(assert.err(http.get(ctx, "http://example.com")), .Refused);
 }
 
 test "an inherited binding is the same value, not a fresh one" {
@@ -304,7 +305,7 @@ test "an inherited binding is the same value, not a fresh one" {
     // another, so the capture this test holds is the one the call writes to.
     let sink = stdout();
     let base = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Clock: clock().at(5),
     };
@@ -313,21 +314,21 @@ test "an inherited binding is the same value, not a fresh one" {
         Clock: clock().at(9),
     };
     greet(ctx, "through the spread");
-    assert.eq(sink.captured(), "hello through the spread\n");
-    assert.eq(stamp(ctx).0, 9);
+    assert.equal(sink.captured(), "hello through the spread\n");
+    assert.equal(stamp(ctx).0, 9);
 }
 
 test "a spread carries an implementing type's own type arguments with it" {
-    // `Guarded<TestFs>`, inherited: the wrapper's
-    // `impl<C: FsRead> FsRead for Guarded<C>` is instantiated from a receiver
-    // the spread carried, `TestFs` and all, so what travels is a whole type
+    // `Guarded<TestFileSystem>`, inherited: the wrapper's
+    // `impl<C: FileSystemRead> FileSystemRead for Guarded<C>` is instantiated from a receiver
+    // the spread carried, `TestFileSystem` and all, so what travels is a whole type
     // rather than a constructor.
     let ctx = context {
         ..WrappedFixture(),
         Clock: clock().at(3),
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(stamp(ctx).0, 3);
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(stamp(ctx).0, 3);
 }
 
 test "an attenuating wrapper refuses the write half and forwards the read" {
@@ -335,12 +336,12 @@ test "an attenuating wrapper refuses the write half and forwards the read" {
     // same wrapper over the same filesystem.
     let wrapped = guarded(fs().files([("a", "A")]));
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: wrapped,
-        FsWrite: wrapped,
+        Allocator: alloc(),
+        FileSystemRead: wrapped,
+        FileSystemWrite: wrapped,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
 }
 
 // -----------------------------------------------------------------------------
@@ -349,54 +350,54 @@ test "an attenuating wrapper refuses the write half and forwards the read" {
 
 // A writing block names its double first, for the reason `Defaults` states:
 // one filesystem, bound to both of the effects over it.
-fn fixtureDisk(): TestFs {
+fn fixtureDisk(): TestFileSystem {
     fs().files([("config.toml", "port=8080"), ("empty.txt", "")])
 }
 
 test "a write through one context is visible to that same context" {
     let disk = fixtureDisk();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(saveText(ctx, "scratch.txt", "written"));
-    assert.eq(assert.ok(loadText(ctx, "scratch.txt")), "written");
+    assert.equal(assert.ok(loadText(ctx, "scratch.txt")), "written");
 }
 
 test "a write through one context is invisible to the next one built" {
     let firstDisk = fixtureDisk();
     let first = context {
-        Alloc: alloc(),
-        FsRead: firstDisk,
-        FsWrite: firstDisk,
+        Allocator: alloc(),
+        FileSystemRead: firstDisk,
+        FileSystemWrite: firstDisk,
     };
     assert.ok(saveText(first, "scratch.txt", "written"));
-    assert.eq(assert.ok(loadText(first, "scratch.txt")), "written");
+    assert.equal(assert.ok(loadText(first, "scratch.txt")), "written");
 
     // A second construction: a fresh filesystem, so the write is gone.
     let secondDisk = fixtureDisk();
     let second = context {
-        Alloc: alloc(),
-        FsRead: secondDisk,
-        FsWrite: secondDisk,
+        Allocator: alloc(),
+        FileSystemRead: secondDisk,
+        FileSystemWrite: secondDisk,
     };
     assert.isFalse(fs.exists(second, path.of(second, "scratch.txt")));
-    assert.eq(assert.ok(loadText(second, "config.toml")), "port=8080");
+    assert.equal(assert.ok(loadText(second, "config.toml")), "port=8080");
 }
 
 test "two contexts built the same way are two values, not one handle" {
     let aDisk = fixtureDisk();
     let a = context {
-        Alloc: alloc(),
-        FsRead: aDisk,
-        FsWrite: aDisk,
+        Allocator: alloc(),
+        FileSystemRead: aDisk,
+        FileSystemWrite: aDisk,
     };
     let bDisk = fixtureDisk();
     let b = context {
-        Alloc: alloc(),
-        FsRead: bDisk,
-        FsWrite: bDisk,
+        Allocator: alloc(),
+        FileSystemRead: bDisk,
+        FileSystemWrite: bDisk,
     };
     assert.ok(saveText(a, "only-in-a", "1"));
     assert.isTrue(fs.exists(a, path.of(a, "only-in-a")));
@@ -408,7 +409,7 @@ test "two contexts built the same way are two values, not one handle" {
 // because the second was never told about the file the first was given.
 test "each named declaration builds a filesystem of its own" {
     let first = Fixture();
-    assert.eq(assert.ok(loadText(first, "config.toml")), "port=8080");
+    assert.equal(assert.ok(loadText(first, "config.toml")), "port=8080");
     let second = Tiny();
     assert.isFalse(fs.exists(second, path.of(second, "config.toml")));
 }
@@ -416,16 +417,16 @@ test "each named declaration builds a filesystem of its own" {
 test "an inline context expression is fresh too" {
     let aDisk = fs().files([]);
     let a = context {
-        Alloc: alloc(),
-        FsRead: aDisk,
-        FsWrite: aDisk,
+        Allocator: alloc(),
+        FileSystemRead: aDisk,
+        FileSystemWrite: aDisk,
     };
     assert.ok(saveText(a, "f", "1"));
     let bDisk = fs().files([]);
     let b = context {
-        Alloc: alloc(),
-        FsRead: bDisk,
-        FsWrite: bDisk,
+        Allocator: alloc(),
+        FileSystemRead: bDisk,
+        FileSystemWrite: bDisk,
     };
     assert.isFalse(fs.exists(b, path.of(b, "f")));
 }
@@ -443,8 +444,8 @@ test "freshness applies to a captured stream as well" {
     let b = context {
         Stdout: second,
     };
-    assert.eq(second.captured(), "");
-    assert.eq(first.captured(), "hello one\n");
+    assert.equal(second.captured(), "");
+    assert.equal(first.captured(), "hello one\n");
 }
 
 // -----------------------------------------------------------------------------
@@ -454,12 +455,12 @@ test "freshness applies to a captured stream as well" {
 test "files contains exactly the entries it was given" {
     let disk = fs().files([("a", "A"), ("b", "B")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.ok(loadText(ctx, "b")), "B");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "b")), "B");
     assert.isTrue(loadText(ctx, "c").isErr());
 }
 
@@ -468,9 +469,9 @@ test "reading a path files does not have gives IoError.NotFound" {
     // is for; the match is exhaustive so a fourth answer cannot hide.
     let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let which = match (loadText(ctx, "missing")) {
         .Ok(_v) => "ok",
@@ -482,15 +483,15 @@ test "reading a path files does not have gives IoError.NotFound" {
         .Err(.CrossDevice) => "CrossDevice",
         .Err(.Other(_m)) => "Other",
     };
-    assert.eq(which, "NotFound");
+    assert.equal(which, "NotFound");
 }
 
 test "files reports existence" {
     let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
     assert.isFalse(fs.exists(ctx, path.of(ctx, "b")));
@@ -499,41 +500,41 @@ test "files reports existence" {
 test "an empty file is a file, not an absent one" {
     let disk = fs().files([("e", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.isTrue(fs.exists(ctx, path.of(ctx, "e")));
-    assert.eq(assert.ok(loadText(ctx, "e")), "");
+    assert.equal(assert.ok(loadText(ctx, "e")), "");
 }
 
 test "a write to files is readable back" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(roundTrip(ctx, "note", "hello")), "hello");
+    assert.equal(assert.ok(roundTrip(ctx, "note", "hello")), "hello");
 }
 
 test "a write to files replaces the previous body" {
     let disk = fs().files([("a", "one")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(saveText(ctx, "a", "two"));
-    assert.eq(assert.ok(loadText(ctx, "a")), "two");
+    assert.equal(assert.ok(loadText(ctx, "a")), "two");
 }
 
 test "a fresh filesystem is empty, and nothing seeds it" {
     let disk = fs();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.isTrue(loadText(ctx, "config.toml").isErr());
     assert.isFalse(fs.exists(ctx, path.of(ctx, "config.toml")));
@@ -542,9 +543,9 @@ test "a fresh filesystem is empty, and nothing seeds it" {
 test "reading a path a fresh filesystem does not have gives IoError.NotFound" {
     let disk = fs();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let which = match (loadText(ctx, "missing")) {
         .Ok(_v) => "ok",
@@ -556,179 +557,179 @@ test "reading a path a fresh filesystem does not have gives IoError.NotFound" {
         .Err(.CrossDevice) => "CrossDevice",
         .Err(.Other(_m)) => "Other",
     };
-    assert.eq(which, "NotFound");
+    assert.equal(which, "NotFound");
 }
 
 test "a fresh filesystem is writable within one test" {
     let disk = fs();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(roundTrip(ctx, "scratch", "x")), "x");
+    assert.equal(assert.ok(roundTrip(ctx, "scratch", "x")), "x");
 }
 
 test "readOnly forwards reads" {
     let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
     assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
 }
 
 test "a write through readOnly FAILS" {
     let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
+    assert.equal(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
 }
 
 test "readOnly refuses a write to a path that does not exist either" {
     let disk = fs().files([]).readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
+    assert.equal(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
 }
 
 test "readOnly leaves the wrapped filesystem untouched" {
     let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "listDir sees the entries" {
     let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).len() >= 1);
+    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).length() >= 1);
 }
 
 // -----------------------------------------------------------------------------
 // The binary, appending, renaming half of core/fs (issue #1)
 //
-// Every block here runs against `TestFs`, and `cli/tests/native/runtime.rs`'s
+// Every block here runs against `TestFileSystem`, and `cli/tests/native/runtime.rs`'s
 // `wal` mode runs the same sequence against a real filesystem through
-// `buri_rt_host_fs_*`. That the two agree is the point of the fake.
+// `buri_rt_host_file_system_*`. That the two agree is the point of the fake.
 // -----------------------------------------------------------------------------
 
 test "writeBytes and readBytes carry octets a text encoding cannot" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let raw: [U8] = [0, 1, 254, 255, 128];
     assert.ok(fs.writeBytes(ctx, path.of(ctx, "blob"), raw));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
 }
 
 test "readBytes of a path that is not there is NotFound" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.readBytes(ctx, path.of(ctx, "missing"))), .NotFound);
+    assert.equal(assert.err(fs.readBytes(ctx, path.of(ctx, "missing"))), .NotFound);
 }
 
 test "filesBytes is the byte twin of files" {
     let raw: [U8] = [255, 0, 17];
     let disk = fs().filesBytes([("blob", raw)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
     assert.isTrue(fs.exists(ctx, path.of(ctx, "blob")));
 }
 
 test "text written as octets reads back as text" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.writeBytes(ctx, path.of(ctx, "note"), bytes.toUtf8(ctx, "héllo")));
-    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "note"))), "héllo");
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "note"))), "héllo");
 }
 
 test "writeBytes replaces the whole file" {
     let disk = fs().files([("a", "one")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let two: [U8] = [50];
     assert.ok(fs.writeBytes(ctx, path.of(ctx, "a"), two));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "a"))), two);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "a"))), two);
 }
 
 test "append CREATES the file when it is absent" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let record: [U8] = [1, 2];
     assert.isFalse(fs.exists(ctx, path.of(ctx, "log")));
     assert.ok(fs.append(ctx, path.of(ctx, "log"), record));
     assert.isTrue(fs.exists(ctx, path.of(ctx, "log")));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), record);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), record);
 }
 
 test "append adds to the end rather than replacing" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.append(ctx, path.of(ctx, "log"), [1, 2]));
     assert.ok(fs.append(ctx, path.of(ctx, "log"), [3]));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), [1, 2, 3]);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), [1, 2, 3]);
 }
 
 test "rename REPLACES the destination" {
     let disk = fs().files([("new", "N"), ("old", "O")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.rename(ctx, path.of(ctx, "new"), path.of(ctx, "old")));
-    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "old"))), "N");
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "old"))), "N");
 }
 
 test "rename leaves nothing at the source" {
     let disk = fs().files([("new", "N")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.rename(ctx, path.of(ctx, "new"), path.of(ctx, "old")));
     assert.isFalse(fs.exists(ctx, path.of(ctx, "new")));
@@ -738,11 +739,11 @@ test "rename leaves nothing at the source" {
 test "rename of a source that is not there is NotFound" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.rename(ctx, path.of(ctx, "missing"), path.of(ctx, "other"))),
         .NotFound,
     );
@@ -751,9 +752,9 @@ test "rename of a source that is not there is NotFound" {
 test "remove deletes the file" {
     let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.remove(ctx, path.of(ctx, "a")));
     assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
@@ -763,19 +764,19 @@ test "remove deletes the file" {
 test "remove OF A MISSING FILE is NotFound, not a silent success" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.remove(ctx, path.of(ctx, "never-there"))), .NotFound);
+    assert.equal(assert.err(fs.remove(ctx, path.of(ctx, "never-there"))), .NotFound);
 }
 
 test "makeDir ON AN EXISTING DIRECTORY is Ok" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "tenants/one")));
     assert.ok(fs.makeDir(ctx, path.of(ctx, "tenants/one")));
@@ -785,23 +786,23 @@ test "makeDir ON AN EXISTING DIRECTORY is Ok" {
 test "makeDir creates the parents too" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "a/b/c")));
-    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "a"))), ["b"]);
-    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "a/b"))), ["c"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "a"))), ["b"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "a/b"))), ["c"]);
 }
 
 test "makeDir where a file already sits is AlreadyExists" {
     let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.makeDir(ctx, path.of(ctx, "a"))), .AlreadyExists);
+    assert.equal(assert.err(fs.makeDir(ctx, path.of(ctx, "a"))), .AlreadyExists);
 }
 
 /// `removeDir` is `makeDir`'s inverse, and the whole of buri-lang/buri#38: the
@@ -809,14 +810,14 @@ test "makeDir where a file already sits is AlreadyExists" {
 /// made a scratch directory per run left one behind per run ever made.
 ///
 /// The four rows below are the four answers, and they are the ones a real
-/// filesystem gives — which is what lets one block run against `TestFs` here
-/// and against `HostFs` in `cli/tests/native/e2e.rs`.
+/// filesystem gives — which is what lets one block run against `TestFileSystem` here
+/// and against `HostFileSystem` in `cli/tests/native/e2e.rs`.
 test "removeDir deletes an empty directory" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "scratch")));
     assert.isTrue(fs.exists(ctx, path.of(ctx, "scratch")));
@@ -827,9 +828,9 @@ test "removeDir deletes an empty directory" {
 test "removeDir OF A DIRECTORY THAT STILL HOLDS SOMETHING is refused" {
     let disk = fs().files([("scratch/note", "N")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "scratch")));
     assert.isTrue(fs.removeDir(ctx, path.of(ctx, "scratch")).isErr());
@@ -839,9 +840,9 @@ test "removeDir OF A DIRECTORY THAT STILL HOLDS SOMETHING is refused" {
 test "removeDir IS NOT RECURSIVE, so emptying it first is the program's own walk" {
     let disk = fs().files([("scratch/note", "N")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "scratch")));
     assert.ok(fs.remove(ctx, path.of(ctx, "scratch/note")));
@@ -852,17 +853,17 @@ test "removeDir IS NOT RECURSIVE, so emptying it first is the program's own walk
 test "removeDir of a path that names nothing is NotFound, and of a file NotADirectory" {
     let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.removeDir(ctx, path.of(ctx, "never-there"))), .NotFound);
-    assert.eq(assert.err(fs.removeDir(ctx, path.of(ctx, "a"))), .NotADirectory);
+    assert.equal(assert.err(fs.removeDir(ctx, path.of(ctx, "never-there"))), .NotFound);
+    assert.equal(assert.err(fs.removeDir(ctx, path.of(ctx, "a"))), .NotADirectory);
     // The order the two doubles are written to agree on: a directory nobody
     // recorded is `.NotFound` even where files sit under its name, because a
     // flat map has no containment and "still holds something" is a question
     // only about a directory that is really there.
-    assert.eq(
+    assert.equal(
         assert.err(fs.removeDir(ctx, path.of(ctx, "never-there/deeper"))),
         .NotFound,
     );
@@ -871,9 +872,9 @@ test "removeDir of a path that names nothing is NotFound, and of a file NotADire
 test "sync of a file that is there is Ok" {
     let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.sync(ctx, path.of(ctx, "a")));
 }
@@ -881,11 +882,11 @@ test "sync of a file that is there is Ok" {
 test "sync of a path that is not there is NotFound" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.sync(ctx, path.of(ctx, "missing"))), .NotFound);
+    assert.equal(assert.err(fs.sync(ctx, path.of(ctx, "missing"))), .NotFound);
 }
 
 // -----------------------------------------------------------------------------
@@ -899,9 +900,9 @@ test "sync of a path that is not there is NotFound" {
 test "readBytesIfExists answers .None for a path that names nothing" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let answer = assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "absent")));
     assert.isTrue(answer.isNone());
@@ -911,11 +912,14 @@ test "readBytesIfExists answers the octets when the file is there" {
     let raw: [U8] = [0, 255, 7];
     let disk = fs().filesBytes([("blob", raw)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "blob"))), .Some(raw));
+    assert.equal(
+        assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "blob"))),
+        .Some(raw),
+    );
 }
 
 test "readBytesIfExists reports every OTHER failure as a failure" {
@@ -926,11 +930,11 @@ test "readBytesIfExists reports every OTHER failure as a failure" {
         .files([("blob", "B")])
         .faults([readFileBytes("blob").fails(.PermissionDenied)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(
+    assert.equal(
         assert.err(fs.readBytesIfExists(ctx, path.of(ctx, "blob"))),
         .PermissionDenied,
     );
@@ -939,36 +943,36 @@ test "readBytesIfExists reports every OTHER failure as a failure" {
 test "writeAtomic leaves the new contents and no temporary" {
     let disk = fs().files([("db", "old")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let raw: [U8] = [1, 2, 3];
     assert.ok(fs.writeAtomic(ctx, path.of(ctx, "db"), raw));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "db"))), raw);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "db"))), raw);
     assert.isFalse(fs.exists(ctx, path.of(ctx, "db.tmp")));
 }
 
 test "writeAtomic creates the file when it was absent" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.writeAtomic(ctx, path.of(ctx, "fresh"), [9]));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "fresh"))), [9]);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "fresh"))), [9]);
 }
 
 test "writeAtomic is the four calls the module header names, in that order" {
     let disk = fs().files([("db", "old")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.writeAtomic(ctx, path.of(ctx, "db"), [1]));
-    assert.eq(disk.calls(), [
+    assert.equal(disk.calls(), [
         writeFileBytes("db.tmp", [1]),
         syncFile("db.tmp"),
         renameFile("db.tmp", "db"),
@@ -984,23 +988,26 @@ test "writeAtomic reports the FIRST failure and leaves the destination alone" {
         .files([("db", "old")])
         .faults([renameFile("db.tmp", "db").fails(.CrossDevice)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])), .CrossDevice);
-    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
+    assert.equal(
+        assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])),
+        .CrossDevice,
+    );
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
 }
 
 test "a path with no last component cannot be written atomically" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let refused = assert.err(fs.writeAtomic(ctx, path.of(ctx, "/"), [1]));
-    assert.eq(
+    assert.equal(
         refused,
         IoError.Other("a path with no file name cannot be written atomically"),
     );
@@ -1010,38 +1017,38 @@ test "readOnly forwards readBytes" {
     let raw: [U8] = [7, 8];
     let disk = fs().filesBytes([("blob", raw)]).readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
 }
 
 test "every writing half of the new surface FAILS through readOnly" {
     let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(fs.writeBytes(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
-    assert.eq(assert.err(fs.append(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
-    assert.eq(
+    assert.equal(assert.err(fs.writeBytes(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.equal(assert.err(fs.append(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.equal(
         assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
         .ReadOnly,
     );
-    assert.eq(assert.err(fs.remove(ctx, path.of(ctx, "a"))), .ReadOnly);
-    assert.eq(assert.err(fs.makeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
-    assert.eq(assert.err(fs.removeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
-    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "a"))), "A");
+    assert.equal(assert.err(fs.remove(ctx, path.of(ctx, "a"))), .ReadOnly);
+    assert.equal(assert.err(fs.makeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
+    assert.equal(assert.err(fs.removeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "a"))), "A");
 }
 
 test "sync is not a write, so readOnly forwards it" {
     let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.sync(ctx, path.of(ctx, "a")));
 }
@@ -1051,9 +1058,9 @@ test "sync is not a write, so readOnly forwards it" {
 test "a write-ahead log commits through append, sync and rename" {
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "wal")));
 
@@ -1062,7 +1069,7 @@ test "a write-ahead log commits through append, sync and rename" {
     assert.ok(fs.sync(ctx, path.of(ctx, "wal/log")));
     assert.ok(fs.append(ctx, path.of(ctx, "wal/log"), [2, 20]));
     assert.ok(fs.sync(ctx, path.of(ctx, "wal/log")));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "wal/log"))), [1, 10, 2, 20]);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "wal/log"))), [1, 10, 2, 20]);
 
     // Checkpoint: write the temporary, make it durable, swap it in, then make
     // the directory entry durable so the swap survives too.
@@ -1077,11 +1084,11 @@ test "a write-ahead log commits through append, sync and rename" {
     );
     assert.ok(fs.sync(ctx, path.of(ctx, "wal")));
     assert.isFalse(fs.exists(ctx, path.of(ctx, "wal/checkpoint.tmp")));
-    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "wal/checkpoint"))), [30]);
+    assert.equal(assert.ok(fs.readBytes(ctx, path.of(ctx, "wal/checkpoint"))), [30]);
 
     // Truncation after the checkpoint, which is what `remove` is for here.
     assert.ok(fs.remove(ctx, path.of(ctx, "wal/log")));
-    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "wal"))), ["checkpoint"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "wal"))), ["checkpoint"]);
 }
 
 // -----------------------------------------------------------------------------
@@ -1094,7 +1101,7 @@ test "captured reads back what a function printed" {
         Stdout: sink,
     };
     greet(ctx, "world");
-    assert.eq(sink.captured(), "hello world\n");
+    assert.equal(sink.captured(), "hello world\n");
 }
 
 test "a fresh capture is empty" {
@@ -1102,9 +1109,9 @@ test "a fresh capture is empty" {
     let ctx = context {
         Stdout: sink,
     };
-    assert.eq(sink.captured(), "");
+    assert.equal(sink.captured(), "");
     greet(ctx, "x");
-    assert.notEq(sink.captured(), "");
+    assert.notEqual(sink.captured(), "");
 }
 
 test "captured accumulates in the order things were printed" {
@@ -1113,7 +1120,7 @@ test "captured accumulates in the order things were printed" {
         Stdout: sink,
     };
     shout(ctx, ["a", "b", "c"]);
-    assert.eq(sink.captured(), "abc");
+    assert.equal(sink.captured(), "abc");
 }
 
 test "print does not add a newline and println does" {
@@ -1124,7 +1131,7 @@ test "print does not add a newline and println does" {
     io.print(ctx, "one").ignore();
     io.println(ctx, "two").ignore();
     io.print(ctx, "three").ignore();
-    assert.eq(sink.captured(), "onetwo\nthree");
+    assert.equal(sink.captured(), "onetwo\nthree");
 }
 
 test "two captures in one test are independent" {
@@ -1137,11 +1144,11 @@ test "two captures in one test are independent" {
         Stdout: b,
     };
     greet(actx, "one");
-    assert.eq(a.captured(), "hello one\n");
-    assert.eq(b.captured(), "");
+    assert.equal(a.captured(), "hello one\n");
+    assert.equal(b.captured(), "");
     greet(bctx, "two");
-    assert.eq(a.captured(), "hello one\n");
-    assert.eq(b.captured(), "hello two\n");
+    assert.equal(a.captured(), "hello one\n");
+    assert.equal(b.captured(), "hello two\n");
 }
 
 test "captured reads back what went to stderr" {
@@ -1150,7 +1157,7 @@ test "captured reads back what went to stderr" {
         Stderr: sink,
     };
     io.eprintln(ctx, "to stderr").ignore();
-    assert.eq(sink.captured(), "to stderr\n");
+    assert.equal(sink.captured(), "to stderr\n");
 }
 
 test "stdout and stderr are separate streams" {
@@ -1162,8 +1169,8 @@ test "stdout and stderr are separate streams" {
     };
     io.print(ctx, "O").ignore();
     io.eprint(ctx, "E").ignore();
-    assert.eq(out.captured(), "O");
-    assert.eq(err.captured(), "E");
+    assert.equal(out.captured(), "O");
+    assert.equal(err.captured(), "E");
 }
 
 test "a captured stream keeps a passing test quiet" {
@@ -1178,38 +1185,40 @@ test "a captured stream keeps a passing test quiet" {
 
 test "env answers the variables it was given" {
     let ctx = context {
-        Env: env().variables([("HOME", "/root"), ("LANG", "C")]).arguments([]),
+        Environment: env()
+            .variables([("HOME", "/root"), ("LANG", "C")])
+            .withArguments([]),
     };
-    assert.eq(assert.some(env.get(ctx, "HOME")), "/root");
-    assert.eq(assert.some(env.get(ctx, "LANG")), "C");
+    assert.equal(assert.some(env.get(ctx, "HOME")), "/root");
+    assert.equal(assert.some(env.get(ctx, "LANG")), "C");
 }
 
 test "env reports an unset variable as None" {
     let ctx = context {
-        Env: env().variables([("HOME", "/root")]).arguments([]),
+        Environment: env().variables([("HOME", "/root")]).withArguments([]),
     };
     assert.none(env.get(ctx, "PATH"));
 }
 
 test "env answers the arguments it was given" {
     let ctx = context {
-        Env: env().variables([]).arguments(["--verbose", "file.txt"]),
+        Environment: env().variables([]).withArguments(["--verbose", "file.txt"]),
     };
-    assert.eq(env.args(ctx), ["--verbose", "file.txt"]);
+    assert.equal(env.arguments(ctx), ["--verbose", "file.txt"]);
 }
 
 test "env keeps arguments in order" {
     let ctx = context {
-        Env: env().variables([]).arguments(["one", "two", "three"]),
+        Environment: env().variables([]).withArguments(["one", "two", "three"]),
     };
-    assert.eq(assert.some(env.args(ctx).first()), "one");
-    assert.eq(assert.some(env.args(ctx).last()), "three");
+    assert.equal(assert.some(env.arguments(ctx).first()), "one");
+    assert.equal(assert.some(env.arguments(ctx).last()), "three");
 }
 
 test "a default environment has no variables and no arguments" {
     let ctx = Defaults();
     assert.none(env.get(ctx, "HOME"));
-    assert.eq(env.args(ctx), []);
+    assert.equal(env.arguments(ctx), []);
 }
 
 // -----------------------------------------------------------------------------
@@ -1220,7 +1229,7 @@ test "a clock starts at the instant it was given" {
     let ctx = context {
         Clock: clock().at(1_000),
     };
-    assert.eq(stamp(ctx).0, 1000);
+    assert.equal(stamp(ctx).0, 1000);
 }
 
 test "a test clock does not move on its own" {
@@ -1230,9 +1239,9 @@ test "a test clock does not move on its own" {
     let a = stamp(ctx);
     let b = stamp(ctx);
     let c = stamp(ctx);
-    assert.eq(a, b);
-    assert.eq(b, c);
-    assert.eq(elapsed(ctx, a), 0);
+    assert.equal(a, b);
+    assert.equal(b, c);
+    assert.equal(elapsed(ctx, a), 0);
 }
 
 test "a test clock moves only when the test advances it" {
@@ -1241,10 +1250,10 @@ test "a test clock moves only when the test advances it" {
         Clock: dial,
     };
     let start = stamp(ctx);
-    assert.eq(stamp(ctx).0, 500);
-    time.sleepMs(dial, 250);
-    assert.eq(stamp(ctx).0, 750);
-    assert.eq(elapsed(ctx, start), 250);
+    assert.equal(stamp(ctx).0, 500);
+    time.sleep(dial, time.milliseconds(250));
+    assert.equal(stamp(ctx).0, 750);
+    assert.equal(elapsed(ctx, start), 250);
 }
 
 test "advancing repeatedly accumulates" {
@@ -1252,10 +1261,10 @@ test "advancing repeatedly accumulates" {
     let ctx = context {
         Clock: dial,
     };
-    time.sleepMs(dial, 1);
-    time.sleepMs(dial, 2);
-    time.sleepMs(dial, 3);
-    assert.eq(stamp(ctx).0, 6);
+    time.sleep(dial, time.milliseconds(1));
+    time.sleep(dial, time.milliseconds(2));
+    time.sleep(dial, time.milliseconds(3));
+    assert.equal(stamp(ctx).0, 6);
 }
 
 test "advancing one clock does not move another" {
@@ -1267,29 +1276,29 @@ test "advancing one clock does not move another" {
     let bctx = context {
         Clock: b,
     };
-    time.sleepMs(a, 100);
-    assert.eq(stamp(actx).0, 100);
-    assert.eq(stamp(bctx).0, 0);
+    time.sleep(a, time.milliseconds(100));
+    assert.equal(stamp(actx).0, 100);
+    assert.equal(stamp(bctx).0, 0);
 }
 
-test "sleepMs advances a test clock too, without sleeping" {
+test "sleep advances a test clock too, without sleeping" {
     let ctx = context {
         Clock: clock().at(500),
     };
     let start = stamp(ctx);
-    time.sleepMs(ctx, 250);
-    assert.eq(stamp(ctx).0, 750);
-    assert.eq(elapsed(ctx, start), 250);
+    time.sleep(ctx, time.milliseconds(250));
+    assert.equal(stamp(ctx).0, 750);
+    assert.equal(elapsed(ctx, start), 250);
 }
 
 test "the movement accumulates" {
     let ctx = context {
         Clock: clock().at(0),
     };
-    time.sleepMs(ctx, 1);
-    time.sleepMs(ctx, 2);
-    time.sleepMs(ctx, 3);
-    assert.eq(stamp(ctx).0, 6);
+    time.sleep(ctx, time.milliseconds(1));
+    time.sleep(ctx, time.milliseconds(2));
+    time.sleep(ctx, time.milliseconds(3));
+    assert.equal(stamp(ctx).0, 6);
 }
 
 test "the test clock is deterministic across contexts" {
@@ -1299,7 +1308,7 @@ test "the test clock is deterministic across contexts" {
     let b = context {
         Clock: clock().at(77),
     };
-    assert.eq(stamp(a), stamp(b));
+    assert.equal(stamp(a), stamp(b));
 }
 
 test "each context gets its own clock" {
@@ -1309,14 +1318,14 @@ test "each context gets its own clock" {
     let b = context {
         Clock: clock().at(0),
     };
-    time.sleepMs(a, 100);
-    assert.eq(stamp(a).0, 100);
-    assert.eq(stamp(b).0, 0);
+    time.sleep(a, time.milliseconds(100));
+    assert.equal(stamp(a).0, 100);
+    assert.equal(stamp(b).0, 0);
 }
 
 test "a default clock starts at zero" {
     let ctx = Defaults();
-    assert.eq(stamp(ctx).0, 0);
+    assert.equal(stamp(ctx).0, 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -1325,58 +1334,58 @@ test "a default clock starts at zero" {
 
 test "the same seed gives the same first draw" {
     let a = context {
-        Rand: rand().seed(7),
+        Random: rand().seed(7),
     };
     let b = context {
-        Rand: rand().seed(7),
+        Random: rand().seed(7),
     };
-    assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
+    assert.equal(random.int(a, 0, 1000), random.int(b, 0, 1000));
 }
 
 test "the same seed gives the same sequence, not just the first draw" {
     let a = context {
-        Rand: rand().seed(7),
+        Random: rand().seed(7),
     };
     let b = context {
-        Rand: rand().seed(7),
+        Random: rand().seed(7),
     };
-    assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
-    assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
-    assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
+    assert.equal(random.int(a, 0, 1000), random.int(b, 0, 1000));
+    assert.equal(random.int(a, 0, 1000), random.int(b, 0, 1000));
+    assert.equal(random.int(a, 0, 1000), random.int(b, 0, 1000));
 }
 
 test "a seeded run reproduces as a whole" {
     let a = context {
-        Alloc: alloc(),
-        Rand: rand().seed(11),
+        Allocator: alloc(),
+        Random: rand().seed(11),
     };
     let b = context {
-        Alloc: alloc(),
-        Rand: rand().seed(11),
+        Allocator: alloc(),
+        Random: rand().seed(11),
     };
     let xs = [1, 2, 3, 4, 5].mapCtx(a, fn(c, _i) => random.int(c, 0, 100000));
     let ys = [1, 2, 3, 4, 5].mapCtx(b, fn(c, _i) => random.int(c, 0, 100000));
-    assert.eq(xs, ys);
+    assert.equal(xs, ys);
 }
 
 test "a different seed gives a different sequence" {
     let a = context {
-        Alloc: alloc(),
-        Rand: rand().seed(1),
+        Allocator: alloc(),
+        Random: rand().seed(1),
     };
     let b = context {
-        Alloc: alloc(),
-        Rand: rand().seed(2),
+        Allocator: alloc(),
+        Random: rand().seed(2),
     };
     let xs = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(a, fn(c, _i) => random.int(c, 0, 1000000));
     let ys = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(b, fn(c, _i) => random.int(c, 0, 1000000));
-    assert.notEq(xs, ys);
+    assert.notEqual(xs, ys);
 }
 
 test "a draw advances the seeded sequence" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand().seed(9),
+        Allocator: alloc(),
+        Random: rand().seed(9),
     };
     let xs = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(c, _i) => {
         random.int(c, 0, 1000000)
@@ -1387,8 +1396,8 @@ test "a draw advances the seeded sequence" {
 
 test "a seeded draw stays inside its range" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand().seed(3),
+        Allocator: alloc(),
+        Random: rand().seed(3),
     };
     let xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].mapCtx(ctx, fn(c, _i) => {
         random.int(c, 10, 20)
@@ -1398,17 +1407,17 @@ test "a seeded draw stays inside its range" {
 
 test "the same seed gives the same floats" {
     let a = context {
-        Rand: rand().seed(5),
+        Random: rand().seed(5),
     };
     let b = context {
-        Rand: rand().seed(5),
+        Random: rand().seed(5),
     };
-    assert.eq(random.float(a), random.float(b));
+    assert.equal(random.float(a), random.float(b));
 }
 
 test "a seeded float is in [0, 1)" {
     let ctx = context {
-        Rand: rand().seed(5),
+        Random: rand().seed(5),
     };
     let x = random.float(ctx);
     assert.isTrue(x >= 0.0);
@@ -1423,8 +1432,8 @@ test "stdin reads the lines it was given, then end-of-input" {
     let ctx = context {
         Stdin: stdin().lines(["first", "second"]),
     };
-    assert.eq(assert.some(io.readLine(ctx)), "first");
-    assert.eq(assert.some(io.readLine(ctx)), "second");
+    assert.equal(assert.some(io.readLine(ctx)), "first");
+    assert.equal(assert.some(io.readLine(ctx)), "second");
     assert.none(io.readLine(ctx));
 }
 
@@ -1442,9 +1451,9 @@ test "each context gets its own stdin cursor" {
     let b = context {
         Stdin: stdin().lines(["x"]),
     };
-    assert.eq(assert.some(io.readLine(a)), "x");
+    assert.equal(assert.some(io.readLine(a)), "x");
     assert.none(io.readLine(a));
-    assert.eq(assert.some(io.readLine(b)), "x");
+    assert.equal(assert.some(io.readLine(b)), "x");
 }
 
 // --- Octets, which are the other question about the same stream ---------------
@@ -1457,8 +1466,8 @@ test "readBytes takes exactly what it asks for" {
     let ctx = context {
         Stdin: stdin().bytes([1.wrapToU8(), 2.wrapToU8(), 3.wrapToU8()]),
     };
-    assert.eq(assert.some(io.readBytes(ctx, 2)), [1.wrapToU8(), 2.wrapToU8()]);
-    assert.eq(assert.some(io.readBytes(ctx, 2)), [3.wrapToU8()]);
+    assert.equal(assert.some(io.readBytes(ctx, 2)), [1.wrapToU8(), 2.wrapToU8()]);
+    assert.equal(assert.some(io.readBytes(ctx, 2)), [3.wrapToU8()]);
     assert.none(io.readBytes(ctx, 2));
 }
 
@@ -1475,7 +1484,7 @@ test "writeBytes writes the octets through, and they are the text they spell" {
         Stdout: out,
     };
     let _ = io.writeBytes(ctx, [104.wrapToU8(), 105.wrapToU8()]).ignore();
-    assert.eq(out.captured(), "hi");
+    assert.equal(out.captured(), "hi");
 }
 
 // -----------------------------------------------------------------------------
@@ -1484,31 +1493,31 @@ test "writeBytes writes the octets through, and they are the text they spell" {
 
 test "a fresh network refuses a GET" {
     let ctx = context {
-        Alloc: alloc(),
-        Net: net(),
+        Allocator: alloc(),
+        Network: net(),
     };
-    assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+    assert.equal(assert.err(http.get(ctx, "http://example.com")), .Refused);
 }
 
 test "a fresh network refuses a POST" {
     let ctx = context {
-        Alloc: alloc(),
-        Net: net(),
+        Allocator: alloc(),
+        Network: net(),
     };
-    assert.eq(assert.err(http.post(ctx, "http://example.com", "body")), .Refused);
+    assert.equal(assert.err(http.post(ctx, "http://example.com", "body")), .Refused);
 }
 
 test "a fresh network refuses a raw fetch through the effect method" {
     let ctx = context {
-        Alloc: alloc(),
-        Net: net(),
+        Allocator: alloc(),
+        Network: net(),
     };
-    assert.eq(assert.err(fetchBody(ctx, "http://example.com")), .Refused);
+    assert.equal(assert.err(fetchBody(ctx, "http://example.com")), .Refused);
 }
 
 test "a default network refuses" {
     let ctx = Defaults();
-    assert.eq(
+    assert.equal(
         http.errorText(assert.err(http.get(ctx, "http://x"))),
         "the connection was refused",
     );
@@ -1520,12 +1529,12 @@ test "a default network refuses" {
 
 test "the code under test calls MY readFile" {
     let ctx = Mine();
-    assert.eq(assert.ok(loadText(ctx, "known.txt")), "from my own Fs");
+    assert.equal(assert.ok(loadText(ctx, "known.txt")), "from my own Fs");
 }
 
 test "MY readFile decides what is missing" {
     let ctx = Mine();
-    assert.eq(assert.err(loadText(ctx, "config.toml")), .NotFound);
+    assert.equal(assert.err(loadText(ctx, "config.toml")), .NotFound);
 }
 
 test "MY writeFile decides what a write does" {
@@ -1533,14 +1542,14 @@ test "MY writeFile decides what a write does" {
     // would have failed it with `.ReadOnly`; mine fails it with a third error,
     // so the error names which implementation ran.
     //
-    // `RefusingFs` implements `FsWrite` and nothing else — eight methods, no
+    // `RefusingFs` implements `FileSystemWrite` and nothing else — eight methods, no
     // reads — which is what a write-only double costs now. Nothing here can
-    // call `loadText`, because this context binds no `FsRead` at all.
+    // call `loadText`, because this context binds no `FileSystemRead` at all.
     let ctx = context {
-        Alloc: alloc(),
-        FsWrite: RefusingFs { },
+        Allocator: alloc(),
+        FileSystemWrite: RefusingFs { },
     };
-    assert.eq(assert.err(saveText(ctx, "known.txt", "nope")), .PermissionDenied);
+    assert.equal(assert.err(saveText(ctx, "known.txt", "nope")), .PermissionDenied);
 }
 
 test "MY fileExists is what fs.exists calls" {
@@ -1551,75 +1560,75 @@ test "MY fileExists is what fs.exists calls" {
 
 test "MY readDir is what fs.listDir calls" {
     let ctx = Mine();
-    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "/"))), ["known.txt"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "/"))), ["known.txt"]);
 }
 
 test "MY clock is what time.now reads" {
     let ctx = Mine();
-    assert.eq(stamp(ctx).0, 424242);
+    assert.equal(stamp(ctx).0, 424242);
 }
 
 test "MY clock ignores sleep, because my implementation does nothing" {
     let ctx = Mine();
-    time.sleepMs(ctx, 1000);
-    assert.eq(stamp(ctx).0, 424242);
+    time.sleep(ctx, time.milliseconds(1000));
+    assert.equal(stamp(ctx).0, 424242);
 }
 
 test "MY env answers every variable the same way" {
     let ctx = Mine();
-    assert.eq(assert.some(env.get(ctx, "ANYTHING")), "echo");
-    assert.eq(assert.some(env.get(ctx, "HOME")), "echo");
-    assert.eq(env.args(ctx), ["echo"]);
+    assert.equal(assert.some(env.get(ctx, "ANYTHING")), "echo");
+    assert.equal(assert.some(env.get(ctx, "HOME")), "echo");
+    assert.equal(env.arguments(ctx), ["echo"]);
 }
 
 test "MY net answers instead of refusing" {
     let ctx = Mine();
-    assert.eq(assert.ok(fetchBody(ctx, "http://example.com")), "teapot");
+    assert.equal(assert.ok(fetchBody(ctx, "http://example.com")), "teapot");
 }
 
 test "MY net is what core/net/http is built on" {
     let ctx = Mine();
     let response = assert.ok(http.get(ctx, "http://example.com"));
-    assert.eq(response.status, 418);
-    assert.eq(assert.ok(http.bodyText(ctx, response.body)), "teapot");
-    assert.eq(response.headers, []);
+    assert.equal(response.status, 418);
+    assert.equal(assert.ok(http.bodyText(ctx, response.body)), "teapot");
+    assert.equal(response.headers, []);
     assert.isFalse(response.isOk());
 }
 
 test "one binding may be mine and the rest the runner's" {
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: StaticFs { only: "k", body: "v" },
+        Allocator: alloc(),
+        FileSystemRead: StaticFs { only: "k", body: "v" },
         Clock: clock().at(3),
     };
-    assert.eq(assert.ok(loadText(ctx, "k")), "v");
-    assert.eq(time.now(ctx).0, 3);
+    assert.equal(assert.ok(loadText(ctx, "k")), "v");
+    assert.equal(time.now(ctx).0, 3);
 }
 
 test "a fake is an ordinary value, so two of them are independent" {
     let a = context {
-        Alloc: alloc(),
-        FsRead: StaticFs { only: "a", body: "A" },
+        Allocator: alloc(),
+        FileSystemRead: StaticFs { only: "a", body: "A" },
     };
     let b = context {
-        Alloc: alloc(),
-        FsRead: StaticFs { only: "b", body: "B" },
+        Allocator: alloc(),
+        FileSystemRead: StaticFs { only: "b", body: "B" },
     };
-    assert.eq(assert.ok(loadText(a, "a")), "A");
-    assert.eq(assert.err(loadText(b, "a")), .NotFound);
-    assert.eq(assert.ok(loadText(b, "b")), "B");
+    assert.equal(assert.ok(loadText(a, "a")), "A");
+    assert.equal(assert.err(loadText(b, "a")), .NotFound);
+    assert.equal(assert.ok(loadText(b, "b")), "B");
 }
 
 test "a confined callee receives the same value" {
     // `stamp` names only Clock, so it can do nothing else with this context.
     let disk = fs().files([]);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: FrozenClock { at: 9 },
-        FsRead: disk,
-        FsWrite: disk,
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(stamp(ctx).0, 9);
+    assert.equal(stamp(ctx).0, 9);
     assert.isFalse(fs.exists(ctx, path.of(ctx, "anything")));
 }
 
@@ -1630,11 +1639,11 @@ test "a confined callee receives the same value" {
 test "my own attenuator forwards the reads it chose to forward" {
     let disk = guarded(fs().files([("a", "A")]));
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
     assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
     assert.isFalse(fs.exists(ctx, path.of(ctx, "b")));
 }
@@ -1644,36 +1653,36 @@ test "my own attenuator refuses the writes it chose to refuse" {
     // reaches it, and the error is the wrapper's own.
     let disk = guarded(fs().files([("a", "A")]));
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "my own attenuator may wrap my own implementation" {
     let disk = guarded(StaticFs { only: "k", body: "v" });
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "k")), "v");
-    assert.eq(assert.err(loadText(ctx, "other")), IoError.NotFound);
-    assert.eq(assert.err(saveText(ctx, "k", "w")), IoError.Other("guarded"));
+    assert.equal(assert.ok(loadText(ctx, "k")), "v");
+    assert.equal(assert.err(loadText(ctx, "other")), IoError.NotFound);
+    assert.equal(assert.err(saveText(ctx, "k", "w")), IoError.Other("guarded"));
 }
 
 test "my own attenuator may wrap the runner's attenuator" {
     let disk = guarded(fs().files([("a", "A")]).readOnly());
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
-    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
     // The outer wrapper decides, so it is mine and not `.ReadOnly`.
-    assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
+    assert.equal(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
 }
 
 // -----------------------------------------------------------------------------
@@ -1692,21 +1701,21 @@ test "my own attenuator may wrap the runner's attenuator" {
 // make the call ambiguous rather than either declaration wrong; `Ui.read` and
 // `Watch.read` are the shipped example, and there is no way to withdraw a name
 // once programs are written against it. A server binds `Listen`, `Sockets` and
-// `Net` in one context by design, so that trio is where the question had to be
+// `Network` in one context by design, so that trio is where the question had to be
 // answered, and these are the answer as assertions. A *build* error here is
 // the failure — the runtime values are almost beside the point.
 
-test "one context binds Listen, Sockets and Net and every method is callable" {
+test "one context binds Listen, Sockets and Network and every method is callable" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "127.0.0.1" },
-        Net: TeapotNet { body: [] },
+        Network: TeapotNet { body: [] },
         Sockets: QuietSockets { },
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
     // 418 back from the fake network, and positive because the fake server bound
     // its address — so both effects answered, and neither call was the other.
-    assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
+    assert.equal(serveOnce(ctx, "http://example.com/ping"), 418);
 }
 
 test "the same method names resolve on the context value itself" {
@@ -1715,9 +1724,9 @@ test "the same method names resolve on the context value itself" {
     // other half of the lookup (`Ty::Param` and `Ty::Ctx` both land in
     // `find_in_bounds`, one layer down, inside `core/net/server`).
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "127.0.0.1" },
-        Net: TeapotNet { body: [] },
+        Network: TeapotNet { body: [] },
         Sockets: QuietSockets { },
         Stdout: stdout(),
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -1761,7 +1770,7 @@ test "the same method names resolve on the context value itself" {
             timeoutMillis: 0,
         }),
     );
-    assert.eq(reply.status, 418);
+    assert.equal(reply.status, 418);
 }
 
 // -----------------------------------------------------------------------------
@@ -1787,8 +1796,8 @@ test "an omitted Server field is .None and not a default this module chose" {
         address: .None,
         protocols: .None,
         requestLimit: .None,
-        idleTimeoutMillis: .None,
-        drainMillis: .None,
+        idleTimeout: .None,
+        drain: .None,
         tls: .None,
         websocket: .None,
         socketBuffer: .None,
@@ -1797,18 +1806,18 @@ test "an omitted Server field is .None and not a default this module chose" {
         port: 0,
         onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
     };
-    assert.eq(elided.address, written.address);
-    assert.eq(elided.protocols, written.protocols);
-    assert.eq(elided.requestLimit, written.requestLimit);
-    assert.eq(elided.idleTimeoutMillis, written.idleTimeoutMillis);
-    assert.eq(elided.drainMillis, written.drainMillis);
-    assert.eq(elided.tls, written.tls);
-    assert.eq(elided.socketBuffer, written.socketBuffer);
+    assert.equal(elided.address, written.address);
+    assert.equal(elided.protocols, written.protocols);
+    assert.equal(elided.requestLimit, written.requestLimit);
+    assert.equal(elided.idleTimeout, written.idleTimeout);
+    assert.equal(elided.drain, written.drain);
+    assert.equal(elided.tls, written.tls);
+    assert.equal(elided.socketBuffer, written.socketBuffer);
     assert.none(elided.address);
     // A server that named no drain is one the runtime decides the deadline
     // for, and it is the runtime's because nothing was chosen rather than
     // because this module chose zero.
-    assert.none(elided.drainMillis);
+    assert.none(elided.drain);
     // A server without a certificate is a cleartext one, and it is cleartext
     // because nothing was chosen rather than because this module chose.
     assert.none(elided.tls);
@@ -1829,7 +1838,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
     // one digit per element, `.Http1` as 1, `.Http2` as 2, a certificate as 4,
     // a key as 5, a drain deadline as 6 and a socket buffer as 7.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: PlanListen { },
         Stdout: stdout(),
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -1842,7 +1851,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
             tls: .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" }),
         }),
     );
-    assert.eq(secured.port, 1245);
+    assert.equal(secured.port, 1245);
 
     // The certificate travels with its key and after the protocols, so a plan
     // with an identity and no preference is two elements and not four.
@@ -1853,7 +1862,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
             tls: .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" }),
         }),
     );
-    assert.eq(quiet.port, 45);
+    assert.equal(quiet.port, 45);
 
     // The drain deadline is rendered last, after the identity, because it is
     // read last: a shutdown is a question nobody asks until the server is being
@@ -1865,10 +1874,10 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
             port: 0,
             onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
             protocols: .Some([.Http1]),
-            drainMillis: .Some(2500),
+            drain: .Some(time.milliseconds(2500)),
         }),
     );
-    assert.eq(stopping.port, 16);
+    assert.equal(stopping.port, 16);
 
     // The socket buffer is rendered after the drain, and it is the second knob
     // to land as a variant — which is what the plan was built to be. Two
@@ -1878,16 +1887,16 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
         server.bind(ctx, server.Server {
             port: 0,
             onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
-            drainMillis: .Some(2500),
+            drain: .Some(time.milliseconds(2500)),
             socketBuffer: .Some(8),
         }),
     );
-    assert.eq(buffered.port, 67);
+    assert.equal(buffered.port, 67);
 
     // And a `Server` that chose nothing renders an empty plan — which is the
     // `.None` convention reaching the effect rather than a default this module
-    // invented on the way past. An absent `drainMillis` is an absent element
-    // and not a `.DrainMillis(-1)`, which is the one place the plan's encoding
+    // invented on the way past. An absent `drain` is an absent element
+    // and not a `.DrainMilliseconds(-1)`, which is the one place the plan's encoding
     // differs from the `Int` knobs beside it.
     let bare = assert.ok(
         server.bind(ctx, server.Server {
@@ -1895,7 +1904,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
             onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
         }),
     );
-    assert.eq(bare.port, 0);
+    assert.equal(bare.port, 0);
 }
 
 test "bind answers the port the acceptor chose, and run is the rest of serve" {
@@ -1903,7 +1912,7 @@ test "bind answers the port the acceptor chose, and run is the rest of serve" {
     // `port: 0` does not know its own port until the bind returns, and it has
     // to be able to publish it *before* the loop starts.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "10.0.0.1" },
         Stdout: stdout(),
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -1913,10 +1922,10 @@ test "bind answers the port the acceptor chose, and run is the rest of serve" {
         onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
     };
     let listener = assert.ok(server.bind(ctx, plan));
-    assert.eq(listener.port, 8080);
+    assert.equal(listener.port, 8080);
     // The other half of what a bind answers: how many handlers the acceptor
     // will host on this listener, which is what `run` fans out to.
-    assert.eq(listener.handlers, 1);
+    assert.equal(listener.handlers, 1);
     // `run` takes the whole `Server` and not its `onRequest`, because it needs
     // two of the fields now: what to answer with, and how many handlers to ask
     // the acceptor for. `port` and the bind knobs were spent above.
@@ -1932,7 +1941,7 @@ test "run starts one worker per handler the listener says it will host" {
     // argues from the budget `listenBind` is already at.
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: PoolListen { bindsTo: "10.0.0.1", handlers: 3 },
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -1946,13 +1955,16 @@ test "run starts one worker per handler the listener says it will host" {
             },
         }),
     );
-    assert.eq(sink.captured(), "worked 10.0.0.1\nworked 10.0.0.1\nworked 10.0.0.1\n");
+    assert.equal(
+        sink.captured(),
+        "worked 10.0.0.1\nworked 10.0.0.1\nworked 10.0.0.1\n",
+    );
 
     // And one is one: the same server against a listener that hosts a single
     // handler is the server this module was before handlers ran on tasks.
     let alone = stdout();
     let single = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: PoolListen { bindsTo: "10.0.0.1", handlers: 1 },
         Stdout: alone,
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -1966,7 +1978,7 @@ test "run starts one worker per handler the listener says it will host" {
             },
         }),
     );
-    assert.eq(alone.captured(), "worked 10.0.0.1\n");
+    assert.equal(alone.captured(), "worked 10.0.0.1\n");
 
     // A `Listener` is inert data, so a program can write one that claims more
     // workers than anything could host. `run` believes it only inside its own
@@ -1974,7 +1986,7 @@ test "run starts one worker per handler the listener says it will host" {
     // that stops making progress rather than a fast one.
     let many = stdout();
     let forged = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: PoolListen { bindsTo: "10.0.0.1", handlers: 0 - 5 },
         Stdout: many,
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -1989,12 +2001,12 @@ test "run starts one worker per handler the listener says it will host" {
         }),
     );
     // Below one is one: a server with no workers is a port nobody answers.
-    assert.eq(many.captured(), "worked 10.0.0.1\n");
+    assert.equal(many.captured(), "worked 10.0.0.1\n");
 }
 
 test "a bind that fails is an error with the platform's own words on it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "" },
         Stdout: stdout(),
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -2008,16 +2020,16 @@ test "a bind that fails is an error with the platform's own words on it" {
     // The cause is what a program branches on; the detail is what it prints.
     // Two fields rather than an enum with payloads, which is also what lets the
     // detail cross the C ABI — `core/effect` says so where `ServeError` is.
-    assert.eq(refused.cause, .PermissionDenied);
-    assert.eq(refused.detail, "no address");
-    assert.eq(server.errorText(refused), "listening was not permitted");
+    assert.equal(refused.cause, .PermissionDenied);
+    assert.equal(refused.detail, "no address");
+    assert.equal(server.errorText(refused), "listening was not permitted");
 }
 
 test "every cause has a sentence, and errorText needs no context to say it" {
     // A constant per variant, so a `main` whose context grants nothing but
     // `Listen` can still `.mapErr(server.errorText)`.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let said = [
         ServeFailure.AddressInUse,
@@ -2028,7 +2040,7 @@ test "every cause has a sentence, and errorText needs no context to say it" {
         ServeFailure.Closed,
         ServeFailure.Transport,
     ].map(ctx, fn(cause) => server.errorText(ServeError { cause: cause, detail: "" }));
-    assert.eq(said.len(), 7);
+    assert.equal(said.length(), 7);
     assert.isTrue(said.all(fn(line) => line != ""));
 }
 
@@ -2036,13 +2048,13 @@ test "a server that will not bind is the Listen answer and not the network's" {
     // The network still answers 418; the negation is the bind's refusal, so the
     // two effects are distinguishable through one context.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "" },
-        Net: TeapotNet { body: [] },
+        Network: TeapotNet { body: [] },
         Sockets: QuietSockets { },
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
-    assert.eq(serveOnce(ctx, "http://example.com/ping"), 0 - 418);
+    assert.equal(serveOnce(ctx, "http://example.com/ping"), 0 - 418);
 }
 
 // -----------------------------------------------------------------------------
@@ -2077,7 +2089,7 @@ test "a server that will not bind is the Listen answer and not the network's" {
 test "a handler reached through the wrapper is handed the caller's context" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "10.0.0.1" },
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
@@ -2099,7 +2111,7 @@ test "a handler reached through the wrapper is handed the caller's context" {
             },
         }),
     );
-    assert.eq(sink.captured(), "hit 10.0.0.1\n");
+    assert.equal(sink.captured(), "hit 10.0.0.1\n");
     // The negation: the acceptor hands out a request naming *its own* address,
     // so a handler comparing the two answers 500 when they disagree, and
     // `OneShotListen` refuses anything outside 200..599 — a listener that
@@ -2114,21 +2126,21 @@ test "a handler reached through the wrapper is handed the caller's context" {
             },
         }),
     );
-    assert.eq(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
+    assert.equal(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
 }
 
 test "a context binding two effects reaches both through bounds" {
     // `serveOnce` and `runInOrder` over one context, so the two questions are
     // answered in the same instantiation and neither overwrites the other.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "127.0.0.1" },
-        Net: TeapotNet { body: [] },
+        Network: TeapotNet { body: [] },
         Sockets: QuietSockets { },
         Tasks: SerialTasks { label: "serial", bias: 0 },
     };
-    assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
-    assert.eq(runInOrder(ctx, [3, 4]), 107);
+    assert.equal(serveOnce(ctx, "http://example.com/ping"), 418);
+    assert.equal(runInOrder(ctx, [3, 4]), 107);
 }
 
 // -----------------------------------------------------------------------------
@@ -2161,28 +2173,28 @@ test "a step reads an effect out of the context it is handed" {
     // arrived and not only how wide it was: a step handed the scheduler read `0`.
     let runner = SerialTasks { label: "s", bias: 0 };
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(5),
         Tasks: runner,
     };
     let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => time.now(c).0 + x);
-    assert.eq(out, [12, 14]);
+    assert.equal(out, [12, 14]);
 }
 
 test "a step uses two effects from its context in one expression" {
-    // `Alloc` and `Clock` together, through `str.format`, which needs the first
+    // `Allocator` and `Clock` together, through `str.format`, which needs the first
     // and reads the second: a step handed one effect's implementation could
     // satisfy neither, and a step handed a context missing one would not compile.
     let runner = SerialTasks { label: "s", bias: 0 };
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(5),
         Tasks: runner,
     };
     let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => {
         str.format(c, "${time.now(c).0}:${i}:${x}")
     });
-    assert.eq(out, ["5:0:7", "5:1:9"]);
+    assert.equal(out, ["5:0:7", "5:1:9"]);
 }
 
 test "a nested parallel is made with the context the outer step was handed" {
@@ -2192,7 +2204,7 @@ test "a nested parallel is made with the context the outer step was handed" {
     // boundary would lose its clock at the second.
     let runner = SerialTasks { label: "s", bias: 0 };
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(5),
         Tasks: runner,
     };
@@ -2201,19 +2213,19 @@ test "a nested parallel is made with the context the outer step was handed" {
             .parallel(c, [x, x], fn(d, j, y) => time.now(d).0 + y + j)
             .fold(fn(a, m) => a + m, 0)
     });
-    assert.eq(out, [25]);
+    assert.equal(out, [25]);
 }
 
 test "a step through a bounded type parameter has the caller's bounds" {
-    // `runInOrderNamed<C: Alloc + Tasks>` allocates *inside* the step, which is a
+    // `runInOrderNamed<C: Allocator + Tasks>` allocates *inside* the step, which is a
     // compile-time claim before it is a runtime one: nothing in that body names
     // what implements `Tasks` for `C`, so a step's first parameter typed as the
-    // implementation would have no `Alloc` and the function would not build.
+    // implementation would have no `Allocator` and the function would not build.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
-    assert.eq(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
+    assert.equal(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
 }
 
 test "an ordinary Buri implementation hands its steps the context" {
@@ -2223,15 +2235,15 @@ test "an ordinary Buri implementation hands its steps the context" {
     // by the compiler's trampoline.
     let runner = SerialTasks { label: "s", bias: 0 };
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(11),
         Tasks: runner,
     };
     let out = tasks.parallel(ctx, [1, 2], fn(c, i, item) => {
         time.now(c).0 + i * 10 + item
     });
-    assert.eq(out[0].withDefault(0), 12);
-    assert.eq(out[1].withDefault(0), 23);
+    assert.equal(out[0].withDefault(0), 12);
+    assert.equal(out[1].withDefault(0), 23);
 }
 
 // -----------------------------------------------------------------------------
@@ -2239,9 +2251,9 @@ test "an ordinary Buri implementation hands its steps the context" {
 // (SPEC 10.1, 10.8)
 // -----------------------------------------------------------------------------
 //
-// `<C: Alloc>` is an ordinary bound, so the argument at `C` need not be a
-// `context { … }` record — anything that implements `Alloc` satisfies it, and
-// `core/host/testing`'s `alloc()` is a `struct TestAlloc(I64)` that does.
+// `<C: Allocator>` is an ordinary bound, so the argument at `C` need not be a
+// `context { … }` record — anything that implements `Allocator` satisfies it, and
+// `core/host/testing`'s `alloc()` is a `struct TestAllocator(I64)` that does.
 // Every block above passes a context, and every one of these deliberately does
 // not.
 //
@@ -2256,55 +2268,55 @@ test "an ordinary Buri implementation hands its steps the context" {
 
 test "a bare implementing value satisfies a context bound" {
     // The reduced repro. `alloc()` is not a context and never was one.
-    assert.eq(pushedWith(alloc(), 7, [1]), [1, 7]);
+    assert.equal(pushedWith(alloc(), 7, [1]), [1, 7]);
 }
 
 test "a bare implementing value reaches a context in first position" {
     // `list.repeat(ctx, item, times)` has no receiver, so its context is
     // argument zero — the other index the rule can take.
-    assert.eq(repeatedWith(alloc(), 5), [5, 5]);
+    assert.equal(repeatedWith(alloc(), 5), [5, 5]);
 }
 
 test "a bare implementing value reaches str.concat, which has no table row" {
-    assert.eq(joinedWith(alloc(), "ab", "cd"), "abcd");
+    assert.equal(joinedWith(alloc(), "ab", "cd"), "abcd");
 }
 
 test "an attenuating wrapper is a context bound's argument" {
     // SPEC 10.8's shape, and the reason the language wants the bound to be
-    // ordinary: `ReadOnly` forwards `Alloc` and nothing else, so a callee holding
+    // ordinary: `ReadOnly` forwards `Allocator` and nothing else, so a callee holding
     // one genuinely cannot do the rest.
-    assert.eq(pushedWith(ReadOnly { inner: alloc() }, 7, [1]), [1, 7]);
+    assert.equal(pushedWith(ReadOnly { inner: alloc() }, 7, [1]), [1, 7]);
 }
 
 test "an implementor carrying a counted pointer is a context bound's argument" {
     // Two leaves and a `Str` among them, so the argument the C signature drops is
     // wider than one word and is one reference counting still has to balance.
-    assert.eq(loggedWith(alloc(), [1]), [1, 4]);
+    assert.equal(loggedWith(alloc(), [1]), [1, 4]);
 }
 
 test "one value satisfying two effects discharges a two-effect bound" {
-    // `C: Alloc + Clock` through a single implementing value rather than a
+    // `C: Allocator + Clock` through a single implementing value rather than a
     // context binding two rows, so the bound being a *list* is exercised.
     // Both bindings are live, and neither is asked for at the *call*: `ticking`
-    // demands nothing, and what needs `Alloc` and `Clock` is `Ticking`'s own two
+    // demands nothing, and what needs `Allocator` and `Clock` is `Ticking`'s own two
     // `impl`s, which the monomorphiser reaches and the checker does not.
     let both = ticking(context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(5),
     });
-    assert.eq(stampedWith(both, [1]), [1, 5]);
+    assert.equal(stampedWith(both, [1]), [1, 5]);
 }
 
 test "a context holding the same double still reaches the same answer" {
     // The shape every other block in this file uses, asserted next to the bare
-    // one: a `context { … }` whose binding is the very same `TestAlloc` handle.
+    // one: a `context { … }` whose binding is the very same `TestAllocator` handle.
     // The two are different types and must reach one answer.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(pushedWith(ctx, 7, [1]), [1, 7]);
-    assert.eq(repeatedWith(ctx, 5), [5, 5]);
-    assert.eq(joinedWith(ctx, "ab", "cd"), "abcd");
+    assert.equal(pushedWith(ctx, 7, [1]), [1, 7]);
+    assert.equal(repeatedWith(ctx, 5), [5, 5]);
+    assert.equal(joinedWith(ctx, "ab", "cd"), "abcd");
 }
 
 // -----------------------------------------------------------------------------
@@ -2361,7 +2373,7 @@ impl Listen for Scripted {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
         .Ok(Listener { handle: 1, port: 8080, handlers: 1 })
     }
@@ -2429,7 +2441,7 @@ impl Listen for Scripted {
 test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
         Sockets: QuietSockets { },
         Stdout: sink,
@@ -2454,7 +2466,7 @@ test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
     assert.ok(outcome);
     // The order is the claim as much as the contents: a socket opens once,
     // closes once, and the state the open answered is what the close is handed.
-    assert.eq(sink.captured(), "open /socket\nclose /socket .Normal\n");
+    assert.equal(sink.captured(), "open /socket\nclose /socket .Normal\n");
 }
 
 /// One socket's close, as the reason `core/net/server` named for its code.
@@ -2465,7 +2477,7 @@ test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
 fn closedWith(code: Int): Str {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: code },
         Sockets: QuietSockets { },
         Stdout: sink,
@@ -2488,22 +2500,22 @@ fn closedWith(code: Int): Str {
 }
 
 test "a close code becomes the reason core/net/server names for it" {
-    assert.eq(closedWith(1000), ".Normal");
-    assert.eq(closedWith(1001), ".GoingAway");
-    assert.eq(closedWith(1002), ".ProtocolError");
-    assert.eq(closedWith(1003), ".Unsupported");
-    assert.eq(closedWith(1008), ".Policy");
-    assert.eq(closedWith(1009), ".TooLarge");
-    assert.eq(closedWith(1011), ".InternalError");
+    assert.equal(closedWith(1000), ".Normal");
+    assert.equal(closedWith(1001), ".GoingAway");
+    assert.equal(closedWith(1002), ".ProtocolError");
+    assert.equal(closedWith(1003), ".Unsupported");
+    assert.equal(closedWith(1008), ".Policy");
+    assert.equal(closedWith(1009), ".TooLarge");
+    assert.equal(closedWith(1011), ".InternalError");
     // 1006 is "there was no close frame" and 4321 is a private-use code this
     // enum does not name: both are `.Abnormal`, which is what that variant
     // says.
-    assert.eq(closedWith(1006), ".Abnormal");
-    assert.eq(closedWith(4321), ".Abnormal");
+    assert.equal(closedWith(1006), ".Abnormal");
+    assert.equal(closedWith(4321), ".Abnormal");
     // **A negative code is the platform's own and never the far side's**, and
     // it is the only way `.Overflow` is reachable: a wire code is unsigned, so
     // no peer can claim this server's outbound buffer filled.
-    assert.eq(closedWith(-1), ".Overflow");
+    assert.equal(closedWith(-1), ".Overflow");
 }
 
 test "a request that is not an upgrade reaches onRequest on a socket server" {
@@ -2513,7 +2525,7 @@ test "a request that is not an upgrade reaches onRequest on a socket server" {
     // request with no `upgrade: websocket` on it.
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 0, code: 1000 },
         Sockets: QuietSockets { },
         Stdout: sink,
@@ -2535,7 +2547,7 @@ test "a request that is not an upgrade reaches onRequest on a socket server" {
             onClose: fn(_c, _socket, _state, _reason) => (),
         }),
     });
-    assert.eq(sink.captured(), "handled /socket\n");
+    assert.equal(sink.captured(), "handled /socket\n");
 }
 
 test "an upgrade to a path the hooks do not name is an ordinary request" {
@@ -2547,7 +2559,7 @@ test "an upgrade to a path the hooks do not name is an ordinary request" {
     // exactly as it does on a server with no hooks at all.
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
         Sockets: QuietSockets { },
         Stdout: sink,
@@ -2569,7 +2581,7 @@ test "an upgrade to a path the hooks do not name is an ordinary request" {
             onClose: fn(_c, _socket, _state, _reason) => (),
         }),
     });
-    assert.eq(sink.captured(), "handled /socket\n");
+    assert.equal(sink.captured(), "handled /socket\n");
 }
 
 test "the path a WebSocket names is matched exactly, with no trailing-slash forgiveness" {
@@ -2577,7 +2589,7 @@ test "the path a WebSocket names is matched exactly, with no trailing-slash forg
     // whole of the normalisation rule: there is none.
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
         Sockets: QuietSockets { },
         Stdout: sink,
@@ -2596,7 +2608,7 @@ test "the path a WebSocket names is matched exactly, with no trailing-slash forg
             onClose: fn(_c, _socket, _state, _reason) => (),
         }),
     });
-    assert.eq(sink.captured(), "handled /socket\n");
+    assert.equal(sink.captured(), "handled /socket\n");
 }
 
 test "a server with no hooks never upgrades, so an upgrade is an ordinary request" {
@@ -2606,7 +2618,7 @@ test "a server with no hooks never upgrades, so an upgrade is an ordinary reques
     // and `Scripted` would have answered `.Ok(9)` if it had.
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
         Sockets: QuietSockets { },
         Stdout: sink,
@@ -2619,7 +2631,7 @@ test "a server with no hooks never upgrades, so an upgrade is an ordinary reques
             Response { status: 200, headers: [], body: [] }
         },
     });
-    assert.eq(sink.captured(), "handled /socket\n");
+    assert.equal(sink.captured(), "handled /socket\n");
 }
 
 test "a socket handle a program wrote for itself is one that has already gone" {
@@ -2628,12 +2640,12 @@ test "a socket handle a program wrote for itself is one that has already gone" {
     // `Sockets` beside `Listen` honest rather than a hole. Nothing here can
     // observe the drop, and that is the point: the calls are total.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Sockets: QuietSockets { },
     };
     let forged = server.Socket(4242);
     let _text = forged.send(ctx, .Text("nobody is listening"));
     let _bytes = forged.send(ctx, .Binary([1, 2, 3]));
     let _closed = forged.close(ctx, .GoingAway);
-    assert.eq(forged, server.Socket(4242));
+    assert.equal(forged, server.Socket(4242));
 }

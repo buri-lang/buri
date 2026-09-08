@@ -7,7 +7,7 @@
 // old field is told which fields there are.
 from "core/actor" import { Actor, Stepped };
 from "core/actor" import * as actor;
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -16,7 +16,7 @@ enum Ping {
 }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
     let address = actor.start(ctx, Actor {
         state: 0,
         mailbox: .Some(8),

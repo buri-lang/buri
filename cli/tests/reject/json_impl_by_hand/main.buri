@@ -1,5 +1,5 @@
 // EXPECT: `ToJson` is derived, not implemented
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import { Json, ToJson };
@@ -8,13 +8,13 @@ from "core/json" import * as json;
 struct Point { export x: Int, export y: Int }
 
 impl ToJson for Point {
-  fn toJson<C: Alloc>(self, ctx: C): Json {
+  fn toJson<C: Allocator>(self, ctx: C): Json {
     Json.Num(0.0)
   }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = Point { x: 1, y: 2 };
   let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, p))).ignore();
   .Ok(())

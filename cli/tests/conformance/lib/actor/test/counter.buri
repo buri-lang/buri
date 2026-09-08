@@ -9,7 +9,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host/testing" import { alloc, stdout, tasks };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -21,7 +21,7 @@ enum CounterMessage {
     Get,
 }
 
-derive Eq, Show for CounterAnswer;
+derive Equal, Show for CounterAnswer;
 enum CounterAnswer {
     Done,
     Count(Int),
@@ -29,7 +29,7 @@ enum CounterAnswer {
 
 /// The note's counter, with `Add` beside `Increment` so that ordering is
 /// visible in the answer rather than only in the count.
-fn counter<C: Alloc + Tasks>(
+fn counter<C: Allocator + Tasks>(
     initial: Int,
 ): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {
@@ -46,19 +46,19 @@ fn counter<C: Alloc + Tasks>(
 
 test "the note's counter answers two increments" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
     let _ = counted.sendMessage(ctx, .Increment).ignore();
     let _ = counted.sendMessage(ctx, .Increment).ignore();
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
     let _ = counted.stop(ctx).ignore();
 }
 
 test "one sender's messages arrive in the order it sent them" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
@@ -66,13 +66,13 @@ test "one sender's messages arrive in the order it sent them" {
     let _ = counted.sendMessage(ctx, .Add(2)).ignore();
     let _ = counted.sendMessage(ctx, .Add(3)).ignore();
     // `count * 10 + n` is order-sensitive on purpose: 123 and not 321.
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(123)));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(123)));
     let _ = counted.stop(ctx).ignore();
 }
 
 test "more messages than the mailbox holds still all arrive" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // Sixty-five posts into a mailbox that holds sixty-four. Each one runs the
@@ -80,14 +80,14 @@ test "more messages than the mailbox holds still all arrive" {
     // is the whole sixty-five rather than some prefix of them.
     let counted = actor.start(ctx, counter(0));
     increments(ctx, counted, 65);
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(65)));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(65)));
     let _ = counted.stop(ctx).ignore();
 }
 
 test "every message is stepped before the stop, so the stop discards none" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -95,12 +95,12 @@ test "every message is stepped before the stop, so the stop discards none" {
     // is nothing waiting: what `onStop` prints is every message.
     let counted = actor.start(ctx, logged());
     increments(ctx, counted, 65);
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "final 65\n");
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "final 65\n");
 }
 
 /// Posts `n` increments, one `sendMessage` at a time.
-fn increments<C: Alloc + Tasks>(
+fn increments<C: Allocator + Tasks>(
     ctx: C,
     counted: Address<C, Int, CounterMessage, CounterAnswer>,
     n: Int,
@@ -116,23 +116,23 @@ fn increments<C: Alloc + Tasks>(
 
 test "a send after a stop is .Err(.Stopped)" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
     let _ = counted.sendMessage(ctx, .Increment).ignore();
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(counted.sendMessage(ctx, .Increment), .Err(.Stopped));
-    assert.eq(counted.sendMessage(ctx, .Get), .Err(.Stopped));
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Increment), .Err(.Stopped));
+    assert.equal(counted.sendMessage(ctx, .Get), .Err(.Stopped));
     // And a second `stop` is refused, which is what makes `onStop` run once
     // without the caller having to remember.
-    assert.eq(counted.stop(ctx), .Err(.Stopped));
+    assert.equal(counted.stop(ctx), .Err(.Stopped));
 }
 
 test "onStop runs once, with the final state" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -140,17 +140,17 @@ test "onStop runs once, with the final state" {
     let _ = counted.sendMessage(ctx, .Add(4)).ignore();
     let _ = counted.sendMessage(ctx, .Add(5)).ignore();
     // Nothing has been printed yet: the hook runs at the stop and not before.
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(45)));
-    assert.eq(sink.captured(), "");
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "final 45\n");
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(45)));
+    assert.equal(sink.captured(), "");
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "final 45\n");
     // Twice would print twice.
-    assert.eq(counted.stop(ctx), .Err(.Stopped));
-    assert.eq(sink.captured(), "final 45\n");
+    assert.equal(counted.stop(ctx), .Err(.Stopped));
+    assert.equal(sink.captured(), "final 45\n");
 }
 
 /// The same counter with a hook that prints the state it ends on.
-fn logged<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
+fn logged<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
@@ -166,29 +166,29 @@ fn logged<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAns
 
 test "testing an actor is calling its step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // No mailbox, no address, no runtime: the step is an ordinary function in
     // an ordinary field, which is why this module ships no test double.
     let step = counter(0).step;
-    assert.eq(step(ctx, 7, .Increment), Stepped { state: 8, answer: .Done });
-    assert.eq(step(ctx, 7, .Add(2)), Stepped { state: 72, answer: .Done });
-    assert.eq(step(ctx, 7, .Get), Stepped { state: 7, answer: .Count(7) });
+    assert.equal(step(ctx, 7, .Increment), Stepped { state: 8, answer: .Done });
+    assert.equal(step(ctx, 7, .Add(2)), Stepped { state: 72, answer: .Done });
+    assert.equal(step(ctx, 7, .Get), Stepped { state: 7, answer: .Count(7) });
 }
 
 test "the same step, through the actor" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // The block above and this one are the same three answers, once by calling
     // the step and once by posting to it.
     let counted = actor.start(ctx, counter(7));
-    assert.eq(counted.sendMessage(ctx, .Increment), .Ok(.Done));
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(8)));
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(counted.sendMessage(ctx, .Get), .Err(.Stopped));
+    assert.equal(counted.sendMessage(ctx, .Increment), .Ok(.Done));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(8)));
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Get), .Err(.Stopped));
 }
 
 // **The file's one case that was pinned as an interim, and it has moved.** It
@@ -202,7 +202,7 @@ test "the same step, through the actor" {
 test "a stop discards nothing, because every send already ran" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -210,8 +210,8 @@ test "a stop discards nothing, because every send already ran" {
     let _ = counted.sendMessage(ctx, .Add(1)).ignore();
     let _ = counted.sendMessage(ctx, .Add(2)).ignore();
     let _ = counted.sendMessage(ctx, .Add(3)).ignore();
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "final 123\n");
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "final 123\n");
 }
 
 // -----------------------------------------------------------------------------
@@ -232,14 +232,14 @@ enum Reentrant<C> {
     Get,
 }
 
-derive Eq, Show for Reentered;
+derive Equal, Show for Reentered;
 enum Reentered {
     Ticked,
     Reentered(Int),
     Count(Int),
 }
 
-fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
+fn reentrant<C: Allocator + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
@@ -257,7 +257,7 @@ fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
 
 test "a step that sends to its own actor is refused, and the message still arrives" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, reentrant());
@@ -273,16 +273,16 @@ test "a step that sends to its own actor is refused, and the message still arriv
             }
         }),
     );
-    assert.eq(refused, .Ok(.Reentered(0)));
+    assert.equal(refused, .Ok(.Reentered(0)));
     // Refused is not lost. The `.Tick` is in the mailbox, and the loop that was
     // already running steps it — once — before it puts the state back.
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(1)));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(1)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "a step fills the mailbox to its bound, and every message still arrives" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // Sixty-four posts with nothing draining between them, which is the only
@@ -291,14 +291,14 @@ test "a step fills the mailbox to its bound, and every message still arrives" {
     // stepped when the step that posted them returns.
     let filled = actor.start(ctx, reentrant());
     let fanned = filled.sendMessage(ctx, .Reenter(fn(c) => ticks(c, filled, 64)));
-    assert.eq(fanned, .Ok(.Reentered(0)));
-    assert.eq(filled.sendMessage(ctx, .Get), .Ok(.Count(64)));
-    assert.eq(filled.stop(ctx), .Ok(()));
+    assert.equal(fanned, .Ok(.Reentered(0)));
+    assert.equal(filled.sendMessage(ctx, .Get), .Ok(.Count(64)));
+    assert.equal(filled.stop(ctx), .Ok(()));
 }
 
 /// Posts `left` ticks and answers how many of them were stepped on the spot,
 /// which is none of them: the caller is the step that holds the state.
-fn ticks<C: Alloc + Tasks>(
+fn ticks<C: Allocator + Tasks>(
     ctx: C,
     address: Address<C, Int, Reentrant<C>, Reentered>,
     left: Int,
@@ -334,7 +334,7 @@ fn ticks<C: Alloc + Tasks>(
 // is where an answer left in an abandoned slot is read back as a block nobody
 // gave back.
 
-derive Eq, Show for Carrying;
+derive Equal, Show for Carrying;
 enum Carrying {
     Said(Str),
     Listed([Int]),
@@ -354,12 +354,12 @@ enum Ask<C> {
 /// A string this program grew, rather than one the compiler interned: a
 /// constant lives in the artifact's pool and is never a block anybody has to
 /// give back.
-fn grown<C: Alloc>(ctx: C, s: Str): Str {
+fn grown<C: Allocator>(ctx: C, s: Str): Str {
     s.concat(ctx, "")
 }
 
 /// An actor whose every answer carries a block.
-fn carrier<C: Alloc + Tasks>(): Actor<C, Int, Ask<C>, Carrying> {
+fn carrier<C: Allocator + Tasks>(): Actor<C, Int, Ask<C>, Carrying> {
     Actor {
         state: 0,
         step: fn(c, seen, message) => {
@@ -382,7 +382,7 @@ fn carrier<C: Alloc + Tasks>(): Actor<C, Int, Ask<C>, Carrying> {
 
 /// Posts `left` messages that answer with a string, and counts how many were
 /// answered on the spot.
-fn saying<C: Alloc + Tasks>(
+fn saying<C: Allocator + Tasks>(
     ctx: C,
     address: Address<C, Int, Ask<C>, Carrying>,
     left: Int,
@@ -401,7 +401,7 @@ fn saying<C: Alloc + Tasks>(
 
 test "an answer written into a slot its sender gave up on is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, carrier());
@@ -416,16 +416,16 @@ test "an answer written into a slot its sender gave up on is given back" {
     );
     // The send from inside the step is refused, so its slot is taken with
     // nothing in it.
-    assert.eq(refused, .Ok(.Total(0)));
+    assert.equal(refused, .Ok(.Total(0)));
     // The message is not lost: the loop already running steps it, and the
     // string it answers with goes into a slot nobody is holding.
-    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(1)));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Count), .Ok(.Total(1)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "an answer that is a list, written into a slot its sender gave up on, is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, carrier());
@@ -438,14 +438,14 @@ test "an answer that is a list, written into a slot its sender gave up on, is gi
             }
         }),
     );
-    assert.eq(refused, .Ok(.Total(0)));
-    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(1)));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(refused, .Ok(.Total(0)));
+    assert.equal(counted.sendMessage(ctx, .Count), .Ok(.Total(1)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "every slot a step's sends gave up on comes back, twenty in a row" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // Twenty slots opened and abandoned inside one step, then twenty answers
@@ -454,35 +454,38 @@ test "every slot a step's sends gave up on comes back, twenty in a row" {
     // taken by the next send, which is what makes the generation the thing
     // that keeps the late answers apart.
     let counted = actor.start(ctx, carrier());
-    assert.eq(
+    assert.equal(
         counted.sendMessage(ctx, .Reenter(fn(c) => saying(c, counted, 20))),
         .Ok(.Total(0)),
     );
-    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(20)));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Count), .Ok(.Total(20)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "an ordinary send after twenty abandoned ones gets its own answer" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // The reused index is the point. Every abandoned slot goes back on the
     // free list, so the send below opens an index one of them was named by —
     // and it has to come back with the answer to *this* message.
     let counted = actor.start(ctx, carrier());
-    assert.eq(
+    assert.equal(
         counted.sendMessage(ctx, .Reenter(fn(c) => saying(c, counted, 20))),
         .Ok(.Total(0)),
     );
-    assert.eq(counted.sendMessage(ctx, .Say(grown(ctx, "mine"))), .Ok(.Said("mine!")));
-    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(21)));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(
+        counted.sendMessage(ctx, .Say(grown(ctx, "mine"))),
+        .Ok(.Said("mine!")),
+    );
+    assert.equal(counted.sendMessage(ctx, .Count), .Ok(.Total(21)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 /// Posts `left` messages into a mailbox that is closed, and counts the
 /// refusals.
-fn refused<C: Alloc + Tasks>(
+fn refused<C: Allocator + Tasks>(
     ctx: C,
     address: Address<C, Int, Ask<C>, Carrying>,
     left: Int,
@@ -501,7 +504,7 @@ fn refused<C: Alloc + Tasks>(
 
 test "a slot opened for a message a closed mailbox refused comes back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // The other arm that abandons a slot, and the one a program reaches by
@@ -510,9 +513,9 @@ test "a slot opened for a message a closed mailbox refused comes back" {
     // message it built is the caller's to release, because a closed mailbox
     // does not take the block.
     let counted = actor.start(ctx, carrier());
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(refused(ctx, counted, 20), 20);
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(refused(ctx, counted, 20), 20);
     // And again, after twenty errors: nothing about the sequence is spent.
-    assert.eq(refused(ctx, counted, 20), 20);
-    assert.eq(counted.stop(ctx), .Err(.Stopped));
+    assert.equal(refused(ctx, counted, 20), 20);
+    assert.equal(counted.stop(ctx), .Err(.Stopped));
 }

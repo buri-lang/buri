@@ -1,0 +1,17 @@
+error: expected `=>`, found `Str` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_expected_f0023e/main.buri:42:62
+   |
+42 | fn rendered<C: Allocator + Clock>(ctx: C, render: fn(C, Str) Str =>, label: Str): Str {
+   |                                                              ^^^
+   |
+   = expected: `=>`
+   = actual: `Str`
+   = fix: write `=>` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_f0023e/main.buri:60:18
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                  ^^^^^^^^
+   |
+   = did you mean `Ordered`?
+   = fix: correct the spelling, or declare it

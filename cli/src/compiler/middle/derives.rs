@@ -1,4 +1,4 @@
-//! A generated `Show`, `Eq`, `Ord`, `Hash` and `ToJson` per type.
+//! A generated `Show`, `Equal`, `Ordered`, `Hash` and `ToJson` per type.
 //!
 //! JavaScript walks a type descriptor at run time — `$D0`, `$D1`, and the
 //! generic `$eq`/`$show`/`$json_of` that read them — because a megamorphic walk
@@ -105,7 +105,7 @@
 //! # Sharing
 //!
 //! One function per **shape**, not per type: `struct Meters(I64)` and
-//! `struct Seconds(I64)` share `eq`, `cmp` and `hash`, because a derived
+//! `struct Seconds(I64)` share `equal`, `cmp` and `hash`, because a derived
 //! comparison reads offsets and the two layouts are identical — VALUE-MODEL.md
 //! §5 fixes layout as declaration order with natural alignment and no
 //! reordering, so "same field types in the same order" *is* "same layout".
@@ -365,8 +365,8 @@ fn descriptor_arg(args: &[Expr]) -> Option<usize> {
 ///
 /// The one thing a *call site* cannot answer is a primitive a generated body
 /// needs and the program never mentions — a `Bool` in a program that derives
-/// `Ord` and no `Eq` — and `Program::shapes` closes it, because it is every
-/// declared type rather than the reached ones. [`Env::discover`] reads it last,
+/// `Ordered` and no `Equal` — and `Program::shapes` closes it, because it is every
+/// declared type rather than the reached ones. [`Environment::discover`] reads it last,
 /// so it fills gaps and overrides nothing.
 struct Env {
     /// Descriptor index to the type it describes.
@@ -468,7 +468,7 @@ impl Env {
         }
         // Whatever is still missing, off `Program::shapes` — which is *every*
         // declared type rather than the reached ones, so it answers where the
-        // readings above cannot: a program that derives `Ord` and never asks
+        // readings above cannot: a program that derives `Ordered` and never asks
         // for `==`, never writes a `Bool` literal and never spells a comparison
         // of its own has no `structuralEq` call site and no literal to read
         // one from, and its generated `compare` was then built with conditions
@@ -890,10 +890,10 @@ impl Generator {
     }
 
     /// `Bool`, which a generated `compare` needs for its `if` even in a
-    /// program that derives no `Eq`.
+    /// program that derives no `Equal`.
     ///
     /// It read `result(Op::Eq)` alone, which is the type of a `structuralEq`
-    /// **call site** — so a program that derives `Ord` and never asks for `==`
+    /// **call site** — so a program that derives `Ordered` and never asks for `==`
     /// had no `Bool` at all, and every `if (a < b)` in a generated `compare`
     /// was built with a condition of type `Ty::Error`. The verifier caught it
     /// as "branches on a value that is not a Bool" rather than as a missing
@@ -1378,7 +1378,7 @@ impl Generator {
     }
 
     /// Tag first, then payload — declaration order is the order, which is what
-    /// makes `derive Ord` on an enum mean what a reader of the declaration
+    /// makes `derive Ordered` on an enum mean what a reader of the declaration
     /// expects.
     fn compare_enum(
         &mut self,
@@ -2220,15 +2220,15 @@ mod tests {
     }
 
     const POINT: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct P { x: Int, y: Str }
-derive Eq, Ord, Show, Hash for P;
+derive Equal, Ordered, Show, Hash for P;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = P { x: 1, y: "a" };
   let b = P { x: 2, y: "b" };
   let _ = io.println(ctx, "${a == b}").ignore();
@@ -2490,7 +2490,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn one_joiner_serves_every_shape_of_the_same_width() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -2500,7 +2500,7 @@ derive Show for A;
 derive Show for B;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, A { x: 1, y: 2 }.show(ctx)).ignore();
   let _ = io.println(ctx, B { p: 3, q: 4 }.show(ctx)).ignore();
   .Ok(())
@@ -2533,15 +2533,15 @@ export fn main(): Result<(), Str> {
     #[test]
     fn an_enum_is_a_match_on_the_tag() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum Shape { Dot, Line(Int, Int) }
-derive Eq, Show for Shape;
+derive Equal, Show for Shape;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = Shape.Line(1, 2);
   let _ = io.println(ctx, "${a == .Dot}").ignore();
   let _ = io.println(ctx, a.show(ctx)).ignore();
@@ -2573,15 +2573,15 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_list_is_the_element_function_and_a_helper() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct P { x: Int }
-derive Eq, Show for P;
+derive Equal, Show for P;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = [P { x: 1 }];
   let _ = io.println(ctx, "${xs == [P { x: 2 }]}").ignore();
   .Ok(())
@@ -2601,17 +2601,17 @@ export fn main(): Result<(), Str> {
     #[test]
     fn layout_identical_types_share_the_operations_that_read_no_names() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct Meters { v: Int }
 struct Seconds { v: Int }
-derive Eq, Show for Meters;
-derive Eq, Show for Seconds;
+derive Equal, Show for Meters;
+derive Equal, Show for Seconds;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = Meters { v: 1 };
   let b = Seconds { v: 1 };
   let _ = io.println(ctx, "${a == Meters { v: 2 }}").ignore();
@@ -2638,15 +2638,15 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_recursive_type_generates_a_recursive_function() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum Rose { Leaf(Int), Node([Rose]) }
-derive Eq for Rose;
+derive Equal for Rose;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = Rose.Node([Rose.Leaf(1)]);
   let _ = io.println(ctx, "${a == Rose.Leaf(2)}").ignore();
   .Ok(())
@@ -2677,17 +2677,17 @@ export fn main(): Result<(), Str> {
     #[test]
     fn from_json_is_recorded_as_a_seam() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import { DecodeError, ToJson, FromJson };
 from "core/json" import * as json;
 
 struct P { x: Int }
-derive Eq, ToJson, FromJson for P;
+derive Equal, ToJson, FromJson for P;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = P { x: 1 };
   let back: Result<P, DecodeError> = json.decode(ctx, json.encode(ctx, p));
   let _ = io.println(ctx, "${back == .Ok(p)}").ignore();
@@ -2713,12 +2713,12 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_call_site_inside_a_loop_is_rewritten_too() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct P { x: Int }
-derive Eq, Show for P;
+derive Equal, Show for P;
 
 export fn seek(n: Int, needle: P): Int {
   if (n <= 0) {
@@ -2731,7 +2731,7 @@ export fn seek(n: Int, needle: P): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${seek(3, P { x: 2 })}").ignore();
   .Ok(())
 }

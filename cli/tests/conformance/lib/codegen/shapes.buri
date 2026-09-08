@@ -4,7 +4,7 @@
 // changes the answer rather than merely the speed, which is what makes the
 // assertions in `test/` worth making.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 
 // -----------------------------------------------------------------------------
@@ -20,7 +20,11 @@ from "core/list" import * as list;
 //
 // `adders(ctx, 0, [])` must hold `+0`, `+1`, `+2` and `+3`, in that order.
 
-export fn adders<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+export fn adders<C: Allocator>(
+    ctx: C,
+    i: Int,
+    acc: [fn(Int) => Int],
+): [fn(Int) => Int] {
     if (i >= 4) { acc } else { adders(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
 }
 
@@ -29,7 +33,7 @@ export fn adders<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => I
 ///
 /// The two members build different closures, so the answers say which member
 /// ran as well as which value it captured.
-export fn addersEven<C: Alloc>(
+export fn addersEven<C: Allocator>(
     ctx: C,
     i: Int,
     acc: [fn(Int) => Int],
@@ -37,13 +41,17 @@ export fn addersEven<C: Alloc>(
     if (i >= 4) { acc } else { addersOdd(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
 }
 
-export fn addersOdd<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+export fn addersOdd<C: Allocator>(
+    ctx: C,
+    i: Int,
+    acc: [fn(Int) => Int],
+): [fn(Int) => Int] {
     if (i >= 4) { acc } else { addersEven(ctx, i + 1, acc.push(ctx, fn(x) => x * i)) }
 }
 
 /// A closure over a parameter the loop *never* rebinds. Nothing can go stale
 /// here, so this is the case a fix must leave alone.
-export fn scalers<C: Alloc>(
+export fn scalers<C: Allocator>(
     ctx: C,
     k: Int,
     i: Int,
@@ -54,7 +62,7 @@ export fn scalers<C: Alloc>(
 
 /// Two closures per iteration over the same parameter, so a fix that gave the
 /// iteration one binding too few would show up as the two disagreeing.
-export fn pairs<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
+export fn pairs<C: Allocator>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
     if (i >= 3) {
         acc
     } else {
@@ -77,7 +85,7 @@ export fn pairs<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => In
 
 /// `&&`: recurses while the guard holds, and the answer says how it left.
 export fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
-    if (i >= xs.len()) {
+    if (i >= xs.length()) {
         true
     } else {
         xs.get(i).withDefault(0) < limit && allBelow(xs, limit, i + 1)
@@ -122,7 +130,7 @@ export fn oddAnd(i: Int): Bool {
 //
 // Both shapes need the bound to be a *literal*. Against a computed one the
 // comparison is a call of its own, which puts a barrier in the loop and stops
-// the promotion before it starts — so `value.len()` here would test nothing.
+// the promotion before it starts — so `value.length()` here would test nothing.
 
 /// True when every character below index 3 is `'a'`, skipping index 1.
 export fn walkSkipping(value: Str, index: Int): Bool {
@@ -162,16 +170,16 @@ export fn lengthNever(value: Str, index: Int): Bool {
     } else if (index == 1) {
         lengthNever(value, index + 1)
     } else {
-        value.len() != index && lengthNever(value, index + 1)
+        value.length() != index && lengthNever(value, index + 1)
     }
 }
 
-derive Eq, Show for Pair;
+derive Equal, Show for Pair;
 // -----------------------------------------------------------------------------
 // Derived structural equality
 // -----------------------------------------------------------------------------
 //
-// `derive Eq` can be answered two ways: by a runtime walker that rediscovers
+// `derive Equal` can be answered two ways: by a runtime walker that rediscovers
 // the shape of the value as it goes, or by code compiled at the type. The two
 // have to agree on every value, and the interesting cases are the ones where
 // "structural" and "identical" come apart — `NaN`, `-0.0`, an `Option` whose
@@ -187,43 +195,43 @@ export struct Pair {
     b: Str,
 }
 
-derive Eq for Floaty;
+derive Equal for Floaty;
 export struct Floaty {
     x: Float,
 }
 
-derive Eq for Nest;
+derive Equal for Nest;
 export struct Nest {
     p: Pair,
     q: Floaty,
 }
 
-derive Eq for Holder;
+derive Equal for Holder;
 export struct Holder {
     o: Option<Int>,
 }
 
-derive Eq for Deep;
+derive Equal for Deep;
 export struct Deep {
     o: Option<Option<Int>>,
 }
 
-derive Eq for Listy;
+derive Equal for Listy;
 export struct Listy {
     xs: [Int],
 }
 
-derive Eq for Hollow;
+derive Equal for Hollow;
 export struct Hollow {}
 
-derive Eq for Flat;
+derive Equal for Flat;
 export enum Flat {
     A,
     B,
     C,
 }
 
-derive Eq for Wide;
+derive Equal for Wide;
 /// Three variants with three different arities, so a comparison that assumed
 /// one shape per enum would be caught.
 export enum Wide {
@@ -337,7 +345,7 @@ export fn floatLeAsCondition(a: Float, b: Float): Bool {
 // Derived ordering over a `[T]`
 // -----------------------------------------------------------------------------
 //
-// `derive Ord` bottoms out at one helper per container, and the array one —
+// `derive Ordered` bottoms out at one helper per container, and the array one —
 // `deriveArrayCompare`, `([T], [T], fn(T, T) -> Order) -> Order` — had no body
 // on the stencil backend, so a type holding an array could not be built for a
 // native target at all (buri-lang/buri#27). The order it answers is
@@ -348,17 +356,17 @@ export fn floatLeAsCondition(a: Float, b: Float): Bool {
 // a `Str` (a runtime call), and a struct (a generated function) — and the enum
 // is the shape whose payloads are arrays rather than whose fields are.
 
-derive Eq, Ord, Show for Octets;
+derive Equal, Ordered, Show for Octets;
 export struct Octets {
     xs: [U8],
 }
 
-derive Eq, Ord, Show for Words;
+derive Equal, Ordered, Show for Words;
 export struct Words {
     ss: [Str],
 }
 
-derive Eq, Ord, Show for Leaf;
+derive Equal, Ordered, Show for Leaf;
 /// Two fields, so an element comparison that stopped at the first would show up
 /// as `Leaf { a: 1, b: "y" }` and `Leaf { a: 1, b: "x" }` comparing equal.
 export struct Leaf {
@@ -366,12 +374,12 @@ export struct Leaf {
     b: Str,
 }
 
-derive Eq, Ord, Show for Leaves;
+derive Equal, Ordered, Show for Leaves;
 export struct Leaves {
     xs: [Leaf],
 }
 
-derive Eq, Ord, Show for Tagged;
+derive Equal, Ordered, Show for Tagged;
 /// An enum whose payloads are arrays: the variant decides first, and only
 /// within one variant does the array.
 export enum Tagged {

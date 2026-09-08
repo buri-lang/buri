@@ -23,9 +23,9 @@ parameters.
 
 ```buri fail code=effect-param-not-ctx
 # from "core/fs" import * as fs;
-# from "core/fs" import { FsRead, Path };
+# from "core/fs" import { FileSystemRead, Path };
 
-fn sneaky<C: FsRead>(a: Int, handle: C, at: Path): Bool {
+fn sneaky<C: FileSystemRead>(a: Int, handle: C, at: Path): Bool {
     fs.exists(handle, at)
 }
 ```

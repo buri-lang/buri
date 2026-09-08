@@ -46,13 +46,13 @@ run {
 edit {
   file: "lib/db/manager.buri"
   replace: "from \"core/str\" import * as str;"
-  with: "from \"core/effect\" import { Alloc };\nfrom \"core/str\" import * as str;"
+  with: "from \"core/effect\" import { Allocator };\nfrom \"core/str\" import * as str;"
 }
 
 edit {
   file: "lib/db/manager.buri"
   replace: "export fn stamp<C: Fs>(ctx: C, name: Str): Str {"
-  with: "export fn stamp<C: Alloc>(ctx: C, name: Str): Str {"
+  with: "export fn stamp<C: Allocator>(ctx: C, name: Str): Str {"
 }
 
 edit {
@@ -64,13 +64,13 @@ edit {
 edit {
   file: "lib/db/testing/fakes.buri"
   replace: "from \"core/str\" import * as str;"
-  with: "from \"core/effect\" import { Alloc };\nfrom \"core/str\" import * as str;"
+  with: "from \"core/effect\" import { Allocator };\nfrom \"core/str\" import * as str;"
 }
 
 edit {
   file: "lib/db/testing/fakes.buri"
   replace: "export fn fakeStamp<C: Fs>(ctx: C, name: Str): Str {"
-  with: "export fn fakeStamp<C: Alloc>(ctx: C, name: Str): Str {"
+  with: "export fn fakeStamp<C: Allocator>(ctx: C, name: Str): Str {"
 }
 
 edit {

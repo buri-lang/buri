@@ -38,11 +38,11 @@ from "core/testing/assert" import * as assert;
 from "//lib/money" import { fromCents, parse, ParseError };
 
 test "parses dollars and cents" {
-    assert.eq(assert.ok(parse("19.05")), fromCents(1905));
+    assert.equal(assert.ok(parse("19.05")), fromCents(1905));
 }
 
 test "rejects text that is not a number" {
-    assert.eq(assert.err(parse("nineteen")), ParseError.NotANumber {
+    assert.equal(assert.err(parse("nineteen")), ParseError.NotANumber {
         text: "nineteen",
     });
 }
@@ -76,7 +76,7 @@ gave it. Two kinds of function live in it:
 
 | | |
 |---|---|
-| `assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.len`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | Answer `()`, so they stand alone as statements |
+| `assert.equal`, `assert.notEqual`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.length`, `assert.greaterThan`, `assert.greaterOrEqual`, `assert.lessThan`, `assert.lessOrEqual`, `assert.approximatelyEqual` | Answer `()`, so they stand alone as statements |
 | `assert.ok`, `assert.err`, `assert.some` | Answer the unwrapped value, which is how a test consumes a `Result` or an `Option` |
 
 Reach for the narrowest one: every assertion in the first row names the two
@@ -90,38 +90,38 @@ assert on what came out.
 
 test "the error says which text it choked on" {
     let e = assert.err(parse("nineteen"));
-    assert.eq(e, ParseError.NotANumber { text: "nineteen" });
+    assert.equal(e, ParseError.NotANumber { text: "nineteen" });
 }
 ```
 
-A type an assertion compares needs `Eq`, and one a failure prints needs `Show`,
-so `derive Eq, Show for ParseError;` is what lets you write both lines above.
+A type an assertion compares needs `Equal`, and one a failure prints needs `Show`,
+so `derive Equal, Show for ParseError;` is what lets you write both lines above.
 `Result` is must-use in tests too, so a test cannot silently skip the check it
 looks like it makes.
 
 ## A test needs a context exactly when the code does
 
 `parse` is pure, with no `ctx` parameter, so its suite builds no context at all.
-`format` allocates, says so with `C: Alloc`, and its test has to supply one:
+`format` allocates, says so with `C: Allocator`, and its test has to supply one:
 
 ```buri repo=cli/tests/example role=test
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/money" import { fromCents };
 
 test "pads the cents place" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(fromCents(1905).format(ctx), "$19.05");
+    assert.equal(fromCents(1905).format(ctx), "$19.05");
 }
 ```
 
 That is the same `context` form an entry uses: a test source and an entry's body
 are the only places that *create* a context rather than receive one, and only a
 test source may import `core/host/testing`. Bind what the function under test needs
-and nothing more — a context that does not name `Net` proves that nothing it
+and nothing more — a context that does not name `Network` proves that nothing it
 calls, however deep, reaches the network.
 
 ## Doubles are values, not a framework
@@ -130,8 +130,8 @@ Every member of `core/host/testing` is a function, and each call mints a fresh
 double, so nothing leaks from one test to the next. The defaults fail loudly
 rather than plausibly:
 
-- `fs()` is an empty in-memory filesystem. One double answers both `FsRead` and
-  `FsWrite`, so a context that reads and writes binds the *same* value under
+- `fs()` is an empty in-memory filesystem. One double answers both `FileSystemRead` and
+  `FileSystemWrite`, so a context that reads and writes binds the *same* value under
   both names.
 - `net()` refuses every request.
 - `clock()` is stopped at zero.
@@ -143,14 +143,17 @@ Configure one by calling a builder on it, which answers a *new* double and
 leaves the old one alone. Read the environment back at the end of the test:
 
 ```buri role=test
-from "core/effect" import { Alloc, IoError };
+from "core/effect" import { Allocator, IoError };
 # from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite, Path };
+from "core/fs" import { FileSystemRead, FileSystemWrite, Path };
 from "core/host/testing" import { alloc, fs };
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn archive<C: Alloc + FsRead + FsWrite>(ctx: C, at: Path): Result<(), IoError> {
+# fn archive<C: Allocator + FileSystemRead + FileSystemWrite>(
+#     ctx: C,
+#     at: Path,
+# ): Result<(), IoError> {
 #     match (at.withSuffix(ctx, ".bak")) {
 #         .None => .Err(.NotFound),
 #         .Some(backup) => {
@@ -163,28 +166,28 @@ from "core/path" import * as path;
 # }
 
 test "archiving leaves the original alone and writes the copy beside it" {
-    // One filesystem, bound under both names: `FsRead: fs(), FsWrite: fs()`
+    // One filesystem, bound under both names: `FileSystemRead: fs(), FileSystemWrite: fs()`
     // would be two of them, and the copy would land in the one nobody read.
     let disk = fs().files([("notes.txt", "hello")]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     assert.ok(archive(ctx, path.of(ctx, "notes.txt")));
-    assert.eq(disk.snapshot(), [("notes.txt", "hello"), ("notes.txt.bak", "hello")]);
+    assert.equal(disk.snapshot(), [("notes.txt", "hello"), ("notes.txt.bak", "hello")]);
 }
 
 test "a read-only filesystem refuses the write, and nothing is written" {
     let disk = fs().files([("notes.txt", "hello")]);
     let refused = disk.readOnly();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: refused,
-        FsWrite: refused,
+        Allocator: alloc(),
+        FileSystemRead: refused,
+        FileSystemWrite: refused,
     };
-    assert.eq(assert.err(archive(ctx, path.of(ctx, "notes.txt"))), .ReadOnly);
-    assert.eq(disk.snapshot(), [("notes.txt", "hello")]);
+    assert.equal(assert.err(archive(ctx, path.of(ctx, "notes.txt"))), .ReadOnly);
+    assert.equal(disk.snapshot(), [("notes.txt", "hello")]);
 }
 ```
 
@@ -199,12 +202,12 @@ A double the runner does not provide is a struct with methods, bound in a
 context the way the runner's own are:
 
 ```buri role=test
-# from "core/effect" import { Alloc, Net, NetError, Request, Response };
+# from "core/effect" import { Allocator, NetError, Network, Request, Response };
 # from "core/host/testing" import { alloc };
 # from "core/net/http" import * as http;
 # from "core/testing/assert" import * as assert;
 
-# fn status<C: Net>(ctx: C, url: Str): Result<Int, NetError> {
+# fn status<C: Network>(ctx: C, url: Str): Result<Int, NetError> {
 #     http.send(ctx, http.request(.Get, url)).map(fn(r) => r.status)
 # }
 
@@ -212,7 +215,7 @@ struct StubNet {
     export failing: Str,
 }
 
-impl Net for StubNet {
+impl Network for StubNet {
     fn fetch(self, request: Request): Result<Response, NetError> {
         if (request.url == self.failing) {
             .Err(.Timeout)
@@ -224,17 +227,20 @@ impl Net for StubNet {
 
 test "a timeout reaches the caller as an error" {
     let ctx = context {
-        Alloc: alloc(),
-        Net: StubNet { failing: "https://example.test/slow" },
+        Allocator: alloc(),
+        Network: StubNet { failing: "https://example.test/slow" },
     };
-    assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
-    assert.eq(assert.ok(status(ctx, "https://example.test/x")), 200);
+    assert.equal(
+        assert.err(status(ctx, "https://example.test/slow")),
+        NetError.Timeout,
+    );
+    assert.equal(assert.ok(status(ctx, "https://example.test/x")), 200);
 }
 ```
 
 A fake you write answers from its fields rather than from a counter, because
 there is no mutation to keep a counter in; the runner's own doubles are the ones
-that record. For `Net` you rarely need this at all —
+that record. For `Network` you rarely need this at all —
 `net().respond(fn(request) => ...)` is already written.
 
 ## What breaks: fault plans
@@ -243,9 +249,9 @@ Fixtures say what a call *finds*. A fault plan says what a call **fails
 with**:
 
 ```buri role=test
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 # from "core/fs" import * as fs;
-from "core/fs" import { FsRead };
+from "core/fs" import { FileSystemRead };
 from "core/host/testing" import { alloc, fs, readFile };
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
@@ -255,11 +261,11 @@ test "a file that cannot be read is reported rather than skipped" {
         .files([("config.toml", "name = \"demo\"")])
         .faults([readFile("config.toml").fails(.PermissionDenied)]);
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
     };
     let at = path.of(ctx, "config.toml");
-    assert.eq(assert.err(fs.readText(ctx, at)), .PermissionDenied);
+    assert.equal(assert.err(fs.readText(ctx, at)), .PermissionDenied);
 }
 ```
 
@@ -285,7 +291,7 @@ seed:
 
 ```text
 FAIL //lib/merge  test/merge.buri  "the merge does not depend on which read finished first"
-  assert.eq failed
+  assert.equal failed
     actual:   .Configuration { name: "demo", token: "" }
     expected: .Configuration { name: "demo", token: "abc" }
   the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`
@@ -298,7 +304,7 @@ means.
 
 ## Golden values and fixture files
 
-A golden is a value in the suite's own source, compared with `assert.eq`. There
+A golden is a value in the suite's own source, compared with `assert.equal`. There
 is no `--accept`: you rewrite one in your editor, and a diff review approves it.
 Hand a test a filesystem only when the code under test is what does the reading,
 as in `fs().files([("statement.txt", "coffee")])` — one holding an expected
@@ -315,8 +321,8 @@ A helper two suites need is not a test source. It is ordinary library code that
 happens to be test-only, behind a path with a `testing` segment:
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
-# from "core/effect" import { Alloc };
-# from "core/fs" import { FsRead };
+# from "core/effect" import { Allocator };
+# from "core/fs" import { FileSystemRead };
 # from "core/host/testing" import { alloc, fs };
 
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
@@ -337,12 +343,12 @@ export fn sample(): [Entry] {
 /// A context whose filesystem already holds a ledger, for suites that would
 /// otherwise write the same three lines.
 export context WithLedger {
-    Alloc: alloc(),
-    FsRead: fs().files([("ledger.log", "coffee\t$4.50\n")]),
+    Allocator: alloc(),
+    FileSystemRead: fs().files([("ledger.log", "coffee\t$4.50\n")]),
 }
 ```
 
-A named context binds `FsRead` and not `FsWrite` because its bindings are
+A named context binds `FileSystemRead` and not `FileSystemWrite` because its bindings are
 separate expressions: naming both halves would call `fs()` twice and hand every
 suite two unrelated filesystems. A fixture that must be written to as well as
 read is a function answering the double.

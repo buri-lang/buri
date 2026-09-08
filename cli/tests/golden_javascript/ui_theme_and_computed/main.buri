@@ -12,7 +12,7 @@
 // `$ui_theme_install` is there, because `mount` is handed a theme; and both
 // arrive through the two assignments the backend writes above the program,
 // which are the only references to either.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
@@ -50,7 +50,7 @@ fn light(t: Token): Color {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Ui: host.ui,
         Watch: host.watch,

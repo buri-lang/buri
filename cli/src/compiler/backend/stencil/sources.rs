@@ -69,7 +69,7 @@ pub enum Level {
     /// the negated `br`/`tagbr` families in the library.
     Br = 7,
     /// (h) the immediate fold: a literal hole becomes the `imm12` field of the
-    /// `add`/`sub`/`cmp` that consumes it, the exact analogue of `Addr` for
+    /// `add`/`subtract`/`cmp` that consumes it, the exact analogue of `Addr` for
     /// [`Loc::Imm`]. Plus compare-against-zero variants, which is the one
     /// constant this ISA has a register for.
     IFold = 8,
@@ -223,7 +223,7 @@ fn op_applies(op: &str, t: Sc) -> bool {
 /// One [`BIN_OPS`] row as a C expression over two already-read operands.
 ///
 /// Every site that spells a binary operation goes through here, and the reason
-/// is `eq`/`ne` at a float. SPEC 7.2 rules that `NaN == NaN` is **true** in
+/// is `equal`/`ne` at a float. SPEC 7.2 rules that `NaN == NaN` is **true** in
 /// this language, so float equality is not C's: both native backends spell it
 /// as `a == b || (a != a && b != b)`, which is the same three comparisons.
 /// `<`, `<=`, `>` and `>=` stay IEEE-754 and so stay C's, which is the
@@ -631,7 +631,7 @@ fn moves(o: &mut Out) {
     for n in ELEM_WIDTHS {
         // The stride-equals-width twin. A `[T]` whose element needs no
         // alignment padding — which is almost every one — has `stride == size`,
-        // and baking that in turns `movz`/`movk`/`mul` into the `ldr`'s own
+        // and baking that in turns `movz`/`movk`/`multiply` into the `ldr`'s own
         // scaled-register form. It is a stencil *variant* in exactly the
         // paper's sense: an operand kind, "an index scaled by a known stride"
         // against "an index scaled by a patched one".
@@ -707,7 +707,7 @@ fn moves(o: &mut Out) {
          ? (uint64_t)OFF(_JIT_N) : (uint64_t)OFF(_JIT_P); TAIL; }"
             .into(),
     );
-    // Float/integer conversions, for `num.*.toF64` and friends.
+    // Float/integer conversions, for `number.*.toF64` and friends.
     o.push("cvt/i2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
     o.push("cvt/u2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)AT(uint64_t, _JIT_A)); TAIL; }".into());
     // The two float-to-integer directions, **saturating**, because a C cast of
@@ -957,7 +957,7 @@ fn checks(o: &mut Out) -> Result<(), String> {
 /// into an operand whose `fi` stencil exists, so not generating one is what
 /// keeps a 128-bit constant materialised.
 ///
-/// Nothing about this is a level: `core/num` declares `I128` and `U128` at
+/// Nothing about this is a level: `core/number` declares `I128` and `U128` at
 /// every operation the other widths have, so a library without these is a
 /// library that refuses a program rather than one that compiles it slower.
 fn wide(o: &mut Out) {
@@ -1191,7 +1191,7 @@ fn control(o: &mut Out, level: Level) {
                         let ra = read(t, *a, "A");
                         let rb = read(t, *b, "B");
                         // The same expression the `bin/*` stencil computes —
-                        // see [`binary_expr`] for why a float `eq`/`ne` is not
+                        // see [`binary_expr`] for why a float `equal`/`ne` is not
                         // C's, and why fusing the branch has to keep it.
                         let test = binary_expr(t, name, cop, &ra, &rb);
                         o.push(
@@ -1493,7 +1493,7 @@ fn runtime_calls(o: &mut Out) {
             ),
         );
     }
-    // `sar` is `Int`'s alone: it is the arithmetic shift, and every other width
+    // `shiftRightArithmetic` is `Int`'s alone: it is the arithmetic shift, and every other width
     // in `core/bits` is unsigned.
     o.push(
         "bits/sar/64",

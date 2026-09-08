@@ -17,7 +17,7 @@ Bind it — `let _ = ...;` — or make it the block's result expression.
 ## Why
 
 A block is `let`s followed by a result expression; there is no third statement
-form. A test source is the one exception, which is what lets `assert.eq(...)`
+form. A test source is the one exception, which is what lets `assert.equal(...)`
 stand alone: there, any expression of type `()` may stand alone, terminated by
 `;` — a `match` or an `if` whose branches all assert included.
 
@@ -27,13 +27,13 @@ statement whose type is `Result` is *both* errors at once, and the edit is
 `.ignore()` and `let _ =` together:
 
 ```buri role=entry
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Allocator, Stdout };
 # from "core/host" import * as host;
 # from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io.println(ctx, "ready").ignore();
@@ -43,6 +43,6 @@ export fn main(): Result<(), Str> {
 
 ## A program that provokes it
 
-```buri fail code=expression-statement wrap=body effects=Stdout,Alloc
+```buri fail code=expression-statement wrap=body effects=Stdout,Allocator
 io.println(ctx, "ready");
 ```

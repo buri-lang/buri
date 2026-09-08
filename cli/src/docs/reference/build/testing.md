@@ -47,7 +47,7 @@ way.
 
 | Function | Answers |
 |---|---|
-| `assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.len`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | `()`, so the call stands alone as a statement |
+| `assert.equal`, `assert.notEqual`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.length`, `assert.greaterThan`, `assert.greaterOrEqual`, `assert.lessThan`, `assert.lessOrEqual`, `assert.approximatelyEqual` | `()`, so the call stands alone as a statement |
 | `assert.ok`, `assert.err`, `assert.some` | The unwrapped value |
 
 The statement rule asks for the type, not the shape. Any expression of type `()`
@@ -139,16 +139,16 @@ test's.
 
 | Member | Effect | In a test |
 |---|---|---|
-| `alloc()` | `Alloc` | Real, with a per-test arena the runner reclaims. |
+| `alloc()` | `Allocator` | Real, with a per-test arena the runner reclaims. |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` reads either one back. |
 | `stdin()` | `Stdin` | At end of input, so a suite never blocks on a pipe nobody is writing to. |
-| `fs()` | `FsRead`, `FsWrite` | In-memory and empty. Writes are visible to that test and discarded after it. |
-| `net()` | `Net` | **Refuses** every request with `.Refused`, until `respond` says what to answer. |
-| `clock()` | `Clock` | At zero. `sleepMillis` advances it without sleeping. |
-| `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
+| `fs()` | `FileSystemRead`, `FileSystemWrite` | In-memory and empty. Writes are visible to that test and discarded after it. |
+| `net()` | `Network` | **Refuses** every request with `.Refused`, until `respond` says what to answer. |
+| `clock()` | `Clock` | At zero. `sleepMilliseconds` advances it without sleeping. |
+| `rand()` | `Random` | Seeded at zero, so a failure reproduces. |
 | `entropy()` | `Entropy` | Seeded at zero, on `rand()`'s own generator. It is the one double that does the *opposite* of what its effect promises a program, so an assertion can hold a token minted in a test. |
-| `env()` | `Env` | No variables and no arguments. |
-| `proc()` | `Proc` | **Absorbs** the exit instead of taking it, so the test carries on. |
+| `env()` | `Environment` | No variables and no arguments. |
+| `proc()` | `Process` | **Absorbs** the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
 | `sockets()` | `Sockets` | Sockets with **no network** behind them: `open()` mints one, and what is pushed on it is recorded. |
 
@@ -162,7 +162,7 @@ unchanged:
 | `rand().seed(7)` | A generator at that seed, from the start of its sequence |
 | `entropy().seed(7)` | The same, for `Entropy`. Literally the same sequence, so `crypto.randomBytes` and `random.bytes` at one seed answer alike |
 | `env().variables([(Str, Str)])` | An environment with those variables and this one's arguments |
-| `env().arguments([Str])` | An environment with those arguments and this one's variables |
+| `env().withArguments([Str])` | An environment with those arguments and this one's variables |
 | `stdin().lines([Str])` | A stream of those lines, then end of input |
 | `stdin().bytes([U8])` | A stream of those octets, then end of input |
 | `fs().files([(Str, Str)])` | A filesystem holding this one's files and these as well |
@@ -173,7 +173,7 @@ unchanged:
 
 `fs()` is the one member answering **two** effects, because the filesystem is
 two. A context that reads and writes binds the one double under both names:
-`let disk = fs(); ... FsRead: disk, FsWrite: disk`. Two calls to `fs()` would be
+`let disk = fs(); ... FileSystemRead: disk, FileSystemWrite: disk`. Two calls to `fs()` would be
 two filesystems with nothing in common, so a named `context` declaration binds
 only one half: its bindings are separate expressions with no `let` between them
 to share a value.
@@ -181,7 +181,7 @@ to share a value.
 `sockets()` has no builder. You mint a socket rather than declare one, and
 `sockets().open()` is the method that does it.
 
-The reader `Env` gives a program is `args(self): [Str]`, not `arguments`,
+The reader `Environment` gives a program is `args(self): [Str]`, not `arguments`,
 because a type's methods are one map keyed by name and this builder took that
 name.
 
@@ -195,12 +195,12 @@ both write into the one map a file lives in.
 attenuates the *same* filesystem rather than a copy, so a read through the
 attenuated handle answers whatever the filesystem holds now. Writing the wrapper
 by hand still works, and it covers a case the method does not: the wrapper
-attenuates any `FsWrite`, including one a test wrote.
+attenuates any `FileSystemWrite`, including one a test wrote.
 
 ### Reading the environment back
 
 A test's outcome is the return value **plus the environment read back**.
-`captured()` does that for a stream, and `TestFs` has two of its own:
+`captured()` does that for a stream, and `TestFileSystem` has two of its own:
 
 | Read-back | Answers |
 |---|---|
@@ -230,27 +230,27 @@ it a function, and that function is the fake server: it sees every `Request` the
 code under test makes, and it either answers one or fails it.
 
 ```buri role=test
-from "core/effect" import { Alloc, Net, NetError, Request };
+from "core/effect" import { Allocator, NetError, Network, Request };
 from "core/host/testing" import { alloc, net };
 from "core/net/http" import * as http;
 # from "core/testing/assert" import * as assert;
 
-# fn load<C: Net>(ctx: C, request: Request): Result<Int, NetError> {
+# fn load<C: Network>(ctx: C, request: Request): Result<Int, NetError> {
 #     http.send(ctx, request).map(fn(r) => r.status)
 # }
 
 test "a request nobody arranged for is refused rather than answered" {
     let ctx = context {
-        Alloc: alloc(),
-        Net: net(),
+        Allocator: alloc(),
+        Network: net(),
     };
     let asked = load(ctx, http.request(.Get, "https://example.test/a"));
-    assert.eq(assert.err(asked), NetError.Refused);
+    assert.equal(assert.err(asked), NetError.Refused);
 }
 
 test "the responder decides on the method and on a header" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let page = http.text(ctx, "Ledger");
     let server = net().respond(fn(request) => {
@@ -262,15 +262,18 @@ test "the responder decides on the method and on a header" {
         }
     });
     let live = context {
-        Alloc: alloc(),
-        Net: server,
+        Allocator: alloc(),
+        Network: server,
     };
     let signed = http
         .request(.Get, "https://example.test/a")
         .withHeader(live, "authorization", "Bearer t0ken");
-    assert.eq(assert.ok(load(live, signed)), 200);
-    assert.eq(assert.ok(load(live, signed.withMethod(.Post))), 405);
-    assert.eq(assert.ok(load(live, http.request(.Get, "https://example.test/a"))), 401);
+    assert.equal(assert.ok(load(live, signed)), 200);
+    assert.equal(assert.ok(load(live, signed.withMethod(.Post))), 405);
+    assert.equal(
+        assert.ok(load(live, http.request(.Get, "https://example.test/a"))),
+        401,
+    );
 }
 ```
 
@@ -307,12 +310,12 @@ way to open a slot in the runtime's tables.
 ### What the code under test asked for
 
 `snapshot()` says what the world *is*. `calls()` says what the code **asked**
-it. `TestFs`, `TestNet` and `TestStdin` each keep every call made through the
+it. `TestFileSystem`, `TestNetwork` and `TestStdin` each keep every call made through the
 handle and answer them in the order they completed:
 
 | Log | Answers |
 |---|---|
-| `fs().calls()` | `[FsCall]`, one per call to any of the twelve methods of `FsRead` and `FsWrite` |
+| `fs().calls()` | `[FsCall]`, one per call to any of the twelve methods of `FileSystemRead` and `FileSystemWrite` |
 | `net().calls()` | `[NetCall]`, one per request, whole: method, URL, headers and body |
 | `stdin().calls()` | `[StdinCall]`, one per `readLine` or `readBytes`, with what it asked for |
 | `sockets().sent()` | `[(Socket, Message)]`, one per message pushed, oldest first |
@@ -321,19 +324,22 @@ A test writes the call it expects with the constructor of the same name. These
 are ordinary functions of `core/host/testing`: `readFile(path)`,
 `writeFile(path, body)`, `renameFile(source, destination)`, `fetch(request)`,
 `readBytes(n)`. There is one per method, and each takes the call's own
-arguments. A path in one of them is the `Str` a `Path` spells. They derive `Eq`,
+arguments. A path in one of them is the `Str` a `Path` spells. They derive `Equal`,
 which an assertion compares, and `Show`, which a failing one prints.
 
 ```buri role=test
-from "core/effect" import { Alloc, Net, NetError, Response };
+from "core/effect" import { Allocator, NetError, Network, Response };
 # from "core/fs" import * as fs;
-from "core/fs" import { FsRead };
+from "core/fs" import { FileSystemRead };
 from "core/host/testing" import { alloc, fetch, fs, net, readFile };
 from "core/net/http" import * as http;
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn cached<C: Alloc + FsRead + Net>(ctx: C, url: Str): Result<Response, NetError> {
+# fn cached<C: Allocator + FileSystemRead + Network>(
+#     ctx: C,
+#     url: Str,
+# ): Result<Response, NetError> {
 #     match (fs.readText(ctx, path.of(ctx, "cache"))) {
 #         .Ok(_body) => .Ok(http.status(200)),
 #         .Err(_e) => http.get(ctx, url),
@@ -344,13 +350,13 @@ test "a miss consults the cache once and then goes upstream" {
     let files = fs();
     let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        Net: upstream,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        Network: upstream,
     };
     let _ = assert.ok(cached(ctx, "https://example.test/thing"));
-    assert.eq(files.calls(), [readFile("cache")]);
-    assert.eq(upstream.calls(), [
+    assert.equal(files.calls(), [readFile("cache")]);
+    assert.equal(upstream.calls(), [
         fetch(http.request(.Get, "https://example.test/thing")),
     ]);
 }
@@ -359,12 +365,12 @@ test "a hit never reaches the network at all" {
     let files = fs().files([("cache", "hit")]);
     let upstream = net();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: files,
-        Net: upstream,
+        Allocator: alloc(),
+        FileSystemRead: files,
+        Network: upstream,
     };
     let _ = assert.ok(cached(ctx, "https://example.test/thing"));
-    assert.eq(upstream.calls(), []);
+    assert.equal(upstream.calls(), []);
 }
 ```
 
@@ -393,18 +399,18 @@ to look in.
 A fault is one of the `Call` constructors above and an error. `fails(e)` fails
 every matching call. `failsOnCall(n, e)` fails the `n`th of them, counted from
 one over the *matching* calls, so a read between two writes does not move the
-number. Matching uses the `Eq` those records derive, so you spell a fault
+number. Matching uses the `Equal` those records derive, so you spell a fault
 exactly as `calls()` reports the call it names.
 
 ```buri role=test
-from "core/effect" import { Alloc, IoError };
+from "core/effect" import { Allocator, IoError };
 # from "core/fs" import * as fs;
-from "core/fs" import { FsWrite, Path };
+from "core/fs" import { FileSystemWrite, Path };
 from "core/host/testing" import { alloc, appendFile, fs };
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn commit<C: Alloc + FsWrite>(
+# fn commit<C: Allocator + FileSystemWrite>(
 #     ctx: C,
 #     at: Path,
 #     entries: [[U8]],
@@ -422,18 +428,21 @@ from "core/path" import * as path;
 # }
 
 test "the third append fails and nothing after it is written" {
-    // `commit` writes and never reads, so the context binds `FsWrite` alone —
+    // `commit` writes and never reads, so the context binds `FileSystemWrite` alone —
     // and the read-back below needs no effect at all.
     let wal = fs().faults([
         appendFile("wal", [99]).failsOnCall(1, .Other("disk full")),
     ]);
     let ctx = context {
-        Alloc: alloc(),
-        FsWrite: wal,
+        Allocator: alloc(),
+        FileSystemWrite: wal,
     };
     let at = path.of(ctx, "wal");
-    assert.eq(assert.err(commit(ctx, at, [[97], [98], [99]], 0)), .Other("disk full"));
-    assert.eq(assert.ok(wal.read("wal")), "ab");
+    assert.equal(
+        assert.err(commit(ctx, at, [[97], [98], [99]], 0)),
+        .Other("disk full"),
+    );
+    assert.equal(assert.ok(wal.read("wal")), "ab");
 }
 ```
 
@@ -469,7 +478,7 @@ effectful step to a single call and a fault plan says exactly what it looks like
 it says.
 
 This is defence in depth. The primary mechanism is that a test whose call never
-passed a `Net`-bounded context cannot open a socket in anything it transitively
+passed a `Network`-bounded context cannot open a socket in anything it transitively
 calls ([`language/effects.md` §10](../../language/effects.md)). There is no
 third layer: the toolchain applies no operating-system confinement, because a
 suite has no name for a real capability to begin with
@@ -498,12 +507,12 @@ Nothing here is concurrent. A task runs to completion before the next one
 starts, and `calls()` reports them in the order they finished:
 
 ```buri repo=cli/tests/example role=test
-# from "core/effect" import { Alloc, Tasks };
+# from "core/effect" import { Allocator, Tasks };
 # from "core/host/testing" import { alloc, task, tasks };
 # from "core/tasks" import * as tasks;
 # from "core/testing/assert" import * as assert;
 
-# fn doubled<C: Alloc + Tasks>(ctx: C, items: [Int]): [Int] {
+# fn doubled<C: Allocator + Tasks>(ctx: C, items: [Int]): [Int] {
 #     tasks.parallel(ctx, items, fn(_c, _i, item) => item * 2)
 # }
 
@@ -513,13 +522,13 @@ test "the answer does not depend on the order the work finished in" {
     // block that asserts on the order has to name the order it means.
     let scheduler = tasks().seed(5);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: scheduler,
     };
     // The items' order, whatever order the work ran in.
-    assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
+    assert.equal(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
     // And the order it ran in, which is the thing this double chose.
-    assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
+    assert.equal(scheduler.calls(), [task(2), task(1), task(0)]);
 }
 ```
 
@@ -590,7 +599,7 @@ test "everybody in the room hears it" {
     let _said = broadcast(ctx, [first, second], .Text("hello"));
     // The socket that did not publish heard it, which is the whole of what a
     // broadcast is — and there is no listener, no port and no client here.
-    assert.eq(wire.sent(), [
+    assert.equal(wire.sent(), [
         (first, Message.Text("hello")),
         (second, Message.Text("hello")),
     ]);
@@ -642,7 +651,7 @@ Output names the target, the file, and the test:
 
 ```
 FAIL //lib/money  test/cents.buri  "pads the cents place"
-  assert.eq failed
+  assert.equal failed
     actual:   "$19.5"
     expected: "$19.05"
   --> lib/money/test/cents.buri:8:3

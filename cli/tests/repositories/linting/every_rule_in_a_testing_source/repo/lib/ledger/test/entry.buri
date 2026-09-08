@@ -7,6 +7,6 @@ from "//lib/ledger" import { entries };
 from "//lib/money/testing" import { aFixture };
 
 test "the fixture carries its label" {
-    assert.eq(aFixture().label, "f");
-    assert.eq(entries(), 2);
+    assert.equal(aFixture().label, "f");
+    assert.equal(entries(), 2);
 }

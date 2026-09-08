@@ -6,6 +6,6 @@ export enum Shape { Circle(Float), Empty
 // why this derive
 derive Show for Shape;
 
-derive Eq, Ord for Meters;
+derive Equal, Ordered for Meters;
 
-derive Eq for SomethingElsewhere;
+derive Equal for SomethingElsewhere;

@@ -1,5 +1,5 @@
 // EXPECT: `self` may appear only as a function's first parameter
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -10,7 +10,7 @@ fn scaled(factor: Int, self): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${scaled(2, Square { side: 3 })}").ignore();
   .Ok(())
 }

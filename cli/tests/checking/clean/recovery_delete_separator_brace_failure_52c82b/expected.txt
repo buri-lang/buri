@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-terminator]
-  --> main.buri:25:23
-   |
-25 |     let out = stdout()
-   |                       ^
-   |
-   = fix: write `;` here

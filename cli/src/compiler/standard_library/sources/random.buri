@@ -1,8 +1,8 @@
 //! core/random — randomness, of the reproducible kind.
 //!
 //! **An RNG either takes a seed or takes a context**, and this module has both
-//! doors. `int`, `float` and `bytes` take a context and perform the `Rand`
-//! effect. `Gen` takes a seed and performs nothing. It is an ordinary value,
+//! doors. `int`, `float` and `bytes` take a context and perform the `Random`
+//! effect. `Generator` takes a seed and performs nothing. It is an ordinary value,
 //! you thread it through a program the way you thread any other value, and the
 //! same seed gives the same sequence on every backend, in every process,
 //! forever. That second door is what a deterministic simulation needs: it
@@ -10,14 +10,14 @@
 //! effect somebody handed it.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/random" import * as random;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     // A seed in, a value and the next generator out. Nothing is hidden and
@@ -33,10 +33,10 @@
 //! 4 1
 //! ```
 //!
-//! **This module promises uniformity, and nothing else.** The host's `Rand` is
-//! xoshiro256++ natively and `Math.random` on JavaScript. `Gen` is splitmix64,
+//! **This module promises uniformity, and nothing else.** The host's `Random` is
+//! xoshiro256++ natively and `Math.random` on JavaScript. `Generator` is splitmix64,
 //! published here in full. An observer who has seen enough output of any of them
-//! can predict the rest, and for `Gen` "enough" is one draw. That is the right
+//! can predict the rest, and for `Generator` "enough" is one draw. That is the right
 //! property for a shuffle, a sample, a jittered retry and a test that has to
 //! fail the same way twice.
 //!
@@ -46,21 +46,21 @@
 //! cryptographic generator behind the `Entropy` effect.
 
 from "core/bits" import * as bits;
-from "core/effect" import { Alloc, Rand };
+from "core/effect" import { Allocator, Random };
 from "core/list" import * as list;
 from "core/math" import * as math;
-from "core/num" import * as num;
-from "core/ordmap" import * as ordmap;
-from "core/ordmap" import { OrdMap };
+from "core/number" import * as number;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
 
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.
-export fn int<C: Rand>(ctx: C, lo: Int, hi: Int): Int {
-    ctx.nextInt(lo, hi)
+export fn int<C: Random>(ctx: C, low: Int, high: Int): Int {
+    ctx.nextInt(low, high)
 }
 
 /// Uniform in `[0.0, 1.0)`.
-export fn float<C: Rand>(ctx: C): Float {
+export fn float<C: Random>(ctx: C): Float {
     ctx.nextFloat()
 }
 
@@ -70,7 +70,7 @@ export fn float<C: Rand>(ctx: C): Float {
 ///
 /// **Not a key, and not a token.** These octets are uniform and predictable.
 /// Reach for `crypto.randomBytes` when they must not be guessable.
-export fn bytes<C: Alloc + Rand>(ctx: C, count: Int): [U8] {
+export fn bytes<C: Allocator + Random>(ctx: C, count: Int): [U8] {
     list.range(ctx, 0, count).mapCtx(ctx, fn(c, _i) => c.nextInt(0, 256).wrapToU8())
 }
 
@@ -92,7 +92,7 @@ let MIX_TWO: U64 = 10723151780598845931;
 /// be.
 let TWO_TO_53: Float = 9007199254740992.0;
 
-derive Eq, Show for Gen;
+derive Equal, Show for Generator;
 /// A pure, seeded, splittable generator.
 ///
 /// splitmix64: one 64-bit counter, advanced by an odd constant, run through
@@ -100,96 +100,101 @@ derive Eq, Show for Gen;
 ///
 /// **Every method answers a value and the next generator**, because a step has
 /// nowhere else to be recorded. So a signature shows what a function draws, two
-/// calls with one `Gen` return the same number, and a run replays from a seed
+/// calls with one `Generator` return the same number, and a run replays from a seed
 /// rather than from a log.
 ///
 /// **The state is exported.** It is no secret — a single draw reveals it — and a
 /// simulator that records `g.0` beside a failure can resume exactly there.
 ///
-/// It does **not** implement `Rand`, whose methods take no generator and answer
+/// It does **not** implement `Random`, whose methods take no generator and answer
 /// none.
-export struct Gen(export U64);
+export struct Generator(export U64);
 
 /// The generator for a seed. Every `Int` is a seed, zero and negative ones
 /// included — the state is the seed's own sixty-four bits.
-export fn seeded(seed: Int): Gen {
-    Gen(seed.wrapToU64())
+export fn seeded(seed: Int): Generator {
+    Generator(seed.wrapToU64())
 }
 
 /// A generator seeded from the platform, for a program that wants a *different*
 /// run each time and pure draws within it.
 ///
-/// Four sixteen-bit draws rather than one full-width one. `Rand.nextInt` over
+/// Four sixteen-bit draws rather than one full-width one. `Random.nextInt` over
 /// the whole of `Int` wants 64 bits and `Math.random` has 53, so a seed taken
 /// that way would quietly be eleven bits short on JavaScript. Sixteen at a time
 /// is exact everywhere.
 ///
 /// The seed this drew is `g.0`, so a run that wants to be replayable prints it.
-export fn gen<C: Rand>(ctx: C): Gen {
+export fn generator<C: Random>(ctx: C): Generator {
     let a = ctx.nextInt(0, 65536).wrapToU64();
     let b = ctx.nextInt(0, 65536).wrapToU64();
     let c = ctx.nextInt(0, 65536).wrapToU64();
     let d = ctx.nextInt(0, 65536).wrapToU64();
-    Gen(a | bits.shlU64(b, 16) | bits.shlU64(c, 32) | bits.shlU64(d, 48))
+    Generator(
+        a
+            | bits.shiftLeftU64(b, 16)
+            | bits.shiftLeftU64(c, 32)
+            | bits.shiftLeftU64(d, 48),
+    )
 }
 
 /// One step: advance the counter, then avalanche a copy of it.
 ///
 /// What comes back is the *counter*, never the output, which keeps the period at
 /// a full 2^64.
-fn step(g: Gen): (U64, Gen) {
+fn step(g: Generator): (U64, Generator) {
     let state = g.0.wrappingAdd(GOLDEN);
-    let a = (state ^ bits.shrU64(state, 30)).wrappingMul(MIX_ONE);
-    let b = (a ^ bits.shrU64(a, 27)).wrappingMul(MIX_TWO);
-    (b ^ bits.shrU64(b, 31), Gen(state))
+    let a = (state ^ bits.shiftRightU64(state, 30)).wrappingMultiply(MIX_ONE);
+    let b = (a ^ bits.shiftRightU64(a, 27)).wrappingMultiply(MIX_TWO);
+    (b ^ bits.shiftRightU64(b, 31), Generator(state))
 }
 
 /// Draws until one lands inside the largest whole multiple of `span`.
 ///
 /// Tail-recursive. `threshold` is below `span`, so it rejects at most
 /// `span / 2^64` of the draws.
-fn rejecting(g: Gen, threshold: U64): (U64, Gen) {
+fn rejecting(g: Generator, threshold: U64): (U64, Generator) {
     let (x, next) = step(g);
     if (x >= threshold) { (x, next) } else { rejecting(next, threshold) }
 }
 
-impl Gen {
+impl Generator {
     /// Uniform in `[lo, hi)`, with no modulo bias.
     ///
     /// `x % span` is uniform only when `span` divides `2^64`: otherwise the low
     /// `2^64 % span` values come up one time more often than the rest. This
     /// rejects the draws in that leftover prefix, then takes the remainder.
     ///
-    /// **An empty range answers `lo` and does not step the generator.**
+    /// **An empty range answers `low` and does not step the generator.**
     /// `random.int` aborts on one instead, since it performs an effect and has a
     /// process to stop.
-    export fn nextInt(self, lo: Int, hi: Int): (Int, Gen) {
-        if (hi <= lo) {
-            (lo, self)
+    export fn nextInt(self, low: Int, high: Int): (Int, Generator) {
+        if (high <= low) {
+            (low, self)
         } else {
-            let span = hi.wrappingSub(lo).wrapToU64();
+            let span = high.wrappingSubtract(low).wrapToU64();
             let zero: U64 = 0;
             // `2^64 % span`, computed inside sixty-four bits: `2^64 - span` is
             // congruent to `2^64` and is a number that fits.
-            let (draw, next) = rejecting(self, zero.wrappingSub(span) % span);
-            (lo.wrappingAdd((draw % span).wrapToI64()), next)
+            let (draw, next) = rejecting(self, zero.wrappingSubtract(span) % span);
+            (low.wrappingAdd((draw % span).wrapToI64()), next)
         }
     }
 
     /// Uniform in `[0.0, 1.0)`, with 53 bits of mantissa — the same interval and
     /// granularity `float(ctx)` promises.
-    export fn nextFloat(self): (Float, Gen) {
+    export fn nextFloat(self): (Float, Generator) {
         let (x, next) = step(self);
-        (bits.shrU64(x, 11).toF64() / TWO_TO_53, next)
+        (bits.shiftRightU64(x, 11).toF64() / TWO_TO_53, next)
     }
 
     /// The top bit of one draw.
     ///
     /// The top rather than the bottom because splitmix64's finalizer ends in
     /// `x ^ (x >> 31)`, which leaves the high bits the most mixed.
-    export fn nextBool(self): (Bool, Gen) {
+    export fn nextBool(self): (Bool, Generator) {
         let (x, next) = step(self);
-        (bits.shrU64(x, 63) == 1, next)
+        (bits.shiftRightU64(x, 63) == 1, next)
     }
 
     /// `count` octets, eight to a draw, least-significant first.
@@ -200,7 +205,7 @@ impl Gen {
     /// the other reproduces.
     ///
     /// A negative count gives the empty list.
-    export fn nextBytes<C: Alloc>(self, ctx: C, count: Int): ([U8], Gen) {
+    export fn nextBytes<C: Allocator>(self, ctx: C, count: Int): ([U8], Generator) {
         gather(ctx, self, count, [])
     }
 
@@ -216,73 +221,82 @@ impl Gen {
     /// a draw's worth of distance away. That distance is astronomical, not
     /// infinite. Fine for a simulation; not enough where disjointness has to be
     /// guaranteed.
-    export fn split(self): (Gen, Gen) {
+    export fn split(self): (Generator, Generator) {
         let (seed, next) = step(self);
-        (Gen(seed), next)
+        (Generator(seed), next)
     }
 }
 
 /// `nextBytes`, one draw at a time. Tail-recursive, so a long fixture costs one
 /// frame.
-fn gather<C: Alloc>(ctx: C, g: Gen, remaining: Int, acc: [U8]): ([U8], Gen) {
+fn gather<C: Allocator>(
+    ctx: C,
+    g: Generator,
+    remaining: Int,
+    acc: [U8],
+): ([U8], Generator) {
     if (remaining <= 0) {
         (acc, g)
     } else {
         let (x, next) = step(g);
-        let take = num.min(8, remaining);
+        let take = number.min(8, remaining);
         let chunk = list
             .range(ctx, 0, take)
-            .map(ctx, fn(i) => bits.shrU64(x, i * 8).wrapToU8());
+            .map(ctx, fn(i) => bits.shiftRightU64(x, i * 8).wrapToU8());
         gather(ctx, next, remaining - take, acc.concat(ctx, chunk))
     }
 }
 
 // --- Drawing from a list ----------------------------------------------------------
 //
-// The three the module header names, at both doors. Each `Gen` method is the
-// whole algorithm and each `Rand` function is that method over a generator the
+// The three the module header names, at both doors. Each `Generator` method is the
+// whole algorithm and each `Random` function is that method over a generator the
 // effect seeds, so the two doors cannot drift apart.
 
 /// The items in a random order.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc, Rand };
+/// from "core/effect" import { Allocator, Random };
 /// from "core/random" import * as random;
 ///
-/// export fn deal<C: Alloc + Rand>(ctx: C, cards: [Str]): [Str] {
+/// export fn deal<C: Allocator + Random>(ctx: C, cards: [Str]): [Str] {
 ///     random.shuffle(ctx, cards)
 /// }
 /// ```
 ///
-/// Every permutation is equally likely. Fisher-Yates over an `OrdMap<Int, T>`,
+/// Every permutation is equally likely. Fisher-Yates over an `OrderedMap<Int, T>`,
 /// so it costs `O(n log n)` — a `[T]` has no `O(1)` write for the textbook
 /// array version to use.
-export fn shuffle<T, C: Alloc + Rand>(ctx: C, items: [T]): [T] {
-    let (out, _) = gen(ctx).nextShuffle(ctx, items);
+export fn shuffle<T, C: Allocator + Random>(ctx: C, items: [T]): [T] {
+    let (out, _) = generator(ctx).nextShuffle(ctx, items);
     out
 }
 
 /// One item, uniformly, or `.None` from an empty list.
 ///
 /// ```buri
-/// from "core/effect" import { Rand };
+/// from "core/effect" import { Random };
 /// from "core/random" import * as random;
 ///
-/// export fn greeting<C: Rand>(ctx: C, hellos: [Str]): Option<Str> {
+/// export fn greeting<C: Random>(ctx: C, hellos: [Str]): Option<Str> {
 ///     random.pick(ctx, hellos)
 /// }
 /// ```
-export fn pick<T, C: Rand>(ctx: C, items: [T]): Option<T> {
-    if (items.len() <= 0) { .None } else { items.get(ctx.nextInt(0, items.len())) }
+export fn pick<T, C: Random>(ctx: C, items: [T]): Option<T> {
+    if (items.length() <= 0) {
+        .None
+    } else {
+        items.get(ctx.nextInt(0, items.length()))
+    }
 }
 
 /// `count` items, drawn without replacement and in a random order.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc, Rand };
+/// from "core/effect" import { Allocator, Random };
 /// from "core/random" import * as random;
 ///
-/// export fn threeOf<C: Alloc + Rand>(ctx: C, everything: [Int]): [Int] {
+/// export fn threeOf<C: Allocator + Random>(ctx: C, everything: [Int]): [Int] {
 ///     random.sample(ctx, everything, 3)
 /// }
 /// ```
@@ -290,20 +304,20 @@ export fn pick<T, C: Rand>(ctx: C, items: [T]): Option<T> {
 /// A `count` past the list's length gives the whole list, shuffled; a negative
 /// one gives nothing. `shuffle` and a `take`, so it costs `O(n log n)` in the
 /// length of the *list* rather than of the sample.
-export fn sample<T, C: Alloc + Rand>(ctx: C, items: [T], count: Int): [T] {
-    let (out, _) = gen(ctx).nextSample(ctx, items, count);
+export fn sample<T, C: Allocator + Random>(ctx: C, items: [T], count: Int): [T] {
+    let (out, _) = generator(ctx).nextSample(ctx, items, count);
     out
 }
 
-impl Gen {
+impl Generator {
     /// `shuffle` from a seed: the items in a random order, and the next
     /// generator.
     ///
     /// ```buri
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     /// from "core/random" import * as random;
     ///
-    /// export fn dealt<C: Alloc>(ctx: C, cards: [Str]): [Str] {
+    /// export fn dealt<C: Allocator>(ctx: C, cards: [Str]): [Str] {
     ///     let (hand, _) = random.seeded(1).nextShuffle(ctx, cards);
     ///     hand
     /// }
@@ -313,17 +327,17 @@ impl Gen {
     /// uniformly chosen position at or below it. Every permutation is equally
     /// likely, and the same seed replays the same one on every backend.
     ///
-    /// `O(n log n)`, because the positions live in an `OrdMap<Int, T>` — a
+    /// `O(n log n)`, because the positions live in an `OrderedMap<Int, T>` — a
     /// `[T]` has no write that costs less than a copy.
-    export fn nextShuffle<T, C: Alloc>(self, ctx: C, items: [T]): ([T], Gen) {
-        if (items.len() < 2) {
+    export fn nextShuffle<T, C: Allocator>(self, ctx: C, items: [T]): ([T], Generator) {
+        if (items.length() < 2) {
             (items, self)
         } else {
-            let numbered = ordmap.of(
+            let numbered = orderedmap.of(
                 ctx,
-                list.range(ctx, 0, items.len()).zip(ctx, items),
+                list.range(ctx, 0, items.length()).zip(ctx, items),
             );
-            let (mixed, next) = yates(ctx, self, numbered, items.len() - 1);
+            let (mixed, next) = yates(ctx, self, numbered, items.length() - 1);
             (mixed.values(ctx), next)
         }
     }
@@ -341,11 +355,11 @@ impl Gen {
     ///
     /// **An empty list answers `.None` and does not step the generator**, which
     /// is `nextInt`'s rule for an empty range.
-    export fn nextPick<T>(self, items: [T]): (Option<T>, Gen) {
-        if (items.len() <= 0) {
+    export fn nextPick<T>(self, items: [T]): (Option<T>, Generator) {
+        if (items.length() <= 0) {
             (.None, self)
         } else {
-            let (at, next) = self.nextInt(0, items.len());
+            let (at, next) = self.nextInt(0, items.length());
             (items.get(at), next)
         }
     }
@@ -354,10 +368,10 @@ impl Gen {
     /// generator.
     ///
     /// ```buri
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     /// from "core/random" import * as random;
     ///
-    /// export fn three<C: Alloc>(ctx: C, everything: [Int]): [Int] {
+    /// export fn three<C: Allocator>(ctx: C, everything: [Int]): [Int] {
     ///     let (some, _) = random.seeded(5).nextSample(ctx, everything, 3);
     ///     some
     /// }
@@ -365,12 +379,12 @@ impl Gen {
     ///
     /// A `count` past the list's length gives the whole list, shuffled; a
     /// negative one gives nothing.
-    export fn nextSample<T, C: Alloc>(
+    export fn nextSample<T, C: Allocator>(
         self,
         ctx: C,
         items: [T],
         count: Int,
-    ): ([T], Gen) {
+    ): ([T], Generator) {
         let (mixed, next) = self.nextShuffle(ctx, items);
         (mixed.take(ctx, count), next)
     }
@@ -396,24 +410,24 @@ impl Gen {
     /// costs more, which is why this is not a fixed number of steps.
     ///
     /// The method produces two independent normals at a time and this returns
-    /// the first. The second is discarded rather than cached: a `Gen` is a value
+    /// the first. The second is discarded rather than cached: a `Generator` is a value
     /// with nowhere to keep one, and caching it would make the sequence depend
     /// on how many draws came before.
     ///
     /// It reaches `math.ln`, so it is one of the functions a native build
     /// reports as a missing intrinsic — see `core/math`'s header.
-    export fn nextGaussian(self): (Float, Gen) {
+    export fn nextGaussian(self): (Float, Generator) {
         polar(self)
     }
 }
 
 /// Fisher-Yates, from the last position down.
-fn yates<T, C: Alloc>(
+fn yates<T, C: Allocator>(
     ctx: C,
-    g: Gen,
-    numbered: OrdMap<Int, T>,
+    g: Generator,
+    numbered: OrderedMap<Int, T>,
     at: Int,
-): (OrdMap<Int, T>, Gen) {
+): (OrderedMap<Int, T>, Generator) {
     if (at <= 0) {
         (numbered, g)
     } else {
@@ -424,12 +438,12 @@ fn yates<T, C: Alloc>(
 
 /// Two positions traded. A key either position does not hold leaves the map
 /// alone, which cannot happen: both come from the range the map was built over.
-fn exchange<T, C: Alloc>(
+fn exchange<T, C: Allocator>(
     ctx: C,
-    numbered: OrdMap<Int, T>,
+    numbered: OrderedMap<Int, T>,
     here: Int,
     there: Int,
-): OrdMap<Int, T> {
+): OrderedMap<Int, T> {
     match (numbered.get(here)) {
         .None => numbered,
         .Some(a) => {
@@ -443,7 +457,7 @@ fn exchange<T, C: Alloc>(
 
 /// One rejection round of the polar method. Tail-recursive, so a long run of
 /// rejected points costs one frame.
-fn polar(g: Gen): (Float, Gen) {
+fn polar(g: Generator): (Float, Generator) {
     let (first, afterFirst) = g.nextFloat();
     let (second, afterSecond) = afterFirst.nextFloat();
     let u = 2.0 * first - 1.0;
@@ -452,6 +466,6 @@ fn polar(g: Gen): (Float, Gen) {
     if (radius >= 1.0 || radius == 0.0) {
         polar(afterSecond)
     } else {
-        (u * math.sqrt(-2.0 * math.ln(radius) / radius), afterSecond)
+        (u * math.squareRoot(-2.0 * math.ln(radius) / radius), afterSecond)
     }
 }

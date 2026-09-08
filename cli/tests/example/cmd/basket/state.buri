@@ -6,7 +6,7 @@
 // one. The authority arrives as a parameter, every time, and that split is what
 // the rest of this package is shaped around.
 
-from "core/effect" import { Alloc, Net, NetError, Response };
+from "core/effect" import { Allocator, NetError, Network, Response };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 from "ui/effect" import { Ui, Watch };
@@ -61,7 +61,7 @@ export fn newState<C: Ui>(ctx: C): State {
 /// be *allocated* cannot be built inside one. Reading, computing with the
 /// context this call was handed, and writing back is the shape that works, and
 /// it is the shape every handler in this package uses.
-export fn add<C: Alloc + Ui + Watch>(ctx: C, state: State): () {
+export fn add<C: Allocator + Ui + Watch>(ctx: C, state: State): () {
     match (draft(state.draftMemo.get(ctx), state.draftAmount.get(ctx))) {
         .Blank => state.notice.set(ctx, "a line needs a memo"),
         .BadAmount(text) => {
@@ -77,7 +77,7 @@ export fn add<C: Alloc + Ui + Watch>(ctx: C, state: State): () {
 }
 
 /// Settles the line called `memo`, or unsettles it.
-export fn tick<C: Alloc + Ui + Watch>(ctx: C, state: State, memo: Str): () {
+export fn tick<C: Allocator + Ui + Watch>(ctx: C, state: State, memo: Str): () {
     state.ticked.set(ctx, flip(ctx, state.ticked.get(ctx), memo))
 }
 
@@ -86,20 +86,20 @@ export fn tick<C: Alloc + Ui + Watch>(ctx: C, state: State, memo: Str): () {
 /// Three statements in the order they happen: say what is about to be asked,
 /// ask it, show the answer. No callback, and nothing to capture.
 ///
-/// This used to be an effect of its own. `Net.fetch` did not return until the
+/// This used to be an effect of its own. `Network.fetch` did not return until the
 /// server had answered, and a page whose one thread is waiting is a frozen
 /// page, so a browser granted a callback-shaped `Fetch` instead — it started
 /// the request, returned immediately, and ran `done` later with the very
 /// context the call was made with, because a lambda may not capture one. A
-/// suspending call no longer blocks the page, so a browser grants `Net` like
+/// suspending call no longer blocks the page, so a browser grants `Network` like
 /// every other platform and this line reads the way it always should have.
-export fn load<C: Alloc + Net + Ui>(ctx: C, state: State): () {
+export fn load<C: Allocator + Network + Ui>(ctx: C, state: State): () {
     let _ = state.notice.set(ctx, "asking the server for its ledger");
     received(ctx, state, http.get(ctx, LEDGER_URL))
 }
 
 /// What to do with a response, or with the reason there was not one.
-fn received<C: Alloc + Ui>(
+fn received<C: Allocator + Ui>(
     ctx: C,
     state: State,
     result: Result<Response, NetError>,

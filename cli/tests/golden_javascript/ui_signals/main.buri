@@ -9,7 +9,7 @@
 // receives a `Scope`, which grants reading the graph and nothing else, so it
 // cannot print — `cli/tests/conformance/lib/ui/` is where the ordering and
 // re-run counts are asserted, through a recorder the runner owns.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
@@ -24,7 +24,7 @@ fn ignore(value: Int): () {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Ui: host.ui,
         Watch: host.watch,

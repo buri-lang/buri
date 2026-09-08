@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:12:27
+   |
+12 |     assert.equal(6 * 7, 42; // CANARY_42
+   |                           ^
+   |
+  --> main.buri:12:17
+   |
+12 |     assert.equal(6 * 7, 42; // CANARY_42
+   |                 ^ opened here
+   |
+   = fix: write `)` here

@@ -5,7 +5,7 @@
 // document is that document. Both directions, because each catches what the
 // other cannot.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { Json, JsonError };
@@ -13,7 +13,7 @@ from "core/testing/assert" import * as assert;
 
 fn parsed(text: Str): Json {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.ok(json.parse(ctx, text))
 }
@@ -21,211 +21,211 @@ fn parsed(text: Str): Json {
 // --- scalars ------------------------------------------------------------------
 
 test "null parses" {
-    assert.eq(parsed("null"), Json.Null);
+    assert.equal(parsed("null"), Json.Null);
     assert.isTrue(parsed("null").isNull());
 }
 
 test "booleans parse" {
-    assert.eq(parsed("true"), Json.Bool(true));
-    assert.eq(parsed("false"), Json.Bool(false));
-    assert.eq(assert.some(parsed("true").asBool()), true);
+    assert.equal(parsed("true"), Json.Bool(true));
+    assert.equal(parsed("false"), Json.Bool(false));
+    assert.equal(assert.some(parsed("true").asBool()), true);
 }
 
 test "numbers parse" {
-    assert.eq(parsed("0"), Json.Num(0.0));
-    assert.eq(parsed("42"), Json.Num(42.0));
-    assert.eq(parsed("-7"), Json.Num(-7.0));
-    assert.eq(parsed("1.5"), Json.Num(1.5));
-    assert.eq(parsed("1e3"), Json.Num(1000.0));
-    assert.eq(parsed("1.5e-2"), Json.Num(0.015));
-    assert.eq(parsed("-2.5E+2"), Json.Num(-250.0));
+    assert.equal(parsed("0"), Json.Num(0.0));
+    assert.equal(parsed("42"), Json.Num(42.0));
+    assert.equal(parsed("-7"), Json.Num(-7.0));
+    assert.equal(parsed("1.5"), Json.Num(1.5));
+    assert.equal(parsed("1e3"), Json.Num(1000.0));
+    assert.equal(parsed("1.5e-2"), Json.Num(0.015));
+    assert.equal(parsed("-2.5E+2"), Json.Num(-250.0));
 }
 
 test "strings parse" {
-    assert.eq(parsed("\"\""), Json.Str(""));
-    assert.eq(parsed("\"hello\""), Json.Str("hello"));
-    assert.eq(assert.some(parsed("\"hi\"").asStr()), "hi");
+    assert.equal(parsed("\"\""), Json.Str(""));
+    assert.equal(parsed("\"hello\""), Json.Str("hello"));
+    assert.equal(assert.some(parsed("\"hi\"").asStr()), "hi");
 }
 
 test "the escapes this module reads" {
-    assert.eq(parsed("\"a\\\"b\""), Json.Str("a\"b"));
-    assert.eq(parsed("\"a\\\\b\""), Json.Str("a\\b"));
-    assert.eq(parsed("\"a\\nb\""), Json.Str("a\nb"));
-    assert.eq(parsed("\"a\\tb\""), Json.Str("a\tb"));
-    assert.eq(parsed("\"a\\/b\""), Json.Str("a/b"));
+    assert.equal(parsed("\"a\\\"b\""), Json.Str("a\"b"));
+    assert.equal(parsed("\"a\\\\b\""), Json.Str("a\\b"));
+    assert.equal(parsed("\"a\\nb\""), Json.Str("a\nb"));
+    assert.equal(parsed("\"a\\tb\""), Json.Str("a\tb"));
+    assert.equal(parsed("\"a\\/b\""), Json.Str("a/b"));
 }
 
 // --- containers ---------------------------------------------------------------
 
 test "the empty array and the empty object" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(parsed("[]"), Json.Array([]));
-    assert.eq(json.stringify(ctx, parsed("[]")), "[]");
-    assert.eq(json.stringify(ctx, parsed("{}")), "{}");
+    assert.equal(parsed("[]"), Json.Array([]));
+    assert.equal(json.stringify(ctx, parsed("[]")), "[]");
+    assert.equal(json.stringify(ctx, parsed("{}")), "{}");
 }
 
 test "arrays parse and index" {
     let a = parsed("[1, 2, 3]");
-    assert.eq(assert.some(a.at(0)), Json.Num(1.0));
-    assert.eq(assert.some(a.at(2)), Json.Num(3.0));
+    assert.equal(assert.some(a.at(0)), Json.Num(1.0));
+    assert.equal(assert.some(a.at(2)), Json.Num(3.0));
     assert.isTrue(a.at(3).isNone());
-    assert.eq(assert.some(a.asArray()).len(), 3);
+    assert.equal(assert.some(a.asArray()).length(), 3);
 }
 
 test "objects parse and look up" {
     let o = parsed("{\"a\": 1, \"b\": \"two\"}");
-    assert.eq(assert.some(o.get("a")), Json.Num(1.0));
-    assert.eq(assert.some(o.get("b")), Json.Str("two"));
+    assert.equal(assert.some(o.get("a")), Json.Num(1.0));
+    assert.equal(assert.some(o.get("b")), Json.Str("two"));
     assert.isTrue(o.get("c").isNone());
 }
 
 test "nesting works in both directions" {
     let o = parsed("{\"xs\": [1, {\"y\": null}]}");
     let xs = assert.some(o.get("xs"));
-    assert.eq(assert.some(xs.at(0)), Json.Num(1.0));
+    assert.equal(assert.some(xs.at(0)), Json.Num(1.0));
     assert.isTrue(assert.some(assert.some(xs.at(1)).get("y")).isNull());
 }
 
 test "whitespace between every token is ignored" {
-    assert.eq(parsed(" \n\t{ \"a\" : [ 1 , 2 ] }\r\n"), parsed("{\"a\":[1,2]}"));
+    assert.equal(parsed(" \n\t{ \"a\" : [ 1 , 2 ] }\r\n"), parsed("{\"a\":[1,2]}"));
 }
 
 // --- rendering ----------------------------------------------------------------
 
 test "stringify is compact" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(json.stringify(ctx, parsed("{\"a\": [1, 2]}")), "{\"a\":[1,2]}");
+    assert.equal(json.stringify(ctx, parsed("{\"a\": [1, 2]}")), "{\"a\":[1,2]}");
 }
 
 test "stringify escapes what parse unescapes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(json.stringify(ctx, Json.Str("a\"b\\c\nd")), "\"a\\\"b\\\\c\\nd\"");
+    assert.equal(json.stringify(ctx, Json.Str("a\"b\\c\nd")), "\"a\\\"b\\\\c\\nd\"");
 }
 
 test "quote is the string rendering on its own" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(json.quote(ctx, "hi"), "\"hi\"");
+    assert.equal(json.quote(ctx, "hi"), "\"hi\"");
 }
 
 // The property the whole module is for: text in, text out, unchanged.
 test "a document round trips through parse and stringify" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let doc =
         "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"],\"n\":3,\"ok\":true,\"none\":null}";
-    assert.eq(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
+    assert.equal(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
 }
 
 test "object key order survives the round trip" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A map would lose this. The association list is why it does not.
     let doc = "{\"z\":1,\"a\":2,\"m\":3}";
-    assert.eq(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
+    assert.equal(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
 }
 
 test "a value round trips through stringify and parse" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = Json.Object([
         ("k", Json.Array([Json.Num(1.0), Json.Bool(false), Json.Null])),
     ]);
-    assert.eq(assert.ok(json.parse(ctx, json.stringify(ctx, v))), v);
+    assert.equal(assert.ok(json.parse(ctx, json.stringify(ctx, v))), v);
 }
 
 // --- what must be rejected ------------------------------------------------------
 
 fn failure(text: Str): JsonError {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.err(json.parse(ctx, text))
 }
 
 test "an empty document is unterminated" {
-    assert.eq(failure(""), JsonError.Unterminated);
-    assert.eq(failure("   "), JsonError.Unterminated);
+    assert.equal(failure(""), JsonError.Unterminated);
+    assert.equal(failure("   "), JsonError.Unterminated);
 }
 
 test "a value followed by more text is trailing data" {
-    assert.eq(failure("1 2"), JsonError.Trailing(2));
-    assert.eq(failure("{} junk"), JsonError.Trailing(3));
+    assert.equal(failure("1 2"), JsonError.Trailing(2));
+    assert.equal(failure("{} junk"), JsonError.Trailing(3));
 }
 
 test "an unclosed container is unterminated" {
-    assert.eq(failure("[1, 2"), JsonError.Unterminated);
-    assert.eq(failure("{\"a\": 1"), JsonError.Unterminated);
-    assert.eq(failure("\"unclosed"), JsonError.Unterminated);
+    assert.equal(failure("[1, 2"), JsonError.Unterminated);
+    assert.equal(failure("{\"a\": 1"), JsonError.Unterminated);
+    assert.equal(failure("\"unclosed"), JsonError.Unterminated);
 }
 
 test "a bare word is not a value" {
-    assert.eq(failure("nul"), JsonError.Unexpected(0));
-    assert.eq(failure("tru"), JsonError.Unexpected(0));
-    assert.eq(failure("undefined"), JsonError.Unexpected(0));
+    assert.equal(failure("nul"), JsonError.Unexpected(0));
+    assert.equal(failure("tru"), JsonError.Unexpected(0));
+    assert.equal(failure("undefined"), JsonError.Unexpected(0));
 }
 
 test "an object key must be a string" {
-    assert.eq(failure("{a: 1}"), JsonError.Unexpected(1));
+    assert.equal(failure("{a: 1}"), JsonError.Unexpected(1));
 }
 
 test "a missing colon is unexpected" {
-    assert.eq(failure("{\"a\" 1}"), JsonError.Unexpected(5));
+    assert.equal(failure("{\"a\" 1}"), JsonError.Unexpected(5));
 }
 
 test "a missing comma is unexpected" {
-    assert.eq(failure("[1 2]"), JsonError.Unexpected(3));
+    assert.equal(failure("[1 2]"), JsonError.Unexpected(3));
 }
 
 // An escape the grammar does not have is reported rather than guessed at.
 test "an unsupported escape is reported rather than guessed at" {
-    assert.eq(failure("\"a\\qb\""), JsonError.BadEscape(3));
+    assert.equal(failure("\"a\\qb\""), JsonError.BadEscape(3));
 }
 
 // `\uXXXX` names a UTF-16 code unit, and a character above the basic plane is
 // written as a surrogate pair. Both halves are read, and a half on its own is
 // not a character.
 test "a unicode escape is read, in either case of hex digit" {
-    assert.eq(parsed("\"a\\u0041\""), Json.Str("aA"));
-    assert.eq(parsed("\"\\u00e9\""), Json.Str("é"));
-    assert.eq(parsed("\"\\u00E9\""), Json.Str("é"));
+    assert.equal(parsed("\"a\\u0041\""), Json.Str("aA"));
+    assert.equal(parsed("\"\\u00e9\""), Json.Str("é"));
+    assert.equal(parsed("\"\\u00E9\""), Json.Str("é"));
     // The two escapes JSON has that this module used to be missing.
-    assert.eq(parsed("\"\\b\\f\"").isNull(), false);
+    assert.equal(parsed("\"\\b\\f\"").isNull(), false);
 }
 
 test "a surrogate pair is one character, and half of one is an error" {
     // U+1F600, written the only way JSON can write it.
-    assert.eq(parsed("\"\\ud83d\\ude00\""), Json.Str("😀"));
-    assert.eq(failure("\"\\ud83dx\""), JsonError.BadEscape(3));
-    assert.eq(failure("\"\\ude00\""), JsonError.BadEscape(3));
-    assert.eq(failure("\"\\u00zz\""), JsonError.BadEscape(3));
+    assert.equal(parsed("\"\\ud83d\\ude00\""), Json.Str("😀"));
+    assert.equal(failure("\"\\ud83dx\""), JsonError.BadEscape(3));
+    assert.equal(failure("\"\\ude00\""), JsonError.BadEscape(3));
+    assert.equal(failure("\"\\u00zz\""), JsonError.BadEscape(3));
 }
 
 // A raw control character is not legal inside a JSON string, so writing one has
 // to escape it — otherwise this module produces documents it cannot read.
 test "a control character is written as an escape" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(json.stringify(ctx, Json.Str("a\u{1}b")), "\"a\\u0001b\"");
-    assert.eq(json.stringify(ctx, parsed("\"\\u0000\"")), "\"\\u0000\"");
+    assert.equal(json.stringify(ctx, Json.Str("a\u{1}b")), "\"a\\u0001b\"");
+    assert.equal(json.stringify(ctx, parsed("\"\\u0000\"")), "\"\\u0000\"");
 }
 
 // Parsing recurses and the recursion is not in tail position, so the limit is
 // what stands between a deep document and a crash.
 test "nesting past the limit is an error rather than a crash" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let deep = "[".repeat(ctx, 600).concat(ctx, "]".repeat(ctx, 600));
     // The verdict as a value, so a failure reports which of the three answers
@@ -235,12 +235,12 @@ test "nesting past the limit is an error rather than a crash" {
         .Err(_) => "another error",
         .Ok(_) => "parsed",
     };
-    assert.eq(verdict, "too deep");
+    assert.equal(verdict, "too deep");
 }
 
 test "nesting inside the limit is fine" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ok = "[".repeat(ctx, 100).concat(ctx, "]".repeat(ctx, 100));
     assert.isTrue(json.parse(ctx, ok).isOk());
@@ -255,39 +255,39 @@ test "an accessor for the wrong shape is None rather than an error" {
     assert.isTrue(n.asArray().isNone());
     assert.isTrue(n.get("a").isNone());
     assert.isTrue(n.at(0).isNone());
-    assert.eq(assert.some(n.asNum()), 1.0);
+    assert.equal(assert.some(n.asNumber()), 1.0);
 }
 
 // --- asInt, asObject, keys and path ---------------------------------------------
 
 test "asInt takes a whole number and refuses everything else" {
-    assert.eq(parsed("7").asInt(), .Some(7));
+    assert.equal(parsed("7").asInt(), .Some(7));
     // JSON has one number type, so `7` and `7.0` are the same document.
-    assert.eq(parsed("7.0").asInt(), .Some(7));
-    assert.eq(parsed("-7").asInt(), .Some(0 - 7));
-    assert.eq(parsed("0").asInt(), .Some(0));
-    assert.eq(parsed("7.5").asInt(), .None);
+    assert.equal(parsed("7.0").asInt(), .Some(7));
+    assert.equal(parsed("-7").asInt(), .Some(0 - 7));
+    assert.equal(parsed("0").asInt(), .Some(0));
+    assert.equal(parsed("7.5").asInt(), .None);
     // Bigger than an Int holds.
-    assert.eq(parsed("1e300").asInt(), .None);
+    assert.equal(parsed("1e300").asInt(), .None);
     // And nothing that is not a number is one.
-    assert.eq(parsed("\"7\"").asInt(), .None);
-    assert.eq(parsed("null").asInt(), .None);
-    assert.eq(parsed("[7]").asInt(), .None);
+    assert.equal(parsed("\"7\"").asInt(), .None);
+    assert.equal(parsed("null").asInt(), .None);
+    assert.equal(parsed("[7]").asInt(), .None);
 }
 
 test "asObject is asArray's twin" {
     let doc = parsed("{\"a\":1,\"b\":2}");
-    assert.len(assert.some(doc.asObject()), 2);
-    assert.eq(assert.some(parsed("{}").asObject()).len(), 0);
-    assert.eq(parsed("[1]").asObject(), .None);
-    assert.eq(parsed("1").asObject(), .None);
+    assert.length(assert.some(doc.asObject()), 2);
+    assert.equal(assert.some(parsed("{}").asObject()).length(), 0);
+    assert.equal(parsed("[1]").asObject(), .None);
+    assert.equal(parsed("1").asObject(), .None);
 }
 
 test "keys are the object's own, in document order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(parsed("{\"b\":1,\"a\":2}").keys(ctx), ["b", "a"]);
+    assert.equal(parsed("{\"b\":1,\"a\":2}").keys(ctx), ["b", "a"]);
     assert.isEmpty(parsed("{}").keys(ctx));
     // Anything that is not an object has no keys rather than an error.
     assert.isEmpty(parsed("[1,2]").keys(ctx));
@@ -296,32 +296,32 @@ test "keys are the object's own, in document order" {
 
 test "path walks a chain of keys" {
     let doc = parsed("{\"user\":{\"name\":\"buri\",\"tags\":[\"a\"]}}");
-    assert.eq(
+    assert.equal(
         assert.some(doc.path(["user", "name"]).andThen(fn(v) => v.asStr())),
         "buri",
     );
     // An empty chain is this value.
-    assert.eq(assert.some(doc.path([])), doc);
+    assert.equal(assert.some(doc.path([])), doc);
     // A key that is not there, and a step through something that is not an
     // object, are both .None rather than a crash.
-    assert.eq(doc.path(["user", "age"]), .None);
-    assert.eq(doc.path(["user", "tags", "0"]), .None);
-    assert.eq(doc.path(["nobody", "name"]), .None);
-    assert.eq(parsed("[1]").path(["a"]), .None);
+    assert.equal(doc.path(["user", "age"]), .None);
+    assert.equal(doc.path(["user", "tags", "0"]), .None);
+    assert.equal(doc.path(["nobody", "name"]), .None);
+    assert.equal(parsed("[1]").path(["a"]), .None);
 }
 
 // --- stringifyPretty and stringifySorted -----------------------------------------
 
 test "pretty printing lays a document out over lines" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         json.stringifyPretty(ctx, parsed("{\"a\":1,\"b\":[2,3]}"), 2),
         "{\n  \"a\": 1,\n  \"b\": [\n    2,\n    3\n  ]\n}",
     );
     // Four spaces, and the nesting compounds.
-    assert.eq(
+    assert.equal(
         json.stringifyPretty(ctx, parsed("{\"a\":{\"b\":1}}"), 4),
         "{\n    \"a\": {\n        \"b\": 1\n    }\n}",
     );
@@ -329,72 +329,75 @@ test "pretty printing lays a document out over lines" {
 
 test "an empty array and an empty object have nothing to lay out" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(json.stringifyPretty(ctx, parsed("[]"), 2), "[]");
-    assert.eq(json.stringifyPretty(ctx, parsed("{}"), 2), "{}");
-    assert.eq(json.stringifyPretty(ctx, parsed("{\"a\":[]}"), 2), "{\n  \"a\": []\n}");
+    assert.equal(json.stringifyPretty(ctx, parsed("[]"), 2), "[]");
+    assert.equal(json.stringifyPretty(ctx, parsed("{}"), 2), "{}");
+    assert.equal(
+        json.stringifyPretty(ctx, parsed("{\"a\":[]}"), 2),
+        "{\n  \"a\": []\n}",
+    );
     // A scalar is a scalar at any indent.
-    assert.eq(json.stringifyPretty(ctx, parsed("1"), 2), "1");
-    assert.eq(json.stringifyPretty(ctx, parsed("null"), 2), "null");
-    assert.eq(json.stringifyPretty(ctx, parsed("\"hi\""), 2), "\"hi\"");
+    assert.equal(json.stringifyPretty(ctx, parsed("1"), 2), "1");
+    assert.equal(json.stringifyPretty(ctx, parsed("null"), 2), "null");
+    assert.equal(json.stringifyPretty(ctx, parsed("\"hi\""), 2), "\"hi\"");
 }
 
 test "a zero or negative indent still puts one value on a line" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(json.stringifyPretty(ctx, parsed("[1,2]"), 0), "[\n1,\n2\n]");
-    assert.eq(json.stringifyPretty(ctx, parsed("[1,2]"), 0 - 3), "[\n1,\n2\n]");
+    assert.equal(json.stringifyPretty(ctx, parsed("[1,2]"), 0), "[\n1,\n2\n]");
+    assert.equal(json.stringifyPretty(ctx, parsed("[1,2]"), 0 - 3), "[\n1,\n2\n]");
 }
 
 test "a pretty rendering parses back to the value it came from" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let doc = parsed("{\"a\":[1,{\"b\":null,\"c\":[true,false]}],\"d\":\"x\"}");
-    assert.eq(assert.ok(json.parse(ctx, json.stringifyPretty(ctx, doc, 2))), doc);
+    assert.equal(assert.ok(json.parse(ctx, json.stringifyPretty(ctx, doc, 2))), doc);
 }
 
 test "sorting keys makes two orderings of one document render the same" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = parsed("{\"b\":1,\"a\":2}");
     let other = parsed("{\"a\":2,\"b\":1}");
-    assert.notEq(json.stringify(ctx, one), json.stringify(ctx, other));
-    assert.eq(json.stringifySorted(ctx, one), json.stringifySorted(ctx, other));
-    assert.eq(json.stringifySorted(ctx, one), "{\"a\":2,\"b\":1}");
+    assert.notEqual(json.stringify(ctx, one), json.stringify(ctx, other));
+    assert.equal(json.stringifySorted(ctx, one), json.stringifySorted(ctx, other));
+    assert.equal(json.stringifySorted(ctx, one), "{\"a\":2,\"b\":1}");
 }
 
 test "sorting reaches every depth and leaves array order alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("{\"b\":{\"d\":1,\"c\":2},\"a\":[3,1,2]}")),
         "{\"a\":[3,1,2],\"b\":{\"c\":2,\"d\":1}}",
     );
     // Inside an array too.
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("[{\"b\":1,\"a\":2}]")),
         "[{\"a\":2,\"b\":1}]",
     );
-    assert.eq(json.stringifySorted(ctx, parsed("{}")), "{}");
-    assert.eq(json.stringifySorted(ctx, parsed("1")), "1");
+    assert.equal(json.stringifySorted(ctx, parsed("{}")), "{}");
+    assert.equal(json.stringifySorted(ctx, parsed("1")), "1");
 }
 
 test "sorting is by Str order, and stable where two keys are equal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Uppercase sorts before lowercase, which is scalar order and not a locale's.
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("{\"b\":1,\"B\":2,\"a\":3}")),
         "{\"B\":2,\"a\":3,\"b\":1}",
     );
     // A duplicate key keeps the order it arrived in.
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("{\"a\":1,\"a\":2}")),
         "{\"a\":1,\"a\":2}",
     );
@@ -402,48 +405,51 @@ test "sorting is by Str order, and stable where two keys are equal" {
 
 test "asInt at the edge of what a Float counts one at a time" {
     // Two to the fifty-third is the last integer a `Float` has to itself.
-    assert.eq(parsed("9007199254740992").asInt(), .Some(9_007_199_254_740_992));
-    assert.eq(parsed("-9007199254740992").asInt(), .Some(0 - 9_007_199_254_740_992));
+    assert.equal(parsed("9007199254740992").asInt(), .Some(9_007_199_254_740_992));
+    assert.equal(parsed("-9007199254740992").asInt(), .Some(0 - 9_007_199_254_740_992));
     // Past it the document's own digits are already gone: every number in a
     // `Json` is a `Float`, so `2^53 + 1` arrived as `2^53` and reads back as
     // that. The refusal `asInt` makes is about the *fraction*, not the width.
-    assert.eq(parsed("9007199254740993").asInt(), .Some(9_007_199_254_740_992));
+    assert.equal(parsed("9007199254740993").asInt(), .Some(9_007_199_254_740_992));
     // A whole number well past it, still exactly a `Float`.
-    assert.eq(parsed("1e18").asInt(), .Some(1_000_000_000_000_000_000));
+    assert.equal(parsed("1e18").asInt(), .Some(1_000_000_000_000_000_000));
     // `Int`'s own largest value is not a `Float`: it rounds up, past the end.
-    assert.eq(parsed("9223372036854775807").asInt(), .None);
-    assert.eq(parsed("1e19").asInt(), .None);
-    assert.eq(parsed("-1e19").asInt(), .None);
+    assert.equal(parsed("9223372036854775807").asInt(), .None);
+    assert.equal(parsed("1e19").asInt(), .None);
+    assert.equal(parsed("-1e19").asInt(), .None);
     // A fraction is a fraction however small.
-    assert.eq(parsed("0.5").asInt(), .None);
-    assert.eq(parsed("-0.5").asInt(), .None);
-    assert.eq(parsed("1e-3").asInt(), .None);
+    assert.equal(parsed("0.5").asInt(), .None);
+    assert.equal(parsed("-0.5").asInt(), .None);
+    assert.equal(parsed("1e-3").asInt(), .None);
     // A signed zero is a zero.
-    assert.eq(parsed("-0").asInt(), .Some(0));
-    assert.eq(parsed("-0.0").asInt(), .Some(0));
+    assert.equal(parsed("-0").asInt(), .Some(0));
+    assert.equal(parsed("-0.0").asInt(), .Some(0));
 }
 
 test "an empty container inside another has nothing to lay out either" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The empty cases at every depth, and beside a sibling that is not empty.
-    assert.eq(json.stringifyPretty(ctx, parsed("[[]]"), 2), "[\n  []\n]");
-    assert.eq(json.stringifyPretty(ctx, parsed("[{}]"), 2), "[\n  {}\n]");
-    assert.eq(
+    assert.equal(json.stringifyPretty(ctx, parsed("[[]]"), 2), "[\n  []\n]");
+    assert.equal(json.stringifyPretty(ctx, parsed("[{}]"), 2), "[\n  {}\n]");
+    assert.equal(
         json.stringifyPretty(ctx, parsed("{\"a\":{\"b\":{}}}"), 2),
         "{\n  \"a\": {\n    \"b\": {}\n  }\n}",
     );
-    assert.eq(
+    assert.equal(
         json.stringifyPretty(ctx, parsed("{\"a\":[],\"b\":[1]}"), 2),
         "{\n  \"a\": [],\n  \"b\": [\n    1\n  ]\n}",
     );
-    assert.eq(
+    assert.equal(
         json.stringifyPretty(ctx, parsed("[[],[[]],{}]"), 2),
         "[\n  [],\n  [\n    []\n  ],\n  {}\n]",
     );
     // An indent of nothing still puts each on its own line, at every depth.
-    assert.eq(json.stringifyPretty(ctx, parsed("[[1],{}]"), 0), "[\n[\n1\n],\n{}\n]");
+    assert.equal(
+        json.stringifyPretty(ctx, parsed("[[1],{}]"), 0),
+        "[\n[\n1\n],\n{}\n]",
+    );
     // And every one of them parses back.
     let documents = ["[[]]", "[{}]", "{\"a\":{\"b\":{}}}", "[[],[[]],{}]"];
     let same = documents.mapCtx(ctx, fn(c, text) => {
@@ -455,38 +461,38 @@ test "an empty container inside another has nothing to lay out either" {
 
 test "sorting keys is by scalar, whatever the key is written in" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Scalar order, so everything ASCII comes before anything that is not, and
     // a longer key that starts with a shorter one comes after it.
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("{\"é\":1,\"z\":2,\"€\":3,\"a\":4}")),
         "{\"a\":4,\"z\":2,\"é\":1,\"€\":3}",
     );
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("{\"ab\":1,\"a\":2,\"\":3}")),
         "{\"\":3,\"a\":2,\"ab\":1}",
     );
     // A key outside the basic plane sorts after everything inside it.
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("{\"😀\":1,\"€\":2}")),
         "{\"€\":2,\"😀\":1}",
     );
     // Sorting does not touch what the values are, only where they sit.
-    assert.eq(
+    assert.equal(
         json.stringifySorted(ctx, parsed("{\"b\":\"z\",\"a\":\"y\"}")),
         "{\"a\":\"y\",\"b\":\"z\"}",
     );
     // Twice over is the same rendering, which is the whole point of a stable
     // one.
     let doc = parsed("{\"b\":{\"d\":1,\"c\":[{\"f\":1,\"e\":2}]},\"a\":3}");
-    assert.eq(json.stringifySorted(ctx, doc), json.stringifySorted(ctx, doc));
-    assert.eq(
+    assert.equal(json.stringifySorted(ctx, doc), json.stringifySorted(ctx, doc));
+    assert.equal(
         json.stringifySorted(ctx, doc),
         "{\"a\":3,\"b\":{\"c\":[{\"e\":2,\"f\":1}],\"d\":1}}",
     );
     // And the sorted rendering is still the same document.
-    assert.eq(assert.ok(json.parse(ctx, json.stringifySorted(ctx, doc))).keys(ctx), [
+    assert.equal(assert.ok(json.parse(ctx, json.stringifySorted(ctx, doc))).keys(ctx), [
         "a",
         "b",
     ]);
@@ -496,21 +502,21 @@ test "a path that leaves the objects stops there" {
     let doc = parsed("{\"a\":{\"b\":[{\"c\":1}]},\"\":{\"x\":2}}");
     // An array is indexed by `at`, not by a key, so a chain cannot walk into
     // one — even with a key that spells the index.
-    assert.eq(doc.path(["a", "b", "0"]), .None);
-    assert.eq(doc.path(["a", "b", "0", "c"]), .None);
+    assert.equal(doc.path(["a", "b", "0"]), .None);
+    assert.equal(doc.path(["a", "b", "0", "c"]), .None);
     // A chain longer than the document stops at the first miss rather than
     // running off the end.
-    assert.eq(doc.path(["a", "b", "c", "d", "e"]), .None);
+    assert.equal(doc.path(["a", "b", "c", "d", "e"]), .None);
     // The empty string is a key like any other.
-    assert.eq(
+    assert.equal(
         assert.some(doc.path([""]).andThen(fn(v) => v.get("x"))).asInt(),
         .Some(2),
     );
     // A scalar has no keys under it.
-    assert.eq(parsed("1").path(["a"]), .None);
-    assert.eq(parsed("null").path(["a"]), .None);
-    assert.eq(parsed("\"a\"").path(["a"]), .None);
+    assert.equal(parsed("1").path(["a"]), .None);
+    assert.equal(parsed("null").path(["a"]), .None);
+    assert.equal(parsed("\"a\"").path(["a"]), .None);
     // But an empty chain answers whatever it was given.
-    assert.eq(assert.some(parsed("null").path([])), Json.Null);
-    assert.eq(assert.some(parsed("[1]").path([])), parsed("[1]"));
+    assert.equal(assert.some(parsed("null").path([])), Json.Null);
+    assert.equal(assert.some(parsed("[1]").path([])), parsed("[1]"));
 }

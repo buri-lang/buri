@@ -1,0 +1,20 @@
+error: this `match` does not cover `.None` [match-not-exhaustive]
+  --> main.buri:51:5
+   |
+51 |     match (out.findIndex(fn(l) => l == head)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.None`, or a `_` arm for everything left
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:52:49
+   |
+52 |         .Some(i) => out.slice(ctx, i, i + count)@ ,
+   |                                                 ^
+   |
+  --> main.buri:51:47
+   |
+51 |     match (out.findIndex(fn(l) => l == head)) {
+   |                                               ^ opened here
+   |
+   = fix: write `}` here

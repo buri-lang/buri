@@ -22,7 +22,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_17=String(0n)+' '+String($list_len($k3))+' '+String($list_fold($k3,(acc_14,x_15)=>acc_14+x_15,0n));
+  const text_17=String(0n)+' '+String($list_length($k3))+' '+String($list_fold($k3,(acc_14,x_15)=>acc_14+x_15,0n));
   const self_18=$host_HostStdout_println(ctx_0[1],text_17);
   let $t9;
   if(self_18[0]===0){

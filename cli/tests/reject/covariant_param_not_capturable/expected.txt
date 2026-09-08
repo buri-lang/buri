@@ -24,9 +24,9 @@ error: a lambda may not capture `p`, whose type `Prop<T>` could be a context [la
      none. So the rule stays conservative here.
 
      A type parameter escapes it when it carries an ordinary trait bound. A type
-     is either part of the world or part of your data, so a T: Eq is never a
+     is either part of the world or part of your data, so a T: Equal is never a
      context type, and xs.any(fn(x) => x == needle) is still legal inside
-     impl<T: Eq> [T].
+     impl<T: Equal> [T].
 
      Function types escape it too, because a closure holds exactly what it
      captured and this rule is what checks that. So fn compose<A, B, C>(f: fn(A)

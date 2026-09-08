@@ -44,8 +44,8 @@ system uses none, because the language already gives it:
   *name* for ambient state.
 - **A test's capabilities are fakes.** The runner hands a suite a context it
   built itself: an in-memory filesystem holding exactly what the suite gave it,
-  one store behind both `FsRead` and `FsWrite`, a clock the test sets, a seeded
-  `Rand`, a seeded `Entropy`, and an `Env` of the test's own pairs
+  one store behind both `FileSystemRead` and `FileSystemWrite`, a clock the test sets, a seeded
+  `Random`, a seeded `Entropy`, and an `Environment` of the test's own pairs
   ([`testing.md`](./testing.md)). There is no real capability to withhold.
 - **The action set is closed, and one action's program is not.** Five kinds, and
   a repository cannot define a sixth. `generate` is the one whose program this
@@ -66,7 +66,7 @@ confined:
   `1970-01-01T00:00:00Z`. Two runs of one suite produce the same record, not two
   records differing in a timing field. A generator's artifact is the ordinary
   linked one and gets no such splice, because it needs none: `run` hands the
-  generating function `Alloc`, `Stdin` and `Stdout`, and a generator that
+  generating function `Allocator`, `Stdin` and `Stdout`, and a generator that
   reaches for a clock does not compile.
 
 `buri run` is the one deliberate exception. It executes a built artifact with
@@ -82,7 +82,7 @@ catches that class of bug instead:
 | The bug | What catches it |
 |---|---|
 | A library or test reaching for ambient state | The type system, at compile time, through `host-import` and the effect bounds on `ctx`. The reject corpus pins both. |
-| A test depending on a real clock, a real `Rand`, a real `Entropy`, or a real filesystem | It cannot. Those capabilities are injected fakes, and a suite wanting a real one would have to be handed it. |
+| A test depending on a real clock, a real `Random`, a real `Entropy`, or a real filesystem | It cannot. Those capabilities are injected fakes, and a suite wanting a real one would have to be handed it. |
 | A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing. `buri build --check-reproducible` asks, and so does `two_checkouts_of_one_tree_build_identical_bytes` in the toolchain's own suite. The model rests on this check. |
 | A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock. `build/hermeticity.rs` builds and tests under a perturbed parent environment. |
 | A stale cache entry | The key. It holds content, never timestamps, and every input. |

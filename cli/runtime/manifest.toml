@@ -137,7 +137,7 @@ crate-type = ["staticlib"]
 # aarch64-apple-darwin at the commit that added `net`, twenty-four bytes for the
 # lot. Five have since been reached, each in the commit that needed it:
 # `tokio` by `rt.rs`, the carrier runtime whose reactor and timer wheel
-# `Clock::sleepMillis` and `Net::fetch` wait on (+185 424 bytes); `rustls`
+# `Clock::sleepMilliseconds` and `Network::fetch` wait on (+185 424 bytes); `rustls`
 # and `ring` by `tls.rs`, which `http.rs` calls for every `https://` URL
 # (+1 804 592); `hyper` by `net.rs`'s HTTP/2 acceptor (+771 688, which is
 # the server, `h2`, `tokio-util` and HPACK's tables); and `tungstenite` by
@@ -267,7 +267,7 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 #
 # `net` is on, and the default is the point: a `cargo install buri` gets a
 # toolchain whose runtime *can* speak the network, because a toolchain that
-# could not would make `Net` a build-flag question for every user rather than a
+# could not would make `Network` a build-flag question for every user rather than a
 # capability question for every program.
 #
 # Off, the five crates it names resolve to nothing, the archive is the one this

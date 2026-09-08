@@ -17,7 +17,7 @@ warning: `core/effect` is imported twice [duplicate-import]
   |
  --> lib/money/testing/fakes.buri:7:6
   |
-7 | from "core/effect" import { Alloc };
+7 | from "core/effect" import { Allocator };
   |      ^^^^^^^^^^^^^ first imported here
   |
   = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
@@ -43,7 +43,7 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
    |                       ^^^^^^^^^^^^^^^^^^
    |
    = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
-   = fix: delete the table, and reach for `character.fromDigit`, `num.toHex` or `bytes.toHex`
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
 
      A table of digits never arrives on its own. With it come a nibble helper, a
      shift, a mask, an index, and — sooner or later — a sixteen-call unrolled
@@ -58,7 +58,7 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
      - Is this one? — character.isHexDigit(), rather than comparing a toDigit
      against .None.
 
-     - A whole number — num.toHex(ctx, x, width), lowercase and zero-padded to
+     - A whole number — number.toHex(ctx, x, width), lowercase and zero-padded to
      a width you name.
 
      - A whole byte string — bytes.toHex(ctx, b) and bytes.fromHex(ctx, s).
@@ -76,17 +76,17 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
 warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
   --> lib/money/testing/fakes.buri:16:5
    |
-16 | let NANOS_PER_MILLISECOND: I64 = 1_000_000;
-   |     ^^^^^^^^^^^^^^^^^^^^^
+16 | let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
 
      A count of milliseconds in an I64 means something only because of what you
-     called it — IDLE_TIMEOUT_MILLIS, nanos, elapsedMs — and every boundary
-     between two units is a multiply somebody wrote out by hand. Every one is a
-     place the unit can be dropped, doubled or overflowed with the type system
-     saying nothing.
+     called it — IDLE_TIMEOUT_MILLIS, nanoseconds, elapsedMs — and every
+     boundary between two units is a multiply somebody wrote out by hand. Every
+     one is a place the unit can be dropped, doubled or overflowed with the type
+     system saying nothing.
 
      core/time has the type that carries it:
 
@@ -94,11 +94,12 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
        let deadline = started.plus(idle);
        if (now.hasPassed(deadline)) { … }
 
-     seconds, millis, micros, nanos, minutes and hours are the constructors;
-     add, sub, mul, negate and abs are the arithmetic; nanos(), millis() and the
-     rest read a length back out in whatever unit the caller wants. The
-     conversion factors are exported too — NANOS_PER_MILLISECOND and its
-     siblings — for the one case that really is arithmetic on a raw count.
+     seconds, milliseconds, microseconds, nanoseconds, minutes and hours are the
+     constructors; add, subtract, multiply, negate and abs are the arithmetic;
+     nanoseconds(), milliseconds() and the rest read a length back out in
+     whatever unit the caller wants. The conversion factors are exported too —
+     NANOSECONDS_PER_MILLISECOND and its siblings — for the one case that really
+     is arithmetic on a raw count.
 
      Two things come with the type, and they are why this is a lint rather than
      a style note:
@@ -112,10 +113,10 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
      make a length, and two points added together are a type error.
 
      This rule fires on a constant *named* as a conversion —
-     NANOS_PER_MILLISECOND, MILLIS_PER_SECOND — and on a count of milliseconds
-     multiplied by a million in place. A million that is not named as
-     milliseconds is not a finding: parts per million is a real number, and this
-     rule does not guess.
+     NANOSECONDS_PER_MILLISECOND, MILLISECONDS_PER_SECOND — and on a count of
+     milliseconds multiplied by a million in place. A million that is not named
+     as milliseconds is not a finding: parts per million is a real number, and
+     this rule does not guess.
 
 warning: nothing reads `Ledger.note` [unused-field]
   --> lib/money/testing/fakes.buri:20:5
@@ -137,7 +138,7 @@ warning: nothing reads `Ledger.note` [unused-field]
 
      Two things read every field of a type at once, and neither leaves a
      projection behind to find. A derive is a fold over the whole type
-     definition, so a type with a derived Eq, Ord, Hash or Show is never
+     definition, so a type with a derived Equal, Ordered, Hash or Show is never
      reported. A value handed to the runtime, or compared structurally, is the
      other.
 
@@ -281,7 +282,7 @@ warning: this is `order.int`, written out [hand-rolled-comparator]
 52 | fn compareInts(left: Int, right: Int): Order {
    |    ^^^^^^^^^^^
    |
-   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
    = fix: call `order.int` with the two operands, and delete the chain
 
        fn compareInts(left: Int, right: Int): Order {
@@ -291,10 +292,10 @@ warning: this is `order.int`, written out [hand-rolled-comparator]
      That function is order.int. Not "like" it: core/order declares it with that
      body, character for character.
 
-     Comparators travel in packs. One arrives because derive Ord did not reach
-     somewhere, and then there are four: one for Int, one for Bool, one for
-     Float that quietly disagrees with the first two about NaN, and one for Str
-     that delegates to compare. The library has the whole set:
+     Comparators travel in packs. One arrives because derive Ordered did not
+     reach somewhere, and then there are four: one for Int, one for Bool, one
+     for Float that quietly disagrees with the first two about NaN, and one for
+     Str that delegates to compare. The library has the whole set:
 
      - order.int(a, b), order.float(a, b), order.bool(a, b) — with false
      below true — order.char(a, b) by scalar value, and order.str(a, b), which
@@ -322,10 +323,10 @@ warning: this is `order.int`, written out [hand-rolled-comparator]
      an Int, and a fix that does not type-check is not a fix.
 
 warning: `ctx` is not used; the function is pure [unused-context]
-  --> lib/money/testing/fakes.buri:56:20
+  --> lib/money/testing/fakes.buri:56:24
    |
-56 | fn width<C: Alloc>(ctx: C, label: Str): Int {
-   |                    ^^^^^^
+56 | fn width<C: Allocator>(ctx: C, label: Str): Int {
+   |                        ^^^^^^
    |
    = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
    = fix: remove the `ctx` parameter, and the context argument at every call site
@@ -384,19 +385,19 @@ warning: `ctx` is not used; the function is pure [unused-context]
      unused-context-bound's question. This one is only about a context nothing
      in the body names at all.
 
-warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
   --> lib/money/testing/fakes.buri:60:16
    |
-60 | fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
-   |                ^^^^^
+60 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^^^^^
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
 
      A ctx parameter says a function touches the world. Its bounds say which
-     parts of it. fn save<C: Alloc + FsWrite>(ctx: C, …) reads as "this
-     allocates and this writes files", and every caller has to be holding a
-     context that can do both. A dead bound spreads, too, because the caller's
+     parts of it. fn save<C: Allocator + FileSystemWrite>(ctx: C, …) reads as
+     "this allocates and this writes files", and every caller has to be holding
+     a context that can do both. A dead bound spreads, too, because the caller's
      own signature has to carry it to satisfy the demand.
 
      There are exactly two ways a body uses a bound, and each of them is a call:
@@ -443,10 +444,11 @@ warning: bound `Alloc` on `C` is not used by this function [unused-context-bound
      offered whether or not the name is on the library's surface.
 
      The bytes are per parameter, not per bound. A bound list is one piece of
-     text with shared separators — the ranges that delete FsWrite and Io from
-     <C: Alloc + FsWrite + Io> both claim the + between them — so removing
-     several is one rewrite. Every finding about one parameter carries that same
-     rewrite, buri lint --fix applies it once, and the run after it is clean.
+     text with shared separators — the ranges that delete FileSystemWrite and Io
+     from <C: Allocator + FileSystemWrite + Io> both claim the + between them —
+     so removing several is one rewrite. Every finding about one parameter
+     carries that same rewrite, buri lint --fix applies it once, and the run
+     after it is clean.
 
      The rule withholds the bytes where the text between the bounds is anything
      but the separators. A comment written inside a bound list is a reader's

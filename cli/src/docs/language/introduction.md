@@ -26,7 +26,7 @@ eliminated — or with a fold. `design/non-goals.md` records why.
 ### 1.1 A taste
 
 ```buri run
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -59,7 +59,7 @@ impl Shape {
 // this program transitively calls can read a file, let alone write one.
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
 

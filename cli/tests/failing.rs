@@ -91,7 +91,7 @@
 //!   reports at its own line — `many_modules`. Two tests sharing a title
 //!   inside one file do not compile — `duplicate_titles`.
 //! * **A report is structural.** A hand-written `impl Show` does not reach one,
-//!   and `assert.eq` carries no `Show` bound — `hand_written_show`.
+//!   and `assert.equal` carries no `Show` bound — `hand_written_show`.
 
 #![allow(
     clippy::unwrap_used,

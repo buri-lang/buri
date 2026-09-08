@@ -60,7 +60,7 @@ impl Char {
     /// the set. A binary search over a range table, so it is a few reads rather
     /// than a comparison.
     export fn isPunctuation(self): Bool {
-        inRanges(PUNCTUATION, self.toU32().toI64(), 0, PUNCTUATION.len() / 8)
+        inRanges(PUNCTUATION, self.toU32().toI64(), 0, PUNCTUATION.length() / 8)
     }
 
     /// Whether this scalar has a visible shape of its own — everything outside
@@ -71,7 +71,7 @@ impl Char {
     /// `' '` is. That is Python's `str.isprintable`, and it is the useful
     /// division: what you can put in a diagnostic and read back.
     export fn isPrintable(self): Bool {
-        inRanges(PRINTABLE, self.toU32().toI64(), 0, PRINTABLE.len() / 8)
+        inRanges(PRINTABLE, self.toU32().toI64(), 0, PRINTABLE.length() / 8)
     }
 
     /// Whether a line ends here: LF, VT, FF, CR, NEL, and the line and
@@ -159,14 +159,14 @@ let DIGITS: Str = "0123456789abcdefghijklmnopqrstuvwxyz";
 
 /// The character a digit is written as: `fromDigit(11, 16)` is `'b'`.
 ///
-/// Lowercase, matching how `core/bytes` and `core/num` render hexadecimal.
+/// Lowercase, matching how `core/bytes` and `core/number` render hexadecimal.
 ///
 /// Answers `.None` for a digit the radix does not have, and for a radix outside
 /// 2 to 36, the range `toDigit` reads. The inverse of `toDigit`.
-export fn fromDigit(n: Int, radix: Int): Option<Char> {
-    if (radix < 2 || radix > 36 || n < 0 || n >= radix) {
+export fn fromDigit(digit: Int, radix: Int): Option<Char> {
+    if (radix < 2 || radix > 36 || digit < 0 || digit >= radix) {
         .None
     } else {
-        DIGITS.charAt(n)
+        DIGITS.charAt(digit)
     }
 }

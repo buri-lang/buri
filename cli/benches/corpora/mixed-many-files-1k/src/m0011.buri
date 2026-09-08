@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
@@ -12,7 +12,7 @@ from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
 from "//bench/m0007.buri" import { blend7, Node7, reach7, seed7 };
 from "//bench/m0010.buri" import { blend10, Node10, reach10, seed10 };
 
-derive Eq, Show for Node11;
+derive Equal, Show for Node11;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node11 {
@@ -60,7 +60,7 @@ export fn parseBoth11_0(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe11_0<C: Alloc>(ctx: C): Int {
+export fn probe11_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth11_0("1", "2")) {
         .Some(v) => v,
@@ -71,6 +71,6 @@ export fn probe11_0<C: Alloc>(ctx: C): Int {
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach11<C: Alloc>(ctx: C): Int {
+export fn reach11<C: Allocator>(ctx: C): Int {
     0 + probe11_0(ctx) + reach4(ctx) + reach7(ctx) + reach0(ctx) + reach10(ctx)
 }

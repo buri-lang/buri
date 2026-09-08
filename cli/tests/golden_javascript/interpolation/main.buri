@@ -1,13 +1,13 @@
 // A `Template` is an array of parts handed to the runtime's formatter. Where
 // every hole renders on its own, the array and the call are both avoidable.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let name = "world";

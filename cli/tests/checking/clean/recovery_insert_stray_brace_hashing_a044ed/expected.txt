@@ -1,9 +1,0 @@
-error: expected `:`, found `Alloc` [unexpected-token]
-  --> main.buri:31:15
-   |
-31 |         extra Alloc: alloc(),
-   |               ^^^^^
-   |
-   = expected: `:`
-   = actual: `Alloc`
-   = fix: write `:` here

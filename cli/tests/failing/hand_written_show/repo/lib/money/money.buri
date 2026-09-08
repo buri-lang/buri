@@ -1,22 +1,22 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/order" import { Show };
 
-derive Eq for Money;
-/// `Eq` is derived and `Show` is written by hand, so the two sides of a failure
+derive Equal for Money;
+/// `Equal` is derived and `Show` is written by hand, so the two sides of a failure
 /// can be compared against what the program itself would print.
 export struct Money {
     export cents: Int,
 }
 
-/// The signature is `Show`'s: rendering allocates, so `show` takes an `Alloc`
+/// The signature is `Show`'s: rendering allocates, so `show` takes an `Allocator`
 /// context whether the body uses it or not. An `impl` supplies the signature
 /// its trait declares.
 impl Show for Money {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         "Money(hand written)"
     }
 }
 
-export fn render<C: Alloc>(ctx: C, m: Money): Str {
+export fn render<C: Allocator>(ctx: C, m: Money): Str {
     m.show(ctx)
 }

@@ -1,0 +1,9 @@
+error: expected `:`, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_stamp_f62f3f/lib.buri:7:44
+  |
+7 | export fn stamp<C: Allocator>(ctx: C, label? : Str): Int {
+  |                                            ^
+  |
+  = expected: `:`
+  = actual: `?`
+  = fix: write `:` here
