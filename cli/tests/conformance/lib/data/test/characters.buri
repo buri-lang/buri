@@ -6,7 +6,7 @@
 // symbol that is not punctuation, a format character that is not a control, an
 // unassigned code point that is neither.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 
@@ -191,18 +191,18 @@ test "isNewline refuses whitespace that does not end a line" {
 // --- utf8Length ----------------------------------------------------------------------
 
 test "utf8Length is one to four bytes by code point" {
-    assert.eq('a'.utf8Length(), 1);
-    assert.eq('\0'.utf8Length(), 1);
-    assert.eq(DELETE.utf8Length(), 1);
-    assert.eq(PADDING.utf8Length(), 2);
-    assert.eq('é'.utf8Length(), 2);
-    assert.eq(LAST_TWO_BYTE.utf8Length(), 2);
-    assert.eq(FIRST_THREE_BYTE.utf8Length(), 3);
-    assert.eq('あ'.utf8Length(), 3);
-    assert.eq(LAST_THREE_BYTE.utf8Length(), 3);
-    assert.eq(FIRST_FOUR_BYTE.utf8Length(), 4);
-    assert.eq('😀'.utf8Length(), 4);
-    assert.eq(LAST_CODE_POINT.utf8Length(), 4);
+    assert.equal('a'.utf8Length(), 1);
+    assert.equal('\0'.utf8Length(), 1);
+    assert.equal(DELETE.utf8Length(), 1);
+    assert.equal(PADDING.utf8Length(), 2);
+    assert.equal('é'.utf8Length(), 2);
+    assert.equal(LAST_TWO_BYTE.utf8Length(), 2);
+    assert.equal(FIRST_THREE_BYTE.utf8Length(), 3);
+    assert.equal('あ'.utf8Length(), 3);
+    assert.equal(LAST_THREE_BYTE.utf8Length(), 3);
+    assert.equal(FIRST_FOUR_BYTE.utf8Length(), 4);
+    assert.equal('😀'.utf8Length(), 4);
+    assert.equal(LAST_CODE_POINT.utf8Length(), 4);
 }
 
 // --- The classifiers over the whole of ASCII -------------------------------------
@@ -252,10 +252,10 @@ let C0: [Char] = [
 // all six classifiers at once, with the counts the categories promise.
 test "the classifiers agree over the whole of printable ASCII" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cs = PRINTABLE_ASCII.chars(ctx);
-    assert.eq(cs.len(), 95);
+    assert.equal(cs.length(), 95);
     assert.isTrue(cs.all(fn(c) => c.isAscii()));
     assert.isTrue(cs.all(fn(c) => c.isPrintable()));
     assert.isTrue(cs.all(fn(c) => c.isControl() == false));
@@ -263,25 +263,25 @@ test "the classifiers agree over the whole of printable ASCII" {
     assert.isTrue(cs.all(fn(c) => c.utf8Length() == 1));
     // Sixty-two letters and digits, one space, twenty-three punctuation marks
     // and nine symbols, which is the whole ninety-five.
-    assert.eq(cs.count(fn(c) => c.isAlphanumeric()), 62);
-    assert.eq(cs.count(fn(c) => c.isSpace()), 1);
-    assert.eq(cs.count(fn(c) => c.isPunctuation()), 23);
+    assert.equal(cs.count(fn(c) => c.isAlphanumeric()), 62);
+    assert.equal(cs.count(fn(c) => c.isSpace()), 1);
+    assert.equal(cs.count(fn(c) => c.isPunctuation()), 23);
     // Nothing is both a letter and a mark, and the space is neither.
-    assert.eq(cs.count(fn(c) => c.isPunctuation() && c.isAlphanumeric()), 0);
+    assert.equal(cs.count(fn(c) => c.isPunctuation() && c.isAlphanumeric()), 0);
     assert.isFalse(' '.isPunctuation());
 }
 
 // The other thirty-three: a control is never printable, is always one byte, and
 // only six of them end a line.
 test "the classifiers agree over the whole of the C0 block" {
-    assert.eq(C0.len(), 33);
+    assert.equal(C0.length(), 33);
     assert.isTrue(C0.all(fn(c) => c.isAscii()));
     assert.isTrue(C0.all(fn(c) => c.isControl()));
     assert.isTrue(C0.all(fn(c) => c.isPrintable() == false));
     assert.isTrue(C0.all(fn(c) => c.isPunctuation() == false));
     assert.isTrue(C0.all(fn(c) => c.utf8Length() == 1));
     // LF, VT, FF and CR, and nothing else below U+0020.
-    assert.eq(C0.count(fn(c) => c.isNewline()), 4);
+    assert.equal(C0.count(fn(c) => c.isNewline()), 4);
     // Every one of them that ends a line is whitespace as well.
     assert.isTrue(C0.all(fn(c) => c.isNewline() == false || c.isSpace()));
 }
@@ -290,12 +290,12 @@ test "the classifiers agree over the whole of the C0 block" {
 // characters read out of a string give the same answers as the literals above.
 test "a classifier reads the same off a string as off a literal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cs = "a1 !é😀".chars(ctx);
-    assert.eq(cs.count(fn(c) => c.isAscii()), 4);
-    assert.eq(cs.count(fn(c) => c.isPrintable()), 6);
-    assert.eq(cs.count(fn(c) => c.isPunctuation()), 1);
-    assert.eq(cs.sumOf(fn(c) => c.utf8Length()), 10);
-    assert.eq("a1 !é😀".utf8Length(), 10);
+    assert.equal(cs.count(fn(c) => c.isAscii()), 4);
+    assert.equal(cs.count(fn(c) => c.isPrintable()), 6);
+    assert.equal(cs.count(fn(c) => c.isPunctuation()), 1);
+    assert.equal(cs.sumOf(fn(c) => c.utf8Length()), 10);
+    assert.equal("a1 !é😀".utf8Length(), 10);
 }

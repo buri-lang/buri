@@ -1,0 +1,55 @@
+// What every `.proto` case needs: the text it reads, and the bytes a
+// diagnostic points at.
+//
+// The span is asserted as *text* rather than as two numbers, because what a
+// span promises is the token a person sees underlined. Two offsets that moved
+// together would pass a numeric assertion just as happily.
+
+from "core/buri/ast" import * as ast;
+from "core/bytes" import * as bytes;
+from "core/codegen" import { Diagnostic };
+from "core/effect" import { Allocator };
+from "std/codegen/proto/schema" import * as schema;
+
+/// The path every case's schema is read from.
+export let FILE: Str = "lib/wire/case.proto";
+
+/// The one line every schema needs.
+export let HEAD: Str = "edition = \"2026\";\n";
+
+/// `body` with the edition declared above it.
+export fn withEdition<C: Allocator>(ctx: C, body: Str): Str {
+    HEAD.concat(ctx, body)
+}
+
+/// The lines of a schema, one per element.
+export fn lines<C: Allocator>(ctx: C, ls: [Str]): Str {
+    ls.join(ctx, "\n").concat(ctx, "\n")
+}
+
+export fn read<C: Allocator>(ctx: C, text: Str): schema.Parsed {
+    schema.parse(ctx, text, @ FILE)
+}
+
+/// The first diagnostic filed under `code`.
+export fn under(parsed: schema.Parsed, code: Str): Option<Diagnostic> {
+    parsed.errors.find(fn(d) => d.code == code)
+}
+
+/// The text a diagnostic's span covers. Its origin is measured in bytes, so
+/// this reads the bytes.
+export fn pointsAt<C: Allocator>(ctx: C, text: Str, d: Diagnostic): Str {
+    match (d.origin) {
+        .None => "",
+        .Some(o) => at(ctx, text, o),
+    }
+}
+
+/// The text an origin covers. A declaration carries one of these directly.
+export fn at<C: Allocator>(ctx: C, text: Str, origin: ast.Origin): Str {
+    let octets = bytes.toUtf8(ctx, text).slice(ctx, origin.span.start, origin.span.end);
+    match (bytes.fromUtf8(ctx, octets)) {
+        .Ok(s) => s,
+        .Err(_e) => "",
+    }
+}

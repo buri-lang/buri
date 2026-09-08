@@ -1,4 +1,4 @@
 // EXPECT: a generic parameter ends with `,`
-export fn pair<A: Eq B: Eq>(a: A, b: B): Bool {
+export fn pair<A: Equal B: Equal>(a: A, b: B): Bool {
   a == a && b == b
 }

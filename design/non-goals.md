@@ -67,7 +67,7 @@ value, so a handler takes an `Arguments` and asks it by name instead.
    language's sharpest unresolved trade-off, and cutting loops put the full cost
    back on it. Traits do not help: a trait method that needs an effect must
    declare the context in its signature.
-2. *`Alloc` granularity.* Demanding `Alloc` for every size-dependent result is
+2. *`Allocator` granularity.* Demanding `Allocator` for every size-dependent result is
    principled and noisy. Only real code can say whether the noise is worth the
    guarantee.
 3. *Indexing returns `Option`.* Correct, and occasionally miserable. A

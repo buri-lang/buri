@@ -3,7 +3,7 @@
 // reaches the rest of the library by absolute path, with no visibility rules
 // between them, because a subdirectory is not a boundary.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "//lib/ledger/entry.buri" import { Entry };
 
 export enum Rule {
@@ -11,7 +11,7 @@ export enum Rule {
     MemoPrefix { prefix: Str },
 }
 
-export fn apply<C: Alloc>(ctx: C, entries: [Entry], rule: Rule): [Entry] {
+export fn apply<C: Allocator>(ctx: C, entries: [Entry], rule: Rule): [Entry] {
     match (rule) {
         .DropZero => entries.filter(ctx, fn(e) => !e.amount.isZero()),
         .MemoPrefix { prefix } => {

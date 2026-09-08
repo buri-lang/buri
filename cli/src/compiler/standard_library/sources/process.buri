@@ -1,6 +1,6 @@
 //! core/process — ending this process, and running another one.
 //!
-//! Two authorities, and they are separate on purpose. `Proc` ends the program.
+//! Two authorities, and they are separate on purpose. `Process` ends the program.
 //! `Spawn` starts a different one, which is the largest authority a context can
 //! carry: a program that can run `sh` can do anything the user can. A reader of
 //! a context sees which of the two it was given, and a program that never binds
@@ -12,11 +12,11 @@
 //! ## Running something
 //!
 //! ```buri sig
-//! # from "core/effect" import { Alloc, IoError };
+//! # from "core/effect" import { Allocator, IoError };
 //! # from "core/process" import * as process;
 //! # from "core/process" import { Output, Spawn };
 //! #
-//! export fn version<C: Alloc + Spawn>(ctx: C): Result<Output, IoError> {
+//! export fn version<C: Allocator + Spawn>(ctx: C): Result<Output, IoError> {
 //!     process.run(ctx, process.command("git", ["--version"]))
 //! }
 //! ```
@@ -33,10 +33,10 @@
 //! one by one, so a value with a space or a `;` in it is one argument and never
 //! a second command.
 
-from "core/effect" import { Alloc, Env, IoError, Proc };
+from "core/effect" import { Allocator, Environment, IoError, Process };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead };
+from "core/fs" import { FileSystemRead };
 from "core/path" import * as path;
 from "core/path" import { Path };
 
@@ -53,11 +53,11 @@ from "core/path" export { Path };
 /// Returning `.Ok(())` exits 0, and `.Err(msg)` prints `msg` and exits 1. That
 /// covers the ordinary cases. Reach for `exit` when a program has to name a
 /// *particular* status — a tool whose exit code is part of its interface.
-export fn exit<C: Proc>(ctx: C, code: Int): () {
+export fn exit<C: Process>(ctx: C, code: Int): () {
     ctx.exitWith(code)
 }
 
-derive Eq, Show for Command;
+derive Equal, Show for Command;
 /// What to run, and what to run it with.
 ///
 /// [`command`] builds one with the three optional fields empty, and a program
@@ -77,7 +77,7 @@ export struct Command {
     export stdin: Option<[U8]>,
 }
 
-derive Eq, Show for Output;
+derive Equal, Show for Output;
 /// What a finished process left behind.
 ///
 /// `code` is the exit status, and a child killed by a signal reports `128 +
@@ -91,7 +91,7 @@ export struct Output {
 /// Running another program.
 ///
 /// **The largest authority in the standard library**, which is why it is its
-/// own effect rather than a method on `Proc`: ending this process and starting
+/// own effect rather than a method on `Process`: ending this process and starting
 /// another are not the same permission, and a program that only needs the first
 /// should not be handed the second.
 export effect Spawn {
@@ -131,7 +131,7 @@ export effect Spawn {
 /// ```
 ///
 /// `arguments` are the ones after the program's own name, exactly as
-/// `env.args` reports them on the other side.
+/// `env.arguments` reports them on the other side.
 export fn command(program: Str, arguments: [Str]): Command {
     Command {
         program: program,
@@ -150,7 +150,7 @@ export fn command(program: Str, arguments: [Str]): Command {
 ///
 /// Both streams are read to the end while the child runs, so a child that
 /// writes more than a pipe holds does not deadlock.
-export fn run<C: Alloc + Spawn>(ctx: C, command: Command): Result<Output, IoError> {
+export fn run<C: Allocator + Spawn>(ctx: C, command: Command): Result<Output, IoError> {
     let at = match (command.workingDirectory) {
         .None => "",
         .Some(directory) => directory.text(),
@@ -173,7 +173,12 @@ export fn run<C: Alloc + Spawn>(ctx: C, command: Command): Result<Output, IoErro
 
 /// `[(name, value)]` as name and value alternating, which is what the effect
 /// takes.
-fn flattened<C: Alloc>(ctx: C, pairs: [(Str, Str)], index: Int, sofar: [Str]): [Str] {
+fn flattened<C: Allocator>(
+    ctx: C,
+    pairs: [(Str, Str)],
+    index: Int,
+    sofar: [Str],
+): [Str] {
     match (pairs.get(index)) {
         .None => sofar,
         .Some(pair) => {
@@ -194,7 +199,10 @@ fn flattened<C: Alloc>(ctx: C, pairs: [(Str, Str)], index: Int, sofar: [Str]): [
 /// **It asks whether the name resolves, not whether it can be executed.** That
 /// is `fs.exists`, so a directory with the right name answers `.Some`. The
 /// honest test is to run it and read the `.Err`.
-export fn which<C: Alloc + Env + FsRead>(ctx: C, program: Str): Option<Path> {
+export fn which<C: Allocator + Environment + FileSystemRead>(
+    ctx: C,
+    program: Str,
+): Option<Path> {
     if (program.contains("/")) {
         let at = path.of(ctx, program);
         if (fs.exists(ctx, at)) { .Some(at) } else { .None }
@@ -206,7 +214,7 @@ export fn which<C: Alloc + Env + FsRead>(ctx: C, program: Str): Option<Path> {
     }
 }
 
-fn firstOnPath<C: Alloc + FsRead>(
+fn firstOnPath<C: Allocator + FileSystemRead>(
     ctx: C,
     directories: [Str],
     program: Str,

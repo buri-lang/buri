@@ -65,12 +65,12 @@ carries the edit that removes the `::`.
 methods do with none: the receiver's type resolves a conversion, which is the
 same lookup either way (Section 6.2.1). Dropping them also let the fallible
 conversions return `Result` instead of encoding failure in the choice of
-operator. *Cost:* `core/num` carries one method per source-and-target pair.
+operator. *Cost:* `core/number` carries one method per source-and-target pair.
 
 **12.6 There is no `<<` or `>>` token.**
 Longest-match lexing would turn `Map<Str, [Int]>>` into a shift. Dropping the
 operators fixes that at the source, rather than papering over it with a token
-splitter that makes the lexer position-dependent. *Cost:* `bits.shl(x, n)`.
+splitter that makes the lexer position-dependent. *Cost:* `bits.shiftLeft(x, n)`.
 
 **12.7 Enum variants in patterns must be qualified or dot-prefixed.**
 Otherwise `None` is a binding or a variant depending on what is in scope, and the
@@ -143,7 +143,7 @@ its absence makes it the type's own methods.
 Whether an IDENT or a `{` follows tells them apart: one token of lookahead, no
 name resolution. Braces terminate the expression and it delimits itself, so it
 joins `{}`, `if`, and `match` as a block-like operand under 12.11 and 12.13.
-Reusing struct-literal syntax (`Ctx { Alloc: ... }`) would have needed a declared
+Reusing struct-literal syntax (`Ctx { Allocator: ... }`) would have needed a declared
 type to name, and the whole point is that nobody ever writes a context's type
 (Section 11.3). *Cost:* one keyword, which no program could have used as an
 identifier anyway once contexts existed.

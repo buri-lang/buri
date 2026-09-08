@@ -2,5 +2,5 @@ from "core/testing/assert" import * as assert;
 from "//lib/money" import { format, fromCents };
 
 test "pads the cents place" {
-    assert.eq(format(fromCents(1905)), "19.05");
+    assert.equal(format(fromCents(1905)), "19.05");
 }

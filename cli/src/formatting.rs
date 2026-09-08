@@ -3262,7 +3262,7 @@ mod tests {
             "export trait T {\n  /// what this does\n  fn f(self): Int;\n}\n",
             "impl S {\n  /// what this does\n  fn f(self): Int { 1 }\n}\n",
             "export context C {\n  // why this one\n  Clock: Fixed(),\n}\n",
-            "test \"a test\" {\n  // about an assertion\n  assert.eq(1, 1);\n}\n",
+            "test \"a test\" {\n  // about an assertion\n  assert.equal(1, 1);\n}\n",
             "export fn f(): Int {\n  let x = {\n    // inside a nested block\n    1\n  };\n  x\n}\n",
             "export fn f(): Int {\n  let x = if (true) {\n    // inside a branch\n    1\n  } else { 2 };\n  x\n}\n",
             "export fn f(): Int {\n  /* a block comment */\n  1\n}\n",
@@ -3355,7 +3355,7 @@ mod tests {
         // Every wrapped shape this file exists to pin down.
         for want in [
             // one argument to a line, with a trailing comma
-            "    assert.eq(\n        showAll(ctx, mark, value, fallback),\n",
+            "    assert.equal(\n        showAll(ctx, mark, value, fallback),\n",
             // every link of a chain on its own line, the first included, and
             // a trailing lambda hugging inside the link it belongs to
             "    let hexed = b\n        .mapCtx(ctx, fn(c, x) => {\n",
@@ -3364,7 +3364,7 @@ mod tests {
             // an operator run breaks together, operator first
             "        let heavy = self.a > 0\n            && self.b > 0\n",
             // a signature is a list of parameters
-            "export fn noteResult<T, E, C: Alloc + Stdout>(\n    ctx: C,\n",
+            "export fn noteResult<T, E, C: Allocator + Stdout>(\n    ctx: C,\n",
             // a list of anything goes one item to a line
             "let SEED: [U32] = [\n    1779033703,\n    3144134277,",
             "    let structured = Working {\n        a: t.0.wrapToU32(),\n",
@@ -3422,34 +3422,34 @@ export enum Shape {
 export trait Weigh {
   /// What one of these weighs, given somewhere to allocate and a scale to
   /// read.
-  fn weighWithEverything<C: Alloc + Stdout>(self, ctx: C, scale: Str, precision: Int): Float;
+  fn weighWithEverything<C: Allocator + Stdout>(self, ctx: C, scale: Str, precision: Int): Float;
 }
 
 impl Weigh for Working {
-  fn weighWithEverything<C: Alloc + Stdout>(self, ctx: C, scale: Str, precision: Int): Float {
+  fn weighWithEverything<C: Allocator + Stdout>(self, ctx: C, scale: Str, precision: Int): Float {
     // A chain of one operator breaks as a list.
-    let heavy = self.a > 0 && self.b > 0 && self.h > 0 && precision > 0 && scale.len() > 0 && self.a != self.b;
+    let heavy = self.a > 0 && self.b > 0 && self.h > 0 && precision > 0 && scale.length() > 0 && self.a != self.b;
     if (heavy) { 1.0 } else { 0.0 }
   }
 }
 
-derive Eq, Ord, Show for Meters;
+derive Equal, Ordered, Show for Meters;
 
 export context Everything {
   Clock: Fixed(0),
-  Alloc: System(),
+  Allocator: System(),
 }
 
 // ---- functions --------------------------------------------------------------
 
 /// A signature with more parameters than fit on one line.
-export fn noteResult<T, E, C: Alloc + Stdout>(ctx: C, mark: Str, value: Result<T, E>, fallback: Result<T, E>): Result<T, E> {
+export fn noteResult<T, E, C: Allocator + Stdout>(ctx: C, mark: Str, value: Result<T, E>, fallback: Result<T, E>): Result<T, E> {
   // A call with more arguments than fit.
-  assert.eq(showAll(ctx, mark, value, fallback), "the shape of a wide call, one argument to a line");
+  assert.equal(showAll(ctx, mark, value, fallback), "the shape of a wide call, one argument to a line");
   value
 }
 
-export fn everything<C: Alloc>(ctx: C, b: [U8], t: (Int, Int), o: Option<Int>): Str {
+export fn everything<C: Allocator>(ctx: C, b: [U8], t: (Int, Int), o: Option<Int>): Str {
   // A trailing lambda hugs the call it is the last argument of.
   let hexed = b.mapCtx(ctx, fn(c, x) => {
     let n = x.toI64();
@@ -3486,7 +3486,7 @@ export fn everything<C: Alloc>(ctx: C, b: [U8], t: (Int, Int), o: Option<Int>): 
 
 test "every construct, and the width they all have to fit inside" {
   // An assertion wide enough to wrap.
-  assert.eq(everything(Everything(), [1, 2, 3], (4, 5), .Some(6)), "a string that is long enough that the call around it cannot stay on one line");
+  assert.equal(everything(Everything(), [1, 2, 3], (4, 5), .Some(6)), "a string that is long enough that the call around it cannot stay on one line");
   assert.isTrue([1, 0, 3].foldResultCtx(Everything(), fn(c, acc: [Int], x) => if (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) }, list.empty<Int>()).isOk());
   // The last word in the test.
 }

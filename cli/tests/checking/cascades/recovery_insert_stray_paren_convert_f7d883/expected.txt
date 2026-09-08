@@ -1,0 +1,23 @@
+error: `f32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
+  --> main.buri:19:18
+   |
+19 |     assert.equal(simd.f32x4(1.9, -extra 1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 4
+   = actual: 5
+   = fix: pass exactly 4
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:19:35
+   |
+19 |     assert.equal(simd.f32x4(1.9, -extra 1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
+   |                                   ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:19:40
+   |
+19 |     assert.equal(simd.f32x4(1.9, -extra 1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
+   |                                        ^
+   |
+   = fix: write `,` here

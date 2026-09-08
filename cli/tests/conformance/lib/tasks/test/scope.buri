@@ -14,7 +14,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host/testing" import { alloc, clock, stdout, tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -30,28 +30,28 @@ fn say<C: Stdout>(ctx: C, what: Str): () {
 
 test "a scope answers what its body answered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: tasks(),
     };
-    assert.eq(tasks.scope(ctx, fn(c, here) => 41 + 1), 42);
+    assert.equal(tasks.scope(ctx, fn(c, here) => 41 + 1), 42);
 }
 
 test "a scope that spawns nothing runs nothing" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
     let _ = tasks.scope(ctx, fn(c, here) => say(c, "body"));
-    assert.eq(out.captured(), "body\n");
+    assert.equal(out.captured(), "body\n");
 }
 
 test "the body finishes before anything spawned in it starts" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -59,13 +59,13 @@ test "the body finishes before anything spawned in it starts" {
         let _ = tasks.spawn(c, here, fn(c2) => say(c2, "task"));
         say(c, "body")
     });
-    assert.eq(out.captured(), "body\ntask\n");
+    assert.equal(out.captured(), "body\ntask\n");
 }
 
 test "a scope returns only once every task spawned in it has finished" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -75,13 +75,13 @@ test "a scope returns only once every task spawned in it has finished" {
         let _ = tasks.spawn(c, here, fn(c2) => say(c2, "three"));
         ()
     });
-    assert.eq(out.captured(), "one\ntwo\nthree\n");
+    assert.equal(out.captured(), "one\ntwo\nthree\n");
 }
 
 test "a task spawned by a task is waited for too" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -93,29 +93,29 @@ test "a task spawned by a task is waited for too" {
         });
         ()
     });
-    assert.eq(out.captured(), "outer\ninner\n");
+    assert.equal(out.captured(), "outer\ninner\n");
 }
 
 test "a timer is a task that sleeps" {
     let out = stdout();
     let ticking = clock();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: ticking,
         Stdout: out,
         Tasks: tasks(),
     };
     let _ = tasks.scope(ctx, fn(c, here) => {
         let _ = tasks.spawn(c, here, fn(c2) => {
-            let _ = time.sleepMs(c2, 5 * 60 * 1000);
+            let _ = time.sleep(c2, time.milliseconds(5 * 60 * 1000));
             say(c2, "the session expired")
         });
         say(c, "mounted")
     });
-    assert.eq(out.captured(), "mounted\nthe session expired\n");
+    assert.equal(out.captured(), "mounted\nthe session expired\n");
     // The wait was a wait, and the double is what makes it one a test can
     // read: no real time passed and the clock moved by the sleep.
-    assert.eq(time.now(ctx).0, 300000);
+    assert.equal(time.now(ctx).0, 300000);
 }
 
 // -- the order the tasks run in ----------------------------------------------
@@ -129,38 +129,38 @@ test "a timer is a task that sleeps" {
 test "tasks() spawns in program order" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
-    assert.eq(out.captured(), "a\nb\nc\n");
+    assert.equal(out.captured(), "a\nb\nc\n");
 }
 
 test "a seed is the order the spawned tasks run in" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks().seed(5),
     };
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
-    assert.eq(out.captured(), "c\nb\na\n");
+    assert.equal(out.captured(), "c\nb\na\n");
 }
 
 test "the double records a spawned task the way it records any other" {
     let scheduler = tasks();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: scheduler,
     };
     let _ = tasks.scope(ctx, fn(c, here) => spawnThree(c, here));
-    assert.eq(scheduler.calls().len(), 3);
+    assert.equal(scheduler.calls().length(), 3);
 }
 
 /// Three tasks, spawned in a written order, each saying which it is.
-fn spawnThree<C: Alloc + Stdout + Tasks>(ctx: C, here: Scope): () {
+fn spawnThree<C: Allocator + Stdout + Tasks>(ctx: C, here: Scope): () {
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "a"));
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "b"));
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "c"));
@@ -172,7 +172,7 @@ fn spawnThree<C: Alloc + Stdout + Tasks>(ctx: C, here: Scope): () {
 test "a scope is inert, so a lambda may capture it" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -186,11 +186,11 @@ test "a scope is inert, so a lambda may capture it" {
         }
     });
     // Nothing has been spawned yet, so the scope returned with the body.
-    assert.eq(out.captured(), "mounted\n");
+    assert.equal(out.captured(), "mounted\n");
     let click = handler;
     let _ = click(ctx);
     // The scope was still there, and the task ran on the caller that spawned it.
-    assert.eq(out.captured(), "mounted\na socket opened\n");
+    assert.equal(out.captured(), "mounted\na socket opened\n");
 }
 
 // -- stopping a task ----------------------------------------------------------
@@ -208,7 +208,7 @@ enum Turn {
 ///
 /// A socket would answer this question by being closed. The actor is the same
 /// answer with the network taken out of it, so the file holds both sides.
-fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+fn gate<C: Allocator + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
     Actor {
         state: turns,
         step: fn(c, left, message) => {
@@ -225,7 +225,7 @@ enum Ask {
 }
 
 /// The long-lived loop: one frame per turn, and it ends when it is told to.
-fn frames<C: Alloc + Stdout + Tasks>(
+fn frames<C: Allocator + Stdout + Tasks>(
     ctx: C,
     keeper: Address<C, Int, Ask, Turn>,
     n: Int,
@@ -242,7 +242,7 @@ fn frames<C: Alloc + Stdout + Tasks>(
 test "a spawned loop stops when the actor it asks says to" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -251,6 +251,6 @@ test "a spawned loop stops when the actor it asks says to" {
         let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
         ()
     });
-    assert.eq(out.captured(), "frame 0\nframe 1\nframe 2\nthe loop stopped\n");
+    assert.equal(out.captured(), "frame 0\nframe 1\nframe 2\nthe loop stopped\n");
     let _ = keeper.stop(ctx).ignore();
 }

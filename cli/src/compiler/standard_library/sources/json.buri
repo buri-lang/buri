@@ -19,7 +19,7 @@
 //! trip.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/json" import * as json;
@@ -27,7 +27,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let doc = match (json.parse(ctx, "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"]}")) {
@@ -47,11 +47,11 @@
 //! ```
 
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show for Json;
+derive Equal, Show for Json;
 /// A JSON value.
 export enum Json {
     Null,
@@ -63,7 +63,7 @@ export enum Json {
     Object([(Str, Json)]),
 }
 
-derive Eq, Show for JsonError;
+derive Equal, Show for JsonError;
 /// What went wrong, and where. The position is an index into the characters of
 /// the input.
 export enum JsonError {
@@ -93,12 +93,12 @@ export let MAX_DEPTH: Int = 512;
 /// Parses one complete document.
 ///
 /// Trailing text is an error rather than a stopping point.
-export fn parse<C: Alloc>(ctx: C, text: Str): Result<Json, JsonError> {
+export fn parse<C: Allocator>(ctx: C, text: Str): Result<Json, JsonError> {
     let cs = text.chars(ctx);
     let start = skipSpace(cs, 0);
     let (v, next) = value(ctx, cs, start, 0)?;
     let end = skipSpace(cs, next);
-    if (end < cs.len()) { .Err(.Trailing(end)) } else { .Ok(v) }
+    if (end < cs.length()) { .Err(.Trailing(end)) } else { .Ok(v) }
 }
 
 /// Whitespace, of which JSON admits exactly four characters.
@@ -116,7 +116,7 @@ fn skipSpace(cs: [Char], i: Int): Int {
 }
 
 /// One value, and the index just past it.
-fn value<C: Alloc>(
+fn value<C: Allocator>(
     ctx: C,
     cs: [Char],
     i: Int,
@@ -161,7 +161,7 @@ fn value<C: Alloc>(
 
 /// `null`, `true`, `false` — each is its own spelling and nothing else.
 fn keyword(cs: [Char], i: Int, word: Str, v: Json): Result<(Json, Int), JsonError> {
-    let n = word.len();
+    let n = word.length();
     if (matches(cs, i, word, 0, n)) { .Ok((v, i + n)) } else { .Err(.Unexpected(i)) }
 }
 
@@ -183,7 +183,7 @@ fn matches(cs: [Char], i: Int, word: Str, k: Int, n: Int): Bool {
 // Both use an accumulator plus a recursive step in tail position, so it costs
 // no stack — unlike the call into `value`, which is why `depth` exists.
 
-fn array<C: Alloc>(
+fn array<C: Allocator>(
     ctx: C,
     cs: [Char],
     i: Int,
@@ -193,7 +193,7 @@ fn array<C: Alloc>(
     match (cs.get(i)) {
         .None => .Err(.Unterminated),
         .Some(c) => {
-            if (c == ']' && acc.len() == 0) {
+            if (c == ']' && acc.length() == 0) {
                 .Ok((Json.Array(acc), i + 1))
             } else {
                 let (v, after) = value(ctx, cs, i, depth + 1)?;
@@ -210,7 +210,7 @@ fn array<C: Alloc>(
     }
 }
 
-fn object<C: Alloc>(
+fn object<C: Allocator>(
     ctx: C,
     cs: [Char],
     i: Int,
@@ -220,7 +220,7 @@ fn object<C: Alloc>(
     match (cs.get(i)) {
         .None => .Err(.Unterminated),
         .Some(c) => {
-            if (c == '}' && acc.len() == 0) {
+            if (c == '}' && acc.length() == 0) {
                 .Ok((Json.Object(acc), i + 1))
             } else if (c != '"') {
                 // A key is a string: JSON admits no bare word.
@@ -258,11 +258,11 @@ fn object<C: Alloc>(
 // --- Strings ------------------------------------------------------------------
 
 /// A quoted string, and the index just past its closing quote.
-fn string<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Str, Int), JsonError> {
+fn string<C: Allocator>(ctx: C, cs: [Char], i: Int): Result<(Str, Int), JsonError> {
     stringBody(ctx, cs, i + 1, list.empty<Char>())
 }
 
-fn stringBody<C: Alloc>(
+fn stringBody<C: Allocator>(
     ctx: C,
     cs: [Char],
     i: Int,
@@ -365,7 +365,7 @@ fn unescape(e: Char): Option<Char> {
 
 // --- Numbers ------------------------------------------------------------------
 
-fn number<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Json, Int), JsonError> {
+fn number<C: Allocator>(ctx: C, cs: [Char], i: Int): Result<(Json, Int), JsonError> {
     let end = numberEnd(cs, i, i);
     let text = str.fromChars(ctx, cs.slice(ctx, i, end));
     match (text.toFloat()) {
@@ -408,8 +408,8 @@ fn isExponent(cs: [Char], i: Int): Bool {
 
 /// The compact rendering: no spaces, no newlines, keys in the order the value
 /// holds them. `parse` of this is the value it came from.
-export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
-    match (v) {
+export fn stringify<C: Allocator>(ctx: C, value: Json): Str {
+    match (value) {
         .Null => "null",
         .Bool(b) => if (b) { "true" } else { "false" },
         .Num(x) => numberText(ctx, x),
@@ -435,7 +435,7 @@ export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
 /// every element on its own line.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/json" import * as json;
@@ -443,7 +443,7 @@ export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let doc = Json.Object([("id", Json.Num(7.0)), ("tags", Json.Array([]))]);
@@ -458,11 +458,11 @@ export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
 ///   "tags": []
 /// }
 /// ```
-export fn stringifyPretty<C: Alloc>(ctx: C, value: Json, indent: Int): Str {
+export fn stringifyPretty<C: Allocator>(ctx: C, value: Json, indent: Int): Str {
     laidOut(ctx, value, if (indent < 0) { 0 } else { indent }, 0)
 }
 
-fn laidOut<C: Alloc>(ctx: C, v: Json, indent: Int, depth: Int): Str {
+fn laidOut<C: Allocator>(ctx: C, v: Json, indent: Int, depth: Int): Str {
     match (v) {
         .Array(items) => {
             if (items.isEmpty()) {
@@ -501,11 +501,11 @@ fn laidOut<C: Alloc>(ctx: C, v: Json, indent: Int, depth: Int): Str {
 /// golden file or a digest over a document needs. Array order is data and is
 /// left alone. Duplicate keys keep the order they arrived in, because the sort
 /// is stable.
-export fn stringifySorted<C: Alloc>(ctx: C, value: Json): Str {
+export fn stringifySorted<C: Allocator>(ctx: C, value: Json): Str {
     stringify(ctx, byKey(ctx, value))
 }
 
-fn byKey<C: Alloc>(ctx: C, v: Json): Json {
+fn byKey<C: Allocator>(ctx: C, v: Json): Json {
     match (v) {
         .Array(items) => Json.Array(items.mapCtx(ctx, fn(c, item) => byKey(c, item))),
         .Object(entries) => {
@@ -530,18 +530,18 @@ fn byKey<C: Alloc>(ctx: C, v: Json): Json {
 ///
 /// `str.fromFloat` renders a whole number as `3.0`. JSON has one number type
 /// and writes it `3`, so the trailing `.0` comes off.
-fn numberText<C: Alloc>(ctx: C, x: Float): Str {
+fn numberText<C: Allocator>(ctx: C, x: Float): Str {
     let s = str.fromFloat(ctx, x);
-    if (s.endsWith(".0")) { s.slice(0, s.len() - 2) } else { s }
+    if (s.endsWith(".0")) { s.slice(0, s.length() - 2) } else { s }
 }
 
 /// A quoted, escaped string literal.
-export fn quote<C: Alloc>(ctx: C, s: Str): Str {
-    let inner = s.chars(ctx).mapCtx(ctx, fn(c, ch) => escape(c, ch)).join(ctx, "");
+export fn quote<C: Allocator>(ctx: C, text: Str): Str {
+    let inner = text.chars(ctx).mapCtx(ctx, fn(c, ch) => escape(c, ch)).join(ctx, "");
     str.format(ctx, "\"${inner}\"")
 }
 
-fn escape<C: Alloc>(ctx: C, c: Char): Str {
+fn escape<C: Allocator>(ctx: C, c: Char): Str {
     if (c == '"') {
         "\\\""
     } else if (c == '\\') {
@@ -608,7 +608,7 @@ impl Json {
         }
     }
 
-    export fn asNum(self): Option<Float> {
+    export fn asNumber(self): Option<Float> {
         match (self) {
             .Num(x) => .Some(x),
             _ => .None,
@@ -658,7 +658,7 @@ impl Json {
 
     /// The object's keys in the order the document wrote them. Anything that is
     /// not an object has none, so this is empty rather than `.None`.
-    export fn keys<C: Alloc>(self, ctx: C): [Str] {
+    export fn keys<C: Allocator>(self, ctx: C): [Str] {
         match (self) {
             .Object(entries) => {
                 entries.map(ctx, fn(e) => {
@@ -732,9 +732,9 @@ impl Json {
 
 /// Encoding a value as JSON. Derived, never written by hand — see above.
 ///
-/// Rendering allocates, so `toJson` names `Alloc` and nothing else.
+/// Rendering allocates, so `toJson` names `Allocator` and nothing else.
 export trait ToJson {
-    fn toJson<C: Alloc>(self, ctx: C): Json;
+    fn toJson<C: Allocator>(self, ctx: C): Json;
 }
 
 /// Decoding a value from JSON. Derived, never written by hand — see above.
@@ -745,7 +745,7 @@ export trait FromJson {
     fn fromJson(value: Json): Result<Self, DecodeError>;
 }
 
-derive Eq, Show for DecodeError;
+derive Equal, Show for DecodeError;
 /// Why a document could not be read as the type asked for, and *where*.
 ///
 /// `path` writes `$` for the document itself, `.name` for a member and `[i]`
@@ -762,19 +762,19 @@ export enum DecodeError {
 /// Encodes any `ToJson` value.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/json" import * as json;
 /// from "core/json" import { DecodeError, FromJson, ToJson };
 ///
-/// derive Eq, ToJson, FromJson for Point;
+/// derive Equal, ToJson, FromJson for Point;
 /// struct Point {
 ///     x: Int,
 ///     y: Int,
 /// }
 ///
-/// derive Eq, ToJson, FromJson for Shape;
+/// derive Equal, ToJson, FromJson for Shape;
 /// enum Shape {
 ///     Dot,
 ///     Line(Point, Point),
@@ -782,7 +782,7 @@ export enum DecodeError {
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let shape = Shape.Line(Point { x: 0, y: 0 }, Point { x: 3, y: 4 });
@@ -800,7 +800,7 @@ export enum DecodeError {
 /// {"Line":[{"x":0,"y":0},{"x":3,"y":4}]}
 /// true
 /// ```
-export fn encode<T: ToJson, C: Alloc>(ctx: C, value: T): Json {
+export fn encode<T: ToJson, C: Allocator>(ctx: C, value: T): Json {
     value.toJson(ctx)
 }
 
@@ -810,4 +810,7 @@ export fn encode<T: ToJson, C: Alloc>(ctx: C, value: T): Json {
 /// name every argument, and a context type has no name to write (SPEC 11.3).
 /// Write the type on the binding instead: `let point: Result<Point,
 /// DecodeError> = json.decode(ctx, doc);`.
-export fn decode<T: FromJson, C: Alloc>(ctx: C, value: Json): Result<T, DecodeError>;
+export fn decode<T: FromJson, C: Allocator>(
+    ctx: C,
+    value: Json,
+): Result<T, DecodeError>;

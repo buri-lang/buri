@@ -4,12 +4,12 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 
-derive Eq, Show for Node1;
+derive Equal, Show for Node1;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node1 {
@@ -47,7 +47,7 @@ export fn compute1_0(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_0<C: Alloc>(ctx: C): Int {
+export fn probe1_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute1_0(7)
 }
@@ -62,21 +62,21 @@ export fn firstOr1_1<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll1_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll1_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric1_1(ns: [Int], ss: [Str]): Int {
-    firstOr1_1<Int>(ns, 0) + firstOr1_1<Str>(ss, "").len()
+    firstOr1_1<Int>(ns, 0) + firstOr1_1<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_1<C: Alloc>(ctx: C): Int {
-    useGeneric1_1([1, 2], ["a"]) + describeAll1_1(ctx, [1, 2]).len()
+export fn probe1_1<C: Allocator>(ctx: C): Int {
+    useGeneric1_1([1, 2], ["a"]) + describeAll1_1(ctx, [1, 2]).length()
 }
 
-derive Eq, Show for Rec1_2;
+derive Equal, Show for Rec1_2;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec1_2 {
     export f0: Int,
@@ -90,19 +90,19 @@ impl Rec1_2 {
         self.f0 * factor + 53
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec1_2: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_2<C: Alloc>(ctx: C): Int {
+export fn probe1_2<C: Allocator>(ctx: C): Int {
     let r = Rec1_2 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
-derive Eq, Show for Rec1_3;
+derive Equal, Show for Rec1_3;
 /// A record with 3 fields, derived comparisons and two methods.
 export struct Rec1_3 {
     export f0: Int,
@@ -116,19 +116,19 @@ impl Rec1_3 {
         self.f0 * factor + 701
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec1_3: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_3<C: Alloc>(ctx: C): Int {
+export fn probe1_3<C: Allocator>(ctx: C): Int {
     let r = Rec1_3 { f0: 7, f1: "probe", f2: 1.5 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
-derive Eq, Show for State1_4;
+derive Equal, Show for State1_4;
 /// An enum of 3 variants, matched exhaustively below.
 export enum State1_4 {
     Idle,
@@ -157,9 +157,9 @@ export fn start1_4(ticks: Int): State1_4 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_4<C: Alloc>(ctx: C): Int {
+export fn probe1_4<C: Allocator>(ctx: C): Int {
     let s = start1_4(5);
-    rank1_4(s) + s.show(ctx).len()
+    rank1_4(s) + s.show(ctx).length()
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
@@ -179,14 +179,14 @@ export fn compute1_5(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_5<C: Alloc>(ctx: C): Int {
+export fn probe1_5<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute1_5(7)
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label1_6<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label1_6<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "delta" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -199,9 +199,9 @@ export fn constants1_6(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_6<C: Alloc>(ctx: C): Int {
+export fn probe1_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants1_6();
-    label1_6(ctx, a, e).len() + b
+    label1_6(ctx, a, e).length() + b
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -224,7 +224,7 @@ export fn parseBoth1_7(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_7<C: Alloc>(ctx: C): Int {
+export fn probe1_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth1_7("1", "2")) {
         .Some(v) => v,
@@ -235,26 +235,26 @@ export fn probe1_7<C: Alloc>(ctx: C): Int {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest1_8<C: Alloc>(ctx: C): Int {
+export fn digest1_8<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [6228, 2679, 3193, 8003, 5867, 478, 2483, 9997, 3209, 8644];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
-    total + xs.len()
+    total + xs.length()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain1_8(): Int {
     let empty: [Int] = list.empty<Int>();
-    empty.len()
+    empty.length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_8<C: Alloc>(ctx: C): Int {
+export fn probe1_8<C: Allocator>(ctx: C): Int {
     digest1_8(ctx) + drain1_8()
 }
 
-derive Eq, Show for Rec1_9;
+derive Equal, Show for Rec1_9;
 /// A record with 2 fields, derived comparisons and two methods.
 export struct Rec1_9 {
     export f0: Int,
@@ -267,16 +267,16 @@ impl Rec1_9 {
         self.f0 * factor + 962
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec1_9: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_9<C: Alloc>(ctx: C): Int {
+export fn probe1_9<C: Allocator>(ctx: C): Int {
     let r = Rec1_9 { f0: 7, f1: "probe" };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -299,7 +299,7 @@ export fn parseBoth1_10(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_10<C: Alloc>(ctx: C): Int {
+export fn probe1_10<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth1_10("1", "2")) {
         .Some(v) => v,
@@ -310,7 +310,7 @@ export fn probe1_10<C: Alloc>(ctx: C): Int {
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach1<C: Alloc>(ctx: C): Int {
+export fn reach1<C: Allocator>(ctx: C): Int {
     0
         + probe1_0(ctx)
         + probe1_1(ctx)

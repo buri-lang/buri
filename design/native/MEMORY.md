@@ -2,11 +2,11 @@
 
 The design notes state the problem and offer two answers: "the language has no
 mutation and no destructors, so native either ships a GC or does escape
-analysis with an arena per `Alloc` scope."
+analysis with an arena per `Allocator` scope."
 
 Both are wrong, and §3 and §4 say why. The answer is **non-atomic reference
 counting with static elision and in-place reuse**, over a size-class
-allocator, with `Alloc` as a *defined* accounting model rather than a
+allocator, with `Allocator` as a *defined* accounting model rather than a
 measurement.
 
 ## 1. What the language gives us
@@ -104,25 +104,25 @@ A third cost applies to both: a collector has to be told about every pointer
 the *runtime* holds too, so 203 runtime functions each grow a rooting
 discipline.
 
-## 4. Why not an arena per `Alloc` scope
+## 4. Why not an arena per `Allocator` scope
 
-The effect system does not carry the information it would need. **`Alloc` says
+The effect system does not carry the information it would need. **`Allocator` says
 a function allocates. It does not say when the allocation dies.**
 
 An arena needs a scope: a point at which everything allocated since some
 earlier point becomes unreachable, all at once. Look for one:
 
-- `Alloc` is a **bound on a context** (`effect.buri`), and a bound propagates.
-  `list.map` is `<C: Alloc>`, so every caller of `map` is `Alloc`-bounded, and
+- `Allocator` is a **bound on a context** (`effect.buri`), and a bound propagates.
+  `list.map` is `<C: Allocator>`, so every caller of `map` is `Allocator`-bounded, and
   so is every caller of *those*. In any program that maps a list, `main` is
-  `Alloc`-bounded and the "Alloc scope" is the program.
+  `Allocator`-bounded and the "Allocator scope" is the program.
 - `Region` is a **value** (`effect.buri`: `export struct Region(export I64)`),
   returned by `allocate` and freely storable in a struct, returnable from a
   function, and placeable in a list. It is not a scope and it does not nest.
 - There is no `with`, no `using`, no scoped-context expression. A context is
   built by `context { ... }` and lives as long as anything referring to it.
 
-So an arena hung on the `Alloc` bound is entered at `main` and left at exit,
+So an arena hung on the `Allocator` bound is entered at `main` and left at exit,
 which is the never-free strategy under a different name.
 
 Escape analysis would help — a value that provably does not outlive its frame
@@ -289,7 +289,7 @@ The analysis is a fixpoint over the call graph, which is exact
 (`monomorphize.rs`), so the answer is a fact rather than the conservative
 approximation a language with dynamic dispatch would get. Every pure,
 non-constructing operation in the standard library — `xs.fold(f, init)`,
-`xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.len()` — borrows
+`xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.length()` — borrows
 everything and touches no reference count at all.
 
 On top of that, three local rules:
@@ -378,7 +378,7 @@ because they are the shape the next one will have. A local scrutinized by
 **two** consuming `match`es was dropped by each of them, because the first one
 erased it from the liveness the second computed. And a **borrowed local handed
 to a construct beside a sibling holding its last mention** — `f(s, g(s))`, or
-`"${s} … ${s.len()}"` — was dropped after the sibling, while the construct was
+`"${s} … ${s.length()}"` — was dropped after the sibling, while the construct was
 still holding uncounted words copied out of it. Neither was visible to the
 balance checker, which counts operations rather than orders them; both were
 visible the moment an allocation reused the freed block.
@@ -653,7 +653,7 @@ false:
    body against the enclosing `owned` set read `xs` as dying at the closure
    that captured it, emitted no mark, and let `$list_slice` truncate `xs` in
    place on the first call —
-   `mapCtx(fn(c, i) => xs.slice(c, 0, i).len())` answered `0, 0, 0` where the
+   `mapCtx(fn(c, i) => xs.slice(c, 0, i).length())` answered `0, 0, 0` where the
    answer is `0, 1, 2`. `Scan::enter_lambda` narrows the set to the body's own
    `let` bindings and parameters, which is what leaves the `foldCtx`
    accumulator writing through. `cli/tests/conformance/lib/memory/test/captures.buri`
@@ -712,14 +712,14 @@ are:
 - **`Str` views keep their parent alive.** `s.splitOnce(",")` on a 10 MB
   string and keeping one 3-byte half retains all 10 MB. This is a real footgun
   and it is the price of `slice` being pure (`str.buri`). It is documentable
-  rather than fixable — a copying `slice` would have to name `Alloc`, which is
+  rather than fixable — a copying `slice` would have to name `Allocator`, which is
   a language change — and `core/str` now says so where `slice` is declared.
 
   **Ruled on, and closed.** The two alternatives — copying above a ratio, or
   copying on a proven retention — change `slice`'s and `splitOnce`'s
   signatures or the middle end's obligations. The ruling is **neither**:
   slicing keeps the parent, and *how* a view's storage is managed is an
-  implementation detail of the runtime. `slice` promises a view, `Alloc` is
+  implementation detail of the runtime. `slice` promises a view, `Allocator` is
   where allocation is named, and neither promise mentions reference counts, so
   the strategy underneath can change under a green suite without a SPEC
   amendment, exactly as §5.4's allocator can. What is *not* free to change is
@@ -731,7 +731,7 @@ are:
 A generational copying collector would fix all three, and §3 gives the reason
 it is not available. This is the trade, taken deliberately.
 
-## 7. `Alloc`, natively: a defined cost model
+## 7. `Allocator`, natively: a defined cost model
 
 **A byte-exact cost model has to be *defined*, not measured**, or the numbers
 are not reproducible across backends and every test that asserts one is
@@ -768,19 +768,19 @@ the layout, which is a breaking change by construction and says so here.
 Two rows deserve their reasons:
 
 - **A view charges nothing** because the language says so: `slice`, `trim` and
-  `splitOnce` are declared without an `Alloc` bound (`str.buri`). The
+  `splitOnce` are declared without an `Allocator` bound (`str.buri`). The
   accounting has to agree with the type system or the type system is lying.
 - **A fixed-size construction charges nothing** even when the implementation
   heap-allocates, because SPEC 10.5 says "fixed-size construction — struct
   literals, tuples, enum payloads, array literals, closures, `Template`s —
-  never requires `Alloc`". The model counts what the *language* says
+  never requires `Allocator`". The model counts what the *language* says
   allocates. A model that counted implementation allocations would make
-  `Alloc` accounting depend on escape analysis, and a number that moves when
+  `Allocator` accounting depend on escape analysis, and a number that moves when
   the optimizer improves is not a number a test can assert.
 
 Making it a definition also makes it a **commitment**: a change to any row is
 a breaking change to observable behaviour. The table sits above
-`effect Alloc` in `core/effect`'s own source. `middle::layout`'s
+`effect Allocator` in `core/effect`'s own source. `middle::layout`'s
 `charge_list`, `charge_str`, `charge_closure_env`, `charge_allocate` and
 `CHARGE_VIEW` are the same rows as code, and `core/alloc`'s `strBytes`,
 `listBytes` and `closureBytes` are them again as something a program can call.
@@ -805,7 +805,7 @@ allocators.
 - **`FixedBuffer(n)`** — a budget of *n* bytes. Exceeding it **aborts**. That
   is forced, and it is the right answer: `allocate` returns `Region`, not
   `Result<Region, _>` (`effect.buri`), so there is no value to report failure
-  with; SPEC 10.5 already says `Alloc` "can fail (out of memory)"; and SPEC
+  with; SPEC 10.5 already says `Allocator` "can fail (out of memory)"; and SPEC
   6.9 says an abort is what a failure with no value to return does. So
   exceeding a `FixedBuffer` is `$abort("allocation budget exhausted")`, with
   the budget and the request in the message.
@@ -828,7 +828,7 @@ value it hands the body is **`Scoped<C>`** — an attenuating wrapper on
 it is not effect-carrying by mention and is expressible at all. Every effect
 forwards to the wrapped `C`, one hand-written `impl<C: E> E for Scoped<C>` per
 effect, because this language has no blanket implementations and no
-delegation. `Alloc` is the one that does not.
+delegation. `Allocator` is the one that does not.
 
 **The arena is a real bump allocator over its own `mmap`s.** `arenaCreate`
 maps nothing. A charge reserves its bytes from a 64 KiB block, mapping another
@@ -894,7 +894,7 @@ any signature.
 
 Natively there is one refinement. VALUE-MODEL.md §8 says a context of
 zero-sized implementations is itself zero-sized and is dropped from every
-signature, and `HostAlloc` is `struct HostAlloc {}` (`host.buri`) —
+signature, and `HostAllocator` is `struct HostAllocator {}` (`host.buri`) —
 zero-sized. So on the default host context the allocator argument is dropped
 and the intrinsics call the global allocator directly, which is correct and
 free. A `FixedBuffer` or a counting `GeneralPurpose` is *not* zero-sized — it
@@ -912,7 +912,7 @@ The paragraph above reads as "the accounting is nearly free", and it is not.
 **A context argument is dropped from every `buri_rt_*` call, whatever it
 weighs** (`stencil/runtime.rs`, `llvm/runtime.rs`). That is not an oversight
 to undo. The *first* program to bind a non-zero-sized allocator forced it —
-`context { Alloc: alloc() }` from the test platform — which spread one extra
+`context { Allocator: alloc() }` from the test platform — which spread one extra
 argument into a C call that has no parameter for it and put every argument
 after it in the wrong register. So the intrinsics do **not** receive a
 counting allocator, and the runtime function that builds the list never learns

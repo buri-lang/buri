@@ -4,13 +4,13 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/json" import { FromJson, ToJson };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Node1;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Node1;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node1 {
@@ -35,7 +35,7 @@ export fn lift1(n: Node0): Node1 {
     Node1 { label: n.label, value: n.value + seed1(), weight: n.weight }
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State1_0;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_0;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State1_0 {
     Idle,
@@ -68,9 +68,9 @@ export fn start1_0(ticks: Int): State1_0 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_0<C: Alloc>(ctx: C): Int {
+export fn probe1_0<C: Allocator>(ctx: C): Int {
     let s = start1_0(5);
-    rank1_0(s) + s.show(ctx).len()
+    rank1_0(s) + s.show(ctx).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -93,7 +93,7 @@ export fn parseBoth1_1(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_1<C: Alloc>(ctx: C): Int {
+export fn probe1_1<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth1_1("1", "2")) {
         .Some(v) => v,
@@ -102,7 +102,7 @@ export fn probe1_1<C: Alloc>(ctx: C): Int {
     choose1_1(.Some(3), .None) + extra
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec1_2;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec1_2;
 /// A record with 4 fields, derived comparisons and two methods.
 export struct Rec1_2 {
     export f0: Int,
@@ -117,19 +117,19 @@ impl Rec1_2 {
         self.f0 * factor + 436
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec1_2: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_2<C: Alloc>(ctx: C): Int {
+export fn probe1_2<C: Allocator>(ctx: C): Int {
     let r = Rec1_2 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State1_3;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_3;
 /// An enum of 7 variants, matched exhaustively below.
 export enum State1_3 {
     Idle,
@@ -166,12 +166,12 @@ export fn start1_3(ticks: Int): State1_3 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_3<C: Alloc>(ctx: C): Int {
+export fn probe1_3<C: Allocator>(ctx: C): Int {
     let s = start1_3(5);
-    rank1_3(s) + s.show(ctx).len()
+    rank1_3(s) + s.show(ctx).length()
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for State1_4;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for State1_4;
 /// An enum of 5 variants, matched exhaustively below.
 export enum State1_4 {
     Idle,
@@ -204,9 +204,9 @@ export fn start1_4(ticks: Int): State1_4 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_4<C: Alloc>(ctx: C): Int {
+export fn probe1_4<C: Allocator>(ctx: C): Int {
     let s = start1_4(5);
-    rank1_4(s) + s.show(ctx).len()
+    rank1_4(s) + s.show(ctx).length()
 }
 
 /// A body of 9 bindings over integer arithmetic — the shape most
@@ -225,7 +225,7 @@ export fn compute1_5(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_5<C: Alloc>(ctx: C): Int {
+export fn probe1_5<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute1_5(7)
 }
@@ -240,18 +240,18 @@ export fn firstOr1_6<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll1_6<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll1_6<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric1_6(ns: [Int], ss: [Str]): Int {
-    firstOr1_6<Int>(ns, 0) + firstOr1_6<Str>(ss, "").len()
+    firstOr1_6<Int>(ns, 0) + firstOr1_6<Str>(ss, "").length()
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_6<C: Alloc>(ctx: C): Int {
-    useGeneric1_6([1, 2], ["a"]) + describeAll1_6(ctx, [1, 2]).len()
+export fn probe1_6<C: Allocator>(ctx: C): Int {
+    useGeneric1_6([1, 2], ["a"]) + describeAll1_6(ctx, [1, 2]).length()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
@@ -274,7 +274,7 @@ export fn parseBoth1_7(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_7<C: Alloc>(ctx: C): Int {
+export fn probe1_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth1_7("1", "2")) {
         .Some(v) => v,
@@ -283,7 +283,7 @@ export fn probe1_7<C: Alloc>(ctx: C): Int {
     choose1_7(.Some(3), .None) + extra
 }
 
-derive Eq, Show, Ord, Hash, ToJson, FromJson for Rec1_8;
+derive Equal, Show, Ordered, Hash, ToJson, FromJson for Rec1_8;
 /// A record with 5 fields, derived comparisons and two methods.
 export struct Rec1_8 {
     export f0: Int,
@@ -299,21 +299,21 @@ impl Rec1_8 {
         self.f0 * factor + 782
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec1_8: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe1_8<C: Alloc>(ctx: C): Int {
+export fn probe1_8<C: Allocator>(ctx: C): Int {
     let r = Rec1_8 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-    r.scaled(3) + r.render(ctx).len()
+    r.scaled(3) + r.render(ctx).length()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach1<C: Alloc>(ctx: C): Int {
+export fn reach1<C: Allocator>(ctx: C): Int {
     0
         + probe1_0(ctx)
         + probe1_1(ctx)

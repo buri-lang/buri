@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+ --> main.buri:2:5
+  |
+2 |     , let a = [];
+  |     ^
+  |
+  = expected: an expression
+  = actual: `,`
+  = fix: write a value here

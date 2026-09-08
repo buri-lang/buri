@@ -18,7 +18,7 @@
 // painting, focus order, and the browser's own dispatch of a press — and that
 // needs a browser rather than a substitute for one.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
@@ -63,7 +63,7 @@ test "a stack is arrangement with no meaning, and text is a bare run" {
         Ui: headless(),
     };
     let tree = ui.stack([], [ui.text(.Const("hello"))]);
-    assert.eq(render(ctx, tree).markup(), "<div>hello</div>");
+    assert.equal(render(ctx, tree).markup(), "<div>hello</div>");
 }
 
 test "nothing renders nothing at all" {
@@ -71,15 +71,18 @@ test "nothing renders nothing at all" {
         Ui: headless(),
     };
     let tree = ui.stack([], [ui.nothing(), ui.text(.Const("only")), ui.nothing()]);
-    assert.eq(render(ctx, tree).markup(), "<div>only</div>");
+    assert.equal(render(ctx, tree).markup(), "<div>only</div>");
 }
 
 test "a row runs along the axis and a column runs down the page" {
     let ctx = context {
         Ui: headless(),
     };
-    assert.eq(render(ctx, ui.row([], [])).markup(), "<div class=\"lay-row\"></div>");
-    assert.eq(render(ctx, ui.column([], [])).markup(), "<div class=\"lay-col\"></div>");
+    assert.equal(render(ctx, ui.row([], [])).markup(), "<div class=\"lay-row\"></div>");
+    assert.equal(
+        render(ctx, ui.column([], [])).markup(),
+        "<div class=\"lay-col\"></div>",
+    );
 }
 
 test "a caller's own layout wins over the sugar's" {
@@ -87,14 +90,14 @@ test "a caller's own layout wins over the sugar's" {
         Ui: headless(),
     };
     let tree = ui.row([.Layout(.Column)], []);
-    assert.eq(render(ctx, tree).markup(), "<div class=\"lay-col\"></div>");
+    assert.equal(render(ctx, tree).markup(), "<div class=\"lay-col\"></div>");
 }
 
 test "a spacer takes what is left over" {
     let ctx = context {
         Ui: headless(),
     };
-    assert.eq(render(ctx, ui.spacer()).markup(), "<div class=\"grow-1\"></div>");
+    assert.equal(render(ctx, ui.spacer()).markup(), "<div class=\"grow-1\"></div>");
 }
 
 test "every role lowers to the element that carries it" {
@@ -110,7 +113,7 @@ test "every role lowers to the element that carries it" {
         ui.region(.Article, [], []),
         ui.region(.Search, [], []),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, landmarks).markup(),
         "<div><nav></nav><main></main><header></header><footer></footer><aside></aside><article></article><search role=\"search\"></search></div>",
     );
@@ -120,13 +123,13 @@ test "every role lowers to the element that carries it" {
         ui.region(.Group, [], []),
         ui.region(.Separator, [], []),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, structure).markup(),
         "<div><ul><li></li></ul><div role=\"group\"></div><hr /></div>",
     );
 
     let live = ui.stack([], [ui.region(.Status, [], []), ui.region(.Alert, [], [])]);
-    assert.eq(
+    assert.equal(
         render(ctx, live).markup(),
         "<div><div role=\"status\" aria-live=\"polite\"></div><div role=\"alert\" aria-live=\"assertive\"></div></div>",
     );
@@ -146,7 +149,7 @@ test "a data table is roles, and its headers say which way they head" {
             ui.region(.Cell, [], [ui.text(.Const("3"))]),
         ]),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<table><tr><th scope=\"col\">name</th><th scope=\"col\">owed</th></tr><tr><th scope=\"row\">ada</th><td>3</td></tr></table>",
     );
@@ -162,7 +165,7 @@ test "a heading is an outline level, and there is no seventh" {
         ui.heading(9, [], .Const("clamped")),
         ui.heading(0, [], .Const("also clamped")),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div><h1>top</h1><h3>inner</h3><h6>clamped</h6><h1>also clamped</h1></div>",
     );
@@ -170,19 +173,19 @@ test "a heading is an outline level, and there is no seventh" {
 
 test "a heading paints what the program asked for and nothing else" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     // The size the stack asks for is the size the heading is: nothing in the
     // sheet sets one on the element, so it inherits like any other run of text.
     let tree = ui.stack([.FontSize(.Px(13))], [ui.heading(2, [], .Const("not found"))]);
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div class=\"fs-13\"><h2>not found</h2></div>",
     );
     // The headless painter reads this, and a browser reads the markup above.
     // They agree only while the heading's line carries what the sheet does.
-    assert.eq(
+    assert.equal(
         ui.describe(ctx, tree, .Hover),
         "buri-scene 1\nviewport 800 600\ne 0 class:fs-13\ne 1 \nt 2 not found",
     );
@@ -190,7 +193,7 @@ test "a heading paints what the program asked for and nothing else" {
 
 test "a heading takes styles of its own, and they land on the heading" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     let tree = ui.heading(
@@ -198,8 +201,8 @@ test "a heading takes styles of its own, and they land on the heading" {
         [.FontSize(.Px(28)), .FontWeight(.Bold)],
         .Const("Prices"),
     );
-    assert.eq(render(ctx, tree).markup(), "<h2 class=\"fs-28 fw-bold\">Prices</h2>");
-    assert.eq(
+    assert.equal(render(ctx, tree).markup(), "<h2 class=\"fs-28 fw-bold\">Prices</h2>");
+    assert.equal(
         ui.describe(ctx, tree, .Hover),
         "buri-scene 1\nviewport 800 600\ne 0 class:fs-28 fw-bold\nt 1 Prices",
     );
@@ -248,7 +251,7 @@ test "every property lowers to the one declaration it names" {
         .FontWeight(.Semibold),
         .Cursor(.Pointer),
     ];
-    assert.eq(
+    assert.equal(
         render(ctx, ui.stack(everything, [])).markup(),
         "<div class=\"lay-row gap-8 p-r1_5 px-pc10 py-auto w-full h-40 am-between ac-center grow-2 bg-010203 fg-040506a0_5 bw-1 bc-none r-6 fs-r0_875 fw-semibold cur-pointer\"></div>",
     );
@@ -291,7 +294,7 @@ test "the rest of the vocabulary lowers to the declarations it names" {
         .TextWrap(.Balance),
         .Truncate(2),
     ];
-    assert.eq(
+    assert.equal(
         render(ctx, ui.stack(rest, [])).markup(),
         "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-out pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\"></div>",
     );
@@ -319,7 +322,7 @@ test "pins naming different edges compose, and `Position` owns `position`" {
         .Pin(.Start, .Px(0)),
         .Pin(.End, .Px(0)),
     ];
-    assert.eq(
+    assert.equal(
         render(ctx, ui.stack(overlay, [])).markup(),
         "<div class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0\"></div>",
     );
@@ -346,7 +349,7 @@ test "padding named edge by edge composes too" {
         .PaddingEdge(.Start, .Px(3)),
         .PaddingEdge(.End, .Px(4)),
     ];
-    assert.eq(
+    assert.equal(
         render(ctx, ui.stack(edges, [])).markup(),
         "<div class=\"pe-top-1 pe-bottom-2 pe-start-3 pe-end-4\"></div>",
     );
@@ -399,7 +402,7 @@ test "the last value of a property is the one that survives" {
     // Both sides are literals, so this resolved at compile time: the element
     // carries one class rather than two that fight in the cascade.
     let tree = ui.stack([.Background(.Rgb(0, 0, 0)), .Background(.Inherit)], []);
-    assert.eq(render(ctx, tree).markup(), "<div class=\"bg-inherit\"></div>");
+    assert.equal(render(ctx, tree).markup(), "<div class=\"bg-inherit\"></div>");
 }
 
 test "the remaining alignments and weights and cursors each have a name" {
@@ -416,7 +419,7 @@ test "the remaining alignments and weights and cursors each have a name" {
         ui.stack([.Cursor(.Text)], []),
         ui.stack([.Cursor(.NotAllowed)], []),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div><div class=\"am-start ac-end fw-regular\"></div><div class=\"am-stretch ac-around fw-medium\"></div><div class=\"am-evenly fw-bold cur-default\"></div><div class=\"cur-text\"></div><div class=\"cur-notallowed\"></div></div>",
     );
@@ -430,7 +433,7 @@ test "two elements asking for one padding are given one class" {
         ui.stack([.Padding(.Px(11))], []),
         ui.row([.Padding(.Px(11))], []),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div><div class=\"p-11\"></div><div class=\"lay-row p-11\"></div></div>",
     );
@@ -445,7 +448,7 @@ test "a state is a pseudo-class in the stylesheet and costs nothing on the eleme
         [.Background(.Rgb(1, 1, 1)), .On(.Hover, [.Background(.Rgb(2, 2, 2))])],
         [],
     );
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div class=\"bg-010101 hover_bg-020202\"></div>",
     );
@@ -466,7 +469,7 @@ test "a breakpoint is a media query, mobile first" {
         [.At(.Medium, [.Padding(.Px(24))]), .At(.Large, [.Padding(.Px(32))])],
         [],
     );
-    assert.eq(render(ctx, tree).markup(), "<div class=\"md_p-24 lg_p-32\"></div>");
+    assert.equal(render(ctx, tree).markup(), "<div class=\"md_p-24 lg_p-32\"></div>");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".md_p-24{padding:24px}"));
     assert.isTrue(sheet.contains(".lg_p-32{padding:32px}"));
@@ -482,7 +485,7 @@ test "a state inside a breakpoint is both at once" {
         Ui: headless(),
     };
     let tree = ui.stack([.At(.Small, [.On(.Focus, [.Radius(.Px(3))])])], []);
-    assert.eq(render(ctx, tree).markup(), "<div class=\"sm_focus_r-3\"></div>");
+    assert.equal(render(ctx, tree).markup(), "<div class=\"sm_focus_r-3\"></div>");
     assert.isTrue(
         stylesheet().contains(".sm_focus_r-3:focus-visible{border-radius:3px}"),
     );
@@ -502,9 +505,9 @@ test "a `When` puts both branches in the stylesheet and swaps between them" {
         [],
     );
     let view = render(ctx, tree);
-    assert.eq(view.markup(), "<div class=\"bg-0000ff\"></div>");
+    assert.equal(view.markup(), "<div class=\"bg-0000ff\"></div>");
     lit.set(ctx, true);
-    assert.eq(view.markup(), "<div class=\"bg-ff0000\"></div>");
+    assert.equal(view.markup(), "<div class=\"bg-ff0000\"></div>");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bg-ff0000{background-color:rgb(255,0,0)}"));
     assert.isTrue(sheet.contains(".bg-0000ff{background-color:rgb(0,0,255)}"));
@@ -517,9 +520,9 @@ test "a `Computed` style is inline, re-serialises, and is never in the styleshee
     let width = signal(ctx, 137);
     let tree = ui.stack([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []);
     let view = render(ctx, tree);
-    assert.eq(view.markup(), "<div style=\"width: 137px\"></div>");
+    assert.equal(view.markup(), "<div style=\"width: 137px\"></div>");
     width.set(ctx, 241);
-    assert.eq(view.markup(), "<div style=\"width: 241px\"></div>");
+    assert.equal(view.markup(), "<div style=\"width: 241px\"></div>");
     let sheet = stylesheet();
     assert.isFalse(sheet.contains("137px"));
     assert.isFalse(sheet.contains("241px"));
@@ -534,7 +537,7 @@ test "a style the compiler cannot evaluate becomes an inline style" {
     // the style degrades to the tier `Computed` lives in rather than failing.
     let share = signal(ctx, 7);
     let tree = ui.stack([.Grow(share.get(ctx))], []);
-    assert.eq(render(ctx, tree).markup(), "<div style=\"flex-grow: 7\"></div>");
+    assert.equal(render(ctx, tree).markup(), "<div style=\"flex-grow: 7\"></div>");
     assert.isFalse(stylesheet().contains("grow-7"));
 }
 
@@ -546,7 +549,7 @@ test "a style that arrives as a parameter resolves last-wins over emitted classe
         boxed([], "plain"),
         boxed([.Background(.Rgb(9, 9, 9))], "loud"),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div><div class=\"p-8 bg-000000\">plain</div><div class=\"p-8 bg-090909\">loud</div></div>",
     );
@@ -568,19 +571,19 @@ test "a static style registers nothing and a computed one re-runs once per chang
             ),
         ]),
     );
-    assert.eq(
+    assert.equal(
         view.markup(),
         "<div><div class=\"p-13\"></div><div style=\"width: 21px\"></div></div>",
     );
     // The static one never ran a computation, so nothing it could have noted
     // is here; the computed one ran once.
-    assert.eq(log.noted(), [21]);
+    assert.equal(log.noted(), [21]);
     width.set(ctx, 22);
-    assert.eq(
+    assert.equal(
         view.markup(),
         "<div><div class=\"p-13\"></div><div style=\"width: 22px\"></div></div>",
     );
-    assert.eq(log.noted(), [21, 22]);
+    assert.equal(log.noted(), [21, 22]);
 }
 
 // --- widgets -------------------------------------------------------------------------
@@ -595,10 +598,10 @@ test "a button carries its label, and a press runs its handler" {
         count.update(c, fn(n) => n + 1)
     });
     let page = render(ctx, tree);
-    assert.eq(page.markup(), "<button type=\"button\">add</button>");
+    assert.equal(page.markup(), "<button type=\"button\">add</button>");
     let _ = page.press("add");
     let _ = page.press("add");
-    assert.eq(count.get(ctx), 2);
+    assert.equal(count.get(ctx), 2);
 }
 
 test "a handler is handed the context the tree was rendered with" {
@@ -615,7 +618,7 @@ test "a handler is handed the context the tree was rendered with" {
         ui.button(.Const("go"), [], fn(c, e) => seen.set(c, "pressed")),
     );
     let _ = page.press("go");
-    assert.eq(seen.get(ctx), "pressed");
+    assert.equal(seen.get(ctx), "pressed");
 }
 
 test "a link says where it goes" {
@@ -623,7 +626,7 @@ test "a link says where it goes" {
         Ui: headless(),
     };
     let tree = ui.link(.Const("/prices"), [], [ui.text(.Const("prices"))]);
-    assert.eq(render(ctx, tree).markup(), "<a href=\"/prices\">prices</a>");
+    assert.equal(render(ctx, tree).markup(), "<a href=\"/prices\">prices</a>");
 }
 
 test "an attribute follows a prop that varies" {
@@ -632,9 +635,9 @@ test "an attribute follows a prop that varies" {
     };
     let dest = signal(ctx, "/one");
     let page = render(ctx, ui.link(.Cell(dest), [], [ui.text(.Const("there"))]));
-    assert.eq(page.markup(), "<a href=\"/one\">there</a>");
+    assert.equal(page.markup(), "<a href=\"/one\">there</a>");
     let _ = dest.set(ctx, "/two");
-    assert.eq(page.markup(), "<a href=\"/two\">there</a>");
+    assert.equal(page.markup(), "<a href=\"/two\">there</a>");
 }
 
 test "an image says what it shows" {
@@ -647,7 +650,7 @@ test "an image says what it shows" {
     ]);
     // The empty string is how a decorative image says it is decorative,
     // which a reader has to be told and cannot guess.
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div><img src=\"/cat.png\" alt=\"a cat, asleep\" /><img src=\"/rule.png\" alt=\"\" /></div>",
     );
@@ -660,12 +663,12 @@ test "a field is labelled, and what is typed into it is in its signal" {
     };
     let name = signal(ctx, "ada");
     let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
-    assert.eq(
+    assert.equal(
         page.markup(),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     let _ = page.fill("name", "grace");
-    assert.eq(name.get(ctx), "grace");
+    assert.equal(name.get(ctx), "grace");
 }
 
 test "a field follows its signal when something else writes it" {
@@ -675,7 +678,7 @@ test "a field follows its signal when something else writes it" {
     let name = signal(ctx, "ada");
     let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
     let _ = name.set(ctx, "grace");
-    assert.eq(
+    assert.equal(
         page.markup(),
         "<label><span>name</span><input type=\"text\" value=\"grace\" /></label>",
     );
@@ -693,7 +696,7 @@ test "a field kind is what the field accepts" {
         ui.field(.Const("how many"), .Number, [], value),
         ui.field(.Const("query"), .Search, [], value),
     ]);
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div><label><span>story</span><textarea></textarea></label><label><span>secret</span><input type=\"password\" /></label><label><span>address</span><input type=\"email\" /></label><label><span>how many</span><input type=\"number\" /></label><label><span>query</span><input type=\"search\" /></label></div>",
     );
@@ -706,13 +709,13 @@ test "a toggle is two states and a label" {
     };
     let done = signal(ctx, false);
     let page = render(ctx, ui.toggle(.Const("done"), [], done));
-    assert.eq(
+    assert.equal(
         page.markup(),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
     );
     let _ = page.flip("done");
     assert.isTrue(done.get(ctx));
-    assert.eq(
+    assert.equal(
         page.markup(),
         "<label><input type=\"checkbox\" checked /><span>done</span></label>",
     );
@@ -740,7 +743,7 @@ test "a control takes styles of its own, and they land on the control" {
     // The classes are on the button, the anchor and the two inputs, never on a
     // wrapper. That is what makes a state work: a wrapper is not the thing that
     // is hovered, focused or disabled.
-    assert.eq(
+    assert.equal(
         render(ctx, tree).markup(),
         "<div><button type=\"button\" class=\"p-12 hover_op-0_9\">go</button><a href=\"/prices\" class=\"fg-090909\"></a><label><span>name</span><input type=\"text\" class=\"r-4\" value=\"ada\" /></label><label><input type=\"checkbox\" class=\"w-20\" /><span>done</span></label></div>",
     );
@@ -792,7 +795,10 @@ test "a list has no marker until one is asked for" {
             ui.link(.Const("/a"), [], [ui.text(.Const("Alpha"))]),
         ]),
     ]);
-    assert.eq(render(ctx, rail).markup(), "<ul><li><a href=\"/a\">Alpha</a></li></ul>");
+    assert.equal(
+        render(ctx, rail).markup(),
+        "<ul><li><a href=\"/a\">Alpha</a></li></ul>",
+    );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(":where(ul,ol){margin:0;padding:0;list-style:none}"));
 
@@ -803,7 +809,7 @@ test "a list has no marker until one is asked for" {
         [.PaddingEdge(.Start, .Px(24)), .ListMarker(.Decimal)],
         [ui.region(.ListItem, [], [ui.text(.Const("first"))])],
     );
-    assert.eq(
+    assert.equal(
         render(ctx, numbered).markup(),
         "<ul class=\"pe-start-24 lm-decimal\"><li>first</li></ul>",
     );
@@ -828,7 +834,7 @@ test "a form is submitted, which is behaviour and so not a role" {
     );
     let _ = page.fill("what", "milk");
     let _ = page.submit(0);
-    assert.eq(added.get(ctx), "milk");
+    assert.equal(added.get(ctx), "milk");
 }
 
 // --- reactivity in the tree ----------------------------------------------------------
@@ -839,9 +845,9 @@ test "text follows the cell it was given" {
     };
     let label = signal(ctx, "before");
     let page = render(ctx, ui.text(.Cell(label)));
-    assert.eq(page.text(), "before");
+    assert.equal(page.text(), "before");
     let _ = label.set(ctx, "after");
-    assert.eq(page.text(), "after");
+    assert.equal(page.text(), "after");
 }
 
 test "a constant leaf registers nothing and never changes" {
@@ -851,7 +857,7 @@ test "a constant leaf registers nothing and never changes" {
     let unrelated = signal(ctx, 0);
     let page = render(ctx, ui.text(.Const("fixed")));
     let _ = unrelated.set(ctx, 1);
-    assert.eq(page.text(), "fixed");
+    assert.equal(page.text(), "fixed");
 }
 
 test "choose shows one subtree or the other" {
@@ -867,11 +873,11 @@ test "choose shows one subtree or the other" {
             ui.text(.Const("sign in")),
         ),
     );
-    assert.eq(page.text(), "sign in");
+    assert.equal(page.text(), "sign in");
     let _ = signedIn.set(ctx, true);
-    assert.eq(page.text(), "welcome");
+    assert.equal(page.text(), "welcome");
     let _ = signedIn.set(ctx, false);
-    assert.eq(page.text(), "sign in");
+    assert.equal(page.text(), "sign in");
 }
 
 test "the subtree choose removed is disposed with it" {
@@ -889,16 +895,16 @@ test "the subtree choose removed is disposed with it" {
             ui.nothing(),
         ),
     );
-    assert.eq(log.noted(), [1]);
+    assert.equal(log.noted(), [1]);
     let _ = n.set(ctx, 2);
-    assert.eq(log.noted(), [1, 2]);
+    assert.equal(log.noted(), [1, 2]);
 
     // The subtree is gone, so what it created is gone: writing what it read is
     // no longer a reason for anything to run.
     let _ = showing.set(ctx, false);
     let _ = n.set(ctx, 3);
-    assert.eq(log.noted(), [1, 2]);
-    assert.eq(page.text(), "");
+    assert.equal(log.noted(), [1, 2]);
+    assert.equal(page.text(), "");
 }
 
 test "computed rebuilds its subtree from whatever it read" {
@@ -912,11 +918,11 @@ test "computed rebuilds its subtree from whatever it read" {
             ui.heading(if (count.get(c) > 1) { 2 } else { 1 }, [], .Const("head"))
         }),
     );
-    assert.eq(page.count("h1"), 1);
-    assert.eq(page.count("h2"), 0);
+    assert.equal(page.count("h1"), 1);
+    assert.equal(page.count("h2"), 0);
     let _ = count.set(ctx, 5);
-    assert.eq(page.count("h1"), 0);
-    assert.eq(page.count("h2"), 1);
+    assert.equal(page.count("h1"), 0);
+    assert.equal(page.count("h2"), 1);
 }
 
 test "a computed subtree is rebuilt, and a leaf prop is not" {
@@ -930,14 +936,14 @@ test "a computed subtree is rebuilt, and a leaf prop is not" {
     let coarse = render(ctx, ui.computed(fn(c) => headingFor(n.get(c))));
     let first = coarse.identity("h1", 0);
     let _ = n.set(ctx, 1);
-    assert.notEq(coarse.identity("h1", 0), first);
+    assert.notEqual(coarse.identity("h1", 0), first);
 
     // The fine one: the same element, with one run of text changed.
     let fine = render(ctx, ui.heading(1, [], .Computed(fn(c) => "${n.get(c)}")));
     let kept = fine.identity("h1", 0);
     let _ = n.set(ctx, 2);
-    assert.eq(fine.identity("h1", 0), kept);
-    assert.eq(fine.text(), "2");
+    assert.equal(fine.identity("h1", 0), kept);
+    assert.equal(fine.text(), "2");
 }
 
 // --- keyed lists ---------------------------------------------------------------------
@@ -951,8 +957,8 @@ test "each renders one row per item" {
         ctx,
         ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
     );
-    assert.eq(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
-    assert.eq(page.count("li"), 3);
+    assert.equal(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
+    assert.equal(page.count("li"), 3);
 }
 
 test "an empty list renders no rows" {
@@ -964,9 +970,9 @@ test "an empty list renders no rows" {
         ctx,
         ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
     );
-    assert.eq(page.count("li"), 0);
+    assert.equal(page.count("li"), 0);
     let _ = items.set(ctx, ["only"]);
-    assert.eq(page.markup(), "<ul><li>only</li></ul>");
+    assert.equal(page.markup(), "<ul><li>only</li></ul>");
 }
 
 test "inserting a row keeps the rows that were already there" {
@@ -982,10 +988,10 @@ test "inserting a row keeps the rows that were already there" {
     let c = page.identity("li", 1);
 
     let _ = items.set(ctx, ["a", "b", "c"]);
-    assert.eq(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
-    assert.eq(page.identity("li", 0), a);
-    assert.notEq(page.identity("li", 1), a);
-    assert.eq(page.identity("li", 2), c);
+    assert.equal(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
+    assert.equal(page.identity("li", 0), a);
+    assert.notEqual(page.identity("li", 1), a);
+    assert.equal(page.identity("li", 2), c);
 }
 
 test "removing a row keeps the others" {
@@ -1001,9 +1007,9 @@ test "removing a row keeps the others" {
     let c = page.identity("li", 2);
 
     let _ = items.set(ctx, ["a", "c"]);
-    assert.eq(page.markup(), "<ul><li>a</li><li>c</li></ul>");
-    assert.eq(page.identity("li", 0), a);
-    assert.eq(page.identity("li", 1), c);
+    assert.equal(page.markup(), "<ul><li>a</li><li>c</li></ul>");
+    assert.equal(page.identity("li", 0), a);
+    assert.equal(page.identity("li", 1), c);
 }
 
 test "reordering moves the rows rather than rebuilding them" {
@@ -1020,13 +1026,13 @@ test "reordering moves the rows rather than rebuilding them" {
     let c = page.identity("li", 2);
 
     let _ = items.set(ctx, ["c", "a", "b"]);
-    assert.eq(page.markup(), "<ul><li>c</li><li>a</li><li>b</li></ul>");
+    assert.equal(page.markup(), "<ul><li>c</li><li>a</li><li>b</li></ul>");
     // Keyed: the same three elements, in the new order. This is the assertion
     // the whole `key` parameter exists for — with rows keyed by position, all
     // three would have been rebuilt and every one of these would fail.
-    assert.eq(page.identity("li", 0), c);
-    assert.eq(page.identity("li", 1), a);
-    assert.eq(page.identity("li", 2), b);
+    assert.equal(page.identity("li", 0), c);
+    assert.equal(page.identity("li", 1), a);
+    assert.equal(page.identity("li", 2), b);
 }
 
 test "a row that leaves takes what it created with it" {
@@ -1046,18 +1052,18 @@ test "a row that leaves takes what it created with it" {
             }),
         ]),
     );
-    assert.eq(log.noted(), [1, 1]);
+    assert.equal(log.noted(), [1, 1]);
 
     // Both rows read `n`, so both re-run.
     let _ = n.set(ctx, 2);
-    assert.eq(log.noted(), [1, 1, 2, 2]);
+    assert.equal(log.noted(), [1, 1, 2, 2]);
 
     // One row leaves. What it created is disposed with it, so the next write
     // runs one computation rather than two.
     let _ = items.set(ctx, ["kept"]);
     let _ = n.set(ctx, 3);
-    assert.eq(log.noted(), [1, 1, 2, 2, 3]);
-    assert.eq(page.text(), "kept 3");
+    assert.equal(log.noted(), [1, 1, 2, 2, 3]);
+    assert.equal(page.text(), "kept 3");
 }
 
 test "a row keeps its own reactive leaf across a reorder" {
@@ -1076,10 +1082,10 @@ test "a row keeps its own reactive leaf across a reorder" {
             }),
         ]),
     );
-    assert.eq(page.markup(), "<ul><li>a!</li><li>b!</li></ul>");
+    assert.equal(page.markup(), "<ul><li>a!</li><li>b!</li></ul>");
     let _ = items.set(ctx, ["b", "a"]);
     let _ = suffix.set(ctx, "?");
-    assert.eq(page.markup(), "<ul><li>b?</li><li>a?</li></ul>");
+    assert.equal(page.markup(), "<ul><li>b?</li><li>a?</li></ul>");
 }
 
 test "a list nested in a list reconciles on its own" {
@@ -1099,10 +1105,10 @@ test "a list nested in a list reconciles on its own" {
             }),
         ]),
     );
-    assert.eq(page.count("li"), 4);
+    assert.equal(page.count("li"), 4);
     let _ = inner.set(ctx, ["x", "y"]);
-    assert.eq(page.count("li"), 6);
-    assert.eq(page.text(), "a x y b x y");
+    assert.equal(page.count("li"), 6);
+    assert.equal(page.text(), "a x y b x y");
 }
 
 // --- batching ------------------------------------------------------------------------
@@ -1115,7 +1121,7 @@ test "one press is one update, however many signals it writes" {
     let first = signal(ctx, 0);
     let second = signal(ctx, 0);
     let _ = watch(ctx, fn(s) => ignore(log.note(first.get(s) + second.get(s))));
-    assert.eq(log.noted(), [0]);
+    assert.equal(log.noted(), [0]);
 
     let page = render(
         ctx,
@@ -1125,7 +1131,7 @@ test "one press is one update, however many signals it writes" {
 
     // Two writes, one pass over the watchers: the handler ran inside one
     // transaction. Two passes would have noted 1 and then 3.
-    assert.eq(log.noted(), [0, 3]);
+    assert.equal(log.noted(), [0, 3]);
 }
 
 fn writeBoth<C: Ui>(ctx: C, first: Signal<Int>, second: Signal<Int>): () {
@@ -1170,12 +1176,12 @@ test "the counter counts, and both badges follow" {
         Ui: headless(),
     };
     let page = render(ctx, counter(ctx, "clicks"));
-    assert.eq(page.text(), "clicks clicks 0 doubled 0");
+    assert.equal(page.text(), "clicks clicks 0 doubled 0");
     let _ = page.press("clicks");
-    assert.eq(page.text(), "clicks clicks 1 doubled 2");
+    assert.equal(page.text(), "clicks clicks 1 doubled 2");
     let _ = page.press("clicks");
     let _ = page.press("clicks");
-    assert.eq(page.text(), "clicks clicks 3 doubled 6");
+    assert.equal(page.text(), "clicks clicks 3 doubled 6");
 }
 
 test "the counter mounts" {
@@ -1185,5 +1191,5 @@ test "the counter mounts" {
     // Nothing can build a `Theme` yet, so the empty list is the only list there
     // is — which is what an app with no design tokens passes in any case.
     let themes: [Theme] = [];
-    assert.eq(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
+    assert.equal(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
 }

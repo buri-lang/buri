@@ -5,6 +5,6 @@ export fn firstOr<T>(xs: [T], fallback: T): T {
     fallback
 }
 
-export fn twice<T: Eq + Show>(x: T): (T, T) {
+export fn twice<T: Equal + Show>(x: T): (T, T) {
     (x, x)
 }

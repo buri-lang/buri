@@ -2,7 +2,7 @@
 // in it, so a badge that paints differently in each of the five states is five
 // goldens that have to differ from one another.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui };
@@ -40,7 +40,7 @@ fn badge<C>(): Node<C> {
 
 test "hovered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-hover", badge(), .Hover);
@@ -48,7 +48,7 @@ test "hovered" {
 
 test "focused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-focus", badge(), .Focus);
@@ -56,7 +56,7 @@ test "focused" {
 
 test "pressed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-active", badge(), .Active);
@@ -64,7 +64,7 @@ test "pressed" {
 
 test "refusing input" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-disabled", badge(), .Disabled);
@@ -72,7 +72,7 @@ test "refusing input" {
 
 test "on" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "state-checked", badge(), .Checked);
@@ -80,13 +80,13 @@ test "on" {
 
 test "the state a snapshot is taken in reaches the document" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     // Five pictures of one tree are five pictures because the documents behind
     // them are five documents. A tree whose only difference is an `On(...)`
     // group used to resolve to one, and every state golden was a copy.
-    assert.notEq(
+    assert.notEqual(
         ui.describe(ctx, badge(), .Hover),
         ui.describe(ctx, badge(), .Checked),
     );

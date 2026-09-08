@@ -1,0 +1,37 @@
+// core/simd — `F32x4.toInt`, and nothing else.
+//
+// A file of its own because of which backends run it. `toInt` truncates a
+// `Float` into an `Int`, and a conversion whose *source* is a float is the gap
+// that holds `numbers/conversions.buri` out of the native set
+// (`cli/tests/native/conformance.rs`). Everything else in `core/simd` needs no
+// such conversion, so `simd.buri` next door stays in.
+//
+// What is asserted is that the conversion is **total**: `toI64` answers a
+// `Result` because `NaN` and the infinities are outside every range, and a lane
+// has nowhere to put an error — so this saturates instead, which is the rule a
+// vector unit's own conversion has.
+
+from "core/number" import * as number;
+from "core/simd" import * as simd;
+from "core/testing/assert" import * as assert;
+
+test "toInt truncates each lane toward zero" {
+    assert.equal(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
+    assert.equal(simd.f32x4(-0.5 0.5, -2.5, 2.5).toInt(), simd.i32x4(0, 0, -2, 2));
+    assert.equal(simd.ZERO_FLOAT.toInt(), simd.ZERO_INT);
+}
+
+test "toInt is total, where a plain conversion is not" {
+    let nan = 0.0 / 0.0;
+    let far = simd.f32x4(nan, 1.0e300, -1.0e300, 3.0);
+    let got = far.toInt();
+    assert.equal(got.lane(0), 0);
+    assert.equal(got.lane(1), number.maxValue<I64>());
+    assert.equal(got.lane(2), number.minValue<I64>());
+    assert.equal(got.lane(3), 3);
+}
+
+test "toFloat and toInt round-trip a whole number" {
+    let v = simd.i32x4(1, -2, 300, 0);
+    assert.equal(v.toFloat().toInt(), v);
+}

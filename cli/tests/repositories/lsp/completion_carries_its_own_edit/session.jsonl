@@ -1,7 +1,7 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"completion": {"completionItem": {"resolveSupport": {"properties": ["documentation"]}}}}}}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "derive Equal, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n"}}}
 # Mid-path. The `textEdit` range starts where the path does and not where the
 # client's idea of a word does — `core/o` is one thing being typed, and a
 # client left to guess replaces `o`.
@@ -22,7 +22,7 @@
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"core/order\" import { Or"}]}}
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 29}}}
 # A trait's `///` lines, resolved.
-{"jsonrpc": "2.0", "id": 6, "method": "completionItem/resolve", "params": {"label": "Ord", "kind": 8, "sortText": "0Ord", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order", "name": "Ord"}}}
+{"jsonrpc": "2.0", "id": 6, "method": "completionItem/resolve", "params": {"label": "Ordered", "kind": 8, "sortText": "0Ord", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order", "name": "Ordered"}}}
 # A name that has none resolves to itself. An item with nothing to add is
 # still an item, and `null` is not a legal answer to this request.
 {"jsonrpc": "2.0", "id": 7, "method": "completionItem/resolve", "params": {"label": "Order", "kind": 13, "sortText": "0Order", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order", "name": "Order"}}}

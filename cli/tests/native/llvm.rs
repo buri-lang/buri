@@ -379,7 +379,7 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
 /// prints needs, and nothing else — so the context is a record of two empty
 /// implementations and is therefore zero-sized (VALUE-MODEL.md §8).
 const PRELUDE: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 "#;
@@ -530,7 +530,7 @@ fn the_carrier_door_is_a_ccc_wrapper_over_a_fastcc_body() {
     let source = program(
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hi").ignore();
   .Ok(())
 }
@@ -572,7 +572,7 @@ fn hello_world_compiles_links_and_runs() {
         &program(
             r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hello, world").ignore();
   .Ok(())
 }
@@ -604,7 +604,7 @@ fn hello_world_references_the_runtime_archive() {
     let lowered = lower(&program(
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hello, world").ignore();
   .Ok(())
 }
@@ -636,7 +636,7 @@ fn quotient(a: Int, b: Int): Int { a / b }
 fn remainder(a: Int, b: Int): Int { a % b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = sum(40, 2);
   let _ = if (n == 42) { io.println(ctx, "sum ok").ignore() } else { io.println(ctx, "sum bad").ignore() };
   let _ = if (quotient(n, 5) == 8) { io.println(ctx, "div ok").ignore() } else { io.println(ctx, "div bad").ignore() };
@@ -663,7 +663,7 @@ fn division_by_zero_aborts_with_the_runtimes_message() {
 fn quotient(a: Int, b: Int): Int { a / b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "before").ignore();
   let _ = if (quotient(1, 0) == 0) { io.println(ctx, "no").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
@@ -695,7 +695,7 @@ fn shifted(p: Point, d: Int): Point { Point { x: p.x + d, y: p.y + d } }
 fn magnitude(p: Point): Int { p.x * p.x + p.y * p.y }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = shifted(Point { x: 1, y: 2 }, 3);
   let _ = if (p.x == 4) { io.println(ctx, "x ok").ignore() } else { io.println(ctx, "x bad").ignore() };
   let _ = if (magnitude(p) == 41) { io.println(ctx, "mag ok").ignore() } else { io.println(ctx, "mag bad").ignore() };
@@ -730,7 +730,7 @@ fn area(s: Shape): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let total = area(Shape.Circle(2)) + area(Shape.Rect(3, 4)) + area(Shape.Empty);
   let _ = if (total == 24) { io.println(ctx, "area ok").ignore() } else { io.println(ctx, "area bad").ignore() };
   let _ = match (Shape.Rect(2, 5)) {
@@ -760,7 +760,7 @@ fn the_option_niche_runs() {
 fn pick(yes: Bool): Option<Str> { if (yes) { .Some("some") } else { .None } }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = match (pick(true)) { .Some(s) => io.println(ctx, s).ignore(), .None => io.println(ctx, "none").ignore() };
   let _ = match (pick(false)) { .Some(s) => io.println(ctx, s).ignore(), .None => io.println(ctx, "none").ignore() };
   .Ok(())
@@ -789,7 +789,7 @@ fn total(n: Int, acc: Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (total(10000, 0) == 50005000) { io.println(ctx, "loop ok").ignore() } else { io.println(ctx, "loop bad").ignore() };
   .Ok(())
 }
@@ -829,8 +829,8 @@ fn a_pure_non_tail_recursion_returns_at_both_profiles() {
 fn depth(i: Int): Int { if (i <= 0) { 0 } else { 1 + depth(i - 1) } }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let n = "ab".repeat(ctx, 5000).len();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let n = "ab".repeat(ctx, 5000).length();
   let _ = io.println(ctx, "depth ${depth(n)}").ignore();
   .Ok(())
 }
@@ -859,7 +859,7 @@ fn narrow(a: I32, b: I32): I32 { a * b }
 fn tiny(a: U8, b: U8): U8 { a + b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let big: I128 = 1000000000000000000;
   let _ = if (wide(big, 1000) == 1000000000000000) { io.println(ctx, "i128 ok").ignore() } else { io.println(ctx, "i128 bad").ignore() };
   let _ = if (narrow(1000, 1000) == 1000000) { io.println(ctx, "i32 ok").ignore() } else { io.println(ctx, "i32 bad").ignore() };
@@ -887,13 +887,13 @@ fn scale32(x: F32, by: F32): F32 { x * by }
 fn scale64(x: Float, by: Float): Float { x * by }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a: F32 = 0.5;
   let b: F32 = 4.0;
   let _ = if (scale32(a, b) == 2.0) { io.println(ctx, "f32 ok").ignore() } else { io.println(ctx, "f32 bad").ignore() };
   let _ = if (scale64(0.25, 8.0) == 2.0) { io.println(ctx, "f64 ok").ignore() } else { io.println(ctx, "f64 bad").ignore() };
   // `+` on floats is an `ir::BinOp` like any other; `/` and `<` on a `Float`
-  // are `num.F64.div` and `num.F64.compare`, which are stdlib intrinsics the
+  // are `number.F64.divide` and `number.F64.compare`, which are stdlib intrinsics the
   // native runtime has no body for yet and which `missing_intrinsics` reports.
   let _ = if (scale64(1.5, 2.0) + 1.0 == 4.0) { io.println(ctx, "add ok").ignore() } else { io.println(ctx, "add bad").ignore() };
   .Ok(())
@@ -916,7 +916,7 @@ fn an_err_result_exits_one_and_prints_to_stderr() {
         &program(
             r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "working").ignore();
   .Err("it went wrong")
 }
@@ -954,7 +954,7 @@ fn label(t: Token): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = step(State { seen: 0, total: 0 }, Token.Number(10));
   let b = step(a, Token.Word("hello"));
   let c = step(b, Token.Number(32));
@@ -1044,7 +1044,7 @@ fn the_attribute_discipline_reaches_the_optimized_ir() {
 fn magnitude(x: Int, y: Int): Int { x * x + y * y }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (magnitude(3, 4) == 25) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
 }
@@ -1107,7 +1107,7 @@ fn the_marking_statement_is_emitted_only_for_a_program_with_tasks() {
     let plain = optimized_ir(&program(
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "no tasks here").ignore();
   .Ok(())
 }
@@ -1123,16 +1123,16 @@ export fn main(): Result<(), Str> {
     let tasks = optimized_ir(&format!(
         "{}\n{}",
         r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 "#,
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
-  let _ = io.println(ctx, "${doubled.len()}").ignore();
+  let _ = io.println(ctx, "${doubled.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -1179,7 +1179,7 @@ fn steps(n: Int, so_far: Int): Int {
 fn risky(x: Int, y: Int): Int { if (x == 0) { 0 } else { x / y + risky(x - 1, y) } }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = steps(27, 0);
   let b = risky(3, 2);
   let _ = if (a + b >= 0) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
@@ -1266,7 +1266,7 @@ fn total(n: Int, acc: Int): Int { if (n <= 0) { acc } else { total(n - 1, acc + 
 fn viaDown(i: Int): Int { down(i) + down(i + 1) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${viaLeaf(3)} ${viaLeaf(4)} ${classify(3)} ${classify(30)}").ignore();
   let _ = io.println(ctx, "${down(3)} ${pingA(3)} ${total(3, 0)} ${viaDown(2)} ${viaDown(3)}").ignore();
   .Ok(())
@@ -1340,7 +1340,7 @@ fn arithmetic(a: Int, b: Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (arithmetic(3, 2) == 2) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
 }
@@ -1371,7 +1371,7 @@ fn firstOrElse(s: Option<Str>, fallback: Str): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, firstOrElse(.Some("yes"), "no")).ignore();
   let _ = io.println(ctx, firstOrElse(.None, "fallback")).ignore();
   .Ok(())
@@ -1479,7 +1479,7 @@ fn twice(s: Str, n: Int): (Str, Str) {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let both = twice("ab".repeat(ctx, 2), 3);
   let _ = io.println(ctx, "${both.0}/${both.1}").ignore();
   .Ok(())
@@ -1564,7 +1564,7 @@ fn steps(n: Int, so_far: Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let both = twice("ab".repeat(ctx, 2), 3);
   let _ = io.println(ctx, "${both.0}/${both.1} ${steps(27, 0)}").ignore();
   .Ok(())
@@ -1612,7 +1612,7 @@ fn the_two_pipelines_agree_about_a_shared_heap_strings_count() {
 fn keep(s: Str, n: Int): Str { if (n <= 0) { s } else { keep(s, n - 1) } }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let owned = "ab".repeat(ctx, 3);
   let echoed = keep(owned, 4);
   let again = keep(owned, 2);
@@ -1685,7 +1685,7 @@ fn noteText(j: Json): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let encoded = Note { text: "ab".repeat(ctx, 3) }.toJson(ctx);
   let _ = io.println(ctx, noteText(encoded)).ignore();
   .Ok(())
@@ -1726,7 +1726,7 @@ fn a_reference_operation_forks_on_the_multi_threaded_bit() {
 fn keep(s: Str, n: Int): Str { if (n <= 0) { s } else { keep(s, n - 1) } }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let owned = "ab".repeat(ctx, 3);
   let echoed = keep(owned, 4);
   let _ = io.println(ctx, "${owned}|${echoed}").ignore();
@@ -1793,7 +1793,7 @@ fn walk(n: Int, at: Point): Point {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let end = walk(100, Point { x: 0, y: 0 });
   let _ = if (end.x == 100) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
@@ -1829,7 +1829,7 @@ fn the_module_carries_the_target() {
     let ir = optimized_ir(&program(
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "x").ignore();
   .Ok(())
 }
@@ -1860,7 +1860,7 @@ fn an_unimplemented_intrinsic_is_reported_before_llvm_runs() {
     let source = program(
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = 7;
   let _ = io.println(ctx, "n is ${n}").ignore();
   .Ok(())
@@ -1916,14 +1916,14 @@ from "core/math" import * as math;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let sorted = list.range(ctx, 0, 3).sortBy(ctx, fn(a, b) => a.compare(b));
   let paired = sorted.zip(ctx, list.range(ctx, 0, 3));
   let nested = [paired.mapCtx(ctx, fn(c, p) => p.0)].flatten(ctx);
   let digits = "a1".chars(ctx).count(fn(c) => c.isDigit());
   let raw = bytes.toUtf8(ctx, "hi");
   let wave = math.sin(1.0);
-  let _ = io.println(ctx, "${nested.len()}${digits}${raw.len()}${wave}").ignore();
+  let _ = io.println(ctx, "${nested.length()}${digits}${raw.length()}${wave}").ignore();
   .Ok(())
 }
 "#,
@@ -2010,7 +2010,7 @@ enum Shape { Circle(Int), Square(Int) }
 fn area(s: Shape): Int { match (s) { .Circle(r) => 3 * r * r, .Square(w) => w * w } }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (area(Shape.Circle(2)) == 12) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
 }
@@ -2040,7 +2040,7 @@ fn the_codegen_key_follows_the_ir() {
     let one = program(
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "a").ignore();
   .Ok(())
 }
@@ -2051,7 +2051,7 @@ export fn main(): Result<(), Str> {
         r#"
 // a comment changes no instruction
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "a").ignore();
   .Ok(())
 }
@@ -2060,7 +2060,7 @@ export fn main(): Result<(), Str> {
     let other = program(
         r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "b").ignore();
   .Ok(())
 }
@@ -2097,7 +2097,7 @@ fn a_template_hole_renders_every_primitive() {
         &program(
             r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = 42;
   let neg: I32 = -7;
   let small: U8 = 255;
@@ -2130,7 +2130,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// The `num.<T>.<op>` surface, emitted inline.
+/// The `number.<T>.<op>` surface, emitted inline.
 ///
 /// `abs` at `-0.0` and `signum` at `NaN` are the two that a comparison-shaped
 /// implementation gets wrong, so both are here: `js/intrinsics.rs` uses
@@ -2144,14 +2144,14 @@ fn the_numeric_surface_runs() {
         &program(
             r#"
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = -9;
   let _ = io.println(ctx, "abs ${a.abs()}").ignore();
   let _ = io.println(ctx, "sign ${a.signum()} ${0.signum()} ${9.signum()}").ignore();
-  let _ = io.println(ctx, "min ${num.min(a, 3)} ${num.max(a, 3)}").ignore();
+  let _ = io.println(ctx, "min ${number.min(a, 3)} ${number.max(a, 3)}").ignore();
   let x = -0.0;
   let _ = io.println(ctx, "fabs ${x.abs()}").ignore();
   let big = 3.9;
@@ -2164,7 +2164,7 @@ export fn main(): Result<(), Str> {
   let s: I8 = -1;
   let _ = io.println(ctx, "sext ${s.toI64()}").ignore();
   let _ = io.println(ctx, "show ${(7).show(ctx)} ${(0.5).show(ctx)}").ignore();
-  let _ = io.println(ctx, "eq ${(7).eq(7)} ${'a'.eq('b')} ${true.eq(true)}").ignore();
+  let _ = io.println(ctx, "eq ${(7).equal(7)} ${'a'.equal('b')} ${true.equal(true)}").ignore();
   .Ok(())
 }
 "#,
@@ -2195,7 +2195,7 @@ fn float_to_integer_conversions_saturate() {
 fn narrow(x: Float): I32 { x.wrapToI32() }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hi ${narrow(1.0e30)}").ignore();
   let _ = io.println(ctx, "lo ${narrow(-1.0e30)}").ignore();
   let _ = io.println(ctx, "mid ${narrow(-3.7)}").ignore();
@@ -2208,7 +2208,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// `str.len` is the number of Unicode **scalars** and not of bytes, with the
+/// `str.length` is the number of Unicode **scalars** and not of bytes, with the
 /// ASCII flag deciding whether that costs a mask or a scan.
 ///
 /// Both halves are exercised: an ASCII literal takes the flag's fast path and
@@ -2221,11 +2221,11 @@ fn str_len_counts_scalars_and_takes_both_paths() {
         &program(
             r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "ascii ${"hello".len()}").ignore();
-  let _ = io.println(ctx, "wide ${"héllo".len()}").ignore();
-  let _ = io.println(ctx, "astral ${"a😀b".len()}").ignore();
-  let _ = io.println(ctx, "empty ${"".len()}").ignore();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "ascii ${"hello".length()}").ignore();
+  let _ = io.println(ctx, "wide ${"héllo".length()}").ignore();
+  let _ = io.println(ctx, "astral ${"a😀b".length()}").ignore();
+  let _ = io.println(ctx, "empty ${"".length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2252,13 +2252,13 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let joined = "abc".concat(ctx, "def");
   let _ = io.println(ctx, joined).ignore();
-  let _ = io.println(ctx, "${joined.len()}").ignore();
+  let _ = io.println(ctx, "${joined.length()}").ignore();
   let mixed = "ab".concat(ctx, "😀");
   let _ = io.println(ctx, mixed).ignore();
-  let _ = io.println(ctx, "${mixed.len()}").ignore();
+  let _ = io.println(ctx, "${mixed.length()}").ignore();
   let _ = io.println(ctx, "${"".concat(ctx, "x")}").ignore();
   .Ok(())
 }
@@ -2293,9 +2293,9 @@ export fn build(s: Str, i: Int): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let s = build("", 1000);
-  let _ = io.println(ctx, "${s.len()}").ignore();
+  let _ = io.println(ctx, "${s.length()}").ignore();
   let _ = io.println(ctx, s.slice(0, 4)).ignore();
   .Ok(())
 }
@@ -2327,7 +2327,7 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let base = "ab".concat(ctx, "cd");
   let a = base.concat(ctx, "-one");
   let b = base.concat(ctx, "-two");
@@ -2365,12 +2365,12 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let base = "ab".concat(ctx, "cd");
   let a = base.concat(ctx, "-one");
   let b = base.concat(ctx, "-two");
-  let _ = io.println(ctx, "${base} ${a} ${b} ${base.len()}").ignore();
-  let _ = io.println(ctx, "${b} ${b.len()}").ignore();
+  let _ = io.println(ctx, "${base} ${a} ${b} ${base.length()}").ignore();
+  let _ = io.println(ctx, "${b} ${b.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2394,7 +2394,7 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let whole = "left".concat(ctx, ",right");
   let head = whole.slice(0, 4);
   let tail = whole.slice(5, 10);
@@ -2430,9 +2430,9 @@ export fn build(xs: [Int], i: Int): [Int] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = build([], 2000);
-  let _ = io.println(ctx, "${xs.len()}").ignore();
+  let _ = io.println(ctx, "${xs.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2460,7 +2460,7 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 
 export fn total(xs: [Int], i: Int, acc: Int): Int {
-  if (i == xs.len()) { acc } else {
+  if (i == xs.length()) { acc } else {
     match (xs.get(i)) {
       .Some(v) => total(xs, i + 1, acc + v),
       .None => acc,
@@ -2469,13 +2469,13 @@ export fn total(xs: [Int], i: Int, acc: Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = [1, 2, 3].push(host.alloc, 4);
   let a = xs.push(host.alloc, 100);
   let b = xs.push(host.alloc, 200);
-  let _ = io.println(ctx, "${xs.len()} ${total(xs, 0, 0)}").ignore();
-  let _ = io.println(ctx, "${a.len()} ${total(a, 0, 0)}").ignore();
-  let _ = io.println(ctx, "${b.len()} ${total(b, 0, 0)}").ignore();
+  let _ = io.println(ctx, "${xs.length()} ${total(xs, 0, 0)}").ignore();
+  let _ = io.println(ctx, "${a.length()} ${total(a, 0, 0)}").ignore();
+  let _ = io.println(ctx, "${b.length()} ${total(b, 0, 0)}").ignore();
   .Ok(())
 }
 "#,
@@ -2498,7 +2498,7 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "trim [${"  hi  ".trim()}]").ignore();
   let _ = io.println(ctx, "ends [${"  hi  ".trimStart()}][${"  hi  ".trimEnd()}]").ignore();
   let _ = io.println(ctx, "slice ${"abcdef".slice(1, 4)}").ignore();
@@ -2508,9 +2508,9 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, "starts ${"abc".startsWith("ab")} ${"abc".endsWith("bc")}").ignore();
   let _ = io.println(ctx, "contains ${"abc".contains("b")} ${"abc".contains("z")}").ignore();
   let parts = "a,b,c".split(ctx, ",");
-  let _ = io.println(ctx, "split ${parts.len()} ${parts.join(ctx, "|")}").ignore();
+  let _ = io.println(ctx, "split ${parts.length()} ${parts.join(ctx, "|")}").ignore();
   let ls = "one\ntwo".lines(ctx);
-  let _ = io.println(ctx, "lines ${ls.len()} ${ls.join(ctx, "/")}").ignore();
+  let _ = io.println(ctx, "lines ${ls.length()} ${ls.join(ctx, "/")}").ignore();
   .Ok(())
 }
 "#,
@@ -2543,7 +2543,7 @@ fn an_option_returning_entry_takes_both_arms() {
         &program(
             r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = match ("abc".charAt(1)) { .Some(c) => io.println(ctx, "at ${c}").ignore(), .None => io.println(ctx, "at none").ignore() };
   let _ = match ("abc".charAt(9)) { .Some(c) => io.println(ctx, "at ${c}").ignore(), .None => io.println(ctx, "at none").ignore() };
   let _ = match ("abc".indexOf("c")) { .Some(i) => io.println(ctx, "idx ${i}").ignore(), .None => io.println(ctx, "idx none").ignore() };
@@ -2586,24 +2586,24 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 4);
-  let _ = io.println(ctx, "range ${xs.len()}").ignore();
+  let _ = io.println(ctx, "range ${xs.length()}").ignore();
   let _ = match (xs.get(2)) { .Some(v) => io.println(ctx, "get ${v}").ignore(), .None => io.println(ctx, "get none").ignore() };
   let _ = match (xs.get(9)) { .Some(v) => io.println(ctx, "get ${v}").ignore(), .None => io.println(ctx, "get none").ignore() };
   let more = xs.push(ctx, 9);
   let _ = match (more.get(4)) { .Some(v) => io.println(ctx, "push ${v}").ignore(), .None => io.println(ctx, "push none").ignore() };
   let both = xs.concat(ctx, more);
-  let _ = io.println(ctx, "concat ${both.len()}").ignore();
+  let _ = io.println(ctx, "concat ${both.length()}").ignore();
   let back = xs.reverse(ctx);
   let _ = match (back.get(0)) { .Some(v) => io.println(ctx, "rev ${v}").ignore(), .None => io.println(ctx, "rev none").ignore() };
   let mid = xs.slice(ctx, 1, 3);
-  let _ = io.println(ctx, "slice ${mid.len()}").ignore();
+  let _ = io.println(ctx, "slice ${mid.length()}").ignore();
   let rep = list.repeat(ctx, 7, 3);
-  let _ = io.println(ctx, "repeat ${rep.len()}").ignore();
+  let _ = io.println(ctx, "repeat ${rep.length()}").ignore();
   let _ = match (rep.get(2)) { .Some(v) => io.println(ctx, "rep ${v}").ignore(), .None => io.println(ctx, "rep none").ignore() };
   let none: [Int] = list.empty<Int>();
-  let _ = io.println(ctx, "empty ${none.len()}").ignore();
+  let _ = io.println(ctx, "empty ${none.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2640,13 +2640,13 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let kept = {
     let base = ["alpha".concat(ctx, "!"), "beta".concat(ctx, "!")];
     base.push(ctx, "gamma".concat(ctx, "!")).reverse(ctx)
   };
   let _ = io.println(ctx, kept.join(ctx, ",")).ignore();
-  let _ = io.println(ctx, "${kept.len()}").ignore();
+  let _ = io.println(ctx, "${kept.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2658,7 +2658,7 @@ export fn main(): Result<(), Str> {
 
 /// `==` and `<` at a `Str`, which has no comparison instruction.
 ///
-/// `middle::derives` lowers a derived `Eq` over a type with a `Str` in it to
+/// `middle::derives` lowers a derived `Equal` over a type with a `Str` in it to
 /// an `ir::Inst::Binary` at `Prim::Str` (`derives.rs`'s `fn eq`), so the
 /// integer path would compare two three-word structs and answer with whichever
 /// operand it happened to keep. Both the direct comparison and the derived one
@@ -2674,10 +2674,10 @@ from "core/io" import * as io;
 from "core/order" import { Order };
 
 struct Named { name: Str, rank: Int }
-derive Eq for Named;
+derive Equal for Named;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "eq ${"abc" == "abc"} ${"abc" == "abd"}").ignore();
   // The declared method, which is the `Ret::Int(32)` path: `buri_rt_str_compare`
   // answers an `i32` and `Order` is a bare tag of whatever width the layout
@@ -2719,7 +2719,7 @@ struct Tagged { label: Str, live: Bool, ratio: Float, n: Int, small: U8, c: Char
 derive Show for Tagged;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let t = Tagged { label: "hi", live: true, ratio: 0.5, n: -3, small: 255, c: 'q' };
   let _ = io.println(ctx, t.show(ctx)).ignore();
   .Ok(())
@@ -2749,7 +2749,7 @@ struct Bytes { signed: I8, unsigned: U8 }
 derive Show for Bytes;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, Bytes { signed: -1, unsigned: 255 }.show(ctx)).ignore();
   .Ok(())
 }
@@ -2778,15 +2778,15 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "pad [${"abc".padStart(ctx, 5, '.')}][${"abc".padEnd(ctx, 5, '.')}]").ignore();
   let _ = io.println(ctx, "nopad [${"abc".padStart(ctx, 2, '.')}]").ignore();
   let cs = "abc".chars(ctx);
-  let _ = io.println(ctx, "chars ${cs.len()}").ignore();
+  let _ = io.println(ctx, "chars ${cs.length()}").ignore();
   let _ = io.println(ctx, "from ${str.fromChars(ctx, cs)}").ignore();
   let _ = io.println(ctx, "fromInt ${str.fromInt(ctx, -12)} fromFloat ${str.fromFloat(ctx, 1.25)}").ignore();
   let any = "a1b2c".splitAny(ctx, "12");
-  let _ = io.println(ctx, "splitAny ${any.len()} ${any.join(ctx, "-")}").ignore();
+  let _ = io.println(ctx, "splitAny ${any.length()} ${any.join(ctx, "-")}").ignore();
   let _ = io.println(ctx, "hashEq ${"ab".hash() == "ab".hash()} ${"ab".hash() == "ba".hash()}").ignore();
   .Ok(())
 }
@@ -2802,11 +2802,11 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// `character.show`, `bool.show` and their `eq`/`compare` siblings.
+/// `character.show`, `bool.show` and their `equal`/`compare` siblings.
 ///
 /// `semantics/builtins.rs` declares these on every primitive and
 /// `monomorphize::intrinsic_key` names each after the type's own module, so
-/// they are `character.` and `bool.` keys rather than the three-segment `num.`
+/// they are `character.` and `bool.` keys rather than the three-segment `number.`
 /// ones — one rule, two spellings, and this is the half `numeric_op` does not
 /// cover.
 /// `show` here is `$str` and not `$show`: a `Char` renders as itself, unquoted.
@@ -2821,10 +2821,10 @@ from "core/io" import * as io;
 from "core/order" import { Order };
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "show ${'q'.show(ctx)} ${true.show(ctx)} ${false.show(ctx)}").ignore();
   let _ = io.println(ctx, "show ${"raw".show(ctx)}").ignore();
-  let _ = io.println(ctx, "eq ${'a'.eq('a')} ${'a'.eq('b')} ${true.eq(false)}").ignore();
+  let _ = io.println(ctx, "eq ${'a'.equal('a')} ${'a'.equal('b')} ${true.equal(false)}").ignore();
   let _ = io.println(ctx, "cmp ${'a'.compare('b') == Order.Less} ${'b'.compare('b') == Order.Equal}").ignore();
   // `$hashInto(SEED, x)`, at every shape `cli/runtime/hash.rs` has an arm for.
   // The numbers are the runtime's, so what is asserted is that equal values
@@ -2833,7 +2833,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, "hash ${'a'.hash() == 'a'.hash()} ${'a'.hash() == 'b'.hash()}").ignore();
   let _ = io.println(ctx, "hash ${true.hash() == true.hash()} ${(7).hash() == (7).hash()}").ignore();
   let _ = io.println(ctx, "hash ${(1.5).hash() == (1.5).hash()} ${(1.5).hash() == (2.5).hash()}").ignore();
-  let _ = io.println(ctx, "wrap ${(1).wrappingAdd(2)} ${(3).wrappingMul(4)} ${(9).wrappingSub(1)}").ignore();
+  let _ = io.println(ctx, "wrap ${(1).wrappingAdd(2)} ${(3).wrappingMultiply(4)} ${(9).wrappingSubtract(1)}").ignore();
   .Ok(())
 }
 "#,
@@ -2866,13 +2866,13 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 4);
-  let _ = io.println(ctx, "slice ${xs.slice(ctx, 2, 2).len()}").ignore();
-  let _ = io.println(ctx, "range ${list.range(ctx, 5, 1).len()}").ignore();
-  let _ = io.println(ctx, "repeat ${list.repeat(ctx, 1, 0).len()}").ignore();
-  let _ = io.println(ctx, "reverse ${list.range(ctx, 0, 0).reverse(ctx).len()}").ignore();
-  let _ = io.println(ctx, "chars ${"".chars(ctx).len()}").ignore();
+  let _ = io.println(ctx, "slice ${xs.slice(ctx, 2, 2).length()}").ignore();
+  let _ = io.println(ctx, "range ${list.range(ctx, 5, 1).length()}").ignore();
+  let _ = io.println(ctx, "repeat ${list.repeat(ctx, 1, 0).length()}").ignore();
+  let _ = io.println(ctx, "reverse ${list.range(ctx, 0, 0).reverse(ctx).length()}").ignore();
+  let _ = io.println(ctx, "chars ${"".chars(ctx).length()}").ignore();
   let _ = io.println(ctx, "trim [${"   ".trim()}]").ignore();
   let _ = io.println(ctx, "repeat0 [${"ab".repeat(ctx, 0)}]").ignore();
   let _ = io.println(ctx, "slice0 [${"abc".slice(2, 2)}]").ignore();
@@ -2903,7 +2903,7 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = ["a".concat(ctx, "1"), "b".concat(ctx, "2")];
   let _ = match (xs.get(1)) { .Some(s) => io.println(ctx, "got ${s}").ignore(), .None => io.println(ctx, "got none").ignore() };
   let _ = match (xs.get(7)) { .Some(s) => io.println(ctx, "got ${s}").ignore(), .None => io.println(ctx, "got none").ignore() };
@@ -2939,7 +2939,7 @@ derive Hash for Key;
 fn base(): Key { Key { label: "k", n: 1, live: true, ratio: 0.5, c: 'z', small: 3 } }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = base();
   let _ = io.println(ctx, "same ${a.hash() == base().hash()}").ignore();
   let _ = io.println(ctx, "str ${a.hash() == Key { label: "j", n: 1, live: true, ratio: 0.5, c: 'z', small: 3 }.hash()}").ignore();
@@ -2989,7 +2989,7 @@ fn apply(f: fn(Int) => Int, x: Int): Int { f(x) }
 fn twice(f: fn(Int) => Int, x: Int): Int { f(f(x)) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = 10;
   let add = fn(x: Int) => x + n;
   let _ = io.println(ctx, "add ${apply(add, 5)}").ignore();
@@ -3036,7 +3036,7 @@ from "core/str" import * as str;
 fn run(f: fn(Int) => Str, n: Int): Str { f(n) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let prefix = "pre".concat(ctx, "-x");
   let tag = fn(_n: Int) => prefix;
   let _ = io.println(ctx, run(tag, 1)).ignore();
@@ -3081,7 +3081,7 @@ struct Row {{ name: Str, tags: [Str] }}
 enum Cell {{ Empty, Text(Str), Pair(Str, Str) }}
 
 export fn main(): Result<(), Str> {{
-  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
 {built}
   let _ = io.println(ctx, "done ${{n}}").ignore();
   .Ok(())
@@ -3099,7 +3099,7 @@ export fn main(): Result<(), Str> {{
   };
   let cell = Cell.Pair("p".concat(ctx, "!"), "q".concat(ctx, "!"));
   let held = match (cell) { .Empty => 0, .Text(_t) => 1, .Pair(_a, _b) => 2 };
-  let n = row.tags.len() + held;"#,
+  let n = row.tags.length() + held;"#,
     );
     let without = source(r#"  let n = 2 + 2;"#);
     let a = build_and_run_with("drop-with", &with, Some(LIVE_PROBE));
@@ -3117,8 +3117,8 @@ export fn main(): Result<(), Str> {{
 
 /// `Bounded`, whose two methods take no `self` and whose type is in the key.
 ///
-/// `middle::lower`'s `bounded_key` qualifies `num.minValue` into
-/// `num.<Prim>.minValue` for the reason `qualified_key` qualifies a
+/// `middle::lower`'s `bounded_key` qualifies `number.minValue` into
+/// `number.<Prim>.minValue` for the reason `qualified_key` qualifies a
 /// `derivePrim*`: the *return* type is a bare register shape, and `I64` and
 /// `U64` are the same one. The unsigned bounds are the assertion that the key
 /// is what is read.
@@ -3130,14 +3130,14 @@ fn the_bounded_methods_are_the_types_own_range() {
         &program(
             r#"
 from "core/io" import * as io;
-from "core/num" import * as num;
+from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "u8 ${num.minValue<U8>()} ${num.maxValue<U8>()}").ignore();
-  let _ = io.println(ctx, "i8 ${num.minValue<I8>()} ${num.maxValue<I8>()}").ignore();
-  let _ = io.println(ctx, "i32 ${num.minValue<I32>()} ${num.maxValue<I32>()}").ignore();
-  let _ = io.println(ctx, "u32 ${num.maxValue<U32>()}").ignore();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "u8 ${number.minValue<U8>()} ${number.maxValue<U8>()}").ignore();
+  let _ = io.println(ctx, "i8 ${number.minValue<I8>()} ${number.maxValue<I8>()}").ignore();
+  let _ = io.println(ctx, "i32 ${number.minValue<I32>()} ${number.maxValue<I32>()}").ignore();
+  let _ = io.println(ctx, "u32 ${number.maxValue<U32>()}").ignore();
   .Ok(())
 }
 "#,
@@ -3160,7 +3160,7 @@ export fn main(): Result<(), Str> {
 /// one — it allocates through `buri_rt_alloc` and reads no capability. The two
 /// readings agree for every context built from `core/host`, whose
 /// implementations are all empty structs, and they part company at
-/// `core/host/testing`, whose `TestAlloc` is `struct TestAlloc(I64)` and
+/// `core/host/testing`, whose `TestAllocator` is `struct TestAllocator(I64)` and
 /// carries a handle. Spreading that word into a C signature with no parameter
 /// for it shifts every argument after it by one register, which links and runs
 /// and answers garbage.
@@ -3179,25 +3179,25 @@ from "core/effect" import { Region };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-/// The shape `core/host/testing`'s `TestAlloc` has: a handle, because Buri
+/// The shape `core/host/testing`'s `TestAllocator` has: a handle, because Buri
 /// has no mutation and the state an allocator names lives elsewhere. Written
 /// out here rather than imported, because `core/host/testing` is importable
 /// only from a test source and the hazard is the *weight*, not the module.
 struct Arena { handle: Int }
-impl Alloc for Arena {
+impl Allocator for Arena {
   fn allocate(self, bytes: Int): Region { Region(bytes) }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: Arena { handle: 7 }, Stdout: host.stdout };
+  let ctx = context { Allocator: Arena { handle: 7 }, Stdout: host.stdout };
   let _ = io.println(ctx, "pad [${"abc".padStart(ctx, 6, '.')}]").ignore();
   let _ = io.println(ctx, "cat ${"ab".concat(ctx, "cd")}").ignore();
   let _ = io.println(ctx, "rep ${"xy".repeat(ctx, 3)}").ignore();
   let _ = io.println(ctx, "rep2 ${"a-b".replace(ctx, "-", "+")}").ignore();
   let parts = "1,2,3".split(ctx, ",");
-  let _ = io.println(ctx, "split ${parts.len()} ${parts.join(ctx, "|")}").ignore();
+  let _ = io.println(ctx, "split ${parts.length()} ${parts.join(ctx, "|")}").ignore();
   let xs = list.range(ctx, 0, 3).push(ctx, 9);
-  let _ = io.println(ctx, "list ${xs.len()}").ignore();
+  let _ = io.println(ctx, "list ${xs.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -3213,8 +3213,8 @@ export fn main(): Result<(), Str> {
 
 /// `core/math`'s nine, and the thirteen that are a named gap.
 ///
-/// The transcendentals are absent on purpose: IEEE 754 fixes `sqrt` and the
-/// rounding functions and does **not** fix `sin`, `exp` or `pow`, so V8's
+/// The transcendentals are absent on purpose: IEEE 754 fixes `squareRoot` and the
+/// rounding functions and does **not** fix `sin`, `exp` or `power`, so V8's
 /// fdlibm port and a platform libm differ in the last bit — and a rendered
 /// `Float` shows seventeen digits of it. `missing_intrinsics` names them, which
 /// is a diagnostic; a libm call would be a conformance failure nobody could
@@ -3230,10 +3230,10 @@ from "core/io" import * as io;
 from "core/math" import * as math;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "sqrt ${math.sqrt(9.0)} abs ${math.absFloat(0.0 - 2.5)}").ignore();
-  let _ = io.println(ctx, "floor ${math.floor(1.7)} ceil ${math.ceil(1.2)}").ignore();
-  let _ = io.println(ctx, "trunc ${math.trunc(0.0 - 1.7)} round ${math.round(2.5)}").ignore();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "sqrt ${math.squareRoot(9.0)} abs ${math.absoluteFloat(0.0 - 2.5)}").ignore();
+  let _ = io.println(ctx, "floor ${math.floor(1.7)} ceil ${math.ceiling(1.2)}").ignore();
+  let _ = io.println(ctx, "trunc ${math.truncate(0.0 - 1.7)} round ${math.round(2.5)}").ignore();
   let _ = io.println(ctx, "nan ${math.isNan(0.0)} inf ${math.isInfinite(1.0)} fin ${math.isFinite(1.0)}").ignore();
   .Ok(())
 }
@@ -3277,7 +3277,7 @@ fn the_checked_and_saturating_families_are_bounded_by_the_type() {
         &program(
             r#"
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let say = fn(o: Option<Int>) => match (o) { .Some(v) => "some", .None => "none" };
   let top: Int = 9223372036854775807;
   let bot: Int = 0 - 9223372036854775807;
@@ -3285,20 +3285,20 @@ export fn main(): Result<(), Str> {
   // The third column of each line is inside the type and above 2^53: `.Some`
   // here, `.None` on JavaScript, and that band is row 2's divergence.
   let _ = io.println(ctx, "add ${say((2).checkedAdd(3))} ${say(top.checkedAdd(1))} ${say((9007199254740991).checkedAdd(1))}").ignore();
-  let _ = io.println(ctx, "sub ${say((5).checkedSub(3))} ${say(bot.checkedSub(2))} ${say(bot.checkedSub(1))}").ignore();
-  let _ = io.println(ctx, "mul ${say((1000).checkedMul(1000))} ${say((4294967296).checkedMul(4294967296))} ${say((4503599627370496).checkedMul(4))}").ignore();
+  let _ = io.println(ctx, "sub ${say((5).checkedSubtract(3))} ${say(bot.checkedSubtract(2))} ${say(bot.checkedSubtract(1))}").ignore();
+  let _ = io.println(ctx, "mul ${say((1000).checkedMultiply(1000))} ${say((4294967296).checkedMultiply(4294967296))} ${say((4503599627370496).checkedMultiply(4))}").ignore();
   // A checked division by zero is `.None`, not SPEC 6.2's abort — and so is
   // the one signed quotient the width cannot hold.
-  let _ = io.println(ctx, "div ${say((7).checkedDiv(2))} ${say((7).checkedDiv(0))} ${say(min.checkedDiv(0 - 1))}").ignore();
+  let _ = io.println(ctx, "div ${say((7).checkedDivide(2))} ${say((7).checkedDivide(0))} ${say(min.checkedDivide(0 - 1))}").ignore();
   let _ = match ((2).checkedAdd(3)) { .Some(v) => io.println(ctx, "value ${v}").ignore(), .None => io.println(ctx, "value none").ignore() };
   // A narrow type is bounded by itself, and always was: at 32 bits and below
   // the type's range and a double's exact range are the same range.
   let small: U8 = 200;
   let _ = io.println(ctx, "u8 ${say2(small.checkedAdd(100))} ${say2(small.checkedAdd(55))}").ignore();
   // `saturating*` clamps at the type's own bounds and always answers a value.
-  let _ = io.println(ctx, "sat ${small.saturatingAdd(100)} ${small.saturatingSub(255)}").ignore();
+  let _ = io.println(ctx, "sat ${small.saturatingAdd(100)} ${small.saturatingSubtract(255)}").ignore();
   let big: I8 = 100;
-  let _ = io.println(ctx, "sat8 ${big.saturatingAdd(100)} ${big.saturatingMul(0 - 100)}").ignore();
+  let _ = io.println(ctx, "sat8 ${big.saturatingAdd(100)} ${big.saturatingMultiply(0 - 100)}").ignore();
   // 128 bits goes through `buri_rt_i128_checked` and
   // `buri_rt_i128_saturating`: the overflow test both backends use at 64 bits
   // is a widening multiply, which no backend here has at `i128`, so one
@@ -3306,7 +3306,7 @@ export fn main(): Result<(), Str> {
   // so it is bounded by the type there too.
   let w: I128 = 1000;
   let wide: I128 = 170141183460469231731687303715884105727;
-  let _ = io.println(ctx, "i128 ${say3(w.checkedMul(9007199254740991))} ${say3(wide.checkedAdd(1))}").ignore();
+  let _ = io.println(ctx, "i128 ${say3(w.checkedMultiply(9007199254740991))} ${say3(wide.checkedAdd(1))}").ignore();
   let _ = io.println(ctx, "i128sat ${w.saturatingAdd(1)}").ignore();
   .Ok(())
 }
@@ -3328,8 +3328,8 @@ fn say3(o: Option<I128>): Str { match (o) { .Some(_v) => "some", .None => "none"
 
 /// `core/bits`, open-coded — fourteen machine operations behind a range check.
 ///
-/// The interesting rows are the two right shifts: `bits.shr` is **logical** and
-/// `bits.sar` is arithmetic, which is why `core/bits` names both, and `-8 >> 1`
+/// The interesting rows are the two right shifts: `bits.shiftRight` is **logical** and
+/// `bits.shiftRightArithmetic` is arithmetic, which is why `core/bits` names both, and `-8 >> 1`
 /// is a very large positive number under one and `-4` under the other. The
 /// rotates go through `llvm.fshl`/`llvm.fshr` rather than `(x << n) | (x >> (w
 /// - n))`, whose second shift is poison at `n == 0`.
@@ -3344,9 +3344,9 @@ from "core/bits" import * as bits;
 from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "shl ${bits.shl(1, 10)} sar ${bits.sar(0 - 8, 1)}").ignore();
-  let _ = io.println(ctx, "shr ${bits.shr(0 - 8, 1)}").ignore();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "shl ${bits.shiftLeft(1, 10)} sar ${bits.shiftRightArithmetic(0 - 8, 1)}").ignore();
+  let _ = io.println(ctx, "shr ${bits.shiftRight(0 - 8, 1)}").ignore();
   let _ = io.println(ctx, "pop ${bits.popCount(255)} lz ${bits.leadingZeros(1)} tz ${bits.trailingZeros(8)}").ignore();
   let _ = io.println(ctx, "zeros ${bits.leadingZeros(0)} ${bits.trailingZeros(0)}").ignore();
   // A rotate by zero is the identity, which is the case a shift-pair spelling
@@ -3354,11 +3354,11 @@ export fn main(): Result<(), Str> {
   // renders negative — `BigInt.asIntN(64, ..)` on the other backend too.
   let _ = io.println(ctx, "rot ${bits.rotateLeft(1, 0)} ${bits.rotateLeft(1, 1)} ${bits.rotateRight(1, 1)}").ignore();
   let b: U8 = 0b1000_0001;
-  let _ = io.println(ctx, "u8 ${bits.shlU8(b, 1)} ${bits.shrU8(b, 1)}").ignore();
+  let _ = io.println(ctx, "u8 ${bits.shiftLeftU8(b, 1)} ${bits.shiftRightU8(b, 1)}").ignore();
   let w: U32 = 0x8000_0001;
-  let _ = io.println(ctx, "u32 ${bits.shlU32(w, 1)} ${bits.shrU32(w, 31)}").ignore();
+  let _ = io.println(ctx, "u32 ${bits.shiftLeftU32(w, 1)} ${bits.shiftRightU32(w, 31)}").ignore();
   let q: U64 = 3;
-  let _ = io.println(ctx, "u64 ${bits.shlU64(q, 2)} ${bits.shrU64(q, 1)}").ignore();
+  let _ = io.println(ctx, "u64 ${bits.shiftLeftU64(q, 2)} ${bits.shiftRightU64(q, 1)}").ignore();
   .Ok(())
 }
 "#,
@@ -3386,10 +3386,10 @@ fn a_shift_out_of_range_aborts() {
 from "core/bits" import * as bits;
 from "core/io" import * as io;
 
-fn go(n: Int): Int { bits.shl(1, n) }
+fn go(n: Int): Int { bits.shiftLeft(1, n) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "before").ignore();
   let _ = io.println(ctx, "${go(64)}").ignore();
   .Ok(())
@@ -3443,7 +3443,7 @@ fn dupStruct(s: Str): Pair { Pair { a: s, b: s } }
 fn twoTuple(a: Str, b: Str): (Str, Str) { (a, b) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let heap = "ab".repeat(ctx, 3);
   let other = "cd".repeat(ctx, 2);
 
@@ -3515,7 +3515,7 @@ fn spin(n: Int, p: (Str, Str)): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
 
   // 1. A field projection through a function's return value.
   let held = hold("ab".repeat(ctx, 2), "cd".repeat(ctx, 2));
@@ -3580,12 +3580,12 @@ fn go(n: Int, acc: Int): Int {{
     let p = (h, h);
     let s = str.format(host.alloc, "[${{p.0}}][${{p.1}}]");
     let _ = io.println(host.stdout, "${{n}}").ignore();
-    go(n - 1, acc + s.len())
+    go(n - 1, acc + s.length())
   }}
 }}
 
 export fn main(): Result<(), Str> {{
-  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
   let _ = io.println(ctx, "total ${{go({n}, 0)}}").ignore();
   .Ok(())
 }}
@@ -3646,17 +3646,17 @@ from "core/list" import * as list;
 struct Wrapper {{ octets: [U8] }}
 
 fn wrapped(held: Option<Wrapper>): Int {{
-  held.withDefault(Wrapper {{ octets: list.empty<U8>() }}).octets.len()
+  held.withDefault(Wrapper {{ octets: list.empty<U8>() }}).octets.length()
 }}
 
 fn go(n: Int, acc: Int): Int {{
   if (n <= 0) {{ acc }} else {{
-    go(n - 1, acc + wrapped(.None) + list.empty<Int>().len())
+    go(n - 1, acc + wrapped(.None) + list.empty<Int>().length())
   }}
 }}
 
 export fn main(): Result<(), Str> {{
-  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
   let _ = io.println(ctx, "total ${{go({n}, 0)}}").ignore();
   .Ok(())
 }}
@@ -3679,11 +3679,11 @@ export fn main(): Result<(), Str> {{
     assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
 }
 
-/// A `C: Alloc` parameter reached with a value that **implements** `Alloc`
+/// A `C: Allocator` parameter reached with a value that **implements** `Allocator`
 /// rather than with a `context { … }` record — the shape SPEC 10.8's
 /// attenuation is made of, and the one a native ABI rule used to get wrong.
 ///
-/// `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1), so the argument at
+/// `<C: Allocator>` and `<T: Ordered>` are one feature (SPEC 10.1), so the argument at
 /// `C` need not be a context, and `Tagged` here is a plain struct that forwards
 /// `allocate` and carries a word of its own so that it is **not** zero-sized.
 ///
@@ -3720,7 +3720,7 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-/// Satisfies `Alloc` by forwarding, and is not a context. The `tag` is what
+/// Satisfies `Allocator` by forwarding, and is not a context. The `tag` is what
 /// makes it eight bytes wide: a zero-sized implementor would spread to no
 /// leaves and the two readings would agree by accident.
 struct Tagged<C> {
@@ -3728,30 +3728,30 @@ struct Tagged<C> {
   export tag: Int,
 }
 
-impl<C: Alloc> Alloc for Tagged<C> {
+impl<C: Allocator> Allocator for Tagged<C> {
   fn allocate(self, bytes: Int): Region {
     self.inner.allocate(bytes)
   }
 }
 
 /// The context is argument **one**, after the receiver.
-fn pushed<C: Alloc>(ctx: C, item: Int, into: [Int]): [Int] {
+fn pushed<C: Allocator>(ctx: C, item: Int, into: [Int]): [Int] {
   into.push(ctx, item)
 }
 
 /// The context is argument **zero**, so both indices the rule can take are
 /// reached from one program.
-fn repeated<C: Alloc>(ctx: C, item: Int): [Int] {
+fn repeated<C: Allocator>(ctx: C, item: Int): [Int] {
   list.repeat(ctx, item, 2)
 }
 
 /// No table row on either backend.
-fn joined<C: Alloc>(ctx: C, a: Str, b: Str): Str {
+fn joined<C: Allocator>(ctx: C, a: Str, b: Str): Str {
   a.concat(ctx, b)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let bare = Tagged { inner: ctx, tag: 9 };
   let pushedOnto = pushed(bare, 7, [1]);
   let twice = repeated(bare, 5);
@@ -4056,7 +4056,7 @@ fn a_memo_and_a_watcher_run_under_the_release_backend() {
     skip_unless_executable!();
     let source = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
@@ -4065,32 +4065,32 @@ from "ui/testing" import { headless, observer, recorder };
 
 test "a memo is lazy, caches, and recomputes when its source changes" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
-    assert.eq(log.noted().len(), 0);
+    assert.equal(log.noted().length(), 0);
     let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
-    assert.eq(log.noted(), [4]);
+    assert.equal(log.noted(), [4]);
     let _ = n.set(ctx, 5);
-    assert.eq(log.noted(), [4, 10]);
+    assert.equal(log.noted(), [4, 10]);
 }
 
 test "a watcher runs when it is registered and again on every change" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
     let log = recorder();
     let n = signal(ctx, 1);
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
-    assert.eq(log.noted(), [1]);
+    assert.equal(log.noted(), [1]);
     let _ = n.set(ctx, 7);
-    assert.eq(log.noted(), [1, 7]);
+    assert.equal(log.noted(), [1, 7]);
 }
 
 fn ignore(value: Int): () {
@@ -4308,7 +4308,7 @@ fn total(c: Chain): Int {
 }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let chain = Chain.Link(Box { next: .Link(Box { next: .End, value: 20 }), value: 22 });
     let _ = io.println(ctx, "${total(chain)}").ignore();
     .Ok(())

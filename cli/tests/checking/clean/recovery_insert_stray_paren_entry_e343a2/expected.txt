@@ -1,9 +1,0 @@
-error: expected an identifier, found `@` [unexpected-token]
-  --> main.buri:33:39
-   |
-33 |     assert.eq(out.modules.map(ctx, fn(@ m) => m.0), ["address.proto", "point.proto"]);
-   |                                       ^
-   |
-   = expected: an identifier
-   = actual: `@`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

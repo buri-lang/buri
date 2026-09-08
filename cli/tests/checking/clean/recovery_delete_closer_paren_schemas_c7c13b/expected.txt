@@ -1,0 +1,21 @@
+error: expected an expression, found `]` [unexpected-token]
+  --> main.buri:35:5
+   |
+35 |     ])
+   |     ^
+   |
+   = expected: an expression
+   = actual: `]`
+   = fix: write a value here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:89:1
+   |
+89 | 
+   | ^
+   |
+  --> main.buri:32:20
+   |
+32 | ): proto.Generated {
+   |                    ^ opened here
+   |
+   = fix: write `}` here

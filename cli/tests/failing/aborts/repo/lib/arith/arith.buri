@@ -9,5 +9,5 @@ export fn leftover(a: Int, b: Int): Int {
 }
 
 export fn push(x: Int, n: Int): Int {
-    bits.shl(x, n)
+    bits.shiftLeft(x, n)
 }

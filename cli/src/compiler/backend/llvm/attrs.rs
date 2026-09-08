@@ -267,7 +267,7 @@ impl MemoryEffects {
 
     /// The allocator's own effects, which are three locations and not one.
     ///
-    /// CODEGEN-LLVM.md §3.1's `Alloc`-bounded row said `inaccessiblemem:
+    /// CODEGEN-LLVM.md §3.1's `Allocator`-bounded row said `inaccessiblemem:
     /// readwrite` and stopped there. Two things are missing from that, and both
     /// are checkable against LLVM's own inference — `opt -passes=function-attrs`
     /// on `%p = call noalias ptr @alloc(...)` / `store ..., ptr %p` answers
@@ -667,7 +667,7 @@ pub fn cold_call(ctx: &Context, call: CallSiteValue<'_>) {
 }
 
 /// `noreturn` + `cold` on a call that does not come back: an abort, or
-/// `buri_rt_host_proc_exit_with`.
+/// `buri_rt_host_process_exit_with`.
 pub fn noreturn_call(ctx: &Context, call: CallSiteValue<'_>) {
     cold_call(ctx, call);
     call_attr(ctx, call, AttributeLoc::Function, "noreturn", 0);

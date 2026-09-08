@@ -5,13 +5,13 @@
 // it is the module that exports `main` — and that earns it nothing on the line
 // below, where the `testing` segment in the path is the whole of the second
 // rule.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/host/testing" import * as testing;
 from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hi").ignore();
   .Ok(())
 }

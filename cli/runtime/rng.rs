@@ -1,6 +1,6 @@
-//! The random source behind `Rand`.
+//! The random source behind `Random`.
 //!
-//! `Rand` is an effect, so a program that never binds it cannot reach this, and
+//! `Random` is an effect, so a program that never binds it cannot reach this, and
 //! a test that wants determinism binds a fake instead of reseeding a global —
 //! which is why there is no `seed` entry point here and no way to ask for one.
 //!
@@ -10,7 +10,7 @@
 //! 2^256 period, passes BigCrush, and is four instructions per word.
 //!
 //! It is deliberately **not** a cryptographic generator, and `core/effect` does not
-//! claim one. A `Rand` that promised unpredictability would need to say so in
+//! claim one. A `Random` that promised unpredictability would need to say so in
 //! its own documentation and would be a different effect.
 
 use std::sync::Mutex;

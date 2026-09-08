@@ -6,14 +6,14 @@ toolchain, and are never listed in a `dependencies`.
 
 `ui/effect` declares `Watch` and `Ui`, the `Scope` a reactive closure is handed,
 and the `Event` a handler is handed. Requests are not among them: a page asks
-for `core/effect`'s `Net` like every other platform. `ui/signal` is `Signal<T>` —
+for `core/effect`'s `Network` like every other platform. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
 `memo`. `ui/testing` is a headless platform, a renderer for looking at what a
 tree became, and `snapshot`, which paints one and holds it to a golden PNG. Only
 a test source may import it.
 
 The whole of it rests on one idea: **a signal handle is inert data, and the
-authority to read or write it travels through `ctx`**, the same split `Alloc`
+authority to read or write it travels through `ctx`**, the same split `Allocator`
 and `Region` use. So an event handler may capture a `Signal<T>`, and takes its
 context as a parameter rather than closing over one.
 
@@ -195,7 +195,7 @@ tokens declares its own closed vocabulary as an ordinary enum, with a
 constructor answering a colour:
 
 ```buri
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import * as host;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/node" import * as ui;
@@ -243,7 +243,7 @@ fn cardTheme(t: Token): Color {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Ui: host.ui,
         Watch: host.watch,
     };
@@ -285,7 +285,7 @@ values again. No class changes, no element is touched.
 against a golden checked in beside the suite:
 
 ```buri role=test
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -299,7 +299,7 @@ fn card<C>(name: Prop<Str>): Node<C> {
 
 test "the card" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "card", card(.Const("Ada")), .Hover);
@@ -341,9 +341,9 @@ document, and only a browser has one.
 
 The rest is short:
 
-- The context binds `Alloc` as well as `Ui`, because building the scene builds a
+- The context binds `Allocator` as well as `Ui`, because building the scene builds a
   string. The signature is
-  `snapshot<C: Alloc + Ui>(ctx: C, name: Str, root: Node<C>, state: State): ()`.
+  `snapshot<C: Allocator + Ui>(ctx: C, name: Str, root: Node<C>, state: State): ()`.
 - `state` is `ui/style`'s `State`, and it applies to **every** element in the
   tree. A hovered card and a resting one are two snapshots of one tree.
 - The viewport is 800x600 CSS pixels, always.

@@ -1,9 +1,0 @@
-error: expected an identifier, found `,` [unexpected-token]
-  --> main.buri:20:27
-   |
-20 |     assert.eq(uuid.zero()., hash(), uuid.zero().hash());
-   |                           ^
-   |
-   = expected: an identifier
-   = actual: `,`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

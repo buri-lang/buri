@@ -2,7 +2,7 @@
 // a hundred boxes deep, a thousand boxes wide, and three lists that differ
 // only by what marks their items.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -13,7 +13,7 @@ from "//lib/scenes" import { deep, siblings };
 
 test "an empty tree is a page with nothing on it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "empty", ui.nothing(), .Hover);
@@ -21,7 +21,7 @@ test "an empty tree is a page with nothing on it" {
 
 test "a tree of one run of text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "one-run-of-text", ui.text(.Const("Ada")), .Hover);
@@ -29,7 +29,7 @@ test "a tree of one run of text" {
 
 test "a hundred stacks deep" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "a-hundred-deep", deep(100), .Hover);
@@ -37,7 +37,7 @@ test "a hundred stacks deep" {
 
 test "a thousand siblings" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "a-thousand-siblings", siblings(ctx, 1000), .Hover);
@@ -60,7 +60,7 @@ fn marked<C>(marker: ListMarker): Node<C> {
 
 test "a list is marked only where it asked to be" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     // Three lists of the same rows: no marks at all, discs, and numbers. A

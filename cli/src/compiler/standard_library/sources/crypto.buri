@@ -14,7 +14,7 @@
 //! reproducible on purpose*. `core/random.bytes` is uniform. These are
 //! unpredictable, and a program says which it meant by which it imports.
 //!
-//! **Neither takes a `Gen`.** A token you can replay is a token somebody can
+//! **Neither takes a `Generator`.** A token you can replay is a token somebody can
 //! predict. The seeded path a test needs is `core/host/testing`'s `entropy()`, a
 //! seeded implementation of the same effect that only a test source can reach.
 //!
@@ -31,13 +31,13 @@
 //!
 //! ```buri run
 //! from "core/crypto" import * as crypto;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let d = crypto.sha256Text(ctx, "abc");
@@ -54,19 +54,19 @@
 //!
 //! ```buri run
 //! from "core/crypto" import * as crypto;
-//! from "core/effect" import { Alloc, Entropy, Stdout };
+//! from "core/effect" import { Allocator, Entropy, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Entropy: host.entropy,
 //!         Stdout: host.stdout,
 //!     };
 //!     let resume = crypto.token(ctx, 32);
 //!     let _ = io
-//!         .println(ctx, "${crypto.randomBytes(ctx, 32).len()} ${resume.len()}")
+//!         .println(ctx, "${crypto.randomBytes(ctx, 32).length()} ${resume.length()}")
 //!         .ignore();
 //!     .Ok(())
 //! }
@@ -78,10 +78,10 @@
 
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Entropy };
+from "core/effect" import { Allocator, Entropy };
 from "core/list" import * as list;
 
-derive Eq, Show for Digest;
+derive Equal, Show for Digest;
 /// A digest, as many bytes as the function that made it: 32 from SHA-256, 64
 /// from SHA-512, 20 from SHA-1. The type does not say which, so compare two
 /// digests only when the same function made both.
@@ -89,14 +89,14 @@ export struct Digest(export [U8]);
 
 impl Digest {
     /// The digest as lowercase hex, which is how you write one down.
-    export fn toHex<C: Alloc>(self, ctx: C): Str {
+    export fn toHex<C: Allocator>(self, ctx: C): Str {
         bytes.toHex(ctx, self.0)
     }
 }
 
 /// The initial state: the fractional parts of the square roots of the first
 /// eight primes.
-fn initialState<C: Alloc>(ctx: C): [U32] {
+fn initialState<C: Allocator>(ctx: C): [U32] {
     let seed: [U32] = [
         1779033703,
         3144134277,
@@ -112,7 +112,7 @@ fn initialState<C: Alloc>(ctx: C): [U32] {
 
 /// The round constants: the fractional parts of the cube roots of the first
 /// sixty-four primes.
-fn roundConstants<C: Alloc>(ctx: C): [U32] {
+fn roundConstants<C: Allocator>(ctx: C): [U32] {
     let k: [U32] = [
         1116352408,
         1899447441,
@@ -188,19 +188,19 @@ fn roundConstants<C: Alloc>(ctx: C): [U32] {
 /// shifts, or-ed. It is correct only because the unsigned bitwise operators
 /// narrow to the type's width.
 fn rotr(x: U32, n: Int): U32 {
-    bits.shrU32(x, n) | bits.shlU32(x, 32 - n)
+    bits.shiftRightU32(x, n) | bits.shiftLeftU32(x, 32 - n)
 }
 
 /// The message, padded: a one bit, then zeros, then the length in bits as a
 /// big-endian 64-bit number, to a multiple of 64 bytes.
-fn pad<C: Alloc>(ctx: C, message: [U8]): [U8] {
-    let n = message.len();
+fn pad<C: Allocator>(ctx: C, message: [U8]): [U8] {
+    let n = message.length();
     let bitLength = n * 8;
     // One byte for the `0x80`, eight for the length; zeros to fill the block.
     let zeros = (55 - n % 64 + 64) % 64;
     let lengthBytes = list
         .range(ctx, 0, 8)
-        .map(ctx, fn(i) => bits.shr(bitLength, (7 - i) * 8).wrapToU8());
+        .map(ctx, fn(i) => bits.shiftRight(bitLength, (7 - i) * 8).wrapToU8());
     message
         .push(ctx, 128)
         .concat(ctx, list.repeat(ctx, 0, zeros))
@@ -208,7 +208,7 @@ fn pad<C: Alloc>(ctx: C, message: [U8]): [U8] {
 }
 
 /// The 64-entry message schedule for one block.
-fn schedule<C: Alloc>(ctx: C, block: [U8]): [U32] {
+fn schedule<C: Allocator>(ctx: C, block: [U8]): [U32] {
     let first = list
         .range(ctx, 0, 16)
         .map(ctx, fn(i) => {
@@ -223,14 +223,14 @@ fn schedule<C: Alloc>(ctx: C, block: [U8]): [U32] {
 
 /// Rounds 16 to 63, each from four earlier words. Tail-recursive, so the
 /// sixty-four steps cost one frame.
-fn extend<C: Alloc>(ctx: C, w: [U32], i: Int): [U32] {
+fn extend<C: Allocator>(ctx: C, w: [U32], i: Int): [U32] {
     if (i >= 64) {
         w
     } else {
         let a = w.get(i - 15).withDefault(0);
         let b = w.get(i - 2).withDefault(0);
-        let s0 = rotr(a, 7) ^ rotr(a, 18) ^ bits.shrU32(a, 3);
-        let s1 = rotr(b, 17) ^ rotr(b, 19) ^ bits.shrU32(b, 10);
+        let s0 = rotr(a, 7) ^ rotr(a, 18) ^ bits.shiftRightU32(a, 3);
+        let s1 = rotr(b, 17) ^ rotr(b, 19) ^ bits.shiftRightU32(b, 10);
         let next = w
             .get(i - 16)
             .withDefault(0)
@@ -253,7 +253,7 @@ struct Working {
     h: U32,
 }
 
-fn compress<C: Alloc>(ctx: C, state: [U32], block: [U8]): [U32] {
+fn compress<C: Allocator>(ctx: C, state: [U32], block: [U8]): [U32] {
     let w = schedule(ctx, block);
     let k = roundConstants(ctx);
     let start = Working {
@@ -314,8 +314,8 @@ fn rounds(v: Working, w: [U32], k: [U32], i: Int): Working {
     }
 }
 
-fn blocks<C: Alloc>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
-    if (i >= padded.len()) {
+fn blocks<C: Allocator>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
+    if (i >= padded.length()) {
         state
     } else {
         blocks(ctx, padded, compress(ctx, state, padded.slice(ctx, i, i + 64)), i + 64)
@@ -323,21 +323,21 @@ fn blocks<C: Alloc>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
 }
 
 /// The SHA-256 digest of a byte string.
-export fn sha256<C: Alloc>(ctx: C, message: [U8]): Digest {
+export fn sha256<C: Allocator>(ctx: C, message: [U8]): Digest {
     let state = blocks(ctx, pad(ctx, message), initialState(ctx), 0);
     Digest(
         state
             .mapCtx(ctx, fn(c, word) => {
                 list
                     .range(c, 0, 4)
-                    .map(c, fn(i) => bits.shrU32(word, (3 - i) * 8).wrapToU8())
+                    .map(c, fn(i) => bits.shiftRightU32(word, (3 - i) * 8).wrapToU8())
             })
             .flatten(ctx),
     )
 }
 
 /// The digest of a string's UTF-8 encoding.
-export fn sha256Text<C: Alloc>(ctx: C, text: Str): Digest {
+export fn sha256Text<C: Allocator>(ctx: C, text: Str): Digest {
     sha256(ctx, bytes.toUtf8(ctx, text))
 }
 
@@ -350,7 +350,7 @@ export fn sha256Text<C: Alloc>(ctx: C, text: Str): Digest {
 
 /// The initial state at 64 bits: the fractional parts of the square roots of
 /// the first eight primes.
-fn initialState512<C: Alloc>(ctx: C): [U64] {
+fn initialState512<C: Allocator>(ctx: C): [U64] {
     let seed: [U64] = [
         0x6a09e667f3bcc908,
         0xbb67ae8584caa73b,
@@ -366,7 +366,7 @@ fn initialState512<C: Alloc>(ctx: C): [U64] {
 
 /// The eighty round constants: the fractional parts of the cube roots of the
 /// first eighty primes.
-fn roundConstants512<C: Alloc>(ctx: C): [U64] {
+fn roundConstants512<C: Allocator>(ctx: C): [U64] {
     let k: [U64] = [
         0x428a2f98d728ae22,
         0x7137449123ef65cd,
@@ -454,19 +454,19 @@ fn roundConstants512<C: Alloc>(ctx: C): [U64] {
 
 /// Rotate right, within 64 bits: the two shifts, or-ed, as `rotr` is at 32.
 fn rotr64(x: U64, n: Int): U64 {
-    bits.shrU64(x, n) | bits.shlU64(x, 64 - n)
+    bits.shiftRightU64(x, n) | bits.shiftLeftU64(x, 64 - n)
 }
 
 /// The message padded to a multiple of 128 bytes. The length goes in as a
 /// 128-bit big-endian number whose top eight bytes are always zero — no message
 /// this can hash is 2^64 bits long.
-fn pad512<C: Alloc>(ctx: C, message: [U8]): [U8] {
-    let n = message.len();
+fn pad512<C: Allocator>(ctx: C, message: [U8]): [U8] {
+    let n = message.length();
     let bitLength = n * 8;
     let zeros = (111 - n % 128 + 128) % 128;
     let lengthBytes = list
         .range(ctx, 0, 8)
-        .map(ctx, fn(i) => bits.shr(bitLength, (7 - i) * 8).wrapToU8());
+        .map(ctx, fn(i) => bits.shiftRight(bitLength, (7 - i) * 8).wrapToU8());
     message
         .push(ctx, 128)
         .concat(ctx, list.repeat(ctx, 0, zeros + 8))
@@ -474,22 +474,22 @@ fn pad512<C: Alloc>(ctx: C, message: [U8]): [U8] {
 }
 
 /// The eighty-entry message schedule for one 128-byte block.
-fn schedule512<C: Alloc>(ctx: C, block: [U8]): [U64] {
+fn schedule512<C: Allocator>(ctx: C, block: [U8]): [U64] {
     let first = list
         .range(ctx, 0, 16)
-        .map(ctx, fn(i) => bytes.toU64Be(block, i * 8).withDefault(0));
+        .map(ctx, fn(i) => bytes.toU64BigEndian(block, i * 8).withDefault(0));
     extend512(ctx, first, 16)
 }
 
 /// Rounds 16 to 79, each from four earlier words. Tail-recursive.
-fn extend512<C: Alloc>(ctx: C, w: [U64], i: Int): [U64] {
+fn extend512<C: Allocator>(ctx: C, w: [U64], i: Int): [U64] {
     if (i >= 80) {
         w
     } else {
         let a = w.get(i - 15).withDefault(0);
         let b = w.get(i - 2).withDefault(0);
-        let s0 = rotr64(a, 1) ^ rotr64(a, 8) ^ bits.shrU64(a, 7);
-        let s1 = rotr64(b, 19) ^ rotr64(b, 61) ^ bits.shrU64(b, 6);
+        let s0 = rotr64(a, 1) ^ rotr64(a, 8) ^ bits.shiftRightU64(a, 7);
+        let s1 = rotr64(b, 19) ^ rotr64(b, 61) ^ bits.shiftRightU64(b, 6);
         let next = w
             .get(i - 16)
             .withDefault(0)
@@ -513,7 +513,7 @@ struct Working512 {
     h: U64,
 }
 
-fn compress512<C: Alloc>(ctx: C, state: [U64], block: [U8]): [U64] {
+fn compress512<C: Allocator>(ctx: C, state: [U64], block: [U8]): [U64] {
     let w = schedule512(ctx, block);
     let k = roundConstants512(ctx);
     let start = Working512 {
@@ -573,8 +573,8 @@ fn rounds512(v: Working512, w: [U64], k: [U64], i: Int): Working512 {
     }
 }
 
-fn blocks512<C: Alloc>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
-    if (i >= padded.len()) {
+fn blocks512<C: Allocator>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
+    if (i >= padded.length()) {
         state
     } else {
         blocks512(
@@ -591,17 +591,17 @@ fn blocks512<C: Alloc>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
 /// ```buri run
 /// from "core/bytes" import * as bytes;
 /// from "core/crypto" import * as crypto;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let d = crypto.sha512(ctx, bytes.toUtf8(ctx, "abc"));
-///     let _ = io.println(ctx, "${d.0.len()} ${d.toHex(ctx).slice(0, 16)}").ignore();
+///     let _ = io.println(ctx, "${d.0.length()} ${d.toHex(ctx).slice(0, 16)}").ignore();
 ///     .Ok(())
 /// }
 /// ```
@@ -609,39 +609,39 @@ fn blocks512<C: Alloc>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
 /// ```stdout
 /// 64 ddaf35a193617aba
 /// ```
-export fn sha512<C: Alloc>(ctx: C, message: [U8]): Digest {
+export fn sha512<C: Allocator>(ctx: C, message: [U8]): Digest {
     let state = blocks512(ctx, pad512(ctx, message), initialState512(ctx), 0);
-    Digest(state.map(ctx, fn(word) => bytes.fromU64Be(word)).flatten(ctx))
+    Digest(state.map(ctx, fn(word) => bytes.fromU64BigEndian(word)).flatten(ctx))
 }
 
 /// The SHA-512 digest of a string's UTF-8 encoding.
-export fn sha512Text<C: Alloc>(ctx: C, text: Str): Digest {
+export fn sha512Text<C: Allocator>(ctx: C, text: Str): Digest {
     sha512(ctx, bytes.toUtf8(ctx, text))
 }
 
 // --- SHA-1 --------------------------------------------------------------------
 
 /// The initial state, which SHA-1 writes down rather than derives.
-fn initialState1<C: Alloc>(ctx: C): [U32] {
+fn initialState1<C: Allocator>(ctx: C): [U32] {
     let seed: [U32] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
     seed.map(ctx, fn(x) => x)
 }
 
 /// Rotate left, within 32 bits.
 fn rotl32(x: U32, n: Int): U32 {
-    bits.shlU32(x, n) | bits.shrU32(x, 32 - n)
+    bits.shiftLeftU32(x, n) | bits.shiftRightU32(x, 32 - n)
 }
 
 /// The eighty-entry schedule. Every word past the first sixteen is four earlier
 /// ones xor-ed and turned by one bit.
-fn schedule1<C: Alloc>(ctx: C, block: [U8]): [U32] {
+fn schedule1<C: Allocator>(ctx: C, block: [U8]): [U32] {
     let first = list
         .range(ctx, 0, 16)
-        .map(ctx, fn(i) => bytes.toU32Be(block, i * 4).withDefault(0));
+        .map(ctx, fn(i) => bytes.toU32BigEndian(block, i * 4).withDefault(0));
     extend1(ctx, first, 16)
 }
 
-fn extend1<C: Alloc>(ctx: C, w: [U32], i: Int): [U32] {
+fn extend1<C: Allocator>(ctx: C, w: [U32], i: Int): [U32] {
     if (i >= 80) {
         w
     } else {
@@ -695,7 +695,7 @@ fn rounds1(v: Working1, w: [U32], i: Int): Working1 {
     }
 }
 
-fn compress1<C: Alloc>(ctx: C, state: [U32], block: [U8]): [U32] {
+fn compress1<C: Allocator>(ctx: C, state: [U32], block: [U8]): [U32] {
     let w = schedule1(ctx, block);
     let start = Working1 {
         a: state.get(0).withDefault(0),
@@ -714,8 +714,8 @@ fn compress1<C: Alloc>(ctx: C, state: [U32], block: [U8]): [U32] {
     ]
 }
 
-fn blocks1<C: Alloc>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
-    if (i >= padded.len()) {
+fn blocks1<C: Allocator>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
+    if (i >= padded.length()) {
         state
     } else {
         blocks1(
@@ -734,9 +734,9 @@ fn blocks1<C: Alloc>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
 /// to have two different digests can be forged. Use it to read what already
 /// exists — a git object id, an S3 ETag, an old signature — and never to protect
 /// something new. `sha256` is the one to reach for.
-export fn sha1<C: Alloc>(ctx: C, message: [U8]): Digest {
+export fn sha1<C: Allocator>(ctx: C, message: [U8]): Digest {
     let state = blocks1(ctx, pad(ctx, message), initialState1(ctx), 0);
-    Digest(state.map(ctx, fn(word) => bytes.fromU32Be(word)).flatten(ctx))
+    Digest(state.map(ctx, fn(word) => bytes.fromU32BigEndian(word)).flatten(ctx))
 }
 
 // --- HMAC ---------------------------------------------------------------------
@@ -747,9 +747,9 @@ let BLOCK: Int = 64;
 ///
 /// A key longer than the block gets hashed first; a shorter one gets padded with
 /// zeros.
-export fn hmacSha256<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
-    let shortened = if (key.len() > BLOCK) { sha256(ctx, key).0 } else { key };
-    let padded = shortened.concat(ctx, list.repeat(ctx, 0, BLOCK - shortened.len()));
+export fn hmacSha256<C: Allocator>(ctx: C, key: [U8], message: [U8]): Digest {
+    let shortened = if (key.length() > BLOCK) { sha256(ctx, key).0 } else { key };
+    let padded = shortened.concat(ctx, list.repeat(ctx, 0, BLOCK - shortened.length()));
     let inner = padded.map(ctx, fn(b) => (b.toI64() ^ 54).wrapToU8());
     let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
     let innerDigest = sha256(ctx, inner.concat(ctx, message));
@@ -760,11 +760,11 @@ let BLOCK_512: Int = 128;
 
 /// HMAC-SHA-512, per RFC 2104. SHA-512's block is 128 bytes rather than 64, and
 /// that is the only difference from `hmacSha256`.
-export fn hmacSha512<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
-    let shortened = if (key.len() > BLOCK_512) { sha512(ctx, key).0 } else { key };
+export fn hmacSha512<C: Allocator>(ctx: C, key: [U8], message: [U8]): Digest {
+    let shortened = if (key.length() > BLOCK_512) { sha512(ctx, key).0 } else { key };
     let padded = shortened.concat(
         ctx,
-        list.repeat(ctx, 0, BLOCK_512 - shortened.len()),
+        list.repeat(ctx, 0, BLOCK_512 - shortened.length()),
     );
     let inner = padded.map(ctx, fn(b) => (b.toI64() ^ 54).wrapToU8());
     let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
@@ -798,7 +798,7 @@ export fn randomBytes<C: Entropy>(ctx: C, count: Int): [U8] {
 ///
 /// Compare two of these with `equalsConstantTime` over their bytes, not with
 /// `==` over their text.
-export fn token<C: Alloc + Entropy>(ctx: C, octets: Int): Str {
+export fn token<C: Allocator + Entropy>(ctx: C, octets: Int): Str {
     bytes.toHex(ctx, randomBytes(ctx, octets))
 }
 
@@ -808,12 +808,16 @@ export fn token<C: Alloc + Entropy>(ctx: C, octets: Int): Str {
 ///
 /// No library can promise constant time under a JIT. What this promises is that
 /// the *algorithm* has no early exit.
-export fn equalsConstantTime(a: [U8], b: [U8]): Bool {
-    if (a.len() != b.len()) { false } else { accumulate(a, b, 0, 0) == 0 }
+export fn equalsConstantTime(first: [U8], second: [U8]): Bool {
+    if (first.length() != second.length()) {
+        false
+    } else {
+        accumulate(first, second, 0, 0) == 0
+    }
 }
 
 fn accumulate(a: [U8], b: [U8], i: Int, acc: Int): Int {
-    if (i >= a.len()) {
+    if (i >= a.length()) {
         acc
     } else {
         let x = a.get(i).withDefault(0).toI64();

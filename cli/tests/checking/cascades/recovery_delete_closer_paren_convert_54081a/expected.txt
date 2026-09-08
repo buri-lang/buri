@@ -1,0 +1,38 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:20:5
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `f32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
+  --> main.buri:20:18
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 4
+   = actual: 5
+   = fix: pass exactly 4
+error: `F64` has no method `toInt` [no-such-method]
+  --> main.buri:20:50
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));
+   |                                                  ^^^^^
+   |
+   = did you mean `toI16`?
+   = fix: check the spelling — `buri docs core/number` lists every method `F64` has, and one may not be added to it from outside `core/number`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:20:83
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));
+   |                                                                                   ^
+   |
+  --> main.buri:20:17
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));
+   |                 ^ opened here
+   |
+   = fix: write `)` here

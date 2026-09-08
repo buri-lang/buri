@@ -29,17 +29,17 @@ for a member.
 - **An entry's own body** is checked against the outputs that enter through
   *that* entry, plus every platform its suite names in `test.platforms`. So a
   binary whose page enters at `main` and whose worker enters at `fetch` may bind
-  `Ui: host.ui` in `main` and `Net: host.net` in `fetch`, and neither refuses
+  `Ui: host.ui` in `main` and `Network: host.net` in `fetch`, and neither refuses
   the other.
 - **Anywhere else in `main.buri`** — a helper, a top-level named import — is
   checked against every platform the `outputs` name, because any of them may
   reach it. So a binary declaring `[MACOS, WEB]` whose helper binds
-  `FsRead: host.fs` is refused, naming WEB.
+  `FileSystemRead: host.fs` is refused, naming WEB.
 - **Every other module** is checked against the platforms **its own rule
   declared**. A rule that declared none is never checked, because a library that
   says nothing about `platforms` is platform-generic.
 
-An **effect type** is never platform-bound. `from "core/fs" import { FsRead }`
+An **effect type** is never platform-bound. `from "core/fs" import { FileSystemRead }`
 is legal on every platform, a page included, and so is `core/host/testing`'s
 double for every effect. A platform binds the **host** half — the value `main`
 binds.
@@ -67,14 +67,14 @@ time, and nothing to change in a program already written against the signature.
 ## A program that provokes it
 
 ```buri fail code=effect-not-on-platform platform=JS
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Ui: host.ui,
         Watch: host.watch,

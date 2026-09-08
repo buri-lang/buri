@@ -1,0 +1,59 @@
+// The generator's entry point, which is what `core/codegen`'s `run` calls.
+//
+// Every input is read before any of them is generated, so a field's type may
+// live in another file of the same rule — and the module it lands in is the
+// schema's own file name.
+
+from "core/buri/ast" import * as ast;
+from "core/codegen" import { Request };
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "std/codegen/proto" import * as proto;
+
+test "one module per input, named after the schema, reaching the others" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let request = Request {
+        inputs: [
+            (
+                "lib/proto/address.proto",
+                "edition = \"2026\";\nmessage Address { string city = 1; }\n",
+            ),
+            (
+                "lib/wire/point.proto",
+                "edition = \"2026\";\nimport \"lib/proto/address.proto\";\nmessage Person { Address home = 1; }\n",
+            ),
+        ],
+        dependencies: [],
+    };
+    let out = proto.emit(ctx, request);
+    assert.isEmpty(out.diagnostics);
+    assert.equal(out.modules.map(ctx, fn(m) => m.0), ["address.proto", "point.proto"]);
+    let person = assert.some(out.modules.get(1));
+    let text = ast.print(ctx, person.1).text.lines(ctx);
+    assert.contains(
+        text,
+        "from \"//lib/proto/address.proto\" import { Address, decodeAddress, decodeAddressJsonAt, defaultAddress, encodeAddress, encodeAddressJson, mergeAddress };",
+    );
+    assert.contains(text, "    export home: Option<Address>,");
+}
+
+test "a schema the reader refuses answers its diagnostics and no module" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let request = Request {
+        inputs: [("lib/wire/old.proto", "syntax = \"proto3\";\n")],
+        dependencies: [],
+    };
+    let out = proto.emit(ctx, request);
+    assert.equal(out.diagnostics.map(ctx, fn(d) => d.code), [
+        "proto-syntax-declaration",
+    ]);
+    assert.length(out.modules, 1);
+    // The module is still answered, because a schema always comes back: one
+    // bad declaration must not hide what the rest of the file says.
+    assert.equal(assert.some(out.modules.first()).0, "old.proto");
+

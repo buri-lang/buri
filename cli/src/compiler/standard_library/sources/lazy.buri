@@ -7,19 +7,19 @@
 //! `load`. A native build ignores the whole thing and hands back `f`.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/lazy" import * as lazy;
 //!
 //! // Big, and reached on one path out of many. It belongs in its own chunk.
-//! fn report<C: Alloc + Stdout>(ctx: C, rows: Int): () {
+//! fn report<C: Allocator + Stdout>(ctx: C, rows: Int): () {
 //!     io.println(ctx, "report over ${rows} rows").ignore()
 //! }
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let _ = io.println(ctx, "starting").ignore();
@@ -65,8 +65,8 @@
 //! `load` takes the **name of a function**. A lambda, a local holding one, or
 //! anything that is not a function at all is `lazy-not-a-function`.
 
-/// Answers `f`, having fetched the chunk it was split into.
+/// Answers `transform`, having fetched the chunk it was split into.
 ///
 /// One file per `load`ed function, written beside the artifact and fetched
-/// when this call runs. Native backends have no chunks and answer `f`.
-export fn load<F>(f: F): F;
+/// when this call runs. Native backends have no chunks and answer `transform`.
+export fn load<F>(transform: F): F;

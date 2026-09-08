@@ -7,7 +7,7 @@ doc: "a suite that parses and prints with core/buri/ast runs under a plain `buri
 # the stencil backend staged a `[T]` element in a fixed 320 — so every suite
 # that reached `core/buri/ast` was reported as a suite that did not compile,
 # and `core/codegen`'s whole job is `ast.parse` and `ast.print`. The unescaper
-# under it reaches `num.U32.toChar`, which was the second refusal.
+# under it reaches `number.U32.toChar`, which was the second refusal.
 #
 # `test` and not `test --output=js`: a suite that names no platform runs
 # natively, and rerouting it would report a pass about a backend nobody chose

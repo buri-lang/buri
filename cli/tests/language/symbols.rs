@@ -183,7 +183,7 @@ fn program_of(open: &mut session::Session, units: &[Unit]) -> Option<Program> {
 /// "the backend declares the runtime import and defines nothing"
 /// (`backend/llvm/emit.rs`) — so two of them under one key are two names for
 /// one runtime entry rather than two bodies fighting over a symbol. `Str`'s
-/// `compare` is reached both inherently and through `Ord` and is a live
+/// `compare` is reached both inherently and through `Ordered` and is a live
 /// example.
 fn unique_symbols(label: &str, program: &Program) {
     let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();

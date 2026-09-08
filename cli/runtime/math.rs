@@ -5,15 +5,15 @@
 //! `core/math` declares twenty-two entries and this implements nine. The split
 //! is not effort, it is **whether the answer is specified**:
 //!
-//! * `sqrt`, `abs`, `floor`, `ceil`, `trunc`, `round`, `isNan`, `isInfinite`
-//!   and `isFinite` are exactly determined. IEEE 754 requires `sqrt` to be
+//! * `squareRoot`, `abs`, `floor`, `ceiling`, `truncate`, `round`, `isNan`, `isInfinite`
+//!   and `isFinite` are exactly determined. IEEE 754 requires `squareRoot` to be
 //!   correctly rounded, the four rounding functions are integer selections, and
 //!   the three predicates are classifications. Every conforming implementation
 //!   agrees on every input, so `f64::sqrt` here and `Math.sqrt` there are the
 //!   same bits.
 //!
 //! * `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`,
-//!   `log10`, `log2`, `pow` and `cbrt` are **not**. IEEE 754 recommends
+//!   `log10`, `log2`, `power` and `cubeRoot` are **not**. IEEE 754 recommends
 //!   correctly-rounded transcendentals and requires nothing, so the answer is
 //!   the implementation's. V8 uses its own port of fdlibm
 //!   (`src/base/ieee754.cc`); `f64::sin` calls the platform's libm, which is
@@ -37,16 +37,16 @@
 //! `f64::round` rounds a tie *away from zero*, so it answers `-1`. Half the
 //! ties disagree, and `-0.5` is not an exotic input.
 
-/// `math.sqrt` — correctly rounded, by IEEE 754 §5.4.1.
+/// `math.squareRoot` — correctly rounded, by IEEE 754 §5.4.1.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_sqrt(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_square_root(x: f64) -> f64 {
     x.sqrt()
 }
 
-/// `math.absFloat`. `abs(-0.0)` is `0.0` and `abs(NaN)` is `NaN`, which is what
+/// `math.absoluteFloat`. `abs(-0.0)` is `0.0` and `abs(NaN)` is `NaN`, which is what
 /// clearing the sign bit does and what `Math.abs` does.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_abs_float(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_absolute_float(x: f64) -> f64 {
     x.abs()
 }
 
@@ -56,15 +56,15 @@ pub extern "C" fn buri_rt_math_floor(x: f64) -> f64 {
     x.floor()
 }
 
-/// `math.ceil` — toward positive infinity.
+/// `math.ceiling` — toward positive infinity.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_ceil(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_ceiling(x: f64) -> f64 {
     x.ceil()
 }
 
-/// `math.trunc` — toward zero.
+/// `math.truncate` — toward zero.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_trunc(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_truncate(x: f64) -> f64 {
     x.trunc()
 }
 

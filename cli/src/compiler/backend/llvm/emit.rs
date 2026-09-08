@@ -937,8 +937,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         // A `Str` is three words and not an integer, so there is no comparison
         // instruction for one. `middle::derives` emits exactly this — a derived
-        // `Eq` or `Ord` over a type with a `Str` in it becomes
-        // `ExprKind::Prim { op: Eq, prim: Str }` (`derives.rs`'s `fn eq`), which
+        // `Equal` or `Ordered` over a type with a `Str` in it becomes
+        // `ExprKind::Prim { op: Equal, prim: Str }` (`derives.rs`'s `fn equal`), which
         // lowers to an `Inst::Binary` at `Prim::Str` — so falling through to the
         // integer path would compare a struct against a struct and answer with
         // whatever the first operand happened to be.
@@ -1715,7 +1715,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// and the header is at `ptr - 16` — so a slice that pointed into the
     /// middle of the source's block would have no header at all, and the first
     /// `decref` of it would read sixteen bytes of somebody's elements as a
-    /// reference count. The `Alloc` bound on every list producer in `list.buri`
+    /// reference count. The `Allocator` bound on every list producer in `list.buri`
     /// is the language saying the same thing.
     ///
     /// The elements are **retained**, because the copy is a second owner of
@@ -2324,8 +2324,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one, allocating through `buri_rt_alloc` and reading no
                 // capability. Every context built from `core/host` happens to be
                 // empty structs, so the two readings agree until a program
-                // builds one from `core/host/testing`, whose `TestAlloc` is
-                // `struct TestAlloc(I64)` and carries a handle. Then a check on
+                // builds one from `core/host/testing`, whose `TestAllocator` is
+                // `struct TestAllocator(I64)` and carries a handle. Then a check on
                 // the leaf count refuses a valid program, and a *spread* on the
                 // leaf count would put one extra word into a C signature that
                 // has no parameter for it and shift every argument after it into
@@ -3552,7 +3552,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The **contexts** come out of the record rather than out of `arg`: they
     /// are the same value at every element, and a C signature has no parameter
-    /// for one. A zero-sized context is no leaves at all; `TestAlloc`'s handle
+    /// for one. A zero-sized context is no leaves at all; `TestAllocator`'s handle
     /// is one, and [`STEP_CTX`] is where it was put.
     ///
     /// The **index** comes out of neither. It is the runtime's loop counter,
@@ -4866,15 +4866,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// `str.concat` has no [`runtime::ENTRIES`] row, so the `Arg::Dropped` that
     /// answers this for every other key is spelled here instead, off the same
-    /// source: the **declaration**. `Str.concat<C: Alloc>(self, ctx: C, other:
-    /// Str)` is three arguments and the middle one is the context;
+    /// source: the **declaration**. `Str.concat<C: Allocator>(self, ctx: C,
+    /// other: Str)` is three arguments and the middle one is the context;
     /// `lower::template`'s `str.concat(a, b)` is two and never had one.
     ///
     /// By position rather than by type. This asked `Ty::Ctx` once, which is the
-    /// same question only while every `C: Alloc` is instantiated at a `context
+    /// same question only while every `C: Allocator` is instantiated at a `context
     /// { … }` record — and `C` is an ordinary type parameter with an ordinary
-    /// bound (SPEC 10.1), so a value that merely *implements* `Alloc` satisfies
-    /// it. `core/host/testing`'s `alloc()` is `struct TestAlloc(I64)` and
+    /// bound (SPEC 10.1), so a value that merely *implements* `Allocator` satisfies
+    /// it. `core/host/testing`'s `alloc()` is `struct TestAllocator(I64)` and
     /// carries a handle; one of those in this position spread to a leaf and
     /// `pieces` was read off by one from there on.
     const fn concat_ctx(argc: usize) -> Option<usize> {
@@ -4944,7 +4944,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `==`, `<` and the rest at a `Str`, which has no comparison instruction.
     ///
-    /// `buri_rt_str_eq` is a byte compare with a length test in front and
+    /// `buri_rt_str_equal` is a byte compare with a length test in front and
     /// `buri_rt_str_compare` is a lexicographic one answering `Order`'s own
     /// numbering — `Less = 0`, `Equal = 1`, `Greater = 2`, in declaration order
     /// in `core/order`. Every relational operator is therefore that number
@@ -4967,7 +4967,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let equality = matches!(op, ir::BinOp::Eq | ir::BinOp::Ne);
         let (symbol, width) = if equality {
-            (runtime::entry("str.eq").map_or("buri_rt_str_eq", |e| e.symbol), 8)
+            (runtime::entry("str.equal").map_or("buri_rt_str_equal", |e| e.symbol), 8)
         } else {
             (runtime::entry("str.compare").map_or("buri_rt_str_compare", |e| e.symbol), 32)
         };
@@ -5467,9 +5467,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         let Some(dest) = dests.first().copied() else { return false };
-        // `str.show`, `character.eq`, `bool.compare` and their siblings: the same
+        // `str.show`, `character.equal`, `bool.compare` and their siblings: the same
         // three operations `Unit::numeric` emits, at the three primitives whose
-        // defining module is not `core/num` and whose keys are therefore two
+        // defining module is not `core/number` and whose keys are therefore two
         // segments rather than three.
         if let Some((prim, op)) = prim_leaf(key) {
             let Some(x) = args.first().copied() else { return false };
@@ -5480,7 +5480,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
                     self.hash_prim(state, code, dest, prim, seed.into(), x)
                 }
-                "eq" => {
+                "equal" => {
                     let Some(y) = y else { return false };
                     let (l, r) = (self.get(state, x), self.get(state, y));
                     let out = self.binary(state, ir::BinOp::Eq, prim, code.ty_of(x), l, r);
@@ -5507,9 +5507,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.set(state, dest, value);
                 true
             }
-            // `list.len()` is the element count, exactly, and always O(1)
+            // `list.length()` is the element count, exactly, and always O(1)
             // (VALUE-MODEL.md §4).
-            "list.len" => {
+            "list.length" => {
                 let Some(a) = args.first().copied() else { return false };
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
                 let value = self.get(state, a);
@@ -5518,11 +5518,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.set(state, dest, len);
                 true
             }
-            // `str.len()` is the number of Unicode *scalars* (§3.1). Bit 63 of
+            // `str.length()` is the number of Unicode *scalars* (§3.1). Bit 63 of
             // the stored length answers what that costs: set means every byte
             // is below 0x80, so the count is the byte count and this is a
             // mask; clear means the runtime counts continuation bytes.
-            "str.len" => self.str_len(state, code, dest, args),
+            "str.length" => self.str_len(state, code, dest, args),
             // `str.format(ctx, template)` is the identity: a `Template` *is* a
             // `Str` (§3.3), and `middle::lower` has already turned the holes
             // into a `str.concat` chain. The context is zero-sized and has
@@ -5555,7 +5555,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // stdout, an in-memory filesystem — and its state lives on the test
             // runner's side, which is why those are rows in the runtime table.
             //
-            // `alloc()` is a fresh `TestAlloc(handle)`, and the handle names an
+            // `alloc()` is a fresh `TestAllocator(handle)`, and the handle names an
             // arena the runner reclaims. Natively there is no runner and one
             // allocator, so the handle names nothing and zero is as good a name
             // as any.
@@ -5568,11 +5568,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 true
             }
             // The identity on the byte count, which is exactly what
-            // `buri_rt_host_alloc_allocate` is: MEMORY.md §7 makes the charge a
+            // `buri_rt_host_allocator_allocate` is: MEMORY.md §7 makes the charge a
             // function of the *types*, computed by `middle::layout`, so
             // `allocate` returns what it was asked for and the accounting is the
             // caller's.
-            "host_testing.TestAlloc.allocate" => {
+            "host_testing.TestAllocator.allocate" => {
                 let Some(bytes) = args.get(1).copied() else { return false };
                 let value = self.get(state, bytes);
                 self.set(state, dest, value);
@@ -5682,7 +5682,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// `str.len`, with the ASCII flag's fast path.
+    /// `str.length`, with the ASCII flag's fast path.
     fn str_len(
         &mut self,
         state: &mut Function<'ctx>,
@@ -5739,7 +5739,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_unconditional_branch(join);
 
         self.builder.position_at_end(join);
-        match self.builder.build_phi(word, "str.len") {
+        match self.builder.build_phi(word, "str.length") {
             Ok(phi) => {
                 phi.add_incoming(&[
                     (&bytes as &dyn BasicValue<'ctx>, fast),
@@ -5756,9 +5756,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// Every one of the fourteen is a machine operation, and the interesting
     /// part is the operand widths, which are not the same as the *declared*
-    /// ones. `bits.shr(x: Int, n)` is a **logical** right shift — `runtime.js`
+    /// ones. `bits.shiftRight(x: Int, n)` is a **logical** right shift — `runtime.js`
     /// reinterprets the pattern as unsigned, shifts, and narrows back — while
-    /// `bits.sar` is the arithmetic one; that they differ is the whole reason
+    /// `bits.shiftRightArithmetic` is the arithmetic one; that they differ is the whole reason
     /// `core/bits` names both. The `U8`, `U32` and `U64` families operate at
     /// their own width, and the shift count is an `Int` at every one of them, so
     /// it is truncated after the range check rather than before.
@@ -5807,8 +5807,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return false;
         };
         let bits = match op {
-            "shlU8" | "shrU8" | "rotateLeftU8" | "rotateRightU8" => 8,
-            "shlU32" | "shrU32" | "rotateLeftU32" | "rotateRightU32" => 32,
+            "shiftLeftU8" | "shiftRightU8" | "rotateLeftU8" | "rotateRightU8" => 8,
+            "shiftLeftU32" | "shiftRightU32" | "rotateLeftU32" | "rotateRightU32" => 32,
             _ => 64,
         };
         self.shift_guard(state, n, bits);
@@ -5818,15 +5818,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .build_int_truncate_or_bit_cast(n, want, "sh.n")
             .unwrap_or(n);
         let value = match op {
-            "shl" | "shlU8" | "shlU32" | "shlU64" => {
+            "shiftLeft" | "shiftLeftU8" | "shiftLeftU32" | "shiftLeftU64" => {
                 self.builder.build_left_shift(x, count, "sh").map(Into::into)
             }
-            // Logical, at every width: `shr` reinterprets as unsigned and the
+            // Logical, at every width: `shiftRight` reinterprets as unsigned and the
             // `U*` families are unsigned already.
-            "shr" | "shrU8" | "shrU32" | "shrU64" => {
+            "shiftRight" | "shiftRightU8" | "shiftRightU32" | "shiftRightU64" => {
                 self.builder.build_right_shift(x, count, false, "sh").map(Into::into)
             }
-            "sar" => self.builder.build_right_shift(x, count, true, "sar").map(Into::into),
+            "shiftRightArithmetic" => {
+                self.builder.build_right_shift(x, count, true, "sar").map(Into::into)
+            }
             // `llvm.fshl(x, x, n)` *is* a rotate, and it is defined for every
             // count — unlike `(x << n) | (x >> (w - n))`, whose second shift is
             // poison at `n == 0`. The range check has already ruled out `n >= w`.
@@ -7185,7 +7187,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         true
     }
 
-    /// `deriveArrayEq` — a derived `Eq` where the field is a `[T]`.
+    /// `deriveArrayEq` — a derived `Equal` where the field is a `[T]`.
     ///
     /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
     /// Bool) -> Bool`, where the third argument is a **code pointer to the
@@ -7795,7 +7797,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 }
 
 // ---------------------------------------------------------------------------
-// `num.<T>.<op>` — the numeric surface `core/num` declares without a body
+// `number.<T>.<op>` — the numeric surface `core/number` declares without a body
 // ---------------------------------------------------------------------------
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -7818,7 +7820,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         span: Span,
     ) -> bool {
         let parts: Vec<&str> = key.split('.').collect();
-        let (Some(&"num"), Some(name), Some(op), 3) =
+        let (Some(&"number"), Some(name), Some(op), 3) =
             (parts.first(), parts.get(1), parts.get(2), parts.len())
         else {
             return false;
@@ -7872,16 +7874,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // by default. The keys stay separate because the *checker* uses
             // them to say whether a program meant it.
             (
-                "add" | "sub" | "mul" | "div" | "rem" | "wrappingAdd" | "wrappingSub"
-                | "wrappingMul",
+                "add" | "subtract" | "multiply" | "divide" | "remainder" | "wrappingAdd"
+                | "wrappingSubtract" | "wrappingMultiply",
                 Some(x),
                 Some(y),
             ) => {
                 let binop = match *op {
                     "add" | "wrappingAdd" => ir::BinOp::Add,
-                    "sub" | "wrappingSub" => ir::BinOp::Sub,
-                    "mul" | "wrappingMul" => ir::BinOp::Mul,
-                    "div" => ir::BinOp::Div,
+                    "subtract" | "wrappingSubtract" => ir::BinOp::Sub,
+                    "multiply" | "wrappingMultiply" => ir::BinOp::Mul,
+                    "divide" => ir::BinOp::Div,
                     _ => ir::BinOp::Rem,
                 };
                 // Straight through `binary`, so that SPEC 6.2's division abort
@@ -7889,7 +7891,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one place rather than from two that have to agree.
                 self.binary(state, binop, from, code.ty_of(dest), x, y)
             }
-            ("neg", Some(x), _) => self.unary(ir::UnOp::Neg, from, x),
+            ("negate", Some(x), _) => self.unary(ir::UnOp::Neg, from, x),
             ("abs", Some(BasicValueEnum::FloatValue(x)), _) => self.fabs(x),
             // `abs` of a signed minimum overflows, and overflow is undefined
             // (SPEC 6.2), so there is nothing to check.
@@ -7914,7 +7916,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `cli/runtime/hash.rs` rather than an exported symbol, and
             // copying `0x811c9dc5` into a backend is the one thing
             // VALUE-MODEL.md §12 most wants stated once.
-            ("eq", Some(x), Some(y)) => {
+            ("equal", Some(x), Some(y)) => {
                 let operand = args.first().copied().map_or(ir::Type::I64, |v| code.ty_of(v));
                 self.binary(state, ir::BinOp::Eq, from, operand, x, y)
             }
@@ -7933,7 +7935,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `Checked` and `Saturating`, which are integer traits: exact
             // arithmetic in 128 bits, then a range test or a clamp.
             (
-                "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv"
+                "checkedAdd" | "checkedSubtract" | "checkedMultiply" | "checkedDivide"
                 | "checkedRemainder",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
@@ -7953,7 +7955,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 return self.checked_power(state, code, dest, from, x, e, span);
             }
             (
-                "saturatingAdd" | "saturatingSub" | "saturatingMul",
+                "saturatingAdd" | "saturatingSubtract" | "saturatingMultiply",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
             ) => {
@@ -7973,7 +7975,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         true
     }
 
-    /// `checkedAdd`, `checkedSub`, `checkedMul`, `checkedDiv` — `Option<T>`.
+    /// `checkedAdd`, `checkedSubtract`, `checkedMultiply`, `checkedDivide` — `Option<T>`.
     ///
     /// **The bound is the type's own range**, which is where this parts company
     /// with the JavaScript backend: there `js/intrinsics.rs` tests
@@ -8022,10 +8024,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `checkedNegate` arrives here as `0 - x`, which is the whole of it:
             // the range test below is what rejects a signed minimum and every
             // non-zero unsigned value.
-            "checkedSub" | "checkedNegate" => {
+            "checkedSubtract" | "checkedNegate" => {
                 self.builder.build_int_sub(a, b, "ck.sub").unwrap_or(a)
             }
-            "checkedMul" => self.builder.build_int_mul(a, b, "ck.mul").unwrap_or(a),
+            "checkedMultiply" => self.builder.build_int_mul(a, b, "ck.mul").unwrap_or(a),
             // A remainder cannot leave the type's range, so a zero divisor is
             // all there is to guard — and `MIN % -1` is `0`, which `1` in place
             // of `-1` also answers, so the instruction never sees either.
@@ -8310,7 +8312,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         true
     }
 
-    /// `saturatingAdd`, `saturatingSub`, `saturatingMul` — clamped to the
+    /// `saturatingAdd`, `saturatingSubtract`, `saturatingMultiply` — clamped to the
     /// **type's own** bounds, which is `$sat`'s rule on the other backend too:
     /// `Saturating` promises a value in range and says nothing about whether a
     /// double could name it, so it is the one family of the three that never
@@ -8335,7 +8337,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let b = self.widen(y, wide, signed);
         let value = match op {
             "saturatingAdd" => self.builder.build_int_add(a, b, "sat.add").unwrap_or(a),
-            "saturatingSub" => self.builder.build_int_sub(a, b, "sat.sub").unwrap_or(a),
+            "saturatingSubtract" => self.builder.build_int_sub(a, b, "sat.sub").unwrap_or(a),
             _ => self.builder.build_int_mul(a, b, "sat.mul").unwrap_or(a),
         };
         let low = self.int_constant(wide.as_basic_type_enum(), lo.unsigned_abs(), lo < 0);
@@ -8371,8 +8373,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let code = match op {
             "checkedAdd" | "saturatingAdd" => 0,
             // A negation arrives as `0 - x`, which is the subtraction already.
-            "checkedSub" | "saturatingSub" | "checkedNegate" => 1,
-            "checkedMul" | "saturatingMul" => 2,
+            "checkedSubtract" | "saturatingSubtract" | "checkedNegate" => 1,
+            "checkedMultiply" | "saturatingMultiply" => 2,
             "checkedRemainder" => 4,
             "checkedPower" => 5,
             _ => 3,
@@ -8734,16 +8736,16 @@ pub fn implemented(key: &str) -> bool {
         || prim_leaf(key).is_some()
 }
 
-/// `str.show`, `character.eq`, `bool.compare` and their six siblings.
+/// `str.show`, `character.equal`, `bool.compare` and their six siblings.
 ///
-/// `semantics/builtins.rs` declares `eq`, `compare`, `show` and `hash` on
+/// `semantics/builtins.rs` declares `equal`, `compare`, `show` and `hash` on
 /// **every** primitive, and `monomorphize::intrinsic_key` names each after the
 /// type's own module — so `Str`'s live under `str.`, `Char`'s under
 /// `character.` and `Bool`'s under `bool.`, while the numeric ones are three
-/// segments under `num.` because `core/num` defines a dozen types. One rule,
+/// segments under `number.` because `core/number` defines a dozen types. One rule,
 /// two spellings, and this is the half of it `numeric_op` does not cover.
 ///
-/// `str.eq`, `str.compare` and `str.hash` are absent because the archive has
+/// `str.equal`, `str.compare` and `str.hash` are absent because the archive has
 /// bodies for all three and [`runtime::ENTRIES`] is where a body goes.
 fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
     let (module, op) = key.split_once('.')?;
@@ -8754,7 +8756,9 @@ fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
         _ => return None,
     };
     match (prim, op) {
-        (_, "show") | (Prim::Char | Prim::Bool, "eq" | "compare" | "hash") => Some((prim, op)),
+        (_, "show") | (Prim::Char | Prim::Bool, "equal" | "compare" | "hash") => {
+            Some((prim, op))
+        }
         _ => None,
     }
 }
@@ -8797,11 +8801,11 @@ fn open_coded_key(key: &str) -> bool {
         key,
         "str.concat"
             | "str.format"
-            | "str.len"
-            | "list.len"
+            | "str.length"
+            | "list.length"
             | "list.empty"
             | "host_testing.alloc"
-            | "host_testing.TestAlloc.allocate"
+            | "host_testing.TestAllocator.allocate"
             | "list.zip"
             | "list.flatten"
             // `core/alloc`'s copy-out, which is the per-type copy glue and a
@@ -8825,7 +8829,7 @@ fn open_coded_key(key: &str) -> bool {
     )
 }
 
-/// The `num.<T>.<op>` operations [`Unit::numeric`] emits, asked before
+/// The `number.<T>.<op>` operations [`Unit::numeric`] emits, asked before
 /// emission rather than during it.
 ///
 /// Four families are deliberately absent, and each for its own reason:
@@ -8834,8 +8838,8 @@ fn open_coded_key(key: &str) -> bool {
 ///    (`llvm.*.with.overflow`) *and* the enum construction; the second half is
 ///    [`Unit::call_sum`]'s machinery driven by something that is not a call.
 ///  * **`saturating*`** is the same test with a clamp instead of an `Option`.
-///  * **`wrapping*`** is the plain operation — every one of `add`, `sub` and
-///    `mul` already wraps here, because §3.4 declines to set `nsw`/`nuw` — but
+///  * **`wrapping*`** is the plain operation — every one of `add`, `subtract` and
+///    `multiply` already wraps here, because §3.4 declines to set `nsw`/`nuw` — but
 ///    claiming the key without emitting it would be a silent miscompile if that
 ///    ever changed, and emitting it is one line that has not been asked for.
 ///  * **`hash`** is `$hashInto` from the FNV-1a **seed**, and the seed is a
@@ -8849,11 +8853,11 @@ pub fn numeric_op(key: &str) -> bool {
     // spellings answer yes, because both describe an operation this backend
     // compiles; `stencil/emit.rs::numeric_key` has said so since the change
     // that found it, and this table had drifted from it.
-    if key == "num.minValue" || key == "num.maxValue" {
+    if key == "number.minValue" || key == "number.maxValue" {
         return true;
     }
     let parts: Vec<&str> = key.split('.').collect();
-    let (Some(&"num"), Some(name), Some(op), 3) =
+    let (Some(&"number"), Some(name), Some(op), 3) =
         (parts.first(), parts.get(1), parts.get(2), parts.len())
     else {
         return false;
@@ -8864,20 +8868,20 @@ pub fn numeric_op(key: &str) -> bool {
     if matches!(
         *op,
         "add"
-            | "sub"
-            | "mul"
-            | "div"
-            | "rem"
-            | "neg"
+            | "subtract"
+            | "multiply"
+            | "divide"
+            | "remainder"
+            | "negate"
             | "abs"
             | "signum"
-            | "eq"
+            | "equal"
             | "compare"
             | "show"
             | "hash"
             | "wrappingAdd"
-            | "wrappingSub"
-            | "wrappingMul"
+            | "wrappingSubtract"
+            | "wrappingMultiply"
             | "minValue"
             | "maxValue"
     ) {
@@ -8889,15 +8893,15 @@ pub fn numeric_op(key: &str) -> bool {
     if matches!(
         *op,
         "checkedAdd"
-            | "checkedSub"
-            | "checkedMul"
-            | "checkedDiv"
+            | "checkedSubtract"
+            | "checkedMultiply"
+            | "checkedDivide"
             | "checkedRemainder"
             | "checkedNegate"
             | "checkedPower"
             | "saturatingAdd"
-            | "saturatingSub"
-            | "saturatingMul"
+            | "saturatingSubtract"
+            | "saturatingMultiply"
     ) {
         return prim.is_integer();
     }
@@ -9566,7 +9570,7 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
         for inst in &block.insts {
             match inst {
                 // One allocation, from `buri_rt_alloc` — which is inaccessible
-                // memory (CODEGEN-LLVM.md §3.1's `Alloc`-bounded row).
+                // memory (CODEGEN-LLVM.md §3.1's `Allocator`-bounded row).
                 ir::Inst::MakeArray { .. } => o.allocates = true,
                 ir::Inst::MakeClosure { env: Some(_), .. } => o.allocates = true,
                 ir::Inst::Abort { .. } => o.aborts = true,

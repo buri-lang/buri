@@ -1,6 +1,6 @@
 // Array patterns, including a trailing rest — which allocates, so where the
 // allocation happens relative to the test that guards it is visible here.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -9,13 +9,13 @@ fn describe(xs: [Int]): Template {
         [] => "empty",
         [only] => "one: ${only}",
         [a, b] => "two: ${a},${b}",
-        [head, ..rest] => "head ${head} and ${rest.len()} more",
+        [head, ..rest] => "head ${head} and ${rest.length()} more",
     }
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io.println(ctx, describe([])).ignore();

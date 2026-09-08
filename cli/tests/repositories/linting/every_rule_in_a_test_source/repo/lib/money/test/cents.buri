@@ -5,7 +5,7 @@
 
 // TODO: this suite is not finished.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/effect" import { IoError, Stdout };
 from "core/host/testing" import { alloc, stdout };
 from "core/io" import * as io;
@@ -16,7 +16,7 @@ from "//lib/money" import { Cents, fromCents };
 
 let HEX_DIGITS: Str = "0123456789abcdef";
 
-let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
 
 struct Ledger {
     entries: I64,
@@ -40,11 +40,11 @@ fn compareInts(left: Int, right: Int): Order {
     if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
 }
 
-fn width<C: Alloc>(ctx: C, label: Str): Int {
-    label.len()
+fn width<C: Allocator>(ctx: C, label: Str): Int {
+    label.length()
 }
 
-fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
     io.println(ctx, "-- ${label}")
 }
 
@@ -123,7 +123,7 @@ fn spell(n: I64): Str {
 
 test "the suite is held to every rule the library is" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
     };
     let unread = total(1, 2, 3, 4, 5, 6);
@@ -132,21 +132,21 @@ test "the suite is held to every rule the library is" {
     drop(ctx, "one");
     byHand(ctx, "two");
     let _ = announce(ctx, "three").ignore();
-    assert.eq(ledger.entries, 2);
-    assert.eq(compareInts(1, 2), .Less);
-    assert.eq(width(ctx, "abc"), 3);
-    assert.eq(depth(5), "small");
-    assert.eq(spell(7), "seven");
-    assert.eq(HEX_DIGITS.len(), 16);
-    assert.eq(NANOS_PER_MILLISECOND, 1_000_000);
-    assert.eq(fromCents(1), Cents(1));
+    assert.equal(ledger.entries, 2);
+    assert.equal(compareInts(1, 2), .Less);
+    assert.equal(width(ctx, "abc"), 3);
+    assert.equal(depth(5), "small");
+    assert.equal(spell(7), "seven");
+    assert.equal(HEX_DIGITS.length(), 16);
+    assert.equal(NANOSECONDS_PER_MILLISECOND, 1_000_000);
+    assert.equal(fromCents(1), Cents(1));
     match (shade) {
         _ => (),
     }
 }
 
 test "a title that\nwraps" {
-    assert.eq(spell(2), "two");
+    assert.equal(spell(2), "two");
 }
 
 test "a test that asserts nothing is still a test" {

@@ -1,5 +1,5 @@
 FAIL //lib/room  test/counter.buri  "everything after a stop is refused"
-  assert.eq failed
+  assert.equal failed
     actual:   .Err(.Stopped)
     expected: .Ok(.Done)
   --> lib/room/test/counter.buri:85:1

@@ -1240,7 +1240,7 @@ fn check_time_unit_conversions(session: &Session, m: &ModuleData, diagnostics: &
     let count = lexed.tokens.len();
     let mut found: Vec<(Span, String)> = Vec::new();
     for at in 0..count {
-        // `let NANOS_PER_MILLISECOND = ...`: the name is the conversion, and
+        // `let NANOSECONDS_PER_MILLISECOND = ...`: the name is the conversion, and
         // `core/time` exports that constant under that name already.
         if lexed.tokens.kind(at) == TokenKind::KeywordLet
             && at + 1 < count
@@ -1288,7 +1288,7 @@ fn is_a_million(tokens: &crate::parsing::lexer::Tokens<'_>, at: usize) -> bool {
 /// The conversion a name spells, as "<from> to <to>", or `None` where the name
 /// is not `<UNIT>_PER_<UNIT>`.
 ///
-/// `NANOS_PER_MILLISECOND` is how many nanoseconds one millisecond holds, so it
+/// `NANOSECONDS_PER_MILLISECOND` is how many nanoseconds one millisecond holds, so it
 /// converts milliseconds *to* nanoseconds: the half after `_PER_` is what a
 /// caller has, and the half before it is what the multiply gives back.
 fn conversion_named(name: &str) -> Option<String> {
@@ -2630,7 +2630,7 @@ fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
 /// dead bound there is dead on the *trait*), and a `ctx` whose type is not a
 /// type parameter, which has no bound list to trim. The scope is narrowed once
 /// more, to a parameter carrying at least one `effect`: that is what makes it
-/// a context, and `T: Eq` on ordinary data is a different question with a
+/// a context, and `T: Equal` on ordinary data is a different question with a
 /// different answer.
 ///
 /// The fourth is the one place this rule is *less* able than that one: **a
@@ -2816,7 +2816,7 @@ fn mentions_param(t: &crate::compiler::semantics::types::Ty, gi: u32) -> bool {
 ///
 /// Read from the declaring module's syntax tree, because `GenericInfo` keeps
 /// the resolved [`TraitId`]s and the span of the parameter as a whole — the
-/// text `Fs` sits at is only in the tree the parser built.
+/// text `FileSystem` sits at is only in the tree the parser built.
 ///
 /// [`TraitId`]: crate::compiler::semantics::types::TraitId
 fn bound_spans(
@@ -2837,7 +2837,7 @@ fn bound_spans(
 /// The bytes that take a set of bounds out of one type parameter's list.
 ///
 /// **One rewrite, not one per bound**, and the separators are why: deleting
-/// `Fs` from `<C: Alloc + Fs + Io>` has to take a `+` with it, and so does
+/// `FileSystem` from `<C: Allocator + Fs + Io>` has to take a `+` with it, and so does
 /// deleting `Io` — the same `+`. Two findings whose edits both claim it are
 /// refused as overlapping and neither is applied, so the whole removal is
 /// computed once here and every finding about the parameter carries it.
@@ -3244,7 +3244,7 @@ fn check_tests_assert(
     // or a re-export is the same function. `core/testing/assert` counts whole:
     // every function it exports is an assertion. `ui/testing`'s `snapshot` is
     // the one function outside it, because a golden that differs — or one that
-    // is not there yet — fails the test exactly as `assert.eq` does.
+    // is not there yet — fails the test exactly as `assert.equal` does.
     // `core/testing/check`'s `forAll` needs no entry: it reports through
     // `assert.none`, so the walk below reaches the assert module on its own.
     let asserts = |f: FnId| -> bool {

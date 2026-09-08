@@ -4,10 +4,10 @@
 // binding four lines below is as readable as it would be in a file with
 // nothing wrong with it. Both are reported, because they are two things.
 
-from "core/effect" import { Alloc }
+from "core/effect" import { Allocator }
 from "core/str" import { fromInt };
 
-export fn describe<C: Alloc>(ctx: C, n: I64): Str {
+export fn describe<C: Allocator>(ctx: C, n: I64): Str {
     let spare = 7;
     fromInt(ctx, n)
 }

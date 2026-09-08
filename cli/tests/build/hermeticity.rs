@@ -153,7 +153,7 @@ fn a_test_source_cannot_import_core_host() {
         "lib/probe/test/env.buri",
         "from \"core/testing/assert\" import * as assert;\n\
          from \"core/host\" import * as host;\n\n\
-         test \"reads the machine\" {\n  assert.eq(1, 1);\n}\n",
+         test \"reads the machine\" {\n  assert.equal(1, 1);\n}\n",
     );
     scratch
         .run(&["test", "//lib/probe"])
@@ -198,7 +198,7 @@ fn two_checkouts_of_one_tree_build_identical_bytes() {
 /// A repository whose only source is written by a generator, for the two rows
 /// below.
 ///
-/// The tool's `main` binds `FsRead` and `FsWrite` as well as the three
+/// The tool's `main` binds `FileSystemRead` and `FileSystemWrite` as well as the three
 /// `codegen.run` needs, which the language allows — a bound is a floor and not
 /// a ceiling — and `marked` is the switch that turns the extra two into an
 /// answer that depends on what has happened before. So one repository states
@@ -221,12 +221,12 @@ fn generated_only(name: &str, marked: bool) -> Scratch {
     );
     scratch.write(
         "cmd/app/main.buri",
-        "from \"core/effect\" import { Alloc, Stdout };\n\
+        "from \"core/effect\" import { Allocator, Stdout };\n\
          from \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\
          from \"//lib/wire\" import { width };\n\n\
          export fn main(): Result<(), Str> {\n  \
-         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
          let _ = io.println(ctx, \"width=${width}\").ignore();\n  \
          .Ok(())\n\
          }\n",
@@ -246,7 +246,7 @@ fn generator(marked: bool) -> String {
         false => String::new(),
         true => "  let tally = fs.readText(ctx, path.of(ctx, \"tally.txt\")).withDefault(\"\");\n  \
                  let _ = fs\n    .writeText(ctx, path.of(ctx, \"tally.txt\"), tally.concat(ctx, \"x\"))\n    \
-                 .ignore();\n  let n = n0 + tally.len();\n"
+                 .ignore();\n  let n = n0 + tally.length();\n"
             .to_string(),
     };
     let plain = match marked {
@@ -254,9 +254,9 @@ fn generator(marked: bool) -> String {
         true => String::new(),
     };
     format!(
-        r#"from "core/effect" import {{ Alloc, Stdin, Stdout }};
+        r#"from "core/effect" import {{ Allocator, Stdin, Stdout }};
 from "core/fs" import * as fs;
-from "core/fs" import {{ FsRead, FsWrite }};
+from "core/fs" import {{ FileSystemRead, FileSystemWrite }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -267,9 +267,9 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
-    FsRead: host.fs,
-    FsWrite: host.fs,
+    Allocator: host.alloc,
+    FileSystemRead: host.fs,
+    FileSystemWrite: host.fs,
     Stdin: host.stdin,
     Stdout: host.stdout,
   }};
@@ -344,8 +344,8 @@ fn two_checkouts_of_a_generated_tree_build_identical_bytes() {
 /// ...and the negative twin: a generator whose answer is not a function of its
 /// request is caught by the same flag.
 ///
-/// `core/codegen`'s `run` bounds what it hands `generate` to `Alloc + Stdin +
-/// Stdout`, and `cli/tests/reject/generator_reaches_beyond_its_context` is the
+/// `core/codegen`'s `run` bounds what it hands `generate` to `Allocator +
+/// Stdin + Stdout`, and `cli/tests/reject/generator_reaches_beyond_its_context` is the
 /// half of that a type error covers. A bound is a *floor*, though: a `main`
 /// that binds the disk as well hands `generate` the disk, and nothing at
 /// compile time says otherwise. This is the check that does — the one

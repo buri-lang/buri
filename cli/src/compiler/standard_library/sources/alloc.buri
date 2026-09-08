@@ -1,6 +1,6 @@
-//! core/alloc — the counting implementations of `Alloc`, and the scope.
+//! core/alloc — the counting implementations of `Allocator`, and the scope.
 //!
-//! `core/host` implements `Alloc` the only way a platform can: `allocate`
+//! `core/host` implements `Allocator` the only way a platform can: `allocate`
 //! hands back the bytes it was asked for, nothing counts, and no request is
 //! ever refused. The three below count, and one of them refuses.
 //!
@@ -17,7 +17,7 @@
 //!
 //! ## The charge is defined, not measured
 //!
-//! The table beside `Alloc` in `core/effect` is the whole cost model. The
+//! The table beside `Allocator` in `core/effect` is the whole cost model. The
 //! charge for an operation is a function of the *types*, so the same program
 //! charges the same number on every backend and every platform.
 //!
@@ -35,7 +35,7 @@
 //!
 //! A program that wants those rows counted charges them itself, which is what
 //! `strBytes` and its neighbours below are for:
-//! `ctx.allocate(alloc.listBytes(xs.len(), 8))` is exactly the model's
+//! `ctx.allocate(alloc.listBytes(xs.length(), 8))` is exactly the model's
 //! `16 + n * stride(T)`.
 //!
 //! ## The counters live outside the values
@@ -55,14 +55,14 @@
 //!
 //! ```buri run
 //! from "core/alloc" import * as alloc;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let gp = alloc.generalPurpose();
 //!     let ctx = context {
-//!         Alloc: gp,
+//!         Allocator: gp,
 //!         Stdout: host.stdout,
 //!     };
 //!     let _ = alloc.allocate(ctx, 64);
@@ -73,7 +73,7 @@
 //!     // A budget refuses rather than reports: this one has 32 bytes left.
 //!     let buffer = alloc.fixedBuffer(64);
 //!     let small = context {
-//!         Alloc: buffer,
+//!         Allocator: buffer,
 //!     };
 //!     let _ = alloc.allocate(small, 32);
 //!     let _ = io.println(ctx, "${buffer.remaining()} of ${buffer.budget} left").ignore();
@@ -87,14 +87,14 @@
 //! ```
 
 from "core/effect" import {
-    Alloc, Clock, Env, Header, IoError, Listen, Listener, Net, NetError, Proc, Rand,
-    Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin,
-    Stdout, Tasks,
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, NetError, Network,
+    Process, Random, Received, Region, Request, Response, Serve, ServeError, Sockets,
+    Stderr, Stdin, Stdout, Tasks,
 };
 
 // The filesystem's two effects, and the type their methods take. Declared in
 // `core/fs` rather than `core/effect`; see that module's header.
-from "core/fs" import { FsRead, FsWrite, Metadata };
+from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata };
 from "core/path" import { Path };
 from "core/process" import { Output, Spawn };
 
@@ -102,13 +102,13 @@ from "core/process" import { Output, Spawn };
 
 /// `bytes` bytes, charged to whichever allocator the context binds.
 ///
-/// This is `Alloc`'s only operation and the only way to reach it. You perform
+/// This is `Allocator`'s only operation and the only way to reach it. You perform
 /// an effect by handing the context to a function, never by calling a method on
 /// it (SPEC 10.2). Everything else in this module is either an allocator to bind
 /// or arithmetic over the cost model, and the two meet here:
-/// `alloc.allocate(ctx, alloc.listBytes(xs.len(), 8))` is the model's
+/// `alloc.allocate(ctx, alloc.listBytes(xs.length(), 8))` is the model's
 /// `16 + n * stride(T)`, charged.
-export fn allocate<C: Alloc>(ctx: C, bytes: Int): Region {
+export fn allocate<C: Allocator>(ctx: C, bytes: Int): Region {
     ctx.allocate(bytes)
 }
 
@@ -125,20 +125,20 @@ export let HEADER_BYTES: Int = 16;
 /// allocates (SPEC 10.5), not what an implementation happens to do.
 export let VIEW_BYTES: Int = 0;
 
-/// The charge for a `Str` of `n` UTF-8 bytes: `16 + n`.
+/// The charge for a `Str` of `count` UTF-8 bytes: `16 + n`.
 ///
-/// UTF-8 bytes, not scalars — `"é".len()` is 1 and its charge is 18.
-export fn strBytes(n: Int): Int {
-    HEADER_BYTES + n
+/// UTF-8 bytes, not scalars — `"é".length()` is 1 and its charge is 18.
+export fn strBytes(count: Int): Int {
+    HEADER_BYTES + count
 }
 
-/// The charge for a `[T]` of `n` elements: `16 + n * stride`.
+/// The charge for a `[T]` of `count` elements: `16 + n * stride`.
 ///
 /// The stride is a parameter because the language has no `sizeOf<T>()`. The
 /// model's `stride(T)` is VALUE-MODEL.md §5's layout, which the compiler knows
 /// and a program cannot ask for.
-export fn listBytes(n: Int, stride: Int): Int {
-    HEADER_BYTES + n * stride
+export fn listBytes(count: Int, stride: Int): Int {
+    HEADER_BYTES + count * stride
 }
 
 /// The charge for a closure environment of `size` bytes: `16 + size`.
@@ -146,7 +146,7 @@ export fn closureBytes(size: Int): Int {
     HEADER_BYTES + size
 }
 
-derive Eq, Show for Stats;
+derive Equal, Show for Stats;
 // --- What an allocator has been asked for -------------------------------------
 
 /// What `GeneralPurpose.stats`, `Arena.stats` and `FixedBuffer.stats`
@@ -192,7 +192,7 @@ export struct GeneralPurpose {
     handle: I64,
 }
 
-impl Alloc for GeneralPurpose {
+impl Allocator for GeneralPurpose {
     fn allocate(self, bytes: Int): Region {
         Region(charge(self.handle, bytes))
     }
@@ -230,7 +230,7 @@ export struct Arena {
     handle: I64,
 }
 
-impl Alloc for Arena {
+impl Allocator for Arena {
     fn allocate(self, bytes: Int): Region {
         Region(charge(self.handle, bytes))
     }
@@ -267,7 +267,7 @@ export struct FixedBuffer {
     export budget: Int,
 }
 
-impl Alloc for FixedBuffer {
+impl Allocator for FixedBuffer {
     fn allocate(self, bytes: Int): Region {
         Region(charge(self.handle, bytes))
     }
@@ -380,7 +380,7 @@ export fn copyAcross<T>(value: T): T {
     out
 }
 
-/// **An attenuating wrapper whose `Alloc` is a scope's own arena and whose
+/// **An attenuating wrapper whose `Allocator` is a scope's own arena and whose
 /// every other effect is the wrapped context's.**
 ///
 /// `ReadOnly<C>` in `core/testing/context` is the shape, and the same two rules
@@ -393,12 +393,12 @@ export fn copyAcross<T>(value: T): T {
 ///     than a second capability.
 ///
 /// What it satisfies, it satisfies **conditionally**. `Scoped<C>` is an
-/// `FsRead` only where `C` is one, a `Clock` only where `C` is one, and so on
+/// `FileSystemRead` only where `C` is one, a `Clock` only where `C` is one, and so on
 /// for every effect the platform declares. This language has no blanket
 /// implementations and no delegation, so each is written out below, once. A new
 /// effect in `core/effect` means a new block here.
 ///
-/// **`Alloc` is the one that does not forward**, and it is the whole point of
+/// **`Allocator` is the one that does not forward**, and it is the whole point of
 /// the type. See `scoped` below.
 export struct Scoped<C>(C, I64);
 
@@ -409,7 +409,7 @@ export struct Scoped<C>(C, I64);
 /// alloc.scoped(ctx, fn(c) => handle(c, request))
 /// ```
 ///
-/// `ctx` must already grant `Alloc`. A scope **narrows** what an allocation is
+/// `ctx` must already grant `Allocator`. A scope **narrows** what an allocation is
 /// charged to and never widens what the callee may do, so entering one is no
 /// way to obtain the effect. Everything else `ctx` grants passes through
 /// unchanged — the body prints on the same stdout, reads the same filesystem
@@ -459,7 +459,7 @@ export struct Scoped<C>(C, I64);
 /// back out. Allocating through one afterwards charges nothing and reserves
 /// nothing: this function retires the arena's handle when it returns, and a
 /// retired handle matches no arena.
-export fn scoped<C: Alloc, T>(ctx: C, body: fn(Scoped<C>) => T): T {
+export fn scoped<C: Allocator, T>(ctx: C, body: fn(Scoped<C>) => T): T {
     let handle = arenaCreate();
     let outer = arenaEnter(handle);
     let inside = body(Scoped(ctx, handle));
@@ -481,8 +481,8 @@ impl<C> Scoped<C> {
 //
 // No bound on `C`: the arena is this wrapper's own, so a `Scoped<C>` allocates
 // whether or not the `C` it holds can. `scoped` checks the authority once, and
-// requires `C: Alloc` there.
-impl<C> Alloc for Scoped<C> {
+// requires `C: Allocator` there.
+impl<C> Allocator for Scoped<C> {
     fn allocate(self, bytes: Int): Region {
         Region(arenaAllocate(self.1, bytes))
     }
@@ -499,8 +499,8 @@ impl<C: Stdout> Stdout for Scoped<C> {
         self.0.println(text)
     }
 
-    fn writeBytes(self, b: [U8]): Result<(), IoError> {
-        self.0.writeBytes(b)
+    fn writeBytes(self, bytes: [U8]): Result<(), IoError> {
+        self.0.writeBytes(bytes)
     }
 }
 
@@ -519,12 +519,12 @@ impl<C: Stdin> Stdin for Scoped<C> {
         self.0.readLine()
     }
 
-    fn readBytes(self, n: Int): Option<[U8]> {
-        self.0.readBytes(n)
+    fn readBytes(self, count: Int): Option<[U8]> {
+        self.0.readBytes(count)
     }
 }
 
-impl<C: FsRead> FsRead for Scoped<C> {
+impl<C: FileSystemRead> FileSystemRead for Scoped<C> {
     fn readFile(self, path: Path): Result<Str, IoError> {
         self.0.readFile(path)
     }
@@ -554,7 +554,7 @@ impl<C: FsRead> FsRead for Scoped<C> {
     }
 }
 
-impl<C: FsWrite> FsWrite for Scoped<C> {
+impl<C: FileSystemWrite> FileSystemWrite for Scoped<C> {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
         self.0.writeFile(path, body)
     }
@@ -592,19 +592,19 @@ impl<C: FsWrite> FsWrite for Scoped<C> {
     }
 }
 
-impl<C: Net> Net for Scoped<C> {
+impl<C: Network> Network for Scoped<C> {
     fn fetch(self, request: Request): Result<Response, NetError> {
         self.0.fetch(request)
     }
 }
 
 impl<C: Clock> Clock for Scoped<C> {
-    fn nowMillis(self): I64 {
-        self.0.nowMillis()
+    fn nowMilliseconds(self): I64 {
+        self.0.nowMilliseconds()
     }
 
-    fn sleepMillis(self, millis: Int): () {
-        self.0.sleepMillis(millis)
+    fn sleepMilliseconds(self, milliseconds: Int): () {
+        self.0.sleepMilliseconds(milliseconds)
     }
 
     fn monotonicNanoseconds(self): I64 {
@@ -612,9 +612,9 @@ impl<C: Clock> Clock for Scoped<C> {
     }
 }
 
-impl<C: Rand> Rand for Scoped<C> {
-    fn nextInt(self, lo: Int, hi: Int): Int {
-        self.0.nextInt(lo, hi)
+impl<C: Random> Random for Scoped<C> {
+    fn nextInt(self, low: Int, high: Int): Int {
+        self.0.nextInt(low, high)
     }
 
     fn nextFloat(self): Float {
@@ -622,13 +622,13 @@ impl<C: Rand> Rand for Scoped<C> {
     }
 }
 
-impl<C: Env> Env for Scoped<C> {
+impl<C: Environment> Environment for Scoped<C> {
     fn variable(self, name: Str): Option<Str> {
         self.0.variable(name)
     }
 
-    fn args(self): [Str] {
-        self.0.args()
+    fn arguments(self): [Str] {
+        self.0.arguments()
     }
 
     fn currentDirectory(self): Str {
@@ -644,7 +644,7 @@ impl<C: Env> Env for Scoped<C> {
     }
 }
 
-impl<C: Proc> Proc for Scoped<C> {
+impl<C: Process> Process for Scoped<C> {
     fn exitWith(self, code: Int): () {
         self.0.exitWith(code)
     }
@@ -665,8 +665,8 @@ impl<C: Spawn> Spawn for Scoped<C> {
 // The step is handed `ctx` — the caller's whole context — and not `self`, so a
 // task receives whatever the caller passed and not this wrapper.
 impl<C: Tasks> Tasks for Scoped<C> {
-    fn parallel<X, A, B>(self, ctx: X, items: [A], f: fn(X, Int, A) => B): [B] {
-        self.0.parallel(ctx, items, f)
+    fn parallel<X, A, B>(self, ctx: X, items: [A], step: fn(X, Int, A) => B): [B] {
+        self.0.parallel(ctx, items, step)
     }
 }
 
@@ -682,9 +682,9 @@ impl<C: Listen> Listen for Scoped<C> {
         port: Int,
         plan: [Serve],
         requestLimit: Int,
-        idleTimeoutMillis: Int,
+        idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
-        self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
+        self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMilliseconds)
     }
 
     fn listenAccept(self, handle: Int): Result<Int, ServeError> {
@@ -713,7 +713,7 @@ impl<C: Listen> Listen for Scoped<C> {
         self.0.listenUpgrade(connection)
     }
 
-    // Whichever `Alloc` the acceptor itself holds allocates a socket's
+    // Whichever `Allocator` the acceptor itself holds allocates a socket's
     // messages, not this one — exactly as with a `Request`'s body.
     fn listenReceive(self, socket: Int): Result<Received, ServeError> {
         self.0.listenReceive(socket)

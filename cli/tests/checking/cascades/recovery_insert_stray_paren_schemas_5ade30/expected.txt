@@ -1,0 +1,17 @@
+error: this `match` does not cover `.Some(_)` [match-not-exhaustive]
+  --> main.buri:51:5
+   |
+51 |     match (out.findIndex(fn(l) => l == head)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Some(_)`, or a `_` arm for everything left
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:52:43
+   |
+52 |         .Some(i) => out.slice(ctx, i, i + , count),
+   |                                           ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

@@ -1,5 +1,5 @@
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -10,7 +10,7 @@ from "//lib/rpc" import {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     // Packing is the program's own: the generated code reads neither field.

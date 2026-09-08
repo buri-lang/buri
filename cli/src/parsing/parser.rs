@@ -3307,11 +3307,11 @@ mod tests {
         ok("type Handler<T> = fn(T) => Result<(), Str>;");
         ok("let MAX: Int = 5;");
         ok("export let MAX: Int = 5;");
-        ok("trait Ord { fn compare(self, other: Self): Order; }");
+        ok("trait Ordered { fn compare(self, other: Self): Order; }");
         ok("effect Fs { fn readFile(self, path: Str): Result<Str, IoError>; }");
-        ok("impl Ord for Version { fn compare(self, other: Version): Order { .Equal } }");
-        ok("derive Eq, Ord, Show for Playlist;");
-        ok("context Fixture { Alloc: alloc(), Fs: fs() }");
+        ok("impl Ordered for Version { fn compare(self, other: Version): Order { .Equal } }");
+        ok("derive Equal, Ordered, Show for Playlist;");
+        ok("context Fixture { Allocator: alloc(), Fs: fs() }");
         ok(r#"test "pads the cents place" { let x = 1; }"#);
     }
 
@@ -3523,14 +3523,14 @@ mod tests {
 
     #[test]
     fn let_ctx_takes_no_annotation() {
-        ok("fn f(): Int { let ctx = context { Alloc: host.alloc }; 0 }");
+        ok("fn f(): Int { let ctx = context { Allocator: host.alloc }; 0 }");
     }
 
     #[test]
     fn expression_statements_parse_and_are_checked_later() {
         // The grammar admits `Expr ";"`; restricting it to test sources and to
         // type `()` is a static rule, not a grammar one (design/grammar-rationale.md 12.2).
-        let m = ok(r#"test "t" { assert.eq(a, b); }"#);
+        let m = ok(r#"test "t" { assert.equal(a, b); }"#);
         assert_eq!(m.items.len(), 1);
     }
 
@@ -3554,8 +3554,8 @@ mod tests {
     #[test]
     fn a_malformed_impl_body_does_not_hang() {
         for src in [
-            "struct V(Int);\nimpl V { ... }\nderive Eq for V;",
-            "impl Ord for V { ... }\nfn after(): Int { 1 }",
+            "struct V(Int);\nimpl V { ... }\nderive Equal for V;",
+            "impl Ordered for V { ... }\nfn after(): Int { 1 }",
             "trait T { ... }\nstruct W(Int);",
             "impl V { ... }",
         ] {

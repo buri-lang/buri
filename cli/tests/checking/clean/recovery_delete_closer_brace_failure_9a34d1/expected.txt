@@ -1,0 +1,12 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:76:28
+   |
+76 |     let silent = fn(_c, _r => Response { modules: [], diagnostics: [] };
+   |                            ^^
+   |
+  --> main.buri:76:20
+   |
+76 |     let silent = fn(_c, _r => Response { modules: [], diagnostics: [] };
+   |                    ^ opened here
+   |
+   = fix: write `)` here

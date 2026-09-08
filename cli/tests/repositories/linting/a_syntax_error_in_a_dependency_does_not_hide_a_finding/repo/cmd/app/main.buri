@@ -1,7 +1,7 @@
 // Two hops above the file that did not parse, so the report below says
 // recovery is transitive rather than only about the package next door.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//lib/money" import { describe };
@@ -9,7 +9,7 @@ from "//lib/routes" import { Route };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let leftover = 1;

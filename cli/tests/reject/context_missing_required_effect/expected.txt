@@ -1,7 +1,7 @@
-error: `a context` does not satisfy `FsRead` [unsatisfied-bound]
+error: `a context` does not satisfy `FileSystemRead` [unsatisfied-bound]
   --> cmd/context_missing_required_effect/main.buri:15:12
    |
 15 |   let ok = check(ctx, "x");
    |            ^^^^^^^^^^^^^^^
    |
-   = fix: bound the type parameter with `FsRead`, or use a type that has one
+   = fix: bound the type parameter with `FileSystemRead`, or use a type that has one

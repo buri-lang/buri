@@ -7,14 +7,14 @@
 //
 // The draws themselves are checkable, though, and that is most of this file:
 // `check.int` and `check.listOf` are ordinary functions over `core/random`'s
-// `Gen`, so a test can call one and look at what came out. The seed is fixed,
+// `Generator`, so a test can call one and look at what came out. The seed is fixed,
 // so every one of these answers the same on every backend.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/random" import * as random;
-from "core/random" import { Gen };
+from "core/random" import { Generator };
 from "core/testing/assert" import * as assert;
 from "core/testing/check" import * as check;
 
@@ -23,53 +23,53 @@ from "core/testing/check" import * as check;
 test "int draws inside the half-open range" {
     check.forAll(check.int(1, 7), fn(face) => face >= 1 && face <= 6);
     check.forAll(check.int(0, 2), fn(bit) => bit == 0 || bit == 1);
-    assert.eq(check.CASES, 100);
+    assert.equal(check.CASES, 100);
 }
 
 test "int over an empty range answers low and steps nothing" {
     let (value, next) = check.int(5, 5)(random.seeded(1));
-    assert.eq(value, 5);
-    assert.eq(next.0, random.seeded(1).0);
+    assert.equal(value, 5);
+    assert.equal(next.0, random.seeded(1).0);
     let (below, _) = check.int(5, 1)(random.seeded(1));
-    assert.eq(below, 5);
+    assert.equal(below, 5);
 }
 
 test "int over a range of one answers low every time" {
     check.forAll(check.int(9, 10), fn(only) => only == 9);
     let (only, _) = check.int(9, 10)(random.seeded(77));
-    assert.eq(only, 9);
+    assert.equal(only, 9);
 }
 
 test "a negative range is drawn from as happily as a positive one" {
     check.forAll(check.int(0 - 5, 5), fn(n) => n >= 0 - 5 && n < 5);
-    assert.eq(0 - 5 < 0, true);
+    assert.equal(0 - 5 < 0, true);
 }
 
 // --- listOf ---------------------------------------------------------------------
 
 test "listOf never draws past its bound" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 5), fn(_c, items) => {
-        items.len() <= 5
+        items.length() <= 5
     });
-    assert.eq(5 <= 5, true);
+    assert.equal(5 <= 5, true);
 }
 
 test "listOf holds every element to the item generator's range" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(3, 6), 4), fn(_c, items) => {
         items.all(fn(x) => x >= 3 && x < 6)
     });
-    assert.eq([3, 4, 5].len(), 3);
+    assert.equal([3, 4, 5].length(), 3);
 }
 
 test "listOf at zero and below draws the empty list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 0), fn(_c, xs) => {
         xs.isEmpty()
@@ -80,11 +80,11 @@ test "listOf at zero and below draws the empty list" {
 
 test "listOf draws a list of the length it said it would" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (drawn, _) = check.listOf(ctx, check.int(0, 100), 6)(ctx, random.seeded(11));
-    assert.le(drawn.len(), 6);
-    assert.ge(drawn.len(), 0);
+    assert.lessOrEqual(drawn.length(), 6);
+    assert.greaterOrEqual(drawn.length(), 0);
     // Nothing outside the item generator's range got in.
     assert.isTrue(drawn.all(fn(x) => x >= 0 && x < 100));
 }
@@ -94,46 +94,46 @@ test "listOf draws a list of the length it said it would" {
 test "a seed replays the case it was reported for" {
     let (first, afterFirst) = check.int(0, 1000)(random.seeded(4372));
     let (again, afterAgain) = check.int(0, 1000)(random.seeded(4372));
-    assert.eq(first, again);
+    assert.equal(first, again);
     // The generator it leaves behind replays too, so a whole run does.
-    assert.eq(afterFirst.0, afterAgain.0);
+    assert.equal(afterFirst.0, afterAgain.0);
 }
 
 test "two different seeds draw two different cases" {
     let (one, _) = check.int(0, 1000000)(random.seeded(1));
     let (two, _) = check.int(0, 1000000)(random.seeded(2));
-    assert.notEq(one, two);
+    assert.notEqual(one, two);
 }
 
 // --- the properties a suite would actually write -------------------------------------
 
 test "reversing twice gives the list back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 100), 8), fn(c, items) => {
         items.reverse(c).reverse(c).compare(items) == .Equal
     });
-    assert.eq([1, 2].len(), 2);
+    assert.equal([1, 2].length(), 2);
 }
 
 test "sorting keeps the length and the elements" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
-        items.sort(c).len() == items.len()
+        items.sort(c).length() == items.length()
     });
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
         items.sort(c).isSortedBy(fn(a, b) => a.compare(b))
     });
-    assert.eq([1, 2, 3].len(), 3);
+    assert.equal([1, 2, 3].length(), 3);
 }
 
 // --- the hundredth case, and the seed a report would name -----------------------------
 
 /// The generator's state and its draw, `skip` cases into a run from `g`.
-fn drawAt(g: Gen, skip: Int): (Int, Int) {
+fn drawAt(g: Generator, skip: Int): (Int, Int) {
     if (skip <= 0) {
         let (value, _next) = check.int(0, 100)(g);
         (g.0.wrapToI64(), value)
@@ -148,20 +148,20 @@ test "the hundredth draw is the one the failing report names" {
     // ninety-nine draws and breaks on this one. These are the two numbers its
     // report prints, so a change to the draw order fails here as well as there.
     let last = drawAt(random.seeded(0), check.CASES - 1);
-    assert.eq(last.0, 3419378616714001439);
-    assert.eq(last.1, 94);
+    assert.equal(last.0, 3419378616714001439);
+    assert.equal(last.1, 94);
 }
 
 test "the seed a report names replays the case beside it" {
     let (case, _) = check.int(0, 100)(random.seeded(3419378616714001439));
-    assert.eq(case, 94);
+    assert.equal(case, 94);
     // And the very first case, which is the one a property that never holds
     // reports: seed zero, drawing 35.
     let (first, _) = check.int(0, 100)(random.seeded(0));
-    assert.eq(first, 35);
+    assert.equal(first, 35);
 }
 
 test "a property that holds for every one of the hundred is a no-op" {
     check.forAll(check.int(0, 100), fn(n) => n >= 0 && n <= 99);
-    assert.eq(check.CASES, 100);
+    assert.equal(check.CASES, 100);
 }

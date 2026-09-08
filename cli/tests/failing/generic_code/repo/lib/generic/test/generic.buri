@@ -6,25 +6,25 @@ from "core/testing/assert" import * as assert;
 from "//lib/generic" import { firstOr, twice };
 
 test "instantiated at Int" {
-    assert.eq(firstOr([1, 2], 0), 1);
+    assert.equal(firstOr([1, 2], 0), 1);
 }
 
 test "instantiated at Str" {
-    assert.eq(firstOr(["a", "b"], "z"), "a");
+    assert.equal(firstOr(["a", "b"], "z"), "a");
 }
 
 test "instantiated at Char" {
-    assert.eq(firstOr(['a', 'b'], 'z'), 'a');
+    assert.equal(firstOr(['a', 'b'], 'z'), 'a');
 }
 
 test "instantiated at a list" {
-    assert.eq(firstOr([[1], [2]], []), [1]);
+    assert.equal(firstOr([[1], [2]], []), [1]);
 }
 
 test "a generic answering a tuple" {
-    assert.eq(twice(7), (7, 8));
+    assert.equal(twice(7), (7, 8));
 }
 
 test "a generic answering a tuple of strings" {
-    assert.eq(twice("s"), ("s", "t"));
+    assert.equal(twice("s"), ("s", "t"));
 }

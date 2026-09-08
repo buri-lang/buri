@@ -4,7 +4,7 @@
 //! `Stdin`, hands your function the [`Request`], and writes the [`Response`]
 //! back as one JSON line on `Stdout`.
 //!
-//! **[`run`] hands your function a context bounded by `Alloc`, `Stdin` and
+//! **[`run`] hands your function a context bounded by `Allocator`, `Stdin` and
 //! `Stdout`.** Build `main`'s context out of those three, as below, and the
 //! clock and the filesystem are a type error inside it. Bind more than `run`
 //! needs and it is yours to answer for — what a generator writes has to be a
@@ -35,11 +35,11 @@
 //! from "core/buri/ast" import * as ast;
 //! from "core/codegen" import * as codegen;
 //! from "core/codegen" import { Request, Response };
-//! from "core/effect" import { Alloc, Stdin, Stdout };
+//! from "core/effect" import { Allocator, Stdin, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
-//! fn generate<C: Alloc>(ctx: C, request: Request): Response {
+//! fn generate<C: Allocator>(ctx: C, request: Request): Response {
 //!     let modules = request.inputs.map(ctx, fn(input) => alias(input));
 //!     Response { modules: modules, diagnostics: [] }
 //! }
@@ -63,7 +63,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdin: host.stdin,
 //!         Stdout: host.stdout,
 //!     };
@@ -83,13 +83,13 @@
 //! ```
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/io" import * as io;
 from "core/json" import * as json;
 from "core/json" import { Json };
 from "core/str" import * as str;
 
-derive Eq, Show for Request;
+derive Equal, Show for Request;
 /// What the build hands a generator: the files the rule declared, and the
 /// files its dependencies own. Each pair is `(repository-relative path, text)`,
 /// in the order the rule declared them.
@@ -98,7 +98,7 @@ export struct Request {
     export dependencies: [(Str, Str)],
 }
 
-derive Eq, Show for Diagnostic;
+derive Equal, Show for Diagnostic;
 /// Something the generator has to say about its input.
 ///
 /// `code` is looked up in the toolchain's catalogue. `origin` is `.None` for a
@@ -124,7 +124,7 @@ export struct Response {
 /// Reads the request, calls `generate`, writes the response.
 ///
 /// The whole of a generator's `main`. See the module header for one.
-export fn run<C: Alloc + Stdin + Stdout>(
+export fn run<C: Allocator + Stdin + Stdout>(
     ctx: C,
     generate: fn(C, Request) => Response,
 ): Result<(), Str> {
@@ -144,14 +144,14 @@ export fn run<C: Alloc + Stdin + Stdout>(
 // Reading the request
 // -----------------------------------------------------------------------------
 
-fn readRequest<C: Alloc + Stdin>(ctx: C): Result<Request, Str> {
+fn readRequest<C: Allocator + Stdin>(ctx: C): Result<Request, Str> {
     match (io.readLine(ctx)) {
         .None => .Err("codegen: standard input held no request"),
         .Some(line) => decodeRequest(ctx, line),
     }
 }
 
-fn decodeRequest<C: Alloc>(ctx: C, line: Str): Result<Request, Str> {
+fn decodeRequest<C: Allocator>(ctx: C, line: Str): Result<Request, Str> {
     match (json.parse(ctx, line)) {
         .Err(e) => .Err(str.format(ctx, "codegen: the request is not JSON: ${e}")),
         .Ok(doc) => {
@@ -169,7 +169,7 @@ fn decodeRequest<C: Alloc>(ctx: C, line: Str): Result<Request, Str> {
 
 /// `inputs` or `dependencies`. An absent member and a `null` one both mean the
 /// empty list, so a build that has nothing to send may say so either way.
-fn pairs<C: Alloc>(ctx: C, doc: Json, name: Str): Result<[(Str, Str)], Str> {
+fn pairs<C: Allocator>(ctx: C, doc: Json, name: Str): Result<[(Str, Str)], Str> {
     match (doc.get(name).filter(fn(v) => !v.isNull())) {
         .None => .Ok([]),
         .Some(value) => {
@@ -191,7 +191,7 @@ fn pair(bad: Str, item: Json): Result<(Str, Str), Str> {
     match (item.asArray()) {
         .None => .Err(bad),
         .Some(parts) => {
-            if (parts.len() != 2) {
+            if (parts.length() != 2) {
                 .Err(bad)
             } else {
                 match (parts.get(0).andThen(fn(v) => v.asStr())) {
@@ -212,7 +212,7 @@ fn pair(bad: Str, item: Json): Result<(Str, Str), Str> {
 // Writing the response
 // -----------------------------------------------------------------------------
 
-fn encodeResponse<C: Alloc>(ctx: C, response: Response): Str {
+fn encodeResponse<C: Allocator>(ctx: C, response: Response): Str {
     let modules = response
         .modules
         .mapCtx(ctx, fn(c, entry) => {
@@ -229,7 +229,7 @@ fn encodeResponse<C: Alloc>(ctx: C, response: Response): Str {
     )
 }
 
-fn moduleJson<C: Alloc>(ctx: C, name: Str, printed: ast.Printed): Json {
+fn moduleJson<C: Allocator>(ctx: C, name: Str, printed: ast.Printed): Json {
     let anchors = printed.anchors.map(ctx, fn(a) => anchorJson(a));
     Json.Object([
         ("name", Json.Str(name)),

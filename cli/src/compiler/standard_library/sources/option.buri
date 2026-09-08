@@ -6,11 +6,11 @@
 //! harmless, and making it an error would put `option.ignore` in front of half
 //! the standard library for no safety gain (SPEC 5.7.1).
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 
 // Structural, so `Option<T>` compares and renders whenever `T` does. Without
-// this no struct with an `Option` field could derive `Eq` either.
-derive Eq, Ord, Show, Hash for Option;
+// this no struct with an `Option` field could derive `Equal` either.
+derive Equal, Ordered, Show, Hash for Option;
 export enum Option<T> {
     Some(T),
     None,
@@ -40,25 +40,25 @@ impl<T> Option<T> {
         }
     }
 
-    export fn map<U>(self, f: fn(T) => U): Option<U> {
+    export fn map<U>(self, transform: fn(T) => U): Option<U> {
         match (self) {
-            .Some(v) => .Some(f(v)),
+            .Some(v) => .Some(transform(v)),
             .None => .None,
         }
     }
 
     /// `map` where the function needs an effect. The capture rule (SPEC 10.6) is
     /// why it takes `ctx` rather than letting the lambda close over one.
-    export fn mapCtx<U, C>(self, ctx: C, f: fn(C, T) => U): Option<U> {
+    export fn mapCtx<U, C>(self, ctx: C, transform: fn(C, T) => U): Option<U> {
         match (self) {
-            .Some(v) => .Some(f(ctx, v)),
+            .Some(v) => .Some(transform(ctx, v)),
             .None => .None,
         }
     }
 
-    export fn andThen<U>(self, f: fn(T) => Option<U>): Option<U> {
+    export fn andThen<U>(self, transform: fn(T) => Option<U>): Option<U> {
         match (self) {
-            .Some(v) => f(v),
+            .Some(v) => transform(v),
             .None => .None,
         }
     }
@@ -169,10 +169,10 @@ impl<T> Option<T> {
     /// One element, or none — the shape that lets a `[Option<T>]` become a
     /// `[T]` through `filterMap` or `flatten`.
     ///
-    /// It names `Alloc` because the result's length depends on the value, even
+    /// It names `Allocator` because the result's length depends on the value, even
     /// though both lengths are known: SPEC 10.5 asks about the answer, not
     /// about the code.
-    export fn toList<C: Alloc>(self, ctx: C): [T] {
+    export fn toList<C: Allocator>(self, ctx: C): [T] {
         let none: [T] = [];
         match (self) {
             .Some(v) => none.push(ctx, v),

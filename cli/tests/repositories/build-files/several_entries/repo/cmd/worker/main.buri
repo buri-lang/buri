@@ -1,12 +1,12 @@
 // A binary that is only a worker. There is no `main` here, because nothing
 // starts this: the platform calls `fetch` once per request.
-from "core/effect" import { Alloc, Request, Response };
+from "core/effect" import { Allocator, Request, Response };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 
 export fn fetch(request: Request): Response {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     http.text(ctx, request.path())
 }

@@ -1,7 +1,7 @@
 // Two findings with one mechanical answer each: `Stdout` is imported and never
 // used, and //lib/money is used and never declared.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import * as host;
 from "//lib/money" import { fromCents };
 
@@ -12,7 +12,7 @@ export fn main(): Result<(), Str> {
     // formatter would answer that too, and would also rewrite everything the fix
     // did not touch.
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     let _ = fromCents(150).show(ctx);
     .Ok(())

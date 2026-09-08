@@ -1,7 +1,7 @@
 // CRASH: random range is empty
 // `hi < lo` is the same emptiness as `hi == lo`, and is worth its own case
 // because a subtraction of the two would silently produce a negative span.
-from "core/effect" import { Alloc, Stdout, Env, Rand };
+from "core/effect" import { Allocator, Stdout, Environment, Random };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -9,12 +9,12 @@ from "core/random" import * as random;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Stdout: host.stdout,
-    Env: host.env,
-    Rand: host.rand,
+    Environment: host.env,
+    Random: host.rand,
   };
-  let n = env.args(ctx).len();
+  let n = env.arguments(ctx).length();
   let _ = io.println(ctx, "${random.int(ctx, n + 10, n)}").ignore();
   .Ok(())
 }

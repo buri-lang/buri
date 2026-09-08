@@ -1,0 +1,9 @@
+error: expected `(`, found `,` [unexpected-token]
+  --> main.buri:27:38
+   |
+27 | export fn generatedWith<C: Allocator>, (
+   |                                      ^
+   |
+   = expected: `(`
+   = actual: `,`
+   = fix: write `(` here

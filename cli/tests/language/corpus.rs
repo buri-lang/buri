@@ -938,7 +938,7 @@ fn dependencies_stay_behind_the_bar() {
     assert!(
         default_line.contains("\"net\""),
         "`net` left the runtime's default feature set ({default_line}). A toolchain whose \
-         runtime cannot speak the network by default makes `Net` a build-flag question for \
+         runtime cannot speak the network by default makes `Network` a build-flag question for \
          every user rather than a capability question for every program"
     );
     assert!(

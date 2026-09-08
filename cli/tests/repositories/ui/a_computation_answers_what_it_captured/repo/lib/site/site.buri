@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -8,7 +8,7 @@ from "ui/node" import { Node };
 /// Built rather than written out, because a string literal is interned and a
 /// block that can never be freed cannot be freed early either — the shape below
 /// only fails on a page whose text the runtime allocated.
-fn pages<C: Alloc>(ctx: C, n: Int, at: Int, acc: [Node<C>]): [Node<C>] {
+fn pages<C: Allocator>(ctx: C, n: Int, at: Int, acc: [Node<C>]): [Node<C>] {
     if (at >= n) {
         acc
     } else {
@@ -22,7 +22,7 @@ fn pages<C: Alloc>(ctx: C, n: Int, at: Int, acc: [Node<C>]): [Node<C>] {
 /// The tree is inside the closure's environment and nowhere else, so a walk
 /// that releases the node holding the closure before calling it is walking
 /// freed memory.
-export fn site<C: Alloc>(ctx: C, n: Int): Node<C> {
+export fn site<C: Allocator>(ctx: C, n: Int): Node<C> {
     let all = pages(ctx, n, 0, []);
     ui.computed(fn(_scope) => ui.column([], all))
 }

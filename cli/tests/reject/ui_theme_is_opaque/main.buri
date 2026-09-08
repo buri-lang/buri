@@ -4,7 +4,7 @@
 // Its one field is private to `ui/theme`, so the two constructors are the only
 // way one comes into being and no program can take one apart: what a theme is
 // stays a matter between that module and the runtime that installs it.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
@@ -18,6 +18,6 @@ fn rewrap(t: Theme): Theme {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack([], []), [rewrap(themed([]))])
 }

@@ -46,15 +46,15 @@ nowhere else. `buri gen` maintains `test.sources` for you.
 from "//lib/money" import { fromCents, fromDollars };
 from "core/testing/assert" import * as assert;
 from "core/host/testing" import { alloc };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 
 test "pads the cents place" {
-    let ctx = context { Alloc: alloc() };
-    assert.eq(fromCents(1905).format(ctx), "\$19.05");
+    let ctx = context { Allocator: alloc() };
+    assert.equal(fromCents(1905).format(ctx), "\$19.05");
 }
 
 test "addition composes" {
-    assert.eq(fromDollars(19).add(fromCents(499)), fromCents(2399));
+    assert.equal(fromDollars(19).add(fromCents(499)), fromCents(2399));
 }
 ```
 
@@ -69,10 +69,10 @@ test "addition composes" {
 
 | Function | Meaning |
 |---|---|
-| `assert.eq(a, b)` / `notEq` | fails unless `a == b`; needs `Eq`, and `Show` for the message |
+| `assert.equal(a, b)` / `notEqual` | fails unless `a == b`; needs `Equal`, and `Show` for the message |
 | `assert.isTrue(b)` / `isFalse` | on a `Bool` |
 | `assert.contains(xs, x)`, `isEmpty(xs)` / `notEmpty`, `len(xs, n)` | on a list |
-| `assert.gt(a, b)` / `ge` / `lt` / `le`, `approxEq(a, b, tolerance)` | on an `Ord`, and on `Float` within an absolute tolerance |
+| `assert.greaterThan(a, b)` / `ge` / `lt` / `le`, `approximatelyEqual(a, b, tolerance)` | on an `Ordered`, and on `Float` within an absolute tolerance |
 | `assert.ok(r)` | fails unless `r` is `.Ok`; **returns the wrapped value** |
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
 | `assert.some(o)` / `none(o)` | fails unless `o` is `.Some` / `.None`; `some` returns the wrapped value |
@@ -80,7 +80,7 @@ test "addition composes" {
 Reach for the narrowest one that fits: each names both values in its report,
 while `assert.isTrue(xs.contains(x))` says only "expected true, got false".
 There is no `assert.fail`. A test that has to fail on purpose asserts on the
-value it has — `assert.eq(verdict, "settled")` on a rendered `Str`, or
+value it has — `assert.equal(verdict, "settled")` on a rendered `Str`, or
 `assert.none(o)` on the `Option` itself. Only `ok`, `err` and `some` return a
 value, which is how you use up a must-use `Result`; the rest answer `()` and
 stand alone as statements. A test source is the one place the language admits an
@@ -89,16 +89,16 @@ expression statement, and only at type `()`, terminated by `;`.
 ```buri
 test "reads the config it wrote" {
     let disk = memory();                            // one filesystem, two effects
-    let ctx = context { Alloc: alloc(), FsRead: disk, FsWrite: disk };
+    let ctx = context { Allocator: alloc(), FileSystemRead: disk, FileSystemWrite: disk };
     let cfg = path.of(ctx, "cfg");                  // core/fs takes a Path
     assert.ok(fs.writeText(ctx, cfg, "port=8080")); // returns (), so a statement
     let text = assert.ok(fs.readText(ctx, cfg));    // returns Str, so a binding
-    assert.eq(text, "port=8080");
+    assert.equal(text, "port=8080");
 }
 ```
 
-If `assert.eq` reports `unsatisfied-bound`, the type under test needs
-`derive Eq, Show for ThatType;` in **its own** module.
+If `assert.equal` reports `unsatisfied-bound`, the type under test needs
+`derive Equal, Show for ThatType;` in **its own** module.
 
 ## The runner's context
 
@@ -108,20 +108,20 @@ one per effect, and only a test source may import it.
 
 | Member | Effect | In a test |
 |---|---|---|
-| `alloc()` | `Alloc` | real, from a per-test arena the runner reclaims |
+| `alloc()` | `Allocator` | real, from a per-test arena the runner reclaims |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | captured and never printed; `captured()` reads either back |
 | `stdin()` | `Stdin` | at end of input, so a suite never blocks on a pipe nobody writes to |
-| `fs()` | `FsRead`, `FsWrite` | in-memory and empty; writes discarded after the test. One call is one filesystem answering **both** effects, so a context that reads and writes binds the same value under both names |
-| `net()` | `Net` | refuses every request until `respond` says what to answer |
-| `clock()` | `Clock` | at zero; `sleepMillis` advances it without sleeping |
-| `rand()` | `Rand` | seeded at zero, so a failure reproduces |
-| `env()` | `Env` | no variables and no arguments |
-| `proc()` | `Proc` | absorbs the exit instead of taking it, so the test carries on |
+| `fs()` | `FileSystemRead`, `FileSystemWrite` | in-memory and empty; writes discarded after the test. One call is one filesystem answering **both** effects, so a context that reads and writes binds the same value under both names |
+| `net()` | `Network` | refuses every request until `respond` says what to answer |
+| `clock()` | `Clock` | at zero; `sleepMilliseconds` advances it without sleeping |
+| `rand()` | `Random` | seeded at zero, so a failure reproduces |
+| `env()` | `Environment` | no variables and no arguments |
+| `proc()` | `Process` | absorbs the exit instead of taking it, so the test carries on |
 | `tasks()` | `Tasks` | runs the tasks one at a time, in program order |
 
 You configure a double with a **method returning a new handle**, which leaves
 the one you called it on alone: `clock().at(n)`, `rand().seed(n)`,
-`env().variables([...]).arguments([...])`, `stdin().lines(...)` or `.bytes(...)`
+`env().variables([...]).withArguments([...])`, `stdin().lines(...)` or `.bytes(...)`
 (these replace), `fs().files(...)` and `.filesBytes(...)` (these compose),
 `fs().readOnly()`, `net().respond(fn(Request) => ...)`, `tasks().anyOrder()`.
 Read back what happened with `captured()`, `fs().read(p)`, `fs().snapshot()` and
@@ -130,24 +130,24 @@ what fails, and a fault whose call never happens fails the test.
 
 ```buri
 context Fixture {
-    Alloc: alloc(),
-    Env: env().variables([("LEDGER_LOG", "custom.log")]).arguments(["--verbose"]),
+    Allocator: alloc(),
+    Environment: env().variables([("LEDGER_LOG", "custom.log")]).withArguments(["--verbose"]),
 }
 
 test "reads the log path from the environment" {
     let ctx = Fixture();
-    assert.eq(logPath(ctx), "custom.log");
+    assert.equal(logPath(ctx), "custom.log");
 }
 
 test "falls back when the variable is unset" {
-    let ctx = context { ..Fixture(), Env: env() };
-    assert.eq(logPath(ctx), "ledger.log");
+    let ctx = context { ..Fixture(), Environment: env() };
+    assert.equal(logPath(ctx), "ledger.log");
 }
 ```
 
 **Each call builds a fresh context**, so what one test writes to its filesystem
 or its captured stdout is invisible to the next. One declaration cannot bind
-`FsRead` and `FsWrite` over a single filesystem — two bindings are two `fs()`
+`FileSystemRead` and `FileSystemWrite` over a single filesystem — two bindings are two `fs()`
 calls, so a block that reads *and* writes names the double first. Bind what the
 function needs and nothing else, and reach a double like the real thing:
 `io.println(ctx, "x")`.
@@ -160,7 +160,7 @@ interfaces. There is no mocking framework and no global to stub.
 ```buri
 struct StubNet { export failing: Str }
 
-impl Net for StubNet {
+impl Network for StubNet {
     fn fetch(self, request: Request): Result<Response, NetError> {
         if (request.url == self.failing) {
             .Err(.Timeout)
@@ -171,8 +171,8 @@ impl Net for StubNet {
 }
 
 test "a timeout reaches the caller as an error" {
-    let ctx = context { Alloc: alloc(), Net: StubNet { failing: "https://example.test/slow" } };
-    assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
+    let ctx = context { Allocator: alloc(), Network: StubNet { failing: "https://example.test/slow" } };
+    assert.equal(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
 }
 ```
 
@@ -181,7 +181,7 @@ to hold one. Only the runner keeps state between calls, so "the third write
 fails" is a fault plan (`fs().faults([...])`). A crash *between* two calls is a
 step boundary: split it into a pure `prepare`, one effectful `persist` and a
 pure `publish`, then hand the step you choose an `.Err`. A read-only fake
-implements `FsRead`: four methods, not twelve. A suite that never binds `Net`
+implements `FileSystemRead`: four methods, not twelve. A suite that never binds `Network`
 cannot open a socket.
 
 ## What a test source may and may not do
@@ -202,14 +202,14 @@ so you have no fake to hand it. Put the logic in a function taking an ordinary
 bounded `ctx`:
 
 ```buri
-export fn run<C: Alloc + Stdout + FsWrite>(ctx: C, at: Path): Result<(), Str> {
+export fn run<C: Allocator + Stdout + FileSystemWrite>(ctx: C, at: Path): Result<(), Str> {
     fs.writeText(ctx, at, "started\n").mapErr(fn(e) => "could not write the ledger log")
 }
 ```
 
 ```buri
 test "run fails cleanly when the log is unwritable" {
-    let ctx = context { Alloc: alloc(), Stdout: stdout(), FsWrite: memory().readOnly() };
+    let ctx = context { Allocator: alloc(), Stdout: stdout(), FileSystemWrite: memory().readOnly() };
     let msg = assert.err(run(ctx, path.of(ctx, "ledger.log")));
     assert.isTrue(msg.contains("ledger"));
 }
@@ -232,9 +232,9 @@ Write a suite's filesystem in the suite, with `core/host/testing`'s `fs().files`
 from "core/host/testing" import { alloc, fs as memory };
 
 test "renders the statement" {
-    let ctx = context { Alloc: alloc(), FsRead: memory().files([("statement.txt", "coffee")]) };
+    let ctx = context { Allocator: alloc(), FileSystemRead: memory().files([("statement.txt", "coffee")]) };
     let want = assert.ok(fs.readText(ctx, path.of(ctx, "statement.txt")));
-    assert.eq(render(ctx, sample()), want);
+    assert.equal(render(ctx, sample()), want);
 }
 ```
 
@@ -260,7 +260,7 @@ can use it directly as a gate.
 
 ```
 FAIL //lib/money  test/cents.buri  "pads the cents place"
-  assert.eq failed
+  assert.equal failed
     actual:   "$19.5"
     expected: "$19.05"
   --> lib/money/test/cents.buri:8:3

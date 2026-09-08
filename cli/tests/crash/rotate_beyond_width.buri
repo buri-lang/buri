@@ -2,7 +2,7 @@
 // A count past the width is not read modulo the width. `rotateLeft` is the
 // sixty-four-bit rotate over `Int`, and sixty-five is out of range for it.
 from "core/bits" import * as bits;
-from "core/effect" import { Alloc, Stdout, Env };
+from "core/effect" import { Allocator, Stdout, Environment };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -10,8 +10,8 @@ from "core/io" import * as io;
 fn spin(x: Int, n: Int): Int { bits.rotateLeft(x, n) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
-  let count = 65 + env.args(ctx).len();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
+  let count = 65 + env.arguments(ctx).length();
   let _ = io.println(ctx, "${spin(1, count)}").ignore();
   .Ok(())
 }

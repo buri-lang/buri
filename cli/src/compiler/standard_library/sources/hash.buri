@@ -31,19 +31,19 @@
 //!
 //! ```buri run
 //! from "core/bytes" import * as bytes;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/hash" import * as hash;
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let body = bytes.toUtf8(ctx, "foobar");
-//!     let sum = bytes.toHex(ctx, bytes.fromU32Be(hash.fnv1a32(body)));
-//!     let crc = bytes.toHex(ctx, bytes.fromU32Be(hash.crc32c(body)));
+//!     let sum = bytes.toHex(ctx, bytes.fromU32BigEndian(hash.fnv1a32(body)));
+//!     let crc = bytes.toHex(ctx, bytes.fromU32BigEndian(hash.crc32c(body)));
 //!     let _ = io.println(ctx, "${sum} ${crc}").ignore();
 //!     .Ok(())
 //! }
@@ -78,8 +78,8 @@ export fn fnv1a32(b: [U8]): U32 {
 }
 
 /// One octet folded into a 32-bit hash, stepped as each octet arrives.
-export fn fnv1a32Step(h: U32, octet: U8): U32 {
-    (h ^ octet.toU32()).wrappingMul(FNV32_PRIME)
+export fn fnv1a32Step(hash: U32, octet: U8): U32 {
+    (hash ^ octet.toU32()).wrappingMultiply(FNV32_PRIME)
 }
 
 /// FNV-1a at 64 bits.
@@ -88,8 +88,8 @@ export fn fnv1a64(b: [U8]): U64 {
 }
 
 /// One octet folded into a 64-bit hash.
-export fn fnv1a64Step(h: U64, octet: U8): U64 {
-    (h ^ octet.toU64()).wrappingMul(FNV64_PRIME)
+export fn fnv1a64Step(hash: U64, octet: U8): U64 {
+    (hash ^ octet.toU64()).wrappingMultiply(FNV64_PRIME)
 }
 
 // --- CRC-32C --------------------------------------------------------------------
@@ -120,7 +120,7 @@ fn crc32cByte(crc: U32, left: Int): U32 {
     if (left == 0) {
         crc
     } else {
-        let shifted = bits.shrU32(crc, 1);
+        let shifted = bits.shiftRightU32(crc, 1);
         let next = if (crc & 1 == 1) { shifted ^ CRC32C_POLY } else { shifted };
         crc32cByte(next, left - 1)
     }
@@ -130,7 +130,7 @@ fn crc32cByte(crc: U32, left: Int): U32 {
 //
 // Two compression rounds per eight-octet word and four finalisation rounds,
 // which is what the `24` names. The key is two 64-bit halves because that is
-// what the algorithm consumes; `bytes.toU64Le` reads them out of octets.
+// what the algorithm consumes; `bytes.toU64LittleEndian` reads them out of octets.
 
 let SIP_V0: U64 = 0x736f6d6570736575;
 
@@ -156,7 +156,7 @@ struct State {
 /// program it is a fast 64-bit hash and nothing more.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/hash" import * as hash;
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
@@ -164,7 +164,7 @@ struct State {
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     // The reference implementation's key, and its vector for the empty
@@ -180,19 +180,20 @@ struct State {
 /// ```stdout
 /// true
 /// ```
-export fn siphash24(k0: U64, k1: U64, b: [U8]): U64 {
-    let n = b.len();
+export fn siphash24(key0: U64, key1: U64, b: [U8]): U64 {
+    let n = b.length();
     let whole = n - n % 8;
     let start = State {
-        v0: k0 ^ SIP_V0,
-        v1: k1 ^ SIP_V1,
-        v2: k0 ^ SIP_V2,
-        v3: k1 ^ SIP_V3,
+        v0: key0 ^ SIP_V0,
+        v1: key1 ^ SIP_V1,
+        v2: key0 ^ SIP_V2,
+        v3: key1 ^ SIP_V3,
     };
     let compressed = sipWords(start, b, 0, whole);
     // The last word is the remaining octets with the input length in its top
     // octet, so that two inputs differing only in trailing zeros differ here.
-    let last = sipTail(b, whole, whole, n, 0) | bits.shlU64((n % 256).wrapToU64(), 56);
+    let last = sipTail(b, whole, whole, n, 0)
+        | bits.shiftLeftU64((n % 256).wrapToU64(), 56);
     let absorbed = sipAbsorb(compressed, last);
     let finalised = sipRounds(State { ..absorbed, v2: absorbed.v2 ^ 0xff }, 4);
     finalised.v0 ^ finalised.v1 ^ finalised.v2 ^ finalised.v3
@@ -203,7 +204,12 @@ fn sipWords(s: State, b: [U8], i: Int, end: Int): State {
     if (i >= end) {
         s
     } else {
-        sipWords(sipAbsorb(s, bytes.toU64Le(b, i).withDefault(0)), b, i + 8, end)
+        sipWords(
+            sipAbsorb(s, bytes.toU64LittleEndian(b, i).withDefault(0)),
+            b,
+            i + 8,
+            end,
+        )
     }
 }
 
@@ -214,7 +220,7 @@ fn sipTail(b: [U8], base: Int, i: Int, n: Int, acc: U64): U64 {
         acc
     } else {
         let octet = b.get(i).withDefault(0).toU64();
-        sipTail(b, base, i + 1, n, acc | bits.shlU64(octet, (i - base) * 8))
+        sipTail(b, base, i + 1, n, acc | bits.shiftLeftU64(octet, (i - base) * 8))
     }
 }
 
@@ -245,5 +251,5 @@ fn sipRound(s: State): State {
 /// A left rotation. Every count SipHash uses is between 1 and 63, so neither
 /// shift is by the width, which `core/bits` aborts on.
 fn rotl64(x: U64, n: Int): U64 {
-    bits.shlU64(x, n) | bits.shrU64(x, 64 - n)
+    bits.shiftLeftU64(x, n) | bits.shiftRightU64(x, 64 - n)
 }

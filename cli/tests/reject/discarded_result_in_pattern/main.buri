@@ -1,5 +1,5 @@
 // EXPECT: a `Result` may not be discarded
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -13,7 +13,7 @@ struct Job {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   // A tuple hides the wildcard one level down, and the rule is about the
   // wildcard rather than about the head of the pattern.
   let (count, _) = (1, parse("hi"));
