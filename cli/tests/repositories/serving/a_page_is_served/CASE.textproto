@@ -22,7 +22,7 @@
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "buri run builds a WEB output and serves it, --watch and --port are refused on anything else, and a page that will not compile is a build failure"
+doc: "buri run builds a WEB output and serves it, --watch and --port are refused on anything else and --port on a value that is not one, and a page that will not compile is a build failure"
 
 run {
   args: ["build", "//cmd/site"]
@@ -53,6 +53,19 @@ run {
   args: ["run", "//cmd/tool", "--port=4000"]
   exit: 2
   golden: "port_is_for_a_page.txt"
+  stream: ERR
+}
+
+# A value that is not a port is refused where every other flag's value is, and
+# before a repository is opened: `--port` is the invocation rather than the
+# code, so what comes back is the sentence and the usage rather than a
+# diagnostic about `//cmd/site`. The bound is in the sentence because the two
+# ways to get it wrong — a word, and a number too large for a port — are one
+# refusal.
+run {
+  args: ["run", "//cmd/site", "--port=eighty"]
+  exit: 2
+  golden: "port_is_not_a_port.txt"
   stream: ERR
 }
 

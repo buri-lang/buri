@@ -62,7 +62,8 @@ struct Serving {
     child: std::process::Child,
     port: u16,
     said: std::sync::mpsc::Receiver<String>,
-    reader: Option<std::thread::JoinHandle<()>>,
+    complained: std::sync::mpsc::Receiver<String>,
+    readers: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for Serving {
@@ -70,10 +71,68 @@ impl Drop for Serving {
         let _ = self.child.kill();
         let _ = self.child.wait();
         while self.said.try_recv().is_ok() {}
-        if let Some(reader) = self.reader.take() {
+        while self.complained.try_recv().is_ok() {}
+        for reader in self.readers.drain(..) {
             let _ = reader.join();
         }
     }
+}
+
+impl Serving {
+    /// Waits for a line on the child's standard error holding `needle`.
+    ///
+    /// This is how a row waits for a *pass* rather than for a length of time.
+    /// A rebuild that fails writes nothing, so there is no file whose bytes a
+    /// row could poll for; what says the pass ran is the diagnostic it printed.
+    /// Standard error closing means the process ended, which is a failing row
+    /// here rather than a wait that runs out the deadline.
+    fn complained_about(&self, needle: &str) {
+        let mut seen: Vec<String> = Vec::new();
+        let found = until(DEADLINE, || loop {
+            match self.complained.try_recv() {
+                Ok(line) => {
+                    let hit = line.contains(needle);
+                    seen.push(line);
+                    if hit {
+                        return Some(true);
+                    }
+                }
+                Err(TryRecvError::Empty) => return None,
+                Err(TryRecvError::Disconnected) => return Some(false),
+            }
+        });
+        match found {
+            Some(true) => {}
+            Some(false) => panic!(
+                "the server stopped without saying {needle:?}; it said:\n{}",
+                indent(&seen.join("\n"))
+            ),
+            None => panic!(
+                "nothing on standard error held {needle:?} within {DEADLINE:?}; it said:\n{}",
+                indent(&seen.join("\n"))
+            ),
+        }
+    }
+}
+
+/// Reads a pipe a line at a time onto a channel.
+///
+/// Every line is echoed as it is read, because standard error used to be
+/// inherited and a failing row is still owed what the child said about itself.
+fn lines(
+    pipe: impl std::io::Read + Send + 'static,
+) -> (std::sync::mpsc::Receiver<String>, std::thread::JoinHandle<()>) {
+    let (sending, received) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in std::io::BufReader::new(pipe).lines() {
+            let Ok(line) = line else { return };
+            eprintln!("{line}");
+            if sending.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    (received, reader)
 }
 
 /// Spawns `buri run <target> --port=0 [extra]` in `scratch` and waits for the
@@ -93,18 +152,10 @@ fn serving(scratch: &Scratch, target: &str, extra: &[&str]) -> Serving {
         .arg("--port=0")
         .args(extra)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit());
+        .stderr(std::process::Stdio::piped());
     let mut child = command.spawn().expect("buri starts");
-    let stdout = child.stdout.take().expect("a piped stdout");
-    let (sending, said) = std::sync::mpsc::channel();
-    let reader = std::thread::spawn(move || {
-        for line in std::io::BufReader::new(stdout).lines() {
-            let Ok(line) = line else { return };
-            if sending.send(line).is_err() {
-                return;
-            }
-        }
-    });
+    let (said, reading_out) = lines(child.stdout.take().expect("a piped stdout"));
+    let (complained, reading_err) = lines(child.stderr.take().expect("a piped stderr"));
 
     // Every line the child wrote reaches the channel before the sender is
     // dropped, so `Disconnected` means the process closed its output with
@@ -124,7 +175,7 @@ fn serving(scratch: &Scratch, target: &str, extra: &[&str]) -> Serving {
         None => panic!("`buri run {target}` announced no address within {DEADLINE:?}"),
     };
     let port = port_in(&announced);
-    Serving { child, port, said, reader: Some(reader) }
+    Serving { child, port, said, complained, readers: vec![reading_out, reading_err] }
 }
 
 /// The port out of `serving //cmd/site on http://127.0.0.1:<port>/`.
@@ -320,6 +371,56 @@ fn a_watching_run_serves_what_the_rebuild_wrote() {
     get(server.port, "/components/button")
         .ok()
         .holds("<script type=\"module\" src=\"./main.mjs\"></script>");
+}
+
+/// A rebuild that fails leaves the page that was working where it was, and the
+/// loop goes on watching the file it could not build.
+///
+/// This is the signature failure beside
+/// [`a_watching_run_serves_what_the_rebuild_wrote`], and it is the half a
+/// reader notices: a page you can still reload is better than a blank one, so
+/// a broken save may not take the last good build down with it. The two ways
+/// to get that wrong are a command that exits — the reader's tab now refuses
+/// the connection — and a server left answering out of a directory the failed
+/// pass had emptied.
+///
+/// **The diagnostic is what says the pass ran.** A failed rebuild writes
+/// nothing, so there are no new bytes to poll for; the row waits for the error
+/// on standard error instead, and everything asserted after it is asserted
+/// about a rebuild that has been tried and has failed rather than one that has
+/// not started.
+///
+/// The repair at the end is the other half of "still watching": a loop that
+/// dropped the broken file from its input set would never wake for the save
+/// that fixes it, and the page would stay at the last good build for ever with
+/// nothing said about it.
+#[test]
+fn a_watching_run_that_cannot_rebuild_keeps_serving_the_last_page() {
+    let scratch = page_repo("serving-watch-broken");
+    let server = serving(&scratch, "//cmd/site", &["--watch"]);
+
+    let shell = get(server.port, "/").ok().body.clone();
+    get(server.port, "/main.mjs").ok().holds("the front page");
+
+    // A name that is not in scope: the file still parses, so the pass gets as
+    // far as the checker and the failure is a diagnostic about the program
+    // rather than a build file the loop could not read.
+    let source = scratch.read("cmd/site/main.buri");
+    let broken = source.replace("\"the front page\"", "theFrontPage");
+    assert_ne!(broken, source, "the edit changed nothing");
+    scratch.write("cmd/site/main.buri", &broken);
+    server.complained_about("unresolved-name");
+
+    get(server.port, "/main.mjs").ok().holds("the front page");
+    assert_eq!(get(server.port, "/").ok().body, shell, "the shell the reader had is gone");
+
+    let repaired = source.replace("the front page", "the repaired front page");
+    assert_ne!(repaired, source, "the repair changed nothing");
+    scratch.write("cmd/site/main.buri", &repaired);
+    let served = until(DEADLINE, || {
+        get(server.port, "/main.mjs").body.contains("the repaired front page").then_some(())
+    });
+    assert!(served.is_some(), "the repair was not served within {DEADLINE:?}");
 }
 
 /// A binary that declares a page *and* a worker serves the page.
