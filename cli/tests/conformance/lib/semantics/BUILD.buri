@@ -13,6 +13,7 @@ library {
             "test/anonymous.buri",
             "test/host_testing.buri",
             "test/http.buri",
+            "test/namespaces.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

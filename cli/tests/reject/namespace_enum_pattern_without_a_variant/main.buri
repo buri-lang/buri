@@ -1,0 +1,12 @@
+// EXPECT: `Order` is an enum; name a variant
+// The namespace spends the first segment, so `order.Order` is the enum named
+// with no variant after it — not an enum whose variant happens to be spelt
+// `Order`, which is what the pattern would read if it counted from the end.
+from "core/order" import * as order;
+
+export fn main(): Result<(), Str> {
+  let n = match (order.int(1, 2)) {
+    order.Order => 0,
+  };
+  .Ok(())
+}

@@ -270,6 +270,22 @@ scope unless the importing file writes that identifier, or the namespace holding
 it, and adding an export to a library can never shadow a name in code that
 imports it.
 
+An alias stands for the module everywhere the module's own names go: a type, a
+bound, an `impl` head, and an enum's variants — in an expression and in a
+pattern alike.
+
+```buri
+from "core/order" import * as order;
+
+export fn flip(o: order.Order): order.Order {
+    match (o) {
+        order.Order.Less => order.Order.Greater,
+        order.Order.Greater => order.Order.Less,
+        order.Order.Equal => order.Order.Equal,
+    }
+}
+```
+
 Import declarations are terminated with `;`. Circular imports are an error.
 
 #### 4.1.1 Module paths
