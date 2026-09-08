@@ -518,7 +518,7 @@ pub fn run(
     // exists, so no walk starts.
     let mut reached = crate::compiler::semantics::styles::Reached::default();
     let mut themes = false;
-    let mut controls = crate::compiler::semantics::styles::Controls::default();
+    let mut reset = crate::compiler::semantics::styles::Reset::default();
     for f in &mut m.funcs {
         let FuncKind::Body(body) = &mut f.kind else { continue };
         if let Some(style_con) = checked.style_con {
@@ -528,11 +528,17 @@ pub fn run(
             themes = themes
                 || crate::compiler::semantics::styles::builds_a_theme(body, theme_con);
         }
-        // Which interactive elements the artifact can build, which is which
-        // reset rules the sheet opens with. Asked here for the reason the two
-        // above are: a library's unused button must not put a rule in a sheet.
+        // Which elements a browser paints something on the artifact can build,
+        // which is which reset rules the sheet opens with. Asked here for the
+        // reason the two above are: a library's unused button must not put a
+        // rule in a sheet.
         if let Some(node_con) = checked.node_con {
-            crate::compiler::semantics::styles::controls_in(body, node_con, &mut controls);
+            crate::compiler::semantics::styles::reset_in(
+                body,
+                node_con,
+                checked.role_con,
+                &mut reset,
+            );
         }
     }
 
@@ -573,7 +579,7 @@ pub fn run(
         stylesheet: crate::compiler::semantics::styles::stylesheet(
             &checked.styles,
             &reached.classes,
-            controls,
+            reset,
         ),
         inline_styles: reached.inline,
         themes,

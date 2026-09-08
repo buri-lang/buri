@@ -1,0 +1,12 @@
+error: this context is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_3e9afd/main.buri:14:5
+   |
+14 |     ;
+   |     ^
+   |
+  --> lib/recovery_delete_closer_brace_app_3e9afd/main.buri:11:23
+   |
+11 |     let ctx = context {
+   |                       ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,7 @@
+error: `Order` is an enum; name a variant [enum-without-a-variant]
+ --> cmd/namespace_enum_pattern_without_a_variant/main.buri:9:5
+  |
+9 |     order.Order => 0,
+  |     ^^^^^^^^^^^
+  |
+  = fix: write `Order.Variant` or `.Variant`

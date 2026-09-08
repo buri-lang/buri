@@ -1,0 +1,58 @@
+# A tree that exists only inside a computation's environment, described under
+# both backends.
+#
+# `ui.computed` takes a closure, `describe` calls it and walks what came back,
+# and the walk is tail-recursive: the arm for a computation is
+# `nodeLines(ctx, state, build(scope), depth)`, a jump whose argument calls a
+# closure out of the node it is replacing. Releasing that node before the jump's
+# arguments frees the closure's environment while the closure is being called —
+# and because a retain then writes through a header the allocator has already
+# reused as free-list storage, the crash surfaces as a `SIGSEGV` inside
+# `buri_rt_alloc` somewhere else entirely. Issue #65: forty pages built eagerly
+# and one picked inside `ui.computed`, `the run exited -1` five times out of
+# five, and the same suite green under `--output=js`.
+#
+# So the assertion is the described scene, and it is asserted **twice**: once
+# under the copy-and-patch backend and once under JavaScript, which has no
+# reference counts to get wrong and is therefore the oracle. A page's text is
+# built at run time rather than written as a literal, because an interned
+# literal cannot be freed early and would pass either way.
+#
+# It ends with the edit that makes it fail, in the tree rather than in the
+# expectation: one page's text changes, and both backends say so.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a tree reached only through the closure `ui.computed` captured is described the same way natively and on JavaScript"
+
+run {
+  args: ["test", "//lib/site", "--force"]
+  exit: 0
+  golden: "native.txt"
+}
+
+run {
+  args: ["test", "//lib/site", "--output=js", "--force"]
+  exit: 0
+  golden: "javascript.txt"
+}
+
+# The negative twin: one page's text, and both backends report the same scene
+# against the same expectation.
+edit {
+  file: "lib/site/site.buri"
+  replace: "\"page ${at}\""
+  with: "\"leaf ${at}\""
+}
+
+run {
+  args: ["test", "//lib/site", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+run {
+  args: ["test", "//lib/site", "--output=js", "--force"]
+  exit: 1
+  golden: "changed_javascript.txt"
+}

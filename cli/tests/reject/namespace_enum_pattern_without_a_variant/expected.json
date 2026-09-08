@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Order` is an enum; name a variant","code":"enum-without-a-variant","location":{"file":"cmd/namespace_enum_pattern_without_a_variant/main.buri","line":9,"column":5,"endLine":9,"endColumn":16,"text":"    order.Order => 0,"},"fix":"write `Order.Variant` or `.Variant`","notes":[],"related":[]}

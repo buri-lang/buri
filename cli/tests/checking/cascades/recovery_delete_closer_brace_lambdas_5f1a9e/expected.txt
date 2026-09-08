@@ -1,0 +1,58 @@
+error: expected an identifier, found `.` [unexpected-token]
+   --> main.buri:110:21
+    |
+110 |         if (n > 0 { .Ok(n) } else { .Err("low") }
+    |                     ^
+    |
+    = expected: an identifier
+    = actual: `.`
+    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `f` in scope [unresolved-name]
+   --> main.buri:112:15
+    |
+112 |     assert.eq(f(4), .Ok(4));
+    |               ^
+    |
+    = did you mean `n`?
+    = fix: correct the spelling, or declare it
+error: `_0` is not an enum [not-an-enum]
+   --> main.buri:112:21
+    |
+112 |     assert.eq(f(4), .Ok(4));
+    |                     ^^^
+    |
+    = fix: the dot form names an enum variant; write the value another way
+error: there is nothing named `f` in scope [unresolved-name]
+   --> main.buri:113:15
+    |
+113 |     assert.eq(f(0), .Err("low"));
+    |               ^
+    |
+    = did you mean `n`?
+    = fix: correct the spelling, or declare it
+error: `_1` is not an enum [not-an-enum]
+   --> main.buri:113:21
+    |
+113 |     assert.eq(f(0), .Err("low"));
+    |                     ^^^^
+    |
+    = fix: the dot form names an enum variant; write the value another way
+error: a statement ends with `;` [missing-terminator]
+   --> main.buri:114:2
+    |
+114 | }
+    |  ^
+    |
+    = fix: write `;` here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:115:1
+    |
+115 | 
+    | ^
+    |
+   --> main.buri:108:68
+    |
+108 | test "a lambda whose body answers the `Result` the position wants" {
+    |                                                                    ^ opened here
+    |
+    = fix: write `}` here

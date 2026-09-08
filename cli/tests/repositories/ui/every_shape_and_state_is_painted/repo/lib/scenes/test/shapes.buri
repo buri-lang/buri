@@ -1,10 +1,13 @@
 // The shapes a tree can be, at both ends: nothing at all, one run of text,
-// a hundred boxes deep, and a thousand boxes wide.
+// a hundred boxes deep, a thousand boxes wide, and three lists that differ
+// only by what marks their items.
 
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { ListMarker, Style };
 from "ui/testing" import { headless, snapshot };
 from "//lib/scenes" import { deep, siblings };
 
@@ -38,4 +41,35 @@ test "a thousand siblings" {
         Ui: headless(),
     };
     snapshot(ctx, "a-thousand-siblings", siblings(ctx, 1000), .Hover, []);
+}
+
+/// One list of three items, marked however the caller says. The padding is the
+/// room the marks hang in, which is what a list needs to show them.
+fn marked<C>(marker: ListMarker): Node<C> {
+    let styles: [Style] = [
+        .PaddingEdge(.Start, .Px(24)),
+        .Gap(.Px(4)),
+        .ListMarker(marker),
+    ];
+    ui.region(.List, styles, [
+        ui.region(.ListItem, [], [ui.text(.Const("Alpha"))]),
+        ui.region(.ListItem, [], [ui.text(.Const("Beta"))]),
+        ui.region(.ListItem, [], [ui.text(.Const("Gamma"))]),
+    ])
+}
+
+test "a list is marked only where it asked to be" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    // Three lists of the same rows: no marks at all, discs, and numbers. A
+    // list region is a `ul`, and a browser marks and indents one by itself, so
+    // the leftmost of the three is the assertion that nothing here does.
+    let tree = ui.row([.Padding(.Px(24)), .Gap(.Px(48))], [
+        marked(.None),
+        marked(.Disc),
+        marked(.Decimal),
+    ]);
+    snapshot(ctx, "lists", tree, .Hover);
 }

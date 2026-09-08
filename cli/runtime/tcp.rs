@@ -191,6 +191,10 @@ pub unsafe extern "C" fn buri_rt_host_tcp_connect(
         // SAFETY: as above.
         Err((tag, message)) => return unsafe { refuse(tag, &message, out_err) },
     };
+    // `host::about_to_block`'s rule: a name lookup and a dial both wait, and
+    // these entries wait on the descriptor rather than on the reactor, so they
+    // say it for themselves.
+    crate::host::about_to_block();
     let stream = match TcpStream::connect_timeout(&address, DIAL) {
         Ok(stream) => stream,
         // SAFETY: as above.
@@ -235,6 +239,9 @@ pub unsafe extern "C" fn buri_rt_host_tcp_read(
         return BURI_OK;
     }
     let want = usize::try_from(limit).unwrap_or(usize::MAX).min(1 << 20);
+    // `host::about_to_block`'s rule: this waits for at least one byte, and a
+    // client that printed what it asked for prints it before it waits.
+    crate::host::about_to_block();
     let read = with_stream(handle, |stream| {
         let mut buffer = vec![0_u8; want];
         stream.read(&mut buffer).map(|n| {

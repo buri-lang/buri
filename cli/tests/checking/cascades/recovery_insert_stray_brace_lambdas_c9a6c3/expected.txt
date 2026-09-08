@@ -1,0 +1,16 @@
+error: expected an identifier, found `?` [unexpected-token]
+   --> main.buri:104:5
+    |
+104 |     ? };
+    |     ^
+    |
+    = expected: an identifier
+    = actual: `?`
+    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `ctx` in scope [unresolved-name]
+   --> main.buri:105:29
+    |
+105 |     assert.eq([1, 2, 3].map(ctx, fn(n) => n * 2), [2, 4, 6]);
+    |                             ^^^
+    |
+    = fix: declare `ctx` as a parameter of this function
