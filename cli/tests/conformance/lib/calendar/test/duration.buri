@@ -422,3 +422,37 @@ test "a ratio against no time at all has a sign" {
     // No time at all goes into a length no times at all.
     assert.approximatelyEqual(time.ZERO.ratio(time.seconds(3)), 0.0, 1e-9);
 }
+
+// --- the unit constants -------------------------------------------------------------
+
+// The counts the constructors above are written out of, exported so that a
+// program doing the multiplication itself does not write them again. They are
+// asserted by name because they carry it: each was `NANOS_PER_*` until the
+// module spelled its names out, and an export nothing calls is renamed by a
+// search-and-replace that a suite has no way to notice.
+test "each unit is worth the count its constant names" {
+    assert.equal(time.NANOSECONDS_PER_MICROSECOND, 1_000);
+    assert.equal(time.NANOSECONDS_PER_MILLISECOND, 1_000_000);
+    assert.equal(time.NANOSECONDS_PER_SECOND, 1_000_000_000);
+    assert.equal(time.NANOSECONDS_PER_MINUTE, 60_000_000_000);
+    assert.equal(time.NANOSECONDS_PER_HOUR, 3_600_000_000_000);
+    assert.equal(time.NANOSECONDS_PER_DAY, 86_400_000_000_000);
+}
+
+// The other half: a constant is the length its constructor builds, so the two
+// cannot drift apart.
+test "a constant is one of the unit its name ends in" {
+    assert.equal(time.microseconds(1).0, time.NANOSECONDS_PER_MICROSECOND);
+    assert.equal(time.milliseconds(1).0, time.NANOSECONDS_PER_MILLISECOND);
+    assert.equal(time.seconds(1).0, time.NANOSECONDS_PER_SECOND);
+    assert.equal(time.minutes(1).0, time.NANOSECONDS_PER_MINUTE);
+    assert.equal(time.hours(1).0, time.NANOSECONDS_PER_HOUR);
+    assert.equal(time.hours(24).0, time.NANOSECONDS_PER_DAY);
+    // And they scale by the factors between the units.
+    assert.equal(
+        time.NANOSECONDS_PER_MILLISECOND,
+        time.NANOSECONDS_PER_MICROSECOND * 1_000,
+    );
+    assert.equal(time.NANOSECONDS_PER_MINUTE, time.NANOSECONDS_PER_SECOND * 60);
+    assert.equal(time.NANOSECONDS_PER_DAY, time.NANOSECONDS_PER_HOUR * 24);
+}
