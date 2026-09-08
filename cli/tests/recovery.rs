@@ -490,7 +490,19 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // call wrapping a lambda, where a stray token leaves a call whose
         // arguments the checker can still count. 441 of 1974 is 22.4%, read off
         // a `BURI_RECOVERY_CAP=0` run, and twenty-three is that rounded up.
-        ("a syntax error stays a syntax error", "insert-stray") => 23,
+        // Re-read when `ui/web` grew a router, with
+        // `conformance/lib/web/test/routing.buri` beside it. Same reason and
+        // same evidence as every re-read above: there is no parser, checker or
+        // middle-end file in that change at all — it is standard-library
+        // sources, the JavaScript runtime and tests. The population grew by one
+        // file that is dense in exactly what this row measures: every block in
+        // it is `assert.equal` wrapping a call, and one is an assertion wrapping
+        // a `watch` wrapping a lambda wrapping two calls, so a stray token
+        // leaves a call whose arguments the checker can still count. 504 of 2184
+        // is 23.1%, and twenty-four is that rounded up. Checked against the
+        // source it added: with `routing.buri` taken out of the corpus the row
+        // is back under twenty-three, so the file is the whole of the move.
+        ("a syntax error stays a syntax error", "insert-stray") => 24,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code

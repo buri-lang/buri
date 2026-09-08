@@ -61,7 +61,7 @@ test "what read the route re-runs when the page navigates" {
     web.navigate(ctx, "/about");
     assert.equal(log.recorded(), ["home", "about"]);
     web.replace(ctx, "/elsewhere");
-    assert.equal(log.recorded(), ["home", "about", "nowhere"]);
+    assert.equal(log.recorded(), ["home" "about", "nowhere"]);
 }
 
 test "a signal keeps its value across a navigation" {

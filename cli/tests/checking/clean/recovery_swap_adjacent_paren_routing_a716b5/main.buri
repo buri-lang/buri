@@ -42,7 +42,7 @@ test "replace writes the address too" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
-        Location: address(headless(), "/signin"),
+        Location: address(headless()"/signin" ,),
     };
     web.replace(ctx, "/dashboard");
     assert.equal(web.path(ctx), "/dashboard");

@@ -25,7 +25,7 @@ fn page(path: Str): Str {
         "/about" => "about",
         _other => "nowhere",
     }
-}
+
 
 test "navigate writes the address the page reads back" {
     let ctx = context {

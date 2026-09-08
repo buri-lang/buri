@@ -48,9 +48,11 @@
 //! what read the path, so every signal the program holds survives — which is
 //! what a link cannot do.
 //!
-//! Everything here is JavaScript's. A native artifact has no document under it
-//! and no address bar over it, so a native build that reaches one of these
-//! stops at code generation naming the operation.
+//! The document half is JavaScript's. A native artifact has nothing to render
+//! into, so a native build that reaches `render`, `shell`, `resume` or `state`
+//! stops at code generation naming the operation. `path`, `route`, `navigate`
+//! and `replace` are ordinary Buri over the graph, and run wherever a
+//! `Location` does.
 
 from "core/effect" import { Allocator };
 from "core/json" import * as json;

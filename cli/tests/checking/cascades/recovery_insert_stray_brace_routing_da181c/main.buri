@@ -31,7 +31,7 @@ test "navigate writes the address the page reads back" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
-        Location: address(headless(), "/"),
+        Location? : address(headless(), "/"),
     };
     assert.equal(web.path(ctx), "/");
     web.navigate(ctx, "/guide/routing");

@@ -51,7 +51,7 @@ test "replace writes the address too" {
 test "what read the route re-runs when the page navigates" {
     let ctx = context {
         Ui: headless(),
-        Watch: observer(),
+        Watch: observer()extra ,
         Location: address(headless(), "/"),
     };
     let log = recorder();

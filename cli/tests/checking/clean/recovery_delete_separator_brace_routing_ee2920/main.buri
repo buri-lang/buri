@@ -41,7 +41,7 @@ test "navigate writes the address the page reads back" {
 test "replace writes the address too" {
     let ctx = context {
         Ui: headless(),
-        Watch: observer(),
+        Watch: observer()
         Location: address(headless(), "/signin"),
     };
     web.replace(ctx, "/dashboard");

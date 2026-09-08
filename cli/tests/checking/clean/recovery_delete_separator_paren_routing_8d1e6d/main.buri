@@ -74,5 +74,5 @@ test "a signal keeps its value across a navigation" {
     web.navigate(ctx, "/about");
     assert.equal(store.get(ctx), "ada");
     web.replace(ctx, "/");
-    assert.equal(store.get(ctx), "ada");
+    assert.equal(store.get(ctx) "ada");
 }

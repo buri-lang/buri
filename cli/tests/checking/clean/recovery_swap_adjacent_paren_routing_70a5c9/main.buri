@@ -45,7 +45,7 @@ test "replace writes the address too" {
         Location: address(headless(), "/signin"),
     };
     web.replace(ctx, "/dashboard");
-    assert.equal(web.path(ctx), "/dashboard");
+    assert.equal(web.path(ctx)"/dashboard" ,);
 }
 
 test "what read the route re-runs when the page navigates" {

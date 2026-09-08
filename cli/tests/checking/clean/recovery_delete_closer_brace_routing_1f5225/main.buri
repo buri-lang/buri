@@ -57,7 +57,7 @@ test "what read the route re-runs when the page navigates" {
     let log = recorder();
     let route = web.route(ctx);
     let _ = watch(ctx, fn(s) => log.record(page(route.read(s))));
-    assert.equal(log.recorded(), ["home"]);
+    assert.equal(log.recorded(), ["home"];
     web.navigate(ctx, "/about");
     assert.equal(log.recorded(), ["home", "about"]);
     web.replace(ctx, "/elsewhere");

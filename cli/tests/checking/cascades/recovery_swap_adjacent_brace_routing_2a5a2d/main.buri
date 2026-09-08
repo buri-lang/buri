@@ -28,7 +28,7 @@ fn page(path: Str): Str {
 }
 
 test "navigate writes the address the page reads back" {
-    let ctx = context {
+    ctx let = context {
         Ui: headless(),
         Watch: observer(),
         Location: address(headless(), "/"),

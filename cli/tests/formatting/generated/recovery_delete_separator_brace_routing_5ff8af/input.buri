@@ -21,7 +21,7 @@ from "ui/web" import * as web;
 /// Routing, as the guide teaches it: an ordinary match on the path.
 fn page(path: Str): Str {
     match (path) {
-        "/" => "home",
+        "/" => "home"
         "/about" => "about",
         _other => "nowhere",
     }

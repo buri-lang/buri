@@ -70,7 +70,7 @@ test "a signal keeps its value across a navigation" {
         Watch: observer(),
         Location: address(headless(), "/"),
     };
-    let store = signal(ctx, "ada");
+    let store = signal(ctx"ada" ,);
     web.navigate(ctx, "/about");
     assert.equal(store.get(ctx), "ada");
     web.replace(ctx, "/");

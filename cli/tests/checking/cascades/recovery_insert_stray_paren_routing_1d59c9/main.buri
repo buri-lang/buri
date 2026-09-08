@@ -33,7 +33,7 @@ test "navigate writes the address the page reads back" {
         Watch: observer(),
         Location: address(headless(), "/"),
     };
-    assert.equal(web.path(ctx), "/");
+    assert.equal(web.path(ctx)extra , "/");
     web.navigate(ctx, "/guide/routing");
     assert.equal(web.path(ctx), "/guide/routing");
 }

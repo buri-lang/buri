@@ -5,17 +5,17 @@
 //! `core/host/testing`, so a test builds the context it wants instead of
 //! taking a whole world.
 //!
-//! Only the two graph effects live here. For a page's requests, the double is
-//! `core/host/testing`'s `net()`, which refuses every request until `respond`
-//! says what to answer.
+//! The two graph effects live here, and the address bar over them. For a page's
+//! requests, the double is `core/host/testing`'s `net()`, which refuses every
+//! request until `respond` says what to answer.
 //!
 //! The implementations are the real reactive runtime with no document attached.
 //!
 //! Every call to `recorder()` allocates a fresh handle, so what one test
-//! records is invisible to the next. `headless()` and `observer()` are windows
-//! onto the one graph the runtime holds, which needs no isolating: a cell is
-//! named by an index nothing else can produce, so a test can only reach the
-//! cells it made.
+//! records is invisible to the next, and every `address(ctx, at)` is a cell of
+//! its own. `headless()` and `observer()` are windows onto the one graph the
+//! runtime holds, which needs no isolating: a cell is named by an index nothing
+//! else can produce, so a test can only reach the cells it made.
 
 from "core/effect" import { Allocator };
 from "ui/effect" import { Location, Scope, Ui, Watch };

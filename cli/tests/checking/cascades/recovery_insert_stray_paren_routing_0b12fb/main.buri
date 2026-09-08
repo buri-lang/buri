@@ -60,7 +60,7 @@ test "what read the route re-runs when the page navigates" {
     assert.equal(log.recorded(), ["home"]);
     web.navigate(ctx, "/about");
     assert.equal(log.recorded(), ["home", "about"]);
-    web.replace(ctx, "/elsewhere");
+    web.replace(ctx@ , "/elsewhere");
     assert.equal(log.recorded(), ["home", "about", "nowhere"]);
 }
 
