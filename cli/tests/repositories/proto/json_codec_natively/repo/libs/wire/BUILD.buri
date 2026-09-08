@@ -1,0 +1,10 @@
+library {
+    generators: [
+        { tool: "std/codegen/proto", inputs: ["point.proto"] },
+    ]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/point.buri"]
+    }
+}
