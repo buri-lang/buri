@@ -57,6 +57,27 @@ file {
   absent: "node:module"
 }
 
+# And it carries no half of `web.resume`. This page mounts: it builds its tree
+# from nothing and puts it in an empty document. The other way in — taking over
+# markup a server already wrote — is a walk of its own, and every function in it
+# is named from `$ui_web_resume` and nowhere else, so a page that never resumes
+# ships none of it.
+#
+# The twin of `repositories/concurrency/website`, which is the same claim from
+# the far side: there a page *does* resume and a worker does not, so the page
+# carries `$ui_web_resume` and the worker is the one without it. Between them a
+# symbol that started being named unconditionally is a failing case rather than
+# an artifact that quietly grew.
+file {
+  path: ".buri/out/web/cmd/counter/counter.mjs"
+  absent: "$ui_web_resume"
+}
+
+file {
+  path: ".buri/out/web/cmd/counter/counter.mjs"
+  absent: "$adopt_claim"
+}
+
 # Built twice from two fresh sessions with the cache off, and all three files
 # compared. A companion artifact that was not a function of its inputs would be
 # a cache that silently serves a stale stylesheet.
