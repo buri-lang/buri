@@ -41,6 +41,6 @@ export fn card<C>(): Node<C> {
             .Foreground(Token.Ink.color()),
             .Radius(.Px(8)),
         ],
-        [ui.heading(2, .Const("Ada"))],
+        [ui.heading(2, [], .Const("Ada"))],
     )
 }
