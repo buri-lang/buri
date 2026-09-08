@@ -266,12 +266,13 @@ Conflicts resolve per property, last one wins, whether the compiler settled it
 or a runtime scan did — the scan only ever *chooses between* classes the
 compiler already emitted. A style that arrives as a *parameter* (the
 overridable-component case) resolves at runtime by a linear scan over
-compiler-assigned `(slot, class)` pairs. A slot is the property **and its
-condition**: `Padding` and `On(.Hover, [Padding])` are different slots, and
-"per property" stopped being enough the moment `On` existed. Two *different*
-properties that touch the same underlying declaration — `Padding` and
-`PaddingX`, `BorderWidth` and `BorderStyle` — are settled by the declaration
-order of the variants, because the sheet is written in that order and
+compiler-assigned `(slot, class)` pairs. A slot is the property, **its
+condition**, and **the edge** where the property names one: `Padding` and
+`On(.Hover, [Padding])` are different slots, so are `Pin(.Top, ...)` and
+`Pin(.Bottom, ...)`, and "per property" stopped being enough the moment `On`
+existed. Two *different* properties that touch the same underlying declaration
+— `Padding` and `PaddingX`, `BorderWidth` and `BorderStyle` — are settled by the
+declaration order of the variants, because the sheet is written in that order and
 equal-specificity rules resolve by position. **The variant order is part of the
 vocabulary's contract**, not an implementation detail, and the narrower property
 always comes after the broader one.
