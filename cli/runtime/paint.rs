@@ -48,6 +48,10 @@
 //!
 //! * An element with no `display` lays out as a column of its children, which
 //!   is what a block box does for the trees this paints.
+//! * `list-style-type` is drawn by the element that carries it, beside each of
+//!   its own boxes, rather than inherited down to whatever a browser calls a
+//!   list item. A list region carries it and its items are its children, so
+//!   the picture agrees; a list nested inside one carries its own.
 //! * `opacity` multiplies into every colour the subtree paints rather than
 //!   compositing the subtree as a group, so two overlapping half-transparent
 //!   children show through each other.
@@ -96,6 +100,11 @@ const ROOT_FONT_SIZE: f32 = 16.0;
 
 /// `line-height: normal`, as a multiple of the font size.
 const NORMAL_LINE_HEIGHT: f32 = 1.2;
+
+/// A list marker's distance from the item it marks, and a disc's diameter,
+/// both as a multiple of the item's font size. What a browser draws.
+const MARKER_GAP: f32 = 0.4;
+const MARKER_DISC: f32 = 0.35;
 
 /// The largest viewport the painter will allocate a canvas for.
 const MAX_VIEWPORT: u32 = 8192;
@@ -502,6 +511,15 @@ enum Border {
     Dashed,
 }
 
+/// What marks each item of a list — `ui/style`'s `ListMarker`, which is the
+/// only way a list gets one. The reset in the sheet cleared the browser's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Marker {
+    None,
+    Disc,
+    Decimal,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Shadow {
     x: f32,
@@ -543,6 +561,7 @@ struct Computed {
     radius: Len,
     opacity: f32,
     shadow: Option<Shadow>,
+    marker: Marker,
 
     font_size: f32,
     weight: u16,
@@ -587,6 +606,7 @@ impl Computed {
             radius: Len::Px(0.0),
             opacity: 1.0,
             shadow: None,
+            marker: Marker::None,
             font_size: ROOT_FONT_SIZE,
             weight: 400,
             italic: false,
@@ -761,6 +781,13 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             }
         }
         "box-shadow" => style.shadow = shadow(value, font_size),
+        "list-style-type" => {
+            style.marker = match value {
+                "disc" => Marker::Disc,
+                "decimal" => Marker::Decimal,
+                _ => Marker::None,
+            };
+        }
 
         "font-size" => {
             style.font_size = match len(value) {
@@ -1292,8 +1319,68 @@ impl Painter<'_> {
         } else {
             clip
         };
+        let mut item = 0_u32;
         for &child in &node.children {
+            if style.marker != Marker::None
+                && self.scene.node(child).is_some_and(|c| c.text.is_none())
+            {
+                item = item.saturating_add(1);
+                self.marker(canvas, style.marker, item, child, left, top, inner);
+            }
             self.draw(canvas, child, left, top, inner);
+        }
+    }
+
+    /// The mark beside one item of a list, in the item's own colour and size.
+    ///
+    /// It hangs outside the item, as `list-style-position: outside` does, so a
+    /// list with no padding along the text direction paints its marks off its
+    /// own edge — which is what a browser does with it too.
+    fn marker(
+        &mut self,
+        canvas: &mut Pixmap,
+        kind: Marker,
+        item: u32,
+        index: usize,
+        x: f32,
+        y: f32,
+        clip: Option<&Mask>,
+    ) {
+        let (Some(style), Some(&Some(id))) = (self.styles.get(index), self.ids.get(index))
+        else {
+            return;
+        };
+        let Ok(layout) = self.tree.layout(id) else { return };
+        let left = x + layout.location.x;
+        let top = y + layout.location.y;
+        let gap = style.font_size * MARKER_GAP;
+        match kind {
+            Marker::None => {}
+            Marker::Disc => {
+                // Centred on the item's first line, which is where a reader
+                // looks for it.
+                let size = style.font_size * MARKER_DISC;
+                let middle = top + style.font_size * style.line_height / 2.0;
+                let box_ = Box2 {
+                    l: px(left - gap - size),
+                    t: px(middle - size / 2.0),
+                    r: px(left - gap),
+                    b: px(middle + size / 2.0),
+                };
+                fill(canvas, box_, size / 2.0, style.colour, style.opacity, clip);
+            }
+            Marker::Decimal => {
+                let text = format!("{item}.");
+                let (width, height) = extent(&shape(self.fonts, &text, style, None));
+                let box_ = Box2 {
+                    l: px(left - gap - width),
+                    t: px(top),
+                    r: px(left - gap),
+                    b: px(top + height),
+                };
+                let style = style.clone();
+                self.text(canvas, &text, &style, box_, width, clip);
+            }
         }
     }
 

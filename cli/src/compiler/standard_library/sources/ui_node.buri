@@ -35,8 +35,8 @@ from "ui/effect" import { Event, Scope, Ui };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal };
 from "ui/style" import {
-    Align, BorderStyle, Color, Cursor, Edge, FontFamily, Layout, Length, Shadow, State,
-    Style, TextCase, TextLine, TextWrap, Track, Weight,
+    Align, BorderStyle, Color, Cursor, Edge, FontFamily, Layout, Length, ListMarker,
+    Shadow, State, Style, TextCase, TextLine, TextWrap, Track, Weight,
 };
 from "ui/theme" import { Theme };
 
@@ -770,6 +770,7 @@ fn declare<C: Alloc>(ctx: C, style: Style): [Str] {
         .TextWrap(wrapping) => [decl(ctx, "text-wrap", textWrapName(wrapping))],
         .Truncate(lines) => truncateCss(ctx, lines),
         .Cursor(cursor) => [decl(ctx, "cursor", cursorName(cursor))],
+        .ListMarker(marker) => [decl(ctx, "list-style-type", markerName(marker))],
         _ => [],
     }
 }
@@ -950,6 +951,14 @@ fn cursorName(cursor: Cursor): Str {
         .Pointer => "pointer",
         .Text => "text",
         .NotAllowed => "not-allowed",
+    }
+}
+
+fn markerName(marker: ListMarker): Str {
+    match (marker) {
+        .None => "none",
+        .Disc => "disc",
+        .Decimal => "decimal",
     }
 }
 
