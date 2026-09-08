@@ -152,6 +152,19 @@ expression temporary or a loop variable. Seven registers cost 5.5× the
 library, 11× the install-time compile and 15× the load, for kernels
 within ±4 % of each other with no trend. `stencil/abi.rs::NREGS`.
 
+**A promoted loop variable is its register inside the region and its frame slot
+outside it.** `jit.rs::promote` hands a loop header's parameters CPS registers,
+and what makes that sound without a liveness analysis is the region: the header,
+the blocks that reach its back edge, no zero-register stencil among them, and no
+way in but through the header. One block further out the register holds whatever
+a call left there, so a read out there takes the frame slot the edge kept in
+step. `Fn2::loc` answers that per block; `Fn2::home` answers where the value
+*lives*, which is what an edge copy lands in however far outside the region the
+edge starts. Reading the register everywhere was buri-lang/buri#47: a `Bool`
+walk that recursed from an `else if` and from a `&&` read its index on both
+sides of a `charAt`, so the second arm handed back a nonsense index and the walk
+answered `true` for every input.
+
 ### 2.1 The two places C has to be bridged
 
 The convention is not the C one, so two things cross the boundary, and both

@@ -113,7 +113,7 @@ test "an element that holds nothing still writes its closing tag" {
     // match. Every element that is not one of HTML's own empty ones closes.
     assert.equal(web.render(ui.region(.Main, [], [])), "<main></main>");
     assert.equal(
-        web.render(ui.button(.Const(""), fn(_c, _e) => ())),
+        web.render(ui.button(.Const(""), [], fn(_c, _e) => ())),
         "<button type=\"button\"></button>",
     );
     assert.equal(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
@@ -138,22 +138,22 @@ test "every kind of node renders" {
     assert.equal(web.render(ui.row([], [])), "<div class=\"lay-row\"></div>");
     assert.equal(web.render(ui.heading(2, .Const("two"))), "<h2>two</h2>");
     assert.equal(
-        web.render(ui.link(.Const("/there"), [ui.text(.Const("go"))])),
+        web.render(ui.link(.Const("/there"), [], [ui.text(.Const("go"))])),
         "<a href=\"/there\">go</a>",
     );
     assert.equal(
-        web.render(ui.field(.Const("name"), .Text, typed)),
+        web.render(ui.field(.Const("name"), .Text, [], typed)),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     // What is typed into a `textarea` is its text rather than an attribute.
     assert.equal(
-        web.render(ui.field(.Const("story"), .Multiline, typed)),
+        web.render(ui.field(.Const("story"), .Multiline, [], typed)),
         "<label><span>story</span><textarea>ada</textarea></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
     assert.equal(
-        web.render(ui.toggle(.Const("done"), ticked)),
+        web.render(ui.toggle(.Const("done"), [], ticked)),
         "<label><input type=\"checkbox\" checked /><span>done</span></label>",
     );
     // The three that decide what to render resolve rather than register: a
@@ -171,10 +171,7 @@ test "every kind of node renders" {
         ),
         "no",
     );
-    assert.equal(
-        web.render(ui.computed(fn(_scope) => ui.text(.Const("built")))),
-        "built",
-    );
+    assert.equal(web.render(ui.computed(fn(_scope) => ui.text(.Const("built")))), "built");
     assert.equal(
         web.render(
             ui.each(.Const(["a", "b"]), fn(item) => item, fn(_c, item, _i) => {
@@ -224,7 +221,7 @@ test "an attribute is escaped too, quotes included" {
         "<img src=\"/a&amp;b.png\" alt=\"&quot;q&quot; &lt;x&gt;\" />",
     );
     assert.equal(
-        web.render(ui.link(.Const("/a?x=1&y=2"), [])),
+        web.render(ui.link(.Const("/a?x=1&y=2"), [], [])),
         "<a href=\"/a?x=1&amp;y=2\"></a>",
     );
 }
@@ -252,10 +249,7 @@ test "a state that ends the script it sits in closes nothing" {
         ctx,
         json.parse(ctx, embedded(document)).withDefault(.Null),
     );
-    assert.equal(
-        read.withDefault(Reading { title: "", note: "" }).note,
-        "</script><b>",
-    );
+    assert.equal(read.withDefault(Reading { title: "", note: "" }).note, "</script><b>");
 }
 
 test "the state crosses as every shape JSON has" {

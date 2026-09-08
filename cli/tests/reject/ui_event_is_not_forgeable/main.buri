@@ -14,7 +14,7 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal, signal };
 
 fn pressTwice<C>(count: Signal<Int>, onPress: fn(C, Event) => ()): Node<C> {
-  ui.button(.Const("twice"), fn(c, e) => onPress(c, Event(0)))
+  ui.button(.Const("twice"), [], fn(c, e) => onPress(c, Event(0)))
 }
 
 export fn main(): Result<(), Str> {

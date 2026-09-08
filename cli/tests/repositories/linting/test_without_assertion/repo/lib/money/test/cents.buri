@@ -1,10 +1,18 @@
-// Two tests, and the rule must tell them apart.
+// Three tests, and the rule must tell them apart.
 //
 // The second asserts through a helper, which is how most tests worth writing
 // assert. Read syntactically — "the body contains no `assert`" — the rule would
 // fire on it, so it is transitive instead: reachability from the test's body.
+//
+// The third's only check is a snapshot. That is an assertion too: a golden that
+// differs, or one that is not there yet, fails the test.
 
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
 from "//lib/money" import { Cents, fromCents };
 
 // The helper. Nothing in `roundTrips` mentions `assert`; this does.
@@ -18,4 +26,12 @@ test "constructing a Cents does nothing observable" {
 
 test "roundTrips through the helper" {
     isSame(fromCents(150), Cents(150))
+}
+
+test "the price paints" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "price", ui.text(.Const("150c")), .Hover);
 }

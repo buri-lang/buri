@@ -1335,12 +1335,12 @@ impl CDriver {
                 //
                 // The reason `-lm` was load-bearing survives the flag's
                 // removal from every other path: `tokio`'s multi-thread worker
-                // calls libm's `pow` (its mean-poll-time estimator), and since
+                // calls libm's `power` (its mean-poll-time estimator), and since
                 // the carrier pool made `rt::Launch::launch` reachable,
                 // `libburi_rt.a` carries that worker in every Buri program. On
                 // glibc that call needs `-lm` and a link without it ends at
                 // `undefined reference to 'pow'`. On musl it needs nothing:
-                // `pow` is *in* `libc.a`, along with everything `-lpthread`
+                // `power` is *in* `libc.a`, along with everything `-lpthread`
                 // and `-ldl` used to name, and musl ships no `libpthread.a`
                 // stub for `-lpthread` to find — so passing them against the
                 // baked sysroot is not a harmless extra but `cannot find
@@ -2139,7 +2139,7 @@ mod tests {
         }
         if cc.libc() == LibcMode::Glibc {
             // `BURI_MUSL=off`, the one path that keeps them. `-lm` is
-            // load-bearing there: `tokio`'s worker calls `pow`.
+            // load-bearing there: `tokio`'s worker calls `power`.
             for present in ["-lpthread", "-ldl", "-lm"] {
                 assert!(has(present), "{present} left the glibc path: {flags:?}");
             }

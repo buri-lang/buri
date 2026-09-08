@@ -24,11 +24,11 @@
 //! A style that folded is replaced, in the typed tree, by the
 //! `Style::Extracted` variant: a `Classes`, holding a list of `(slot, class)`
 //! pairs. `Classes` has a private field, so only `ui/style` and this pass can
-//! build one, which is what keeps the variant unwritable. The *slot* is
-//! the conflict key — the property together with its condition — so the
-//! runtime's last-wins resolution is a scan over compiler-assigned pairs,
-//! choosing between classes that are already in the stylesheet. It never builds
-//! one.
+//! build one, which is what keeps the variant unwritable. The *slot* is the
+//! conflict key — the property, its condition, and the edge where the property
+//! names one — so the runtime's last-wins resolution is a scan over
+//! compiler-assigned pairs, choosing between classes that are already in the
+//! stylesheet. It never builds one.
 //!
 //! ## What is refused, and what merely degrades
 //!
@@ -67,6 +67,17 @@ const STYLE_COMPUTED: usize = 4;
 const STYLE_EXTRACTED: usize = 5;
 /// The first variant that is one property with one value.
 const FIRST_PROPERTY: usize = 6;
+/// `Pin(Edge, Length)`.
+const STYLE_PIN: usize = 15;
+/// `PaddingEdge(Edge, Length)`.
+const STYLE_PADDING_EDGE: usize = 23;
+
+// `ui/node`'s `NodeKind`, whose variant order is load-bearing for the same
+// reason and says so in its own comment. Only the three that lower to an
+// element a browser paints chrome on are named here.
+const NODE_BUTTON: usize = 5;
+const NODE_LINK: usize = 6;
+const NODE_FIELD: usize = 8;
 
 /// One rule in the emitted stylesheet.
 ///
@@ -130,6 +141,46 @@ impl Cond {
         let state = self.state.map_or(0, |s| u32::from(s).saturating_add(1));
         let screen = self.screen.map_or(0, |s| u32::from(s).saturating_add(1));
         state.saturating_mul(5).saturating_add(screen)
+    }
+}
+
+/// How many conditions a property divides into: six states counting "none", by
+/// five breakpoints counting "none", which is what `Cond::code` numbers.
+const CONDITIONS: u32 = 30;
+
+/// How many sub-keys a property divides into: the four `Edge`s, and the one a
+/// `Pin` keeps its `position` in.
+const SUB_KEYS: u32 = 5;
+
+/// The sub-key a `Pin`'s `position` sits in, past the four edges.
+const PIN_FLOW: u32 = 4;
+
+/// The conflict slot: the property, the sub-key where the property has one,
+/// and the condition, packed into one number the runtime compares for equality.
+///
+/// The sub-key is what stops two `Pin`s from colliding. A property is usually
+/// one declaration, so its variant is the whole key — but `Pin` and
+/// `PaddingEdge` name an *edge*, and two of them naming different edges write
+/// different declarations and compose. `ui/style` says so in both variants'
+/// documentation, and the edge is how the slot says it too.
+fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
+    let variant = u32::try_from(variant).ok()?;
+    variant
+        .checked_mul(SUB_KEYS)?
+        .checked_add(sub)?
+        .checked_mul(CONDITIONS)?
+        .checked_add(cond.code())
+}
+
+/// The sub-key a property's value falls in: the edge it names, or nothing.
+fn sub_key(variant: usize, args: &[Value]) -> u32 {
+    match variant {
+        STYLE_PIN | STYLE_PADDING_EDGE => args
+            .first()
+            .and_then(Value::as_variant)
+            .and_then(|(edge, _)| u32::try_from(edge).ok())
+            .unwrap_or(0),
+        _ => 0,
     }
 }
 
@@ -540,19 +591,43 @@ impl<'a> Extractor<'a> {
             // already-extracted style has no value left to read. Both make the
             // enclosing fold give up so that the descent handles them.
             STYLE_WHEN | STYLE_COMPUTED | STYLE_EXTRACTED => None,
-            _ if variant >= FIRST_PROPERTY => {
-                let atom = self.property(variant, args, cond)?;
-                out.push(atom);
-                Some(())
-            }
+            _ if variant >= FIRST_PROPERTY => self.property(variant, args, cond, out),
             _ => None,
         }
     }
 
-    /// One property value: its class, its slot, and the rule it puts in the
-    /// sheet.
-    fn property(&mut self, variant: usize, args: &[Value], cond: Cond) -> Option<Atom> {
-        let (abbreviation, key, blocks) = declaration(variant, args)?;
+    /// One property value: the classes it needs, each in its own slot, and the
+    /// rules they put in the sheet.
+    fn property(
+        &mut self,
+        variant: usize,
+        args: &[Value],
+        cond: Cond,
+        out: &mut Vec<Atom>,
+    ) -> Option<()> {
+        // Out of the flow is one fact about the element rather than one per
+        // edge, so a pin keeps its `position` in a class of its own. Four pins
+        // then write four insets and one `position`, and `Position` — the
+        // property that owns `position`, declared after `Pin` and so written
+        // later in the sheet — overrides it wherever an element has both.
+        if variant == STYLE_PIN {
+            let flow = ("pin", "out".to_owned(), vec![("", "position:absolute".to_owned())]);
+            out.push(self.atom(variant, PIN_FLOW, cond, flow)?);
+        }
+        let sub = sub_key(variant, args);
+        let atom = self.atom(variant, sub, cond, declaration(variant, args)?)?;
+        out.push(atom);
+        Some(())
+    }
+
+    /// One class: its name, its slot, and the rule it puts in the sheet.
+    fn atom(
+        &mut self,
+        variant: usize,
+        sub: u32,
+        cond: Cond,
+        (abbreviation, key, blocks): Declaration,
+    ) -> Option<Atom> {
         let class = format!("{}{}-{}", cond.prefix(), abbreviation, key);
         let property = u16::try_from(variant).ok()?;
         if self.recorded.insert(class.clone()) {
@@ -564,8 +639,7 @@ impl<'a> Extractor<'a> {
                 blocks,
             });
         }
-        let slot = u32::try_from(variant).ok()?.checked_mul(30)?.checked_add(cond.code())?;
-        Some(Atom { slot, class })
+        Some(Atom { slot: slot(variant, sub, cond)?, class })
     }
 }
 
@@ -606,7 +680,9 @@ fn resolve_conflicts(atoms: Vec<Atom>) -> Vec<Atom> {
 ///   declaration — `Padding` and `PaddingX` — position in the sheet is what
 ///   decides. `ui/style` declares the narrower one later for exactly this.
 /// * **By class name within a property**, so the sheet is a stable text.
-pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>) -> String {
+///
+/// [`Controls`] opens it, where the program has one of those elements.
+pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Controls) -> String {
     let mut unique: Vec<&StyleRule> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::default();
     for rule in rules {
@@ -622,7 +698,7 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>) -> String {
         (a.screen, a.property, a.state, &a.class).cmp(&(b.screen, b.property, b.state, &b.class))
     });
 
-    let mut out = String::new();
+    let mut out = reset.rules();
     let mut open: Option<Option<u8>> = None;
     for rule in unique {
         if open != Some(rule.screen) {
@@ -644,6 +720,71 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>) -> String {
         out.push_str("}\n");
     }
     out
+}
+
+/// Everything a browser paints on a control that no atomic class can get
+/// under: the bevel on a button, the blue underline on a link, the border and
+/// the inner shadow on a field.
+///
+/// A class says what one property is and nothing about the rest, so the sheet
+/// has to say it once, up front, for the elements the program actually builds.
+/// `:where()` holds the selectors, which makes the reset weigh nothing in the
+/// cascade — every class beats it, whatever order they land in.
+///
+/// What comes out is also what the headless painter already draws: no padding
+/// nobody asked for, and the surrounding font. A toggle's box is deliberately
+/// left alone. `appearance:none` on a checkbox erases the tick, and this
+/// vocabulary has nothing to draw a new one with.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct Controls {
+    pub button: bool,
+    pub link: bool,
+    pub field: bool,
+}
+
+/// The declarations a control drops. `font` and `color` are inherited rather
+/// than cleared, because a control that does not say what it looks like should
+/// look like the text around it.
+const CONTROL_RESET: &str =
+    "appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit";
+
+impl Controls {
+    fn rules(self) -> String {
+        let mut out = String::new();
+        if self.button {
+            out.push_str(&format!(":where(button){{{CONTROL_RESET}}}\n"));
+        }
+        if self.link {
+            out.push_str(":where(a){color:inherit;text-decoration:none}\n");
+        }
+        if self.field {
+            // A checkbox is a toggle's, never a field's, and it is the one
+            // input the reset must not reach.
+            out.push_str(&format!(
+                ":where(input:not([type=checkbox]),textarea){{{CONTROL_RESET}}}\n"
+            ));
+        }
+        out
+    }
+}
+
+/// Which interactive elements an expression builds.
+///
+/// The same question as [`builds_a_theme`] and asked the same way: `NodeKind`
+/// is `ui/node`'s private enum, so a literal of it was written inside that
+/// module's own constructors and nowhere else.
+pub fn controls_in(e: &mut typed::Expr, node_con: TyConId, out: &mut Controls) {
+    if let ExprKind::EnumLit { con, variant, .. } = &e.kind {
+        if *con == node_con {
+            match *variant {
+                NODE_BUTTON => out.button = true,
+                NODE_LINK => out.link = true,
+                NODE_FIELD => out.field = true,
+                _ => {}
+            }
+        }
+    }
+    typed::children_mut(e, &mut |child| controls_in(child, node_con, out));
 }
 
 // ---------------------------------------------------------------------------
@@ -734,14 +875,12 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let n = first?.as_int()?;
             Some(("span", integer_key(n), one("grid-column", &format!("span {n}"))))
         }
+        // Only the inset: the `position` a pin needs is the `pin-out` class
+        // `property` writes beside this one, so that four edges compose.
         15 => {
             let (property, edge) = edge_property("inset", first?)?;
             let (length, key) = length(args.get(1)?)?;
-            Some((
-                "pin",
-                format!("{edge}-{key}"),
-                one("position", &format!("absolute;{property}:{length}")),
-            ))
+            Some(("pin", format!("{edge}-{key}"), one(&property, &length)))
         }
         16 => {
             let (which, _) = first?.as_variant()?;
