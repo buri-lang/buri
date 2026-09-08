@@ -30,6 +30,13 @@
 //! reason `$host_HostStdout_writeBytes` does — "the two orderings a program can
 //! see are the one it wrote".
 //!
+//! **A buffer is not a delay.** What it batches is a *run of consecutive
+//! prints*: the moment the program waits for anything outside itself — an
+//! `accept`, a sleep, a mailbox with no room, a read of standard input — what
+//! it has printed is already on the descriptor, whether that descriptor is a
+//! terminal or a pipe. [`about_to_block`] is the rule and the three places it
+//! is kept, and a server's "listening on …" line is what it is for.
+//!
 //! ## Errors
 //!
 //! `IoError`'s variants, in declaration order in `core/effect`, are the
@@ -169,6 +176,30 @@ pub extern "C" fn buri_rt_flush() {
     }
 }
 
+/// Deliver what has been printed, because the caller is about to wait.
+///
+/// **The rule**: a line a program printed has reached the descriptor before
+/// that program blocks — an `accept`, a sleep, a mailbox with no room, a read
+/// of standard input, a child it is waiting for — and it has reached it whether
+/// standard output is a terminal or a pipe. So [`FLUSH_AT`] batches a *run of
+/// consecutive prints* and nothing else, which is what makes a server's
+/// "listening on …" line readable in a redirected log while the server is
+/// still listening rather than only once it has stopped.
+///
+/// It is deliberately not a flush per line. A print still only fills a buffer;
+/// the syscall happens at the edge of a wait, where one more syscall costs
+/// nothing against the wait it precedes, so a program that prints in bulk
+/// writes the same few large blocks it always did.
+///
+/// The waits themselves are in three places: [`crate::rt::park_on`], which is
+/// the door every suspension in this runtime goes through, is where most of
+/// them call this; the entries below that block on a descriptor rather than on
+/// the reactor call it for themselves; and a runtime built without `net` has no
+/// reactor, so `Clock::sleepMillis` calls it on that arm too.
+pub(crate) fn about_to_block() {
+    buri_rt_flush();
+}
+
 /// Remember a stream failure for the next writer to answer with. The first one
 /// wins; see [`PENDING`].
 fn note(r: std::io::Result<()>) {
@@ -304,6 +335,9 @@ pub unsafe extern "C" fn buri_rt_host_stdout_write_bytes(ptr: *const u8, len: u6
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_stdin_read_line(out: *mut BuriStr) -> i32 {
+    // [`about_to_block`]'s rule: a prompt is printed before the answer to it is
+    // waited for, which is the whole of what a prompt is.
+    about_to_block();
     let mut state = lock(&STDIN_LINES);
     let (lines, at) = state.get_or_insert_with(|| {
         let mut raw = Vec::new();
@@ -339,6 +373,9 @@ pub unsafe extern "C" fn buri_rt_host_stdin_read_bytes(n: i64, out: *mut BuriLis
         unsafe { out.write(list_of_bytes(&[])) };
         return BURI_OK;
     }
+    // [`about_to_block`]'s rule, for `read_line`'s reason: this is the
+    // operation a request/response protocol over a pipe waits in.
+    about_to_block();
     let mut buf = vec![0_u8; n as usize];
     let mut got = 0_usize;
     let stream = std::io::stdin();
@@ -1102,6 +1139,9 @@ pub extern "C" fn buri_rt_host_clock_now_millis() -> i64 {
 pub extern "C" fn buri_rt_host_clock_sleep_millis(millis: i64) {
     if millis > 0 {
         let duration = std::time::Duration::from_millis(millis as u64);
+        // [`about_to_block`]'s rule. With `net` this is `park_on`'s call and
+        // this one is redundant; without it there is no `park_on` to make it.
+        about_to_block();
         // The sleep is built *inside* the future, not handed to `park_on`
         // ready-made: `tokio::time::sleep` registers with the timer driver
         // where it is constructed, and this thread is in no runtime context
@@ -1307,6 +1347,9 @@ pub unsafe extern "C" fn buri_rt_host_spawn_process(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
+    // [`about_to_block`]'s rule: `run` does not answer until the child has, so
+    // whatever this program said about the child is said before it waits.
+    about_to_block();
     let mut child = match command.spawn() {
         Ok(child) => child,
         // SAFETY: the caller promises a writable destination.
