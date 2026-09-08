@@ -63,7 +63,7 @@ export struct DecodeError(export Int);
 export fn toUtf8<C: Allocator>(ctx: C, text: Str): [U8];
 
 /// The string those bytes encode, or where they stopped being one.
-export fn fromUtf8<C: Allocator>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
+export fn fromUtf8<C: Allocator>(ctx: C, bytes: [U8]): Result<Str, Utf8Error>;
 
 /// The same decoding, with every byte that cannot be part of a valid encoding
 /// replaced by U+FFFD instead of refused.
@@ -114,24 +114,29 @@ let REPLACEMENT: [U8] = [0xef, 0xbf, 0xbd];
 
 /// The input with every maximal subpart that is not a valid sequence swapped for
 /// U+FFFD. Tail-recursive over the whole run.
-fn cleaned<C: Allocator>(ctx: C, b: [U8], i: Int, acc: [U8]): [U8] {
-    if (i >= b.length()) {
+fn cleaned<C: Allocator>(ctx: C, bytes: [U8], i: Int, acc: [U8]): [U8] {
+    if (i >= bytes.length()) {
         acc
     } else {
-        let lead = b.get(i).withDefault(0).toI64();
+        let lead = bytes.get(i).withDefault(0).toI64();
         if (lead < 0x80) {
-            cleaned(ctx, b, i + 1, acc.push(ctx, b.get(i).withDefault(0)))
+            cleaned(ctx, bytes, i + 1, acc.push(ctx, bytes.get(i).withDefault(0)))
         } else {
             let width = sequenceWidth(lead);
-            let taken = valid(b, i, width);
+            let taken = valid(bytes, i, width);
             if (taken == width) {
-                cleaned(ctx, b, i + width, acc.concat(ctx, b.slice(ctx, i, i + width)))
+                cleaned(
+                    ctx,
+                    bytes,
+                    i + width,
+                    acc.concat(ctx, bytes.slice(ctx, i, i + width)),
+                )
             } else {
                 // The maximal subpart: what was consumed before the byte that
                 // did not belong, and never fewer than one byte.
                 cleaned(
                     ctx,
-                    b,
+                    bytes,
                     i + if (taken < 1) { 1 } else { taken },
                     acc.concat(ctx, REPLACEMENT),
                 )
@@ -157,11 +162,11 @@ fn sequenceWidth(lead: Int): Int {
 /// How many of the `width` bytes at `i` are what the sequence needs. `width`
 /// means the whole sequence is there; anything less names the first byte that
 /// is not, and a lead byte that leads nothing answers 0.
-fn valid(b: [U8], i: Int, width: Int): Int {
+fn valid(bytes: [U8], i: Int, width: Int): Int {
     if (width == 1) {
         0
     } else {
-        let lead = b.get(i).withDefault(0).toI64();
+        let lead = bytes.get(i).withDefault(0).toI64();
         // The second byte's range is narrower than 80..bf for four lead bytes,
         // and that is what rejects an overlong encoding and a surrogate before
         // the code point is ever assembled.
@@ -179,23 +184,23 @@ fn valid(b: [U8], i: Int, width: Int): Int {
         } else {
             0xbf
         };
-        continuations(b, i, width, low, high, 1)
+        continuations(bytes, i, width, low, high, 1)
     }
 }
 
-fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int {
+fn continuations(bytes: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int {
     if (at >= width) {
         width
-    } else if (i + at >= b.length()) {
+    } else if (i + at >= bytes.length()) {
         at
     } else {
-        let x = b.get(i + at).withDefault(0).toI64();
+        let x = bytes.get(i + at).withDefault(0).toI64();
         let lo = if (at == 1) { low } else { 0x80 };
         let hi = if (at == 1) { high } else { 0xbf };
         if (x < lo || x > hi) {
             at
         } else {
-            continuations(b, i, width, low, high, at + 1)
+            continuations(bytes, i, width, low, high, at + 1)
         }
     }
 }
@@ -203,13 +208,13 @@ fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int
 // --- Hexadecimal ---------------------------------------------------------------
 
 /// Lowercase, two characters per byte, no separator.
-export fn toHex<C: Allocator>(ctx: C, b: [U8]): Str {
+export fn toHex<C: Allocator>(ctx: C, bytes: [U8]): Str {
     str.fromChars(
         ctx,
         list
-            .range(ctx, 0, b.length() * 2)
+            .range(ctx, 0, bytes.length() * 2)
             .map(ctx, fn(i) => {
-                let octet = b.get(i / 2).withDefault(0).toI64();
+                let octet = bytes.get(i / 2).withDefault(0).toI64();
                 let nibble = if (i % 2 == 0) { octet / 16 } else { octet % 16 };
                 character.fromDigit(nibble, 16).withDefault('0')
             }),
@@ -254,8 +259,8 @@ let B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
 /// RFC 4648 §5: `-` and `_` where the standard alphabet has `+` and `/`.
 let B64URL: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-export fn toBase64<C: Allocator>(ctx: C, b: [U8]): Str {
-    encode64(ctx, b, B64)
+export fn toBase64<C: Allocator>(ctx: C, bytes: [U8]): Str {
+    encode64(ctx, bytes, B64)
 }
 
 /// The URL- and filename-safe alphabet, **unpadded**: `-` and `_` for `+` and
@@ -288,15 +293,15 @@ export fn toBase64Url<C: Allocator>(ctx: C, bytes: [U8]): Str {
     withoutPadding(encode64(ctx, bytes, B64URL))
 }
 
-fn encode64<C: Allocator>(ctx: C, b: [U8], alphabet: Str): Str {
-    let n = b.length();
+fn encode64<C: Allocator>(ctx: C, bytes: [U8], alphabet: Str): Str {
+    let n = bytes.length();
     list
         .range(ctx, 0, (n + 2) / 3)
         .mapCtx(ctx, fn(c, g) => {
             let i = g * 3;
-            let b0 = b.get(i).withDefault(0).toI64();
-            let b1 = b.get(i + 1).withDefault(0).toI64();
-            let b2 = b.get(i + 2).withDefault(0).toI64();
+            let b0 = bytes.get(i).withDefault(0).toI64();
+            let b1 = bytes.get(i + 1).withDefault(0).toI64();
+            let b2 = bytes.get(i + 2).withDefault(0).toI64();
             let left = n - i;
             str.fromChars(c, [
                 alphabet.charAt(b0 / 4).withDefault('A'),
@@ -500,22 +505,22 @@ export fn split<C: Allocator>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
 
 fn splitFrom<C: Allocator>(
     ctx: C,
-    b: [U8],
+    bytes: [U8],
     separator: [U8],
     at: Int,
     acc: [[U8]],
 ): [[U8]] {
-    match (indexOfFrom(b, separator, at)) {
+    match (indexOfFrom(bytes, separator, at)) {
         .Some(i) => {
             splitFrom(
                 ctx,
-                b,
+                bytes,
                 separator,
                 i + separator.length(),
-                acc.push(ctx, b.slice(ctx, at, i)),
+                acc.push(ctx, bytes.slice(ctx, at, i)),
             )
         },
-        .None => acc.push(ctx, b.slice(ctx, at, b.length())),
+        .None => acc.push(ctx, bytes.slice(ctx, at, bytes.length())),
     }
 }
 
@@ -578,10 +583,10 @@ fn varintBytes<C: Allocator>(ctx: C, hi: Int, lo: Int): [U8] {
 ///
 /// An encoding that runs off the end of the input, or past ten bytes, is an
 /// error at the index it started from.
-export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
-    match (varintEnd(b, at, 0)) {
+export fn readVarint(bytes: [U8], at: Int): Result<(Int, Int), DecodeError> {
+    match (varintEnd(bytes, at, 0)) {
         .None => .Err(DecodeError(at)),
-        .Some(end) => .Ok((varintValue(b, at, end - 1, 0, 0), end)),
+        .Some(end) => .Ok((varintValue(bytes, at, end - 1, 0, 0), end)),
     }
 }
 
@@ -590,33 +595,33 @@ export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
 /// Not `readVarint(...) % 2^32`: a varint carries 64 bits and an `Int` is exact
 /// to 53, so the whole number may already have rounded. This keeps the low half
 /// from the start, which is exact for every input.
-export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
-    match (varintEnd(b, at, 0)) {
+export fn readVarint32(bytes: [U8], at: Int): Result<(Int, Int), DecodeError> {
+    match (varintEnd(bytes, at, 0)) {
         .None => .Err(DecodeError(at)),
-        .Some(end) => .Ok((varintLow(b, at, end - 1, 0), end)),
+        .Some(end) => .Ok((varintLow(bytes, at, end - 1, 0), end)),
     }
 }
 
-fn varintLow(b: [U8], at: Int, i: Int, lo: Int): Int {
+fn varintLow(bytes: [U8], at: Int, i: Int, lo: Int): Int {
     if (i < at) {
         lo
     } else {
-        let g = b.get(i).withDefault(0).toI64() % 128;
-        varintLow(b, at, i - 1, (lo * 128 + g) % TWO32)
+        let g = bytes.get(i).withDefault(0).toI64() % 128;
+        varintLow(bytes, at, i - 1, (lo * 128 + g) % TWO32)
     }
 }
 
-fn varintEnd(b: [U8], i: Int, taken: Int): Option<Int> {
+fn varintEnd(bytes: [U8], i: Int, taken: Int): Option<Int> {
     if (taken >= 10) {
         .None
     } else {
-        match (b.get(i)) {
+        match (bytes.get(i)) {
             .None => .None,
             .Some(x) => {
                 if (x.toI64() < 128) {
                     .Some(i + 1)
                 } else {
-                    varintEnd(b, i + 1, taken + 1)
+                    varintEnd(bytes, i + 1, taken + 1)
                 }
             },
         }
@@ -626,14 +631,20 @@ fn varintEnd(b: [U8], i: Int, taken: Int): Option<Int> {
 /// Folds the groups from the most significant end down, so it never needs a
 /// power of two: each step is a multiply by 128 with a carry between the
 /// halves.
-fn varintValue(b: [U8], at: Int, i: Int, hi: Int, lo: Int): Int {
+fn varintValue(bytes: [U8], at: Int, i: Int, hi: Int, lo: Int): Int {
     if (i < at) {
         joinHalves(hi, lo)
     } else {
-        let g = b.get(i).withDefault(0).toI64() % 128;
+        let g = bytes.get(i).withDefault(0).toI64() % 128;
         let wide = lo * 128 + g;
         let nextLo = wide % TWO32;
-        varintValue(b, at, i - 1, (hi * 128 + (wide - nextLo) / TWO32) % TWO32, nextLo)
+        varintValue(
+            bytes,
+            at,
+            i - 1,
+            (hi * 128 + (wide - nextLo) / TWO32) % TWO32,
+            nextLo,
+        )
     }
 }
 
@@ -667,7 +678,7 @@ export fn f64ToBytes<C: Allocator>(ctx: C, value: Float): [U8];
 /// eight. A NaN comes back as the canonical quiet NaN on every backend — the
 /// payload bits are not part of a `Float`'s value (SPEC 6.2). A zero keeps its
 /// sign.
-export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
+export fn f64FromBytes(bytes: [U8], at: Int): Option<Float>;
 
 /// The four bytes of an IEEE 754 single. A `Float` that single precision cannot
 /// represent rounds, exactly as storing one in a `float` field does.
@@ -675,7 +686,7 @@ export fn f32ToBytes<C: Allocator>(ctx: C, value: Float): [U8];
 
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
 /// A NaN canonicalizes, as it does at eight bytes.
-export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
+export fn f32FromBytes(bytes: [U8], at: Int): Option<Float>;
 
 // --- Fixed-width integers -------------------------------------------------------
 //
@@ -774,76 +785,76 @@ export fn toU16LittleEndian(bytes: [U8], at: Int): Option<U16> {
 
 /// The `U64` the eight octets at `at` spell, most significant first, or `.None`
 /// if there are not eight of them — never a truncated reading.
-export fn toU64BigEndian(b: [U8], at: Int): Option<U64> {
-    if (at < 0 || at + 8 > b.length()) {
+export fn toU64BigEndian(bytes: [U8], at: Int): Option<U64> {
+    if (at < 0 || at + 8 > bytes.length()) {
         .None
     } else {
         .Some(
-            bits.shiftLeftU64(octet64(b, at), 56)
-                | bits.shiftLeftU64(octet64(b, at + 1), 48)
-                | bits.shiftLeftU64(octet64(b, at + 2), 40)
-                | bits.shiftLeftU64(octet64(b, at + 3), 32)
-                | bits.shiftLeftU64(octet64(b, at + 4), 24)
-                | bits.shiftLeftU64(octet64(b, at + 5), 16)
-                | bits.shiftLeftU64(octet64(b, at + 6), 8)
-                | octet64(b, at + 7),
+            bits.shiftLeftU64(octet64(bytes, at), 56)
+                | bits.shiftLeftU64(octet64(bytes, at + 1), 48)
+                | bits.shiftLeftU64(octet64(bytes, at + 2), 40)
+                | bits.shiftLeftU64(octet64(bytes, at + 3), 32)
+                | bits.shiftLeftU64(octet64(bytes, at + 4), 24)
+                | bits.shiftLeftU64(octet64(bytes, at + 5), 16)
+                | bits.shiftLeftU64(octet64(bytes, at + 6), 8)
+                | octet64(bytes, at + 7),
         )
     }
 }
 
 /// The same eight octets read least significant first.
-export fn toU64LittleEndian(b: [U8], at: Int): Option<U64> {
-    if (at < 0 || at + 8 > b.length()) {
+export fn toU64LittleEndian(bytes: [U8], at: Int): Option<U64> {
+    if (at < 0 || at + 8 > bytes.length()) {
         .None
     } else {
         .Some(
-            octet64(b, at)
-                | bits.shiftLeftU64(octet64(b, at + 1), 8)
-                | bits.shiftLeftU64(octet64(b, at + 2), 16)
-                | bits.shiftLeftU64(octet64(b, at + 3), 24)
-                | bits.shiftLeftU64(octet64(b, at + 4), 32)
-                | bits.shiftLeftU64(octet64(b, at + 5), 40)
-                | bits.shiftLeftU64(octet64(b, at + 6), 48)
-                | bits.shiftLeftU64(octet64(b, at + 7), 56),
+            octet64(bytes, at)
+                | bits.shiftLeftU64(octet64(bytes, at + 1), 8)
+                | bits.shiftLeftU64(octet64(bytes, at + 2), 16)
+                | bits.shiftLeftU64(octet64(bytes, at + 3), 24)
+                | bits.shiftLeftU64(octet64(bytes, at + 4), 32)
+                | bits.shiftLeftU64(octet64(bytes, at + 5), 40)
+                | bits.shiftLeftU64(octet64(bytes, at + 6), 48)
+                | bits.shiftLeftU64(octet64(bytes, at + 7), 56),
         )
     }
 }
 
 /// Four octets at `at`, most significant first.
-export fn toU32BigEndian(b: [U8], at: Int): Option<U32> {
-    if (at < 0 || at + 4 > b.length()) {
+export fn toU32BigEndian(bytes: [U8], at: Int): Option<U32> {
+    if (at < 0 || at + 4 > bytes.length()) {
         .None
     } else {
         .Some(
-            bits.shiftLeftU32(octet32(b, at), 24)
-                | bits.shiftLeftU32(octet32(b, at + 1), 16)
-                | bits.shiftLeftU32(octet32(b, at + 2), 8)
-                | octet32(b, at + 3),
+            bits.shiftLeftU32(octet32(bytes, at), 24)
+                | bits.shiftLeftU32(octet32(bytes, at + 1), 16)
+                | bits.shiftLeftU32(octet32(bytes, at + 2), 8)
+                | octet32(bytes, at + 3),
         )
     }
 }
 
 /// Four octets at `at`, least significant first.
-export fn toU32LittleEndian(b: [U8], at: Int): Option<U32> {
-    if (at < 0 || at + 4 > b.length()) {
+export fn toU32LittleEndian(bytes: [U8], at: Int): Option<U32> {
+    if (at < 0 || at + 4 > bytes.length()) {
         .None
     } else {
         .Some(
-            octet32(b, at)
-                | bits.shiftLeftU32(octet32(b, at + 1), 8)
-                | bits.shiftLeftU32(octet32(b, at + 2), 16)
-                | bits.shiftLeftU32(octet32(b, at + 3), 24),
+            octet32(bytes, at)
+                | bits.shiftLeftU32(octet32(bytes, at + 1), 8)
+                | bits.shiftLeftU32(octet32(bytes, at + 2), 16)
+                | bits.shiftLeftU32(octet32(bytes, at + 3), 24),
         )
     }
 }
 
 /// The octet at `i` widened, or zero. Every caller checks the bounds first.
-fn octet64(b: [U8], i: Int): U64 {
-    b.get(i).withDefault(0).toU64()
+fn octet64(bytes: [U8], i: Int): U64 {
+    bytes.get(i).withDefault(0).toU64()
 }
 
-fn octet32(b: [U8], i: Int): U32 {
-    b.get(i).withDefault(0).toU32()
+fn octet32(bytes: [U8], i: Int): U32 {
+    bytes.get(i).withDefault(0).toU32()
 }
 
 // --- A reader -----------------------------------------------------------------------
@@ -867,14 +878,14 @@ export struct Reader {
 }
 
 /// A reader positioned at the first octet.
-export fn reader(b: [U8]): Reader {
-    Reader { bytes: b, at: 0 }
+export fn reader(bytes: [U8]): Reader {
+    Reader { bytes: bytes, at: 0 }
 }
 
 /// A reader positioned at `at`, for a frame whose header some other decoder
 /// already read.
-export fn readerAt(b: [U8], at: Int): Reader {
-    Reader { bytes: b, at }
+export fn readerAt(bytes: [U8], at: Int): Reader {
+    Reader { bytes: bytes, at }
 }
 
 impl Reader {
