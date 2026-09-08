@@ -543,6 +543,7 @@ const PACKAGES: &[Case] = &[
     // a context binding a filesystem whether a test read a file or not.
     included("semantics/effects.buri"),
     included("semantics/evaluation.buri"),
+    included("semantics/lambdas.buri"),
     included("semantics/traits.buri"),
     // `Either.Right(1)` names neither `Left`'s type nor a value of it, and the
     // fourth file is full of that shape. It was excluded while such a parameter

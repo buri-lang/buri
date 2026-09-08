@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:30:24
+   |
+30 |     let _ = hook(times)
+   |                        ^
+   |
+   = fix: write `;` here
