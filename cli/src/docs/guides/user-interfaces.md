@@ -4,8 +4,8 @@ The `ui/*` modules are the reactivity vocabulary. They are part of
 [the standard library](../reference/standard-library.md), ship with the
 toolchain, and are never listed in a `dependencies`.
 
-`ui/effect` declares `Watch` and `Ui`, the `Scope` a reactive closure is handed,
-and the `Event` a handler is handed. Requests are not among them: a page asks
+`ui/effect` declares `Watch` and `Ui`, the `Scope` a reactive closure is handed
+— which reads the graph and allocates — and the `Event` a handler is handed. Requests are not among them: a page asks
 for `core/effect`'s `Network` like every other platform. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
 `memo`. `ui/testing` is a headless platform, a renderer for looking at what a
@@ -40,6 +40,41 @@ export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
 Tracking is automatic and exact: every run collects the dependencies afresh, so
 a read behind an `if` subscribes to the branch taken and not the other. Writing
 a value identical to the one already there re-runs nothing.
+
+## Derived values
+
+A `Scope` grants `Watch` and `Allocator`, so a derivation may map, filter, sort
+or format what it read. The `Scope` arrives as a parameter, so the function
+building the derivation needs no context of its own.
+
+```buri
+from "core/str" import * as str;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+fn isEven(value: Int): Bool {
+    value % 2 == 0
+}
+
+/// A filtered view of a signal, re-filtered on every write and reconciled by
+/// key — the rows that survive are moved rather than rebuilt.
+export fn evens<C>(xs: Signal<[Int]>): Node<C> {
+    ui.each(
+        .Computed(fn(scope) => xs.get(scope).filter(scope, isEven)),
+        fn(x) => "${x}",
+        fn(c, x, index) => ui.text(.Computed(fn(s) => str.format(s, "${x}"))),
+    )
+}
+```
+
+It cannot write. `Ui` is the effect that writes, and a closure that wrote a
+signal it read would be a loop the runtime schedules rather than a value it
+caches — so `set` and `update` inside a derivation are a compile error.
+
+Nothing is counted. `allocate` on a `Scope` answers the bytes it was asked for,
+as `core/host`'s own allocator does: a derived value is reclaimed when the last
+reference to it goes, and there is no budget on a computation.
 
 ## The tree
 

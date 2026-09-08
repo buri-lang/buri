@@ -52,7 +52,8 @@ export fn signal<C: Ui, T>(ctx: C, initial: T): Signal<T> {
 /// value: once now, and again whenever anything it read changes.
 ///
 /// Named `watch` rather than `effect` because `effect` is a keyword. The closure
-/// receives a `Scope`, so it can only *read* the graph.
+/// receives a `Scope`, so it reads the graph and allocates — it can build what
+/// it read into a string or a list — and it cannot write.
 export fn watch<C: Ui>(ctx: C, run: fn(Scope) => ()): () {
     ctx.watch(run)
 }

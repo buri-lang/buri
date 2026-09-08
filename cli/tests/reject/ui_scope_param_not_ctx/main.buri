@@ -1,10 +1,10 @@
 // EXPECT: `s` carries an effect, so it must be named `ctx`
 //
 // "A signature taking a `Scope` is visibly effectful" is a claim about rule 26,
-// and this is the program that holds it: `Scope` implements `Watch`, so it is
-// effect-carrying by conformance rather than by a bound, and a parameter of it
-// must be `ctx`. `Signal<Int>` beside it stays ordinary data — the handle
-// holds no authority, which is the other half of the same design.
+// and this is the program that holds it: `Scope` implements `Watch` and
+// `Allocator`, so it is effect-carrying by conformance rather than by a bound,
+// and a parameter of it must be `ctx`. `Signal<Int>` beside it stays ordinary
+// data — the handle holds no authority, the other half of the same design.
 from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
