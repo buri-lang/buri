@@ -32,8 +32,22 @@ export effect Watch {
 
 /// Creating and writing signals, and registering computations.
 ///
-/// An implementor of `Ui` grants strictly more than one of `Watch`, so `read`
-/// appears here too.
+/// **`Ui` and `Watch` are independent bounds, and a function that reads what it
+/// wrote names both.** A `C: Ui` does not satisfy `Watch`: a bound is a list of
+/// interfaces the type parameter must satisfy, and nothing in the language makes
+/// one bound stand in for another.
+///
+/// ```buri sig
+/// # from "ui/effect" import { Ui, Watch };
+/// # from "ui/signal" import { Signal };
+///
+/// export fn bump<C: Ui + Watch>(ctx: C, cell: Signal<Int>): () {
+///     cell.set(ctx, cell.get(ctx) + 1)
+/// }
+/// ```
+///
+/// `read` is declared here as well because `update` reads the old value on its
+/// way to writing the new one.
 export effect Ui {
     /// A fresh cell holding `initial`. The returned `Int` names it for the
     /// lifetime of the program.
