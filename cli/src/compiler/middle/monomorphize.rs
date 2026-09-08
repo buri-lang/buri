@@ -528,9 +528,10 @@ pub fn run(
             themes = themes
                 || crate::compiler::semantics::styles::builds_a_theme(body, theme_con);
         }
-        // Which interactive elements the artifact can build, which is which
-        // reset rules the sheet opens with. Asked here for the reason the two
-        // above are: a library's unused button must not put a rule in a sheet.
+        // Which of the elements a browser paints chrome on the artifact can
+        // build, which is which reset rules the sheet opens with. Asked here
+        // for the reason the two above are: a library's unused button must
+        // not put a rule in a sheet.
         if let Some(node_con) = checked.node_con {
             crate::compiler::semantics::styles::controls_in(body, node_con, &mut controls);
         }

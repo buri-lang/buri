@@ -54,6 +54,10 @@ let barStyle: Style = .Group([
     .PaddingY(.Rem(0.5)),
 ]);
 
+// A heading's level is the outline a reader navigates by, so the type is here
+// rather than in the level.
+let titleStyle: Style = .Group([.FontSize(.Rem(1.5)), .FontWeight(.Bold)]);
+
 let formStyle: Style = .Group([
     .Layout(.Row),
     .Wrap(true),
@@ -151,7 +155,7 @@ export fn page<C: Alloc + Net + Ui + Watch>(ctx: C, state: State): Node<C> {
 /// variables it already had. `main.buri` is where the two value sets meet it.
 fn banner<C>(state: State): Node<C> {
     ui.region(.Banner, [barStyle], [
-        ui.heading(1, .Const("Basket")),
+        ui.heading(1, [titleStyle], .Const("Basket")),
         ui.spacer(),
         ui.toggle(.Const("Dark mode"), [.Cursor(.Pointer)], state.dark),
     ])

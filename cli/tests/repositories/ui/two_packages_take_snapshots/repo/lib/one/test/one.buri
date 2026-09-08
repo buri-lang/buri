@@ -15,7 +15,7 @@ test "the one panel" {
         ctx,
         "panel",
         ui.column([.Padding(.Px(16)), .Background(.Rgb(230, 220, 210))], [
-            ui.heading(2, .Const("one")),
+            ui.heading(2, [], .Const("one")),
         ]),
         .Hover,
     );
