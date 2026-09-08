@@ -3,10 +3,10 @@
 name = mixed-few-files-1k
 profile = mixed-few-files
 generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+revision = 8
+recorded = 2026-09-08
 params = fanout=1..2 lines=1000 lines_per_module=5000
 lines = 1122
-bytes = 38779
+bytes = 39328
 modules = 2
-digest = a0b3e799151cbc5708ed19fe2bd6b758c315cc784984e2e361508389e390649a
+digest = 92f06a1a20194aad4b7bf1fbf452faca859e9bbc225884aac678a83948cb442c

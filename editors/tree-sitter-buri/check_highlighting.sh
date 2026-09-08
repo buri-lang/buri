@@ -97,7 +97,7 @@ GRAMMAR="
 51 Int type
 52 Source type
 52 Catalogue constructor
-53 len function.method
+53 length function.method
 55 Shelf constructor
 57 Catalogue constructor
 57 page property
@@ -203,7 +203,7 @@ SERVER="
 53 u2 variable
 53 counts variable
 53 nothing variable
-53 len method
+53 length method
 55 Shelf enumMember
 56 origin variable
 57 shelf variable

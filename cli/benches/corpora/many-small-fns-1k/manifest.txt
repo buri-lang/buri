@@ -3,8 +3,8 @@
 name = many-small-fns-1k
 profile = many-small-fns
 generator_revision = 7
-revision = 4
-recorded = 2026-08-31
+revision = 5
+recorded = 2026-09-08
 params = lines=1000
 lines = 1010
 bytes = 17205

@@ -3,10 +3,10 @@
 name = mixed-10k
 profile = mixed
 generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+revision = 8
+recorded = 2026-09-08
 params = 
 lines = 10151
-bytes = 349321
+bytes = 353664
 modules = 36
-digest = e4a43900bbdccd490f0ae8ab04465b1be8850c53fb988a3d3d2127e918ffb4a8
+digest = 88a06a5893d02ec92adc7ea64f5aaf62523c5a61013600f9756e36ba4648cd7d

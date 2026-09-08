@@ -3,8 +3,8 @@
 name = wide-match-1k
 profile = wide-match
 generator_revision = 7
-revision = 5
-recorded = 2026-08-31
+revision = 6
+recorded = 2026-09-08
 params = lines=1000
 lines = 1000
 bytes = 21698
