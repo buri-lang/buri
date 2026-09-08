@@ -1,0 +1,7 @@
+# No tags: this repository declares none. The `lint` block is the issue's own —
+# a repository that checks and fails on a finding, so nothing here passes by
+# being ignored.
+lint {
+    check_during_build: true
+    fail_on_finding: true
+}
