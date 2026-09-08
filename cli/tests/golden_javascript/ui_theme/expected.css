@@ -1,3 +1,4 @@
+:where(button){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit}
 .lay-col{display:flex;flex-direction:column}
 .lay-row{display:flex;flex-direction:row}
 .px-r0_5{padding-inline:0.5rem}

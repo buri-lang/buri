@@ -254,12 +254,10 @@ test "the rest of the vocabulary lowers to the declarations it names" {
     ];
     assert.eq(
         render(ctx, ui.stack(rest, [])).markup(),
-        "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\"></div>",
+        "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-out pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\"></div>",
     );
     let sheet = stylesheet();
-    assert.isTrue(
-        sheet.contains(".pin-top-0{position:absolute;inset-block-start:0px}"),
-    );
+    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
     assert.isTrue(sheet.contains(".pe-start-r1{padding-inline-start:1rem}"));
     assert.isTrue(sheet.contains(".ar-1_5{aspect-ratio:1.5}"));
     assert.isTrue(
@@ -267,6 +265,55 @@ test "the rest of the vocabulary lowers to the declarations it names" {
             ".trunc-2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
         ),
     );
+}
+
+test "pins naming different edges compose, and `Position` owns `position`" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The overlay written the obvious way: fixed to the viewport, held to all
+    // four of its edges.
+    let overlay: [Style] = [
+        .Position(.PinViewport),
+        .Pin(.Top, .Px(0)),
+        .Pin(.Bottom, .Px(0)),
+        .Pin(.Start, .Px(0)),
+        .Pin(.End, .Px(0)),
+    ];
+    assert.eq(
+        render(ctx, ui.stack(overlay, [])).markup(),
+        "<div class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
+    assert.isTrue(sheet.contains(".pin-bottom-0{inset-block-end:0px}"));
+    assert.isTrue(sheet.contains(".pin-start-0{inset-inline-start:0px}"));
+    assert.isTrue(sheet.contains(".pin-end-0{inset-inline-end:0px}"));
+    // Out of the flow is one fact about the element rather than one per edge,
+    // and the `Position` beside it wins because the sheet writes it later.
+    let pinned = sheet.indexOf(".pin-out{position:absolute}").withDefault(-1);
+    let viewport = sheet.indexOf(".pos-viewport{position:fixed}").withDefault(-1);
+    assert.isTrue(pinned >= 0);
+    assert.isTrue(pinned < viewport);
+}
+
+test "padding named edge by edge composes too" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let edges: [Style] = [
+        .PaddingEdge(.Top, .Px(1)),
+        .PaddingEdge(.Bottom, .Px(2)),
+        .PaddingEdge(.Start, .Px(3)),
+        .PaddingEdge(.End, .Px(4)),
+    ];
+    assert.eq(
+        render(ctx, ui.stack(edges, [])).markup(),
+        "<div class=\"pe-top-1 pe-bottom-2 pe-start-3 pe-end-4\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".pe-top-1{padding-block-start:1px}"));
+    assert.isTrue(sheet.contains(".pe-end-4{padding-inline-end:4px}"));
 }
 
 test "a value with no bounded spelling is named by what it is" {
@@ -505,7 +552,9 @@ test "a button carries its label, and a press runs its handler" {
         Watch: observer(),
     };
     let count = signal(ctx, 0);
-    let tree = ui.button(.Const("add"), fn(c, e) => count.update(c, fn(n) => n + 1));
+    let tree = ui.button(.Const("add"), [], fn(c, e) => {
+        count.update(c, fn(n) => n + 1)
+    });
     let page = render(ctx, tree);
     assert.eq(page.markup(), "<button type=\"button\">add</button>");
     let _ = page.press("add");
@@ -522,7 +571,10 @@ test "a handler is handed the context the tree was rendered with" {
     // The handler captures the signal, which holds no authority, and takes the
     // authority to write it as a parameter. Capturing the context instead is
     // `lambda-captures-effect`, which is `cli/tests/reject/`'s business.
-    let page = render(ctx, ui.button(.Const("go"), fn(c, e) => seen.set(c, "pressed")));
+    let page = render(
+        ctx,
+        ui.button(.Const("go"), [], fn(c, e) => seen.set(c, "pressed")),
+    );
     let _ = page.press("go");
     assert.eq(seen.get(ctx), "pressed");
 }
@@ -531,7 +583,7 @@ test "a link says where it goes" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = ui.link(.Const("/prices"), [ui.text(.Const("prices"))]);
+    let tree = ui.link(.Const("/prices"), [], [ui.text(.Const("prices"))]);
     assert.eq(render(ctx, tree).markup(), "<a href=\"/prices\">prices</a>");
 }
 
@@ -540,7 +592,7 @@ test "an attribute follows a prop that varies" {
         Ui: headless(),
     };
     let dest = signal(ctx, "/one");
-    let page = render(ctx, ui.link(.Cell(dest), [ui.text(.Const("there"))]));
+    let page = render(ctx, ui.link(.Cell(dest), [], [ui.text(.Const("there"))]));
     assert.eq(page.markup(), "<a href=\"/one\">there</a>");
     let _ = dest.set(ctx, "/two");
     assert.eq(page.markup(), "<a href=\"/two\">there</a>");
@@ -568,7 +620,7 @@ test "a field is labelled, and what is typed into it is in its signal" {
         Watch: observer(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, name));
+    let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
     assert.eq(
         page.markup(),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
@@ -582,7 +634,7 @@ test "a field follows its signal when something else writes it" {
         Ui: headless(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, name));
+    let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
     let _ = name.set(ctx, "grace");
     assert.eq(
         page.markup(),
@@ -596,11 +648,11 @@ test "a field kind is what the field accepts" {
     };
     let value = signal(ctx, "");
     let tree = ui.stack([], [
-        ui.field(.Const("story"), .Multiline, value),
-        ui.field(.Const("secret"), .Password, value),
-        ui.field(.Const("address"), .Email, value),
-        ui.field(.Const("how many"), .Number, value),
-        ui.field(.Const("query"), .Search, value),
+        ui.field(.Const("story"), .Multiline, [], value),
+        ui.field(.Const("secret"), .Password, [], value),
+        ui.field(.Const("address"), .Email, [], value),
+        ui.field(.Const("how many"), .Number, [], value),
+        ui.field(.Const("query"), .Search, [], value),
     ]);
     assert.eq(
         render(ctx, tree).markup(),
@@ -614,7 +666,7 @@ test "a toggle is two states and a label" {
         Watch: observer(),
     };
     let done = signal(ctx, false);
-    let page = render(ctx, ui.toggle(.Const("done"), done));
+    let page = render(ctx, ui.toggle(.Const("done"), [], done));
     assert.eq(
         page.markup(),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
@@ -629,6 +681,57 @@ test "a toggle is two states and a label" {
     assert.isFalse(done.get(ctx));
 }
 
+test "a control takes styles of its own, and they land on the control" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "ada");
+    let done = signal(ctx, false);
+    let tree = ui.stack([], [
+        ui.button(
+            .Const("go"),
+            [.Padding(.Px(12)), .On(.Hover, [.Opacity(0.9)])],
+            fn(_c, _e) => (),
+        ),
+        ui.link(.Const("/prices"), [.Foreground(.Rgb(9, 9, 9))], []),
+        ui.field(.Const("name"), .Text, [.Radius(.Px(4))], name),
+        ui.toggle(.Const("done"), [.Width(.Px(20))], done),
+    ]);
+    // The classes are on the button, the anchor and the two inputs, never on a
+    // wrapper. That is what makes a state work: a wrapper is not the thing that
+    // is hovered, focused or disabled.
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div><button type=\"button\" class=\"p-12 hover_op-0_9\">go</button><a href=\"/prices\" class=\"fg-090909\"></a><label><span>name</span><input type=\"text\" class=\"r-4\" value=\"ada\" /></label><label><input type=\"checkbox\" class=\"w-20\" /><span>done</span></label></div>",
+    );
+    assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
+}
+
+test "the sheet drops the chrome a browser draws on a control" {
+    // Otherwise a styled button paints twice: its own background inside the
+    // browser's bevel. The reset is `:where(...)`, which weighs nothing in the
+    // cascade, so every class beats it wherever the two meet.
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ":where(button){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit}",
+        ),
+    );
+    assert.isTrue(sheet.contains(":where(a){color:inherit;text-decoration:none}"));
+    // A checkbox is left out: `appearance: none` erases the tick, and this
+    // vocabulary has nothing to draw a new one with.
+    assert.isTrue(
+        sheet.contains(
+            ":where(input:not([type=checkbox]),textarea){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit}",
+        ),
+    );
+    // It opens the sheet, ahead of every class in it.
+    let reset = assert.some(sheet.indexOf(":where(button)"));
+    let padding = assert.some(sheet.indexOf(".p-12{"));
+    assert.isTrue(reset < padding);
+}
+
 test "a form is submitted, which is behaviour and so not a role" {
     let ctx = context {
         Ui: headless(),
@@ -639,7 +742,7 @@ test "a form is submitted, which is behaviour and so not a role" {
     let page = render(
         ctx,
         ui.form(fn(c, e) => added.set(c, draft.get(c)), [], [
-            ui.field(.Const("what"), .Text, draft),
+            ui.field(.Const("what"), .Text, [], draft),
         ]),
     );
     let _ = page.fill("what", "milk");
@@ -935,7 +1038,7 @@ test "one press is one update, however many signals it writes" {
 
     let page = render(
         ctx,
-        ui.button(.Const("both"), fn(c, e) => writeBoth(c, first, second)),
+        ui.button(.Const("both"), [], fn(c, e) => writeBoth(c, first, second)),
     );
     let _ = page.press("both");
 
@@ -975,7 +1078,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
     ui.column([], [
-        ui.button(.Const(label), fn(c, e) => count.update(c, fn(n) => n + 1)),
+        ui.button(.Const(label), [], fn(c, e) => count.update(c, fn(n) => n + 1)),
         badge(.Const(label), .Cell(count)),
         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
     ])

@@ -25,7 +25,7 @@ from "ui/signal" import { Signal };
 
 /// The lambda captures the handle. The authority arrives as `c`.
 export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
-    ui.button(.Const("add one"), fn(c, _event) => clicks.update(c, fn(n) => n + 1))
+    ui.button(.Const("add one"), [], fn(c, _event) => clicks.update(c, fn(n) => n + 1))
 }
 ```
 
@@ -126,6 +126,41 @@ assigned, which can only choose between classes already in the sheet. Between
 two *different* properties that touch the same declaration, say `Padding` and
 `PaddingX`, the order the variants are declared in decides, and the narrower
 property is always declared later.
+
+**A control carries its own styles.** `button`, `link`, `field` and `toggle`
+take a `[Style]`, and it lands on the element itself — so `On(.Hover, ...)`,
+`On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper around a button is
+none of those things. A field's and a toggle's styles go on the input rather
+than on the label around it, for the same reason.
+
+```buri
+from "ui/effect" import { Event };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
+    ui.button(
+        .Const(label),
+        [
+            .PaddingX(.Px(12)),
+            .PaddingY(.Px(6)),
+            .Radius(.Px(6)),
+            .Background(.Rgb(24, 24, 27)),
+            .Foreground(.Rgb(255, 255, 255)),
+            .On(.Hover, [.Opacity(0.9)]),
+            .On(.Disabled, [.Opacity(0.5)]),
+        ],
+        onPress,
+    )
+}
+```
+
+The sheet opens by dropping what a browser paints on one of these by itself —
+the bevel on a button, the blue underline on a link, the border and the inner
+shadow on a field — so your styles are all there is. Those rules are
+`:where(...)`, which weighs nothing in the cascade, and only the elements the
+program actually builds get one. A checkbox is left alone: `appearance: none`
+erases the tick, and this vocabulary has nothing to draw a new one with.
 
 Constant folding is what makes design tokens work. `.Background(Token.Surface.color())`
 is a *call*, not a literal, and it still reaches the stylesheet: the extractor

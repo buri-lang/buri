@@ -1,0 +1,25 @@
+warning: `encode` takes 6 parameters [too-many-parameters]
+ --> lib/recovery_insert_stray_brace_frame_74b698/lib.buri:4:11
+  |
+4 | export fn encode(
+  |           ^^^^^^
+  |
+  = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
+  = fix: group the parameters that always travel together into a struct, and take that instead
+warning: `describe` takes 6 parameters [too-many-parameters]
+  --> lib/recovery_insert_stray_brace_frame_74b698/lib.buri:16:11
+   |
+16 | export fn describe(
+   |           ^^^^^^^^
+   |
+   = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
+   = fix: group the parameters that always travel together into a struct, and take that instead
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_frame_74b698/lib.buri:24:30
+   |
+24 |     version - kind - flags - , stream - length - checksum
+   |                              ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

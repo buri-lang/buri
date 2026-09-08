@@ -59,6 +59,7 @@ macro_rules! e {
 }
 
 pub const ERRORS: &[ErrorDoc] = &[
+    e!("allow-not-a-declaration", "A lint exemption names one declaration", &["build/repo-config"]),
     e!("ambiguous-free-function", "A method called as a free function names one type"),
     e!("ambiguous-trait-method", "Two bounds declaring one method name need disambiguating"),
     e!("argument-count-mismatch", "A call passes the arguments the value's type declares"),
