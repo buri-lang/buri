@@ -7,6 +7,11 @@
 //! A component cannot tell which variant it got. One that may write takes the
 //! `Signal` itself, or a callback.
 //!
+//! A `Scope` allocates, so a derivation may map, filter, sort or format:
+//! `.Computed(fn(s) => xs.get(s).filter(s, isEven))` is a `Prop<[Int]>`, and
+//! `.Computed(fn(s) => str.format(s, "${n.get(s)} items"))` is a `Prop<Str>`
+//! that re-renders when the cell moves.
+//!
 //! `memo` lives here rather than in `ui/signal` because it returns a `Prop`,
 //! and a module may not import the module that imports it.
 
@@ -20,7 +25,9 @@ export enum Prop<T> {
     /// Backed by a writable cell.
     Cell(Signal<T>),
     /// A derivation. Buildable in a pure component, since the `Scope` arrives as
-    /// a parameter rather than from an enclosing context.
+    /// a parameter rather than from an enclosing context — and the `Scope`
+    /// allocates, so the derivation may build its answer rather than only pick
+    /// one out.
     Computed(fn(Scope) => T),
 }
 

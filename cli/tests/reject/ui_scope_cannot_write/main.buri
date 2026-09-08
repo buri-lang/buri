@@ -1,0 +1,32 @@
+// EXPECT: `Scope` does not satisfy `Ui`
+//
+// A `Scope` reads the graph and allocates, so a derivation may map, filter and
+// format its answer. It still cannot *write*, and that is what keeps a
+// computation a computation: a closure that wrote a signal it read would be a
+// loop the runtime schedules rather than a value it caches.
+//
+// `Watch` and `Allocator` are what the runtime mints a `Scope` with, and
+// `Allocator` is the one effect whose implementation carries no authority — a
+// `Region` is a number. `Ui` is authority, and it is not on the list.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/prop" import { Prop };
+from "ui/signal" import { Signal, signal };
+
+fn doubled(n: Signal<Int>): Prop<Int> {
+  .Computed(fn(s) => rewrite(s, n))
+}
+
+fn rewrite(ctx: Scope, n: Signal<Int>): Int {
+  let _ = n.set(ctx, 0);
+  1
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let n = signal(ctx, 1);
+  let _ = doubled(n);
+  .Ok(())
+}
