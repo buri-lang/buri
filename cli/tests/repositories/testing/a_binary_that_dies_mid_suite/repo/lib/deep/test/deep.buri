@@ -8,7 +8,7 @@ test "the block before" {
 }
 
 test "the block that ends the process" {
-    assert.eq(deep(1), 1);
+    assert.equal(deep(1), 1);
 }
 
 test "the block after" {

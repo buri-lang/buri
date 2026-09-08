@@ -1,5 +1,5 @@
 FAIL //lib/store  test/store.buri  "a cell holds the whole list it was given"
-  assert.len failed
+  assert.length failed
     actual:   2
     expected: 9
   --> lib/store/test/store.buri:25:1
