@@ -15,7 +15,7 @@
 // literals the compiler is free to share one and a comparison would be answered
 // by identity.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import { Order };
@@ -101,7 +101,7 @@ test "within one variant the array decides" {
 
 test "a derived ordering sorts" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [mkOctets([2]), mkOctets([1, 5]), mkOctets([]), mkOctets([1])];
     let sorted = xs.sort(ctx);

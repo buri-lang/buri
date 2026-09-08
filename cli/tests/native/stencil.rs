@@ -278,7 +278,7 @@ fn emitted(name: &str, source: &str) -> Vec<(String, Vec<u8>)> {
 /// what carries a `Layout`'s per-variant offsets.
 const EMITTER_SHAPES: &str = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -302,7 +302,7 @@ fn total(t: Tree): Int {
 }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: alloc.generalPurpose() };
+    let ctx = context { Allocator: alloc.generalPurpose() };
     let tree: Tree = .Node(.Node(.Leaf, 1, .Leaf), 2, .Node(.Leaf, 4, .Leaf));
     let rows = list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => Row {
         key: str.format(c, "k${i}"),
@@ -414,14 +414,14 @@ fn a_backend_that_adopted_a_lowering_lowers_the_next_program_for_itself() {
     let (second, second_tables) = lowered(
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: alloc.generalPurpose() };
+    let ctx = context { Allocator: alloc.generalPurpose() };
     let n = list.range(ctx, 0, 5).fold(fn(a, v) => a + v, 0);
     let _ = io.println(stdout, str.format(ctx, "${n}")).ignore();
     .Ok(())
@@ -492,13 +492,13 @@ fn emitting_one_program_twice_gives_the_same_objects_in_the_same_order() {
 /// the tests assert on rather than this number.
 fn many_functions(n: usize) -> String {
     let mut s = String::from(
-        "from \"core/effect\" import { Alloc, Stdout };\n\
+        "from \"core/effect\" import { Allocator, Stdout };\n\
          from \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\n",
     );
     for i in 0..n {
         s.push_str(&format!(
-            "fn f{i}<C: Alloc>(ctx: C, x: Int): Int {{\n    \
+            "fn f{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    \
              let xs = [\"a{i}\", \"b\"];\n    \
              xs.map(ctx, fn (t: Str) => t.len()).len() + x + {i}\n}}\n"
         ));
@@ -506,7 +506,7 @@ fn many_functions(n: usize) -> String {
     s.push_str(
         "export fn main(): Result<(), Str> {\n    \
          let ctx = context {\n        \
-         Alloc: host.alloc,\n        \
+         Allocator: host.alloc,\n        \
          Stdout: host.stdout,\n    \
          };\n    let total = 0;\n",
     );
@@ -807,12 +807,12 @@ fn concatenation_keeps_the_ascii_flag() {
         "concat",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let a = "ab";
   let b = "cd";
   let c = "é";
@@ -840,12 +840,12 @@ fn runtime_entries_answer_through_an_out_pointer() {
         "rtshapes",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let s = "  Hello  ";
   let t = s.trim();
   let n = "41".toInt();
@@ -880,11 +880,11 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
         "refusal",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let x: F64 = 2.5;
   let n = x.toI64();
   let _ = io.println(stdout, "${n.withDefault(0)}").ignore();
@@ -1045,7 +1045,7 @@ fn nothing_is_leaked() {
         "leaks",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/json" import { Json, ToJson };
@@ -1072,7 +1072,7 @@ fn noteText(j: Json): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let a = str.format(ctx, "one ${1}");
   let b = Boxed { label: str.format(ctx, "two ${2}"), n: 2 };
   let c = hold(str.format(ctx, "three ${3}"));
@@ -1103,7 +1103,7 @@ fn a_memo_and_a_watcher_run_under_the_native_backend() {
     }
     let source = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
@@ -1112,7 +1112,7 @@ from "ui/testing" import { headless, observer, recorder };
 
 test "a memo is lazy, caches, and recomputes when its source changes" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
@@ -1128,7 +1128,7 @@ test "a memo is lazy, caches, and recomputes when its source changes" {
 
 test "a watcher runs when it is registered and again on every change" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
@@ -1180,7 +1180,7 @@ fn a_one_byte_signal_read_inside_a_memo_answers_what_was_written() {
     }
     let source = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
@@ -1201,7 +1201,7 @@ fn noteStr(log: Recorder, text: Str): () {
 
 test "a memo reading a memo, which is what leaves the word behind" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
@@ -1215,7 +1215,7 @@ test "a memo reading a memo, which is what leaves the word behind" {
 
 test "a Bool signal read inside a memo" {
     let ctx = context {
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     };
@@ -1275,7 +1275,7 @@ fn writing_a_reactive_cell_leaks_nothing() {
         format!(
             r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import {{ Alloc }};
+from "core/effect" import {{ Allocator }};
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import {{ Ui, Watch }};
@@ -1284,7 +1284,7 @@ from "ui/testing" import {{ headless, observer }};
 
 test "a cell written many times" {{
     let ctx = context {{
-        Alloc: alloc.generalPurpose(),
+        Allocator: alloc.generalPurpose(),
         Ui: headless(),
         Watch: observer(),
     }};
@@ -1343,7 +1343,7 @@ fn a_scope_leaks_nothing() {
         "scopeleaks",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -1351,10 +1351,10 @@ from "core/str" import * as str;
 
 export enum Answer { Nothing, Text(Str), Many([Str]) }
 
-fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str { unit.repeat(ctx, times) }
+fn built<C: Allocator>(ctx: C, unit: Str, times: Int): Str { unit.repeat(ctx, times) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
 
   let nested = alloc.scoped(ctx, fn(c) => [
     [built(c, "a", 2), built(c, "b", 3)],
@@ -1419,7 +1419,7 @@ fn the_glue_balances() {
         "glue",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -1434,7 +1434,7 @@ fn depth(t: Tree): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let tag = str.format(ctx, "t${1}");
   let names = ["a", "b", "c"].mapCtx(ctx, fn(c, s) => tag.concat(c, s));
   let more = names.push(ctx, str.format(ctx, "d${4}"));
@@ -1574,7 +1574,7 @@ fn the_list_surface_is_the_one_the_language_specifies() {
         "lists",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -1582,7 +1582,7 @@ from "core/str" import * as str;
 export struct Row { key: Int, tag: Str }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let rows = [
     Row { key: 1, tag: "a" }, Row { key: 0, tag: "b" }, Row { key: 1, tag: "c" },
     Row { key: 0, tag: "d" }, Row { key: 1, tag: "e" },
@@ -1622,7 +1622,7 @@ fn a_none_with_a_niche_is_not_walked() {
         "niche",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import { stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -1633,7 +1633,7 @@ fn pick(xs: [Str], i: Int): Option<Str> {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: alloc.generalPurpose() };
+  let ctx = context { Allocator: alloc.generalPurpose() };
   let xs = [str.format(ctx, "a${1}"), str.format(ctx, "b${2}"), str.format(ctx, "c${3}")];
   let seen = list.range(ctx, 0, 4).map(ctx, fn(i) => pick(xs, i).withDefault("-")).join(ctx, "");
   let _ = io.println(stdout, seen).ignore();

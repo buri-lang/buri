@@ -140,7 +140,7 @@ const LAUNCHES: usize = 2;
 /// The order inside a pair alternates, so that nothing periodic in the
 /// machine can settle into always landing on the same half.
 const GROW: &str = r#"
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -150,11 +150,11 @@ struct State { total: Int, items: [Int] }
 
 struct Timing { millis: Int, pushed: Int }
 
-fn build<C: Alloc>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
+fn build<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
   if (i >= n) { acc } else { build(ctx, i + 1, n, acc.push(ctx, i)) }
 }
 
-fn fold<C: Alloc>(ctx: C, i: Int, n: Int, s: State): State {
+fn fold<C: Allocator>(ctx: C, i: Int, n: Int, s: State): State {
   if (i >= n) {
     s
   } else {
@@ -162,7 +162,7 @@ fn fold<C: Alloc>(ctx: C, i: Int, n: Int, s: State): State {
   }
 }
 
-fn buildRuns<C: Alloc>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
+fn buildRuns<C: Allocator>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
   if (k >= runs) {
     acc
   } else {
@@ -170,7 +170,7 @@ fn buildRuns<C: Alloc>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
   }
 }
 
-fn foldRuns<C: Alloc>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
+fn foldRuns<C: Allocator>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
   if (k >= runs) {
     acc
   } else {
@@ -185,21 +185,21 @@ fn foldRuns<C: Alloc>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
 }
 
 /// One size, timed: `runs` runs of `n` pushes through each of the two shapes.
-fn timed<C: Alloc + Clock>(ctx: C, runs: Int, n: Int): Timing {
+fn timed<C: Allocator + Clock>(ctx: C, runs: Int, n: Int): Timing {
   let started = time.now(ctx);
   let pushed = buildRuns(ctx, 0, runs, n, 0) + foldRuns(ctx, 0, runs, n, 0);
   let took = time.since(ctx, started);
   Timing { millis: took.millis(), pushed: pushed }
 }
 
-fn say<C: Alloc + Stdout>(ctx: C, small: Timing, large: Timing): () {
+fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
   io.println(
     ctx,
     "${small.millis} ${large.millis} ${small.pushed} ${large.pushed}",
   ).ignore()
 }
 
-fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
+fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
   if (k >= count) {
     ()
   } else {
@@ -217,7 +217,7 @@ fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let _ = pairs(ctx, 0, PAIRS);
   .Ok(())
 }
@@ -381,7 +381,7 @@ fn growing_a_list_in_a_loop_is_linear() {
 /// out of the same record, and what reading it produces is an `Int` rather
 /// than a reference to anything.
 const GROW_BESIDE: &str = r#"
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -391,7 +391,7 @@ struct Out { items: [Int], total: Int }
 
 struct Timing { millis: Int, pushed: Int }
 
-fn write<C: Alloc>(ctx: C, i: Int, n: Int, out: Out): Out {
+fn write<C: Allocator>(ctx: C, i: Int, n: Int, out: Out): Out {
   if (i >= n) {
     out
   } else {
@@ -399,7 +399,7 @@ fn write<C: Alloc>(ctx: C, i: Int, n: Int, out: Out): Out {
   }
 }
 
-fn writeRuns<C: Alloc>(ctx: C, k: Int, count: Int, n: Int, acc: Int): Int {
+fn writeRuns<C: Allocator>(ctx: C, k: Int, count: Int, n: Int, acc: Int): Int {
   if (k >= count) {
     acc
   } else {
@@ -414,21 +414,21 @@ fn writeRuns<C: Alloc>(ctx: C, k: Int, count: Int, n: Int, acc: Int): Int {
 }
 
 /// One size, timed: `count` runs of `n` pushes.
-fn timed<C: Alloc + Clock>(ctx: C, count: Int, n: Int): Timing {
+fn timed<C: Allocator + Clock>(ctx: C, count: Int, n: Int): Timing {
   let started = time.now(ctx);
   let pushed = writeRuns(ctx, 0, count, n, 0);
   let took = time.since(ctx, started);
   Timing { millis: took.millis(), pushed: pushed }
 }
 
-fn say<C: Alloc + Stdout>(ctx: C, small: Timing, large: Timing): () {
+fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
   io.println(
     ctx,
     "${small.millis} ${large.millis} ${small.pushed} ${large.pushed}",
   ).ignore()
 }
 
-fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
+fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
   if (k >= count) {
     ()
   } else {
@@ -446,7 +446,7 @@ fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let _ = pairs(ctx, 0, PAIRS);
   .Ok(())
 }
@@ -517,7 +517,7 @@ fn growing_a_list_beside_another_field_is_linear() {
 /// **total** number of fields, so linear growth makes them cost the same.
 const PRINT: &str = r#"
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -525,7 +525,7 @@ from "core/time" import * as time;
 
 struct Timing { millis: Int, printed: Int }
 
-fn fields<C: Alloc>(ctx: C, i: Int, n: Int, acc: [ast.FieldDecl]): [ast.FieldDecl] {
+fn fields<C: Allocator>(ctx: C, i: Int, n: Int, acc: [ast.FieldDecl]): [ast.FieldDecl] {
   if (i >= n) {
     acc
   } else {
@@ -551,7 +551,7 @@ fn fields<C: Alloc>(ctx: C, i: Int, n: Int, acc: [ast.FieldDecl]): [ast.FieldDec
 }
 
 /// `export struct Wide { export field: Int, ... }`, `n` fields wide.
-fn wide<C: Alloc>(ctx: C, n: Int): ast.Module {
+fn wide<C: Allocator>(ctx: C, n: Int): ast.Module {
   ast.Module {
     items: [
       ast.Item {
@@ -569,7 +569,7 @@ fn wide<C: Alloc>(ctx: C, n: Int): ast.Module {
   }
 }
 
-fn runs<C: Alloc>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): Int {
+fn runs<C: Allocator>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): Int {
   if (k >= count) {
     acc
   } else {
@@ -579,7 +579,7 @@ fn runs<C: Alloc>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): Int {
 
 /// One size, timed: `count` prints of an `n`-field module. The tree is built
 /// before the clock starts, because what is measured is the printer.
-fn timed<C: Alloc + Clock>(ctx: C, count: Int, n: Int): Timing {
+fn timed<C: Allocator + Clock>(ctx: C, count: Int, n: Int): Timing {
   let tree = wide(ctx, n);
   let started = time.now(ctx);
   let written = runs(ctx, 0, count, tree, 0);
@@ -588,14 +588,14 @@ fn timed<C: Alloc + Clock>(ctx: C, count: Int, n: Int): Timing {
   Timing { millis: took.millis(), printed: count * n }
 }
 
-fn say<C: Alloc + Stdout>(ctx: C, small: Timing, large: Timing): () {
+fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
   io.println(
     ctx,
     "${small.millis} ${large.millis} ${small.printed} ${large.printed}",
   ).ignore()
 }
 
-fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
+fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
   if (k >= count) {
     ()
   } else {
@@ -613,7 +613,7 @@ fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let _ = pairs(ctx, 0, PAIRS);
   .Ok(())
 }

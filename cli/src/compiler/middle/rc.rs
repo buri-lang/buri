@@ -1501,8 +1501,8 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// clock, a terminal — is ready.
 ///
 /// This is the seed of the `can_park` column, and it is a list of *keys*
-/// rather than of effects on purpose. `FsRead` is an effect; `host.HostFs`
-/// and `host_testing.TestFs` are two implementations of it, and only the first
+/// rather than of effects on purpose. `FileSystemRead` is an effect; `host.HostFileSystem`
+/// and `host_testing.TestFileSystem` are two implementations of it, and only the first
 /// one waits. A per-instantiation answer can tell them apart because they are
 /// different `Func` slots, and that difference is the whole point of asking
 /// the question here rather than at the signature.
@@ -1516,9 +1516,9 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 ///
 /// Everything absent is *not* suspending, so an omission is the direction that
 /// costs correctness rather than performance. That is why the whole
-/// `host.HostFs`/`host.HostFs` surface is in by prefix rather than
+/// `host.HostFileSystem`/`host.HostFileSystem` surface is in by prefix rather than
 /// method by method, and why a new blocking host operation belongs here on the
-/// day it is added. The prefix stops at `host.HostFs` so that both halves of
+/// day it is added. The prefix stops at `host.HostFileSystem` so that both halves of
 /// the filesystem are covered by the one string.
 ///
 /// **This list can only answer for a key whose wait is the key's own.** A
@@ -1529,7 +1529,7 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// [`parkability`] against the argument edges it has already walked, and it is
 /// the other seed of the same column.
 pub fn suspends(key: &str) -> bool {
-    key.starts_with("host.HostFs")
+    key.starts_with("host.HostFileSystem")
         // Every `Listen` operation waits on something outside the program: a
         // bind resolves a name, an accept waits for a client — the longest wait
         // a program can make — and a respond writes to a socket a peer may be
@@ -1548,13 +1548,13 @@ pub fn suspends(key: &str) -> bool {
         // Starting a program and waiting for it is the longest wait a process
         // can make on purpose. The effect has one method, so this is a
         // `matches!` arm rather than a prefix — but it is written as a prefix
-        // for `HostFs`'s reason, since a second method here would want the same
+        // for `HostFileSystem`'s reason, since a second method here would want the same
         // answer on the day it lands.
         || key.starts_with("host.HostSpawn.")
         || matches!(
             key,
-            "host.HostNet.fetch"
-                | "host.HostClock.sleepMillis"
+            "host.HostNetwork.fetch"
+                | "host.HostClock.sleepMilliseconds"
                 | "host.HostStdin.readLine"
                 | "host.HostStdin.readBytes"
                 // `Tasks.parallel` is the one entry here that does not wait on
@@ -1741,7 +1741,7 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
 ///
 /// The graph is the *post-monomorphization* one, so the column is per
 /// instantiation, which is what it needs: `fs.readText` at a context binding
-/// `host.HostFs` and `fs.readText` at one binding `host_testing.TestFs` are
+/// `host.HostFileSystem` and `fs.readText` at one binding `host_testing.TestFileSystem` are
 /// two `Func` slots reached from two `Key::Fn` entries, and only the first
 /// reaches a call that waits.
 ///
@@ -3744,13 +3744,13 @@ mod tests {
     fn only_a_program_that_can_reach_a_task_boundary_is_marked() {
         let plain = run(&compile(
             r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, str.format(ctx, "${1 + 1}")).ignore();
   .Ok(())
 }
@@ -3763,14 +3763,14 @@ export fn main(): Result<(), Str> {
 
         let program = compile(
             r#"
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
   let _ = io.println(ctx, str.format(ctx, "${doubled.len()}")).ignore();
   .Ok(())
@@ -3807,9 +3807,9 @@ export fn main(): Result<(), Str> {
         // `crosses_tasks` are different questions about the same list, and
         // `Tasks.parallel` is the one key on both.
         for key in [
-            "host.HostFs.readText",
-            "host.HostNet.fetch",
-            "host.HostClock.sleepMillis",
+            "host.HostFileSystem.readText",
+            "host.HostNetwork.fetch",
+            "host.HostClock.sleepMilliseconds",
             "host.HostStdin.readLine",
             "host.HostStdout.println",
             "host_testing.TestTasks.parallel",
@@ -4245,7 +4245,7 @@ export fn main(): Result<(), Str> {
     /// past the match, a borrow across a call, and two branches that use
     /// different values.
     const TREE: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4259,7 +4259,7 @@ export fn label(t: Tree, other: Str): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let t = Tree.Node("root", [Tree.Leaf]);
   let _ = io.println(ctx, label(t, "none")).ignore();
   .Ok(())
@@ -4267,7 +4267,7 @@ export fn main(): Result<(), Str> {
 "#;
 
     const PROGRAM: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4289,7 +4289,7 @@ export fn twice(s: Str): [Str] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = P { name: "a", n: 1 };
   let n = size(p);
   let xs = wrap(p);
@@ -4315,13 +4315,13 @@ export fn main(): Result<(), Str> {
     /// shape the LLVM backend's live-block test leaked three blocks an
     /// iteration on.
     const CHURN: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct Row { name: Str, tags: [Str] }
 
-export fn churn<C: Alloc>(ctx: C, n: Int, acc: [Str]): [Str] {
+export fn churn<C: Allocator>(ctx: C, n: Int, acc: [Str]): [Str] {
   if (n <= 0) {
     acc
   } else {
@@ -4332,7 +4332,7 @@ export fn churn<C: Alloc>(ctx: C, n: Int, acc: [Str]): [Str] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = churn(ctx, 3, []);
   let _ = io.println(ctx, "${out.len()}").ignore();
   .Ok(())
@@ -4379,12 +4379,12 @@ export fn main(): Result<(), Str> {
     /// A tail-recursive drain: every iteration builds *both* of its loop
     /// variables, and neither is the caller's to keep alive.
     const DRAIN: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
+export fn drain<C: Allocator>(ctx: C, xs: [Int], acc: [Int]): [Int] {
   match (xs.first()) {
     .Some(v) => drain(ctx, xs.drop(ctx, 1), acc.push(ctx, v)),
     .None => acc,
@@ -4392,7 +4392,7 @@ export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = drain(ctx, [1, 2, 3, 4], []);
   let _ = io.println(ctx, "${out.len()}").ignore();
   .Ok(())
@@ -4482,20 +4482,20 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_rest_binding_is_dropped_and_never_increfed() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-export fn tell<C: Alloc>(ctx: C, xs: [Str]): Int {
+export fn tell<C: Allocator>(ctx: C, xs: [Str]): Int {
   match (xs) {
     [] => 0,
     [_h, ..rest] => rest.len() + xs.len(),
   }
 }
 
-export fn take<C: Alloc>(ctx: C, xs: [Str]): [Str] {
+export fn take<C: Allocator>(ctx: C, xs: [Str]): [Str] {
   match (xs) {
     [] => [],
     [_h, ..rest] => rest.push(ctx, "z"),
@@ -4503,7 +4503,7 @@ export fn take<C: Alloc>(ctx: C, xs: [Str]): [Str] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${tell(ctx, ["a", "b"])} ${take(ctx, ["a", "b"]).len()}").ignore();
   .Ok(())
 }
@@ -4595,7 +4595,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn an_unread_binding_is_dropped_after_its_own_incref() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4616,7 +4616,7 @@ export fn aliased(tags: [Str]): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = Pair { n: 1, tags: ["a"] };
   let _ = io.println(ctx, "${projected(p)} ${aliased(["b"])}").ignore();
   .Ok(())
@@ -4671,7 +4671,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_merged_group_balances_at_every_entry() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4684,7 +4684,7 @@ export fn odd(n: Int, s: Str, t: Str): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, even(4, "a", "b")).ignore();
   .Ok(())
 }
@@ -4709,11 +4709,11 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_closure_in_a_loop_captures_by_incrementing() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-export fn tag<C: Alloc>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
+export fn tag<C: Allocator>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
   if (n <= 0) {
     acc
   } else {
@@ -4723,7 +4723,7 @@ export fn tag<C: Alloc>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = tag(ctx, 2, "p", ["a"]);
   let _ = io.println(ctx, "${out.len()}").ignore();
   .Ok(())
@@ -4829,14 +4829,14 @@ export fn main(): Result<(), Str> {
     fn a_capture_is_marked_and_a_lambda_parameter_is_not() {
         let program = compile(
             r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 3)
     .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty());
   let lengths = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len());
@@ -4904,7 +4904,7 @@ export fn main(): Result<(), Str> {
         let args: Vec<String> = (0..LINKS).map(|i| format!("\"x{i}\", \"x{i}\"")).collect();
         let src = format!(
             r#"
-from "core/effect" import {{ Alloc, Stdout }};
+from "core/effect" import {{ Allocator, Stdout }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -4913,7 +4913,7 @@ export fn same({params}): Bool {{
 }}
 
 export fn main(): Result<(), Str> {{
-  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
   let _ = io.println(ctx, "${{same({args})}}").ignore();
   .Ok(())
 }}
@@ -4942,12 +4942,12 @@ export fn main(): Result<(), Str> {{
     #[test]
     fn a_deferred_scrutinee_is_not_consumed_by_the_match_that_reads_it() {
         const SRC: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let o: Option<Str> = .Some("s".concat(ctx, "x"));
   let flag = 1 < 2;
   let ok = flag && match (o) {
@@ -5119,23 +5119,23 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_scrutinee_the_match_built_is_dropped_after_the_arms() {
         const SRC: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-fn two<C: Alloc>(ctx: C, n: Int): ([Int], [Int]) {
+fn two<C: Allocator>(ctx: C, n: Int): ([Int], [Int]) {
   (list.range(ctx, 0, n), list.range(ctx, 0, n + 1))
 }
 
-export fn sizes<C: Alloc>(ctx: C, n: Int): Int {
+export fn sizes<C: Allocator>(ctx: C, n: Int): Int {
   match (two(ctx, n)) {
     (a, b) => a.len() + b.len(),
   }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${sizes(ctx, 2)}").ignore();
   .Ok(())
 }
@@ -5159,19 +5159,19 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_value_behind_a_branch_is_still_dropped() {
         const SRC: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
 
 fn size(s: Str): Int { s.len() }
 
-export fn shown<C: Alloc>(ctx: C, n: Int): Int {
+export fn shown<C: Allocator>(ctx: C, n: Int): Int {
   size(if (n > 0) { str.format(ctx, "v${n}") } else { str.format(ctx, "z") })
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${shown(ctx, 2)}").ignore();
   .Ok(())
 }
@@ -5196,7 +5196,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn the_standard_library_balances_too() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -5204,7 +5204,7 @@ from "core/list" import * as list;
 struct Row { name: Str, tags: [Str] }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let rows = [
     Row { name: "a", tags: ["x", "y"] },
     Row { name: "b", tags: [] },
@@ -5232,7 +5232,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_dying_value_is_paired_with_a_construction() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -5246,7 +5246,7 @@ export fn swap(p: Pair): Pair {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = Pair.Two("a", "b");
   let q = swap(p);
   let _ = io.println(ctx, match (q) { .One(a) => a, .Two(a, _) => a }).ignore();
@@ -5278,7 +5278,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_value_used_after_the_construction_is_not_paired() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -5303,7 +5303,7 @@ export fn swapped(p: Pair, other: Pair): Pair {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, first(swapped(Pair.Two("a", "b"), Pair.One("c")))).ignore();
   .Ok(())
 }
@@ -5330,7 +5330,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn only_a_construction_pairs_and_it_carries_its_own_shape() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -5357,7 +5357,7 @@ export fn pick(s: Shape, d: Str): Str {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = reshape(Shape.Two("a", "b"), "z");
   let _ = io.println(ctx, pick(a, "z")).ignore();
   .Ok(())
@@ -5397,7 +5397,7 @@ export fn main(): Result<(), Str> {
     #[test]
     fn purity_is_a_fixpoint_over_the_call_graph() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -5406,7 +5406,7 @@ export fn double(n: Int): Int { n * 2 }
 export fn quadruple(n: Int): Int { double(double(n)) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${quadruple(2)}").ignore();
   .Ok(())
 }
@@ -5460,18 +5460,18 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_context_and_an_option_no_literal_builds_are_both_counted() {
         const SRC: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-export fn showFirst<C: Alloc>(ctx: C, o: Option<Str>): Str {
+export fn showFirst<C: Allocator>(ctx: C, o: Option<Str>): Str {
   match (o) { .Some(v) => str.format(ctx, "S${v}"), .None => "N" }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let built = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => str.format(c, "n${i}"));
   let _ = io.println(ctx, showFirst(ctx, built.get(1))).ignore();
   .Ok(())
@@ -5508,19 +5508,19 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_scrutinee_is_dropped_on_the_arm_that_jumps_too() {
         const SRC: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-fn takeOne<C: Alloc>(ctx: C, xs: [Int]): Option<(Int, [Int])> {
+fn takeOne<C: Allocator>(ctx: C, xs: [Int]): Option<(Int, [Int])> {
   match (xs.first()) {
     .Some(v) => .Some((v, xs.drop(ctx, 1))),
     .None => .None,
   }
 }
 
-export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
+export fn drain<C: Allocator>(ctx: C, xs: [Int], acc: [Int]): [Int] {
   match (takeOne(ctx, xs)) {
     .Some(t) => {
       let (v, rest) = t;
@@ -5531,7 +5531,7 @@ export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${drain(ctx, [1, 2], []).len()}").ignore();
   .Ok(())
 }
@@ -5587,17 +5587,17 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_called_closure_is_not_consumed_by_the_call() {
         const SRC: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-export fn twice<C: Alloc>(ctx: C, n: Int): Int {
+export fn twice<C: Allocator>(ctx: C, n: Int): Int {
   let g: fn(Int) => Int = fn(x) => x + n;
   g(100) + g(200)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${twice(ctx, 1)}").ignore();
   .Ok(())
 }
@@ -5643,21 +5643,21 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_projection_of_a_temporary_releases_it() {
         const SRC: &str = r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 
 struct Pair { a: [Str], b: [Str] }
 
-fn mk<C: Alloc>(ctx: C): Pair { Pair { a: ["x".repeat(ctx, 8)], b: ["y".repeat(ctx, 8)] } }
+fn mk<C: Allocator>(ctx: C): Pair { Pair { a: ["x".repeat(ctx, 8)], b: ["y".repeat(ctx, 8)] } }
 
-export fn firstLen<C: Alloc>(ctx: C): Int { mk(ctx).a.len() }
+export fn firstLen<C: Allocator>(ctx: C): Int { mk(ctx).a.len() }
 
-export fn keep<C: Alloc>(ctx: C): [Str] { mk(ctx).a }
+export fn keep<C: Allocator>(ctx: C): [Str] { mk(ctx).a }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${firstLen(ctx)} ${keep(ctx).len()}").ignore();
   .Ok(())
 }
@@ -5708,7 +5708,7 @@ export fn main(): Result<(), Str> {
     /// each is handed. `applyN` is the third shape — the one the *type* rules
     /// out on its own.
     const PRECISION: &str = r#"
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Allocator, Clock, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/time" import * as time;
@@ -5726,7 +5726,7 @@ fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = sleepy(ctx, 2, fn(c) => {
     let _ = time.sleepMs(c, 1);
     5
@@ -5742,7 +5742,7 @@ export fn main(): Result<(), Str> {
     const GOLDEN_PARKING: usize = 4;
     const GOLDEN_FUNCS: usize = 9;
     const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
-        "core/host:HostClock.sleepMillis",
+        "core/host:HostClock.sleepMilliseconds",
         "core/time:sleepMs",
         "rc_test.buri:main",
         "rc_test.buri:sleepy",
@@ -5867,10 +5867,10 @@ export fn main(): Result<(), Str> {
             body_func("a", calls(&[2])),
             body_func("b", calls(&[1, 3])),
             body_func("c", calls(&[4])),
-            intrinsic_func("readFile", "host.HostFs.readFile"),
+            intrinsic_func("readFile", "host.HostFileSystem.readFile"),
             body_func("x", calls(&[6])),
             body_func("y", calls(&[5, 7])),
-            intrinsic_func("nowMillis", "host.HostClock.nowMillis"),
+            intrinsic_func("nowMilliseconds", "host.HostClock.nowMilliseconds"),
         ]);
         assert_eq!(
             parked(&program),
@@ -5883,37 +5883,38 @@ export fn main(): Result<(), Str> {
     /// The case the column exists for: one source function, two contexts, two
     /// answers.
     ///
-    /// `fs.readText<C: Alloc + Fs>` at a context binding `host.HostFs` reaches
+    /// `fs.readText<C: Allocator + FileSystemRead>` at a context binding
+    /// `host.HostFileSystem` reaches
     /// a call that waits on a disk; the same source at the hermetic test
-    /// context reaches `host_testing.TestFs`, which is a page of memory.
+    /// context reaches `host_testing.TestFileSystem`, which is a page of memory.
     /// Monomorphization has already made them two `Func` slots, so the
     /// fixpoint separates them with no further analysis.
     #[test]
     fn one_source_function_at_two_contexts_gets_two_answers() {
         let program = hand_built(vec![
             body_func("main", calls(&[1, 2])),
-            body_func("fs:readText<HostFs>", calls(&[3])),
-            body_func("fs:readText<TestFs>", calls(&[4])),
-            intrinsic_func("HostFs.readFile", "host.HostFs.readFile"),
-            intrinsic_func("TestFs.readFile", "host_testing.TestFs.readFile"),
+            body_func("fs:readText<HostFileSystem>", calls(&[3])),
+            body_func("fs:readText<TestFileSystem>", calls(&[4])),
+            intrinsic_func("HostFileSystem.readFile", "host.HostFileSystem.readFile"),
+            intrinsic_func("TestFileSystem.readFile", "host_testing.TestFileSystem.readFile"),
         ]);
         let parks = parked(&program);
-        assert!(parks[1], "`readText` at `host.HostFs` waits on the disk");
+        assert!(parks[1], "`readText` at `host.HostFileSystem` waits on the disk");
         assert!(!parks[2], "`readText` at the test context reaches only memory");
         assert!(parks[0], "and a caller of both waits, because one half of it does");
     }
 
     /// Every key in the seed list, and the near misses beside them: reading
-    /// the clock is not sleeping on it, and the whole `HostFs` surface is in
+    /// the clock is not sleeping on it, and the whole `HostFileSystem` surface is in
     /// by prefix rather than by enumeration.
     #[test]
     fn the_seed_list_is_the_blocking_host_calls_and_nothing_else() {
         for key in [
-            "host.HostFs.readFile",
-            "host.HostFs.writeFile",
-            "host.HostFs.syncFile",
-            "host.HostNet.fetch",
-            "host.HostClock.sleepMillis",
+            "host.HostFileSystem.readFile",
+            "host.HostFileSystem.writeFile",
+            "host.HostFileSystem.syncFile",
+            "host.HostNetwork.fetch",
+            "host.HostClock.sleepMilliseconds",
             "host.HostStdin.readLine",
             "host.HostStdin.readBytes",
             "host.HostWebSocketClient.connectSocket",
@@ -5929,13 +5930,13 @@ export fn main(): Result<(), Str> {
             assert!(suspends(key), "{key} blocks");
         }
         for key in [
-            "host.HostClock.nowMillis",
+            "host.HostClock.nowMilliseconds",
             "host.HostStdout.println",
-            "host.HostRand.nextInt",
-            "host_testing.TestFs.readFile",
-            "host_testing.TestClock.sleepMillis",
+            "host.HostRandom.nextInt",
+            "host_testing.TestFileSystem.readFile",
+            "host_testing.TestClock.sleepMilliseconds",
             // The client double reaches no network, so neither of its two
-            // methods waits — `host_testing.TestFs` one line up, for its reason.
+            // methods waits — `host_testing.TestFileSystem` one line up, for its reason.
             "host_testing.TestWebSocketClient.connectSocket",
             "host_testing.TestWebSocketClient.connectReceive",
             "derivePrimHash",
@@ -6011,7 +6012,7 @@ export fn main(): Result<(), Str> {
             ),
             body_func("maker", Expr::new(ExprKind::Unit, Ty::Unit, Span::default())),
             body_func("builder", lambda_of(carrying, call_to(5))),
-            intrinsic_func("sleepMillis", "host.HostClock.sleepMillis"),
+            intrinsic_func("sleepMilliseconds", "host.HostClock.sleepMilliseconds"),
         ]);
         assert_eq!(
             parked(&program),
@@ -6113,7 +6114,7 @@ export fn main(): Result<(), Str> {
     fn an_inline_intrinsic_node_seeds_the_column() {
         let node = Expr::new(
             ExprKind::Intrinsic {
-                name: "host.HostNet.fetch".to_string(),
+                name: "host.HostNetwork.fetch".to_string(),
                 targs: Vec::new(),
                 args: Vec::new(),
             },
@@ -6133,8 +6134,8 @@ export fn main(): Result<(), Str> {
             body_func("main", calls(&[1, 2])),
             body_func("waits", calls(&[3])),
             body_func("does not", calls(&[4])),
-            intrinsic_func("HostFs.readFile", "host.HostFs.readFile"),
-            intrinsic_func("TestFs.readFile", "host_testing.TestFs.readFile"),
+            intrinsic_func("HostFileSystem.readFile", "host.HostFileSystem.readFile"),
+            intrinsic_func("TestFileSystem.readFile", "host_testing.TestFileSystem.readFile"),
         ]);
         for plan in [run(&program), sharing(&program)] {
             let waits = plan.func(FuncIdx(1)).expect("a plan");
@@ -6151,8 +6152,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_compiled_program_agrees() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/fs" import { FsRead, Path };
+from "core/effect" import { Allocator, Stdout };
+from "core/fs" import { FileSystemRead, Path };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -6160,12 +6161,12 @@ from "core/path" import * as filepath;
 
 export fn double(n: Int): Int { n * 2 }
 
-export fn load<C: Alloc + FsRead>(ctx: C, at: Path): Str {
+export fn load<C: Allocator + FileSystemRead>(ctx: C, at: Path): Str {
   match (fs.readText(ctx, at)) { .Ok(text) => text, .Err(_) => "" }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
   let text = load(ctx, filepath.of(ctx, "a.txt"));
   let _ = io.println(ctx, "${text}${double(2)}").ignore();
   .Ok(())

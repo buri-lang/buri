@@ -17,13 +17,13 @@
 //!
 //! ```buri run
 //! from "core/date" import * as date;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     // `date` is the only way to build one, so no `Date` is ever a day the
@@ -44,7 +44,7 @@
 //! 2024-02-29 is .Thursday, +1y is 2025-02-28
 //! ```
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/number" import * as number;
 from "core/str" import * as str;
 from "core/time" import { Duration, Instant };
@@ -302,13 +302,13 @@ impl Date {
 ///
 /// ```buri run
 /// from "core/date" import * as date;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let newYear = date.date(2027, 1, 1).withDefault(date.fromDays(0));
@@ -385,7 +385,7 @@ export fn plus(i: Instant, d: Duration): Instant {
 ///
 /// A year before zero writes a leading minus, which `parseDate` does not read:
 /// the calendar goes back further than the format does.
-export fn formatDate<C: Alloc>(ctx: C, d: Date): Str {
+export fn formatDate<C: Allocator>(ctx: C, d: Date): Str {
     let y = pad(ctx, d.year, 4);
     let m = pad(ctx, d.month, 2);
     let day = pad(ctx, d.day, 2);
@@ -394,7 +394,7 @@ export fn formatDate<C: Alloc>(ctx: C, d: Date): Str {
 
 /// `13:45:00.000` — always with milliseconds, which is what `parseTime` reads
 /// back.
-export fn formatTime<C: Alloc>(ctx: C, time: Time): Str {
+export fn formatTime<C: Allocator>(ctx: C, time: Time): Str {
     let h = pad(ctx, time.hour, 2);
     let mi = pad(ctx, time.minute, 2);
     let s = pad(ctx, time.second, 2);
@@ -403,13 +403,13 @@ export fn formatTime<C: Alloc>(ctx: C, time: Time): Str {
 }
 
 /// `2026-08-15T13:45:00.000Z` — always UTC, always with milliseconds.
-export fn formatDateTime<C: Alloc>(ctx: C, dt: DateTime): Str {
+export fn formatDateTime<C: Allocator>(ctx: C, dt: DateTime): Str {
     let d = formatDate(ctx, dt.date);
     let t = formatTime(ctx, dt.time);
     str.format(ctx, "${d}T${t}Z")
 }
 
-fn pad<C: Alloc>(ctx: C, n: Int, width: Int): Str {
+fn pad<C: Allocator>(ctx: C, n: Int, width: Int): Str {
     let negative = n < 0;
     let digits = str
         .fromInt(ctx, if (negative) { -n } else { n })
@@ -419,7 +419,7 @@ fn pad<C: Alloc>(ctx: C, n: Int, width: Int): Str {
 
 /// Reads `YYYY-MM-DD`. Strict: exactly that shape, and a date the calendar
 /// has. Anything else is `None` rather than a guess.
-export fn parseDate<C: Alloc>(ctx: C, text: Str): Option<Date> {
+export fn parseDate<C: Allocator>(ctx: C, text: Str): Option<Date> {
     let parts = text.split(ctx, "-");
     if (parts.len() != 3) {
         .None
@@ -440,7 +440,7 @@ export fn parseDate<C: Alloc>(ctx: C, text: Str): Option<Date> {
 /// there is one. Anything finer than a millisecond is dropped rather than
 /// rounded, so `.9999` is 999 milliseconds. A second of 60 is refused — a leap
 /// second is a real time of day that `Time` has nowhere to put.
-export fn parseTime<C: Alloc>(ctx: C, text: Str): Option<Time> {
+export fn parseTime<C: Allocator>(ctx: C, text: Str): Option<Time> {
     match (text.splitOnce(".")) {
         .Some(split) => {
             let (clock, fraction) = split;
@@ -468,7 +468,7 @@ fn milliOf(fraction: Str): Option<Int> {
     }
 }
 
-fn hourMinuteSecond<C: Alloc>(ctx: C, clock: Str, milli: Option<Int>): Option<Time> {
+fn hourMinuteSecond<C: Allocator>(ctx: C, clock: Str, milli: Option<Int>): Option<Time> {
     let parts = clock.split(ctx, ":");
     if (parts.len() != 3) {
         .None
@@ -518,13 +518,13 @@ fn allDigits(text: Str, i: Int): Bool {
 ///
 /// ```buri run
 /// from "core/date" import * as date;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let text = match (date.parseDateTime(ctx, "2026-08-15T15:45:00+02:00")) {
@@ -539,7 +539,7 @@ fn allDigits(text: Str, i: Int): Bool {
 /// ```stdout
 /// 2026-08-15T13:45:00.000Z
 /// ```
-export fn parseDateTime<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
+export fn parseDateTime<C: Allocator>(ctx: C, text: Str): Option<DateTime> {
     parseZoned(ctx, text).map(fn(z) => fromInstant(zonedToInstant(z)))
 }
 
@@ -549,7 +549,7 @@ export fn parseDateTime<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
 /// about everything else: four digits of year, two of everything else, seconds
 /// present, and an offset present. A space in place of the `T` is refused — RFC
 /// 3339 admits it only by prior agreement, and there is none here.
-export fn parseZoned<C: Alloc>(ctx: C, text: Str): Option<Zoned> {
+export fn parseZoned<C: Allocator>(ctx: C, text: Str): Option<Zoned> {
     match (text.charAt(10)) {
         .Some(c) => {
             if (c != 'T' && c != 't') {
@@ -566,7 +566,7 @@ export fn parseZoned<C: Alloc>(ctx: C, text: Str): Option<Zoned> {
 }
 
 /// Everything after the `T`: the time of day, then `Z` or `+HH:MM`.
-fn timeAndOffset<C: Alloc>(ctx: C, d: Date, rest: Str): Option<Zoned> {
+fn timeAndOffset<C: Allocator>(ctx: C, d: Date, rest: Str): Option<Zoned> {
     let n = rest.len();
     let zulu = match (rest.charAt(n - 1)) {
         .Some(c) => c == 'Z' || c == 'z',
@@ -604,7 +604,7 @@ fn at(d: Date, t: Time, offsetMinutes: Int): Zoned {
 
 /// `HH:MM` as minutes. Refuses an hour past 23 or a minute past 59, so `+99:99`
 /// is not an offset.
-fn offsetOf<C: Alloc>(ctx: C, text: Str): Option<Int> {
+fn offsetOf<C: Allocator>(ctx: C, text: Str): Option<Int> {
     let parts = text.split(ctx, ":");
     if (parts.len() != 2) {
         .None
@@ -634,14 +634,14 @@ export fn zonedToInstant(zoned: Zoned): Instant {
 
 /// `2026-08-15T13:45:00.000+02:00`, and `Z` for an offset of zero — which makes
 /// it read exactly as `formatDateTime` writes the same moment.
-export fn formatZoned<C: Alloc>(ctx: C, zoned: Zoned): Str {
+export fn formatZoned<C: Allocator>(ctx: C, zoned: Zoned): Str {
     let d = formatDate(ctx, zoned.at.date);
     let t = formatTime(ctx, zoned.at.time);
     let o = offsetText(ctx, zoned.offsetMinutes);
     str.format(ctx, "${d}T${t}${o}")
 }
 
-fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
+fn offsetText<C: Allocator>(ctx: C, offsetMinutes: Int): Str {
     if (offsetMinutes == 0) {
         "Z"
     } else {
@@ -669,14 +669,14 @@ fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
 ///
 /// ```buri run
 /// from "core/date" import * as date;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/time" import { Instant };
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let moment = date.fromInstant(Instant(784_111_777_000));
@@ -688,7 +688,7 @@ fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
 /// ```stdout
 /// Sun, 06 Nov 1994 08:49:37 GMT
 /// ```
-export fn formatHttpDate<C: Alloc>(ctx: C, dateTime: DateTime): Str {
+export fn formatHttpDate<C: Allocator>(ctx: C, dateTime: DateTime): Str {
     let day = pad(ctx, dateTime.date.day, 2);
     let year = pad(ctx, dateTime.date.year, 4);
     let h = pad(ctx, dateTime.time.hour, 2);
@@ -714,7 +714,7 @@ export fn formatHttpDate<C: Alloc>(ctx: C, dateTime: DateTime): Str {
 /// **A two-digit year reads 00-68 as 2000-2068 and 69-99 as 1969-1999.** RFC
 /// 9110 asks for "more than fifty years in the future" measured against now, and
 /// now is a clock reading this cannot take.
-export fn parseHttpDate<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
+export fn parseHttpDate<C: Allocator>(ctx: C, text: Str): Option<DateTime> {
     let fields = text.trim().splitAny(ctx, " ").filter(ctx, fn(f) => !f.isEmpty());
     if (fields.len() == 6) {
         imfFixdate(ctx, fields)
@@ -728,7 +728,7 @@ export fn parseHttpDate<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
 }
 
 /// `Sun, 06 Nov 1994 08:49:37 GMT`.
-fn imfFixdate<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+fn imfFixdate<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
     if (!endsGmt(fields, 5) || !isDayComma(fields.get(0))) {
         .None
     } else {
@@ -740,7 +740,7 @@ fn imfFixdate<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
 }
 
 /// `Sunday, 06-Nov-94 08:49:37 GMT`.
-fn rfc850<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+fn rfc850<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
     let parts = fields.get(1).withDefault("").split(ctx, "-");
     if (!endsGmt(fields, 3) || !isDayComma(fields.get(0)) || parts.len() != 3) {
         .None
@@ -757,7 +757,7 @@ fn rfc850<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
 /// `Sun Nov  6 08:49:37 1994`. The day is one or two digits and there is no
 /// `GMT` on the end — asctime has no timezone at all, and RFC 9110 reads it as
 /// UTC.
-fn asctime<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+fn asctime<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
     let month = fields.get(1).andThen(fn(name) => monthNumber(name));
     let day = fields
         .get(2)
@@ -773,7 +773,7 @@ fn asctime<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
 }
 
 /// The three numbers and the clock, if every one of them is there.
-fn civil<C: Alloc>(
+fn civil<C: Allocator>(
     ctx: C,
     year: Option<Int>,
     month: Option<Int>,

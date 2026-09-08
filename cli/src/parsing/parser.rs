@@ -3311,7 +3311,7 @@ mod tests {
         ok("effect Fs { fn readFile(self, path: Str): Result<Str, IoError>; }");
         ok("impl Ord for Version { fn compare(self, other: Version): Order { .Equal } }");
         ok("derive Eq, Ord, Show for Playlist;");
-        ok("context Fixture { Alloc: alloc(), Fs: fs() }");
+        ok("context Fixture { Allocator: alloc(), Fs: fs() }");
         ok(r#"test "pads the cents place" { let x = 1; }"#);
     }
 
@@ -3523,7 +3523,7 @@ mod tests {
 
     #[test]
     fn let_ctx_takes_no_annotation() {
-        ok("fn f(): Int { let ctx = context { Alloc: host.alloc }; 0 }");
+        ok("fn f(): Int { let ctx = context { Allocator: host.alloc }; 0 }");
     }
 
     #[test]

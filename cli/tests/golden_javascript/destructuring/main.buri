@@ -3,7 +3,7 @@
 // expression spelled twice is evaluated twice. Every function here prints, so
 // a second evaluation is visible in what the program printed rather than only
 // in what it compiled to.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -17,7 +17,7 @@ struct Pair {
 
 // Two halves of one reading. Recursive, so it is not inlined into its caller
 // and the call survives into the emitted program.
-fn readTuple<C: Alloc + Stdout>(ctx: C, depth: Int): (Int, Int) {
+fn readTuple<C: Allocator + Stdout>(ctx: C, depth: Int): (Int, Int) {
     if (depth > 0) {
         readTuple(ctx, depth - 1)
     } else {
@@ -27,7 +27,7 @@ fn readTuple<C: Alloc + Stdout>(ctx: C, depth: Int): (Int, Int) {
 }
 
 // The same, as a struct.
-fn readPair<C: Alloc + Stdout>(ctx: C, depth: Int): Pair {
+fn readPair<C: Allocator + Stdout>(ctx: C, depth: Int): Pair {
     if (depth > 0) {
         readPair(ctx, depth - 1)
     } else {
@@ -38,7 +38,7 @@ fn readPair<C: Alloc + Stdout>(ctx: C, depth: Int): Pair {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let (a, b) = readTuple(ctx, 2);

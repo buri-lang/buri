@@ -3,7 +3,7 @@
 // it anyway: the count is held to the same range the shifts are, so a byte
 // rotate takes 0 to 7 and nothing else (`bits.buri`).
 from "core/bits" import * as bits;
-from "core/effect" import { Alloc, Stdout, Env };
+from "core/effect" import { Allocator, Stdout, Environment };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -11,8 +11,8 @@ from "core/io" import * as io;
 fn spin(x: U8, n: Int): U8 { bits.rotateLeftU8(x, n) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
-  let width = 8 + env.args(ctx).len();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
+  let width = 8 + env.arguments(ctx).len();
   let _ = io.println(ctx, "${spin(1, width)}").ignore();
   .Ok(())
 }

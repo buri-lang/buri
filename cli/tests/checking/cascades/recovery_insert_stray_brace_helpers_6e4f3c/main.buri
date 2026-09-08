@@ -8,7 +8,7 @@
 from "core/buri/ast" import * as ast;
 from "core/bytes" import * as bytes;
 from "core/codegen" import { Diagnostic };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "std/codegen/proto/schema" import * as schema;
 
 /// The path every case's schema is read from.
@@ -18,16 +18,16 @@ export let FILE: Str = "lib/wire/case.proto";
 export let HEAD: Str = "edition = \"2026\";\n";
 
 /// `body` with the edition declared above it.
-export fn withEdition<C: Alloc>(ctx: C, body: Str): Str {
+export fn withEdition<C: Allocator>(ctx: C, body: Str): Str {
     HEAD.concat(ctx, body)
 }
 
 /// The lines of a schema, one per element.
-export fn lines<C: Alloc>(ctx: C, ls: [Str]): Str {
+export fn lines<C: Allocator>(ctx: C, ls: [Str]): Str {
     ls.join(ctx, "\n").concat(ctx, "\n")
 }
 
-export fn read<C: Alloc>(ctx: C, text: Str): schema.Parsed {
+export fn read<C: Allocator>(ctx: C, text: Str): schema.Parsed {
     schema.parse(ctx, text, FILE)
 }
 
@@ -38,7 +38,7 @@ export fn under(parsed: schema.Parsed, code: Str): Option<Diagnostic> {
 
 /// The text a diagnostic's span covers. Its origin is measured in bytes, so
 /// this reads the bytes.
-export fn pointsAt<C: Alloc>(ctx: C, text: Str, d: Diagnostic): Str {
+export fn pointsAt<C: Allocator>(ctx: C, text: Str, d: Diagnostic): Str {
     match (d.origin) {
         .None => "",
         .Some(o) => at(ctx, text, o),
@@ -46,7 +46,7 @@ export fn pointsAt<C: Alloc>(ctx: C, text: Str, d: Diagnostic): Str {
 }
 
 /// The text an origin covers. A declaration carries one of these directly.
-export fn at<C: Alloc>(ctx: C, text: Str, origin: ast.Origin): Str {
+export fn at<C: Allocator>(ctx: C, text: Str, origin: ast.Origin): Str {
     let octets = bytes.toUtf8(ctx, text).slice(ctx, origin.span.start, origin.span.end);
     match (bytes.fromUtf8(ctx, octets)) {
         .Ok(s) , => s,

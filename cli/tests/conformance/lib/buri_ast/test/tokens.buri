@@ -5,16 +5,16 @@
 
 from "core/buri/ast" import * as ast;
 from "core/buri/ast" import { Span, Token, TokenKind };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
-fn kinds<C: Alloc>(ctx: C, source: Str): [TokenKind] {
+fn kinds<C: Allocator>(ctx: C, source: Str): [TokenKind] {
     ast.tokenize(ctx, source).map(ctx, fn(t) => t.kind)
 }
 
-fn texts<C: Alloc>(ctx: C, source: Str): [Str] {
+fn texts<C: Allocator>(ctx: C, source: Str): [Str] {
     ast.tokenize(ctx, source).map(ctx, fn(t) => t.text)
 }
 
@@ -22,7 +22,7 @@ fn texts<C: Alloc>(ctx: C, source: Str): [Str] {
 
 test "a declaration is its keyword, its name and its punctuation" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "let x = 1;"), ["let", "x", "=", "1", ";"]);
     assert.eq(kinds(ctx, "let x = 1;"), [
@@ -36,7 +36,7 @@ test "a declaration is its keyword, its name and its punctuation" {
 
 test "nothing comes of nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(ast.tokenize(ctx, ""));
     assert.isEmpty(ast.tokenize(ctx, "   \n\t\r "));
@@ -46,7 +46,7 @@ test "nothing comes of nothing" {
 
 test "a span is the byte range the token covers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let tokens = ast.tokenize(ctx, "let x = 1;");
     assert.eq(assert.some(tokens.get(0)).span, Span { start: 0, end: 3 });
@@ -56,7 +56,7 @@ test "a span is the byte range the token covers" {
 
 test "a span counts bytes where the text counts scalars" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let tokens = ast.tokenize(ctx, "\"😀\" x");
     assert.eq(assert.some(tokens.get(0)).span, Span { start: 0, end: 6 });
@@ -67,7 +67,7 @@ test "a span counts bytes where the text counts scalars" {
 
 test "every span is non-empty and they run in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = "export fn f<T: Eq>(self, ctx: C): [T] { \"a\${1}b\" }";
     let tokens = ast.tokenize(ctx, source);
@@ -87,7 +87,7 @@ fn inOrder(pair: [Token]): Bool {
 
 test "the marker decides which comment a comment is" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "//! module\n/// doc\n// plain\n//// plain\n/* block */"), [
         TokenKind.ModuleDoc,
@@ -100,7 +100,7 @@ test "the marker decides which comment a comment is" {
 
 test "block comments nest" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "/* a /* b */ c */x"), ["/* a /* b */ c */", "x"]);
 }
@@ -109,7 +109,7 @@ test "block comments nest" {
 
 test "an integer is decimal or one of three radices, underscores and all" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "0 1_000 0xff 0o17 0b1010"), [
         "0",
@@ -123,7 +123,7 @@ test "an integer is decimal or one of three radices, underscores and all" {
 
 test "a float carries a point or an exponent" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "1 1.5 1e5 1.5e-3 1E+2"), [
         TokenKind.Int,
@@ -136,7 +136,7 @@ test "a float carries a point or an exponent" {
 
 test "a tuple index is a dot and an integer, never a float" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "pair.0"), ["pair", ".", "0"]);
     assert.eq(kinds(ctx, "pair.0"), [
@@ -152,7 +152,7 @@ test "a tuple index is a dot and an integer, never a float" {
 
 test "a string keeps its quotes and its escapes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "\"hi\" 'a' '\\n'"), ["\"hi\"", "'a'", "'\\n'"]);
     assert.eq(texts(ctx, "\"a\\\"b\""), ["\"a\\\"b\""]);
@@ -162,7 +162,7 @@ test "a string keeps its quotes and its escapes" {
 
 test "a template is a head, its holes and a tail" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "\"a\${x}b\${y}c\""), [
         TokenKind.TemplateHead,
@@ -176,7 +176,7 @@ test "a template is a head, its holes and a tail" {
 
 test "a brace inside a hole closes its block and not the template" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "\"\${ { } }\""), [
         TokenKind.TemplateHead,
@@ -189,7 +189,7 @@ test "a brace inside a hole closes its block and not the template" {
 
 test "a template nested in a template keeps its own holes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "\"a\${\"b\${c}d\"}e\""), [
         TokenKind.TemplateHead,
@@ -204,7 +204,7 @@ test "a template nested in a template keeps its own holes" {
 
 test "longest match, and the pairs the grammar deliberately leaves out" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, ":: .. => == != <= >= && || = . : < > & |"), [
         "::",
@@ -241,7 +241,7 @@ test "longest match, and the pairs the grammar deliberately leaves out" {
 
 test "an underscore is punctuation and a word that starts with one is a name" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "_ _x"), [TokenKind.Punctuation, TokenKind.Identifier]);
 }
@@ -250,7 +250,7 @@ test "an underscore is punctuation and a word that starts with one is a name" {
 
 test "a reserved word is Unknown, and a word that merely starts with one is not" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "await"), [TokenKind.Unknown]);
     assert.eq(kinds(ctx, "awaits"), [TokenKind.Identifier]);
@@ -259,7 +259,7 @@ test "a reserved word is Unknown, and a word that merely starts with one is not"
 
 test "every keyword of the lexical grammar lexes as one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let all = "as const context ctx derive effect else enum export false fn for ".concat(
         ctx,
@@ -272,7 +272,7 @@ test "every keyword of the lexical grammar lexes as one" {
 
 test "a character no production names is Unknown" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "#"), [TokenKind.Unknown]);
     assert.eq(kinds(ctx, "$"), [TokenKind.Unknown]);
@@ -282,7 +282,7 @@ test "a character no production names is Unknown" {
 
 test "an unterminated string or comment runs to the end of the source" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "\"abc"), ["\"abc"]);
     assert.eq(texts(ctx, "/* abc"), ["/* abc"]);
@@ -293,7 +293,7 @@ test "an unterminated string or comment runs to the end of the source" {
 
 test "one source produces every kind of token there is" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source =
         "//! m\n/// d\n// l\n/* b */\nlet x = 1 1.5 \"s\" 'c' \"a\${x}b\${x}c\" #";
@@ -322,7 +322,7 @@ test "one source produces every kind of token there is" {
 
 test "a file of only comments is its comments" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "// one\n// two\n"), [
         TokenKind.LineComment,
@@ -340,7 +340,7 @@ test "a file of only comments is its comments" {
 
 test "a comment on the last line with no newline after it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "// one"), [TokenKind.LineComment]);
     assert.eq(kinds(ctx, "/// one"), [TokenKind.DocComment]);
@@ -350,7 +350,7 @@ test "a comment on the last line with no newline after it" {
 
 test "a character literal that never closes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(kinds(ctx, "'a"), [TokenKind.Char]);
     assert.eq(texts(ctx, "'a"), ["'a"]);
@@ -360,7 +360,7 @@ test "a character literal that never closes" {
 
 test "a block comment that never closes takes the nesting with it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "/* a /* b */"), ["/* a /* b */"]);
     assert.eq(kinds(ctx, "/*"), [TokenKind.BlockComment]);
@@ -368,14 +368,14 @@ test "a block comment that never closes takes the nesting with it" {
 
 test "a string whose last character is an escape" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(texts(ctx, "\"a\\"), ["\"a\\"]);
 }
 
 test "an unterminated token still carries a span inside the source" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let tokens = ast.tokenize(ctx, "x \"abc");
     assert.eq(tokens.len(), 2);

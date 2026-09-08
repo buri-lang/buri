@@ -1,58 +1,58 @@
 error: an import declaration ends with `;` [missing-terminator]
   --> main.buri:13:30
    |
-13 | from "core/effect" import { } Alloc;
+13 | from "core/effect" import { } Allocator;
    |                              ^
    |
    = fix: write `;` here
-error: expected a declaration, found `Alloc` [unexpected-token]
+error: expected a declaration, found `Allocator` [unexpected-token]
   --> main.buri:13:31
    |
-13 | from "core/effect" import { } Alloc;
+13 | from "core/effect" import { } Allocator;
    |                               ^^^^^
    |
    = expected: a declaration
-   = actual: `Alloc`
+   = actual: `Allocator`
    = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-error: `Alloc` is not a declared effect [not-an-effect]
+error: `Allocator` is not a declared effect [not-an-effect]
   --> main.buri:19:9
    |
-19 |         Alloc: alloc(),
+19 |         Allocator: alloc(),
    |         ^^^^^
    |
-   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
-error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Allocator` is not one
+error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:21:49
    |
 21 |     assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = fix: bound the type parameter with `Alloc`, or use a type that has one
-error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+   = fix: bound the type parameter with `Allocator`, or use a type that has one
+error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:22:37
    |
 22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash());
    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = fix: bound the type parameter with `Alloc`, or use a type that has one
-error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+   = fix: bound the type parameter with `Allocator`, or use a type that has one
+error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:24:9
    |
 24 |         bigint.of(2).power(ctx, 100).hash(),
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = fix: bound the type parameter with `Alloc`, or use a type that has one
-error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+   = fix: bound the type parameter with `Allocator`, or use a type that has one
+error: `a context` does not satisfy `Allocator` [unsatisfied-bound]
   --> main.buri:25:21
    |
 25 |         assert.some(bigint.parse(ctx, "1267650600228229401496703205376")).hash(),
    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = fix: bound the type parameter with `Alloc`, or use a type that has one
-error: `Alloc` is not a declared effect [not-an-effect]
+   = fix: bound the type parameter with `Allocator`, or use a type that has one
+error: `Allocator` is not a declared effect [not-an-effect]
   --> main.buri:31:9
    |
-31 |         Alloc: alloc(),
+31 |         Allocator: alloc(),
    |         ^^^^^
    |
-   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
+   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Allocator` is not one

@@ -198,7 +198,7 @@ fn two_checkouts_of_one_tree_build_identical_bytes() {
 /// A repository whose only source is written by a generator, for the two rows
 /// below.
 ///
-/// The tool's `main` binds `FsRead` and `FsWrite` as well as the three
+/// The tool's `main` binds `FileSystemRead` and `FileSystemWrite` as well as the three
 /// `codegen.run` needs, which the language allows — a bound is a floor and not
 /// a ceiling — and `marked` is the switch that turns the extra two into an
 /// answer that depends on what has happened before. So one repository states
@@ -221,12 +221,12 @@ fn generated_only(name: &str, marked: bool) -> Scratch {
     );
     scratch.write(
         "cmd/app/main.buri",
-        "from \"core/effect\" import { Alloc, Stdout };\n\
+        "from \"core/effect\" import { Allocator, Stdout };\n\
          from \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\
          from \"//lib/wire\" import { width };\n\n\
          export fn main(): Result<(), Str> {\n  \
-         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
          let _ = io.println(ctx, \"width=${width}\").ignore();\n  \
          .Ok(())\n\
          }\n",
@@ -254,9 +254,9 @@ fn generator(marked: bool) -> String {
         true => String::new(),
     };
     format!(
-        r#"from "core/effect" import {{ Alloc, Stdin, Stdout }};
+        r#"from "core/effect" import {{ Allocator, Stdin, Stdout }};
 from "core/fs" import * as fs;
-from "core/fs" import {{ FsRead, FsWrite }};
+from "core/fs" import {{ FileSystemRead, FileSystemWrite }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -267,9 +267,9 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
-    FsRead: host.fs,
-    FsWrite: host.fs,
+    Allocator: host.alloc,
+    FileSystemRead: host.fs,
+    FileSystemWrite: host.fs,
     Stdin: host.stdin,
     Stdout: host.stdout,
   }};

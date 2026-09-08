@@ -12,14 +12,14 @@
 //!
 //! ```buri run
 //! from "core/bitset" import * as bitset;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/str" import * as str;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let evens = bitset.of(ctx, 64, [2, 4, 6, 40]);
@@ -36,7 +36,7 @@
 //! ```
 
 from "core/bits" import * as bits;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 
 /// The number of bits one word holds. Not exported: it is the layout.
@@ -62,14 +62,14 @@ fn wordsFor(capacity: Int): Int {
 }
 
 /// A set holding no bits, with room for `capacity` of them.
-export fn empty<C: Alloc>(ctx: C, capacity: Int): BitSet {
+export fn empty<C: Allocator>(ctx: C, capacity: Int): BitSet {
     let n = if (capacity < 0) { 0 } else { capacity };
     BitSet { words: list.repeat(ctx, 0, wordsFor(n)), capacity: n }
 }
 
 /// A set holding exactly the given indices. Anything out of range is dropped,
 /// the same as `set` does with one.
-export fn of<C: Alloc>(ctx: C, capacity: Int, indices: [Int]): BitSet {
+export fn of<C: Allocator>(ctx: C, capacity: Int, indices: [Int]): BitSet {
     indices.foldCtx(ctx, fn(c, acc, i) => acc.set(c, i), empty(ctx, capacity))
 }
 
@@ -134,14 +134,14 @@ impl BitSet {
     ///
     /// ```buri run
     /// from "core/bitset" import * as bitset;
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/str" import * as str;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let free = bitset.of(ctx, 1024, [900, 17, 400]);
@@ -168,7 +168,7 @@ impl BitSet {
         scanFrom(self.words, self.capacity, after + 1)
     }
 
-    export fn set<C: Alloc>(self, ctx: C, index: Int): BitSet {
+    export fn set<C: Allocator>(self, ctx: C, index: Int): BitSet {
         let words = self.words;
         let capacity = self.capacity;
         if (index < 0 || index >= capacity) {
@@ -186,7 +186,7 @@ impl BitSet {
         }
     }
 
-    export fn clear<C: Alloc>(self, ctx: C, index: Int): BitSet {
+    export fn clear<C: Allocator>(self, ctx: C, index: Int): BitSet {
         let words = self.words;
         let capacity = self.capacity;
         if (index < 0 || index >= capacity) {
@@ -206,7 +206,7 @@ impl BitSet {
 
     /// Sets bit `index` if it is clear and clears it if it is set. Out of
     /// range answers the set unchanged, the same as `set` and `clear` do.
-    export fn toggle<C: Alloc>(self, ctx: C, index: Int): BitSet {
+    export fn toggle<C: Allocator>(self, ctx: C, index: Int): BitSet {
         let words = self.words;
         let capacity = self.capacity;
         if (index < 0 || index >= capacity) {
@@ -229,7 +229,7 @@ impl BitSet {
     /// Word-at-a-time, so it costs O(n/32). A bit above the capacity stays
     /// clear: the set is defined over `[0, capacity)` and nothing outside it
     /// is a member either way.
-    export fn complement<C: Alloc>(self, ctx: C): BitSet {
+    export fn complement<C: Allocator>(self, ctx: C): BitSet {
         let words = self.words;
         let capacity = self.capacity;
         let next = list
@@ -244,7 +244,7 @@ impl BitSet {
     /// ends: a range that starts below zero or runs past the capacity sets the
     /// part that fits and no more. O(n/32), because it fills whole words rather
     /// than looping over the indices.
-    export fn setRange<C: Alloc>(self, ctx: C, start: Int, end: Int): BitSet {
+    export fn setRange<C: Allocator>(self, ctx: C, start: Int, end: Int): BitSet {
         let words = self.words;
         let capacity = self.capacity;
         let low = if (start < 0) { 0 } else { start };
@@ -271,7 +271,7 @@ impl BitSet {
     }
 
     /// The indices that are set, ascending.
-    export fn toList<C: Alloc>(self, ctx: C): [Int] {
+    export fn toList<C: Allocator>(self, ctx: C): [Int] {
         let words = self.words;
         let capacity = self.capacity;
         list
@@ -279,31 +279,31 @@ impl BitSet {
             .filterCtx(ctx, fn(_c, i) => hasIn(words, capacity, i))
     }
 
-    export fn union<C: Alloc>(self, ctx: C, other: BitSet): BitSet {
+    export fn union<C: Allocator>(self, ctx: C, other: BitSet): BitSet {
         combine(ctx, self.words, self.capacity, other, fn(a, b) => a | b)
     }
 
-    export fn intersect<C: Alloc>(self, ctx: C, other: BitSet): BitSet {
+    export fn intersect<C: Allocator>(self, ctx: C, other: BitSet): BitSet {
         combine(ctx, self.words, self.capacity, other, fn(a, b) => a & b)
     }
 
     /// The bits in `self` that are not in `other`.
-    export fn difference<C: Alloc>(self, ctx: C, other: BitSet): BitSet {
+    export fn difference<C: Allocator>(self, ctx: C, other: BitSet): BitSet {
         combine(ctx, self.words, self.capacity, other, fn(a, b) => a ^ a & b)
     }
 
     /// The bits in exactly one of the two.
-    export fn symmetricDifference<C: Alloc>(self, ctx: C, other: BitSet): BitSet {
+    export fn symmetricDifference<C: Allocator>(self, ctx: C, other: BitSet): BitSet {
         combine(ctx, self.words, self.capacity, other, fn(a, b) => a ^ b)
     }
 
     /// Whether every bit of `self` is also in `other`.
-    export fn isSubsetOf<C: Alloc>(self, ctx: C, other: BitSet): Bool {
+    export fn isSubsetOf<C: Allocator>(self, ctx: C, other: BitSet): Bool {
         self.difference(ctx, other).isEmpty()
     }
 
     /// Same members, whatever capacity each was built with.
-    export fn equals<C: Alloc>(self, ctx: C, other: BitSet): Bool {
+    export fn equals<C: Allocator>(self, ctx: C, other: BitSet): Bool {
         self.toList(ctx) == other.toList(ctx)
     }
 }
@@ -313,7 +313,7 @@ impl BitSet {
 /// The result's capacity is the larger of the two, and a word only one side has
 /// combines with zero. So `union` grows and `intersect` does not, without either
 /// having to say so.
-fn combine<C: Alloc>(
+fn combine<C: Allocator>(
     ctx: C,
     words: [Int],
     capacity: Int,

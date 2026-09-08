@@ -8,7 +8,7 @@
 // matter too, because holding the same priority twice is the reason this is not
 // an `OrderedSet`.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/heap" import * as heap;
 from "core/heap" import { Heap };
 from "core/host/testing" import { alloc };
@@ -28,7 +28,7 @@ test "an empty heap holds nothing" {
 
 test "popping an empty heap is nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(heap.empty<Int>().pop(ctx).isNone());
     assert.eq(heap.empty<Int>().toSortedList(ctx), []);
@@ -39,7 +39,7 @@ test "popping an empty heap is nothing" {
 
 test "peek answers the smallest, whatever order it arrived in" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let h = heap.empty<Int>().push(ctx, 30).push(ctx, 10).push(ctx, 20);
     assert.eq(assert.some(h.peek()), 10);
@@ -51,7 +51,7 @@ test "peek answers the smallest, whatever order it arrived in" {
 
 test "pop answers the smallest and the heap without it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let h = heap.of(ctx, [30, 10, 20]);
     let (smallest, rest) = assert.some(h.pop(ctx));
@@ -65,7 +65,7 @@ test "pop answers the smallest and the heap without it" {
 
 test "a heap of one pops to the empty heap" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (only, rest) = assert.some(heap.of(ctx, [7]).pop(ctx));
     assert.eq(only, 7);
@@ -77,7 +77,7 @@ test "a heap of one pops to the empty heap" {
 
 test "a heap holds duplicates, which is why it is not a set" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let h = heap.of(ctx, [5, 5, 5, 1]);
     assert.eq(h.length(), 4);
@@ -86,7 +86,7 @@ test "a heap holds duplicates, which is why it is not a set" {
 
 test "negatives and a repeated smallest come out in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let h = heap.of(ctx, [0, -3, 2, -3, 1]);
     assert.eq(h.toSortedList(ctx), [-3, -3, 0, 1, 2]);
@@ -96,7 +96,7 @@ test "negatives and a repeated smallest come out in order" {
 
 test "merge holds both sides" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = heap.of(ctx, [1, 5]);
     let b = heap.of(ctx, [3, 7]);
@@ -111,7 +111,7 @@ test "merge holds both sides" {
 
 test "merging with the empty heap answers the same elements" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = heap.of(ctx, [2, 4]);
     assert.eq(a.merge(ctx, heap.empty<Int>()).toSortedList(ctx), [2, 4]);
@@ -121,7 +121,7 @@ test "merging with the empty heap answers the same elements" {
 
 test "merge keeps the duplicates both sides brought" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let both = heap.of(ctx, [1, 1]).merge(ctx, heap.of(ctx, [1]));
     assert.eq(both.length(), 3);
@@ -132,7 +132,7 @@ test "merge keeps the duplicates both sides brought" {
 
 test "toSortedList is the elements smallest first" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(heap.of(ctx, [3, 1, 2]).toSortedList(ctx), [1, 2, 3]);
     assert.eq(heap.of(ctx, [1]).toSortedList(ctx), [1]);
@@ -144,7 +144,7 @@ test "toSortedList is the elements smallest first" {
 
 test "a heap of strings sorts by the string order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let h = heap.of(ctx, ["pear", "apple", "fig"]);
     assert.eq(assert.some(h.peek()), "apple");
@@ -157,7 +157,7 @@ test "a heap of strings sorts by the string order" {
 // left a heap rather than a spine.
 test "five hundred pushes drain in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let scattered = list.range(ctx, 0, 500).map(ctx, fn(i) => i * 251 % 500);
     let h = scattered.foldCtx(
@@ -171,7 +171,7 @@ test "five hundred pushes drain in order" {
 
 test "pushes and pops interleaved keep answering the smallest" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Push two, pop one, two hundred times over: the heap is reshaped by a pop
     // and then grown again, which is the sequence a work queue actually runs.
@@ -182,7 +182,7 @@ test "pushes and pops interleaved keep answering the smallest" {
 }
 
 /// Pushes `2n` and `2n + 1` in descending order and pops one, `rounds` times.
-fn churn<C: Alloc>(ctx: C, h: Heap<Int>, at: Int, rounds: Int, acc: [Int]): [Int] {
+fn churn<C: Allocator>(ctx: C, h: Heap<Int>, at: Int, rounds: Int, acc: [Int]): [Int] {
     if (at >= rounds) {
         acc
     } else {
@@ -199,7 +199,7 @@ fn churn<C: Alloc>(ctx: C, h: Heap<Int>, at: Int, rounds: Int, acc: [Int]): [Int
 
 test "of and a fold of pushes build the same heap" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = list.range(ctx, 0, 200).map(ctx, fn(i) => i * 89 % 200);
     let byOf = heap.of(ctx, xs);
@@ -214,7 +214,7 @@ test "of and a fold of pushes build the same heap" {
 
 test "a merged heap drains the same as one built from both lists" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let evens = list.range(ctx, 0, 150).map(ctx, fn(i) => i * 2);
     let odds = list.range(ctx, 0, 150).map(ctx, fn(i) => i * 2 + 1);
@@ -252,7 +252,7 @@ impl Ord for Highest {
 }
 
 impl Show for Highest {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "Highest(${self.0})")
     }
 }
@@ -267,7 +267,7 @@ struct Job {
 
 test "a heap takes the type's own Ord, so a flipped one drains largest first" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let h = heap.of(ctx, [Highest(3), Highest(9), Highest(1)]);
     assert.eq(assert.some(h.peek()), Highest(9));
@@ -283,7 +283,7 @@ test "a heap takes the type's own Ord, so a flipped one drains largest first" {
 
 test "a heap of a derived Ord orders by the fields in declaration order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let jobs = [
         Job { priority: 2, name: "b" },
@@ -305,7 +305,7 @@ test "a heap of a derived Ord orders by the fields in declaration order" {
 // difference from an `OrderedSet` and the reason a heap exists.
 test "a heap keeps elements a custom Ord calls equal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let h = heap.of(ctx, [Highest(5), Highest(5), Highest(5)]);
     assert.eq(h.length(), 3);
@@ -318,7 +318,7 @@ test "a heap keeps elements a custom Ord calls equal" {
 
 test "a heap of one, through every verb it has" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = heap.of(ctx, [7]);
     assert.eq(one.length(), 1);
@@ -337,7 +337,7 @@ test "a heap of one, through every verb it has" {
 
 test "merging two empty heaps is empty, and merging is not destructive" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let none = heap.empty<Int>();
     assert.isTrue(none.merge(ctx, none).isEmpty());
@@ -355,7 +355,7 @@ test "merging two empty heaps is empty, and merging is not destructive" {
 // end up with a long spine.
 test "a thousand elements arriving as merged heaps still drain in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let scattered = list.range(ctx, 0, 1000).map(ctx, fn(i) => i * 7919 % 1000);
     let merged = scattered

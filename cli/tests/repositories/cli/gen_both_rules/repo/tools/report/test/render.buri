@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//tools/report" import { render };
@@ -8,7 +8,7 @@ from "//tools/report" import { render };
 // the placement of the sources, not the wording of the report.
 test "render puts the heading first" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(render(ctx, 12).startsWith("report 12"));
 }

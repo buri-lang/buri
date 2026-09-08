@@ -100,7 +100,7 @@ pub enum Step {
 pub struct ListCall {
     pub kind: Step,
     /// The context, where the *step* takes one. `map` and `mapCtx` both have a
-    /// context argument — `Alloc`, for the block they build — and only the
+    /// context argument — `Allocator`, for the block they build — and only the
     /// second passes it on.
     pub ctx: Option<usize>,
     pub func: usize,

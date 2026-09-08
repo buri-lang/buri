@@ -29,13 +29,13 @@
 //!
 //! ```buri run
 //! from "core/buri/ast" import * as ast;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let id = ast.Type {
@@ -71,7 +71,7 @@
 //! ```
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/order" import * as order;
@@ -293,7 +293,7 @@ export struct DeriveDecl {
     export selfTy: Type,
 }
 
-/// `context Fixture { Alloc: alloc() }` — the declaration form, which is
+/// `context Fixture { Allocator: alloc() }` — the declaration form, which is
 /// constructed by calling it, so each use gets a fresh one. The bindings are
 /// the same ones a `context { ... }` expression carries.
 export struct ContextDecl {
@@ -332,9 +332,9 @@ export enum TypeKind {
     /// `Point`, or `Option<Str>` with its arguments.
     ///
     /// **The name carries the whole path, dots and all.** A generated module
-    /// names the types it imported, so a generator writes `Alloc`; but source
-    /// read back in may say `effects.Alloc`, and there is one `Name` here
-    /// rather than a list of segments — so `Name.text` is `"effects.Alloc"`,
+    /// names the types it imported, so a generator writes `Allocator`; but source
+    /// read back in may say `effects.Allocator`, and there is one `Name` here
+    /// rather than a list of segments — so `Name.text` is `"effects.Allocator"`,
     /// spanning the whole path. `Self` arrives the same way, as the text
     /// `"Self"`.
     Named(Name, [Type]),
@@ -387,7 +387,7 @@ export enum ExprKind {
     /// Condition, then-block, else-expression. Every `if` has an else.
     If([Expr], [Block], [Expr]),
     Match([Expr], [Arm]),
-    /// `context { ..base, Alloc: alloc() }` — the spread, then the bindings.
+    /// `context { ..base, Allocator: alloc() }` — the spread, then the bindings.
     Context([Expr], [Binding]),
     /// Parameters, the written return type, and the body.
     Lambda([LambdaParam], [Type], [Expr]),
@@ -570,13 +570,13 @@ export struct Printed {
 ///
 /// ```buri run
 /// from "core/buri/ast" import * as ast;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let tree = ast.Module {
@@ -586,7 +586,7 @@ export struct Printed {
 ///                     path: "core/effect",
 ///                     clause: .Named([
 ///                         ast.ImportSpec {
-///                             name: ast.Name { text: "Alloc", origin: ast.nowhere() },
+///                             name: ast.Name { text: "Allocator", origin: ast.nowhere() },
 ///                             alias: [],
 ///                         },
 ///                     ]),
@@ -602,9 +602,9 @@ export struct Printed {
 /// ```
 ///
 /// ```stdout
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// ```
-export fn print<C: Alloc>(ctx: C, m: Module): Printed {
+export fn print<C: Allocator>(ctx: C, m: Module): Printed {
     let empty = Out {
         pieces: [],
         at: 0,
@@ -649,17 +649,17 @@ struct Out {
     pending: Bool,
 }
 
-fn raw<C: Alloc>(ctx: C, out: Out, text: Str): Out {
+fn raw<C: Allocator>(ctx: C, out: Out, text: Str): Out {
     Out { ..out, pieces: out.pieces.push(ctx, text), at: out.at + byteLen(ctx, text) }
 }
 
 /// The UTF-8 length of `text`. An anchor is a byte range and `Str.len` counts
 /// scalar values.
-fn byteLen<C: Alloc>(ctx: C, text: Str): Int {
+fn byteLen<C: Allocator>(ctx: C, text: Str): Int {
     bytes.toUtf8(ctx, text).len()
 }
 
-fn emit<C: Alloc>(ctx: C, out: Out, text: Str): Out {
+fn emit<C: Allocator>(ctx: C, out: Out, text: Str): Out {
     if (out.pending) {
         let indented = raw(
             ctx,
@@ -673,24 +673,24 @@ fn emit<C: Alloc>(ctx: C, out: Out, text: Str): Out {
 }
 
 /// A line break. The indentation waits until something is written on the line.
-fn nl<C: Alloc>(ctx: C, out: Out): Out {
+fn nl<C: Allocator>(ctx: C, out: Out): Out {
     Out { ..raw(ctx, out, "\n"), pending: true }
 }
 
 /// A line break with an empty line above it.
-fn blankLine<C: Alloc>(ctx: C, out: Out): Out {
+fn blankLine<C: Allocator>(ctx: C, out: Out): Out {
     nl(ctx, nl(ctx, out))
 }
 
 /// The offset the next piece will start at, with any waiting indentation
 /// written first — so an anchor on a node that opens a line starts at the
 /// node and not at the margin.
-fn ready<C: Alloc>(ctx: C, out: Out): Out {
+fn ready<C: Allocator>(ctx: C, out: Out): Out {
     emit(ctx, out, "")
 }
 
 /// One anchor, for a node that knows where it came from.
-fn anchor<C: Alloc>(ctx: C, out: Out, start: Int, source: Origin): Out {
+fn anchor<C: Allocator>(ctx: C, out: Out, start: Int, source: Origin): Out {
     if (source.file == "") {
         out
     } else {
@@ -708,23 +708,23 @@ fn indented(out: Out, by: Int): Out {
 }
 
 /// The separator a list writes before every item but the first.
-fn comma<C: Alloc>(ctx: C, acc: (Out, Bool), separator: Str): Out {
+fn comma<C: Allocator>(ctx: C, acc: (Out, Bool), separator: Str): Out {
     if (acc.1) { emit(ctx, acc.0, separator) } else { acc.0 }
 }
 
 /// The line break a block writes before every line but the first.
-fn nextLine<C: Alloc>(ctx: C, acc: (Out, Bool)): Out {
+fn nextLine<C: Allocator>(ctx: C, acc: (Out, Bool)): Out {
     if (acc.1) { nl(ctx, acc.0) } else { acc.0 }
 }
 
 /// The blank line a declaration writes before every one but the first.
-fn nextBlank<C: Alloc>(ctx: C, acc: (Out, Bool)): Out {
+fn nextBlank<C: Allocator>(ctx: C, acc: (Out, Bool)): Out {
     if (acc.1) { blankLine(ctx, acc.0) } else { acc.0 }
 }
 
 // --- the module ----------------------------------------------------------------
 
-fn printModule<C: Alloc>(ctx: C, out: Out, m: Module): Out {
+fn printModule<C: Allocator>(ctx: C, out: Out, m: Module): Out {
     // Every line written here ends with its own break, so an empty module is
     // an empty text rather than a lone newline.
     let head = docs(ctx, out, m.docs, "//!");
@@ -764,7 +764,7 @@ fn isImport(it: Item): Bool {
 
 /// The run in the order the formatter puts it in: the standard library first,
 /// then by path, then by clause.
-fn sortImports<C: Alloc>(ctx: C, items: [Item]): [Item] {
+fn sortImports<C: Allocator>(ctx: C, items: [Item]): [Item] {
     items
         .mapCtx(ctx, fn(c, it) => (importKey(c, it), it))
         .sortBy(ctx, fn(a, b) => keyOrder(a.0, b.0))
@@ -783,7 +783,7 @@ fn keyOrder(a: (Int, Str, Str), b: (Int, Str, Str)): Order {
     }
 }
 
-fn importKey<C: Alloc>(ctx: C, it: Item): (Int, Str, Str) {
+fn importKey<C: Allocator>(ctx: C, it: Item): (Int, Str, Str) {
     match (it.kind) {
         .Import(i) => {
             let group = if (i.path.startsWith("//")) { 1 } else { 0 };
@@ -793,7 +793,7 @@ fn importKey<C: Alloc>(ctx: C, it: Item): (Int, Str, Str) {
     }
 }
 
-fn clauseText<C: Alloc>(ctx: C, clause: ImportClause): Str {
+fn clauseText<C: Allocator>(ctx: C, clause: ImportClause): Str {
     match (clause) {
         .Namespace(n) => str.format(ctx, "* as ${n.text}"),
         .Named(specs) => {
@@ -805,7 +805,7 @@ fn clauseText<C: Alloc>(ctx: C, clause: ImportClause): Str {
 
 /// The names of a clause, sorted the way the formatter sorts them: by the
 /// lowercased spelling, with the exact one breaking the tie.
-fn specList<C: Alloc>(ctx: C, specs: [ImportSpec]): [Str] {
+fn specList<C: Allocator>(ctx: C, specs: [ImportSpec]): [Str] {
     specs
         .mapCtx(ctx, fn(c, s) => specText(c, s))
         .mapCtx(ctx, fn(c, t) => (t.toLower(c), t))
@@ -818,7 +818,7 @@ fn specList<C: Alloc>(ctx: C, specs: [ImportSpec]): [Str] {
         .map(ctx, fn(pair) => pair.1)
 }
 
-fn specText<C: Alloc>(ctx: C, spec: ImportSpec): Str {
+fn specText<C: Allocator>(ctx: C, spec: ImportSpec): Str {
     spec
         .alias
         .foldCtx(
@@ -830,7 +830,7 @@ fn specText<C: Alloc>(ctx: C, spec: ImportSpec): Str {
 
 /// The declarations, one blank line apart, with every `derive` sitting on the
 /// declaration it is about — which is where the formatter moves it.
-fn printDecls<C: Alloc>(ctx: C, out: Out, items: [Item]): Out {
+fn printDecls<C: Allocator>(ctx: C, out: Out, items: [Item]): Out {
     let attached = items.map(ctx, fn(it) => attachment(items, it));
     let indexed = list.range(ctx, 0, items.len());
     indexed.foldCtx(
@@ -919,14 +919,14 @@ fn declaredName(it: Item): Option<Str> {
 
 // --- declarations --------------------------------------------------------------
 
-fn item<C: Alloc>(ctx: C, out: Out, it: Item): Out {
+fn item<C: Allocator>(ctx: C, out: Out, it: Item): Out {
     let lead = itemDocs(ctx, out, it);
     let started = ready(ctx, lead);
     let written = itemKind(ctx, started, it.kind);
     anchor(ctx, written, started.at, it.origin)
 }
 
-fn itemDocs<C: Alloc>(ctx: C, out: Out, it: Item): Out {
+fn itemDocs<C: Allocator>(ctx: C, out: Out, it: Item): Out {
     match (it.kind) {
         .Fn(d) => docs(ctx, out, d.docs, "///"),
         .Struct(d) => docs(ctx, out, d.docs, "///"),
@@ -941,7 +941,7 @@ fn itemDocs<C: Alloc>(ctx: C, out: Out, it: Item): Out {
     }
 }
 
-fn docs<C: Alloc>(ctx: C, out: Out, lines: [Str], marker: Str): Out {
+fn docs<C: Allocator>(ctx: C, out: Out, lines: [Str], marker: Str): Out {
     lines.foldCtx(
         ctx,
         fn(c, o, line) => {
@@ -956,7 +956,7 @@ fn docs<C: Alloc>(ctx: C, out: Out, lines: [Str], marker: Str): Out {
     )
 }
 
-fn itemKind<C: Alloc>(ctx: C, out: Out, kind: ItemKind): Out {
+fn itemKind<C: Allocator>(ctx: C, out: Out, kind: ItemKind): Out {
     match (kind) {
         .Import(i) => importDecl(ctx, out, i),
         .ReExport(r) => {
@@ -982,13 +982,13 @@ fn itemKind<C: Alloc>(ctx: C, out: Out, kind: ItemKind): Out {
 
 /// `context Fixture { ... }`, whose braces are the ones a `context` expression
 /// writes — the same production, with a name in front of it.
-fn contextDecl<C: Alloc>(ctx: C, out: Out, d: ContextDecl): Out {
+fn contextDecl<C: Allocator>(ctx: C, out: Out, d: ContextDecl): Out {
     let lead = if (d.exported) { "export context " } else { "context " };
     let named = name(ctx, emit(ctx, out, lead), d.name);
     contextBraces(ctx, emit(ctx, named, " {"), d.spread, d.bindings)
 }
 
-fn testDecl<C: Alloc>(ctx: C, out: Out, d: TestDecl): Out {
+fn testDecl<C: Allocator>(ctx: C, out: Out, d: TestDecl): Out {
     braceBlock(
         ctx,
         emit(ctx, out, str.format(ctx, "test ${quote(ctx, d.name)}")),
@@ -996,7 +996,7 @@ fn testDecl<C: Alloc>(ctx: C, out: Out, d: TestDecl): Out {
     )
 }
 
-fn importDecl<C: Alloc>(ctx: C, out: Out, i: Import): Out {
+fn importDecl<C: Allocator>(ctx: C, out: Out, i: Import): Out {
     let head = str.format(ctx, "from ${quote(ctx, i.path)} import");
     match (i.clause) {
         .Namespace(n) => {
@@ -1007,7 +1007,7 @@ fn importDecl<C: Alloc>(ctx: C, out: Out, i: Import): Out {
     }
 }
 
-fn nameList<C: Alloc>(ctx: C, out: Out, head: Str, specs: [ImportSpec]): Out {
+fn nameList<C: Allocator>(ctx: C, out: Out, head: Str, specs: [ImportSpec]): Out {
     let names = specList(ctx, specs);
     if (names.isEmpty()) {
         emit(ctx, out, str.format(ctx, "${head} {  };"))
@@ -1016,7 +1016,7 @@ fn nameList<C: Alloc>(ctx: C, out: Out, head: Str, specs: [ImportSpec]): Out {
     }
 }
 
-fn fnDecl<C: Alloc>(ctx: C, out: Out, d: FnDecl): Out {
+fn fnDecl<C: Allocator>(ctx: C, out: Out, d: FnDecl): Out {
     let lead = if (d.exported) { "export fn " } else { "fn " };
     let opened = emit(ctx, out, lead);
     let named = name(ctx, opened, d.name);
@@ -1039,12 +1039,12 @@ fn fnDecl<C: Alloc>(ctx: C, out: Out, d: FnDecl): Out {
     }
 }
 
-fn param<C: Alloc>(ctx: C, out: Out, p: Param): Out {
+fn param<C: Allocator>(ctx: C, out: Out, p: Param): Out {
     let named = name(ctx, out, p.name);
     p.ty.foldCtx(ctx, fn(c, o, t) => ty(c, emit(c, o, ": "), t), named)
 }
 
-fn generics<C: Alloc>(ctx: C, out: Out, gs: [GenericParam]): Out {
+fn generics<C: Allocator>(ctx: C, out: Out, gs: [GenericParam]): Out {
     if (gs.isEmpty()) {
         out
     } else {
@@ -1072,7 +1072,7 @@ fn generics<C: Alloc>(ctx: C, out: Out, gs: [GenericParam]): Out {
 
 /// ` { ... }` under a signature or a head, on lines of its own — or ` {}` for
 /// a body with nothing in it.
-fn braceBlock<C: Alloc>(ctx: C, out: Out, b: Block): Out {
+fn braceBlock<C: Allocator>(ctx: C, out: Out, b: Block): Out {
     if (b.stmts.isEmpty() && b.tail.isEmpty()) {
         emit(ctx, out, " {}")
     } else {
@@ -1082,7 +1082,7 @@ fn braceBlock<C: Alloc>(ctx: C, out: Out, b: Block): Out {
     }
 }
 
-fn structDecl<C: Alloc>(ctx: C, out: Out, d: StructDecl): Out {
+fn structDecl<C: Allocator>(ctx: C, out: Out, d: StructDecl): Out {
     let lead = if (d.exported) { "export struct " } else { "struct " };
     let head = generics(ctx, name(ctx, emit(ctx, out, lead), d.name), d.generics);
     match (d.body) {
@@ -1117,7 +1117,7 @@ fn structDecl<C: Alloc>(ctx: C, out: Out, d: StructDecl): Out {
     }
 }
 
-fn fieldDecl<C: Alloc>(ctx: C, out: Out, f: FieldDecl): Out {
+fn fieldDecl<C: Allocator>(ctx: C, out: Out, f: FieldDecl): Out {
     let documented = docs(ctx, out, f.docs, "///");
     let started = ready(ctx, documented);
     let vis = if (f.exported) { emit(ctx, started, "export ") } else { started };
@@ -1125,7 +1125,7 @@ fn fieldDecl<C: Alloc>(ctx: C, out: Out, f: FieldDecl): Out {
     anchor(ctx, written, started.at, f.origin)
 }
 
-fn enumDecl<C: Alloc>(ctx: C, out: Out, d: EnumDecl): Out {
+fn enumDecl<C: Allocator>(ctx: C, out: Out, d: EnumDecl): Out {
     let lead = if (d.exported) { "export enum " } else { "enum " };
     let head = generics(ctx, name(ctx, emit(ctx, out, lead), d.name), d.generics);
     if (d.variants.isEmpty()) {
@@ -1145,7 +1145,7 @@ fn enumDecl<C: Alloc>(ctx: C, out: Out, d: EnumDecl): Out {
     }
 }
 
-fn variant<C: Alloc>(ctx: C, out: Out, v: Variant): Out {
+fn variant<C: Allocator>(ctx: C, out: Out, v: Variant): Out {
     let documented = docs(ctx, out, v.docs, "///");
     let started = ready(ctx, documented);
     let named = name(ctx, started, v.name);
@@ -1171,19 +1171,19 @@ fn variant<C: Alloc>(ctx: C, out: Out, v: Variant): Out {
     anchor(ctx, written, started.at, v.origin)
 }
 
-fn typeAlias<C: Alloc>(ctx: C, out: Out, d: TypeAliasDecl): Out {
+fn typeAlias<C: Allocator>(ctx: C, out: Out, d: TypeAliasDecl): Out {
     let lead = if (d.exported) { "export type " } else { "type " };
     let head = generics(ctx, name(ctx, emit(ctx, out, lead), d.name), d.generics);
     emit(ctx, ty(ctx, emit(ctx, head, " = "), d.ty), ";")
 }
 
-fn letDecl<C: Alloc>(ctx: C, out: Out, d: LetDecl): Out {
+fn letDecl<C: Allocator>(ctx: C, out: Out, d: LetDecl): Out {
     let lead = if (d.exported) { "export let " } else { "let " };
     let head = ty(ctx, emit(ctx, name(ctx, emit(ctx, out, lead), d.name), ": "), d.ty);
     emit(ctx, expr(ctx, emit(ctx, head, " = "), d.value), ";")
 }
 
-fn traitDecl<C: Alloc>(ctx: C, out: Out, d: TraitDecl): Out {
+fn traitDecl<C: Allocator>(ctx: C, out: Out, d: TraitDecl): Out {
     let keyword = if (d.isEffect) { "effect " } else { "trait " };
     let lead = if (d.exported) {
         str.format(ctx, "export ${keyword}")
@@ -1214,7 +1214,7 @@ fn signatureOnly(m: FnDecl): FnDecl {
     FnDecl { ..m, body: [], exported: false, docs: [] }
 }
 
-fn implDecl<C: Alloc>(ctx: C, out: Out, d: ImplDecl): Out {
+fn implDecl<C: Allocator>(ctx: C, out: Out, d: ImplDecl): Out {
     let head = generics(ctx, emit(ctx, out, "impl"), d.generics);
     let named = d
         .traitTy
@@ -1242,7 +1242,7 @@ fn implDecl<C: Alloc>(ctx: C, out: Out, d: ImplDecl): Out {
     }
 }
 
-fn deriveDecl<C: Alloc>(ctx: C, out: Out, d: DeriveDecl): Out {
+fn deriveDecl<C: Allocator>(ctx: C, out: Out, d: DeriveDecl): Out {
     let listed = d
         .traits
         .foldCtx(
@@ -1255,12 +1255,12 @@ fn deriveDecl<C: Alloc>(ctx: C, out: Out, d: DeriveDecl): Out {
 
 // --- names and types -----------------------------------------------------------
 
-fn name<C: Alloc>(ctx: C, out: Out, n: Name): Out {
+fn name<C: Allocator>(ctx: C, out: Out, n: Name): Out {
     let started = ready(ctx, out);
     anchor(ctx, emit(ctx, started, n.text), started.at, n.origin)
 }
 
-fn ty<C: Alloc>(ctx: C, out: Out, t: Type): Out {
+fn ty<C: Allocator>(ctx: C, out: Out, t: Type): Out {
     let started = ready(ctx, out);
     let written = match (t.kind) {
         .Named(n, args) => {
@@ -1286,7 +1286,7 @@ fn ty<C: Alloc>(ctx: C, out: Out, t: Type): Out {
     anchor(ctx, written, started.at, t.origin)
 }
 
-fn typeList<C: Alloc>(ctx: C, out: Out, types: [Type]): Out {
+fn typeList<C: Allocator>(ctx: C, out: Out, types: [Type]): Out {
     types.foldCtx(
         ctx,
         fn(c, acc, t) => (ty(c, comma(c, acc, ", "), t), true),
@@ -1296,7 +1296,7 @@ fn typeList<C: Alloc>(ctx: C, out: Out, types: [Type]): Out {
 
 // --- statements ----------------------------------------------------------------
 
-fn blockLines<C: Alloc>(ctx: C, out: Out, b: Block): Out {
+fn blockLines<C: Allocator>(ctx: C, out: Out, b: Block): Out {
     let afterStmts = b
         .stmts
         .foldCtx(
@@ -1313,7 +1313,7 @@ fn blockLines<C: Alloc>(ctx: C, out: Out, b: Block): Out {
         ).0
 }
 
-fn stmt<C: Alloc>(ctx: C, out: Out, s: Stmt): Out {
+fn stmt<C: Allocator>(ctx: C, out: Out, s: Stmt): Out {
     let started = ready(ctx, out);
     let written = match (s.kind) {
         .Let(p, annotation, value) => {
@@ -1335,7 +1335,7 @@ fn stmt<C: Alloc>(ctx: C, out: Out, s: Stmt): Out {
 
 // --- patterns ------------------------------------------------------------------
 
-fn pattern<C: Alloc>(ctx: C, out: Out, p: Pattern): Out {
+fn pattern<C: Allocator>(ctx: C, out: Out, p: Pattern): Out {
     let started = ready(ctx, out);
     let written = match (p.kind) {
         .Wild => emit(ctx, started, "_"),
@@ -1387,7 +1387,7 @@ fn pattern<C: Alloc>(ctx: C, out: Out, p: Pattern): Out {
     anchor(ctx, written, started.at, p.origin)
 }
 
-fn patternList<C: Alloc>(ctx: C, out: Out, ps: [Pattern]): Out {
+fn patternList<C: Allocator>(ctx: C, out: Out, ps: [Pattern]): Out {
     ps.foldCtx(
         ctx,
         fn(c, acc, p) => (pattern(c, comma(c, acc, ", "), p), true),
@@ -1395,7 +1395,7 @@ fn patternList<C: Alloc>(ctx: C, out: Out, ps: [Pattern]): Out {
     ).0
 }
 
-fn patternPayload<C: Alloc>(ctx: C, out: Out, pay: Payload): Out {
+fn patternPayload<C: Allocator>(ctx: C, out: Out, pay: Payload): Out {
     match (pay) {
         .Tuple(ps) => emit(ctx, patternList(ctx, emit(ctx, out, "("), ps), ")"),
         .Record(fields, rest) => {
@@ -1426,13 +1426,13 @@ fn patternPayload<C: Alloc>(ctx: C, out: Out, pay: Payload): Out {
 
 // --- expressions ---------------------------------------------------------------
 
-fn expr<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
+fn expr<C: Allocator>(ctx: C, out: Out, e: Expr): Out {
     let started = ready(ctx, out);
     let written = exprKind(ctx, started, e);
     anchor(ctx, written, started.at, e.origin)
 }
 
-fn exprKind<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
+fn exprKind<C: Allocator>(ctx: C, out: Out, e: Expr): Out {
     match (e.kind) {
         .Int(n) => emit(ctx, out, str.fromInt(ctx, n)),
         .WideInt(digits) => emit(ctx, out, digits),
@@ -1488,11 +1488,11 @@ fn exprKind<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
 }
 
 /// The head of a postfix chain, parenthesised where the grammar needs it.
-fn headOf<C: Alloc>(ctx: C, out: Out, base: [Expr]): Out {
+fn headOf<C: Allocator>(ctx: C, out: Out, base: [Expr]): Out {
     base.foldCtx(ctx, fn(c, o, b) => operand(c, o, b), out)
 }
 
-fn operand<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
+fn operand<C: Allocator>(ctx: C, out: Out, e: Expr): Out {
     if (needsParens(e)) {
         emit(ctx, expr(ctx, emit(ctx, out, "("), e), ")")
     } else {
@@ -1501,7 +1501,7 @@ fn operand<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
 }
 
 /// Parentheses only where precedence needs them.
-fn atPrec<C: Alloc>(ctx: C, out: Out, xs: [Expr], parent: Int): Out {
+fn atPrec<C: Allocator>(ctx: C, out: Out, xs: [Expr], parent: Int): Out {
     xs.foldCtx(
         ctx,
         fn(c, o, e) => {
@@ -1515,7 +1515,7 @@ fn atPrec<C: Alloc>(ctx: C, out: Out, xs: [Expr], parent: Int): Out {
     )
 }
 
-fn exprList<C: Alloc>(ctx: C, out: Out, xs: [Expr]): Out {
+fn exprList<C: Allocator>(ctx: C, out: Out, xs: [Expr]): Out {
     xs.foldCtx(
         ctx,
         fn(c, acc, e) => (expr(c, comma(c, acc, ", "), e), true),
@@ -1524,7 +1524,7 @@ fn exprList<C: Alloc>(ctx: C, out: Out, xs: [Expr]): Out {
 }
 
 /// `[a, b]`, or one element to a line when something inside it must break.
-fn bracketed<C: Alloc>(ctx: C, out: Out, open: Str, xs: [Expr], close: Str): Out {
+fn bracketed<C: Allocator>(ctx: C, out: Out, open: Str, xs: [Expr], close: Str): Out {
     if (xs.isEmpty()) {
         emit(ctx, out, str.format(ctx, "${open}${close}"))
     } else if (!xs.any(fn(e) => forces(e))) {
@@ -1542,7 +1542,7 @@ fn bracketed<C: Alloc>(ctx: C, out: Out, open: Str, xs: [Expr], close: Str): Out
 
 /// An argument list. The last argument **hugs** when it has a shape of its own
 /// to spill into and every argument before it stays on the head line.
-fn callExpr<C: Alloc>(ctx: C, out: Out, args: [Expr]): Out {
+fn callExpr<C: Allocator>(ctx: C, out: Out, args: [Expr]): Out {
     let last = args.len() - 1;
     let earlier = args.take(ctx, number.max(last, 0));
     if (args.isEmpty() || !args.any(fn(e) => forces(e))) {
@@ -1563,7 +1563,7 @@ fn callExpr<C: Alloc>(ctx: C, out: Out, args: [Expr]): Out {
     }
 }
 
-fn template<C: Alloc>(ctx: C, out: Out, parts: [Part]): Out {
+fn template<C: Allocator>(ctx: C, out: Out, parts: [Part]): Out {
     let inner = parts.foldCtx(
         ctx,
         fn(c, o, part) => {
@@ -1580,7 +1580,7 @@ fn template<C: Alloc>(ctx: C, out: Out, parts: [Part]): Out {
 }
 
 /// `{ x }`, or a block on lines of its own.
-fn blockExpr<C: Alloc>(ctx: C, out: Out, b: Block): Out {
+fn blockExpr<C: Allocator>(ctx: C, out: Out, b: Block): Out {
     if (b.stmts.isEmpty() && b.tail.isEmpty()) {
         emit(ctx, nl(ctx, emit(ctx, out, "{")), "}")
     } else if (blockForces(b)) {
@@ -1593,7 +1593,7 @@ fn blockExpr<C: Alloc>(ctx: C, out: Out, b: Block): Out {
 }
 
 /// The braces of an `if` branch, which are the chain's rather than the block's.
-fn branch<C: Alloc>(ctx: C, out: Out, blocks: [Block], broken: Bool): Out {
+fn branch<C: Allocator>(ctx: C, out: Out, blocks: [Block], broken: Bool): Out {
     blocks.foldCtx(
         ctx,
         fn(c, o, b) => {
@@ -1617,7 +1617,7 @@ fn branch<C: Alloc>(ctx: C, out: Out, blocks: [Block], broken: Bool): Out {
 /// spend stack on its length.** A generated decoder can be one link per field of
 /// a message, and recursing into the `else` would cost two frames a link. The
 /// links are walked instead, so what a chain costs is its text.
-fn ifChain<C: Alloc>(
+fn ifChain<C: Allocator>(
     ctx: C,
     out: Out,
     cond: [Expr],
@@ -1639,7 +1639,7 @@ fn ifChain<C: Alloc>(
 /// The pending links live on `Out`, because a chain inside a chain's branch has
 /// links of its own: this empties the seat before the walk and puts the outer
 /// chain's back afterwards.
-fn elseChain<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
+fn elseChain<C: Allocator>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
     let outer = out.owed;
     let walked = elseLinks(ctx, Out { ..out, owed: [] }, otherwise, broken);
     let links = walked.owed;
@@ -1649,7 +1649,7 @@ fn elseChain<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
 
 /// One link written, then the next — a self tail call, which is a loop by the
 /// time it runs (SPEC 8.3).
-fn elseLinks<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
+fn elseLinks<C: Allocator>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
     match (otherwise.first()) {
         .None => out,
         .Some(e) => {
@@ -1691,7 +1691,7 @@ fn elseLinks<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
 ///
 /// The same test [`anchor`] makes, made before the offset is kept rather than
 /// after: a node nobody can point at is owed nothing.
-fn owe<C: Alloc>(ctx: C, out: Out, start: Int, source: Origin): Out {
+fn owe<C: Allocator>(ctx: C, out: Out, start: Int, source: Origin): Out {
     if (source.file == "") {
         out
     } else {
@@ -1699,7 +1699,7 @@ fn owe<C: Alloc>(ctx: C, out: Out, start: Int, source: Origin): Out {
     }
 }
 
-fn branchBlock<C: Alloc>(ctx: C, out: Out, b: Block, broken: Bool): Out {
+fn branchBlock<C: Allocator>(ctx: C, out: Out, b: Block, broken: Bool): Out {
     if (broken) {
         let opened = nl(ctx, emit(ctx, out, "{"));
         let inner = blockLines(ctx, indented(opened, 1), b);
@@ -1709,7 +1709,7 @@ fn branchBlock<C: Alloc>(ctx: C, out: Out, b: Block, broken: Bool): Out {
     }
 }
 
-fn matchExpr<C: Alloc>(ctx: C, out: Out, scrutinee: [Expr], arms: [Arm]): Out {
+fn matchExpr<C: Allocator>(ctx: C, out: Out, scrutinee: [Expr], arms: [Arm]): Out {
     let head = emit(ctx, exprList(ctx, emit(ctx, out, "match ("), scrutinee), ") {");
     if (arms.isEmpty()) {
         emit(ctx, nl(ctx, head), "}")
@@ -1724,7 +1724,7 @@ fn matchExpr<C: Alloc>(ctx: C, out: Out, scrutinee: [Expr], arms: [Arm]): Out {
     }
 }
 
-fn arm<C: Alloc>(ctx: C, out: Out, a: Arm): Out {
+fn arm<C: Allocator>(ctx: C, out: Out, a: Arm): Out {
     let matched = pattern(ctx, out, a.pattern);
     let guarded = a
         .guard
@@ -1745,13 +1745,13 @@ fn arm<C: Alloc>(ctx: C, out: Out, a: Arm): Out {
     emit(ctx, body, ",")
 }
 
-fn contextExpr<C: Alloc>(ctx: C, out: Out, spread: [Expr], bindings: [Binding]): Out {
+fn contextExpr<C: Allocator>(ctx: C, out: Out, spread: [Expr], bindings: [Binding]): Out {
     contextBraces(ctx, emit(ctx, out, "context {"), spread, bindings)
 }
 
 /// The braces of a `context`, whichever of its two forms wrote the head. The
 /// head is already emitted, so the indent to come back to is the one it kept.
-fn contextBraces<C: Alloc>(
+fn contextBraces<C: Allocator>(
     ctx: C,
     head: Out,
     spread: [Expr],
@@ -1780,7 +1780,7 @@ fn contextBraces<C: Alloc>(
     }
 }
 
-fn lambda<C: Alloc>(
+fn lambda<C: Allocator>(
     ctx: C,
     out: Out,
     params: [LambdaParam],
@@ -1824,7 +1824,7 @@ fn lambda<C: Alloc>(
     )
 }
 
-fn structLit<C: Alloc>(
+fn structLit<C: Allocator>(
     ctx: C,
     out: Out,
     head: [Expr],
@@ -1864,7 +1864,7 @@ fn structLit<C: Alloc>(
     }
 }
 
-fn init<C: Alloc>(ctx: C, out: Out, f: Init): Out {
+fn init<C: Allocator>(ctx: C, out: Out, f: Init): Out {
     let named = name(ctx, out, f.name);
     f.value.foldCtx(ctx, fn(c, o, e) => expr(c, emit(c, o, ": "), e), named)
 }
@@ -2080,7 +2080,7 @@ fn unOpText(op: UnOp): Str {
 
 /// A float literal always carries a point or an exponent, so that what comes
 /// back reads as a float rather than as an integer.
-fn floatText<C: Alloc>(ctx: C, x: Float): Str {
+fn floatText<C: Allocator>(ctx: C, x: Float): Str {
     let text = str.fromFloat(ctx, x);
     if (text.contains(".") || text.contains("e") || text.contains("E")) {
         text
@@ -2094,7 +2094,7 @@ fn floatText<C: Alloc>(ctx: C, x: Float): Str {
 /// `${` is escaped on top of what `escapeChar` names: the pair reads back as
 /// the start of a hole, which would make this a template rather than the
 /// string it came from.
-fn quote<C: Alloc>(ctx: C, text: Str): Str {
+fn quote<C: Allocator>(ctx: C, text: Str): Str {
     let inner = text
         .chars(ctx)
         .mapCtx(ctx, fn(c, ch) => escapeChar(c, ch))
@@ -2108,7 +2108,7 @@ fn quote<C: Alloc>(ctx: C, text: Str): Str {
 /// A literal writes every control character as an escape and every other
 /// scalar as itself. `\n`, `\r`, `\t` and `\0` have names of their own; the
 /// rest of the C0 range and `DEL` go as `\u{...}`.
-fn escapeChar<C: Alloc>(ctx: C, ch: Char): Str {
+fn escapeChar<C: Allocator>(ctx: C, ch: Char): Str {
     if (ch == '"') {
         "\\\""
     } else if (ch == '\\') {
@@ -2136,7 +2136,7 @@ fn isControl(ch: Char): Bool {
 }
 
 /// The text of a template, where `$` is an escape as well.
-fn escapeTemplate<C: Alloc>(ctx: C, text: Str): Str {
+fn escapeTemplate<C: Allocator>(ctx: C, text: Str): Str {
     text
         .chars(ctx)
         .mapCtx(ctx, fn(c, ch) => {
@@ -2145,7 +2145,7 @@ fn escapeTemplate<C: Alloc>(ctx: C, text: Str): Str {
         .join(ctx, "")
 }
 
-fn quoteChar<C: Alloc>(ctx: C, ch: Char): Str {
+fn quoteChar<C: Allocator>(ctx: C, ch: Char): Str {
     if (ch == '\'') {
         "'\\''"
     } else if (ch == '\\') {
@@ -2227,14 +2227,14 @@ let HOLE: Int = 1;
 ///
 /// ```buri run
 /// from "core/buri/ast" import * as ast;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/list" import * as list;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let tokens = ast.tokenize(ctx, "let x = 1;");
@@ -2256,7 +2256,7 @@ let HOLE: Int = 1;
 ///
 /// Whitespace is dropped and every comment is kept, so the tokens' spans cover
 /// the source apart from the gaps between them.
-export fn tokenize<C: Alloc>(ctx: C, source: Str): [Token] {
+export fn tokenize<C: Allocator>(ctx: C, source: Str): [Token] {
     let start = Lex {
         source: source,
         chars: source.chars(ctx),
@@ -2268,11 +2268,11 @@ export fn tokenize<C: Alloc>(ctx: C, source: Str): [Token] {
     lexRun(ctx, start).tokens
 }
 
-fn lexRun<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn lexRun<C: Allocator>(ctx: C, lx: Lex): Lex {
     if (lx.index >= lx.chars.len()) { lx } else { lexRun(ctx, lexStep(ctx, lx)) }
 }
 
-fn lexStep<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn lexStep<C: Allocator>(ctx: C, lx: Lex): Lex {
     let c = charOf(lx.chars, lx.index);
     if (isWhitespace(c)) {
         scanWhitespace(lx)
@@ -2327,7 +2327,7 @@ fn atEnd(lx: Lex): Bool {
     lx.index >= lx.chars.len()
 }
 
-fn pushToken<C: Alloc>(ctx: C, lx: Lex, kind: TokenKind, opened: Lex): Lex {
+fn pushToken<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind, opened: Lex): Lex {
     Lex {
         ..lx,
         tokens: lx
@@ -2341,7 +2341,7 @@ fn pushToken<C: Alloc>(ctx: C, lx: Lex, kind: TokenKind, opened: Lex): Lex {
 }
 
 /// One character, as its own token.
-fn oneChar<C: Alloc>(ctx: C, lx: Lex, kind: TokenKind): Lex {
+fn oneChar<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind): Lex {
     pushToken(ctx, nextChar(lx), kind, lx)
 }
 
@@ -2381,7 +2381,7 @@ fn scanWhitespace(lx: Lex): Lex {
     }
 }
 
-fn scanSlash<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanSlash<C: Allocator>(ctx: C, lx: Lex): Lex {
     let next = charOf(lx.chars, lx.index + 1);
     if (next == '/') {
         scanLineComment(ctx, lx)
@@ -2394,7 +2394,7 @@ fn scanSlash<C: Alloc>(ctx: C, lx: Lex): Lex {
 
 /// `//!` documents the module, `///` the declaration below it, and `////` is an
 /// ordinary comment — the longer run of slashes wins.
-fn scanLineComment<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanLineComment<C: Allocator>(ctx: C, lx: Lex): Lex {
     let third = charOf(lx.chars, lx.index + 2);
     let fourth = charOf(lx.chars, lx.index + 3);
     let kind = if (third == '!') {
@@ -2415,7 +2415,7 @@ fn scanToEndOfLine(lx: Lex): Lex {
     }
 }
 
-fn scanBlockComment<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanBlockComment<C: Allocator>(ctx: C, lx: Lex): Lex {
     pushToken(ctx, scanNesting(skipChars(lx, 2), 1), TokenKind.BlockComment, lx)
 }
 
@@ -2439,7 +2439,7 @@ fn scanNesting(lx: Lex, depth: Int): Lex {
 
 // --- words ---------------------------------------------------------------------
 
-fn scanWord<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanWord<C: Allocator>(ctx: C, lx: Lex): Lex {
     let end = scanWordEnd(nextChar(lx));
     let spelling = lx.source.slice(lx.index, end.index);
     let kind = if (spelling == "_") {
@@ -2519,7 +2519,7 @@ fn isReserved(spelling: Str): Bool {
 
 // --- numbers -------------------------------------------------------------------
 
-fn scanNumber<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanNumber<C: Allocator>(ctx: C, lx: Lex): Lex {
     let next = charOf(lx.chars, lx.index + 1);
     if (
         charOf(lx.chars, lx.index) == '0' && (next == 'x' || next == 'o' || next == 'b')
@@ -2550,7 +2550,7 @@ fn scanDecimalDigits(lx: Lex): Lex {
 
 /// A float must begin with a digit and carry a digit after the point, which is
 /// what makes `pair.0` a tuple index rather than a float.
-fn scanDecimal<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanDecimal<C: Allocator>(ctx: C, lx: Lex): Lex {
     let whole = scanDecimalDigits(lx);
     let afterPoint = if (
         charOf(whole.chars, whole.index) == '.'
@@ -2584,7 +2584,7 @@ fn scanDecimal<C: Alloc>(ctx: C, lx: Lex): Lex {
 /// A `"` opens a string, or a template when a `${` is reached before the closing
 /// quote. The mode stack is what tells the `}` that closes a block inside a hole
 /// from the `}` that resumes template text.
-fn scanText<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanText<C: Allocator>(ctx: C, lx: Lex): Lex {
     let (end, hole) = scanStrBody(nextChar(lx));
     if (hole) {
         pushToken(
@@ -2599,7 +2599,7 @@ fn scanText<C: Alloc>(ctx: C, lx: Lex): Lex {
 }
 
 /// The `}` that resumes a template, or an ordinary closing brace.
-fn scanCloser<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanCloser<C: Allocator>(ctx: C, lx: Lex): Lex {
     match (lx.modes.last()) {
         .Some(mode) => {
             let outer = Lex { ..lx, modes: lx.modes.take(ctx, lx.modes.len() - 1) };
@@ -2647,7 +2647,7 @@ fn scanStrBody(lx: Lex): (Lex, Bool) {
     }
 }
 
-fn scanChar<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanChar<C: Allocator>(ctx: C, lx: Lex): Lex {
     let body = if (charOf(lx.chars, lx.index + 1) == '\\') {
         scanEscape(skipChars(lx, 2))
     } else {
@@ -2684,7 +2684,7 @@ fn scanToCurly(lx: Lex): Lex {
 
 /// Longest match. There is no `<<`, no `>>` and no `?.`, which is what keeps
 /// `Map<Str, [Int]>` and `x?.field` lexing the way they read.
-fn scanPunctuation<C: Alloc>(ctx: C, lx: Lex): Lex {
+fn scanPunctuation<C: Allocator>(ctx: C, lx: Lex): Lex {
     let two = lx.source.slice(lx.index, lx.index + 2);
     let paired = two == "::"
         || two == ".."
@@ -2780,13 +2780,13 @@ struct Prep {
 ///
 /// ```buri run
 /// from "core/buri/ast" import * as ast;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     match (ast.parse(ctx, "rows.buri", "export type Id = Int;\n")) {
@@ -2822,7 +2822,7 @@ struct Prep {
 /// a promise that the source compiles.
 ///
 /// Reading costs one `[Char]` of the source, one `[Token]`, and a walk.
-export fn parse<C: Alloc>(
+export fn parse<C: Allocator>(
     ctx: C,
     file: Str,
     source: Str,
@@ -2844,7 +2844,7 @@ export fn parse<C: Alloc>(
     }
 }
 
-fn prepare<C: Alloc>(ctx: C, raw: [Token]): Prep {
+fn prepare<C: Allocator>(ctx: C, raw: [Token]): Prep {
     raw.foldCtx(
         ctx,
         fn(c, acc, t) => {
@@ -2950,7 +2950,7 @@ fn docsHere(p: P): [Str] {
 // -----------------------------------------------------------------------------
 
 /// The compiler's own wording: what was wanted, and what was there.
-fn expected<C: Alloc>(ctx: C, p: P, what: Str): P {
+fn expected<C: Allocator>(ctx: C, p: P, what: Str): P {
     if (p.panicking) {
         p
     } else {
@@ -2972,7 +2972,7 @@ fn expected<C: Alloc>(ctx: C, p: P, what: Str): P {
     }
 }
 
-fn eat<C: Alloc>(ctx: C, p: P, text: Str, what: Str): P {
+fn eat<C: Allocator>(ctx: C, p: P, text: Str, what: Str): P {
     if (p.panicking) {
         p
     } else if (at(p, text)) {
@@ -2982,7 +2982,7 @@ fn eat<C: Alloc>(ctx: C, p: P, text: Str, what: Str): P {
     }
 }
 
-fn eatPunct<C: Alloc>(ctx: C, p: P, text: Str): P {
+fn eatPunct<C: Allocator>(ctx: C, p: P, text: Str): P {
     eat(ctx, p, text, str.format(ctx, "`${text}`"))
 }
 
@@ -2990,7 +2990,7 @@ fn eatPunct<C: Alloc>(ctx: C, p: P, text: Str): P {
 // Declarations
 // -----------------------------------------------------------------------------
 
-fn parseItems<C: Alloc>(ctx: C, p: P, acc: [Item]): (P, [Item]) {
+fn parseItems<C: Allocator>(ctx: C, p: P, acc: [Item]): (P, [Item]) {
     if (isEnd(p)) {
         (p, acc)
     } else {
@@ -3044,7 +3044,7 @@ fn startsItem(t: Token): Bool {
 }
 
 /// One declaration, as a list of nought or one so that a failure adds nothing.
-fn parseItem<C: Alloc>(ctx: C, p: P): (P, [Item]) {
+fn parseItem<C: Allocator>(ctx: C, p: P): (P, [Item]) {
     let start = here(p);
     let docs = docsHere(p);
     let (after, kind) = parseItemKind(ctx, p, docs);
@@ -3055,7 +3055,7 @@ fn parseItem<C: Alloc>(ctx: C, p: P): (P, [Item]) {
     }
 }
 
-fn parseItemKind<C: Alloc>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
+fn parseItemKind<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     if (at(p, "from")) {
         parseImport(ctx, p)
     } else if (at(p, "impl")) {
@@ -3071,7 +3071,7 @@ fn parseItemKind<C: Alloc>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     }
 }
 
-fn parseExportable<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseExportable<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
     if (at(p, "fn")) {
         let (after, d) = parseFn(ctx, advance(p), docs, exported);
         (after, .Fn(d))
@@ -3100,7 +3100,7 @@ fn emptyKind(): ItemKind {
 
 // --- imports -------------------------------------------------------------------
 
-fn parseImport<C: Alloc>(ctx: C, p: P): (P, ItemKind) {
+fn parseImport<C: Allocator>(ctx: C, p: P): (P, ItemKind) {
     let opened = advance(p);
     if (atKind(opened, TokenKind.Str) == false) {
         (expected(ctx, opened, "a string literal"), emptyKind())
@@ -3127,11 +3127,11 @@ fn parseImport<C: Alloc>(ctx: C, p: P): (P, ItemKind) {
     }
 }
 
-fn parseSpecBraces<C: Alloc>(ctx: C, p: P): (P, [ImportSpec]) {
+fn parseSpecBraces<C: Allocator>(ctx: C, p: P): (P, [ImportSpec]) {
     parseSpecs(ctx, eatPunct(ctx, p, "{"), [])
 }
 
-fn parseSpecs<C: Alloc>(ctx: C, p: P, acc: [ImportSpec]): (P, [ImportSpec]) {
+fn parseSpecs<C: Allocator>(ctx: C, p: P, acc: [ImportSpec]): (P, [ImportSpec]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, "}")) {
@@ -3155,7 +3155,7 @@ fn parseSpecs<C: Alloc>(ctx: C, p: P, acc: [ImportSpec]): (P, [ImportSpec]) {
 
 // --- functions -----------------------------------------------------------------
 
-fn parseFn<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, FnDecl) {
+fn parseFn<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, FnDecl) {
     let (named, name) = parseName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
     let opened = eatPunct(ctx, afterGenerics, "(");
@@ -3192,7 +3192,7 @@ fn parseFn<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, FnDecl) {
     }
 }
 
-fn parseParams<C: Alloc>(ctx: C, p: P, acc: [Param]): (P, [Param]) {
+fn parseParams<C: Allocator>(ctx: C, p: P, acc: [Param]): (P, [Param]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, ")")) {
@@ -3232,11 +3232,11 @@ fn parseParams<C: Alloc>(ctx: C, p: P, acc: [Param]): (P, [Param]) {
     }
 }
 
-fn parseGenerics<C: Alloc>(ctx: C, p: P): (P, [GenericParam]) {
+fn parseGenerics<C: Allocator>(ctx: C, p: P): (P, [GenericParam]) {
     if (at(p, "<")) { parseGenericList(ctx, advance(p), []) } else { (p, []) }
 }
 
-fn parseGenericList<C: Alloc>(ctx: C, p: P, acc: [GenericParam]): (P, [GenericParam]) {
+fn parseGenericList<C: Allocator>(ctx: C, p: P, acc: [GenericParam]): (P, [GenericParam]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, ">")) {
@@ -3257,7 +3257,7 @@ fn parseGenericList<C: Alloc>(ctx: C, p: P, acc: [GenericParam]): (P, [GenericPa
     }
 }
 
-fn parseBounds<C: Alloc>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
+fn parseBounds<C: Allocator>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
     let (afterOne, ty) = parseNamedType(ctx, p);
     let grown = acc.push(ctx, ty);
     if (at(afterOne, "+")) {
@@ -3269,7 +3269,7 @@ fn parseBounds<C: Alloc>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
 
 // --- structs and enums -----------------------------------------------------------
 
-fn parseStruct<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseStruct<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
     let (named, name) = parseName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
     if (at(afterGenerics, "(")) {
@@ -3301,7 +3301,7 @@ fn parseStruct<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKin
     }
 }
 
-fn parseFieldDecls<C: Alloc>(ctx: C, p: P, acc: [FieldDecl]): (P, [FieldDecl]) {
+fn parseFieldDecls<C: Allocator>(ctx: C, p: P, acc: [FieldDecl]): (P, [FieldDecl]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, "}")) {
@@ -3329,7 +3329,7 @@ fn parseFieldDecls<C: Alloc>(ctx: C, p: P, acc: [FieldDecl]): (P, [FieldDecl]) {
     }
 }
 
-fn parseTupleFields<C: Alloc>(ctx: C, p: P, acc: [TupleField]): (P, [TupleField]) {
+fn parseTupleFields<C: Allocator>(ctx: C, p: P, acc: [TupleField]): (P, [TupleField]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, ")")) {
@@ -3352,7 +3352,7 @@ fn parseTupleFields<C: Alloc>(ctx: C, p: P, acc: [TupleField]): (P, [TupleField]
     }
 }
 
-fn parseEnum<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseEnum<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
     let (named, name) = parseName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
     let opened = eatPunct(ctx, afterGenerics, "{");
@@ -3369,7 +3369,7 @@ fn parseEnum<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind)
     )
 }
 
-fn parseVariants<C: Alloc>(ctx: C, p: P, acc: [Variant]): (P, [Variant]) {
+fn parseVariants<C: Allocator>(ctx: C, p: P, acc: [Variant]): (P, [Variant]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, "}")) {
@@ -3403,7 +3403,7 @@ fn parseVariants<C: Alloc>(ctx: C, p: P, acc: [Variant]): (P, [Variant]) {
 
 // --- the rest of the declarations -------------------------------------------------
 
-fn parseTypeAlias<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseTypeAlias<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
     let (named, name) = parseName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
     let equals = eatPunct(ctx, afterGenerics, "=");
@@ -3421,7 +3421,7 @@ fn parseTypeAlias<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, Item
     )
 }
 
-fn parseLet<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseLet<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
     let (named, name) = parseName(ctx, p);
     let colon = eatPunct(ctx, named, ":");
     let (afterTy, ty) = parseType(ctx, colon);
@@ -3440,7 +3440,7 @@ fn parseLet<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) 
     )
 }
 
-fn parseTrait<C: Alloc>(
+fn parseTrait<C: Allocator>(
     ctx: C,
     p: P,
     docs: [Str],
@@ -3464,7 +3464,7 @@ fn parseTrait<C: Alloc>(
     )
 }
 
-fn parseImpl<C: Alloc>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
+fn parseImpl<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     let (afterGenerics, generics) = parseGenerics(ctx, p);
     let (afterFirst, first) = parseType(ctx, afterGenerics);
     let (afterHead, selfTy, traitTy) = if (at(afterFirst, "for")) {
@@ -3487,7 +3487,7 @@ fn parseImpl<C: Alloc>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     )
 }
 
-fn parseMethods<C: Alloc>(
+fn parseMethods<C: Allocator>(
     ctx: C,
     p: P,
     acc: [FnDecl],
@@ -3509,7 +3509,7 @@ fn parseMethods<C: Alloc>(
     }
 }
 
-fn parseDerive<C: Alloc>(ctx: C, p: P): (P, ItemKind) {
+fn parseDerive<C: Allocator>(ctx: C, p: P): (P, ItemKind) {
     let (afterTraits, traits) = parseDeriveList(ctx, p, []);
     let forKeyword = eat(ctx, afterTraits, "for", "`for`");
     let (afterSelf, selfTy) = parseNamedType(ctx, forKeyword);
@@ -3517,7 +3517,7 @@ fn parseDerive<C: Alloc>(ctx: C, p: P): (P, ItemKind) {
     (done, .Derive(DeriveDecl { traits: traits, selfTy: selfTy }))
 }
 
-fn parseDeriveList<C: Alloc>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
+fn parseDeriveList<C: Allocator>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
     let (afterOne, ty) = parseNamedType(ctx, p);
     let grown = acc.push(ctx, ty);
     if (at(afterOne, ",")) {
@@ -3527,7 +3527,7 @@ fn parseDeriveList<C: Alloc>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
     }
 }
 
-fn parseContext<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
+fn parseContext<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
     let (named, name) = parseName(ctx, p);
     let opened = eatPunct(ctx, named, "{");
     let (afterBody, spread, bindings) = parseContextBody(ctx, opened);
@@ -3543,7 +3543,7 @@ fn parseContext<C: Alloc>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKi
     )
 }
 
-fn parseTest<C: Alloc>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
+fn parseTest<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     if (atKind(p, TokenKind.Str) == false) {
         (expected(ctx, p, "a string literal"), emptyKind())
     } else {
@@ -3557,7 +3557,7 @@ fn parseTest<C: Alloc>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
 // Types
 // -----------------------------------------------------------------------------
 
-fn parseType<C: Alloc>(ctx: C, p: P): (P, Type) {
+fn parseType<C: Allocator>(ctx: C, p: P): (P, Type) {
     if (p.panicking) {
         (p, unitType())
     } else {
@@ -3586,7 +3586,7 @@ fn parseType<C: Alloc>(ctx: C, p: P): (P, Type) {
 /// `()`, a grouped type, or a tuple. A grouped type keeps the inner node, so
 /// the parentheses a reader wrote leave no trace — the printer puts back the
 /// ones the grammar needs.
-fn parseParenType<C: Alloc>(ctx: C, p: P, start: Span): (P, Type) {
+fn parseParenType<C: Allocator>(ctx: C, p: P, start: Span): (P, Type) {
     let opened = advance(p);
     if (at(opened, ")")) {
         let closed = advance(opened);
@@ -3609,7 +3609,7 @@ fn parseParenType<C: Alloc>(ctx: C, p: P, start: Span): (P, Type) {
     }
 }
 
-fn parseTypeList<C: Alloc>(ctx: C, p: P, acc: [Type], close: Str): (P, [Type]) {
+fn parseTypeList<C: Allocator>(ctx: C, p: P, acc: [Type], close: Str): (P, [Type]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, close)) {
@@ -3627,7 +3627,7 @@ fn parseTypeList<C: Alloc>(ctx: C, p: P, acc: [Type], close: Str): (P, [Type]) {
 
 /// A path and its arguments. `Self` is a name like any other, and a dotted path
 /// is one name spanning the whole of it.
-fn parseNamedType<C: Alloc>(ctx: C, p: P): (P, Type) {
+fn parseNamedType<C: Allocator>(ctx: C, p: P): (P, Type) {
     if (p.panicking) {
         (p, unitType())
     } else {
@@ -3673,7 +3673,7 @@ fn walkPath(p: P): P {
 }
 
 /// The dotted spelling between two positions, joined back up.
-fn pathText<C: Alloc>(ctx: C, opened: P, closed: P): Str {
+fn pathText<C: Allocator>(ctx: C, opened: P, closed: P): Str {
     list
         .range(ctx, opened.index, closed.index)
         .mapCtx(ctx, fn(c, i) => tokenTextAt(opened, i))
@@ -3691,7 +3691,7 @@ fn tokenTextAt(p: P, index: Int): Str {
 // Blocks and statements
 // -----------------------------------------------------------------------------
 
-fn parseBlock<C: Alloc>(ctx: C, p: P): (P, Block) {
+fn parseBlock<C: Allocator>(ctx: C, p: P): (P, Block) {
     let start = here(p);
     let opened = eatPunct(ctx, p, "{");
     let (afterBody, stmts, tail) = parseBlockBody(ctx, opened, []);
@@ -3701,7 +3701,7 @@ fn parseBlock<C: Alloc>(ctx: C, p: P): (P, Block) {
     )
 }
 
-fn parseBlockBody<C: Alloc>(ctx: C, p: P, acc: [Stmt]): (P, [Stmt], [Expr]) {
+fn parseBlockBody<C: Allocator>(ctx: C, p: P, acc: [Stmt]): (P, [Stmt], [Expr]) {
     if (p.panicking) {
         (p, acc, [])
     } else if (at(p, "}")) {
@@ -3732,7 +3732,7 @@ fn parseBlockBody<C: Alloc>(ctx: C, p: P, acc: [Stmt]): (P, [Stmt], [Expr]) {
     }
 }
 
-fn parseLetStmt<C: Alloc>(ctx: C, p: P): (P, StmtKind) {
+fn parseLetStmt<C: Allocator>(ctx: C, p: P): (P, StmtKind) {
     if (at(p, "ctx")) {
         let equals = eatPunct(ctx, advance(p), "=");
         let (afterValue, value) = parseExpr(ctx, equals);
@@ -3782,11 +3782,11 @@ let LEVELS: Int = 8;
 /// The comparison rung, which does not associate: one operator and no more.
 let COMPARISON: Int = 2;
 
-fn parseExpr<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parseExpr<C: Allocator>(ctx: C, p: P): (P, Expr) {
     if (at(p, "fn")) { parseLambda(ctx, p) } else { parseBinary(ctx, p, 0) }
 }
 
-fn parseBinary<C: Alloc>(ctx: C, p: P, level: Int): (P, Expr) {
+fn parseBinary<C: Allocator>(ctx: C, p: P, level: Int): (P, Expr) {
     if (level >= LEVELS) {
         parseUnary(ctx, p)
     } else {
@@ -3796,7 +3796,7 @@ fn parseBinary<C: Alloc>(ctx: C, p: P, level: Int): (P, Expr) {
     }
 }
 
-fn binaryRest<C: Alloc>(ctx: C, p: P, level: Int, left: Expr, start: Span): (P, Expr) {
+fn binaryRest<C: Allocator>(ctx: C, p: P, level: Int, left: Expr, start: Span): (P, Expr) {
     if (p.panicking || levelOps(level).contains(tokenAt(p, 0).text) == false) {
         (p, left)
     } else {
@@ -3850,7 +3850,7 @@ fn binOpOf(text: Str): BinOp {
     }
 }
 
-fn parseUnary<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parseUnary<C: Allocator>(ctx: C, p: P): (P, Expr) {
     if (p.panicking) {
         (p, unitExpr())
     } else {
@@ -3889,7 +3889,7 @@ fn unitExpr(): Expr {
 /// The brace-terminated expressions. They may be operands and may not head a
 /// postfix chain, which is what keeps `if (c) { a } else { b } { x: 1 }` from
 /// having two parses.
-fn parseBlockLike<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parseBlockLike<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
     if (at(p, "if")) {
         parseIf(ctx, p)
@@ -3929,7 +3929,7 @@ fn opensAnonymousStruct(p: P): Bool {
             || tokenAt(p, 1).kind == TokenKind.Identifier && tokenAt(p, 2).text == ":")
 }
 
-fn parseIf<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parseIf<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
     let opened = eatPunct(ctx, advance(p), "(");
     let (afterCond, cond) = parseExpr(ctx, opened);
@@ -3952,7 +3952,7 @@ fn parseIf<C: Alloc>(ctx: C, p: P): (P, Expr) {
     )
 }
 
-fn parseMatch<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parseMatch<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
     let opened = eatPunct(ctx, advance(p), "(");
     let (afterValue, value) = parseExpr(ctx, opened);
@@ -3965,7 +3965,7 @@ fn parseMatch<C: Alloc>(ctx: C, p: P): (P, Expr) {
     )
 }
 
-fn parseArms<C: Alloc>(ctx: C, p: P, acc: [Arm]): (P, [Arm]) {
+fn parseArms<C: Allocator>(ctx: C, p: P, acc: [Arm]): (P, [Arm]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, "}")) {
@@ -3993,13 +3993,13 @@ fn parseArms<C: Alloc>(ctx: C, p: P, acc: [Arm]): (P, [Arm]) {
 
 /// The body of a `context`, which both of its forms share. The opening brace is
 /// already eaten.
-fn parseContextBody<C: Alloc>(ctx: C, p: P): (P, [Expr], [Binding]) {
+fn parseContextBody<C: Allocator>(ctx: C, p: P): (P, [Expr], [Binding]) {
     let (afterSpread, spread) = parseSpread(ctx, p);
     let (afterBindings, bindings) = parseBindings(ctx, afterSpread, []);
     (afterBindings, spread, bindings)
 }
 
-fn parseSpread<C: Alloc>(ctx: C, p: P): (P, [Expr]) {
+fn parseSpread<C: Allocator>(ctx: C, p: P): (P, [Expr]) {
     if (at(p, "..")) {
         let (afterExpr, e) = parseExpr(ctx, advance(p));
         let done = if (at(afterExpr, ",")) { advance(afterExpr) } else { afterExpr };
@@ -4009,7 +4009,7 @@ fn parseSpread<C: Alloc>(ctx: C, p: P): (P, [Expr]) {
     }
 }
 
-fn parseBindings<C: Alloc>(ctx: C, p: P, acc: [Binding]): (P, [Binding]) {
+fn parseBindings<C: Allocator>(ctx: C, p: P, acc: [Binding]): (P, [Binding]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, "}")) {
@@ -4027,7 +4027,7 @@ fn parseBindings<C: Alloc>(ctx: C, p: P, acc: [Binding]): (P, [Binding]) {
     }
 }
 
-fn parseLambda<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parseLambda<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
     let opened = eatPunct(ctx, advance(p), "(");
     let (afterParams, params) = parseLambdaParams(ctx, opened, []);
@@ -4048,7 +4048,7 @@ fn parseLambda<C: Alloc>(ctx: C, p: P): (P, Expr) {
     )
 }
 
-fn parseLambdaParams<C: Alloc>(ctx: C, p: P, acc: [LambdaParam]): (P, [LambdaParam]) {
+fn parseLambdaParams<C: Allocator>(ctx: C, p: P, acc: [LambdaParam]): (P, [LambdaParam]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, ")")) {
@@ -4072,13 +4072,13 @@ fn parseLambdaParams<C: Alloc>(ctx: C, p: P, acc: [LambdaParam]): (P, [LambdaPar
 
 // --- the postfix chain -------------------------------------------------------------
 
-fn parsePostfix<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parsePostfix<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
     let (afterBase, base) = parsePrimary(ctx, p);
     postfixRest(ctx, afterBase, base, start)
 }
 
-fn postfixRest<C: Alloc>(ctx: C, p: P, base: Expr, start: Span): (P, Expr) {
+fn postfixRest<C: Allocator>(ctx: C, p: P, base: Expr, start: Span): (P, Expr) {
     if (p.panicking) {
         (p, base)
     } else {
@@ -4171,7 +4171,7 @@ fn postfixRest<C: Alloc>(ctx: C, p: P, base: Expr, start: Span): (P, Expr) {
     }
 }
 
-fn parseArgs<C: Alloc>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
+fn parseArgs<C: Allocator>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, ")")) {
@@ -4188,14 +4188,14 @@ fn parseArgs<C: Alloc>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
 }
 
 /// `{ ..base, a: 1, b }`. The opening brace is not yet eaten.
-fn parseStructBody<C: Alloc>(ctx: C, p: P): (P, [Expr], [Init]) {
+fn parseStructBody<C: Allocator>(ctx: C, p: P): (P, [Expr], [Init]) {
     let opened = eatPunct(ctx, p, "{");
     let (afterSpread, spread) = parseSpread(ctx, opened);
     let (afterFields, fields) = parseInits(ctx, afterSpread, []);
     (afterFields, spread, fields)
 }
 
-fn parseInits<C: Alloc>(ctx: C, p: P, acc: [Init]): (P, [Init]) {
+fn parseInits<C: Allocator>(ctx: C, p: P, acc: [Init]): (P, [Init]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, "}")) {
@@ -4226,7 +4226,7 @@ fn parseInits<C: Alloc>(ctx: C, p: P, acc: [Init]): (P, [Init]) {
 /// a type may be built from, the real type-argument parser speculatively, and
 /// then the token *after* the `>`, which is what settles the readings both
 /// parse.
-fn tryTypeArgs<C: Alloc>(ctx: C, p: P): Option<(P, [Type])> {
+fn tryTypeArgs<C: Allocator>(ctx: C, p: P): Option<(P, [Type])> {
     if (scanForTypeArgs(p, p.index + 1, 1, 0) == false) {
         .None
     } else {
@@ -4313,7 +4313,7 @@ fn startsExpr(t: Token): Bool {
 
 // --- primary expressions -------------------------------------------------------------
 
-fn parsePrimary<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parsePrimary<C: Allocator>(ctx: C, p: P): (P, Expr) {
     if (p.panicking) {
         (p, unitExpr())
     } else {
@@ -4378,7 +4378,7 @@ fn parsePrimary<C: Alloc>(ctx: C, p: P): (P, Expr) {
     }
 }
 
-fn parseArrayItems<C: Alloc>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
+fn parseArrayItems<C: Allocator>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
     if (p.panicking) {
         (p, acc)
     } else if (at(p, "]")) {
@@ -4394,7 +4394,7 @@ fn parseArrayItems<C: Alloc>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
     }
 }
 
-fn parseParenExpr<C: Alloc>(ctx: C, p: P, start: Span): (P, Expr) {
+fn parseParenExpr<C: Allocator>(ctx: C, p: P, start: Span): (P, Expr) {
     let opened = advance(p);
     if (at(opened, ")")) {
         let closed = advance(opened);
@@ -4418,7 +4418,7 @@ fn parseParenExpr<C: Alloc>(ctx: C, p: P, start: Span): (P, Expr) {
 }
 
 /// `"a${b}c"` — the head, then a hole and a span until the tail.
-fn parseTemplate<C: Alloc>(ctx: C, p: P): (P, Expr) {
+fn parseTemplate<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
     let head = tokenAt(p, 0).text;
     let opening = [Part.Text(unescape(ctx, head.slice(1, head.len() - 2)))];
@@ -4426,7 +4426,7 @@ fn parseTemplate<C: Alloc>(ctx: C, p: P): (P, Expr) {
     (afterParts, Expr { kind: .Template(parts), origin: originFrom(afterParts, start) })
 }
 
-fn templateParts<C: Alloc>(ctx: C, p: P, acc: [Part]): (P, [Part]) {
+fn templateParts<C: Allocator>(ctx: C, p: P, acc: [Part]): (P, [Part]) {
     if (p.panicking) {
         (p, acc)
     } else {
@@ -4460,7 +4460,7 @@ fn templateParts<C: Alloc>(ctx: C, p: P, acc: [Part]): (P, [Part]) {
 // Patterns
 // -----------------------------------------------------------------------------
 
-fn parsePattern<C: Alloc>(ctx: C, p: P): (P, Pattern) {
+fn parsePattern<C: Allocator>(ctx: C, p: P): (P, Pattern) {
     let start = here(p);
     let (afterFirst, first) = parsePatternNoOr(ctx, p);
     if (at(afterFirst, "|")) {
@@ -4477,7 +4477,7 @@ fn parsePattern<C: Alloc>(ctx: C, p: P): (P, Pattern) {
     }
 }
 
-fn parseOrPatterns<C: Alloc>(ctx: C, p: P, acc: [Pattern]): (P, [Pattern]) {
+fn parseOrPatterns<C: Allocator>(ctx: C, p: P, acc: [Pattern]): (P, [Pattern]) {
     if (at(p, "|")) {
         let (afterOne, one) = parsePatternNoOr(ctx, advance(p));
         parseOrPatterns(ctx, afterOne, acc.push(ctx, one))
@@ -4486,7 +4486,7 @@ fn parseOrPatterns<C: Alloc>(ctx: C, p: P, acc: [Pattern]): (P, [Pattern]) {
     }
 }
 
-fn parsePatternNoOr<C: Alloc>(ctx: C, p: P): (P, Pattern) {
+fn parsePatternNoOr<C: Allocator>(ctx: C, p: P): (P, Pattern) {
     if (p.panicking) {
         (p, wildPattern())
     } else {
@@ -4583,7 +4583,7 @@ fn wildPattern(): Pattern {
 /// A bare name binds. A dotted one, or one with a payload behind it, names a
 /// variant or a struct — which is what makes a pattern parseable with no name
 /// resolution behind it.
-fn parseIdentPattern<C: Alloc>(ctx: C, p: P, start: Span): (P, Pattern) {
+fn parseIdentPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
     let dotted = tokenAt(p, 1).text == "."
         && tokenAt(p, 2).kind == TokenKind.Identifier;
     if (dotted) {
@@ -4628,7 +4628,7 @@ fn parseIdentPattern<C: Alloc>(ctx: C, p: P, start: Span): (P, Pattern) {
     }
 }
 
-fn parsePayload<C: Alloc>(ctx: C, p: P): (P, [Payload]) {
+fn parsePayload<C: Allocator>(ctx: C, p: P): (P, [Payload]) {
     if (at(p, "(")) {
         let (after, items) = parsePatternList(ctx, advance(p), [], ")");
         (after, [Payload.Tuple(items)])
@@ -4640,7 +4640,7 @@ fn parsePayload<C: Alloc>(ctx: C, p: P): (P, [Payload]) {
     }
 }
 
-fn parsePatternList<C: Alloc>(
+fn parsePatternList<C: Allocator>(
     ctx: C,
     p: P,
     acc: [Pattern],
@@ -4661,7 +4661,7 @@ fn parsePatternList<C: Alloc>(
     }
 }
 
-fn parseFieldPats<C: Alloc>(
+fn parseFieldPats<C: Allocator>(
     ctx: C,
     p: P,
     acc: [FieldPat],
@@ -4692,12 +4692,12 @@ fn parseFieldPats<C: Alloc>(
     }
 }
 
-fn parseArrayPattern<C: Alloc>(ctx: C, p: P, start: Span): (P, Pattern) {
+fn parseArrayPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
     let (after, items, rest) = arrayPatternBody(ctx, p, [], []);
     (after, Pattern { kind: .Array(items, rest), origin: originFrom(after, start) })
 }
 
-fn arrayPatternBody<C: Alloc>(
+fn arrayPatternBody<C: Allocator>(
     ctx: C,
     p: P,
     acc: [Pattern],
@@ -4728,7 +4728,7 @@ fn arrayPatternBody<C: Alloc>(
     }
 }
 
-fn parseParenPattern<C: Alloc>(ctx: C, p: P, start: Span): (P, Pattern) {
+fn parseParenPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
     if (at(p, ")")) {
         let closed = advance(p);
         (closed, Pattern { kind: .Unit, origin: originFrom(closed, start) })
@@ -4754,7 +4754,7 @@ fn parseParenPattern<C: Alloc>(ctx: C, p: P, start: Span): (P, Pattern) {
 // Names, and what a literal says
 // -----------------------------------------------------------------------------
 
-fn parseName<C: Alloc>(ctx: C, p: P): (P, Name) {
+fn parseName<C: Allocator>(ctx: C, p: P): (P, Name) {
     if (p.panicking) {
         (p, noName())
     } else if (atKind(p, TokenKind.Identifier)) {
@@ -4775,14 +4775,14 @@ fn noName(): Name {
 /// The test is exact rather than approximate — the number is rendered back and
 /// compared with what was written — so `0xff`, `1_000` and `18446744073709551615`
 /// all keep the text a reader wrote, and nothing silently becomes `255`.
-fn intKind<C: Alloc>(ctx: C, text: Str): ExprKind {
+fn intKind<C: Allocator>(ctx: C, text: Str): ExprKind {
     let value = intOf(ctx, text);
     if (str.fromInt(ctx, value) == text) { .Int(value) } else { .WideInt(text) }
 }
 
 /// The digits of an integer literal, whatever radix it was written in. Answers
 /// zero for one that does not fit, which is why [`intKind`] asks first.
-fn intOf<C: Alloc>(ctx: C, text: Str): Int {
+fn intOf<C: Allocator>(ctx: C, text: Str): Int {
     let bare = text.replace(ctx, "_", "");
     let radix = if (bare.startsWith("0x")) {
         16
@@ -4800,7 +4800,7 @@ fn intOf<C: Alloc>(ctx: C, text: Str): Int {
     }
 }
 
-fn floatOf<C: Alloc>(ctx: C, text: Str): Float {
+fn floatOf<C: Allocator>(ctx: C, text: Str): Float {
     match (text.replace(ctx, "_", "").toFloat()) {
         .Some(x) => x,
         .None => 0.0,
@@ -4808,11 +4808,11 @@ fn floatOf<C: Alloc>(ctx: C, text: Str): Float {
 }
 
 /// The characters between a string literal's quotes, unescaped.
-fn literalText<C: Alloc>(ctx: C, raw: Str): Str {
+fn literalText<C: Allocator>(ctx: C, raw: Str): Str {
     unescape(ctx, raw.slice(1, raw.len() - 1))
 }
 
-fn charLiteral<C: Alloc>(ctx: C, raw: Str): Char {
+fn charLiteral<C: Allocator>(ctx: C, raw: Str): Char {
     let body = unescape(ctx, raw.slice(1, raw.len() - 1));
     match (body.charAt(0)) {
         .Some(c) => c,
@@ -4820,11 +4820,11 @@ fn charLiteral<C: Alloc>(ctx: C, raw: Str): Char {
     }
 }
 
-fn unescape<C: Alloc>(ctx: C, body: Str): Str {
+fn unescape<C: Allocator>(ctx: C, body: Str): Str {
     str.fromChars(ctx, unescapeChars(ctx, body.chars(ctx), 0, []))
 }
 
-fn unescapeChars<C: Alloc>(ctx: C, cs: [Char], index: Int, acc: [Char]): [Char] {
+fn unescapeChars<C: Allocator>(ctx: C, cs: [Char], index: Int, acc: [Char]): [Char] {
     if (index >= cs.len()) {
         acc
     } else {

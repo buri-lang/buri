@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
@@ -67,7 +67,7 @@ export fn start10_0(ticks: Int): State10_0 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_0<C: Alloc>(ctx: C): Int {
+export fn probe10_0<C: Allocator>(ctx: C): Int {
     let s = start10_0(5);
     rank10_0(s) + s.show(ctx).len()
 }
@@ -85,14 +85,14 @@ impl Rec10_1 {
         self.f0 * factor + 296
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec10_1: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_1<C: Alloc>(ctx: C): Int {
+export fn probe10_1<C: Allocator>(ctx: C): Int {
     let r = Rec10_1 { f0: 7, f1: "probe" };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -134,7 +134,7 @@ export fn start10_2(ticks: Int): State10_2 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_2<C: Alloc>(ctx: C): Int {
+export fn probe10_2<C: Allocator>(ctx: C): Int {
     let s = start10_2(5);
     rank10_2(s) + s.show(ctx).len()
 }
@@ -153,14 +153,14 @@ impl Rec10_3 {
         self.f0 * factor + 176
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec10_3: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_3<C: Alloc>(ctx: C): Int {
+export fn probe10_3<C: Allocator>(ctx: C): Int {
     let r = Rec10_3 { f0: 7, f1: "probe", f2: 1.5 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -175,7 +175,7 @@ export fn firstOr10_4<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll10_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll10_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -185,13 +185,13 @@ export fn useGeneric10_4(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_4<C: Alloc>(ctx: C): Int {
+export fn probe10_4<C: Allocator>(ctx: C): Int {
     useGeneric10_4([1, 2], ["a"]) + describeAll10_4(ctx, [1, 2]).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest10_5<C: Alloc>(ctx: C): Int {
+export fn digest10_5<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [7648, 9922, 1705, 293, 286, 9178];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -206,7 +206,7 @@ export fn drain10_5(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_5<C: Alloc>(ctx: C): Int {
+export fn probe10_5<C: Allocator>(ctx: C): Int {
     digest10_5(ctx) + drain10_5()
 }
 
@@ -226,7 +226,7 @@ export fn compute10_6(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_6<C: Alloc>(ctx: C): Int {
+export fn probe10_6<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute10_6(7)
 }
@@ -245,7 +245,7 @@ export fn compute10_7(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_7<C: Alloc>(ctx: C): Int {
+export fn probe10_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute10_7(7)
 }
@@ -260,7 +260,7 @@ export fn firstOr10_8<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll10_8<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll10_8<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -270,7 +270,7 @@ export fn useGeneric10_8(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_8<C: Alloc>(ctx: C): Int {
+export fn probe10_8<C: Allocator>(ctx: C): Int {
     useGeneric10_8([1, 2], ["a"]) + describeAll10_8(ctx, [1, 2]).len()
 }
 
@@ -294,7 +294,7 @@ export fn parseBoth10_9(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe10_9<C: Alloc>(ctx: C): Int {
+export fn probe10_9<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth10_9("1", "2")) {
         .Some(v) => v,
@@ -305,7 +305,7 @@ export fn probe10_9<C: Alloc>(ctx: C): Int {
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach10<C: Alloc>(ctx: C): Int {
+export fn reach10<C: Allocator>(ctx: C): Int {
     0
         + probe10_0(ctx)
         + probe10_1(ctx)

@@ -15,7 +15,7 @@
 //!   makes that free on the input that matters: set, and a scalar index *is* a
 //!   byte offset.
 //! * **A pure operation returns a view.** `slice`, `trim`, `trimStart`,
-//!   `trimEnd` and `splitOnce` are declared without an `Alloc` bound, which is
+//!   `trimEnd` and `splitOnce` are declared without an `Allocator` bound, which is
 //!   `core/str`'s way of saying they do not copy. So they answer a `BuriStr`
 //!   pointing into the *caller's* allocation, and they incref its base before
 //!   doing so — which is `lib.rs` §3's "a result is owned" applied to a value
@@ -628,7 +628,7 @@ fn is_js_float_literal(t: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// `Alloc`-bounded, and MEMORY.md §5.3's reuse
+// `Allocator`-bounded, and MEMORY.md §5.3's reuse
 // ---------------------------------------------------------------------------
 
 /// `str.concat(self, ctx, other) -> Str`, with MEMORY.md §5.3's in-place
@@ -748,7 +748,7 @@ fn grown(needed: u64) -> u64 {
 }
 
 // ---------------------------------------------------------------------------
-// `Alloc`-bounded: every result is a fresh block
+// `Allocator`-bounded: every result is a fresh block
 // ---------------------------------------------------------------------------
 
 /// `str.split(self, ctx, separator) -> [Str]`.

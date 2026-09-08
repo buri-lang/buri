@@ -9,7 +9,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host/testing" import { alloc, stdout, tasks };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -29,7 +29,7 @@ enum CounterAnswer {
 
 /// The note's counter, with `Add` beside `Increment` so that ordering is
 /// visible in the answer rather than only in the count.
-fn counter<C: Alloc + Tasks>(
+fn counter<C: Allocator + Tasks>(
     initial: Int,
 ): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {
@@ -46,7 +46,7 @@ fn counter<C: Alloc + Tasks>(
 
 test "the note's counter answers two increments" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
@@ -58,7 +58,7 @@ test "the note's counter answers two increments" {
 
 test "one sender's messages arrive in the order it sent them" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
@@ -72,7 +72,7 @@ test "one sender's messages arrive in the order it sent them" {
 
 test "more messages than the mailbox holds still all arrive" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // Sixty-five posts into a mailbox that holds sixty-four. Each one runs the
@@ -87,7 +87,7 @@ test "more messages than the mailbox holds still all arrive" {
 test "every message is stepped before the stop, so the stop discards none" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -100,7 +100,7 @@ test "every message is stepped before the stop, so the stop discards none" {
 }
 
 /// Posts `n` increments, one `sendMessage` at a time.
-fn increments<C: Alloc + Tasks>(
+fn increments<C: Allocator + Tasks>(
     ctx: C,
     counted: Address<C, Int, CounterMessage, CounterAnswer>,
     n: Int,
@@ -116,7 +116,7 @@ fn increments<C: Alloc + Tasks>(
 
 test "a send after a stop is .Err(.Stopped)" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
@@ -132,7 +132,7 @@ test "a send after a stop is .Err(.Stopped)" {
 test "onStop runs once, with the final state" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -150,7 +150,7 @@ test "onStop runs once, with the final state" {
 }
 
 /// The same counter with a hook that prints the state it ends on.
-fn logged<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
+fn logged<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
@@ -166,7 +166,7 @@ fn logged<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAns
 
 test "testing an actor is calling its step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // No mailbox, no address, no runtime: the step is an ordinary function in
@@ -179,7 +179,7 @@ test "testing an actor is calling its step" {
 
 test "the same step, through the actor" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // The block above and this one are the same three answers, once by calling
@@ -202,7 +202,7 @@ test "the same step, through the actor" {
 test "a stop discards nothing, because every send already ran" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -239,7 +239,7 @@ enum Reentered {
     Count(Int),
 }
 
-fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
+fn reentrant<C: Allocator + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
@@ -257,7 +257,7 @@ fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
 
 test "a step that sends to its own actor is refused, and the message still arrives" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, reentrant());
@@ -282,7 +282,7 @@ test "a step that sends to its own actor is refused, and the message still arriv
 
 test "a step fills the mailbox to its bound, and every message still arrives" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // Sixty-four posts with nothing draining between them, which is the only
@@ -298,7 +298,7 @@ test "a step fills the mailbox to its bound, and every message still arrives" {
 
 /// Posts `left` ticks and answers how many of them were stepped on the spot,
 /// which is none of them: the caller is the step that holds the state.
-fn ticks<C: Alloc + Tasks>(
+fn ticks<C: Allocator + Tasks>(
     ctx: C,
     address: Address<C, Int, Reentrant<C>, Reentered>,
     left: Int,
@@ -354,12 +354,12 @@ enum Ask<C> {
 /// A string this program grew, rather than one the compiler interned: a
 /// constant lives in the artifact's pool and is never a block anybody has to
 /// give back.
-fn grown<C: Alloc>(ctx: C, s: Str): Str {
+fn grown<C: Allocator>(ctx: C, s: Str): Str {
     s.concat(ctx, "")
 }
 
 /// An actor whose every answer carries a block.
-fn carrier<C: Alloc + Tasks>(): Actor<C, Int, Ask<C>, Carrying> {
+fn carrier<C: Allocator + Tasks>(): Actor<C, Int, Ask<C>, Carrying> {
     Actor {
         state: 0,
         step: fn(c, seen, message) => {
@@ -382,7 +382,7 @@ fn carrier<C: Alloc + Tasks>(): Actor<C, Int, Ask<C>, Carrying> {
 
 /// Posts `left` messages that answer with a string, and counts how many were
 /// answered on the spot.
-fn saying<C: Alloc + Tasks>(
+fn saying<C: Allocator + Tasks>(
     ctx: C,
     address: Address<C, Int, Ask<C>, Carrying>,
     left: Int,
@@ -401,7 +401,7 @@ fn saying<C: Alloc + Tasks>(
 
 test "an answer written into a slot its sender gave up on is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, carrier());
@@ -425,7 +425,7 @@ test "an answer written into a slot its sender gave up on is given back" {
 
 test "an answer that is a list, written into a slot its sender gave up on, is given back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, carrier());
@@ -445,7 +445,7 @@ test "an answer that is a list, written into a slot its sender gave up on, is gi
 
 test "every slot a step's sends gave up on comes back, twenty in a row" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // Twenty slots opened and abandoned inside one step, then twenty answers
@@ -464,7 +464,7 @@ test "every slot a step's sends gave up on comes back, twenty in a row" {
 
 test "an ordinary send after twenty abandoned ones gets its own answer" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // The reused index is the point. Every abandoned slot goes back on the
@@ -482,7 +482,7 @@ test "an ordinary send after twenty abandoned ones gets its own answer" {
 
 /// Posts `left` messages into a mailbox that is closed, and counts the
 /// refusals.
-fn refused<C: Alloc + Tasks>(
+fn refused<C: Allocator + Tasks>(
     ctx: C,
     address: Address<C, Int, Ask<C>, Carrying>,
     left: Int,
@@ -501,7 +501,7 @@ fn refused<C: Alloc + Tasks>(
 
 test "a slot opened for a message a closed mailbox refused comes back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // The other arm that abandons a slot, and the one a program reaches by

@@ -3,14 +3,14 @@
 A program is a module that exports `main`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Env, Stdout };
+# from "core/effect" import { Allocator, Environment, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc:  host.alloc,
+    Allocator:  host.alloc,
     Stdout: host.stdout,
-    Env:    host.env,
+    Environment:    host.env,
   };
   ...
 }
@@ -39,9 +39,9 @@ it calls, taking an ordinary bounded `ctx`
 
 Every function in the library sits in one of the three purity tiers of Section
 10.5, and the signature shows which. **Pure** takes no context parameter,
-**deterministic** takes one bounded by `Alloc` alone, and **effectful** takes one
+**deterministic** takes one bounded by `Allocator` alone, and **effectful** takes one
 bounded by anything else. Size decides: an operation whose result size is fixed
-is pure, and one whose result size depends on runtime data names `Alloc`. So
+is pure, and one whose result size depends on runtime data names `Allocator`. So
 `xs.len()` and `s.trim()` are pure, `xs.map(ctx, f)` is deterministic, and
 `fs.readText(ctx, p)` is effectful.
 
@@ -70,14 +70,14 @@ sources ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/bu
 test helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/money" import { fromCents };
 
 test "pads the cents place" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(fromCents(1905).format(ctx), "$19.05");
 }
@@ -98,26 +98,26 @@ rather than referred to, so each call answers a fresh double.
 
 | Member | Effect | What it does |
 |---|---|---|
-| `alloc()` | `Alloc` | Real, from a per-test arena the runner reclaims. |
+| `alloc()` | `Allocator` | Real, from a per-test arena the runner reclaims. |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
 | `stdin()` | `Stdin` | At end of input, so a suite never blocks on a pipe nobody is writing to. |
-| `fs()` | `FsRead`, `FsWrite` | In-memory and empty. Writes are visible to that test and discarded after it. |
-| `net()` | `Net` | Refuses every request until `respond` says what to answer. |
+| `fs()` | `FileSystemRead`, `FileSystemWrite` | In-memory and empty. Writes are visible to that test and discarded after it. |
+| `net()` | `Network` | Refuses every request until `respond` says what to answer. |
 | `clock()` | `Clock` | At zero, and advances only when the test advances it. |
-| `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
-| `env()` | `Env` | No variables and no arguments. |
-| `proc()` | `Proc` | Absorbs the exit instead of taking it, so the test carries on. |
+| `rand()` | `Random` | Seeded at zero, so a failure reproduces. |
+| `env()` | `Environment` | No variables and no arguments. |
+| `proc()` | `Process` | Absorbs the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in program order. |
 
 You configure a double with a **method that answers a new handle**, rather than
 with an argument to the constructor — `clock().at(1000)`, `rand().seed(7)`,
-`env().variables([...]).arguments([...])`, `stdin().lines([...])`,
+`env().variables([...]).withArguments([...])`, `stdin().lines([...])`,
 `fs().files([...])`, `fs().readOnly()`, `net().respond(...)` — so a chain reads
 in the order it applies, and the value it was called on does not change.
 
 `fs()` is one double answering **two** effects, so a context that reads and
-writes binds the one value under both names — `let disk = fs(); ... FsRead:
-disk, FsWrite: disk` — and two calls to `fs()` are two filesystems that share
+writes binds the one value under both names — `let disk = fs(); ... FileSystemRead:
+disk, FileSystemWrite: disk` — and two calls to `fs()` are two filesystems that share
 nothing.
 
 Only a test source may import a `testing` path, so nothing in a shipped program
@@ -161,9 +161,9 @@ how a test consumes a `Result`, which is still must-use here:
 test "reads the config it wrote" {
     let disk = fs();
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: disk,
-        FsWrite: disk,
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
     };
     let cfg = path.of(ctx, "cfg");
     assert.ok(fs.writeText(ctx, cfg, "port=8080")); // returns (), so a statement
@@ -211,12 +211,12 @@ implements it. `main` and a test use the same form.
 **As an expression**, anonymous:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Stdout };
-# from "core/fs" import { FsRead };
+# from "core/effect" import { Allocator, Stdout };
+# from "core/fs" import { FileSystemRead };
 let ctx = context {
-  Alloc:  host.alloc,
+  Allocator:  host.alloc,
   Stdout: host.stdout,
-  FsRead: rooted(host.fs, "/srv/app"),
+  FileSystemRead: rooted(host.fs, "/srv/app"),
 };
 ```
 
@@ -224,26 +224,26 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Clock, Env, Net, Rand, Stderr, Stdout };
-# from "core/fs" import { FsRead };
+# from "core/effect" import { Allocator, Clock, Environment, Network, Random, Stderr, Stdout };
+# from "core/fs" import { FileSystemRead };
 
 context Sandbox {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Stdout: stdout(),
     Stderr: stderr(),
-    FsRead: fs(),
-    Net: net(),
+    FileSystemRead: fs(),
+    Network: net(),
     Clock: clock(),
-    Rand: rand(),
-    Env: env(),
+    Random: rand(),
+    Environment: env(),
 }
 ```
 
 You **construct a named context by calling it** — `Sandbox()` — and each call
 builds a fresh one. The parentheses are not decoration: a test's filesystem and
 its captured `Stdout` accumulate what the test does to them, so two tests sharing
-one value would share its state. That is also why `Sandbox` binds `FsRead` and
-not `FsWrite`: each binding is its own expression, so a declaration naming both
+one value would share its state. That is also why `Sandbox` binds `FileSystemRead` and
+not `FileSystemWrite`: each binding is its own expression, so a declaration naming both
 halves would call `fs()` twice and hand the test two unrelated filesystems. A
 test that writes and reads back binds one `fs()` to both names in a `context`
 **expression**, where a `let` can hold it. A context declaration takes no
@@ -253,17 +253,17 @@ parameters; override a binding to vary what a call site gets.
 context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/fs" import { FsRead };
+# from "core/fs" import { FileSystemRead };
 
 context Fixture {
     ..Sandbox(),
-    FsRead: fs().files([("config.toml", "port=8080")]),
+    FileSystemRead: fs().files([("config.toml", "port=8080")]),
 }
 
 test "rejects a port above 65535" {
     let ctx = context {
         ..Fixture(),
-        FsRead: fs().files([("config.toml", "port=99999")]),
+        FileSystemRead: fs().files([("config.toml", "port=99999")]),
     };
     let e = assert.err(loadConfig(ctx, "config.toml"));
     assert.eq(e, ConfigError.PortOutOfRange);

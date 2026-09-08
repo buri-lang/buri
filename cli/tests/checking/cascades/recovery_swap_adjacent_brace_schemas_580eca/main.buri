@@ -7,7 +7,7 @@
 
 from "core/buri/ast" import * as ast;
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "std/codegen/proto" import * as proto;
 from "std/codegen/proto/schema" import * as schema;
 
@@ -18,13 +18,13 @@ export let FILE: Str = "lib/wire/point.proto";
 export let HEAD: Str = "edition = \"2026\";\n";
 
 /// The generator's answer: the tree, and what it had to say about the schema.
-export fn generated<C: Alloc>(ctx: C, text: Str): proto.Generated {
+export fn generated<C: Allocator>(ctx: C, text: Str): proto.Generated {
     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [])
 }
 
 /// The same, with a second schema in scope under the module path its generated
 /// form has.
-export fn generatedWith<C: Alloc>(
+export fn generatedWith<C: Allocator>(
     ctx: C,
     text: Str,
     depPath: Str,
@@ -36,18 +36,18 @@ export fn generatedWith<C: Alloc>(
 }
 
 /// The printed module, and the map back to the schema.
-export fn printed<C: Alloc>(ctx: C, text: Str): ast.Printed {
+export fn printed<C: Allocator>(ctx: C, text: Str): ast.Printed {
     ast.print(ctx, generated(ctx, text).tree)
 }
 
 /// The lines of the printed module, which is what a golden reads as.
-export fn lines<C: Alloc>(ctx: C, text: Str): [Str] {
+export fn lines<C: Allocator>(ctx: C, text: Str): [Str] {
     printed(ctx, text).text.lines(ctx)
 }
 
 /// The `count` lines that begin at `head`, so a golden can be a block of the
 /// module rather than one line at a time.
-export fn block<C: Alloc>(ctx: C, out: [Str], head: Str, count: Int): [Str] {
+export fn block<C: Allocator>(ctx: C, out: [Str], head: Str, count: Int): [Str] {
     match (out.findIndex(fn(l) => l == head)) {
         .Some(i) => out.slice(ctx, i, i + count),
         .None => [],
@@ -61,7 +61,7 @@ export fn block<C: Alloc>(ctx: C, out: [Str], head: Str, count: Int): [Str] {
 /// `Str.slice` indexes by scalar value — the two part company at the first
 /// non-ASCII character, and a generated module holds em dashes in its
 /// documentation.
-export fn anchorOf<C: Alloc>(ctx: C, out: ast.Printed, piece: Str): Option<ast.Anchor> {
+export fn anchorOf<C: Allocator>(ctx: C, out: ast.Printed, piece: Str): Option<ast.Anchor> {
     let raw = bytes.toUtf8(ctx, out.text);
     let wanted bytes =.toUtf8(ctx, piece);
     let hit = out

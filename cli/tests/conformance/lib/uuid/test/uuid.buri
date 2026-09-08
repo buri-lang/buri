@@ -10,7 +10,7 @@
 // come out of the runtime on every backend.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Clock, Entropy };
+from "core/effect" import { Allocator, Clock, Entropy };
 from "core/host/testing" import { alloc, clock, entropy };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -25,7 +25,7 @@ let CANONICAL: Str = "550e8400-e29b-41d4-a716-446655440000";
 
 test "the canonical spelling round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.some(uuid.parse(CANONICAL)).text(ctx), CANONICAL);
     assert.eq(assert.some(uuid.parse(CANONICAL)).0, [
@@ -50,7 +50,7 @@ test "the canonical spelling round-trips" {
 
 test "uppercase reads, and comes back lowercase" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let upper = "550E8400-E29B-41D4-A716-446655440000";
     assert.eq(assert.some(uuid.parse(upper)), assert.some(uuid.parse(CANONICAL)));
@@ -59,7 +59,7 @@ test "uppercase reads, and comes back lowercase" {
 
 test "text is thirty-six characters with hyphens in four places" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let rendered = uuid.zero().text(ctx);
     assert.eq(rendered.len(), 36);
@@ -90,7 +90,7 @@ test "anything that is not the canonical shape is refused" {
 
 test "the nil identifier is sixteen zero octets" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(uuid.zero().text(ctx), "00000000-0000-0000-0000-000000000000");
     assert.eq(uuid.zero().0, list.repeat(ctx, 0, 16));
@@ -100,7 +100,7 @@ test "the nil identifier is sixteen zero octets" {
 
 test "fromBytes takes sixteen octets and no other count" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let raw = assert.some(uuid.parse(CANONICAL)).0;
     assert.eq(assert.some(uuid.fromBytes(raw)).text(ctx), CANONICAL);
@@ -112,7 +112,7 @@ test "fromBytes takes sixteen octets and no other count" {
 
 test "the octets and the text are two views of one value" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let id = assert.some(uuid.parse(CANONICAL));
     assert.eq(bytes.toHex(ctx, id.0), id.text(ctx).replace(ctx, "-", ""));
@@ -122,7 +122,7 @@ test "the octets and the text are two views of one value" {
 
 test "version 4 stamps the version and variant over the entropy" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
     };
     // The seeded generator's first sixteen octets are
@@ -132,7 +132,7 @@ test "version 4 stamps the version and variant over the entropy" {
 
 test "every version 4 identifier has the version and variant RFC 9562 fixes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Entropy: entropy(),
     };
     let ids = list.range(ctx, 0, 8).mapCtx(ctx, fn(c, _i) => uuid.version4(c));
@@ -155,7 +155,7 @@ fn isVariant(c: Option<Char>): Bool {
 
 test "version 7 puts the milliseconds at the front" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_755_265_500_000),
         Entropy: entropy(),
     };
@@ -164,7 +164,7 @@ test "version 7 puts the milliseconds at the front" {
 
 test "the epoch is all zeros at the front" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
         Entropy: entropy(),
     };
@@ -173,7 +173,7 @@ test "the epoch is all zeros at the front" {
 
 test "two made at different times sort in the order they were made" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_000),
         Entropy: entropy(),
     };
@@ -184,7 +184,7 @@ test "two made at different times sort in the order they were made" {
     assert.eq(first.0.take(ctx, 6), second.0.take(ctx, 6));
 
     let later = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(2_000),
         Entropy: entropy(),
     };
@@ -196,7 +196,7 @@ test "two made at different times sort in the order they were made" {
 
 test "a version 7 identifier carries the version and variant too" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_755_265_500_000),
         Entropy: entropy(),
     };
@@ -208,7 +208,7 @@ test "a version 7 identifier carries the version and variant too" {
 
 test "a minted identifier reads back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_755_265_500_000),
         Entropy: entropy(),
     };
@@ -223,7 +223,7 @@ test "a minted identifier reads back" {
 
 test "Show is the canonical spelling and not the octets" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let id = assert.some(uuid.parse(CANONICAL));
     assert.eq(id.show(ctx), CANONICAL);
@@ -250,7 +250,7 @@ test "two identifiers compare and order" {
 
 test "the version and the variant are octets, not just characters" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_755_265_500_000),
         Entropy: entropy(),
     };
@@ -278,7 +278,7 @@ fn octet(id: Uuid, at: Int): Int {
 
 test "every identifier a run of either generator makes carries both fields" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_755_265_500_000),
         Entropy: entropy(),
     };
@@ -299,7 +299,7 @@ test "every identifier a run of either generator makes carries both fields" {
 
 test "identifiers made inside one millisecond share their timestamp and nothing else" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_755_265_500_000),
         Entropy: entropy(),
     };
@@ -317,7 +317,7 @@ test "identifiers made inside one millisecond share their timestamp and nothing 
 
 test "identifiers made in different milliseconds come out in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(1_755_265_500_000),
         Entropy: entropy(),
     };
@@ -342,12 +342,12 @@ test "identifiers made in different milliseconds come out in order" {
 
 test "an identifier made a long way apart in time still orders" {
     let early = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
         Entropy: entropy(),
     };
     let late = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock().at(281_474_976_710_655),
         Entropy: entropy(),
     };
@@ -364,7 +364,7 @@ test "an identifier made a long way apart in time still orders" {
 
 test "the shape is thirty-six characters and four hyphens, in that arrangement" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Mixed case is fine; anything else about the arrangement is not.
     assert.eq(

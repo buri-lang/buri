@@ -5,9 +5,9 @@
 // comes back as, and where `which` looks. `native::e2e` runs `true`, `false`
 // and `cat` for real.
 
-from "core/effect" import { Alloc, Env };
+from "core/effect" import { Allocator, Environment };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/host/testing" import { alloc, env, fs as testFs, spawn, spawned };
 from "core/path" import * as path;
 from "core/process" import * as process;
@@ -40,7 +40,7 @@ test "a command with no arguments is a command" {
 test "a double that was told nothing refuses" {
     let runner = spawn();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     assert.eq(
@@ -54,7 +54,7 @@ test "a scripted output comes back whole" {
     let answer = Output { code: 0, stdout: [104, 105], stderr: [] };
     let runner = spawn().answers(answer);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     assert.eq(assert.ok(process.run(ctx, process.command("echo", ["hi"]))), answer);
@@ -63,7 +63,7 @@ test "a scripted output comes back whole" {
 test "a non-zero exit is an answer rather than an error" {
     let runner = spawn().answers(Output { code: 3, stdout: [], stderr: [33] });
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     let done = assert.ok(process.run(ctx, process.command("false", [])));
@@ -74,7 +74,7 @@ test "a non-zero exit is an answer rather than an error" {
 test "a scripted failure is the failure" {
     let runner = spawn().fails(.PermissionDenied);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     assert.eq(
@@ -86,7 +86,7 @@ test "a scripted failure is the failure" {
 test "every run is a call the log has, in order" {
     let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     let _ = assert.ok(process.run(ctx, process.command("a", ["1"])));
@@ -100,7 +100,7 @@ test "an argument reaches the log exactly as it was written" {
     // empty argument is an argument too.
     let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     let arguments = ["", "two words", "--message=it's \"quoted\"", "café", ";rm -rf /"];
@@ -111,7 +111,7 @@ test "an argument reaches the log exactly as it was written" {
 test "a program named by a path is the program, separators and all" {
     let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     let _ = assert.ok(process.run(ctx, process.command("/usr/bin/env", [])));
@@ -129,7 +129,7 @@ test "a child that wrote to both streams is read back from both" {
         stderr: [101],
     });
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     let done = assert.ok(process.run(ctx, process.command("noisy", [])));
@@ -143,7 +143,7 @@ test "a run that failed is still a run the log has, and the next one runs" {
     // on after one is a program whose second command still reaches the double.
     let runner = spawn().fails(.NotFound);
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     assert.eq(assert.err(process.run(ctx, process.command("first", []))), .NotFound);
@@ -154,7 +154,7 @@ test "a run that failed is still a run the log has, and the next one runs" {
 test "the three optional fields reach the effect without changing what is logged" {
     let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Spawn: runner,
     };
     let full = Command {
@@ -175,9 +175,9 @@ test "the three optional fields reach the effect without changing what is logged
 test "which walks PATH and answers the first that is there" {
     let files = testFs().files([("/usr/bin/git", ""), ("/opt/bin/git", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "/opt/bin:/usr/bin")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "/opt/bin:/usr/bin")]),
+        FileSystemRead: files,
     };
     assert.eq(assert.some(process.which(ctx, "git")), path.of(ctx, "/opt/bin/git"));
 }
@@ -185,9 +185,9 @@ test "which walks PATH and answers the first that is there" {
 test "which answers nothing where nothing on PATH is called that" {
     let files = testFs().files([("/usr/bin/git", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "/usr/bin")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "/usr/bin")]),
+        FileSystemRead: files,
     };
     assert.none(process.which(ctx, "ffmpeg"));
 }
@@ -195,9 +195,9 @@ test "which answers nothing where nothing on PATH is called that" {
 test "a program with a separator in it names a file directly" {
     let files = testFs().files([("build/tool", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "/usr/bin")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "/usr/bin")]),
+        FileSystemRead: files,
     };
     assert.eq(
         assert.some(process.which(ctx, "build/tool")),
@@ -209,9 +209,9 @@ test "a program with a separator in it names a file directly" {
 test "an environment with no PATH finds nothing" {
     let files = testFs().files([("/usr/bin/git", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env(),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env(),
+        FileSystemRead: files,
     };
     assert.none(process.which(ctx, "git"));
 }
@@ -219,9 +219,9 @@ test "an environment with no PATH finds nothing" {
 test "an absolute program names a file directly, and PATH is not consulted" {
     let files = testFs().files([("/opt/git", ""), ("/usr/bin/git", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "/usr/bin")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "/usr/bin")]),
+        FileSystemRead: files,
     };
     assert.eq(assert.some(process.which(ctx, "/opt/git")), path.of(ctx, "/opt/git"));
     assert.none(process.which(ctx, "/opt/missing"));
@@ -233,9 +233,9 @@ test "an empty PATH is one empty entry, which is where the process stands" {
     // finds, and nothing on any real search path is.
     let files = testFs().files([("tool", ""), ("/usr/bin/git", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "")]),
+        FileSystemRead: files,
     };
     assert.eq(assert.some(process.which(ctx, "tool")), path.of(ctx, "tool"));
     assert.none(process.which(ctx, "git"));
@@ -244,9 +244,9 @@ test "an empty PATH is one empty entry, which is where the process stands" {
 test "an empty entry in the middle of PATH is the same current directory" {
     let files = testFs().files([("tool", ""), ("/usr/bin/other", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "/usr/bin::/opt/bin")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "/usr/bin::/opt/bin")]),
+        FileSystemRead: files,
     };
     assert.eq(assert.some(process.which(ctx, "tool")), path.of(ctx, "tool"));
 }
@@ -257,16 +257,16 @@ test "a directory on PATH with the program's name answers as a path" {
     // a program it cannot be run.
     let files = testFs().files([("/usr/bin/git/keep", "")]);
     let building = context {
-        Alloc: alloc(),
-        Env: env(),
-        FsRead: files,
-        FsWrite: files,
+        Allocator: alloc(),
+        Environment: env(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
     };
     assert.ok(fs.makeDir(building, path.of(building, "/usr/bin/git")));
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "/usr/bin")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "/usr/bin")]),
+        FileSystemRead: files,
     };
     assert.eq(assert.some(process.which(ctx, "git")), path.of(ctx, "/usr/bin/git"));
 }
@@ -274,9 +274,9 @@ test "a directory on PATH with the program's name answers as a path" {
 test "the first entry that has it wins, and a trailing separator changes nothing" {
     let files = testFs().files([("/a/tool", ""), ("/b/tool", "")]);
     let ctx = context {
-        Alloc: alloc(),
-        Env: env().variables([("PATH", "/none:/a/:/b")]),
-        FsRead: files,
+        Allocator: alloc(),
+        Environment: env().variables([("PATH", "/none:/a/:/b")]),
+        FileSystemRead: files,
     };
     assert.eq(assert.some(process.which(ctx, "tool")), path.of(ctx, "/a/tool"));
 }

@@ -10,7 +10,7 @@
 // `host.fs` does not compile for this one. The error lands on the line that
 // asked, at build time.
 
-from "core/effect" import { Alloc, Net };
+from "core/effect" import { Allocator, Network };
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
@@ -47,8 +47,8 @@ from "//cmd/basket/view.buri" export { page };
 /// the same one //cmd/web writes.
 export fn main(): Result<(), Str> {
     let ctx context = {
-        Alloc: host.alloc,
-        Net: host.net,
+        Allocator: host.alloc,
+        Network: host.net,
         Ui: host.ui,
         Watch: host.watch,
     };

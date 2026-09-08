@@ -2,7 +2,7 @@
 //!
 //! `core/net/http` is the client half: `http.send(ctx, request)` makes one
 //! request and answers one response. This is the other half — a program that
-//! *is* a server. Two modules because two authorities: `Net` means the program
+//! *is* a server. Two modules because two authorities: `Network` means the program
 //! talks to servers, `Listen` means it accepts connections, and `Sockets` means
 //! it can push on one somebody else accepted.
 //!
@@ -12,14 +12,14 @@
 //! `http.text` / `http.status` / `withHeader`.
 //!
 //! ```buri
-//! from "core/effect" import { Alloc, Listen, Tasks };
+//! from "core/effect" import { Allocator, Listen, Tasks };
 //! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
 //! from "core/net/server" import * as server;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Listen: host.listen,
 //!         Tasks: host.tasks,
 //!     };
@@ -107,14 +107,14 @@
 //! asking for a second protocol.
 //!
 //! ```buri
-//! from "core/effect" import { Alloc, Listen, Tasks };
+//! from "core/effect" import { Allocator, Listen, Tasks };
 //! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
 //! from "core/net/server" import * as server;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Listen: host.listen,
 //!         Tasks: host.tasks,
 //!     };
@@ -189,7 +189,7 @@
 //! ```buri
 //! from "core/actor" import * as actor;
 //! from "core/actor" import { Actor, Stepped };
-//! from "core/effect" import { Alloc, Listen, Sockets, Tasks };
+//! from "core/effect" import { Allocator, Listen, Sockets, Tasks };
 //! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
 //! from "core/net/server" import * as server;
@@ -199,7 +199,7 @@
 //!     Increment,
 //! }
 //!
-//! fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting, Int> {
+//! fn counter<C: Allocator + Tasks>(): Actor<C, Int, Counting, Int> {
 //!     Actor {
 //!         state: 0,
 //!         step: fn(c, count, message) => {
@@ -212,7 +212,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Listen: host.listen,
 //!         Sockets: host.sockets,
 //!         Tasks: host.tasks,
@@ -271,7 +271,7 @@
 //! deadline for a client that is doing nothing wrong. `onClose` still runs.
 
 from "core/effect" import {
-    Alloc, Listen, Listener, Protocol, Request, Response, Serve, ServeError,
+    Allocator, Listen, Listener, Protocol, Request, Response, Serve, ServeError,
     ServeFailure, Sockets, Tasks,
 };
 from "core/list" import * as list;
@@ -388,7 +388,7 @@ export struct Tls {
 ///
 /// A program that needs the port *while* the server runs — anything binding
 /// `port: 0` — wants this function's two halves, `bind` and `run`.
-export fn serve<C: Alloc + Listen + Tasks, S>(
+export fn serve<C: Allocator + Listen + Tasks, S>(
     ctx: C,
     server: Server<C, S>,
 ): Result<(), ServeError> {
@@ -405,9 +405,9 @@ export fn serve<C: Alloc + Listen + Tasks, S>(
 /// it to a task that will connect — reads `listener.port` here, between the
 /// bind and the loop.
 ///
-/// **`Alloc` is in the bound because the plan is a list.** `listenBind` takes
+/// **`Allocator` is in the bound because the plan is a list.** `listenBind` takes
 /// one `[Serve]`, and building it allocates.
-export fn bind<C: Alloc + Listen, S>(
+export fn bind<C: Allocator + Listen, S>(
     ctx: C,
     server: Server<C, S>,
 ): Result<Listener, ServeError> {
@@ -430,7 +430,7 @@ export fn bind<C: Alloc + Listen, S>(
 /// `.DrainMillis` to render, because a plan that does not mention the drain
 /// already says the program chose none. An empty list is a caller who chose
 /// nothing at all.
-fn planned<C: Alloc, S>(ctx: C, server: Server<C, S>): [Serve] {
+fn planned<C: Allocator, S>(ctx: C, server: Server<C, S>): [Serve] {
     let spoken: [Serve] = server.protocols.withDefault([]).map(ctx, fn(p) => .Speak(p));
     let secured: [Serve] = match (server.tls) {
         .None => spoken,
@@ -497,7 +497,7 @@ struct Worker<C, S> {
 /// every one of them ended the ordinary way. A worker that fails closes the
 /// listener on its way out (see `answering`), so the others are not left waiting
 /// out a server that has already stopped.
-export fn run<C: Alloc + Listen + Tasks, S>(
+export fn run<C: Allocator + Listen + Tasks, S>(
     ctx: C,
     listener: Listener,
     server: Server<C, S>,
@@ -512,7 +512,7 @@ export fn run<C: Alloc + Listen + Tasks, S>(
 }
 
 /// The workers, fanned out, and the first failure any of them reported.
-fn together<C: Alloc + Listen + Tasks, S>(
+fn together<C: Allocator + Listen + Tasks, S>(
     ctx: C,
     listener: Listener,
     server: Server<C, S>,
@@ -717,7 +717,7 @@ fn ending<C: Listen>(ctx: C, handle: Int, e: ServeError): Result<(), ServeError>
 /// `ServeError` and a method must live in its type's defining module.
 ///
 /// The **cause only**, and it costs no context: each answer is a constant per
-/// variant, so this needs no `Alloc` and works from anywhere. `e.detail` holds
+/// variant, so this needs no `Allocator` and works from anywhere. `e.detail` holds
 /// the platform's own words, and a program that wants both writes
 /// `"${server.errorText(e)}: ${e.detail}"`.
 export fn errorText(e: ServeError): Str {

@@ -42,7 +42,7 @@ pub struct BuriStr {
 /// `struct List { ptr, len }` — 16 bytes, VALUE-MODEL.md §4.
 ///
 /// A list is **never a view** — every one of `slice`, `take`, `drop`, `concat`,
-/// `push`, `reverse` and `filter` is `Alloc`-bounded, which is the language
+/// `push`, `reverse` and `filter` is `Allocator`-bounded, which is the language
 /// saying they allocate — so `ptr` is always a payload start, the header is at
 /// `ptr - 16`, and `len` is the element count exactly.
 #[repr(C)]

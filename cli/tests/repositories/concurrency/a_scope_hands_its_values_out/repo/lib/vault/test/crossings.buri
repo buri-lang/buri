@@ -4,7 +4,7 @@ from "core/actor" import * as actor;
 from "core/actor" import { Address };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Alloc, Tasks };
+from "core/effect" import { Allocator, Tasks };
 from "core/host/testing" import { alloc as testAlloc, tasks };
 from "core/testing/assert" import * as assert;
 from "//lib/vault" import { big, Keep, keeper, Kept, LOOSE };
@@ -22,7 +22,7 @@ struct Escaped<C> {
 /// Scopes that map and release pages of their own, so a carrier that outlived
 /// its arena is written over rather than merely stale. Small ones first: those
 /// are the ones that draw a *pooled* block.
-fn churn<C: Alloc>(ctx: C): Int {
+fn churn<C: Allocator>(ctx: C): Int {
     let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
         alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
     });
@@ -32,7 +32,7 @@ fn churn<C: Alloc>(ctx: C): Int {
 
 test "what a scope answers is a copy the scope is not about to unmap" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => big(c, "o"));
     let _ = churn(ctx);
@@ -41,7 +41,7 @@ test "what a scope answers is a copy the scope is not about to unmap" {
 
 test "an actor started inside a scope still has the state it started with" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -54,7 +54,7 @@ test "an actor started inside a scope still has the state it started with" {
 
 test "a message sent inside a scope is stepped correctly" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -69,7 +69,7 @@ test "a message sent inside a scope is stepped correctly" {
 
 test "a state a step built inside a scope survives the scope" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -84,7 +84,7 @@ test "a state a step built inside a scope survives the scope" {
 
 test "a scope answers what it asked an actor inside it" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
@@ -100,7 +100,7 @@ test "a scope answers what it asked an actor inside it" {
 
 test "an actor a scope minted is stopped correctly afterwards" {
     let ctx = context {
-        Alloc: testAlloc(),
+        Allocator: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {

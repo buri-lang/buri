@@ -301,7 +301,7 @@ fn tail_calls_run_in_constant_stack_on_v8() {
     scratch.binary_package(
         "cmd/deep",
         r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -326,7 +326,7 @@ fn anyBelow(n: Int): Bool {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "self: ${countDown(10000000, 0)}").ignore();
   let _ = io.println(ctx, "mutual: ${pingA(10000001)}").ignore();
   // The right operand of a short-circuiting operator is a tail position too.
@@ -443,7 +443,7 @@ fn the_example_monorepo_is_clean() {
 /// The reason is the note's rule — a test context names only the effects the
 /// function under test needs — and the chain that makes it a *corpus* property
 /// rather than a signature one. A dead bound is a demand on every caller, so
-/// `fn note<C: Alloc + Stdout>` forces `Alloc: alloc()` into the context of
+/// `fn note<C: Allocator + Stdout>` forces `Allocator: alloc()` into the context of
 /// every test that calls it, and that context is then wider than the test.
 /// Removing the fifteen dead bounds this corpus carried is what let two
 /// hundred and forty-seven of its contexts shrink; leaving one in would put
@@ -555,8 +555,8 @@ fn read_corpus(dir: &std::path::Path) -> String {
 /// holds the body-reading rules to it.
 ///
 /// `unused-context-bound` is what makes the question live. `core/fs` declares
-/// several functions whose `Alloc` bound the body never exercises — `readText`
-/// is `ctx.readFile(path)`, which is an `FsRead` method and nothing else — so a
+/// several functions whose `Allocator` bound the body never exercises — `readText`
+/// is `ctx.readFile(path)`, which is an `FileSystemRead` method and nothing else — so a
 /// rule that walked every body in the closure would report findings inside the
 /// standard library for a repository that merely reads a file.
 ///
@@ -594,30 +594,30 @@ fn a_finding_never_names_a_file_the_author_cannot_edit() {
     );
 }
 
-/// `fs.readText<C: Alloc + FsRead>` demands both of `read`'s bounds;
-/// `fs.exists<C: FsRead>` demands one of `touch`'s. So exactly one finding is
+/// `fs.readText<C: Allocator + FileSystemRead>` demands both of `read`'s bounds;
+/// `fs.exists<C: FileSystemRead>` demands one of `touch`'s. So exactly one finding is
 /// this repository's, and the ones inside `core/fs` are nobody's.
 ///
 /// Both take a `Path` rather than the text of one, which is what keeps
-/// `touch`'s `Alloc` dead: making a `Path` allocates, so a version of this
+/// `touch`'s `Allocator` dead: making a `Path` allocates, so a version of this
 /// that called `filepath.of` inside `touch` would be a repository with no dead
 /// bound to report.
-const FS_BOUNDS: &str = r#"from "core/effect" import { Alloc };
-from "core/fs" import { FsRead, Path };
+const FS_BOUNDS: &str = r#"from "core/effect" import { Allocator };
+from "core/fs" import { FileSystemRead, Path };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/path" import * as filepath;
 
-fn read<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
+fn read<C: Allocator + FileSystemRead>(ctx: C, at: Path): Bool {
   fs.readText(ctx, at).isOk()
 }
 
-fn touch<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
+fn touch<C: Allocator + FileSystemRead>(ctx: C, at: Path): Bool {
   fs.exists(ctx, at)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fs };
+  let ctx = context { Allocator: host.alloc, FileSystemRead: host.fs };
   let _ = read(ctx, filepath.of(ctx, "a.txt"));
   let _ = touch(ctx, filepath.of(ctx, "b.txt"));
   .Ok(())
@@ -686,13 +686,13 @@ fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
     scratch.write(
         "cmd/site/main.buri",
         r#"
-from "core/effect" import { Alloc, Method, Request, Response };
+from "core/effect" import { Allocator, Method, Request, Response };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 
 export fn fetch(request: Request): Response {
-  let ctx = context { Alloc: host.alloc };
+  let ctx = context { Allocator: host.alloc };
   match (request.path()) {
     // What was sent, read back off the request the platform handed over.
     "/echo" => http.text(ctx, bodyOrExcuse(ctx, request)),
@@ -721,7 +721,7 @@ fn verb(method: Method): Str {
   }
 }
 
-fn bodyOrExcuse<C: Alloc>(ctx: C, request: Request): Str {
+fn bodyOrExcuse<C: Allocator>(ctx: C, request: Request): Str {
   match (http.bodyText(ctx, request.body)) {
     .Ok(text) => text,
     .Err(_e) => "not utf-8",
@@ -877,14 +877,14 @@ fn a_request_with_a_bound_gives_up_on_a_server_that_never_answers() {
         "cmd/dial/main.buri",
         &format!(
             r#"
-from "core/effect" import {{ Alloc, Net, NetError, Response, Stdout }};
+from "core/effect" import {{ Allocator, Network, NetError, Response, Stdout }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {{
-  let ctx = context {{ Alloc: host.alloc, Net: host.net, Stdout: host.stdout }};
+  let ctx = context {{ Allocator: host.alloc, Network: host.net, Stdout: host.stdout }};
   // A peer that accepts and never answers, under a bound of a third of a second.
   let stalling = http.request(.Get, "http://127.0.0.1:{port}/stall").withTimeout(300);
   let _ = io.println(ctx, said(ctx, http.send(ctx, stalling))).ignore();
@@ -894,7 +894,7 @@ export fn main(): Result<(), Str> {{
   .Ok(())
 }}
 
-fn said<C: Alloc>(ctx: C, answer: Result<Response, NetError>): Str {{
+fn said<C: Allocator>(ctx: C, answer: Result<Response, NetError>): Str {{
   match (answer) {{
     .Ok(reply) => str.format(ctx, "answered ${{reply.status}}"),
     .Err(e) => str.format(ctx, "gave up: ${{http.errorText(e)}}"),
@@ -989,22 +989,22 @@ fn a_chunk_is_fetched_only_where_the_program_asks_for_it() {
     scratch.write(
         "cmd/site/main.buri",
         r#"
-from "core/effect" import { Alloc, Request, Response };
+from "core/effect" import { Allocator, Request, Response };
 from "core/host" import * as host;
 from "core/lazy" import * as lazy;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 
-fn onlyTheChunkReachesThis<C: Alloc>(ctx: C, path: Str): Str {
+fn onlyTheChunkReachesThis<C: Allocator>(ctx: C, path: Str): Str {
   str.format(ctx, "heavy ${path}")
 }
 
-fn heavy<C: Alloc>(ctx: C, path: Str): Str {
+fn heavy<C: Allocator>(ctx: C, path: Str): Str {
   onlyTheChunkReachesThis(ctx, path)
 }
 
 export fn fetch(request: Request): Response {
-  let ctx = context { Alloc: host.alloc };
+  let ctx = context { Allocator: host.alloc };
   match (request.path()) {
     "/heavy" => http.text(ctx, lazy.load(heavy)(ctx, request.path())),
     other => http.text(ctx, other),
@@ -1098,7 +1098,7 @@ fn a_page_mounts_an_interface_and_then_dials_a_socket() {
     scratch.write(
         "cmd/page/main.buri",
         r#"
-from "core/effect" import { Alloc, Sockets, Stdout, WebSocketClient };
+from "core/effect" import { Allocator, Sockets, Stdout, WebSocketClient };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/websocket" import * as websocket;
@@ -1108,7 +1108,7 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Sockets: host.sockets,
     Stdout: host.stdout,
     Ui: host.ui,
@@ -1129,7 +1129,7 @@ export fn main(): Result<(), Str> {
   }
 }
 
-fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(): Client<C, Int> {
+fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(): Client<C, Int> {
   Client {
     url: "wss://example.test/feed",
     onOpen: fn(c, socket, response) => {
@@ -1308,7 +1308,7 @@ fn a_javascript_client_is_refused_when_a_dial_cannot_open() {
     scratch.write(
         "cmd/dial/main.buri",
         r#"
-from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -1318,8 +1318,8 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
-    Env: host.env,
+    Allocator: host.alloc,
+    Environment: host.env,
     Sockets: host.sockets,
     Stdout: host.stdout,
     WebSocketClient: host.websocketClient,
@@ -1327,7 +1327,7 @@ export fn main(): Result<(), Str> {
   // Three calls rather than a `mapCtx`: a lambda that suspends is not a thing a
   // list combinator awaits today, and what this row is about is the answer each
   // dial gives.
-  let ports = env.args(ctx);
+  let ports = env.withArguments(ctx);
   let _nobody = dialling(ctx, ports.get(0).withDefault("0"));
   let _not101 = dialling(ctx, ports.get(1).withDefault("0"));
   .Ok(())
@@ -1335,7 +1335,7 @@ export fn main(): Result<(), Str> {
 
 /// One dial, and the one line it is worth. `errorText` is the constant per
 /// variant, so what varies between the three is the cause and nothing else.
-fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(ctx: C, port: Str): () {
+fn dialling<C: Allocator + Sockets + Stdout + WebSocketClient>(ctx: C, port: Str): () {
   let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
   match (websocket.connect(ctx, silent(url))) {
     .Err(e) => {
@@ -1350,7 +1350,7 @@ fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(ctx: C, port: Str): (
 }
 
 /// Hooks that would announce themselves if they ran. None of them does.
-fn silent<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
+fn silent<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
   Client {
     url: url,
     onOpen: fn(c, _socket, _response) => {
@@ -1446,7 +1446,7 @@ fn a_javascript_client_carries_every_shape_over_a_real_socket() {
     scratch.write(
         "cmd/dial/main.buri",
         r#"
-from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -1458,7 +1458,7 @@ from "core/str" import * as str;
 
 /// Say six things of every shape, print every one that comes back, and hang up
 /// once `hangUpAt` of them have.
-fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(
+fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(
   url: Str,
   large: Int,
   hangUpAt: Int,
@@ -1492,7 +1492,7 @@ fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(
 }
 
 /// One dial, and the line that says how it ended.
-fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(
+fn dialling<C: Allocator + Sockets + Stdout + WebSocketClient>(
   ctx: C,
   url: Str,
   large: Int,
@@ -1513,13 +1513,13 @@ fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
-    Env: host.env,
+    Allocator: host.alloc,
+    Environment: host.env,
     Sockets: host.sockets,
     Stdout: host.stdout,
     WebSocketClient: host.websocketClient,
   };
-  let args = env.args(ctx);
+  let args = env.withArguments(ctx);
   let port = args.get(0).withDefault("0");
   let large = args.get(1).withDefault("0").toInt().withDefault(0);
   let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
@@ -1686,7 +1686,7 @@ fn a_worker_dials_a_socket_while_it_answers_a_request() {
     scratch.write(
         "cmd/relay/main.buri",
         r#"
-from "core/effect" import { Alloc, Request, Response, Sockets, WebSocketClient };
+from "core/effect" import { Allocator, Request, Response, Sockets, WebSocketClient };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "core/net/websocket" import * as websocket;
@@ -1695,7 +1695,7 @@ from "core/str" import * as str;
 
 export fn fetch(request: Request): Response {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Sockets: host.sockets,
     WebSocketClient: host.websocketClient,
   };
@@ -1710,7 +1710,7 @@ export fn fetch(request: Request): Response {
 /// A worker has nowhere to print, so what the far side said reaches the world
 /// the only way it can: `onMessage` pushes it back on the socket, and the
 /// double's own log is where the test reads it.
-fn relaying<C: Alloc + Sockets + WebSocketClient>(path: Str): Client<C, Int> {
+fn relaying<C: Allocator + Sockets + WebSocketClient>(path: Str): Client<C, Int> {
   Client {
     url: "wss://example.test/relay",
     onOpen: fn(c, socket, _response) => {
@@ -2432,7 +2432,7 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
 /// One `main.buri`, two entries, and one `page` both of them call — which is
 /// what makes the markup match, and is the shape the guide teaches.
 const RESUME_EDGES_PAGE: &str = r#"
-from "core/effect" import { Alloc, Request, Response, Stdout };
+from "core/effect" import { Allocator, Request, Response, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -2545,13 +2545,13 @@ fn nextLabel(old: Str): Str {
 
 /// Reached from the `load` and from nowhere else, so it ships in a chunk of its
 /// own — and the worker, which never reaches it, has no chunk at all.
-fn summary<C: Alloc>(ctx: C, rows: Int): Str {
+fn summary<C: Allocator>(ctx: C, rows: Int): Str {
     str.format(ctx, "ONLY_IN_THE_CHUNK over ${rows} rows")
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Ui: host.ui,
         Watch: host.watch,
@@ -2601,7 +2601,7 @@ export fn main(): Result<(), Str> {
 
 export fn fetch(request: Request): Response {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     let state = sent();
     http.html(
@@ -2725,7 +2725,7 @@ console.log(`pressed ${showing()}`);
 ///    which is the shape `design/native/DECISIONS.md`'s "a scope stays open for
 ///    the life of the program" row is about;
 ///  * and the timer inside that task **waited**: the wall clock moved by at
-///    least the sleep, so `clock.sleepMillis` is a wait on a page rather than a
+///    least the sleep, so `clock.sleepMilliseconds` is a wait on a page rather than a
 ///    number the runtime pretends to have honoured.
 #[test]
 fn a_page_spawns_from_a_handler_after_main_returned() {
@@ -2739,7 +2739,7 @@ fn a_page_spawns_from_a_handler_after_main_returned() {
         "cmd/page/main.buri",
         r#"
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Clock, Request, Response, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Request, Response, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -2757,7 +2757,7 @@ from "ui/signal" import { Signal };
 ///
 /// The handler captures the scope and the cell, which is what `Scope` being
 /// inert buys — neither carries a context, so a lambda may hold both.
-fn page<C: Alloc + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>): Node<C> {
+fn page<C: Allocator + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>): Node<C> {
     ui.column([], [
         ui.button(.Const("open"), fn(c, event) => {
             let _ = tasks.spawn(c, here, fn(c2) => {
@@ -2773,7 +2773,7 @@ fn page<C: Alloc + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>)
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Clock: host.clock,
         Stdout: host.stdout,
         Tasks: host.tasks,
@@ -2795,7 +2795,7 @@ export fn main(): Result<(), Str> {
 /// waiting when the platform read the answer.
 export fn fetch(request: Request): Response {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Clock: host.clock,
         Stdout: host.stdout,
         Tasks: host.tasks,

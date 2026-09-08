@@ -1,13 +1,13 @@
 // The mapping table of `buri docs build/proto`, read off the generated module.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/proto_gen" import { block, HEAD, lines };
 
 test "the page's own example is the module the page says it is" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [
         HEAD,
@@ -36,7 +36,7 @@ test "the page's own example is the module the page says it is" {
 
 test "a singular message field is an Option whatever the feature says" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [
         HEAD,
@@ -59,7 +59,7 @@ test "a singular message field is an Option whatever the feature says" {
 
 test "a oneof becomes an enum held as an Option" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [
         HEAD,
@@ -88,7 +88,7 @@ test "a oneof becomes an enum held as an Option" {
 
 test "an open enum keeps a number it does not name" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [
         HEAD,
@@ -108,7 +108,7 @@ test "an open enum keeps a number it does not name" {
 
 test "a schema that already names Unrecognized keeps its meaning" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [HEAD, "enum E { E_UNSPECIFIED = 0; Unrecognized = 1; }\n"].join(
         ctx,
@@ -122,7 +122,7 @@ test "a schema that already names Unrecognized keeps its meaning" {
 
 test "an alias decodes to the first name that claimed its number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [HEAD, "enum E { E_UNSPECIFIED = 0; ONE = 1; ALSO_ONE = 1; }\n"].join(
         ctx,
@@ -138,7 +138,7 @@ test "an alias decodes to the first name that claimed its number" {
 
 test "nested types flatten with an underscore" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [
         HEAD,
@@ -162,7 +162,7 @@ test "nested types flatten with an underscore" {
 
 test "a field's Buri name is protoc's json_name, and a keyword gets an underscore" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let source = [
         HEAD,

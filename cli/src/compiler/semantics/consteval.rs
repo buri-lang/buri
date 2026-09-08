@@ -150,7 +150,7 @@ impl<'a> Folder<'a> {
     /// Whether a function may be inlined by the folder: pure by SPEC 10.4, and
     /// with a body to inline.
     ///
-    /// The `Alloc` question is asked of the bounds rather than of the body,
+    /// The `Allocator` question is asked of the bounds rather than of the body,
     /// because that is where the answer is: a function that allocates says so
     /// in its signature, and one that does not cannot start.
     fn is_foldable_fn(&self, id: FnId) -> bool {

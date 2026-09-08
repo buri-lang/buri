@@ -2,7 +2,7 @@
 // The `U32` shifts are a distinct runtime path from the `Int` ones, so the
 // guard is asserted on each width separately.
 from "core/bits" import * as bits;
-from "core/effect" import { Alloc, Stdout, Env };
+from "core/effect" import { Allocator, Stdout, Environment };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -10,8 +10,8 @@ from "core/io" import * as io;
 fn push(x: U32, n: Int): U32 { bits.shlU32(x, n) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
-  let width = 32 + env.args(ctx).len();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
+  let width = 32 + env.arguments(ctx).len();
   let _ = io.println(ctx, "${push(1, width)}").ignore();
   .Ok(())
 }

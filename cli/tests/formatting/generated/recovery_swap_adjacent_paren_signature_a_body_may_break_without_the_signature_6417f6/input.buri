@@ -1,4 +1,4 @@
-export fn everything<C: Alloc>(ctx: C, b: [U8], t: (IntInt ,)): Str {
+export fn everything<C: Allocator>(ctx: C, b: [U8], t: (IntInt ,)): Str {
   let a = 1;
   let b = 2;
   "done"

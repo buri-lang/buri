@@ -6,11 +6,11 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Header, IoError, Listen, Listener, Net, NetError, Received,
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, NetError, Received,
     Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
 };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite, Metadata, Path };
+from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata, Path };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/net/http" import * as http;
@@ -108,7 +108,7 @@ impl Ord for Backwards {
 }
 
 impl Show for Backwards {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "Backwards(${self.0})")
     }
 }
@@ -157,7 +157,7 @@ impl Ord for Suit {
 }
 
 impl Show for Suit {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         match (self) {
             .Clubs => "C",
             .Diamonds => "D",
@@ -181,7 +181,7 @@ impl Eq for Loose {
 }
 
 impl Show for Loose {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "Loose(${self.word})")
     }
 }
@@ -204,7 +204,7 @@ impl Eq for Percent {
 }
 
 impl Show for Percent {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "${self.0}%")
     }
 }
@@ -315,7 +315,7 @@ export fn relayTwice<T: Relay>(x: T, amount: Int): Int {
 
 /// The callback applied once per element, so the closure crosses a list before
 /// it is called.
-export fn relayAll<C: Alloc>(ctx: C, xs: [Scale], amount: Int): [Int] {
+export fn relayAll<C: Allocator>(ctx: C, xs: [Scale], amount: Int): [Int] {
     xs.map(ctx, fn(s) => relayScaled(s, amount))
 }
 
@@ -342,7 +342,7 @@ export fn heavyLabel<T: Weigh + Label>(x: T): Str {
 }
 
 /// A bound from `core/order` plus one of mine.
-export fn weighAndShow<T: Weigh + Show, C: Alloc>(ctx: C, x: T): Str {
+export fn weighAndShow<T: Weigh + Show, C: Allocator>(ctx: C, x: T): Str {
     str.format(ctx, "${x.show(ctx)}=${x.grams()}")
 }
 
@@ -399,11 +399,11 @@ export fn between<T: Ord>(lo: T, hi: T, x: T): Bool {
     x >= lo && x <= hi
 }
 
-export fn showAll<T: Show, C: Alloc>(ctx: C, xs: [T]): Str {
+export fn showAll<T: Show, C: Allocator>(ctx: C, xs: [T]): Str {
     xs.mapCtx(ctx, fn(c, x) => x.show(c)).join(ctx, ",")
 }
 
-export fn sortedShow<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str {
+export fn sortedShow<T: Ord + Show, C: Allocator>(ctx: C, xs: [T]): Str {
     showAll(ctx, xs.sortBy(ctx, fn(a, b) => a.compare(b)))
 }
 
@@ -550,7 +550,7 @@ impl<T: Ord> Tree<T> {
 
 impl<T> Tree<T> {
     /// In-order traversal, which is what makes the tree's ordering observable.
-    export fn inOrder<C: Alloc>(self, ctx: C): [T] {
+    export fn inOrder<C: Allocator>(self, ctx: C): [T] {
         match (self) {
             .Leaf => list.empty<T>(),
             .Node(l, v, r) => l.inOrder(ctx).push(ctx, v).concat(ctx, r.inOrder(ctx)),
@@ -559,7 +559,7 @@ impl<T> Tree<T> {
 }
 
 impl<A> Tree<A> {
-    export fn mapTree<B, C: Alloc>(self, ctx: C, f: fn(A) => B): Tree<B> {
+    export fn mapTree<B, C: Allocator>(self, ctx: C, f: fn(A) => B): Tree<B> {
         match (self) {
             .Leaf => Tree.Leaf,
             .Node(l, v, r) => Tree.Node(l.mapTree(ctx, f), f(v), r.mapTree(ctx, f)),
@@ -607,7 +607,7 @@ export struct Report {
 
 impl Report {
     /// `self` inside a lambda that is consumed on the spot.
-    export fn above<C: Alloc>(self, ctx: C, xs: [Int]): [Int] {
+    export fn above<C: Allocator>(self, ctx: C, xs: [Int]): [Int] {
         xs.filter(ctx, fn(x) => x > self.n)
     }
 
@@ -712,19 +712,19 @@ export fn nestedShadow(x: Int): Int {
 // =============================================================================
 
 // The three filesystem users, and they are where this suite writes down what
-// the split bought: `loadText` names `FsRead` and nothing it reaches can
-// write, `saveText` names `FsWrite` and nothing it reaches can read, and
+// the split bought: `loadText` names `FileSystemRead` and nothing it reaches can
+// write, `saveText` names `FileSystemWrite` and nothing it reaches can read, and
 // `roundTrip` needs both and says so.
 //
 // Each takes the path as *text* and makes the `Path` here, which is what a
 // program does with a string that came from outside it — `core/fs` takes only
 // a `Path`, and `core/path` is the one place text becomes one.
 
-export fn loadText<C: Alloc + FsRead>(ctx: C, at: Str): Result<Str, IoError> {
+export fn loadText<C: Allocator + FileSystemRead>(ctx: C, at: Str): Result<Str, IoError> {
     fs.readText(ctx, path.of(ctx, at))
 }
 
-export fn saveText<C: Alloc + FsWrite>(
+export fn saveText<C: Allocator + FileSystemWrite>(
     ctx: C,
     at: Str,
     body: Str,
@@ -732,7 +732,7 @@ export fn saveText<C: Alloc + FsWrite>(
     fs.writeText(ctx, path.of(ctx, at), body)
 }
 
-export fn roundTrip<C: Alloc + FsRead + FsWrite>(
+export fn roundTrip<C: Allocator + FileSystemRead + FileSystemWrite>(
     ctx: C,
     at: Str,
     body: Str,
@@ -767,7 +767,7 @@ export fn elapsed<C: Clock>(ctx: C, earlier: Instant): Int {
     time.since(ctx, earlier).millis()
 }
 
-export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {
+export fn fetchBody<C: Allocator + Network>(ctx: C, url: Str): Result<Str, NetError> {
     match (http.get(ctx, url)) {
         .Ok(r) => .Ok(http.bodyText(ctx, r.body).withDefault("")),
         .Err(e) => .Err(e),
@@ -785,11 +785,11 @@ export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {
 /// **Four methods, and it is a complete implementation.** Before the split it
 /// was twelve, eight of which existed only to answer `.PermissionDenied` — a
 /// fake that had to restate the whole of the effect to attenuate a quarter of
-/// it. `FsRead` is what a read-only double implements now, and a context that
-/// binds it and no `FsWrite` cannot ask this type for a write at all.
+/// it. `FileSystemRead` is what a read-only double implements now, and a context that
+/// binds it and no `FileSystemWrite` cannot ask this type for a write at all.
 ///
 /// The octet half is refused rather than answered: turning `body` into UTF-8
-/// would need `Alloc`, and an effect method takes only `self`. A hand-written
+/// would need `Allocator`, and an effect method takes only `self`. A hand-written
 /// fake refusing what it does not implement is the ordinary case, and the
 /// refusal is a value the caller can match on.
 export struct StaticFs {
@@ -797,7 +797,7 @@ export struct StaticFs {
     export body: Str,
 }
 
-impl FsRead for StaticFs {
+impl FileSystemRead for StaticFs {
     fn readFile(self, path: Path): Result<Str, IoError> {
         if (path.text() == self.only) { .Ok(self.body) } else { .Err(.NotFound) }
     }
@@ -834,13 +834,13 @@ impl FsRead for StaticFs {
 /// A filesystem that refuses every write and can read nothing at all.
 ///
 /// The other side of `StaticFs`, and the shape the split makes sayable: eight
-/// methods, no `FsRead`, and a context that binds it has an authority to
+/// methods, no `FileSystemRead`, and a context that binds it has an authority to
 /// write and no way to look at what is there. Every answer is
 /// `.PermissionDenied`, so a failure names *this* implementation rather than
 /// the runner's `readOnly()`, which answers `.ReadOnly`.
 export struct RefusingFs {}
 
-impl FsWrite for RefusingFs {
+impl FileSystemWrite for RefusingFs {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
         .Err(.PermissionDenied)
     }
@@ -890,7 +890,7 @@ export fn guarded<C>(ctx: C): Guarded<C> {
     Guarded(ctx)
 }
 
-impl<C: FsRead> FsRead for Guarded<C> {
+impl<C: FileSystemRead> FileSystemRead for Guarded<C> {
     fn readFile(self, path: Path): Result<Str, IoError> {
         self.0.readFile(path)
     }
@@ -920,7 +920,7 @@ impl<C: FsRead> FsRead for Guarded<C> {
     }
 }
 
-impl<C: FsWrite> FsWrite for Guarded<C> {
+impl<C: FileSystemWrite> FileSystemWrite for Guarded<C> {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
@@ -964,11 +964,11 @@ export struct FrozenClock {
 }
 
 impl Clock for FrozenClock {
-    fn nowMillis(self): I64 {
+    fn nowMilliseconds(self): I64 {
         self.at
     }
 
-    fn sleepMillis(self, millis: Int): () {
+    fn sleepMilliseconds(self, millis: Int): () {
         ()
     }
 
@@ -984,12 +984,12 @@ export struct EchoEnv {
     export always: Str,
 }
 
-impl Env for EchoEnv {
+impl Environment for EchoEnv {
     fn variable(self, name: Str): Option<Str> {
         .Some(self.always)
     }
 
-    fn args(self): [Str] {
+    fn arguments(self): [Str] {
         [self.always]
     }
 
@@ -1010,13 +1010,13 @@ impl Env for EchoEnv {
 ///
 /// The body is octets rather than text for the same reason `StaticFs`'s octet
 /// half is refused: `Response.body` is a `[U8]`, encoding a `Str` into one
-/// needs `Alloc`, and an effect method takes only `self`. A fake that wants to
+/// needs `Allocator`, and an effect method takes only `self`. A fake that wants to
 /// answer text is handed the bytes.
 export struct TeapotNet {
     export body: [U8],
 }
 
-impl Net for TeapotNet {
+impl Network for TeapotNet {
     fn fetch(self, request: Request): Result<Response, NetError> {
         .Ok(Response { status: 418, headers: [], body: self.body })
     }
@@ -1314,7 +1314,7 @@ impl Listen for PlanListen {
 /// fake here cannot record what it was told — `sockets()` in `core/host/testing`
 /// is where that lands, with the `Slot` machinery the other doubles use. What
 /// this one is for is the part that *is* checkable without a runtime: that a
-/// context can bind `Sockets` beside `Listen` and `Net` and still call every
+/// context can bind `Sockets` beside `Listen` and `Network` and still call every
 /// one of their methods by name.
 export struct QuietSockets {}
 
@@ -1341,7 +1341,7 @@ impl Sockets for QuietSockets {
 /// declaring one name make the **call** ambiguous rather than either
 /// declaration wrong — `Ui.read` and `Watch.read` are the shipped case, and
 /// there is no way to un-claim a name once programs are written against it.
-/// Every method name `Listen`, `Sockets` and `Net` claim is reached from this
+/// Every method name `Listen`, `Sockets` and `Network` claim is reached from this
 /// one function — the seven `listen…` through `serve`'s own loop, the three
 /// `socket…` through a `Socket`'s two methods, and `fetch` directly: a build
 /// error here is the failure, and it arrives at the only moment the answer is
@@ -1362,7 +1362,7 @@ impl Sockets for QuietSockets {
 /// The handler is handed `c` — the caller's *own* context — and uses it,
 /// which is the claim: a handler runs under the authority `serve` was called
 /// with, and nothing about that passes through `Listen`.
-export fn serveOnce<C: Alloc + Listen + Net + Sockets + Tasks>(ctx: C, url: Str): Int {
+export fn serveOnce<C: Allocator + Listen + Network + Sockets + Tasks>(ctx: C, url: Str): Int {
     // A forged `Socket`, which is what an inert handle allows and what the
     // runtime answers "already gone" for. The three `Sockets` methods are
     // reached through it, which is where they live now.
@@ -1419,7 +1419,7 @@ export fn serveOnce<C: Alloc + Listen + Net + Sockets + Tasks>(ctx: C, url: Str)
 /// callback only the compiler could invoke would not be an ordinary interface.
 ///
 /// It answers up to three items because a `[B]` longer than a literal needs
-/// `Alloc` and this fake's `C` is unbounded — fixed-size construction never
+/// `Allocator` and this fake's `C` is unbounded — fixed-size construction never
 /// needs a context (SPEC 10.5), which is exactly what an array literal is. Two
 /// is what the tests use; the third arm is there so the `match` is not a
 /// two-case special.
@@ -1456,7 +1456,7 @@ impl Tasks for SerialTasks {
 /// results so a caller sees one number. That is the half a bounded parameter
 /// used to lose: `Self` there was `C` until `C` was known, and the correction
 /// made at instantiation handed the step the implementation instead.
-export fn runInOrder<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
+export fn runInOrder<C: Allocator + Tasks>(ctx: C, items: [Int]): Int {
     let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
     out[0].withDefault(0) + out[1].withDefault(0)
 }
@@ -1465,11 +1465,11 @@ export fn runInOrder<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
 ///
 /// `runInOrder` above would pass with a step handed anything at all, because
 /// its closure ignores its first parameter. This one cannot: `str.format`
-/// needs the `Alloc` that only the caller's context carries, and a `SerialTasks`
+/// needs the `Allocator` that only the caller's context carries, and a `SerialTasks`
 /// or a `HostTasks` does not have it. It is the compile-time half of the claim
 /// — a step's first parameter has the caller's bounds — and `test/effects.buri`
 /// runs it for the answer.
-export fn runInOrderNamed<C: Alloc + Tasks>(ctx: C, items: [Int]): [Str] {
+export fn runInOrderNamed<C: Allocator + Tasks>(ctx: C, items: [Int]): [Str] {
     tasks.parallel(ctx, items, fn(c, i, item) => str.format(c, "${i}:${item}"))
 }
 
@@ -1477,9 +1477,9 @@ export fn runInOrderNamed<C: Alloc + Tasks>(ctx: C, items: [Int]): [Str] {
 // 11.4 A context-bounded parameter is an ordinary bound (SPEC 10.1, 10.8)
 // =============================================================================
 //
-// `<C: Alloc>` and `<T: Ord>` are one feature — "a list of interfaces a type
+// `<C: Allocator>` and `<T: Ord>` are one feature — "a list of interfaces a type
 // parameter must satisfy" — so the argument at `C` need not be a
-// `context { … }` record. Anything that *implements* `Alloc` satisfies it, and
+// `context { … }` record. Anything that *implements* `Allocator` satisfies it, and
 // SPEC 10.8's attenuation is the reason the language wants that: `ReadOnly<C>`
 // below is a value that genuinely lacks the effects it does not forward, which
 // is the trust-boundary answer confinement cannot give.
@@ -1493,23 +1493,23 @@ export fn runInOrderNamed<C: Alloc + Tasks>(ctx: C, items: [Int]): [Str] {
 // parameter for and shifted every argument after it one register down.
 
 /// `list.push` — a table row whose context is its second argument.
-export fn pushedWith<C: Alloc>(ctx: C, item: Int, into: [Int]): [Int] {
+export fn pushedWith<C: Allocator>(ctx: C, item: Int, into: [Int]): [Int] {
     into.push(ctx, item)
 }
 
 /// `list.repeat` — a table row whose context is its **first**, so the two
 /// indices the column can take are both exercised.
-export fn repeatedWith<C: Alloc>(ctx: C, item: Int): [Int] {
+export fn repeatedWith<C: Allocator>(ctx: C, item: Int): [Int] {
     list.repeat(ctx, item, 2)
 }
 
 /// `str.concat` — the one allocating operation with no table row, whose
 /// argument list is narrowed at the call site instead.
-export fn joinedWith<C: Alloc>(ctx: C, a: Str, b: Str): Str {
+export fn joinedWith<C: Allocator>(ctx: C, a: Str, b: Str): Str {
     a.concat(ctx, b)
 }
 
-/// SPEC 10.8's attenuating wrapper: a plain struct that satisfies `Alloc` by
+/// SPEC 10.8's attenuating wrapper: a plain struct that satisfies `Allocator` by
 /// forwarding to whatever it holds.
 ///
 /// It is *not* a context, and that is the whole point of it — a callee handed
@@ -1519,7 +1519,7 @@ export struct ReadOnly<C> {
     export inner: C,
 }
 
-impl<C: Alloc> Alloc for ReadOnly<C> {
+impl<C: Allocator> Allocator for ReadOnly<C> {
     fn allocate(self, bytes: Int): Region {
         self.inner.allocate(bytes)
     }
@@ -1533,7 +1533,7 @@ export struct Logged<C> {
     export prefix: Str,
 }
 
-impl<C: Alloc> Alloc for Logged<C> {
+impl<C: Allocator> Allocator for Logged<C> {
     fn allocate(self, bytes: Int): Region {
         self.inner.allocate(bytes)
     }
@@ -1541,31 +1541,31 @@ impl<C: Alloc> Alloc for Logged<C> {
 
 /// Builds one and uses it, so the wrapper is allocated *through* the very
 /// context it wraps and then stands in for it.
-export fn loggedWith<C: Alloc>(ctx: C, into: [Int]): [Int] {
+export fn loggedWith<C: Allocator>(ctx: C, into: [Int]): [Int] {
     let wrapped = Logged { inner: ctx, prefix: "ab".concat(ctx, "cd") };
     into.push(wrapped, wrapped.prefix.len())
 }
 
-/// One value satisfying **two** effects, which is what makes `C: Alloc + Clock`
-/// a different question from `C: Alloc`: the bound is a list, and a single
+/// One value satisfying **two** effects, which is what makes `C: Allocator + Clock`
+/// a different question from `C: Allocator`: the bound is a list, and a single
 /// implementing value discharges all of it.
 export struct Ticking<C> {
     export inner: C,
 }
 
-impl<C: Alloc> Alloc for Ticking<C> {
+impl<C: Allocator> Allocator for Ticking<C> {
     fn allocate(self, bytes: Int): Region {
         self.inner.allocate(bytes)
     }
 }
 
 impl<C: Clock> Clock for Ticking<C> {
-    fn nowMillis(self): Int {
-        self.inner.nowMillis()
+    fn nowMilliseconds(self): Int {
+        self.inner.nowMilliseconds()
     }
 
-    fn sleepMillis(self, millis: Int): () {
-        self.inner.sleepMillis(millis)
+    fn sleepMilliseconds(self, millis: Int): () {
+        self.inner.sleepMilliseconds(millis)
     }
 
     fn monotonicNanoseconds(self): I64 {
@@ -1575,14 +1575,14 @@ impl<C: Clock> Clock for Ticking<C> {
 
 /// A `Ticking`. The two bounds live on the `impl`s above, not here: wrapping a
 /// context demands nothing of it, so this signature demands nothing either.
-/// `stampedWith` below is where `C: Alloc + Clock` is exercised.
+/// `stampedWith` below is where `C: Allocator + Clock` is exercised.
 export fn ticking<C>(ctx: C): Ticking<C> {
     Ticking { inner: ctx }
 }
 
 /// Both bounds used through one parameter: the clock's answer, appended with
 /// the allocator's.
-export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
+export fn stampedWith<C: Allocator + Clock>(ctx: C, into: [Int]): [Int] {
     into.push(ctx, time.now(ctx).0)
 }
 
@@ -1662,7 +1662,7 @@ export fn threeInts(a: Int, b: Int, c: Int): Int {
     a * 100 + b * 10 + c
 }
 
-export fn fourStrs<C: Alloc>(ctx: C, a: Str, b: Str, c: Str, d: Str): Str {
+export fn fourStrs<C: Allocator>(ctx: C, a: Str, b: Str, c: Str, d: Str): Str {
     str.format(ctx, "${a}${b}${c}${d}")
 }
 
@@ -1685,7 +1685,7 @@ export enum Widget<C> {
 /// context, in one signature. The `Group` recursion is what makes the rule a
 /// fixpoint rather than a single pass — `Group([Widget<C>])` can only provide
 /// a `C` if `Widget` already does.
-export fn render<C: Alloc>(ctx: C, root: Widget<C>): Str {
+export fn render<C: Allocator>(ctx: C, root: Widget<C>): Str {
     match (root) {
         .Label(text) => text,
         .Press(label, press) => press(ctx, label.len()),
@@ -1698,7 +1698,7 @@ export fn render<C: Alloc>(ctx: C, root: Widget<C>): Str {
 /// The shape a row closure has: a function whose *result* is a tree over the
 /// bounded context. A function type is judged by its result, so this was
 /// rejected for the same reason `render` was.
-export fn eachRow<C: Alloc, T>(
+export fn eachRow<C: Allocator, T>(
     ctx: C,
     items: [T],
     row: fn(C, T, Int) => Widget<C>,

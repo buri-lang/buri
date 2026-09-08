@@ -1022,17 +1022,17 @@ mod tests {
             api: Api::Method {
                 owner: "[A]".to_string(),
                 via_trait: None,
-                effects: vec!["Alloc".to_string()],
+                effects: vec!["Allocator".to_string()],
             },
             name: "map".to_string(),
-            signature: "fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]".to_string(),
+            signature: "fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]".to_string(),
             docs: vec!["Applies `f` to every element.".to_string()],
         };
         let page = item_markdown(&item);
         assert!(page.starts_with("### map\n"), "{page}");
         assert_eq!(buri::documentation::markdown::slug("map"), "map");
-        assert!(page.contains("```buri sig\nfn map<B, C: Alloc>"), "{page}");
-        assert!(page.contains("A method on `[A]`. Effects: `Alloc`."), "{page}");
+        assert!(page.contains("```buri sig\nfn map<B, C: Allocator>"), "{page}");
+        assert!(page.contains("A method on `[A]`. Effects: `Allocator`."), "{page}");
     }
 
     /// A pure function says so, and a struct — which cannot be called — says

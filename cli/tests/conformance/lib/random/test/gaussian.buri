@@ -11,7 +11,7 @@
 // fact about splitmix64 and about `ln`, and the second of those is what this
 // file is here to keep away from the native suites.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/math" import * as math;
@@ -37,7 +37,7 @@ test "a draw steps the generator" {
 
 test "the draws are centred on zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(1), 400, []);
     let mean = draws.sumFloat() / 400.0;
@@ -48,7 +48,7 @@ test "the draws are centred on zero" {
 
 test "the draws have a deviation of about one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(2), 400, []);
     let mean = draws.sumFloat() / 400.0;
@@ -58,7 +58,7 @@ test "the draws have a deviation of about one" {
 
 test "the draws land on both sides and reach past one deviation" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(5), 200, []);
     assert.isTrue(draws.any(fn(x) => x > 1.0));
@@ -75,7 +75,7 @@ test "a scaled draw moves the mean and the spread with it" {
 }
 
 /// `count` draws, threaded through the generator.
-fn many<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]): [Float] {
+fn many<C: Allocator>(ctx: C, g: Gen, count: Int, acc: [Float]): [Float] {
     if (count <= 0) {
         acc
     } else {
@@ -99,7 +99,7 @@ fn many<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]): [Float] {
 
 test "two thousand draws have the mean and the deviation of a standard normal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(20260907), 2000, []);
     assert.eq(draws.len(), 2000);
@@ -117,7 +117,7 @@ test "two thousand draws have the mean and the deviation of a standard normal" {
 
 test "two thousand draws fall inside one and two deviations at the normal rate" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(20260907), 2000, []);
     let within = fn(limit: Float) => {
@@ -136,7 +136,7 @@ test "two thousand draws fall inside one and two deviations at the normal rate" 
 
 test "the distribution is symmetric, which a one-sided error would not be" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let draws = many(ctx, random.seeded(20260907), 2000, []);
     let above = draws.count(fn(x) => x > 0.0);
@@ -152,7 +152,7 @@ test "the distribution is symmetric, which a one-sided error would not be" {
 
 test "four other seeds each land on the same moments" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // One sample could be a coincidence; the point of a seeded generator is
     // that every seed is a stream, so four of them are checked at once.

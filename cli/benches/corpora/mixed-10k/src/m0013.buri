@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0008.buri" import { blend8, Node8, reach8, seed8 };
@@ -54,7 +54,7 @@ export fn parseBoth13_0(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_0<C: Alloc>(ctx: C): Int {
+export fn probe13_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth13_0("1", "2")) {
         .Some(v) => v,
@@ -65,7 +65,7 @@ export fn probe13_0<C: Alloc>(ctx: C): Int {
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label13_1<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label13_1<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "echo" } else { "delta" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -78,14 +78,14 @@ export fn constants13_1(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_1<C: Alloc>(ctx: C): Int {
+export fn probe13_1<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants13_1();
     label13_1(ctx, a, e).len() + b
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label13_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label13_2<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "delta" } else { "delta" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -98,14 +98,14 @@ export fn constants13_2(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_2<C: Alloc>(ctx: C): Int {
+export fn probe13_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants13_2();
     label13_2(ctx, a, e).len() + b
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label13_3<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label13_3<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "echo" } else { "hotel" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -118,14 +118,14 @@ export fn constants13_3(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_3<C: Alloc>(ctx: C): Int {
+export fn probe13_3<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants13_3();
     label13_3(ctx, a, e).len() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest13_4<C: Alloc>(ctx: C): Int {
+export fn digest13_4<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [820, 8662, 6811, 8825, 380, 1708, 1886, 9545, 3381];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -140,7 +140,7 @@ export fn drain13_4(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_4<C: Alloc>(ctx: C): Int {
+export fn probe13_4<C: Allocator>(ctx: C): Int {
     digest13_4(ctx) + drain13_4()
 }
 
@@ -164,7 +164,7 @@ export fn parseBoth13_5(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_5<C: Alloc>(ctx: C): Int {
+export fn probe13_5<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth13_5("1", "2")) {
         .Some(v) => v,
@@ -208,7 +208,7 @@ export fn start13_6(ticks: Int): State13_6 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_6<C: Alloc>(ctx: C): Int {
+export fn probe13_6<C: Allocator>(ctx: C): Int {
     let s = start13_6(5);
     rank13_6(s) + s.show(ctx).len()
 }
@@ -228,14 +228,14 @@ export fn compute13_7(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_7<C: Alloc>(ctx: C): Int {
+export fn probe13_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute13_7(7)
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest13_8<C: Alloc>(ctx: C): Int {
+export fn digest13_8<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [9690, 9493, 7834, 3712, 5196];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -250,7 +250,7 @@ export fn drain13_8(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_8<C: Alloc>(ctx: C): Int {
+export fn probe13_8<C: Allocator>(ctx: C): Int {
     digest13_8(ctx) + drain13_8()
 }
 
@@ -285,7 +285,7 @@ export fn start13_9(ticks: Int): State13_9 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_9<C: Alloc>(ctx: C): Int {
+export fn probe13_9<C: Allocator>(ctx: C): Int {
     let s = start13_9(5);
     rank13_9(s) + s.show(ctx).len()
 }
@@ -308,14 +308,14 @@ export fn compute13_10(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe13_10<C: Alloc>(ctx: C): Int {
+export fn probe13_10<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute13_10(7)
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach13<C: Alloc>(ctx: C): Int {
+export fn reach13<C: Allocator>(ctx: C): Int {
     0
         + probe13_0(ctx)
         + probe13_1(ctx)

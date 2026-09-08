@@ -7,7 +7,7 @@ methods are the operations it grants:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // core/effect
-export effect Alloc {
+export effect Allocator {
     fn allocate(self, bytes: Int): Region;
 }
 
@@ -49,7 +49,7 @@ export struct Response {
     export body: [U8],
 }
 
-export effect Net {
+export effect Network {
     fn fetch(self, request: Request): Result<Response, NetError>;
 }
 ```
@@ -59,14 +59,14 @@ declares the filesystem's two:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // core/fs
-export effect FsRead {
+export effect FileSystemRead {
     fn readFile(self, path: Path): Result<Str, IoError>;
     fn fileExists(self, path: Path): Bool;
     fn readDir(self, path: Path): Result<[Str], IoError>;
     fn readFileBytes(self, path: Path): Result<[U8], IoError>;
 }
 
-export effect FsWrite {
+export effect FileSystemWrite {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError>;
     fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError>;
     fn appendFile(self, path: Path, body: [U8]): Result<(), IoError>;
@@ -78,21 +78,21 @@ export effect FsWrite {
 }
 ```
 
-`core/effect` declares `Alloc`, `Net`, `Clock`, `Rand`, `Entropy`, `Env`,
-`Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, `Sockets` and
-`WebSocketClient`, and `core/fs` declares `FsRead` and `FsWrite`. **Only
+`core/effect` declares `Allocator`, `Network`, `Clock`, `Random`, `Entropy`, `Environment`,
+`Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`, `Sockets` and
+`WebSocketClient`, and `core/fs` declares `FileSystemRead` and `FileSystemWrite`. **Only
 platform modules may declare effects**; `effect` in ordinary code is a compile
 error. So a program's platform fixes what that program can do to the world.
 
 **The filesystem is two effects because it is two grants.** A program that reads
 its configuration has not thereby earned the right to delete it. A
-`<C: Alloc + FsRead>` is a promise the compiler keeps: nothing that function
-hands `ctx` to can ask for `FsWrite` from a context that does not bind it. The
+`<C: Allocator + FileSystemRead>` is a promise the compiler keeps: nothing that function
+hands `ctx` to can ask for `FileSystemWrite` from a context that does not bind it. The
 two live in `core/fs` rather than `core/effect` because their methods name
 `Path`, and `core/effect` cannot import a module that imports it. `core/fs`
-re-exports `Path`, so `from "core/fs" import { FsRead, Path }` is one import.
+re-exports `Path`, so `from "core/fs" import { FileSystemRead, Path }` is one import.
 
-`Rand` and `Entropy` split the same way. `Rand` promises a distribution and
+`Random` and `Entropy` split the same way. `Random` promises a distribution and
 nothing more — the test platform's is seeded, so a failing test reproduces.
 `Entropy` promises that somebody who has watched the output cannot predict the
 rest. `core/random` is the door onto one, `core/crypto` onto the other.
@@ -132,17 +132,17 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc };
-# from "core/fs" import { FsRead, Path };
+# from "core/effect" import { Allocator };
+# from "core/fs" import { FileSystemRead, Path };
 
-fn loadConfig<C: Alloc + FsRead>(ctx: C, at: Path): Result<Config, ConfigError> {
+fn loadConfig<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Config, ConfigError> {
     let text = fs.readText(ctx, at)?;
     parse(ctx, text)
 }
 ```
 
 There is one constraint mechanism in the language. `<T: Ord + Show>` and
-`<C: Alloc + FsRead>` are the same feature: a list of interfaces a type parameter
+`<C: Allocator + FileSystemRead>` are the same feature: a list of interfaces a type parameter
 must satisfy.
 
 ### 10.2 The `ctx` rule
@@ -151,19 +151,19 @@ must satisfy.
 name, never any other position, and at most one of each:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, IoError, Net, Region };
-# from "core/fs" import { FsRead, Path };
-fn readText<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, IoError>    // ok
-fn render<C: Alloc>(self, ctx: C): Str                                    // ok
+# from "core/effect" import { Allocator, IoError, Network, Region };
+# from "core/fs" import { FileSystemRead, Path };
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>    // ok
+fn render<C: Allocator>(self, ctx: C): Str                                    // ok
 fn allocate(self, bytes: Int): Region                                     // ok
-fn sneaky<C: FsRead>(a: Int, handle: C): Bool                             // ERROR
-fn twoWorlds<A: FsRead, B: Net>(ctx: A, other: B): ()                     // ERROR
+fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool                             // ERROR
+fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): ()                     // ERROR
 
 enum Widget<C> { Press(fn(C, Int) => Str), Group([Widget<C>]) }
 enum Boxed<C>  { Held(C) }
 
-fn render<C: Alloc>(ctx: C, root: Widget<C>): Str                         // ok
-fn peek<C: Alloc>(ctx: C, held: Boxed<C>): Int                            // ERROR
+fn render<C: Allocator>(ctx: C, root: Widget<C>): Str                         // ok
+fn peek<C: Allocator>(ctx: C, held: Boxed<C>): Int                            // ERROR
 ```
 
 A type is **effect-carrying** if it is a type variable with an effect
@@ -208,8 +208,8 @@ Two layers are below that line and keep the method form:
 - **the body of an `impl` that supplies an effect**, which is where the
   operation is implemented. That is what keeps Section 10.8's attenuation wrapper
   writable. `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
-  `fs.readText(self.0, at)`, because that wrapper is bounded `Alloc + FsRead`
-  where the `impl` carries only `C: FsRead`.
+  `fs.readText(self.0, at)`, because that wrapper is bounded `Allocator + FileSystemRead`
+  where the `impl` carries only `C: FileSystemRead`.
 
 Exactly one construct may hold more than one effect-carrying value: the `context`
 expression of Section 11.3. Everywhere else, effects travel through a single
@@ -234,15 +234,15 @@ platform `host.listen` and `host.sockets`, and on a platform with a document
 it. `main` assembles them into the one context the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Stdout };
-# from "core/fs" import { FsRead };
+# from "core/effect" import { Allocator, Stdout };
+# from "core/fs" import { FileSystemRead };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc:  host.alloc,
+    Allocator:  host.alloc,
     Stdout: host.stdout,
-    FsRead: host.fs,
+    FileSystemRead: host.fs,
   };
   ...
 }
@@ -251,7 +251,7 @@ export fn main(): Result<(), Str> {
 Section 11.3 has the form. A program that never names `host.net` cannot open a
 socket anywhere in its transitive call graph — not in a dependency, not in a
 build script, not by accident — because nothing anywhere can obtain a value
-bounded by `Net`. The effect budget is the set of `host` members reachable from
+bounded by `Network`. The effect budget is the set of `host` members reachable from
 `main`'s context. A platform that does not grant an effect does not export it, so
 asking for one is `effect-not-on-platform`, reported on the name inside the
 braces where the file imported it, and on the member reference where the host
@@ -262,18 +262,18 @@ The build system decides which platforms the module is checked against, not the
 language. The compiler checks `main.buri` against every platform its rule's
 `outputs` name, and against every platform its suite names in `test.platforms`,
 because a test binary links `main` in. All of them have to compile. Nothing about
-an **effect type** is platform-bound: `from "core/fs" import { FsRead }` is legal
+an **effect type** is platform-bound: `from "core/fs" import { FileSystemRead }` is legal
 everywhere, a page included, because a bound demands an implementation rather
 than being one.
 
 The context above reads files and cannot write one: `host.fs` is nowhere in
-it, so nothing it reaches can be bounded by `FsWrite`. Binding one half of the
+it, so nothing it reaches can be bounded by `FileSystemWrite`. Binding one half of the
 filesystem and not the other is the ordinary case rather than a precaution.
 
 Which platforms grant an effect is a row in a grant table. `Tasks` — "run this
 concurrently" — is granted everywhere, `WEB` included: a page's concurrency is
 its event loop, and `core/tasks`'s `spawn` is how a program puts a socket, a
-retry or a timer on one. `FsRead`, `FsWrite`, `Stdin`, `Env` and `Proc` are the
+retry or a timer on one. `FileSystemRead`, `FileSystemWrite`, `Stdin`, `Environment` and `Process` are the
 three platforms that are not a page, because a page has no filesystem, no
 standard input, no command line and no process to exit. `Listen` — "I accept
 connections" — is granted on `LINUX` and `MACOS` and nowhere else, because
@@ -304,7 +304,7 @@ None of this stops anyone writing a type that satisfies an effect, and Section
 anything, and what nobody can forge is the *platform's* implementation. The open
 interface is what makes testing free.
 
-`Alloc` is the one effect whose implementation grants nothing: `allocate` answers
+`Allocator` is the one effect whose implementation grants nothing: `allocate` answers
 a `Region`, which is a number nothing reads. So `core/alloc` ships three
 implementations — `generalPurpose()`, `arena()`, `fixedBuffer(n)` — and any
 module may import it, not only `main`. Binding one is how a program asks what it
@@ -351,11 +351,11 @@ Two consequences:
 
 ### 10.5 Determinism versus effects
 
-`Alloc` is a **resource** effect: it can fail (out of memory) and it costs
+`Allocator` is a **resource** effect: it can fail (out of memory) and it costs
 something, but it is not observable. Every other effect in `core/effect` is
 **observable**.
 
-A function is **deterministic** if its only effect bound is `Alloc`.
+A function is **deterministic** if its only effect bound is `Allocator`.
 `list.map(ctx, f)` is deterministic: it needs to allocate, but it is
 referentially transparent. `time.now(ctx)` is not.
 
@@ -363,15 +363,15 @@ Tracking allocation is what makes "does no I/O" and "does not allocate"
 separately expressible:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, IoError };
-# from "core/fs" import { FsRead, Path };
+# from "core/effect" import { Allocator, IoError };
+# from "core/fs" import { FileSystemRead, Path };
 fn sum(self): Int                                                      // pure
-fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]               // deterministic
-fn readText<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, IoError> // effectful
+fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]               // deterministic
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError> // effectful
 ```
 
 Fixed-size construction — struct literals, tuples, enum payloads, array literals,
-closures, `Template`s — never requires `Alloc`. Only results whose size depends
+closures, `Template`s — never requires `Allocator`. Only results whose size depends
 on runtime data do.
 
 ### 10.6 The capture rule
@@ -471,10 +471,10 @@ read a clock and start a task.
 this. A free function with no receiver takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, IoError };
-# from "core/fs" import { FsRead, Path };
-export fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]
-export fn readText<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, IoError>
+# from "core/effect" import { Allocator, IoError };
+# from "core/fs" import { FileSystemRead, Path };
+export fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]
+export fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>
 ```
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -496,20 +496,20 @@ Two forms, giving different guarantees.
 same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Stdout };
-# from "core/fs" import { FsRead };
+# from "core/effect" import { Allocator, Stdout };
+# from "core/fs" import { FileSystemRead };
 
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
     let _ = io.println(ctx, msg).ignore();
-    // fs.readText(ctx, secrets)           // ERROR: C is not bounded by FsRead
-    // dangerous(ctx)                      // ERROR: dangerous needs C: FsRead
+    // fs.readText(ctx, secrets)           // ERROR: C is not bounded by FileSystemRead
+    // dangerous(ctx)                      // ERROR: dangerous needs C: FileSystemRead
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
-        FsRead: host.fs,
+        FileSystemRead: host.fs,
     };
     let _ = logOnly(ctx, "starting"); // same value, confined by its bound
     .Ok(())
@@ -524,8 +524,8 @@ downstream.
 the callee holds a value that genuinely lacks the rest:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, IoError, Region };
-# from "core/fs" import { FsRead, Path };
+# from "core/effect" import { Allocator, IoError, Region };
+# from "core/fs" import { FileSystemRead, Path };
 
 // module: safe/readonly
 export struct ReadOnly<C>(C);
@@ -534,17 +534,17 @@ export fn readOnly<C>(ctx: C): ReadOnly<C> {
     ReadOnly(ctx)
 }
 
-// Forwards Alloc...
-impl<C: Alloc> Alloc for ReadOnly<C> {
+// Forwards Allocator...
+impl<C: Allocator> Allocator for ReadOnly<C> {
     fn allocate(self, bytes: Int): Region {
         self.0.allocate(bytes)
     }
 }
 
-// ...and reading, as an inherent `impl` rather than an `impl FsRead for` — so
+// ...and reading, as an inherent `impl` rather than an `impl FileSystemRead for` — so
 // ReadOnly<C> satisfies no effect at all, and a callee holding one cannot pass
 // it on as a context.
-impl<C: FsRead> ReadOnly<C> {
+impl<C: FileSystemRead> ReadOnly<C> {
     export fn readFile(self, at: Path): Result<Str, IoError> {
         self.0.readFile(at)
     }
@@ -562,7 +562,7 @@ parameter.
 **The `self.0.readFile(path)` above is the carve-out of Section 10.2.** A body
 supplying an effect is one of the two layers that may still call an effect method
 on a value. It cannot delegate to `fs.readText(self.0, path)` instead: that
-wrapper is bounded `Alloc + FsRead` and this `impl` carries only `C: FsRead`.
+wrapper is bounded `Allocator + FileSystemRead` and this `impl` carries only `C: FileSystemRead`.
 
 ### 10.9 Testing
 
@@ -571,8 +571,8 @@ out of different implementations, and since effects are ordinary interfaces,
 writing one is writing a struct with methods. The call site does not change.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, IoError };
-# from "core/fs" import { FsRead, Path };
+# from "core/effect" import { Allocator, IoError };
+# from "core/fs" import { FileSystemRead, Path };
 
 struct FakeFs {
     export files: [(Str, Str)],
@@ -581,7 +581,7 @@ struct FakeFs {
 // Seven methods, not sixteen. A double for the half the code under test needs
 // restates only that half, which is the other thing splitting the filesystem
 // bought.
-impl FsRead for FakeFs {
+impl FileSystemRead for FakeFs {
     fn readFile(self, at: Path): Result<Str, IoError> {
         match (self.files.find(fn(e) => e.0 == at.text())) {
             .Some(entry) => .Ok(entry.1),
@@ -602,8 +602,8 @@ impl FsRead for FakeFs {
     }
 }
 
-// context { Alloc: testing.alloc(), FsRead: FakeFs { files: [...] } }
-// loadConfig<C: Alloc + FsRead> accepts it with no changes anywhere.
+// context { Allocator: testing.alloc(), FileSystemRead: FakeFs { files: [...] } }
+// loadConfig<C: Allocator + FileSystemRead> accepts it with no changes anywhere.
 ```
 
 Sections 11.2 and 11.3 cover the harness around that: where tests live, how you

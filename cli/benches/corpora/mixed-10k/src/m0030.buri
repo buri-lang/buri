@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
@@ -44,7 +44,7 @@ export fn firstOr30_0<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll30_0<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll30_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -54,7 +54,7 @@ export fn useGeneric30_0(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_0<C: Alloc>(ctx: C): Int {
+export fn probe30_0<C: Allocator>(ctx: C): Int {
     useGeneric30_0([1, 2], ["a"]) + describeAll30_0(ctx, [1, 2]).len()
 }
 
@@ -72,14 +72,14 @@ impl Rec30_1 {
         self.f0 * factor + 283
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec30_1: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_1<C: Alloc>(ctx: C): Int {
+export fn probe30_1<C: Allocator>(ctx: C): Int {
     let r = Rec30_1 { f0: 7, f1: "probe", f2: 1.5 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -99,7 +99,7 @@ export fn compute30_2(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_2<C: Alloc>(ctx: C): Int {
+export fn probe30_2<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute30_2(7)
 }
@@ -114,7 +114,7 @@ export fn firstOr30_3<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll30_3<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll30_3<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -124,7 +124,7 @@ export fn useGeneric30_3(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_3<C: Alloc>(ctx: C): Int {
+export fn probe30_3<C: Allocator>(ctx: C): Int {
     useGeneric30_3([1, 2], ["a"]) + describeAll30_3(ctx, [1, 2]).len()
 }
 
@@ -142,14 +142,14 @@ impl Rec30_4 {
         self.f0 * factor + 356
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec30_4: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_4<C: Alloc>(ctx: C): Int {
+export fn probe30_4<C: Allocator>(ctx: C): Int {
     let r = Rec30_4 { f0: 7, f1: "probe", f2: 1.5 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -167,14 +167,14 @@ impl Rec30_5 {
         self.f0 * factor + 219
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec30_5: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_5<C: Alloc>(ctx: C): Int {
+export fn probe30_5<C: Allocator>(ctx: C): Int {
     let r = Rec30_5 { f0: 7, f1: "probe" };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -190,7 +190,7 @@ export fn compute30_6(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_6<C: Alloc>(ctx: C): Int {
+export fn probe30_6<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute30_6(7)
 }
@@ -228,14 +228,14 @@ export fn start30_7(ticks: Int): State30_7 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_7<C: Alloc>(ctx: C): Int {
+export fn probe30_7<C: Allocator>(ctx: C): Int {
     let s = start30_7(5);
     rank30_7(s) + s.show(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest30_8<C: Alloc>(ctx: C): Int {
+export fn digest30_8<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [9826, 7379, 7118, 7122, 3586, 667, 4622];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -250,13 +250,13 @@ export fn drain30_8(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_8<C: Alloc>(ctx: C): Int {
+export fn probe30_8<C: Allocator>(ctx: C): Int {
     digest30_8(ctx) + drain30_8()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label30_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label30_9<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "hotel" } else { "hotel" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -269,7 +269,7 @@ export fn constants30_9(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_9<C: Alloc>(ctx: C): Int {
+export fn probe30_9<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants30_9();
     label30_9(ctx, a, e).len() + b
 }
@@ -305,14 +305,14 @@ export fn start30_10(ticks: Int): State30_10 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe30_10<C: Alloc>(ctx: C): Int {
+export fn probe30_10<C: Allocator>(ctx: C): Int {
     let s = start30_10(5);
     rank30_10(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach30<C: Alloc>(ctx: C): Int {
+export fn reach30<C: Allocator>(ctx: C): Int {
     0
         + probe30_0(ctx)
         + probe30_1(ctx)

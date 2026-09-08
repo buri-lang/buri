@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0006.buri" import { blend6, Node6, reach6, seed6 };
@@ -40,7 +40,7 @@ export fn lift14(n: Node10): Node14 {
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label14_0<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label14_0<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "golf" } else { "alpha" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -53,14 +53,14 @@ export fn constants14_0(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_0<C: Alloc>(ctx: C): Int {
+export fn probe14_0<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants14_0();
     label14_0(ctx, a, e).len() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest14_1<C: Alloc>(ctx: C): Int {
+export fn digest14_1<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [8491, 4325, 991, 7096, 4573];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -75,7 +75,7 @@ export fn drain14_1(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_1<C: Alloc>(ctx: C): Int {
+export fn probe14_1<C: Allocator>(ctx: C): Int {
     digest14_1(ctx) + drain14_1()
 }
 
@@ -90,7 +90,7 @@ export fn compute14_2(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_2<C: Alloc>(ctx: C): Int {
+export fn probe14_2<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute14_2(7)
 }
@@ -115,7 +115,7 @@ export fn parseBoth14_3(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_3<C: Alloc>(ctx: C): Int {
+export fn probe14_3<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth14_3("1", "2")) {
         .Some(v) => v,
@@ -134,7 +134,7 @@ export fn firstOr14_4<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll14_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll14_4<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -144,7 +144,7 @@ export fn useGeneric14_4(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_4<C: Alloc>(ctx: C): Int {
+export fn probe14_4<C: Allocator>(ctx: C): Int {
     useGeneric14_4([1, 2], ["a"]) + describeAll14_4(ctx, [1, 2]).len()
 }
 
@@ -163,21 +163,21 @@ impl Rec14_5 {
         self.f0 * factor + 657
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec14_5: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_5<C: Alloc>(ctx: C): Int {
+export fn probe14_5<C: Allocator>(ctx: C): Int {
     let r = Rec14_5 { f0: 7, f1: "probe", f2: 1.5, f3: true };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label14_6<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label14_6<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "bravo" } else { "delta" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -190,7 +190,7 @@ export fn constants14_6(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_6<C: Alloc>(ctx: C): Int {
+export fn probe14_6<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants14_6();
     label14_6(ctx, a, e).len() + b
 }
@@ -230,7 +230,7 @@ export fn start14_7(ticks: Int): State14_7 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_7<C: Alloc>(ctx: C): Int {
+export fn probe14_7<C: Allocator>(ctx: C): Int {
     let s = start14_7(5);
     rank14_7(s) + s.show(ctx).len()
 }
@@ -255,7 +255,7 @@ export fn parseBoth14_8(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_8<C: Alloc>(ctx: C): Int {
+export fn probe14_8<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth14_8("1", "2")) {
         .Some(v) => v,
@@ -295,14 +295,14 @@ export fn start14_9(ticks: Int): State14_9 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe14_9<C: Alloc>(ctx: C): Int {
+export fn probe14_9<C: Allocator>(ctx: C): Int {
     let s = start14_9(5);
     rank14_9(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach14<C: Alloc>(ctx: C): Int {
+export fn reach14<C: Allocator>(ctx: C): Int {
     0
         + probe14_0(ctx)
         + probe14_1(ctx)

@@ -179,8 +179,8 @@ pub const MODULES: &[StdModule] = &[
         platform: true,
         ..m("core/host/testing", include_str!("sources/host_testing.buri"))
     },
-    // Not a platform module, deliberately. It *implements* `Alloc` rather than
-    // declaring it, and `Alloc` is the one effect whose implementation carries
+    // Not a platform module, deliberately. It *implements* `Allocator` rather than
+    // declaring it, and `Allocator` is the one effect whose implementation carries
     // no authority — a `Region` is a number, so a library that builds its own
     // allocator has been granted nothing (SPEC 10.5). That is why this is
     // importable anywhere and `core/host` is not.
@@ -193,15 +193,15 @@ pub const MODULES: &[StdModule] = &[
     // `core/fs` takes, and this is where it and its methods live.
     m("core/path", include_str!("sources/path.buri")),
     // A **platform module**, and the only one outside `core/effect` and
-    // `ui/effect` that declares effects. `FsRead` and `FsWrite` name a `Path`
-    // in every method, `core/path` names `Alloc`, and `core/effect` is below
+    // `ui/effect` that declares effects. `FileSystemRead` and `FileSystemWrite` name a `Path`
+    // in every method, `core/path` names `Allocator`, and `core/effect` is below
     // `core/path` — so the declarations live here, where they can say what
     // they mean, rather than one module down where they could only say `Str`.
     StdModule { platform: true, ..m("core/fs", include_str!("sources/fs.buri")) },
     m("core/env", include_str!("sources/env.buri")),
     // The parsed half of `core/env`'s `args`. Not a platform module and not an
-    // eager one: it declares no effect — `run` *names* `Env`, `Stdout` and
-    // `Stderr` in its bound the way `core/fs` names `Fs` — and it declares
+    // eager one: it declares no effect — `run` *names* `Environment`, `Stdout` and
+    // `Stderr` in its bound the way `core/fs` names `FileSystem` — and it declares
     // methods only on its own `Arguments`, so a program that has never heard
     // of it does not pay to parse it.
     m("core/cli", include_str!("sources/cli.buri")),
@@ -232,7 +232,7 @@ pub const MODULES: &[StdModule] = &[
     m("core/net/websocket", include_str!("sources/websocket.buri")),
     // A **platform module**, for `core/fs`'s reason: `Spawn.spawnProcess`
     // answers this module's own `Output`, and a `Command` is built out of a
-    // `Path`, so the declaration has to live where those names are. `Proc` is
+    // `Path`, so the declaration has to live where those names are. `Process` is
     // still `core/effect`'s — ending this process names nothing but an integer.
     StdModule { platform: true, ..m("core/process", include_str!("sources/process.buri")) },
     // The layer under both of those: a connection dialled out, bytes each way,
@@ -241,7 +241,7 @@ pub const MODULES: &[StdModule] = &[
     // because a page has no sockets of its own.
     m("core/net/tcp", include_str!("sources/tcp.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
-    // declaring or implementing it, exactly as `core/fs` names `Fs`. The
+    // declaring or implementing it, exactly as `core/fs` names `FileSystem`. The
     // authority is still `core/host`'s to hand out.
     m("core/tasks", include_str!("sources/tasks.buri")),
     // The other half of concurrency: state that outlives one call, reachable
@@ -326,7 +326,7 @@ pub fn roots_phrase() -> String {
 /// this table is that the *diagnostic* names the new one rather than leaving a
 /// reader to guess. Every row is an abbreviation and the same module spelled
 /// out: `core/char` is `core/character`, `core/proc` is `core/process`,
-/// `core/num` is `core/number`, and the two ordered collections are
+/// `core/num` is `core/number`, and `core/ordmap` and `core/ordset` are
 /// `core/orderedmap` and `core/orderedset`.
 ///
 /// Nothing here is loadable, and [`find`] is asked first, so a name that came
@@ -354,7 +354,7 @@ pub fn retired(path: &str) -> Option<&'static str> {
 /// `core/effect/lib.buri` names the same module — a cross-module import may
 /// name the surface file honestly, it is merely the long way round — and it
 /// has to arrive at the *same* [`StdModule`], because the loader keys a
-/// module by its path and two keys would be two copies of `Alloc`.
+/// module by its path and two keys would be two copies of `Allocator`.
 pub fn find(path: &str) -> Option<&'static StdModule> {
     let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
     MODULES.iter().find(|m| m.path == canonical)
@@ -453,7 +453,7 @@ pub struct HostGrant {
     /// **Both are withheld together**, and that is load-bearing rather than
     /// tidy. A struct with no private field can be constructed by name from
     /// anywhere that can see it, so withholding `net` while exporting
-    /// `HostNet` would leave the authority one `Net: host.HostNet {}` away.
+    /// `HostNetwork` would leave the authority one `Network: host.HostNetwork {}` away.
     pub exports: &'static [&'static str],
     /// The platforms that grant it. Order follows [`Platform::ALL`], so the
     /// list a diagnostic prints reads the same way the schema does.
@@ -478,8 +478,8 @@ const EVERY_PLATFORM: &[Platform] = &Platform::ALL;
 /// `every_host_export_is_in_the_grant_table`.
 const HOST_GRANTS: &[HostGrant] = &[
     HostGrant {
-        effect: "`Alloc`",
-        exports: &["HostAlloc", "alloc"],
+        effect: "`Allocator`",
+        exports: &["HostAllocator", "alloc"],
         platforms: EVERY_PLATFORM,
         because: "every platform can allocate",
     },
@@ -502,12 +502,12 @@ const HOST_GRANTS: &[HostGrant] = &[
         because: "every platform can read a clock",
     },
     HostGrant {
-        effect: "`Rand`",
-        exports: &["HostRand", "rand"],
+        effect: "`Random`",
+        exports: &["HostRandom", "rand"],
         platforms: EVERY_PLATFORM,
         because: "every platform has a source of randomness",
     },
-    // `Entropy` is granted everywhere `Rand` is, and the two rows reading alike
+    // `Entropy` is granted everywhere `Random` is, and the two rows reading alike
     // is the point rather than a copy: what separates the effects is what they
     // *promise*, not where they are available. Every platform this language
     // targets has an operating-system generator behind it — `getrandom(2)` and
@@ -527,27 +527,27 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: EVERY_PLATFORM,
         because: "every platform has an operating-system generator behind it",
     },
-    // `Net` was three platforms until a request stopped blocking. The reason
+    // `Network` was three platforms until a request stopped blocking. The reason
     // it was withheld from WEB was never authority — a page is the one place
     // that can already reach any origin it is allowed to — it was that
-    // `Net.fetch` did not return until the answer arrived, and a page whose
+    // `Network.fetch` did not return until the answer arrived, and a page whose
     // one thread is waiting is a frozen page. WEB grants it now, and the
     // callback-shaped `Fetch` that stood in for it is gone.
     HostGrant {
-        effect: "`Net`",
-        exports: &["HostNet", "net"],
+        effect: "`Network`",
+        exports: &["HostNetwork", "net"],
         platforms: EVERY_PLATFORM,
         because: "every platform can make a request",
     },
     // The rows that vary. Two platforms have no operating system under them —
     // a page and a worker — and nothing but a page has a document over it.
     // One row for two effects, because there is one filesystem: `host.fs`
-    // implements `FsRead` and `FsWrite` both, and which of the two authorities
+    // implements `FileSystemRead` and `FileSystemWrite` both, and which of the two authorities
     // a program takes is a fact about its *context* rather than about what the
     // platform offers. A platform either has a filesystem under it or does not.
     HostGrant {
-        effect: "`FsRead` or `FsWrite`",
-        exports: &["HostFs", "fs"],
+        effect: "`FileSystemRead` or `FileSystemWrite`",
+        exports: &["HostFileSystem", "fs"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "neither a page nor a worker has a filesystem to read",
     },
@@ -558,21 +558,21 @@ const HOST_GRANTS: &[HostGrant] = &[
         because: "neither a page nor a worker has standard input",
     },
     HostGrant {
-        effect: "`Env`",
-        exports: &["HostEnv", "env"],
+        effect: "`Environment`",
+        exports: &["HostEnvironment", "env"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "neither a page nor a worker has a command line or an environment",
     },
     HostGrant {
-        effect: "`Proc`",
-        exports: &["HostProc", "proc"],
+        effect: "`Process`",
+        exports: &["HostProcess", "proc"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no process to exit — a mounted interface stays live — and a \
                   worker answers a request rather than running one",
     },
     // Starting a program, which is a bigger authority than ending one — a
     // context that can run `sh` can do anything its user can — so it is its own
-    // row rather than a second export on `Proc`'s. The platforms are `Proc`'s
+    // row rather than a second export on `Process`'s. The platforms are `Process`'s
     // for a different reason: a page and a worker have no process table to put
     // a child in, and node does.
     HostGrant {
@@ -591,7 +591,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // *is* here — the JavaScript host starts the tasks together and awaits
     // them together, so a page waiting for a task is a page with an
     // outstanding promise, which is what every effect it already has does.
-    // `Net` reached WEB the same way, once `fetch` stopped waiting.
+    // `Network` reached WEB the same way, once `fetch` stopped waiting.
     //
     // And the reason to want it is the shape that arrived with the scope. A
     // page's work is a socket that stays open, a retry, a timer: started once
@@ -656,7 +656,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // port open is the authority `Listen` withholds from a page; nothing about
     // this one is a server's, so it is granted on every platform. On WEB both
     // methods suspend without holding the event loop, which is exactly what let
-    // `Net` onto a page.
+    // `Network` onto a page.
     HostGrant {
         effect: "`WebSocketClient`",
         exports: &["HostWebSocketClient", "websocketClient"],
@@ -773,7 +773,7 @@ const fn w(
 /// The order is `core/effect`'s declaration order, then `core/fs`'s two, then
 /// `ui/effect`'s, so the table reads beside the sources it is about.
 pub const WRAPPERS: &[Wrapper] = &[
-    w("Alloc", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
+    w("Allocator", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
     w("Stdout", "print", "core/io", "io.print(ctx, text)"),
     w("Stdout", "println", "core/io", "io.println(ctx, text)"),
     w("Stdout", "writeBytes", "core/io", "io.writeBytes(ctx, bytes)"),
@@ -781,38 +781,38 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Stderr", "eprintln", "core/io", "io.eprintln(ctx, text)"),
     w("Stdin", "readLine", "core/io", "io.readLine(ctx)"),
     w("Stdin", "readBytes", "core/io", "io.readBytes(ctx, n)"),
-    w("FsRead", "readFile", "core/fs", "fs.readText(ctx, path)"),
-    w("FsRead", "fileExists", "core/fs", "fs.exists(ctx, path)"),
-    w("FsRead", "readDir", "core/fs", "fs.listDir(ctx, path)"),
-    w("FsRead", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
-    w("FsRead", "metadata", "core/fs", "fs.metadata(ctx, path)"),
-    w("FsRead", "readRange", "core/fs", "fs.readRange(ctx, path, at, count)"),
-    w("FsRead", "realPath", "core/fs", "fs.canonicalize(ctx, path)"),
-    w("FsWrite", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
-    w("FsWrite", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
-    w("FsWrite", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
-    w("FsWrite", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
-    w("FsWrite", "removeFile", "core/fs", "fs.remove(ctx, path)"),
-    w("FsWrite", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
-    w("FsWrite", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
-    w("FsWrite", "syncFile", "core/fs", "fs.sync(ctx, path)"),
-    w("FsWrite", "copyFile", "core/fs", "fs.copy(ctx, source, destination)"),
-    w("Net", "fetch", "core/net/http", "http.send(ctx, request)"),
-    w("Clock", "nowMillis", "core/time", "time.now(ctx)"),
-    w("Clock", "sleepMillis", "core/time", "time.sleepMs(ctx, millis)"),
+    w("FileSystemRead", "readFile", "core/fs", "fs.readText(ctx, path)"),
+    w("FileSystemRead", "fileExists", "core/fs", "fs.exists(ctx, path)"),
+    w("FileSystemRead", "readDir", "core/fs", "fs.listDir(ctx, path)"),
+    w("FileSystemRead", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
+    w("FileSystemRead", "metadata", "core/fs", "fs.metadata(ctx, path)"),
+    w("FileSystemRead", "readRange", "core/fs", "fs.readRange(ctx, path, at, count)"),
+    w("FileSystemRead", "realPath", "core/fs", "fs.canonicalize(ctx, path)"),
+    w("FileSystemWrite", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
+    w("FileSystemWrite", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
+    w("FileSystemWrite", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
+    w("FileSystemWrite", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
+    w("FileSystemWrite", "removeFile", "core/fs", "fs.remove(ctx, path)"),
+    w("FileSystemWrite", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
+    w("FileSystemWrite", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
+    w("FileSystemWrite", "syncFile", "core/fs", "fs.sync(ctx, path)"),
+    w("FileSystemWrite", "copyFile", "core/fs", "fs.copy(ctx, source, destination)"),
+    w("Network", "fetch", "core/net/http", "http.send(ctx, request)"),
+    w("Clock", "nowMilliseconds", "core/time", "time.now(ctx)"),
+    w("Clock", "sleepMilliseconds", "core/time", "time.sleepMs(ctx, millis)"),
     w("Clock", "monotonicNanoseconds", "core/time", "time.monotonic(ctx)"),
-    w("Rand", "nextInt", "core/random", "random.int(ctx, lo, hi)"),
-    w("Rand", "nextFloat", "core/random", "random.float(ctx)"),
+    w("Random", "nextInt", "core/random", "random.int(ctx, lo, hi)"),
+    w("Random", "nextFloat", "core/random", "random.float(ctx)"),
     // `core/crypto` rather than `core/random`, which is the whole argument
     // `core/crypto`'s header makes: the seeded module and the unguessable one
     // are different promises and a reader should have to name which they meant.
     w("Entropy", "bytes", "core/crypto", "crypto.randomBytes(ctx, count)"),
-    w("Env", "variable", "core/env", "env.get(ctx, name)"),
-    w("Env", "args", "core/env", "env.args(ctx)"),
-    w("Env", "currentDirectory", "core/env", "env.currentDirectory(ctx)"),
-    w("Env", "allVariables", "core/env", "env.all(ctx)"),
-    w("Env", "operatingSystemName", "core/env", "env.operatingSystem(ctx)"),
-    w("Proc", "exitWith", "core/process", "process.exit(ctx, code)"),
+    w("Environment", "variable", "core/env", "env.get(ctx, name)"),
+    w("Environment", "args", "core/env", "env.withArguments(ctx)"),
+    w("Environment", "currentDirectory", "core/env", "env.currentDirectory(ctx)"),
+    w("Environment", "allVariables", "core/env", "env.all(ctx)"),
+    w("Environment", "operatingSystemName", "core/env", "env.operatingSystem(ctx)"),
+    w("Process", "exitWith", "core/process", "process.exit(ctx, code)"),
     w("Spawn", "spawnProcess", "core/process", "process.run(ctx, command)"),
     w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
     w("Listen", "listenBind", "core/net/server", "server.bind(ctx, aServer)"),
@@ -942,7 +942,7 @@ mod tests {
     /// It is the one module whose runtime operations are **module functions**
     /// rather than effect methods: nine bodyless `fn`s keyed `actor.*`, each
     /// with the authority in its bound (`C: Tasks`) exactly as `core/list`'s
-    /// allocating combinators carry `C: Alloc`. SPEC 10.2 is about reaching
+    /// allocating combinators carry `C: Allocator`. SPEC 10.2 is about reaching
     /// *the outside world* through a context, and a mailbox is neither the
     /// outside world nor something a test would want a second implementation
     /// of — which is also why `core/host/testing` gains nothing for it.
@@ -1012,8 +1012,8 @@ mod tests {
     ///
     /// This is the invariant the rule rests on: an effect method is no longer
     /// callable outside the standard library and the `impl` that supplies it,
-    /// so a method with no wrapper is a method nothing can reach. `Alloc`,
-    /// `Proc`, `Listen` and `Sockets` failed this the day the table was
+    /// so a method with no wrapper is a method nothing can reach. `Allocator`,
+    /// `Process`, `Listen` and `Sockets` failed this the day the table was
     /// written — six methods of thirty-eight with no door — and it is the
     /// reason `core/process` and `core/net/server` exist.
     #[test]
@@ -1112,7 +1112,7 @@ mod tests {
 
     /// A cross-module import may name the surface file honestly — it is only
     /// the long way round — and it has to arrive at the same module. Two
-    /// entries would be two `Alloc`s, and a value of one would not be a value
+    /// entries would be two `Allocator`s, and a value of one would not be a value
     /// of the other.
     #[test]
     fn both_spellings_of_a_module_are_the_same_module() {
@@ -1185,8 +1185,8 @@ mod tests {
     }
 
     /// `Tasks` is granted where a program is a program, and withheld from the
-    /// page — the same three platforms as `Fs`, `Net`, `Stdin`, `Env` and
-    /// `Proc`, and both of its names move together.
+    /// page — the same three platforms as `FileSystem`, `Network`, `Stdin`, `Environment` and
+    /// `Process`, and both of its names move together.
     ///
     /// The reject corpus can ask for `JS` and `WEB` and no more — a case's
     /// platform comes from its `// PLATFORM:` line, and the two native ones
@@ -1197,7 +1197,7 @@ mod tests {
     /// written to catch WEB quietly *gaining* the grant; WEB has it, on
     /// purpose, and what the test catches is a platform quietly losing it. So
     /// it asserts every name on every platform, and separately that `Tasks` is
-    /// no longer tied to `Fs` — the group that varies with the platform is the
+    /// no longer tied to `FileSystem` — the group that varies with the platform is the
     /// filesystem's and this row left it, which is the whole of what the
     /// scope bought.
     #[test]
@@ -1219,7 +1219,7 @@ mod tests {
         // parted and a change that put them back together is a change to this
         // line rather than a silent one.
         let fs = host_grant_of("fs").expect("`fs` is in the grant table");
-        assert_ne!(grant.platforms, fs.platforms, "`Tasks` is no longer `Fs`'s row");
+        assert_ne!(grant.platforms, fs.platforms, "`Tasks` is no longer `FileSystem`'s row");
         assert!(host_withholds(Platform::Web, "fs"), "a page still has no filesystem");
     }
 
@@ -1263,8 +1263,8 @@ mod tests {
         // two rows are separate declarations that happen to name one set. A
         // change to either is a change to this line.
         let ending = host_grant_of("proc").expect("`proc` is in the grant table");
-        assert_eq!(grant.platforms, ending.platforms, "`Spawn` is `Proc`'s platforms");
-        assert_ne!(grant.exports, ending.exports, "`Spawn` is not `Proc`'s export");
+        assert_eq!(grant.platforms, ending.platforms, "`Spawn` is `Process`'s platforms");
+        assert_ne!(grant.exports, ending.exports, "`Spawn` is not `Process`'s export");
     }
 
     /// `Sockets` is granted exactly where a socket can be come by.
@@ -1344,7 +1344,7 @@ mod tests {
     ///
     /// The tree already carries the lesson twice. `Ui.read` and `Watch.read`
     /// are designed to be bound together and `ctx.read(id)` is ambiguous for
-    /// everybody who does; `Net.fetch` and `Fetch.fetch` are the same word for
+    /// everybody who does; `Network.fetch` and `Fetch.fetch` are the same word for
     /// nearly the same thing, saved only by no platform granting both. Neither
     /// can be fixed now, so neither is asserted about here — what is asserted
     /// is that the two server effects do not add a third. `Listen` grew from
@@ -1355,7 +1355,7 @@ mod tests {
     /// claimed once, and seven common verbs would have been seven names taken
     /// from every effect a server binds beside it. `listenRequest` and
     /// `listenReceive` are the clearest cases of all — a bare `request` is a
-    /// word half the standard library could want and `Net` is bound beside this
+    /// word half the standard library could want and `Network` is bound beside this
     /// one by design, and a bare `receive` would read as either a socket or a
     /// mailbox depending on what else happened to be in scope.
     #[test]
@@ -1417,7 +1417,7 @@ mod tests {
         };
         assert_eq!(ungrantable.elsewhere_clause(), "");
         assert_eq!(ungrantable.platforms_phrase(), "");
-        // `fs` and not `net`: B5 moved `Net` into the every-platform group, and
+        // `fs` and not `net`: B5 moved `Network` into the every-platform group, and
         // a clause naming all four platforms would not show that the sentence
         // is the *subset* a target could be built for instead.
         let fs = host_grant_of("fs").expect("`fs` is in the grant table");

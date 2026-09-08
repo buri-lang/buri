@@ -4,35 +4,35 @@
 
 from "core/csv" import * as csv;
 from "core/csv" import { CsvError };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
 fn read(text: Str): Result<[[Str]], CsvError> {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     csv.parse(ctx, text)
 }
 
 fn readWith(text: Str, delimiter: Char): Result<[[Str]], CsvError> {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     csv.parseWith(ctx, text, delimiter)
 }
 
 fn readHeaded(text: Str): Result<([Str], [[Str]]), CsvError> {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     csv.parseWithHeader(ctx, text)
 }
 
 fn write(rows: [[Str]]): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     csv.render(ctx, rows)
 }

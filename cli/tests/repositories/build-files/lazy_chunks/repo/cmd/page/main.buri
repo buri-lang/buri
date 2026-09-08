@@ -1,7 +1,7 @@
 // A page whose editor is the code nothing else on it touches, so the editor
 // ships in a file of its own. The worker beside it loads the same editor, and
 // gets a chunk of its own: a chunk belongs to an artifact, and these are two.
-from "core/effect" import { Alloc, Request, Response, Stdout };
+from "core/effect" import { Allocator, Request, Response, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/lazy" import * as lazy;
@@ -9,17 +9,17 @@ from "core/net/http" import * as http;
 from "core/str" import * as str;
 from "//lib/report" import * as report;
 
-fn markTheChunk<C: Alloc>(ctx: C, rows: Int): Str {
+fn markTheChunk<C: Allocator>(ctx: C, rows: Int): Str {
     str.format(ctx, "ONLY_IN_THE_CHUNK ${rows}")
 }
 
-fn editor<C: Alloc + Stdout>(ctx: C, rows: Int): () {
+fn editor<C: Allocator + Stdout>(ctx: C, rows: Int): () {
     io.println(ctx, markTheChunk(ctx, rows)).ignore()
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = io.println(ctx, "ONLY_IN_THE_PAGE").ignore();
@@ -31,7 +31,7 @@ export fn main(): Result<(), Str> {
 
 export fn fetch(request: Request): Response {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     let write = lazy.load(markTheChunk);
     http.text(ctx, write(ctx, request.path().len()))

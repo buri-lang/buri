@@ -1,4 +1,4 @@
-// SPEC 10 — `Request` and `Response`, the two types `Net.fetch` speaks in.
+// SPEC 10 — `Request` and `Response`, the two types `Network.fetch` speaks in.
 //
 // Every field of all four declarations is read back here: what a constructor
 // puts in, what a builder changes, and what `Eq` and the derived `Show` make of
@@ -6,12 +6,12 @@
 // recorded `fetch` against a `Request` *value*, so equality on these types is
 // load-bearing.
 //
-// The types are declared in `core/effect`, because `effect Net`'s own signature
+// The types are declared in `core/effect`, because `effect Network`'s own signature
 // names them, and re-exported by `core/net/http`. They are imported here
 // through the re-export, which is where a program is meant to meet them.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Net };
+from "core/effect" import { Allocator, Network };
 from "core/host/testing" import { alloc, net };
 from "core/net/http" import * as http;
 from "core/net/http" import { Header, Method, NetError, Request, Response };
@@ -40,7 +40,7 @@ test "every method is its own value" {
 
 test "a method shows as its Buri name, not its wire name" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(Method.Get.show(ctx), ".Get");
     assert.eq(Method.Options.show(ctx), ".Options");
@@ -60,7 +60,7 @@ test "a header is a name and a value" {
 
 test "a header shows both of its fields" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         Header { name: "accept", value: "*/*" }.show(ctx),
@@ -83,7 +83,7 @@ test "the constructor fills every field of a request" {
 
 test "a text request encodes its body as UTF-8" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r = http.textRequest(ctx, .Put, "http://example.com/x", "hi €");
     assert.eq(r.method, .Put);
@@ -107,7 +107,7 @@ test "a request literal and a constructed request are equal" {
 
 test "withMethod, withBody and withHeader each change one field" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = http.request(.Get, "http://example.com/x");
 
@@ -127,7 +127,7 @@ test "withMethod, withBody and withHeader each change one field" {
 
 test "withHeader lowercases the name and appends rather than replaces" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r = http
         .request(.Get, "http://example.com/x")
@@ -165,7 +165,7 @@ test "query is everything between the first ? and any #" {
 
 test "a request shows all five of its fields" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let plain = http.request(.Get, "http://x/").withBody([65]);
     assert.eq(
@@ -192,7 +192,7 @@ test "status builds a response and nothing else" {
 
 test "ok carries a body and no content type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r = http.ok(ctx, "pong");
     assert.eq(r.status, 200);
@@ -202,7 +202,7 @@ test "ok carries a body and no content type" {
 
 test "text and json each set one content type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let plain = http.text(ctx, "pong");
     assert.eq(plain.status, 200);
@@ -226,7 +226,7 @@ test "isOk is 2xx and nothing else" {
 
 test "withStatus, withBody and withHeader each change one field of a response" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let base = http.status(200);
 
@@ -241,7 +241,7 @@ test "withStatus, withBody and withHeader each change one field of a response" {
 
 test "a response shows all three of its fields" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         http.status(404).withBody([110, 111]).show(ctx),
@@ -251,7 +251,7 @@ test "a response shows all three of its fields" {
 
 test "two responses are equal exactly when all three fields are" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(http.text(ctx, "pong"), http.text(ctx, "pong"));
     assert.notEq(http.text(ctx, "pong"), http.text(ctx, "ping"));
@@ -265,7 +265,7 @@ test "two responses are equal exactly when all three fields are" {
 
 test "bodyText decodes octets and refuses what is not text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.ok(http.bodyText(ctx, bytes.toUtf8(ctx, "hi €"))), "hi €");
     assert.eq(assert.ok(http.bodyText(ctx, [])), "");
@@ -278,10 +278,10 @@ test "bodyText decodes octets and refuses what is not text" {
 // The effect, through the one implementation a test may have
 // -----------------------------------------------------------------------------
 
-test "send, get and post all reach the same Net.fetch" {
+test "send, get and post all reach the same Network.fetch" {
     let ctx = context {
-        Alloc: alloc(),
-        Net: net(),
+        Allocator: alloc(),
+        Network: net(),
     };
     assert.eq(assert.err(http.send(ctx, http.request(.Get, "http://x/"))), .Refused);
     assert.eq(assert.err(http.get(ctx, "http://x/")), .Refused);
@@ -290,7 +290,7 @@ test "send, get and post all reach the same Net.fetch" {
 
 test "NetError names five reasons, Aborted among them" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(http.errorText(.Timeout), "the request timed out");
     assert.eq(http.errorText(.Refused), "the connection was refused");

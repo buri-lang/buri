@@ -6,7 +6,7 @@ fix: pass a type that holds no capability, or drop the `{trait}` bound
 ---
 
 ```buri fail code=effect-carrying-bound
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Allocator, Stdout };
 # from "core/host" import * as host;
 
 struct Holder<C> {
@@ -25,7 +25,7 @@ fn hide<T: Eq>(x: T): fn() => T {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let smuggler = hide(Holder { inner: ctx });

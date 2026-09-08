@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/json" import { FromJson, ToJson };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -47,7 +47,7 @@ export fn firstOr2_0<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll2_0<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll2_0<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -57,7 +57,7 @@ export fn useGeneric2_0(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_0<C: Alloc>(ctx: C): Int {
+export fn probe2_0<C: Allocator>(ctx: C): Int {
     useGeneric2_0([1, 2], ["a"]) + describeAll2_0(ctx, [1, 2]).len()
 }
 
@@ -77,14 +77,14 @@ impl Rec2_1 {
         self.f0 * factor + 822
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec2_1: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_1<C: Alloc>(ctx: C): Int {
+export fn probe2_1<C: Allocator>(ctx: C): Int {
     let r = Rec2_1 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -103,7 +103,7 @@ export fn compute2_2(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_2<C: Alloc>(ctx: C): Int {
+export fn probe2_2<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute2_2(7)
 }
@@ -118,7 +118,7 @@ export fn firstOr2_3<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll2_3<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll2_3<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -128,7 +128,7 @@ export fn useGeneric2_3(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_3<C: Alloc>(ctx: C): Int {
+export fn probe2_3<C: Allocator>(ctx: C): Int {
     useGeneric2_3([1, 2], ["a"]) + describeAll2_3(ctx, [1, 2]).len()
 }
 
@@ -165,7 +165,7 @@ export fn start2_4(ticks: Int): State2_4 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_4<C: Alloc>(ctx: C): Int {
+export fn probe2_4<C: Allocator>(ctx: C): Int {
     let s = start2_4(5);
     rank2_4(s) + s.show(ctx).len()
 }
@@ -207,7 +207,7 @@ export fn start2_5(ticks: Int): State2_5 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_5<C: Alloc>(ctx: C): Int {
+export fn probe2_5<C: Allocator>(ctx: C): Int {
     let s = start2_5(5);
     rank2_5(s) + s.show(ctx).len()
 }
@@ -232,7 +232,7 @@ export fn parseBoth2_6(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_6<C: Alloc>(ctx: C): Int {
+export fn probe2_6<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth2_6("1", "2")) {
         .Some(v) => v,
@@ -255,14 +255,14 @@ impl Rec2_7 {
         self.f0 * factor + 669
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec2_7: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_7<C: Alloc>(ctx: C): Int {
+export fn probe2_7<C: Allocator>(ctx: C): Int {
     let r = Rec2_7 { f0: 7, f1: "probe", f2: 1.5 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -300,14 +300,14 @@ export fn start2_8(ticks: Int): State2_8 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe2_8<C: Alloc>(ctx: C): Int {
+export fn probe2_8<C: Allocator>(ctx: C): Int {
     let s = start2_8(5);
     rank2_8(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach2<C: Alloc>(ctx: C): Int {
+export fn reach2<C: Allocator>(ctx: C): Int {
     0
         + probe2_0(ctx)
         + probe2_1(ctx)

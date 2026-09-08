@@ -1793,7 +1793,7 @@ impl<'a> Jit<'a> {
                 self.imm_to(d, 0);
                 self.imm_to(d + 8, 0);
             }
-            // The test allocator is a **handle**, and `TestAlloc.allocate`
+            // The test allocator is a **handle**, and `TestAllocator.allocate`
             // answers the byte count it was asked for. Both are
             // `llvm/emit.rs`'s arms exactly: `alloc` reads no state, so the
             // handle is zero and the allocation is the request.
@@ -1801,7 +1801,7 @@ impl<'a> Jit<'a> {
                 let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
                 self.imm_to(d, 0);
             }
-            "host_testing.TestAlloc.allocate" => {
+            "host_testing.TestAllocator.allocate" => {
                 let (Some(d), Some(n)) = (
                     dests.first().map(|v| st.at(*v)),
                     args.get(1).map(|v| st.at(*v)),
@@ -2766,7 +2766,7 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if key == "host_testing.TestAlloc.allocate" {
+        if key == "host_testing.TestAllocator.allocate" {
             self.mv(ret0, p(1), 8);
             self.emit("ret", &[]);
             return;
@@ -4046,7 +4046,7 @@ fn open_coded_key(key: &str) -> bool {
             | "list.empty"
             | "str.concat"
             | "host_testing.alloc"
-            | "host_testing.TestAlloc.allocate"
+            | "host_testing.TestAllocator.allocate"
             | "str.len"
             | "str.format"
             | "str.eq"

@@ -16,7 +16,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host/testing" import { alloc, stdout, tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -37,7 +37,7 @@ enum Ping {
 /// whose element is only `Carried`'s own word. The hook is handed a state of
 /// `()` and has nothing to say about it, so what it prints is that it ran —
 /// which is the only way a unit state is visible at all.
-fn silent<C: Alloc + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
+fn silent<C: Allocator + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
     Actor {
         state: (),
         step: fn(c, held, message) => Stepped { state: (), answer: () },
@@ -48,7 +48,7 @@ fn silent<C: Alloc + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
 test "an actor whose state and answer are both unit answers every message" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -81,7 +81,7 @@ enum Bagged {
     Held([Int]),
 }
 
-fn bag<C: Alloc + Tasks>(): Actor<C, [Int], Bag, Bagged> {
+fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
     Actor {
         state: [],
         step: fn(c, held, message) => {
@@ -99,7 +99,7 @@ fn bag<C: Alloc + Tasks>(): Actor<C, [Int], Bag, Bagged> {
 
 test "a message, a state and an answer may each be a list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let held = actor.start(ctx, bag());
@@ -125,7 +125,7 @@ enum Said {
     Text(Str),
 }
 
-fn scribe<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
+fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
@@ -139,7 +139,7 @@ fn scribe<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
 
 test "text crosses the runtime whatever is in it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // Seven scalars in four scripts, one of them outside the basic plane. A
@@ -178,7 +178,7 @@ enum Filed {
     Was(Record),
 }
 
-fn cabinet<C: Alloc + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
+fn cabinet<C: Allocator + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
@@ -202,7 +202,7 @@ fn record(name: Str, note: Option<Str>): Record {
 
 test "a struct inside a struct crosses whole" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let filed = actor.start(ctx, cabinet(record("first", .None)));
@@ -239,7 +239,7 @@ enum Tallied {
     Count(Int),
 }
 
-fn tally<C: Alloc + Tasks>(): Actor<C, Int, Tally, Tallied> {
+fn tally<C: Allocator + Tasks>(): Actor<C, Int, Tally, Tallied> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
@@ -266,7 +266,7 @@ enum Desked {
 /// A front desk. Its state is the address behind it, and every message it takes
 /// it takes up with that actor — so a `sendMessage` here is a step of one actor
 /// driving another's whole mailbox before it answers its own.
-fn desk<C: Alloc + Tasks>(
+fn desk<C: Allocator + Tasks>(
     behind: Address<C, Int, Tally, Tallied>,
 ): Actor<C, Address<C, Int, Tally, Tallied>, Desk, Desked> {
     Actor {
@@ -293,7 +293,7 @@ fn desk<C: Alloc + Tasks>(
 
 test "two actors exchange messages, and one holds the other's address" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, tally());
@@ -310,7 +310,7 @@ test "two actors exchange messages, and one holds the other's address" {
 
 test "a step that sends to an actor that has stopped is told so" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Tasks: tasks(),
     };
     // The desk outlives what it forwards to, which is the one way a program
@@ -346,7 +346,7 @@ enum Ran {
 
 /// An actor that spawns rather than working: the step queues the task and
 /// answers how many jobs it has started.
-fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
+fn foreman<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
     Actor {
         state: 0,
         step: fn(c, started, message) => {
@@ -366,7 +366,7 @@ fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
 test "a step may spawn into a scope the message handed it" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };

@@ -26,7 +26,7 @@
 // backends *and* JavaScript and compares the bytes; this file is the assertion
 // half, and it runs wherever the corpus runs.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -34,7 +34,7 @@ from "core/testing/assert" import * as assert;
 
 test "a scalar step answers what the open-coded loop answers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ns = [1, 2, 3, 4];
     let stepped = ns.mapCtxStep(ctx, fn(c, n) => n * 2);
@@ -47,7 +47,7 @@ test "a scalar step answers what the open-coded loop answers" {
 
 test "a step reaches every element in index order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let indexed = list.range(ctx, 0, 6).mapCtxStep(ctx, fn(c, i) => i * i);
     assert.eq(indexed.len(), 6);
@@ -58,7 +58,7 @@ test "a step reaches every element in index order" {
 
 test "a counted answer at a stride the source does not have" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let named = [1, 2, 3].mapCtxStep(ctx, fn(c, n) => "n".repeat(c, n));
     assert.eq(named.len(), 3);
@@ -67,7 +67,7 @@ test "a counted answer at a stride the source does not have" {
 
 test "a counted source is still readable after the step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let names = [1, 2, 3].mapCtx(ctx, fn(c, n) => "n".repeat(c, n));
     let louder = names.mapCtxStep(ctx, fn(c, s) => str.format(c, "<${s}>"));
@@ -79,7 +79,7 @@ test "a counted source is still readable after the step" {
 
 test "an aggregate answer crosses through the out-pointer" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let pairs = [1, 2, 3].mapCtxStep(ctx, fn(c, n) => (n, n * n));
     assert.eq(pairs.len(), 3);
@@ -89,7 +89,7 @@ test "an aggregate answer crosses through the out-pointer" {
 
 test "an empty list never enters the step" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let empty: [Int] = [];
     assert.eq(empty.mapCtxStep(ctx, fn(c, n) => n + 1).len(), 0);
@@ -98,7 +98,7 @@ test "an empty list never enters the step" {
 
 test "a step may itself be a call site" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let nested = [1, 2, 3].mapCtx(ctx, fn(c, n) => {
         [n, n, n].mapCtxStep(c, fn(d, m) => m + 1).fold(fn(a, m) => a + m, 0)

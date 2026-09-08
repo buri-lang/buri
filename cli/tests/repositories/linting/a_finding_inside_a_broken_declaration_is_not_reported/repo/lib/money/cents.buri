@@ -5,10 +5,10 @@
 // of anything. The edit in the manifest puts the comma back and both come
 // into view, which is what says the silence was scoped rather than lucky.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import { fromInt };
 
-export fn describe<C: Alloc>(ctx: C, n: I64): Str {
+export fn describe<C: Allocator>(ctx: C, n: I64): Str {
   let spare = 7;
   match (n) {
     1 => fromInt(ctx, 1)

@@ -27,8 +27,8 @@ edit {
 
 edit {
   file: "cmd/app/main.buri"
-  replace: "fn nibble(value: Int, shift: Int): Char {\n    match (HEX_DIGITS[value / shift % 16]) {\n        .Some(digit) => digit,\n        .None => '0',\n    }\n}\n\nfn hexByte<C: Alloc>(ctx: C, octet: Int): Str {\n    str.fromChars(ctx, [nibble(octet, 16), nibble(octet, 1)])\n}\n"
-  with: "fn hexByte<C: Alloc>(ctx: C, octet: Int): Str {\n    number.toHex(ctx, octet, 2)\n}\n"
+  replace: "fn nibble(value: Int, shift: Int): Char {\n    match (HEX_DIGITS[value / shift % 16]) {\n        .Some(digit) => digit,\n        .None => '0',\n    }\n}\n\nfn hexByte<C: Allocator>(ctx: C, octet: Int): Str {\n    str.fromChars(ctx, [nibble(octet, 16), nibble(octet, 1)])\n}\n"
+  with: "fn hexByte<C: Allocator>(ctx: C, octet: Int): Str {\n    number.toHex(ctx, octet, 2)\n}\n"
 }
 
 edit {

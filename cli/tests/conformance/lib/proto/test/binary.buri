@@ -8,7 +8,7 @@
 // varint, and the comment on each assertion says what the bytes are.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -18,12 +18,12 @@ from "//lib/proto" import {
     Everything_Note, Shade,
 };
 
-fn hex<C: Alloc>(ctx: C, v: Everything): Str {
+fn hex<C: Allocator>(ctx: C, v: Everything): Str {
     bytes.toHex(ctx, encodeEverything(ctx, v))
 }
 
 /// The bytes a hex string names.
-fn raw<C: Alloc>(ctx: C, text: Str): [U8] {
+fn raw<C: Allocator>(ctx: C, text: Str): [U8] {
     match (bytes.fromHex(ctx, text)) {
         .Ok(b) => b,
         .Err(_e) => list.empty<U8>(),
@@ -34,7 +34,7 @@ fn raw<C: Alloc>(ctx: C, text: Str): [U8] {
 
 test "a message whose fields are all default writes nothing" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // proto3's canonical encoding omits a singular field holding its default, so
     // the whole message is zero bytes.
@@ -44,7 +44,7 @@ test "a message whose fields are all default writes nothing" {
 
 test "a message of no bytes decodes to every default" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(decodeEverything(ctx, list.empty<U8>()), .Ok(defaultEverything()));
     assert.eq(decodeEmpty(ctx, list.empty<U8>()), .Ok(defaultEmpty()));
@@ -54,7 +54,7 @@ test "a message of no bytes decodes to every default" {
 
 test "a string field is a tag, a length, and UTF-8" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 1, wire 2 -> (1 << 3) | 2 = 0x0a; length 3; "Ada" is 41 64 61.
     assert.eq(
@@ -65,7 +65,7 @@ test "a string field is a tag, a length, and UTF-8" {
 
 test "a varint field is a tag and base-128 digits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 2, wire 0 -> 0x10. 300 = 0b100101100 -> 0xac 0x02.
     assert.eq(
@@ -78,7 +78,7 @@ test "a varint field is a tag and base-128 digits" {
 
 test "a negative int32 is the ten-byte two's complement" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // -1 at 64 bits is all ones: nine groups of seven ones, then the top bit.
     assert.eq(
@@ -92,7 +92,7 @@ test "a negative int32 is the ten-byte two's complement" {
 
 test "a sint field zigzags, so a small negative is a small varint" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 6, wire 0 -> 0x30. zigzag(-1) = 1.
     assert.eq(hex(ctx, Everything { ..defaultEverything(), delta: .Some(-1) }), "3001");
@@ -119,7 +119,7 @@ test "the zigzag transform is its own documented pair" {
 
 test "a fixed field is little-endian and never varint" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 8, wire 5 -> (8 << 3) | 5 = 0x45. 1 as four bytes, low byte first.
     assert.eq(
@@ -145,7 +145,7 @@ test "a fixed field is little-endian and never varint" {
 
 test "a double is its IEEE 754 bytes, little-endian" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 14, wire 1 -> (14 << 3) | 1 = 0x71. 0.5 is 0x3fe0000000000000.
     assert.eq(
@@ -162,7 +162,7 @@ test "a double is its IEEE 754 bytes, little-endian" {
 
 test "a bool is one varint byte, and false is a value like any other" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 12, wire 0 -> 0x60. Under explicit presence `false` is written: it
     // was set, and the wire says so.
@@ -179,7 +179,7 @@ test "a bool is one varint byte, and false is a value like any other" {
 
 test "bytes are length-delimited and are not text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 13, wire 2 -> (13 << 3) | 2 = 0x6a. Two bytes, one of them not UTF-8.
     assert.eq(
@@ -193,7 +193,7 @@ test "bytes are length-delimited and are not text" {
 
 test "an enum is its number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 16, wire 0 -> (16 << 3) = 0x80 0x01 as a varint.
     assert.eq(
@@ -219,7 +219,7 @@ test "an enum is its number" {
 
 test "a field set to its own zero value is still written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 2, wire 0 -> 0x10, and a zero body. Under proto3 this was two bytes
     // of nothing; under editions it is the field being *there*.
@@ -229,7 +229,7 @@ test "a field set to its own zero value is still written" {
 
 test "absent and zero are different messages, and both round-trip" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let set = Everything { ..defaultEverything(), count: .Some(0) };
     let unset = Everything { ..defaultEverything(), count: .None };
@@ -242,7 +242,7 @@ test "absent and zero are different messages, and both round-trip" {
 
 test "an IMPLICIT field is a bare type, and cannot tell unset from its default" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `age` asks for implicit presence by name, so it is an `Int` rather than an
     // `Option<Int>` and a zero writes nothing — which is exactly what a proto3
@@ -256,7 +256,7 @@ test "an IMPLICIT field is a bare type, and cannot tell unset from its default" 
 
 test "a message field is an Option whatever the feature says" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 40, wire 2 -> (40 << 3) | 2 = 322 -> varint c2 02. The body is an
     // Address holding only `city: .Some("A"`), which is 0a 01 41.
@@ -275,7 +275,7 @@ test "a message field is an Option whatever the feature says" {
 
 test "a repeated numeric field is packed into one length-delimited field" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 30, wire 2 -> (30 << 3) | 2 = 242 -> f2 01. Three varints, 3 bytes.
     assert.eq(
@@ -290,7 +290,7 @@ test "a repeated numeric field is packed into one length-delimited field" {
 
 test "an EXPANDED repeated field is one whole field per element" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `spread` asks for `features.repeated_field_encoding = EXPANDED` by name, so
     // each element carries its own header: field 34, wire 0 -> (34 << 3) = 272 ->
@@ -309,7 +309,7 @@ test "an EXPANDED repeated field is one whole field per element" {
 
 test "a repeated string field is one whole field per element" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 31, wire 2 -> (31 << 3) | 2 = 250 -> fa 01. Packing strings would be
     // indistinguishable from one long string, so they are not packed.
@@ -321,7 +321,7 @@ test "a repeated string field is one whole field per element" {
 
 test "an unpacked repeated numeric field still decodes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A writer is allowed to send the unpacked form, so a reader takes it: three
     // separate field-30 varints rather than one packed run.
@@ -334,7 +334,7 @@ test "an unpacked repeated numeric field still decodes" {
 
 test "repeated messages and enums round-trip" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = Everything {
         ..defaultEverything(),
@@ -355,7 +355,7 @@ test "repeated messages and enums round-trip" {
 
 test "a oneof writes exactly the case it holds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 60, wire 2 -> (60 << 3) | 2 = 482 -> e2 03. "9" is 39.
     assert.eq(
@@ -378,7 +378,7 @@ test "a oneof writes exactly the case it holds" {
 
 test "a oneof case holding its type's default is still written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Presence is tracked for a oneof, so the empty string is on the wire.
     let v = Everything {
@@ -391,7 +391,7 @@ test "a oneof case holding its type's default is still written" {
 
 test "a nested message is a type of its own, named for its nesting" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 41, wire 2 -> (41 << 3) | 2 = 330 -> ca 02.
     let v = Everything {
@@ -450,7 +450,7 @@ fn everything<C>(ctx: C): Everything {
 
 test "every field kind at once round-trips through the wire format" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = everything(ctx);
     assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
@@ -458,7 +458,7 @@ test "every field kind at once round-trips through the wire format" {
 
 test "encoding is deterministic" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Fields go out in schema order, so the same value is the same bytes — which
     // is what makes an encoding something a golden file can hold.
@@ -471,7 +471,7 @@ test "encoding is deterministic" {
 
 test "a field this schema does not know is skipped" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Four unknown fields, one of each wire type, around a known one:
     //   field 100 varint  -> (100 << 3) | 0 = 800 -> a0 06, then 01
@@ -489,7 +489,7 @@ test "a field this schema does not know is skipped" {
 
 test "an unknown enum number is kept, because an editions enum is open" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // field 16 carrying 99, which this schema does not name. An open enum keeps
     // it rather than collapsing it, so a message written by a newer schema
@@ -501,7 +501,7 @@ test "an unknown enum number is kept, because an editions enum is open" {
 
 test "unknown fields are dropped rather than carried" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Re-encoding a message decoded from a newer schema loses what that schema
     // added. Buri's generated types have nowhere to keep it, and the loss is

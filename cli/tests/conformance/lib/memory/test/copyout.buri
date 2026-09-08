@@ -23,7 +23,7 @@
 // captured environment, and a recursive type whose field is behind a box.
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import * as testing;
 from "core/testing/assert" import * as assert;
 
@@ -60,7 +60,7 @@ enum Chain {
 /// **This is the load-bearing helper of the file.** A literal is `IMMORTAL`
 /// and is not in any arena, so a scope that answered one would prove nothing
 /// about copying out of a scope. `repeat` allocates.
-fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str {
+fn built<C: Allocator>(ctx: C, unit: Str, times: Int): Str {
     unit.repeat(ctx, times)
 }
 
@@ -70,7 +70,7 @@ fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str {
 
 test "a scope answers a string it built" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => built(c, "ab", 4));
     assert.eq(out, "abababab");
@@ -78,7 +78,7 @@ test "a scope answers a string it built" {
 
 test "a scope answers a string built by concatenation" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => built(c, "x", 3).concat(c, built(c, "y", 2)));
     assert.eq(out, "xxxyy");
@@ -86,7 +86,7 @@ test "a scope answers a string built by concatenation" {
 
 test "a scope answers a list of strings it built" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => [built(c, "a", 2), built(c, "b", 3)]);
     assert.eq(out, ["aa", "bbb"]);
@@ -94,7 +94,7 @@ test "a scope answers a list of strings it built" {
 
 test "a scope answers a list of integers, which holds no counted block" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => [1, 2, 3].map(c, fn(x) => x * 2));
     assert.eq(out, [2, 4, 6]);
@@ -106,7 +106,7 @@ test "a scope answers a list of integers, which holds no counted block" {
 
 test "a scope answers a nested list of lists of strings" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         [[built(c, "a", 1), built(c, "b", 2)], [built(c, "c", 3)], []]
@@ -116,7 +116,7 @@ test "a scope answers a nested list of lists of strings" {
 
 test "a scope answers three lists deep" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => [[[built(c, "z", 4)]]]);
     assert.eq(out, [[["zzzz"]]]);
@@ -124,7 +124,7 @@ test "a scope answers three lists deep" {
 
 test "a scope answers a list its body built with map" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         [1, 2, 3].mapCtx(c, fn(k, n) => "-".repeat(k, n))
@@ -138,7 +138,7 @@ test "a scope answers a list its body built with map" {
 
 test "a scope answers a struct whose fields are counted" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         Labelled {
@@ -152,7 +152,7 @@ test "a scope answers a struct whose fields are counted" {
 
 test "a scope answers an enum variant carrying a string" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => Answer.Text(built(c, "hi", 2)));
     assert.eq(out, Answer.Text("hihi"));
@@ -160,7 +160,7 @@ test "a scope answers an enum variant carrying a string" {
 
 test "a scope answers an enum variant carrying a list" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         Answer.Many([built(c, "m", 2), built(c, "n", 1)])
@@ -170,7 +170,7 @@ test "a scope answers an enum variant carrying a list" {
 
 test "a scope answers an enum record variant carrying both" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         Answer.Both { head: built(c, "h", 3), rest: [built(c, "r", 2)] }
@@ -182,7 +182,7 @@ test "a scope answers an enum record variant carrying both" {
 // the copy has to fall through to the join rather than off the end.
 test "a scope answers an enum variant carrying nothing" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         let _ = built(c, "discarded", 4);
@@ -193,7 +193,7 @@ test "a scope answers an enum variant carrying nothing" {
 
 test "a scope answers a `.Some` through the niche" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out: Option<Str> = alloc.scoped(ctx, fn(c) => .Some(built(c, "s", 3)));
     assert.eq(out, .Some("sss"));
@@ -205,7 +205,7 @@ test "a scope answers a `.Some` through the niche" {
 // never a pointer.
 test "a scope answers a `.None` through the niche" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out: Option<Str> = alloc.scoped(ctx, fn(c) => {
         let _ = built(c, "discarded", 4);
@@ -216,7 +216,7 @@ test "a scope answers a `.None` through the niche" {
 
 test "a scope answers a Result carrying a list" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out: Result<[Str], Str> = alloc.scoped(ctx, fn(c) => .Ok([built(c, "o", 2)]));
     assert.eq(out, .Ok(["oo"]));
@@ -224,7 +224,7 @@ test "a scope answers a Result carrying a list" {
 
 test "a scope answers a Result carrying an error string" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out: Result<[Str], Str> = alloc.scoped(ctx, fn(c) => .Err(built(c, "e", 3)));
     assert.eq(out, .Err("eee"));
@@ -232,7 +232,7 @@ test "a scope answers a Result carrying an error string" {
 
 test "a scope answers a value behind a box" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         Chain.Link(built(c, "a", 2), Chain.Link(built(c, "b", 1), Chain.End))
@@ -252,7 +252,7 @@ test "a scope answers a value behind a box" {
 
 test "a scope answers a closure whose environment it built" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let f = alloc.scoped(ctx, fn(c) => {
         let greeting = built(c, "ab", 4);
@@ -263,7 +263,7 @@ test "a scope answers a closure whose environment it built" {
 
 test "a scope answers a closure capturing a list of strings" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let f = alloc.scoped(ctx, fn(c) => {
         let parts = [built(c, "p", 2), built(c, "q", 1)];
@@ -274,7 +274,7 @@ test "a scope answers a closure capturing a list of strings" {
 
 test "a scope answers a list of closures" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let fs = alloc.scoped(ctx, fn(c) => {
         let one = built(c, "1", 2);
@@ -290,7 +290,7 @@ test "a scope answers a list of closures" {
 
 test "a scope inside a scope answers through both" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(outer) => {
         alloc.scoped(outer, fn(inner) => [built(inner, "i", 2), built(inner, "j", 3)])
@@ -300,7 +300,7 @@ test "a scope inside a scope answers through both" {
 
 test "a scope inside a scope answers a value the outer one adds to" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let out = alloc.scoped(ctx, fn(outer) => {
         let inner = alloc.scoped(outer, fn(c) => built(c, "in", 2));
@@ -315,7 +315,7 @@ test "a scope inside a scope answers a value the outer one adds to" {
 // first answer is read *after* all of that, and it still says what it said.
 test "an answer outlives the scopes that run after it" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let first = alloc.scoped(ctx, fn(c) => [built(c, "keep", 3), built(c, "me", 2)]);
     let second = alloc.scoped(ctx, fn(c) => {
@@ -329,7 +329,7 @@ test "an answer outlives the scopes that run after it" {
 
 test "two sequential scopes each answer their own value" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let a = alloc.scoped(ctx, fn(c) => built(c, "a", 3));
     let b = alloc.scoped(ctx, fn(c) => built(c, "b", 4));
@@ -343,7 +343,7 @@ test "two sequential scopes each answer their own value" {
 
 test "a value made outside a scope is unchanged by passing through one" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let outside = built(ctx, "o", 3);
     let out = alloc.scoped(ctx, fn(c) => [outside, built(c, "i", 2)]);
@@ -353,7 +353,7 @@ test "a value made outside a scope is unchanged by passing through one" {
 
 test "a scope that answers nothing counted answers it anyway" {
     let ctx = context {
-        Alloc: testing.alloc(),
+        Allocator: testing.alloc(),
     };
     let n = alloc.scoped(ctx, fn(c) => built(c, "count", 4).len());
     assert.eq(n, 20);
@@ -366,7 +366,7 @@ test "a scope that answers nothing counted answers it anyway" {
 test "the copy out of a scope charges the caller nothing" {
     let gp = alloc.generalPurpose();
     let ctx = context {
-        Alloc: gp,
+        Allocator: gp,
     };
     let out = alloc.scoped(ctx, fn(c) => [built(c, "z", 3), built(c, "y", 2)]);
     assert.eq(out, ["zzz", "yy"]);

@@ -2,7 +2,7 @@
 // statements to compute turns into statements placed *before* the call, so
 // anything written to its left has to be pinned ahead of them rather than left
 // sitting in the argument list to run afterwards.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -22,7 +22,7 @@ fn both(a: Int, b: Int): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let p: Pick = .B;

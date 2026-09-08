@@ -420,7 +420,7 @@ unsafe fn header(p: *mut u8) -> *mut Header {
 /// A fresh block with `payload` usable bytes, `rc == 1`, `cap == payload`.
 ///
 /// Returns the **payload** pointer, 16-byte aligned; the header is at `p - 16`.
-/// Never returns null: exhaustion aborts, because SPEC 10.5 says `Alloc` can
+/// Never returns null: exhaustion aborts, because SPEC 10.5 says `Allocator` can
 /// fail and SPEC 6.9 says a failure with no value to return is an abort.
 ///
 /// The contents are uninitialized. Use [`buri_rt_alloc_zeroed`] where the
@@ -2014,7 +2014,7 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
 }
 
 // ---------------------------------------------------------------------------
-// `Alloc`, the effect
+// `Allocator`, the effect
 // ---------------------------------------------------------------------------
 
 /// `host.alloc.allocate(bytes) -> Region(bytes)`.
@@ -2022,7 +2022,7 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
 /// MEMORY.md §7: the charge is a function of the *types*, computed by
 /// `middle::layout`, so it is the same number on both backends and both
 /// platforms. `allocate` is the one row that charges its own argument, and
-/// `HostAlloc` is zero-sized and unbounded, so this returns what it was asked
+/// `HostAllocator` is zero-sized and unbounded, so this returns what it was asked
 /// for and the accounting is the caller's.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_alloc_allocate(bytes: i64) -> i64 {
@@ -2155,7 +2155,7 @@ fn index(handle: i64) -> Option<usize> {
 // # `core/alloc`'s `scoped`, from the runtime's side
 //
 // `Scoped<C>` is the attenuating wrapper `core/alloc` declares: every effect
-// forwards to the `C` it holds except `Alloc`, which is served here. What
+// forwards to the `C` it holds except `Allocator`, which is served here. What
 // "served" means is the whole of this section, and it is narrower than the
 // word usually implies — narrower on purpose, and the narrowness is what makes
 // the release at the end of a scope sound today rather than after G5.
@@ -2165,7 +2165,7 @@ fn index(handle: i64) -> Option<usize> {
 // arena's current 64 KiB block, mapping another when the block is full and a
 // right-sized one of its own when `n` is bigger than a block; `arena_release`
 // unmaps every block the arena ever took. That is a real reservation with a
-// real bulk free, and it is the first `Alloc` in this language that maps a
+// real bulk free, and it is the first `Allocator` in this language that maps a
 // page rather than only counting one.
 //
 // **What it does not do is hold Buri values, and that is deliberate.** A
@@ -2179,7 +2179,7 @@ fn index(handle: i64) -> Option<usize> {
 // **So the interim soundness rule is a short one: nothing that can escape a
 // scope is ever inside the arena.** `allocate` answers `Region`, and a
 // `Region` carries the *charge* — the byte count — and not a pointer; that is
-// true of `HostAlloc`, of `GeneralPurpose`, of `FixedBuffer`, and it stays
+// true of `HostAllocator`, of `GeneralPurpose`, of `FixedBuffer`, and it stays
 // true here, so the number a scope hands out survives the scope by
 // construction. Nothing G3 can mark, and nothing G6 can decommit, is in these
 // mappings: they are this arena's own, they never enter the `malloc` heap or
@@ -2433,7 +2433,7 @@ pub extern "C" fn buri_rt_alloc_arena_create() -> i64 {
 /// `core/alloc`'s `arenaAllocate(handle, bytes)` — reserve, count, and answer
 /// what was asked for.
 ///
-/// The answer is the request, exactly as `HostAlloc.allocate` and the three
+/// The answer is the request, exactly as `HostAllocator.allocate` and the three
 /// counting allocators answer it, so `Region` means the same number under a
 /// scope as outside one and the JavaScript backend agrees with the native one
 /// on every charge. A negative request reserves nothing; there is no value to

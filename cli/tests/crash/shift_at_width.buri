@@ -1,6 +1,6 @@
 // CRASH: shift out of range
 from "core/bits" import * as bits;
-from "core/effect" import { Alloc, Stdout, Env };
+from "core/effect" import { Allocator, Stdout, Environment };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -8,8 +8,8 @@ from "core/io" import * as io;
 fn push(x: Int, n: Int): Int { bits.shl(x, n) }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
-  let width = 64 + env.args(ctx).len();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
+  let width = 64 + env.arguments(ctx).len();
   let _ = io.println(ctx, "${push(1, width)}").ignore();
   .Ok(())
 }

@@ -11,7 +11,7 @@
 //! non-zero; `zero` hands back no modules at all; `shadow`, `surface` and
 //! `taken` each name a module something else already names.
 
-from "core/effect" import { Alloc, Stderr, Stdin, Stdout };
+from "core/effect" import { Allocator, Stderr, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -20,7 +20,7 @@ from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stderr: host.stderr,
         Stdin: host.stdin,
         Stdout: host.stdout,
@@ -64,14 +64,14 @@ fn modeOf(inputs: [(Str, Str)]): Str {
     }
 }
 
-fn respond<C: Alloc>(ctx: C, mode: Str): Json {
+fn respond<C: Allocator>(ctx: C, mode: Str): Json {
     .Object([
         ("modules", .Array(modules(ctx, mode))),
         ("diagnostics", .Array(list.empty())),
     ])
 }
 
-fn modules<C: Alloc>(ctx: C, mode: Str): [Json] {
+fn modules<C: Allocator>(ctx: C, mode: Str): [Json] {
     if (mode == "none") {
         [wrote("nothing", "export let nothing: Int = 0;\n")]
     } else if (mode == "zero") {
@@ -83,7 +83,7 @@ fn modules<C: Alloc>(ctx: C, mode: Str): [Json] {
 
 /// The two modules every mode but `zero` and `none` hands back: `right` imports
 /// `left`, which is one generated module reaching another.
-fn pair<C: Alloc>(ctx: C): [Json] {
+fn pair<C: Allocator>(ctx: C): [Json] {
     let importing = "from \"//lib/wire/left\" import { leftValue };\n\n".concat(
         ctx,
         "export let rightValue: Int = leftValue * 2;\n",
@@ -112,7 +112,7 @@ fn wrote(name: Str, text: Str): Json {
     ])
 }
 
-fn allInputs<C: Alloc>(ctx: C, request: Json): Option<[(Str, Str)]> {
+fn allInputs<C: Allocator>(ctx: C, request: Json): Option<[(Str, Str)]> {
     field(request, "inputs")
         .andThen(fn(v) => asArray(v))
         .andThenCtx(ctx, fn(c, items) => {

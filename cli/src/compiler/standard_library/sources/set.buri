@@ -8,7 +8,7 @@
 //! instead of two, and so that `union` can exist.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/list" import * as list;
@@ -17,7 +17,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let a = set.of(ctx, [1, 2, 2, 3]);
@@ -35,7 +35,7 @@
 //! 3 unique, union 1 2 3 4
 //! ```
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/map" import * as map;
 from "core/map" import { Map };
@@ -50,7 +50,7 @@ export fn empty<T>(): Set<T> {
 }
 
 /// A set holding the given items, duplicates collapsed.
-export fn of<T: Hash + Eq, C: Alloc>(ctx: C, items: [T]): Set<T> {
+export fn of<T: Hash + Eq, C: Allocator>(ctx: C, items: [T]): Set<T> {
     items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty<T>())
 }
 
@@ -67,49 +67,49 @@ impl<T: Hash + Eq> Set<T> {
         self.entries.has(item)
     }
 
-    export fn insert<C: Alloc>(self, ctx: C, item: T): Set<T> {
+    export fn insert<C: Allocator>(self, ctx: C, item: T): Set<T> {
         Set { entries: self.entries.insert(ctx, item, ()) }
     }
 
-    export fn remove<C: Alloc>(self, ctx: C, item: T): Set<T> {
+    export fn remove<C: Allocator>(self, ctx: C, item: T): Set<T> {
         Set { entries: self.entries.remove(ctx, item) }
     }
 
     /// Every member, in no particular order.
-    export fn toList<C: Alloc>(self, ctx: C): [T] {
+    export fn toList<C: Allocator>(self, ctx: C): [T] {
         self.entries.keys(ctx)
     }
 
-    export fn union<C: Alloc>(self, ctx: C, other: Set<T>): Set<T> {
+    export fn union<C: Allocator>(self, ctx: C, other: Set<T>): Set<T> {
         other.toList(ctx).foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), self)
     }
 
-    export fn intersect<C: Alloc>(self, ctx: C, other: Set<T>): Set<T> {
+    export fn intersect<C: Allocator>(self, ctx: C, other: Set<T>): Set<T> {
         let theirs = other;
         let kept = self.toList(ctx).filterCtx(ctx, fn(_c, x) => theirs.has(x));
         of(ctx, kept)
     }
 
     /// The members of `self` that are not in `other`.
-    export fn difference<C: Alloc>(self, ctx: C, other: Set<T>): Set<T> {
+    export fn difference<C: Allocator>(self, ctx: C, other: Set<T>): Set<T> {
         let theirs = other;
         let kept = self.toList(ctx).filterCtx(ctx, fn(_c, x) => !theirs.has(x));
         of(ctx, kept)
     }
 
-    export fn isSubsetOf<C: Alloc>(self, ctx: C, other: Set<T>): Bool {
+    export fn isSubsetOf<C: Allocator>(self, ctx: C, other: Set<T>): Bool {
         let theirs = other;
         self.toList(ctx).all(fn(x) => theirs.has(x))
     }
 
     /// Whether every member of `other` is also in `self`. `isSubsetOf` read
     /// from the other end.
-    export fn isSupersetOf<C: Alloc>(self, ctx: C, other: Set<T>): Bool {
+    export fn isSupersetOf<C: Allocator>(self, ctx: C, other: Set<T>): Bool {
         other.isSubsetOf(ctx, self)
     }
 
     /// The members in exactly one of the two.
-    export fn symmetricDifference<C: Alloc>(self, ctx: C, other: Set<T>): Set<T> {
+    export fn symmetricDifference<C: Allocator>(self, ctx: C, other: Set<T>): Set<T> {
         self.difference(ctx, other).union(ctx, other.difference(ctx, self))
     }
 
@@ -118,7 +118,7 @@ impl<T: Hash + Eq> Set<T> {
     /// **It builds no set.** `intersect` then `isEmpty` allocates the whole
     /// intersection to ask a yes-or-no question; this walks the smaller side and
     /// stops at the first member the other one holds.
-    export fn isDisjointFrom<C: Alloc>(self, ctx: C, other: Set<T>): Bool {
+    export fn isDisjointFrom<C: Allocator>(self, ctx: C, other: Set<T>): Bool {
         // Walk the shorter list against the other's constant-time membership.
         if (self.len() <= other.len()) {
             let theirs = other;
@@ -130,12 +130,12 @@ impl<T: Hash + Eq> Set<T> {
     }
 
     /// The members `keep` answers true for.
-    export fn filter<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): Set<T> {
+    export fn filter<C: Allocator>(self, ctx: C, keep: fn(T) => Bool): Set<T> {
         of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => keep(x)))
     }
 
     /// Same members, whatever order either was built in.
-    export fn equals<C: Alloc>(self, ctx: C, other: Set<T>): Bool {
+    export fn equals<C: Allocator>(self, ctx: C, other: Set<T>): Bool {
         self.len() == other.len() && self.isSubsetOf(ctx, other)
     }
 }
@@ -152,14 +152,14 @@ impl<T: Hash + Eq> Set<T> {
 /// `core/list` is the bottom of the dependency order and cannot name a `Set`.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/set" import * as set;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let names = ["ana", "bo", "ana", "cy", "bo"];
@@ -172,7 +172,7 @@ impl<T: Hash + Eq> Set<T> {
 /// ```stdout
 /// ana bo cy
 /// ```
-export fn distinct<T: Hash + Eq, C: Alloc>(ctx: C, xs: [T]): [T] {
+export fn distinct<T: Hash + Eq, C: Allocator>(ctx: C, xs: [T]): [T] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([T], Set<T>), x) => {
@@ -186,7 +186,7 @@ export fn distinct<T: Hash + Eq, C: Alloc>(ctx: C, xs: [T]): [T] {
 
 /// [`distinct`] over a key: the first element answering each key is kept, and
 /// the rest go. O(n), and one `key` call per element.
-export fn distinctBy<A, K: Hash + Eq, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): [A] {
+export fn distinctBy<A, K: Hash + Eq, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): [A] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([A], Set<K>), x) => {

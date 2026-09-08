@@ -9,7 +9,7 @@
 //! instead of two, and so that `union` can exist.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/orderedset" import * as orderedset;
@@ -17,7 +17,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let ids = orderedset.of(ctx, [30, 10, 20, 10]);
@@ -36,7 +36,7 @@
 //! 3 unique: 10 20 30
 //! ```
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
@@ -51,7 +51,7 @@ export fn empty<T>(): OrderedSet<T> {
 }
 
 /// A set holding the given items, duplicates collapsed.
-export fn of<T: Ord, C: Alloc>(ctx: C, items: [T]): OrderedSet<T> {
+export fn of<T: Ord, C: Allocator>(ctx: C, items: [T]): OrderedSet<T> {
     items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty<T>())
 }
 
@@ -74,11 +74,11 @@ impl<T: Ord> OrderedSet<T> {
         self.members.has(item)
     }
 
-    export fn insert<C: Alloc>(self, ctx: C, item: T): OrderedSet<T> {
+    export fn insert<C: Allocator>(self, ctx: C, item: T): OrderedSet<T> {
         OrderedSet { members: self.members.insert(ctx, item, ()) }
     }
 
-    export fn remove<C: Alloc>(self, ctx: C, item: T): OrderedSet<T> {
+    export fn remove<C: Allocator>(self, ctx: C, item: T): OrderedSet<T> {
         OrderedSet { members: self.members.remove(ctx, item) }
     }
 
@@ -93,44 +93,44 @@ impl<T: Ord> OrderedSet<T> {
     }
 
     /// Every member, in order.
-    export fn toList<C: Alloc>(self, ctx: C): [T] {
+    export fn toList<C: Allocator>(self, ctx: C): [T] {
         self.members.keys(ctx)
     }
 
     /// The members that are at least `start` and less than `end`, in order.
     /// Half-open, like `orderedmap.range`.
-    export fn range<C: Alloc>(self, ctx: C, start: T, end: T): [T] {
+    export fn range<C: Allocator>(self, ctx: C, start: T, end: T): [T] {
         self.members.range(ctx, start, end).map(ctx, fn(e) => memberOf(e))
     }
 
-    export fn union<C: Alloc>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
+    export fn union<C: Allocator>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
         other.toList(ctx).foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), self)
     }
 
-    export fn intersect<C: Alloc>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
+    export fn intersect<C: Allocator>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
         let theirs = other;
         of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => theirs.has(x)))
     }
 
     /// The members of `self` that are not in `other`.
-    export fn difference<C: Alloc>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
+    export fn difference<C: Allocator>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
         let theirs = other;
         of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => !theirs.has(x)))
     }
 
-    export fn isSubsetOf<C: Alloc>(self, ctx: C, other: OrderedSet<T>): Bool {
+    export fn isSubsetOf<C: Allocator>(self, ctx: C, other: OrderedSet<T>): Bool {
         let theirs = other;
         self.toList(ctx).all(fn(x) => theirs.has(x))
     }
 
     /// Whether every member of `other` is also in `self`. `isSubsetOf` read
     /// from the other end.
-    export fn isSupersetOf<C: Alloc>(self, ctx: C, other: OrderedSet<T>): Bool {
+    export fn isSupersetOf<C: Allocator>(self, ctx: C, other: OrderedSet<T>): Bool {
         other.isSubsetOf(ctx, self)
     }
 
     /// The members in exactly one of the two, in order.
-    export fn symmetricDifference<C: Alloc>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
+    export fn symmetricDifference<C: Allocator>(self, ctx: C, other: OrderedSet<T>): OrderedSet<T> {
         self.difference(ctx, other).union(ctx, other.difference(ctx, self))
     }
 
@@ -139,7 +139,7 @@ impl<T: Ord> OrderedSet<T> {
     /// **It builds no set**, where `intersect` then `isEmpty` allocates the
     /// whole intersection to ask a yes-or-no question. It walks the smaller
     /// side and stops at the first member the other one holds.
-    export fn isDisjointFrom<C: Alloc>(self, ctx: C, other: OrderedSet<T>): Bool {
+    export fn isDisjointFrom<C: Allocator>(self, ctx: C, other: OrderedSet<T>): Bool {
         if (self.len() <= other.len()) {
             let theirs = other;
             self.toList(ctx).all(fn(x) => !theirs.has(x))
@@ -150,7 +150,7 @@ impl<T: Ord> OrderedSet<T> {
     }
 
     /// The members `keep` answers true for, in order.
-    export fn filter<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): OrderedSet<T> {
+    export fn filter<C: Allocator>(self, ctx: C, keep: fn(T) => Bool): OrderedSet<T> {
         of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => keep(x)))
     }
 
@@ -168,7 +168,7 @@ impl<T: Ord> OrderedSet<T> {
     }
 
     /// Same members, whatever order either was built in.
-    export fn equals<C: Alloc>(self, ctx: C, other: OrderedSet<T>): Bool {
+    export fn equals<C: Allocator>(self, ctx: C, other: OrderedSet<T>): Bool {
         self.len() == other.len() && self.isSubsetOf(ctx, other)
     }
 }
@@ -176,7 +176,7 @@ impl<T: Ord> OrderedSet<T> {
 impl OrderedSet<Str> {
     /// The members beginning with `prefix`, in order. `core/orderedmap`'s module
     /// comment defines what a prefix is.
-    export fn prefix<C: Alloc>(self, ctx: C, prefix: Str): [Str] {
+    export fn prefix<C: Allocator>(self, ctx: C, prefix: Str): [Str] {
         self.members.prefix(ctx, prefix).map(ctx, fn(e) => memberOf(e))
     }
 }
@@ -187,7 +187,7 @@ impl OrderedSet<Str> {
 /// `core/set`'s `distinct` over `Ord` rather than `Hash + Eq`: O(n log n)
 /// against that one's O(n), and still well under `core/list`'s `uniqueBy`,
 /// which asks about everything already kept and costs O(n²).
-export fn distinct<T: Ord, C: Alloc>(ctx: C, xs: [T]): [T] {
+export fn distinct<T: Ord, C: Allocator>(ctx: C, xs: [T]): [T] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([T], OrderedSet<T>), x) => {
@@ -201,7 +201,7 @@ export fn distinct<T: Ord, C: Alloc>(ctx: C, xs: [T]): [T] {
 
 /// [`distinct`] over a key: the first element answering each key is kept, and
 /// the rest go. One `key` call per element.
-export fn distinctBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): [A] {
+export fn distinctBy<A, K: Ord, C: Allocator>(ctx: C, xs: [A], key: fn(A) => K): [A] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([A], OrderedSet<K>), x) => {

@@ -1,6 +1,6 @@
 // One picture, in this package's own `test/__snapshots__`.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -8,7 +8,7 @@ from "ui/testing" import { headless, snapshot };
 
 test "the one panel" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(

@@ -1,12 +1,12 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "//lib/ledger" import { Entry, total };
 
-/// Deterministic and allocating: `C: Alloc` and nothing else, so no amount of
+/// Deterministic and allocating: `C: Allocator` and nothing else, so no amount of
 /// refactoring inside it can turn it into something that writes a file. That is
 /// what makes it worth having as a library rather than as a paragraph inside
 /// `main`.
-export fn render<C: Alloc>(ctx: C, entries: [Entry], verbose: Bool): Str {
+export fn render<C: Allocator>(ctx: C, entries: [Entry], verbose: Bool): Str {
     let lines = if (verbose) {
         entries
             .mapCtx(ctx, fn(c, e) => {

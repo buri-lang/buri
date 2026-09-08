@@ -1,7 +1,7 @@
 error: expected `:`, found `@` [unexpected-token]
   --> main.buri:72:14
    |
-72 |         Alloc@ : alloc(),
+72 |         Allocator@ : alloc(),
    |              ^
    |
    = expected: `:`

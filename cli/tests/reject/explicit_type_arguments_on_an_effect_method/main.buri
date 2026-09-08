@@ -7,7 +7,7 @@
 // wave `memo<Int, Str>` through or ask for a number no reader could have
 // written.
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 
@@ -19,7 +19,7 @@ fn readWrong<C: Watch>(ctx: C, id: Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let _ = ctx.memo<Int, Str>(fn(s) => 1);
   let _ = readWrong(ctx, 0);
   .Ok(())

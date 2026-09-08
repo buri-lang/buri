@@ -7,7 +7,7 @@
 // literal and a written one are the same value, by `Eq`, by `Show` and by
 // `Hash`.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/semantics" import {
@@ -134,7 +134,7 @@ test "a field declared `T` is required even where `T` is an `Option`" {
 
 test "a derived `Show` reads the same either way" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         World { hi: "hi" }.show(ctx),
@@ -144,7 +144,7 @@ test "a derived `Show` reads the same either way" {
 
 test "a derived `Show` still distinguishes an omission from a value" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.notEq(
         World { hi: "hi" }.show(ctx),
@@ -161,7 +161,7 @@ test "a derived `Hash` agrees with a derived `Eq`" {
 
 test "a derived `Show` on a generic struct reads the same either way" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(Holder { only: 1 }.show(ctx), Holder { only: 1, slot: .None }.show(ctx));
 }

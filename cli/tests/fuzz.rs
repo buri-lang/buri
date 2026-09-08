@@ -2510,7 +2510,7 @@ fn bounded_expr(rng: &mut Rng, depth: u32, x: i64) -> (String, i64) {
 fn printer(rng: &mut Rng) -> Printer {
     let funcs = 1 + rng.below(5);
     let mut text = String::from(
-        "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\
+        "from \"core/effect\" import { Allocator, Stdout };\nfrom \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\n",
     );
     let mut lines: Vec<String> = Vec::new();
@@ -2582,7 +2582,7 @@ fn printer(rng: &mut Rng) -> Printer {
 
     text.push_str(
         "export fn main(): Result<(), Str> {\n  \
-         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n",
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n",
     );
     for l in &lines {
         text.push_str(l);

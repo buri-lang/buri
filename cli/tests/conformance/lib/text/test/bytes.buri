@@ -7,7 +7,7 @@
 
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError, Utf8Error };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -17,7 +17,7 @@ from "core/testing/assert" import * as assert;
 
 test "ASCII is one byte per character" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.toUtf8(ctx, "abc"), [97, 98, 99]);
     assert.eq(bytes.toUtf8(ctx, "").len(), 0);
@@ -25,7 +25,7 @@ test "ASCII is one byte per character" {
 
 test "the encoding widths" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.toUtf8(ctx, "é"), [195, 169]);
     assert.eq(bytes.toUtf8(ctx, "€"), [226, 130, 172]);
@@ -34,7 +34,7 @@ test "the encoding widths" {
 
 test "text round trips through its bytes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cases = ["", "abc", "héllo", "€1", "😀 and ☃", "tab\there"];
     let back = cases.mapCtx(ctx, fn(c, s) => bytes.fromUtf8(c, bytes.toUtf8(c, s)));
@@ -43,7 +43,7 @@ test "text round trips through its bytes" {
 
 test "decoding says where the bytes stopped being text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A continuation byte with nothing to continue.
     assert.eq(assert.err(bytes.fromUtf8(ctx, [0x80])), Utf8Error(0));
@@ -55,7 +55,7 @@ test "decoding says where the bytes stopped being text" {
 
 test "an overlong encoding is refused rather than accepted" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 0xC0 0x80 is a two-byte encoding of NUL, which must be one byte.
     assert.eq(assert.err(bytes.fromUtf8(ctx, [0xc0, 0x80])), Utf8Error(0));
@@ -63,7 +63,7 @@ test "an overlong encoding is refused rather than accepted" {
 
 test "a surrogate is not a character" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 0xED 0xA0 0x80 is U+D800, which UTF-8 does not encode.
     assert.eq(assert.err(bytes.fromUtf8(ctx, [0xed, 0xa0, 0x80])), Utf8Error(0));
@@ -71,7 +71,7 @@ test "a surrogate is not a character" {
 
 test "the empty byte string decodes to the empty string" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.ok(bytes.fromUtf8(ctx, list.empty<U8>())), "");
 }
@@ -80,7 +80,7 @@ test "the empty byte string decodes to the empty string" {
 
 test "hex is lowercase and two characters per byte" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.toHex(ctx, [0, 15, 16, 255]), "000f10ff");
     assert.eq(bytes.toHex(ctx, list.empty<U8>()), "");
@@ -88,7 +88,7 @@ test "hex is lowercase and two characters per byte" {
 
 test "hex round trips, and reads either case" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.ok(bytes.fromHex(ctx, "000f10ff")), [0, 15, 16, 255]);
     assert.eq(assert.ok(bytes.fromHex(ctx, "000F10FF")), [0, 15, 16, 255]);
@@ -97,7 +97,7 @@ test "hex round trips, and reads either case" {
 
 test "hex refuses an odd length or a character that is not a digit" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.err(bytes.fromHex(ctx, "abc")), DecodeError(3));
     assert.eq(assert.err(bytes.fromHex(ctx, "zz")), DecodeError(0));
@@ -109,7 +109,7 @@ test "hex refuses an odd length or a character that is not a digit" {
 // The RFC 4648 vectors, which pin the padding of every remainder.
 test "the standard base64 vectors" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.toBase64(ctx, bytes.toUtf8(ctx, "")), "");
     assert.eq(bytes.toBase64(ctx, bytes.toUtf8(ctx, "f")), "Zg==");
@@ -122,7 +122,7 @@ test "the standard base64 vectors" {
 
 test "the same vectors, decoded" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let texts = ["", "f", "fo", "foo", "foob", "fooba", "foobar"];
     let back = texts.mapCtx(ctx, fn(c, s) => {
@@ -133,7 +133,7 @@ test "the same vectors, decoded" {
 
 test "base64 carries bytes that are not text" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let raw: [U8] = [0, 1, 254, 255, 128];
     assert.eq(assert.ok(bytes.fromBase64(ctx, bytes.toBase64(ctx, raw))), raw);
@@ -141,7 +141,7 @@ test "base64 carries bytes that are not text" {
 
 test "base64 refuses a bad length or a character outside the alphabet" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.err(bytes.fromBase64(ctx, "Zg=")), DecodeError(3));
     assert.eq(assert.err(bytes.fromBase64(ctx, "Zg$=")), DecodeError(2));
@@ -153,7 +153,7 @@ test "base64 refuses a bad length or a character outside the alphabet" {
 
 test "a float round-trips through its eight bytes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let values = [1.0, 0.0 - 2.5, 0.1 + 0.2, 1e21];
     let back = values.mapCtx(ctx, fn(c, x) => {
@@ -164,7 +164,7 @@ test "a float round-trips through its eight bytes" {
 
 test "a NaN payload does not survive the round trip" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Two quiet NaNs differing only in the payload, and a negative signalling
     // one. All three decode to the canonical quiet NaN on every backend.
@@ -179,7 +179,7 @@ test "a NaN payload does not survive the round trip" {
 
 test "four octets canonicalize a NaN as eight do" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let payload = assert.some(bytes.f32FromBytes([1, 0, 192, 127], 0));
     assert.eq(bytes.f32ToBytes(ctx, payload), [0, 0, 192, 127]);
@@ -188,7 +188,7 @@ test "four octets canonicalize a NaN as eight do" {
 
 test "the sign of a zero is preserved, which the NaN rule does not touch" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let positive = assert.some(bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 0], 0));
     let negative = assert.some(bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 128], 0));
@@ -224,7 +224,7 @@ test "the whole width round-trips, including the top bit" {
         0xffffffffffffffff,
     ];
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU64Be(bytes.fromU64Be(x), 0));
     assert.eq(back, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
@@ -234,7 +234,7 @@ test "the whole width round-trips, including the top bit" {
 
 test "thirty-two bits round-trip the same way" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let values: [U32] = [0, 1, 0x7fffffff, 0x80000000, 0xffffffff];
     let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU32Le(bytes.fromU32Le(x), 0));
@@ -290,7 +290,7 @@ test "a reader walks a sequence of varints" {
 
 test "a slice is copied out and the reader moves past it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r = bytes.reader([1, 2, 3, 4]);
     let (head, rest) = assert.ok(r.takeSlice(ctx, 3));
@@ -302,7 +302,7 @@ test "a slice is copied out and the reader moves past it" {
 
 test "a length-prefixed frame is one call" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Two frames back to back: "hi" and the empty one.
     let r = bytes.reader([2, 104, 105, 0]);
@@ -315,7 +315,7 @@ test "a length-prefixed frame is one call" {
 
 test "a truncated read reports the index it began at" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Off the end entirely.
     assert.eq(assert.err(bytes.readerAt([1, 2], 2).takeByte()), DecodeError(2));
@@ -352,7 +352,7 @@ test "a reader is a value, so two of them compare" {
 
 test "the URL-safe alphabet writes - and _ where the standard one writes + and /" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.toBase64(ctx, [251, 255]), "+/8=");
     assert.eq(bytes.toBase64Url(ctx, [251, 255]), "-_8");
@@ -364,7 +364,7 @@ test "the URL-safe alphabet writes - and _ where the standard one writes + and /
 
 test "base64url drops the padding at every remainder" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.toBase64Url(ctx, list.empty<U8>()), "");
     assert.eq(bytes.toBase64Url(ctx, [251]), "-w");
@@ -374,7 +374,7 @@ test "base64url drops the padding at every remainder" {
 
 test "text and bytes both round-trip through base64url" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let raw = bytes.toUtf8(ctx, "hi €");
     assert.eq(assert.ok(bytes.fromBase64Url(ctx, bytes.toBase64Url(ctx, raw))), raw);
@@ -387,7 +387,7 @@ test "text and bytes both round-trip through base64url" {
 
 test "base64url reads a padded spelling too, and refuses an impossible length" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.ok(bytes.fromBase64Url(ctx, "-_8=")), [251, 255]);
     assert.eq(assert.ok(bytes.fromBase64Url(ctx, "-_8")), [251, 255]);
@@ -405,7 +405,7 @@ test "base64url reads a padded spelling too, and refuses an impossible length" {
 
 test "valid text is unchanged, and the empty input is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.fromUtf8Lossy(ctx, bytes.toUtf8(ctx, "hi €")), "hi €");
     assert.eq(bytes.fromUtf8Lossy(ctx, list.empty<U8>()), "");
@@ -413,7 +413,7 @@ test "valid text is unchanged, and the empty input is empty" {
 
 test "a truncated sequence costs one replacement, not one per byte" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The euro sign is e2 82 ac; two thirds of it is one bad character.
     assert.eq(bytes.fromUtf8Lossy(ctx, [104, 105, 226, 130]).len(), 3);
@@ -424,7 +424,7 @@ test "a truncated sequence costs one replacement, not one per byte" {
 
 test "an overlong encoding, a surrogate and a stray continuation each replace" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // c0 af is an overlong `/`: the lead byte leads nothing at all.
     assert.eq(bytes.fromUtf8Lossy(ctx, [192, 175]).len(), 2);
@@ -439,7 +439,7 @@ test "an overlong encoding, a surrogate and a stray continuation each replace" {
 
 test "lossy and strict agree on every input strict accepts" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cases = ["", "a", "é", "€", "😀", "mixed: a é € 😀"];
     let same = cases.mapCtx(ctx, fn(c, text) => {
@@ -489,7 +489,7 @@ test "startsWith and endsWith, including the empty and equal cases" {
 
 test "split gives one more piece than there are separators" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.split(ctx, [1, 0, 2, 0, 3], [0]), [[1], [2], [3]]);
     // Empty pieces are pieces: a leading and a trailing separator each make one.
@@ -509,7 +509,7 @@ test "split gives one more piece than there are separators" {
 
 test "join puts the separator between and not around" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.join(ctx, [[1], [2], [3]], [0]), [1, 0, 2, 0, 3]);
     assert.eq(bytes.join(ctx, [[1, 2]], [0]), [1, 2]);
@@ -521,7 +521,7 @@ test "join puts the separator between and not around" {
 
 test "join inverts split when no piece holds the separator" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let original: [U8] = [1, 13, 10, 2, 3, 13, 10, 4];
     let separator: [U8] = [13, 10];
@@ -570,7 +570,7 @@ let SAMPLE: [U8] = [251, 239, 190, 0, 255, 1, 128, 127, 64, 200, 15, 240];
 
 test "base64url writes every length from nothing to twelve octets" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let written = list
         .range(ctx, 0, 13)
@@ -598,7 +598,7 @@ test "base64url writes every length from nothing to twelve octets" {
 
 test "base64url reads every length back, padded or not" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ok = list
         .range(ctx, 0, 13)
@@ -620,7 +620,7 @@ test "base64url reads every length back, padded or not" {
 
 test "base64url refuses every character outside its alphabet" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The two the standard alphabet has and this one does not, at the front and
     // in the middle.
@@ -663,7 +663,7 @@ test "a needle that overlaps itself is found at every start it has" {
     // `split` cuts past each match rather than inside it, so overlapping
     // occurrences give the pieces between the ones it took.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(bytes.split(ctx, [1, 1, 1, 1], [1, 1]), [
         list.empty<U8>(),
@@ -680,7 +680,7 @@ let BAD: Str = "�";
 
 test "the widest and narrowest sequence of every width decodes whole" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The first and last code point each width encodes, which is where the
     // narrowed second-byte ranges that reject an overlong sit.
@@ -707,7 +707,7 @@ test "the widest and narrowest sequence of every width decodes whole" {
 
 test "an overlong encoding replaces one character per byte" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A lead byte that can only ever begin an overlong leads nothing at all, so
     // it and each byte after it replace on their own.
@@ -737,7 +737,7 @@ test "an overlong encoding replaces one character per byte" {
 
 test "a surrogate and a code point past the end each replace" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The whole surrogate range: `ed` may lead, but not with a second byte
     // above `9f`.
@@ -760,7 +760,7 @@ test "a surrogate and a code point past the end each replace" {
 
 test "a sequence cut short costs one replacement wherever it was cut" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Every truncation of a two-, three- and four-byte sequence, at the end of
     // the input: one maximal subpart, so one replacement each.

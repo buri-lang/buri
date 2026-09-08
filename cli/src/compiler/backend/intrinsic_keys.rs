@@ -149,7 +149,7 @@ pub fn json_arm(prim: Prim) -> JsonArm {
 /// declares `Null` first, and a backend that hard-coded `1`, `2`, `3` would be
 /// reading a declaration order out of a table that records it.
 /// `middle::derives` builds the *compound* arms of the same enum through its
-/// own `Env::json_variant`, asking the same question of the same declaration;
+/// own `Environment::json_variant`, asking the same question of the same declaration;
 /// this is the half a **backend** needs, because a primitive leaf is an
 /// intrinsic and never reaches that pass's builder.
 ///
@@ -188,7 +188,7 @@ pub enum Step {
 pub struct ListCall {
     pub kind: Step,
     /// The context, where the *step* takes one. `map` and `mapCtx` both have a
-    /// context argument — `Alloc`, for the block they build — and only the
+    /// context argument — `Allocator`, for the block they build — and only the
     /// second passes it on, because a lambda may not capture one (SPEC 10.6).
     pub ctx: Option<usize>,
     pub func: usize,
@@ -214,7 +214,7 @@ pub fn list_call(key: &str) -> Option<ListCall> {
         "list.mapCtx" => call(Step::Map, Some(1), 2, None),
         "list.filter" => call(Step::Filter, None, 2, None),
         "list.filterCtx" => call(Step::Filter, Some(1), 2, None),
-        // `sortBy(self, ctx, order)`: the `C: Alloc` bound is for the block the
+        // `sortBy(self, ctx, order)`: the `C: Allocator` bound is for the block the
         // sort builds, and the comparator never sees it — so `ctx` is `None`
         // here for the same reason it is on `map`.
         "list.sortBy" => call(Step::Sort, None, 2, None),

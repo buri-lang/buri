@@ -1,15 +1,15 @@
-error: `HostStdout` does not implement `Alloc` [missing-conformance]
+error: `HostStdout` does not implement `Allocator` [missing-conformance]
  --> cmd/context_binding_wrong_implementation/main.buri:7:30
   |
-7 |   let ctx = context { Alloc: host.stdout, Stdout: host.stdout };
+7 |   let ctx = context { Allocator: host.stdout, Stdout: host.stdout };
   |                              ^^^^^^^^^^^
   |
-  = fix: bind a value whose type has `impl Alloc for ...`; an effect is an ordinary interface, so a test double is a struct with those methods
+  = fix: bind a value whose type has `impl Allocator for ...`; an effect is an ordinary interface, so a test double is a struct with those methods
 
     What to do
     ──────────
 
-    Bind a value whose type has impl Alloc for ....
+    Bind a value whose type has impl Allocator for ....
 
     Why
     ───

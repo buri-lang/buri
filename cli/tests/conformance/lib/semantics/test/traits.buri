@@ -1,6 +1,6 @@
 // SPEC 5.11, 5.12 — traits, `impl`, `derive`, and operators as trait methods.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/number" import * as number;
@@ -112,7 +112,7 @@ test "derived Ord on an enum compares payloads within one variant" {
 
 test "derived Ord sorts a list into declaration order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let sorted = [Level.High, Level.Low, Level.Medium].sortBy(ctx, fn(a, b) => {
         a.compare(b)
@@ -126,7 +126,7 @@ test "derived Ord sorts a list into declaration order" {
 
 test "derived Show mentions every field value" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = version(7, 22, 333).show(ctx);
     assert.isTrue(s.contains("7"));
@@ -136,7 +136,7 @@ test "derived Show mentions every field value" {
 
 test "derived Show renders fields in declaration order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = version(7, 22, 333).show(ctx);
     let major = assert.some(s.indexOf("7"));
@@ -148,7 +148,7 @@ test "derived Show renders fields in declaration order" {
 
 test "derived Show names the enum variant" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(Level.Medium.show(ctx).contains("Medium"));
     assert.isTrue(Shape.Circle(2.0).show(ctx).contains("Circle"));
@@ -157,7 +157,7 @@ test "derived Show names the enum variant" {
 
 test "derived Show is a function of the value" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(version(1, 2, 3).show(ctx), version(1, 2, 3).show(ctx));
     assert.notEq(version(1, 2, 3).show(ctx), version(1, 2, 4).show(ctx));
@@ -174,7 +174,7 @@ test "derived Show is a function of the value" {
 
 test "a hole holds a derived struct, and renders what show renders" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = version(1, 2, 3);
     assert.eq(str.format(ctx, "${v}"), v.show(ctx));
@@ -182,7 +182,7 @@ test "a hole holds a derived struct, and renders what show renders" {
 
 test "a derived hole is rendered in place, not appended" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = version(1, 2, 3);
     assert.eq(str.format(ctx, "v=${v}!"), str.format(ctx, "v=${v.show(ctx)}!"));
@@ -190,7 +190,7 @@ test "a derived hole is rendered in place, not appended" {
 
 test "a hole holds a derived enum, payload and all" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = Shape.Rect { width: 1.0, height: 2.0 };
     assert.eq(str.format(ctx, "${s}"), s.show(ctx));
@@ -199,21 +199,21 @@ test "a hole holds a derived enum, payload and all" {
 
 test "a hole holds a payload-free variant" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(str.format(ctx, "${Level.Medium}"), Level.Medium.show(ctx));
 }
 
 test "a hole holds an array" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(str.format(ctx, "${[1, 2, 3]}"), "[1, 2, 3]");
 }
 
 test "a hole holds a generic struct, and quotes the Str inside it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let p = Pair { first: 1, second: "a" };
     assert.eq(str.format(ctx, "${p}"), p.show(ctx));
@@ -226,7 +226,7 @@ test "a hole holds a generic struct, and quotes the Str inside it" {
 
 test "a hole holds a type that recurses through a container" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r = Rose.Branch([Rose.Leaf(1), Rose.Leaf(2)]);
     assert.eq(str.format(ctx, "${r}"), r.show(ctx));
@@ -234,7 +234,7 @@ test "a hole holds a type that recurses through a container" {
 
 test "a hole holds an Option" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let some: Option<Int> = .Some(4);
     let none: Option<Int> = .None;
@@ -244,7 +244,7 @@ test "a hole holds an Option" {
 
 test "a derived hole sits beside primitive holes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = version(1, 0, 0);
     assert.eq(
@@ -255,7 +255,7 @@ test "a derived hole sits beside primitive holes" {
 
 test "a hand-written Show is reached by calling it in the hole" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The conversion the language does not make for you: `${Suit.Hearts}` is
     // rejected, and this is what is written instead.
@@ -357,7 +357,7 @@ test "number.min through an Ord bound follows the hand-written impl" {
 
 test "sorting through a hand-written Ord follows it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let sorted = [Backwards(1), Backwards(3), Backwards(2)].sortBy(ctx, fn(a, b) => {
         a.compare(b)
@@ -394,7 +394,7 @@ test "the hand-written bridge order holds across every adjacent pair" {
 
 test "the hand-written enum Ord sorts into bridge order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let sorted = [Suit.Hearts, Suit.Spades, Suit.Clubs, Suit.Diamonds].sortBy(
         ctx,
@@ -411,7 +411,7 @@ test "a hand-written enum Eq is what == uses" {
 
 test "a hand-written Show on an enum replaces the structural one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(Suit.Hearts.show(ctx), "H");
     assert.eq(Suit.Clubs.show(ctx), "C");
@@ -476,7 +476,7 @@ test "two bounds joined with + are both callable" {
 
 test "a bound of mine and a bound from core/order together" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let shown = weighAndShow(ctx, Feather { count: 12 });
     assert.isTrue(shown.contains("12"));
@@ -519,7 +519,7 @@ test "a second implementation writes Self for its own type" {
 
 test "a Self callback applied once per element of a list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(relayAll(ctx, [Scale { factor: 2 }, Scale { factor: 3 }], 4), [10, 15]);
     assert.eq(relayAll(ctx, list.empty<Scale>(), 4), list.empty<Int>());
@@ -548,7 +548,7 @@ test "a type that recurses through a list can be compared" {
 
 test "a type that recurses through a list can be rendered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(Rose.Branch([Rose.Leaf(1)]).show(ctx).contains("Leaf"));
 }

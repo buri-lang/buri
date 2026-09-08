@@ -1575,7 +1575,7 @@ measurement.
 
 **The measurement is on a synthetic, and that is a caveat rather than a
 footnote.** §6.9's repository no longer compiles against this toolchain: a later
-change split the filesystem effect into `FsRead` and `FsWrite` (`core/fs`), and
+change split the filesystem effect into `FileSystemRead` and `FileSystemWrite` (`core/fs`), and
 nine of its eighteen packages are written against the un-split one. A program
 *shaped* like the finding replaces it — one module instantiating `core/orderedmap`
 at two hundred key and value types, which puts **14,200 monomorphized functions

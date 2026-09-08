@@ -7,10 +7,10 @@
 //!
 //! ```buri
 //! from "core/bytes" import * as bytes;
-//! from "core/effect" import { Alloc, IoError, Tcp };
+//! from "core/effect" import { Allocator, IoError, Tcp };
 //! from "core/net/tcp" import * as tcp;
 //!
-//! export fn ping<C: Alloc + Tcp>(ctx: C, host: Str, port: Int): Result<[U8], IoError> {
+//! export fn ping<C: Allocator + Tcp>(ctx: C, host: Str, port: Int): Result<[U8], IoError> {
 //!     match (tcp.connect(ctx, host, port)) {
 //!         .Err(e) => .Err(e),
 //!         .Ok(stream) => {
@@ -57,7 +57,7 @@
 //! **`Tcp` is granted on LINUX and MACOS.** A page and a worker have no sockets
 //! of their own.
 
-from "core/effect" import { Alloc, IoError, Tcp };
+from "core/effect" import { Allocator, IoError, Tcp };
 
 from "core/effect" export { IoError };
 
@@ -96,9 +96,9 @@ impl Stream {
     /// The empty list means the far side closed. A `limit` at or below zero
     /// reads nothing and answers the empty list without waiting.
     ///
-    /// `Alloc` is in the bound because the answer's size is the wire's and not
+    /// `Allocator` is in the bound because the answer's size is the wire's and not
     /// the signature's.
-    export fn read<C: Alloc + Tcp>(self, ctx: C, limit: Int): Result<[U8], IoError> {
+    export fn read<C: Allocator + Tcp>(self, ctx: C, limit: Int): Result<[U8], IoError> {
         ctx.tcpRead(self.0, limit)
     }
 

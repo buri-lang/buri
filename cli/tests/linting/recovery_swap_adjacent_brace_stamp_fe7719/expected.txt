@@ -38,14 +38,14 @@ error: `C` does not satisfy `Stdout` [unsatisfied-bound]
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Stdout`, or use a type that has one
-error: `Alloc` is not a trait or effect [not-a-trait]
+error: `Allocator` is not a trait or effect [not-a-trait]
   --> lib/recovery_swap_adjacent_brace_stamp_fe7719/lib.buri:24:19
    |
-24 | export fn note<C: Alloc // it will allocate once the sink is real
+24 | export fn note<C: Allocator // it will allocate once the sink is real
    |                   ^^^^^
    |
    = a bound names a declared trait; there are no where clauses
-   = fix: name a declared trait or effect, or declare `Alloc` as one
+   = fix: name a declared trait or effect, or declare `Allocator` as one
 error: `Stdout` is not a trait or effect [not-a-trait]
   --> lib/recovery_swap_adjacent_brace_stamp_fe7719/lib.buri:25:5
    |

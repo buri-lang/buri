@@ -1,12 +1,12 @@
 error: this import list is missing its closing `}` [unclosed-delimiter]
  --> lib/recovery_insert_stray_brace_app_d6f16f/main.buri:6:34
   |
-6 | from "core/effect" import { Alloc? , Stdout };
+6 | from "core/effect" import { Allocator? , Stdout };
   |                                  ^
   |
  --> lib/recovery_insert_stray_brace_app_d6f16f/main.buri:6:27
   |
-6 | from "core/effect" import { Alloc? , Stdout };
+6 | from "core/effect" import { Allocator? , Stdout };
   |                           ^ opened here
   |
   = fix: write `}` here
@@ -16,7 +16,7 @@ error: `Stdout` is not a declared effect [not-an-effect]
 13 |         Stdout: host.stdout,
    |         ^^^^^^
    |
-   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
+   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Stdout` is not one
 error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
   --> lib/recovery_insert_stray_brace_app_d6f16f/main.buri:16:5
    |

@@ -5,7 +5,7 @@
 
 // TODO: this suite is not finished.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/effect" import { IoError, Stdout };
 from "core/host/testing" import { alloc, stdout };
 from "core/io" import * as io;
@@ -40,11 +40,11 @@ fn compareInts(left: Int, right: Int): Order {
     if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
 }
 
-fn width<C: Alloc>(ctx: C, label: Str): Int {
+fn width<C: Allocator>(ctx: C, label: Str): Int {
     label.len()
 }
 
-fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
     io.println(ctx, "-- ${label}")
 }
 
@@ -123,7 +123,7 @@ fn spell(n: I64): Str {
 
 test "the suite is held to every rule the library is" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
     };
     let unread = total(1, 2, 3, 4, 5, 6);

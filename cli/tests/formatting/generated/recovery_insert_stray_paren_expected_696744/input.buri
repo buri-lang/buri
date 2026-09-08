@@ -1,4 +1,4 @@
-export fn f<C: Alloc>(ctx: C): Str {
+export fn f<C: Allocator>(ctx: C): Str {
     aModuleName.aRatherLongFunctionName(
         ctx,
         aLongArgumentName,

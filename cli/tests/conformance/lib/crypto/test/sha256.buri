@@ -9,14 +9,14 @@
 
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
 fn hex(text: Str): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     crypto.sha256Text(ctx, text).toHex(ctx)
 }
@@ -50,7 +50,7 @@ test "the 56-byte vector, which forces a second block" {
 
 test "messages either side of a block boundary" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 55 bytes fits with its padding; 56 does not; 64 is exactly a block.
     assert.eq(
@@ -69,7 +69,7 @@ test "messages either side of a block boundary" {
 
 test "a long message spanning many blocks" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         hex("a".repeat(ctx, 1000)),
@@ -81,7 +81,7 @@ test "a long message spanning many blocks" {
 
 test "a digest is thirty-two bytes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(crypto.sha256Text(ctx, "abc").0.len(), 32);
     assert.eq(crypto.sha256Text(ctx, "abc").toHex(ctx).len(), 64);
@@ -89,7 +89,7 @@ test "a digest is thirty-two bytes" {
 
 test "hashing bytes and hashing their text agree" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         crypto.sha256(ctx, bytes.toUtf8(ctx, "hello")),
@@ -106,7 +106,7 @@ test "different messages have different digests" {
 // characters must not be treated as one byte per character.
 test "non-ASCII text hashes its UTF-8 bytes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(crypto.sha256Text(ctx, "é"), crypto.sha256(ctx, [195, 169]));
     assert.notEq(hex("é"), hex("e"));
@@ -117,7 +117,7 @@ test "non-ASCII text hashes its UTF-8 bytes" {
 // RFC 4231 test case 2, which uses a key shorter than the block.
 test "the RFC 4231 short-key vector" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let key = bytes.toUtf8(ctx, "Jefe");
     let message = bytes.toUtf8(ctx, "what do ya want for nothing?");
@@ -130,7 +130,7 @@ test "the RFC 4231 short-key vector" {
 // RFC 4231 test case 1: a 20-byte key of 0x0b.
 test "the RFC 4231 twenty-byte-key vector" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let key = list.repeat(ctx, 11, 20);
     let message = bytes.toUtf8(ctx, "Hi There");
@@ -144,7 +144,7 @@ test "the RFC 4231 twenty-byte-key vector" {
 // two long keys from colliding by accident of length.
 test "the RFC 4231 long-key vector" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let key = list.repeat(ctx, 170, 131);
     let message = bytes.toUtf8(
@@ -159,7 +159,7 @@ test "the RFC 4231 long-key vector" {
 
 test "hmac depends on the key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let m = bytes.toUtf8(ctx, "message");
     let a = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k1"), m);
@@ -171,7 +171,7 @@ test "hmac depends on the key" {
 
 test "equalsConstantTime agrees with equality" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = crypto.sha256Text(ctx, "x").0;
     let b = crypto.sha256Text(ctx, "x").0;

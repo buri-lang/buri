@@ -5,12 +5,12 @@
 // `Person.name` lands on `string name = 1;` and not on generated text nobody
 // wrote.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/proto_gen" import { anchorOf, FILE, printed, spanText };
 
-fn source<C: Alloc>(ctx: C): Str {
+fn source<C: Allocator>(ctx: C): Str {
     [
         "edition = \"2026\";\n",
         "enum Shade { SHADE_UNSPECIFIED = 0; DARK = 2; }\n",
@@ -24,7 +24,7 @@ fn source<C: Alloc>(ctx: C): Str {
 
 test "a generated field's name carries the span of the field that produced it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = source(ctx);
     let out = printed(ctx, text);
@@ -39,7 +39,7 @@ test "a generated field's name carries the span of the field that produced it" {
 
 test "a generated struct carries its message's span" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = source(ctx);
     let out = printed(ctx, text);
@@ -49,7 +49,7 @@ test "a generated struct carries its message's span" {
 
 test "a generated enum variant carries the span of its value" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = source(ctx);
     let out = printed(ctx, text);
@@ -59,7 +59,7 @@ test "a generated enum variant carries the span of its value" {
 
 test "a oneof's enum and its cases carry the schema's spans" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = source(ctx);
     let out = printed(ctx, text);
@@ -73,7 +73,7 @@ test "a oneof's enum and its cases carry the schema's spans" {
 
 test "a node no declaration is behind records no anchor" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let out = printed(ctx, source(ctx));
     // `defaultPerson` is the generator's own name and not the schema's, so

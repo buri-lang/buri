@@ -48,13 +48,13 @@ edit {
 # the ones `--fix` would have written had it been allowed to.
 edit {
   file: "lib/label/stamp.buri"
-  replace: "from \"core/effect\" import { Alloc };\n\n"
+  replace: "from \"core/effect\" import { Allocator };\n\n"
   with: ""
 }
 
 edit {
   file: "lib/label/stamp.buri"
-  replace: "export fn stamp<C: Alloc>(ctx: C, label: Str): Int {"
+  replace: "export fn stamp<C: Allocator>(ctx: C, label: Str): Int {"
   with: "export fn stamp(label: Str): Int {"
 }
 

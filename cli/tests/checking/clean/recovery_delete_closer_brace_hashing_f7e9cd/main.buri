@@ -6,7 +6,7 @@
 // Everything else about `core/uuid` reads on both backends, so `uuid.buri` stays
 // in the native set and this one file is the exclusion.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/map" import * as map;
 from "core/testing/assert" import * as assert;
@@ -23,7 +23,7 @@ test "equal identifiers hash alike, and different ones do not" {
 
 test "an identifier is a map key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     ;
     let id = assert.some(uuid.parse("550e8400-e29b-41d4-a716-446655440000"));
     let table = map

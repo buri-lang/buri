@@ -1194,7 +1194,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// what keeps SPEC 10.8's attenuation wrapper writable —
     /// `impl<C: Fs> Fs for ReadOnly<C> { fn readFile(self, p) { self.0.readFile(p) } }`
     /// cannot be `fs.readText(self.0, p)`, because that wrapper is bounded
-    /// `Alloc + Fs` and the impl carries only `C: Fs`. The carve-out grants no
+    /// `Allocator + Fs` and the impl carries only `C: Fs`. The carve-out grants no
     /// new authority: an implementor can only reach an inner context somebody
     /// already handed it.
     ///
@@ -1928,10 +1928,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::Generic { args, .. } => Some(self.elaborate_all(args)),
             _ => None,
         };
-        // `host.HostFs {}` where a platform this module compiles for grants no
+        // `host.HostFileSystem {}` where a platform this module compiles for grants no
         // filesystem. The implementation struct is refused with the value it
         // implements — a host struct has no private field, so a program that
-        // could name one would be one `FsRead: host.HostFs {}` away from the
+        // could name one would be one `FileSystemRead: host.HostFileSystem {}` away from the
         // authority — and this is the one other place a program can name one.
         // Asked before the head resolves, for the reason `check_field` gives.
         if let V::Field { base, name, .. } = self.tree().expr(head) {
@@ -3143,7 +3143,7 @@ mod tests {
             .collect()
     }
 
-    /// A `Listen` and a `Net`, each an ordinary struct, and a context binding
+    /// A `Listen` and a `Network`, each an ordinary struct, and a context binding
     /// both. `{handler}` is the `status` of the handler's `Response`, which is
     /// the one thing the tests below disagree about.
     ///
@@ -3153,7 +3153,7 @@ mod tests {
     fn snippet(handler: &str) -> String {
         format!(
             r#"
-from "core/effect" import {{ Net, NetError, Request, Response }};
+from "core/effect" import {{ Network, NetError, Request, Response }};
 
 effect Accept {{
   fn accept(self, address: Str, onRequest: fn(Self, Request) => Response): Bool;
@@ -3169,14 +3169,14 @@ impl Accept for Server {{
 
 struct Caller {{}}
 
-impl Net for Caller {{
+impl Network for Caller {{
   fn fetch(self, request: Request): Result<Response, NetError> {{
     .Err(.Refused)
   }}
 }}
 
 export fn main(): Result<(), Str> {{
-  let ctx = context {{ Accept: Server {{ mark: 7 }}, Net: Caller {{}} }};
+  let ctx = context {{ Accept: Server {{ mark: 7 }}, Network: Caller {{}} }};
   match (ctx.accept("a", fn(acceptor, request) => Response {{
     status: {handler},
     headers: [],
@@ -3205,7 +3205,7 @@ export fn main(): Result<(), Str> {{
     /// And it is **not** the context, which is the same claim from the other
     /// side.
     ///
-    /// `fetch` is `Net`'s, the context binds `Net`, and `Server` — which is
+    /// `fetch` is `Network`'s, the context binds `Network`, and `Server` — which is
     /// what implements `Listen` — does not. So a `Self` that was still the
     /// receiver would resolve this call and hand the handler a context at
     /// runtime; the implementation arrives instead, and the front end says so.

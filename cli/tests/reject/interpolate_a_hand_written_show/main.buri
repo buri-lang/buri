@@ -1,11 +1,11 @@
 // EXPECT: `Suit` cannot be interpolated
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/order" import { Show };
 
 // A hole renders structurally, and a hand-written `Show` is the one rendering
-// that is not structural (SPEC 3.6). Its `show<C: Alloc>(self, ctx: C)` has to
+// that is not structural (SPEC 3.6). Its `show<C: Allocator>(self, ctx: C)` has to
 // be *called*, and a `Template` names no context to call it with, so the
 // conversion stays the author's: `${Suit.Hearts.show(ctx)}`.
 enum Suit {
@@ -14,7 +14,7 @@ enum Suit {
 }
 
 impl Show for Suit {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         match (self) {
             .Hearts => "H",
             .Spades => "S",
@@ -23,7 +23,7 @@ impl Show for Suit {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "the suit is ${Suit.Hearts}").ignore();
   .Ok(())
 }

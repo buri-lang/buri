@@ -11,13 +11,13 @@
 from "core/buri/ast" import * as ast;
 from "core/codegen" import * as codegen;
 from "core/codegen" import { Response };
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdin: host.stdin,
         Stdout: host.stdout,
     };
@@ -104,13 +104,13 @@ fn spec(name: Str): ast.ImportSpec {
 
 let HELPER: Str = "//lib/wire/helper.buri";
 
-fn moduleOf<C: Alloc>(ctx: C): ast.Module {
+fn moduleOf<C: Allocator>(ctx: C): ast.Module {
     ast.Module {
         items: [
             item(
                 .Import(ast.Import {
                     path: "core/effect",
-                    clause: .Named([spec("Alloc")]),
+                    clause: .Named([spec("Allocator")]),
                 }),
             ),
             item(
@@ -267,11 +267,11 @@ fn wideImpl(): ast.Item {
 }
 
 /// The one function, and every construct this case is about.
-fn probe<C: Alloc>(ctx: C): ast.Item {
+fn probe<C: Allocator>(ctx: C): ast.Item {
     item(
         .Fn(ast.FnDecl {
             name: nm("probe"),
-            generics: [ast.GenericParam { name: nm("C"), bounds: [ty("Alloc")] }],
+            generics: [ast.GenericParam { name: nm("C"), bounds: [ty("Allocator")] }],
             params: [
                 ast.Param { name: nm("ctx"), ty: [ty("C")] },
                 ast.Param { name: nm("n"), ty: [ty("Int")] },
@@ -284,7 +284,7 @@ fn probe<C: Alloc>(ctx: C): ast.Item {
     )
 }
 
-fn statements<C: Alloc>(ctx: C): [ast.Stmt] {
+fn statements<C: Allocator>(ctx: C): [ast.Stmt] {
     list
         .empty<ast.Stmt>()
         .concat(ctx, values(ctx))
@@ -293,7 +293,7 @@ fn statements<C: Alloc>(ctx: C): [ast.Stmt] {
         .concat(ctx, sums(ctx))
 }
 
-fn values<C: Alloc>(ctx: C): [ast.Stmt] {
+fn values<C: Allocator>(ctx: C): [ast.Stmt] {
     let template = ex(.Template([.Text("n is "), .Hole(id("n"))]));
     let branch = ex(
         .If(
@@ -522,7 +522,7 @@ fn tail(): [ast.Stmt] {
 /// The sums every binding above lands in, so nothing the printer wrote is
 /// dead — in four parts, because a line past 88 columns is the one place
 /// `buri format` would still move what `print` wrote.
-fn sums<C: Alloc>(ctx: C): [ast.Stmt] {
+fn sums<C: Allocator>(ctx: C): [ast.Stmt] {
     let groups = [
         ("partOne", "n", ["helperTag", "widened", "byKind", "byLiteral"]),
         ("partTwo", "byChar", ["byText", "byBool", "byFloat", "byUnit"]),

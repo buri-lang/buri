@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0006.buri" import { blend6, Node6, reach6, seed6 };
@@ -58,7 +58,7 @@ export fn parseBoth19_0(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_0<C: Alloc>(ctx: C): Int {
+export fn probe19_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth19_0("1", "2")) {
         .Some(v) => v,
@@ -77,7 +77,7 @@ export fn firstOr19_1<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll19_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll19_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -87,7 +87,7 @@ export fn useGeneric19_1(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_1<C: Alloc>(ctx: C): Int {
+export fn probe19_1<C: Allocator>(ctx: C): Int {
     useGeneric19_1([1, 2], ["a"]) + describeAll19_1(ctx, [1, 2]).len()
 }
 
@@ -101,7 +101,7 @@ export fn firstOr19_2<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll19_2<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll19_2<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -111,7 +111,7 @@ export fn useGeneric19_2(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_2<C: Alloc>(ctx: C): Int {
+export fn probe19_2<C: Allocator>(ctx: C): Int {
     useGeneric19_2([1, 2], ["a"]) + describeAll19_2(ctx, [1, 2]).len()
 }
 
@@ -146,14 +146,14 @@ export fn start19_3(ticks: Int): State19_3 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_3<C: Alloc>(ctx: C): Int {
+export fn probe19_3<C: Allocator>(ctx: C): Int {
     let s = start19_3(5);
     rank19_3(s) + s.show(ctx).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label19_4<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label19_4<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "golf" } else { "bravo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -166,14 +166,14 @@ export fn constants19_4(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_4<C: Alloc>(ctx: C): Int {
+export fn probe19_4<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants19_4();
     label19_4(ctx, a, e).len() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest19_5<C: Alloc>(ctx: C): Int {
+export fn digest19_5<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [6549, 8708, 5270, 5066, 6686, 8195, 5541, 9886, 3021, 3721, 6129];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -188,7 +188,7 @@ export fn drain19_5(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_5<C: Alloc>(ctx: C): Int {
+export fn probe19_5<C: Allocator>(ctx: C): Int {
     digest19_5(ctx) + drain19_5()
 }
 
@@ -212,7 +212,7 @@ export fn parseBoth19_6(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_6<C: Alloc>(ctx: C): Int {
+export fn probe19_6<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth19_6("1", "2")) {
         .Some(v) => v,
@@ -252,14 +252,14 @@ export fn start19_7(ticks: Int): State19_7 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_7<C: Alloc>(ctx: C): Int {
+export fn probe19_7<C: Allocator>(ctx: C): Int {
     let s = start19_7(5);
     rank19_7(s) + s.show(ctx).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label19_8<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label19_8<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "golf" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -272,7 +272,7 @@ export fn constants19_8(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_8<C: Alloc>(ctx: C): Int {
+export fn probe19_8<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants19_8();
     label19_8(ctx, a, e).len() + b
 }
@@ -287,7 +287,7 @@ export fn firstOr19_9<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll19_9<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll19_9<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -297,13 +297,13 @@ export fn useGeneric19_9(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe19_9<C: Alloc>(ctx: C): Int {
+export fn probe19_9<C: Allocator>(ctx: C): Int {
     useGeneric19_9([1, 2], ["a"]) + describeAll19_9(ctx, [1, 2]).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach19<C: Alloc>(ctx: C): Int {
+export fn reach19<C: Allocator>(ctx: C): Int {
     0
         + probe19_0(ctx)
         + probe19_1(ctx)

@@ -3,7 +3,7 @@
 // `runTwice` has no `ctx` parameter, no effect-carrying `self`, captures
 // nothing and constructs no context — and it used to print twice. The rule
 // that stops it is one function earlier, in `wrap`.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -18,7 +18,7 @@ fn runTwice(f: fn() => ()): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let sneaky = wrap(ctx, fn(c) => io.println(c, "effect from a pure function").ignore());
   let n = runTwice(sneaky);
   let _ = io.println(ctx, "runTwice returned ${n}").ignore();

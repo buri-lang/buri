@@ -1,4 +1,4 @@
-//! core/net/http — HTTP over the `Net` effect.
+//! core/net/http — HTTP over the `Network` effect.
 //!
 //! `Request` and `Response` are declared in `core/effect` and re-exported here.
 //! This module holds the things that build them *out of text*.
@@ -14,14 +14,14 @@
 //! what to write when you know every field at once.
 //!
 //! ```buri
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/net/http" import * as http;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let reply = http.text(ctx, "pong").withHeader(ctx, "X-Served-By", "buri");
@@ -31,7 +31,7 @@
 //! }
 //! ```
 
-from "core/effect" import { Alloc, Header, Method, Net, NetError, Request, Response };
+from "core/effect" import { Allocator, Header, Method, Network, NetError, Request, Response };
 
 from "core/effect" export { Header, Method, NetError, Request, Response };
 
@@ -59,7 +59,7 @@ export fn request(method: Method, url: Str): Request {
 }
 
 /// The same, with a text body encoded as UTF-8.
-export fn textRequest<C: Alloc>(ctx: C, method: Method, url: Str, body: Str): Request {
+export fn textRequest<C: Allocator>(ctx: C, method: Method, url: Str, body: Str): Request {
     Request {
         method: method,
         url: url,
@@ -78,24 +78,24 @@ export fn status(code: Int): Response {
 
 /// `200` with a text body and **no** `content-type`, for a caller that will
 /// set its own.
-export fn ok<C: Alloc>(ctx: C, body: Str): Response {
+export fn ok<C: Allocator>(ctx: C, body: Str): Response {
     Response { status: 200, headers: [], body: bytes.toUtf8(ctx, body) }
 }
 
 /// `200 text/plain; charset=utf-8`.
-export fn text<C: Alloc>(ctx: C, body: Str): Response {
+export fn text<C: Allocator>(ctx: C, body: Str): Response {
     ok(ctx, body).withHeader(ctx, "content-type", "text/plain; charset=utf-8")
 }
 
 /// `200 application/json`. It writes the body as given, without validating it:
 /// encoding is `core/json`'s job.
-export fn json<C: Alloc>(ctx: C, body: Str): Response {
+export fn json<C: Allocator>(ctx: C, body: Str): Response {
     ok(ctx, body).withHeader(ctx, "content-type", "application/json")
 }
 
 /// `200 text/html; charset=utf-8`. `ui/web`'s `shell` writes the document it
 /// takes.
-export fn html<C: Alloc>(ctx: C, body: Str): Response {
+export fn html<C: Allocator>(ctx: C, body: Str): Response {
     ok(ctx, body).withHeader(ctx, "content-type", "text/html; charset=utf-8")
 }
 
@@ -106,23 +106,23 @@ export fn html<C: Alloc>(ctx: C, body: Str): Response {
 /// It is `bytes.fromUtf8` under an HTTP name, so reading a response needs no
 /// second import. A body that is not text fails here rather than turning into
 /// U+FFFD.
-export fn bodyText<C: Alloc>(ctx: C, body: [U8]): Result<Str, Utf8Error> {
+export fn bodyText<C: Allocator>(ctx: C, body: [U8]): Result<Str, Utf8Error> {
     bytes.fromUtf8(ctx, body)
 }
 
 // --- Sending ------------------------------------------------------------------
 
-/// Sends the request as written. Needs only `Net`, since nothing here
+/// Sends the request as written. Needs only `Network`, since nothing here
 /// allocates.
-export fn send<C: Net>(ctx: C, request: Request): Result<Response, NetError> {
+export fn send<C: Network>(ctx: C, request: Request): Result<Response, NetError> {
     ctx.fetch(request)
 }
 
-export fn get<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
+export fn get<C: Allocator + Network>(ctx: C, url: Str): Result<Response, NetError> {
     send(ctx, request(.Get, url))
 }
 
-export fn post<C: Alloc + Net>(
+export fn post<C: Allocator + Network>(
     ctx: C,
     url: Str,
     body: Str,
@@ -147,18 +147,18 @@ export fn errorText(e: NetError): Str {
 /// The `name=value` pairs of a request's `Cookie` field.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/http" import * as http;
 /// from "core/net/http" import { Request };
 ///
-/// export fn session<C: Alloc>(ctx: C, request: Request): Option<Str> {
+/// export fn session<C: Allocator>(ctx: C, request: Request): Option<Str> {
 ///     http.cookies(ctx, request).find(fn(kv) => kv.0 == "session").map(fn(kv) => kv.1)
 /// }
 /// ```
 ///
 /// Values come back **as sent**: a client that percent-encoded one is a client
 /// whose encoding is yours to undo. No `Cookie` field is no cookies.
-export fn cookies<C: Alloc>(ctx: C, request: Request): [(Str, Str)] {
+export fn cookies<C: Allocator>(ctx: C, request: Request): [(Str, Str)] {
     match (request.header("cookie")) {
         .None => list.empty<(Str, Str)>(),
         .Some(field) => field.split(ctx, ";").filterMap(ctx, fn(one) => crumb(one)),
@@ -204,7 +204,7 @@ export struct Cookie {
 /// One more `set-cookie` field on a response.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/net/http" import * as http;
@@ -213,7 +213,7 @@ export struct Cookie {
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let reply = http.withCookie(ctx, http.status(204), Cookie {
@@ -238,12 +238,12 @@ export struct Cookie {
 /// The name and the value go out **as given**: a value holding a `;` or a space
 /// is not escaped here, because escaping it would change what the client sends
 /// back. `url.encodeComponent` is what to wrap it in.
-export fn withCookie<C: Alloc>(ctx: C, response: Response, cookie: Cookie): Response {
+export fn withCookie<C: Allocator>(ctx: C, response: Response, cookie: Cookie): Response {
     response.withHeader(ctx, "set-cookie", cookieText(ctx, cookie))
 }
 
 /// A `Cookie` as the field value it becomes.
-fn cookieText<C: Alloc>(ctx: C, cookie: Cookie): Str {
+fn cookieText<C: Allocator>(ctx: C, cookie: Cookie): Str {
     let seconds = match (cookie.maxAge) {
         .None => Option.None,
         .Some(age) => Option.Some(str.fromInt(ctx, age.seconds())),
@@ -263,7 +263,7 @@ fn cookieText<C: Alloc>(ctx: C, cookie: Cookie): Str {
     parts.filter(ctx, fn(part) => part != "").join(ctx, "; ")
 }
 
-fn attribute<C: Alloc>(ctx: C, name: Str, value: Option<Str>): Str {
+fn attribute<C: Allocator>(ctx: C, name: Str, value: Option<Str>): Str {
     match (value) {
         .None => "",
         .Some(given) => str.format(ctx, "${name}=${given}"),
@@ -283,18 +283,18 @@ fn sameSiteText(rule: SameSite): Str {
 /// A request whose body is `application/x-www-form-urlencoded`.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/http" import * as http;
 /// from "core/net/http" import { Request };
 ///
-/// export fn signIn<C: Alloc>(ctx: C, who: Str): Request {
+/// export fn signIn<C: Allocator>(ctx: C, who: Str): Request {
 ///     http.formRequest(ctx, .Post, "https://example.com/session", [("user", who)])
 /// }
 /// ```
 ///
 /// Each half is percent-encoded by `core/net/url`, so a value holding a `&` or an
 /// `=` survives the trip.
-export fn formRequest<C: Alloc>(
+export fn formRequest<C: Allocator>(
     ctx: C,
     method: Method,
     target: Str,
@@ -311,11 +311,11 @@ export fn formRequest<C: Alloc>(
 ///
 /// ```buri
 /// from "core/bytes" import { Utf8Error };
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/net/http" import * as http;
 /// from "core/net/http" import { Request };
 ///
-/// export fn submitted<C: Alloc>(
+/// export fn submitted<C: Allocator>(
 ///     ctx: C,
 ///     request: Request,
 /// ): Result<[(Str, Str)], Utf8Error> {
@@ -326,7 +326,7 @@ export fn formRequest<C: Alloc>(
 /// `url.parseQuery`'s rules: a `+` is a space, an escape that is not one stays
 /// where it is, and an empty pair is dropped. The one way it fails is a body
 /// that is not UTF-8.
-export fn formBody<C: Alloc>(ctx: C, body: [U8]): Result<[(Str, Str)], Utf8Error> {
+export fn formBody<C: Allocator>(ctx: C, body: [U8]): Result<[(Str, Str)], Utf8Error> {
     match (bytes.fromUtf8(ctx, body)) {
         .Err(e) => .Err(e),
         .Ok(query) => .Ok(url.parseQuery(ctx, query)),
@@ -338,14 +338,14 @@ export fn formBody<C: Alloc>(ctx: C, body: [U8]): Result<[(Str, Str)], Utf8Error
 /// The `content-type` of a response, as its media type and its parameters.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/net/http" import * as http;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let found = http.contentType(ctx, http.html(ctx, "<p>hi</p>"));
@@ -366,7 +366,7 @@ export fn formBody<C: Alloc>(ctx: C, body: [U8]): Result<[(Str, Str)], Utf8Error
 /// The media type and every parameter name are lowercased, because both are
 /// case-insensitive. A parameter value keeps its case, and a quoted one loses
 /// its quotes. `.None` when there is no `content-type` at all.
-export fn contentType<C: Alloc>(
+export fn contentType<C: Allocator>(
     ctx: C,
     response: Response,
 ): Option<(Str, [(Str, Str)])> {
@@ -388,7 +388,7 @@ export fn contentType<C: Alloc>(
 }
 
 /// One `name=value` of a `content-type`, with the quotes taken off the value.
-fn parameter<C: Alloc>(ctx: C, one: Str): Option<(Str, Str)> {
+fn parameter<C: Allocator>(ctx: C, one: Str): Option<(Str, Str)> {
     match (one.splitOnce("=")) {
         .None => .None,
         .Some((name, value)) => {

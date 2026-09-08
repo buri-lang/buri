@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/order" import { Show };
 
 derive Eq for Money;
@@ -8,15 +8,15 @@ export struct Money {
     export cents: Int,
 }
 
-/// The signature is `Show`'s: rendering allocates, so `show` takes an `Alloc`
+/// The signature is `Show`'s: rendering allocates, so `show` takes an `Allocator`
 /// context whether the body uses it or not. An `impl` supplies the signature
 /// its trait declares.
 impl Show for Money {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         "Money(hand written)"
     }
 }
 
-export fn render<C: Alloc>(ctx: C, m: Money): Str {
+export fn render<C: Allocator>(ctx: C, m: Money): Str {
     m.show(ctx)
 }

@@ -3,7 +3,7 @@
 // below is the same literal and is not a finding — a million is a million of
 // something, and this rule reads the name beside it rather than the number.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -27,7 +27,7 @@ fn perMillion(count: Int, share: Int): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let waited = elapsedMillis(deadlineNanos(0);

@@ -10,7 +10,7 @@
 // shape: `NaN` sorts last, and the comparator agrees with `==` everywhere else
 // (SPEC 6.2).
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import * as order;
@@ -30,7 +30,7 @@ fn rows(): [Row] {
     ]
 }
 
-fn names<C: Alloc>(ctx: C, xs: [Row]): Str {
+fn names<C: Allocator>(ctx: C, xs: [Row]): Str {
     xs.map(ctx, fn(r) => r.name).join(ctx, " ")
 }
 
@@ -48,7 +48,7 @@ test "by compares the keys and nothing else" {
 
 test "by sorts by the key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let sorted = rows().sortBy(ctx, order.by(fn(r: Row) => r.name, order.str));
     assert.eq(names(ctx, sorted), "a b c");
@@ -57,7 +57,7 @@ test "by sorts by the key" {
 // A key of a key: the comparator `by` takes is itself free to be one.
 test "by nests" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let byNameLength = order.by(
         fn(r: Row) => r.name,
@@ -84,7 +84,7 @@ test "chain lets the first comparator that is not Equal decide" {
 
 test "chain is the sort key a tie-break is written as" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cmp = order.chain([
         order.reverseIf(true, order.by(fn(r: Row) => r.score, order.int)),
@@ -114,7 +114,7 @@ test "reverseIf reverses only when told to" {
 
 test "reverseIf false is the comparator it was handed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [3, 1, 2];
     assert.eq(xs.sortBy(ctx, order.reverseIf(false, order.int)), [1, 2, 3]);
@@ -157,7 +157,7 @@ test "totalFloat agrees with == at the signed zeroes" {
 
 test "sorting with totalFloat leaves the NaN at the end" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let sorted = [2.0, nan(), 1.0].sortBy(ctx, order.totalFloat);
     assert.eq(assert.some(sorted.get(0)), 1.0);
@@ -198,7 +198,7 @@ test "compare is compareBy with the element type's own order" {
 // operators and `sort` answer the same order `compare` does.
 test "the structural order on [T] is the one compare answers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue([1, 2] < [1, 3]);
     assert.isTrue([1] < [1, 0]);

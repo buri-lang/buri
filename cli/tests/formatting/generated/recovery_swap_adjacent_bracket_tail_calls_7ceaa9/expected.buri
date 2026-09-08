@@ -8,7 +8,7 @@
 //    JavaScript stack. Every depth here is past what an engine gives a
 //    recursive function, so the failure is a crash, not a slow test.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -22,7 +22,7 @@ from "//lib/codegen" import {
 
 test "each iteration's closure captures that iteration's parameter" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let fs = adders(ctx, 0, []);
     assert.eq(fs.len(), 4);
@@ -35,7 +35,7 @@ test "each iteration's closure captures that iteration's parameter" {
 
 test "the same holds across a merged mutually recursive loop" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let fs = addersEven(ctx, 0, []);
     assert.eq(fs.len(), 4);
@@ -48,7 +48,7 @@ test "the same holds across a merged mutually recursive loop" {
 
 test "a parameter the loop never rebinds is captured unchanged" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let fs = scalers(ctx, 7, 0, []);
     assert.eq(fs.len(), 3);
@@ -59,7 +59,7 @@ test "a parameter the loop never rebinds is captured unchanged" {
 
 test "two closures made in one iteration agree about it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let fs = pairs(ctx, 0, []);
     assert.eq(fs.len(), 6);

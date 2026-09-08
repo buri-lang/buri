@@ -215,7 +215,7 @@ struct List { ptr: *const T, len: u64 }                    // 16 bytes
 Elements are contiguous, at `layout(T).stride`. The header is at `ptr - 16`,
 because unlike `Str` a list is **never a view**: every one of `slice`, `take`,
 `drop`, `concat`, `push`, `reverse` and `filter` in `core/list` is bounded by
-`Alloc` (`list.buri`), which is the language saying they allocate. So `ptr` is
+`Allocator` (`list.buri`), which is the language saying they allocate. So `ptr` is
 always a payload start and 16 bytes suffice.
 
 `len` is the element count, exactly. There is no ASCII-flag equivalent because
@@ -228,7 +228,7 @@ on append.
 
 The stdlib's list surface is bulk producers — `map`, `filter`, `fold`, `range`,
 `repeat`, `zip`, `flatten` — which build a whole array at once and read it
-linearly, and `push` is `Alloc`-bounded, which is the language stating that it
+linearly, and `push` is `Allocator`-bounded, which is the language stating that it
 copies. More decisively: `sum` (`list.buri`) and `core/simd` want a contiguous
 `i64*`. A flat array is the only representation where a fold over `[Int]` compiles
 to a vectorizable loop, and vectorizing folds is most of what a native backend is
@@ -412,11 +412,11 @@ both arms carry payloads.
 ## 7. Closures
 
 ```
-struct Closure { code: *const fn, env: *const Env }        // 16 bytes
+struct Closure { code: *const fn, env: *const Environment }        // 16 bytes
 ```
 
 `middle::closures` (ARCHITECTURE.md §2.2) lifts every lambda to a top-level
-function taking `env` as an extra first parameter, and builds `Env` as an
+function taking `env` as an extra first parameter, and builds `Environment` as an
 ordinary struct of the captured locals — which `ExprKind::Lambda { captures }`
 already lists (`typed.rs`).
 
@@ -442,7 +442,7 @@ site holding `{ code, env }` therefore cannot know. `code` instead points at a
 two-line function
 
 ```
-thunk(env: *const Env, args...) -> R = f(load-leaves(env), args...)
+thunk(env: *const Environment, args...) -> R = f(load-leaves(env), args...)
 ```
 
 whose first parameter is the environment *pointer*. A capture-free lambda gets one
@@ -487,7 +487,7 @@ Monomorphization resolves every effect call to a direct call and
 statically known answer and the only question is whether the *implementation
 value* carries data.
 
-Every implementation `core/host` exports is a zero-sized struct — `struct HostFs {}`,
+Every implementation `core/host` exports is a zero-sized struct — `struct HostFileSystem {}`,
 `struct HostStdout {}`, fifteen of them (`host.buri`), of which any one platform
 grants at most thirteen. A context of zero-sized values is zero-sized. So in a
 program built on `core/host`, **`ctx` is not a parameter**: the layout pass drops
@@ -511,8 +511,8 @@ its first. Both native backends read it off their runtime tables
 `Arg::Dropped`).
 
 Asking the *argument's type* instead — "is it a `Ty::Ctx`?" — is the same question
-only while every `C: Alloc` is instantiated at a `context { … }` record, and it is
-not: `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1), and SPEC 10.8's
+only while every `C: Allocator` is instantiated at a `context { … }` record, and it is
+not: `<C: Allocator>` and `<T: Ord>` are one feature (SPEC 10.1), and SPEC 10.8's
 attenuation exists so that programs pass something that merely implements the
 effect. Such a value spread to a leaf the C signature had no parameter for and
 shifted every argument after it one register down — a fault in `memmove`.
@@ -562,7 +562,7 @@ Reimplementing that surface once per native backend is not a plan.
 
 **`cli/runtime` is a Rust static library with a C ABI, built for the host by
 `cli/build.rs` and embedded with `include_bytes!`.** Every intrinsic key becomes
-one symbol: `list.map` -> `buri_rt_list_map`, `host.HostFs.readFile` ->
+one symbol: `list.map` -> `buri_rt_list_map`, `host.HostFileSystem.readFile` ->
 `buri_rt_host_fs_read_file`. Both backends emit an ordinary call; neither knows
 what is behind it.
 
@@ -649,7 +649,7 @@ reads this table and fails if a row names a test that is not there.
 | 9 | `derive Show` output | runtime walker | generated (§9) | Must agree, character for character, including field order and separators. A `[T]` field goes through `deriveArrayShow`, which calls the element's generated `show` once per element and joins the results in `buri_rt_show_list` — one body, because the brackets and the `, ` have to be the same bytes on both backends. `Eq`, `Ord` and `Hash` ride along here because they are the same generator. | `row_09_derived_show`, `row_09_integer_show_at_every_width`, `row_09_bool_char_and_str_show`, `row_09_a_match_over_a_literal_and_an_interpolation`, `row_09_derived_eq_and_ord_verdicts`, `row_09_derived_hash_values`, `row_09_derived_show_of_a_list` |
 | 10 | `derive ToJson` output | runtime walker | generated (§9) | Must agree, byte for byte. It is a wire format. The leaf (`stencil/emit.rs::json_prim`, `llvm/emit.rs::json_prim`) builds `Json`'s arm for a primitive — `Bool` to `.Bool`, `Str`/`Char` to `.Str`, every number to `.Num` — and the compound arms are `middle::derives`' own tree. The variant index is read off `core/json`'s declaration by name rather than hard-coded, and the `.Str` arm takes a count, because `middle::rc`'s contract is that an intrinsic borrows and this one's result keeps. `json.stringify` needs closures and is not reachable, so the row's program walks the tree by hand. | `row_10_derived_tojson` |
 | 11 | Division by zero | aborts (`runtime.js`) | aborts | Must agree, including the message. The *whole* stream does not: JavaScript writes `e.stack` after the message, so what is compared is the first line and the status. | `row_11_division_by_zero` |
-| 12 | `Alloc` accounting | `$host_HostAlloc_allocate` | `buri_rt_host_alloc_allocate` | Must agree, and does. The model is *defined* rather than measured (MEMORY.md §7.1), which is what makes agreement checkable: the charge is a function of the argument and the types, so `allocate(64)` is `Region(64)` on both. Nothing accumulates *in* `HostAlloc` on either side; the totals a program can read belong to `core/alloc`'s counters. | `row_12_alloc_accounting` |
+| 12 | `Allocator` accounting | `$host_HostAlloc_allocate` | `buri_rt_host_alloc_allocate` | Must agree, and does. The model is *defined* rather than measured (MEMORY.md §7.1), which is what makes agreement checkable: the charge is a function of the argument and the types, so `allocate(64)` is `Region(64)` on both. Nothing accumulates *in* `HostAllocator` on either side; the totals a program can read belong to `core/alloc`'s counters. | `row_12_alloc_accounting` |
 | 13 | Tail calls in constant stack | rewritten to a loop | rewritten to a loop | Must agree. A merged group's forwarders were labelled `()` for a while, so a mutually recursive `Bool` came back as nothing. | `row_13_tail_calls_run_in_constant_stack` |
 | 14 | Abort message and exit status | stderr, exit 1 (`generate.rs`) | stderr, exit 1 | Must agree. The `.Err` return is the one failure whose whole stream agrees, because nothing was thrown. | `row_14_shift_out_of_range`, `row_14_an_error_return` |
 | 15 | `character.toUpper` / `toLower` where the full case mapping is not one scalar | `"SS"` — a `Char` of two scalars | `'S'` — the **first** scalar of the full mapping | **Divergence, listed**, and the JavaScript side is the one outside the type: `Char` is one Unicode scalar value (`character.buri`), and `"ß".toUpperCase()` is two characters. The *simple* case mapping (`'ß'` unchanged) was the tidier answer and disagrees with JavaScript at `toU32` as well, where the first scalar agrees. So the divergence is confined to **rendering the whole `Char`**, and every use that reads it as a scalar agrees. `cli/runtime/character.rs` §3. | `row_15_char_case_of_a_multi_scalar_mapping` |
@@ -686,8 +686,8 @@ two types, so a `match` whose arms are a string literal and an interpolation —
 shape of every function that returns a message — did not verify natively at all;
 §3.3 says the two *are* one type and the interner now says so too. And
 `cli/tests/crash/` cannot be run through this file as it stands, because every
-case there makes its divisor opaque with `env.args(ctx).len()` and
-`host.HostEnv.args` has no native body; the rows here use `"".len()` instead.
+case there makes its divisor opaque with `env.arguments(ctx).len()` and
+`host.HostEnvironment.arguments` has no native body; the rows here use `"".len()` instead.
 
 **A third, fixed by a ruling rather than by a fifteenth row.** A struct holding
 `NaN` compared with **itself** used to answer `true` on JavaScript and `false` on

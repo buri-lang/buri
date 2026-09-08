@@ -1,7 +1,7 @@
 error: expected a declaration, found `,` [unexpected-token]
   --> main.buri:10:1
    |
-10 | , from "core/effect" import { Alloc };
+10 | , from "core/effect" import { Allocator };
    | ^
    |
    = expected: a declaration

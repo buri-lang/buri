@@ -2,14 +2,14 @@
 //!
 //! One split runs through this file, the one SPEC 10.5 draws: an operation
 //! whose result size is fixed is pure, and an operation whose result size
-//! depends on runtime data names `Alloc`. `len` and `fold` are pure. `map` and
+//! depends on runtime data names `Allocator`. `len` and `fold` are pure. `map` and
 //! `filter` are not, and their signatures say so.
 //!
 //! Everything here takes its collection as `self`, so you can call it as a
 //! method with no import: receiver first, context second, everything else
 //! after (SPEC 10.7).
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/order" import { Ord, Order };
 
 // --- Pure: no context parameter at all --------------------------------------
@@ -51,7 +51,7 @@ impl<T> [T] {
 
     /// The same, but `f` takes the context instead of capturing it — a fallible
     /// fold that allocates as it goes.
-    export fn foldResultCtx<B, E, C: Alloc>(
+    export fn foldResultCtx<B, E, C: Allocator>(
         self,
         ctx: C,
         f: fn(C, B, T) => Result<B, E>,
@@ -177,12 +177,12 @@ impl<T: Ord> [T] {
     }
 }
 
-// --- Deterministic: bounded by <C: Alloc> ------------------------------------
+// --- Deterministic: bounded by <C: Allocator> ------------------------------------
 
 impl<A> [A] {
-    export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
+    export fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B];
 
-    export fn mapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
+    export fn mapCtx<B, C: Allocator>(self, ctx: C, f: fn(C, A) => B): [B];
 
     /// `mapCtx`, with the runtime running the step rather than a loop the
     /// backend writes. The answer is `mapCtx`'s answer, element for element.
@@ -190,7 +190,7 @@ impl<A> [A] {
     /// Prefer `mapCtx`. This is slower by an indirect call per element, and no
     /// case makes it the better tool. It exists to exercise the runtime calling
     /// back into Buri code.
-    export fn mapCtxStep<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
+    export fn mapCtxStep<B, C: Allocator>(self, ctx: C, f: fn(C, A) => B): [B];
 
     /// `map` with a step that can fail: every element mapped, or the first
     /// `.Err` and nothing after it.
@@ -199,7 +199,7 @@ impl<A> [A] {
     /// reports the first bad element rather than the last.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
@@ -209,7 +209,7 @@ impl<A> [A] {
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let doubled = [1, 2, 3].mapResult(ctx, small);
@@ -226,7 +226,7 @@ impl<A> [A] {
     /// ```stdout
     /// 3 doubled, and then 20
     /// ```
-    export fn mapResult<B, E, C: Alloc>(
+    export fn mapResult<B, E, C: Allocator>(
         self,
         ctx: C,
         f: fn(A) => Result<B, E>,
@@ -246,7 +246,7 @@ impl<A> [A] {
     /// `mapResult`, but the step takes the context instead of capturing it. The
     /// form a validation takes, since checking an element usually allocates and
     /// a lambda may not capture a context (SPEC 10.6).
-    export fn mapResultCtx<B, E, C: Alloc>(
+    export fn mapResultCtx<B, E, C: Allocator>(
         self,
         ctx: C,
         f: fn(C, A) => Result<B, E>,
@@ -265,7 +265,7 @@ impl<A> [A] {
 
     /// `mapResult` for a step that answers `Option`: every element mapped, or
     /// `.None` the moment one is missing.
-    export fn mapOption<B, C: Alloc>(self, ctx: C, f: fn(A) => Option<B>): Option<[B]> {
+    export fn mapOption<B, C: Allocator>(self, ctx: C, f: fn(A) => Option<B>): Option<[B]> {
         // `Result` is the shape with an early exit in it, so the walk is one
         // and the two names differ only in what they answer.
         let mapped = self.foldResultCtx(
@@ -285,7 +285,7 @@ impl<A> [A] {
     }
 
     /// `mapOption`, but the step takes the context instead of capturing it.
-    export fn mapOptionCtx<B, C: Alloc>(
+    export fn mapOptionCtx<B, C: Allocator>(
         self,
         ctx: C,
         f: fn(C, A) => Option<B>,
@@ -308,7 +308,7 @@ impl<A> [A] {
 
     /// Maps and filters in one pass: it drops an element `f` answers `.None`
     /// for, and the `.Some` payloads are the result.
-    export fn filterMap<B, C: Alloc>(self, ctx: C, f: fn(A) => Option<B>): [B] {
+    export fn filterMap<B, C: Allocator>(self, ctx: C, f: fn(A) => Option<B>): [B] {
         self.foldCtx(
             ctx,
             fn(c, acc: [B], x) => {
@@ -322,7 +322,7 @@ impl<A> [A] {
     }
 
     /// `filterMap`, but the step takes the context instead of capturing it.
-    export fn filterMapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => Option<B>): [B] {
+    export fn filterMapCtx<B, C: Allocator>(self, ctx: C, f: fn(C, A) => Option<B>): [B] {
         self.foldCtx(
             ctx,
             fn(c, acc: [B], x) => {
@@ -337,19 +337,19 @@ impl<A> [A] {
 }
 
 impl<T> [T] {
-    export fn filter<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): [T];
+    export fn filter<C: Allocator>(self, ctx: C, keep: fn(T) => Bool): [T];
 
-    export fn filterCtx<C: Alloc>(self, ctx: C, keep: fn(C, T) => Bool): [T];
+    export fn filterCtx<C: Allocator>(self, ctx: C, keep: fn(C, T) => Bool): [T];
 
-    export fn concat<C: Alloc>(self, ctx: C, other: [T]): [T];
+    export fn concat<C: Allocator>(self, ctx: C, other: [T]): [T];
 
-    export fn push<C: Alloc>(self, ctx: C, item: T): [T];
+    export fn push<C: Allocator>(self, ctx: C, item: T): [T];
 
-    export fn reverse<C: Alloc>(self, ctx: C): [T];
+    export fn reverse<C: Allocator>(self, ctx: C): [T];
 
     /// Ordering is a value you pass, so the tie-break is explicit and reviewable.
     /// The sort is stable.
-    export fn sortBy<C: Alloc>(self, ctx: C, order: fn(T, T) => Order): [T];
+    export fn sortBy<C: Allocator>(self, ctx: C, order: fn(T, T) => Order): [T];
 }
 
 impl<T: Ord> [T] {
@@ -359,21 +359,21 @@ impl<T: Ord> [T] {
     /// scalar value, which for a valid string is UTF-8 byte order, on both
     /// backends. It is not JavaScript's UTF-16 order, so an emoji sorts after
     /// a character in U+E000..U+FFFF rather than before it.
-    export fn sort<C: Alloc>(self, ctx: C): [T] {
+    export fn sort<C: Allocator>(self, ctx: C): [T] {
         self.sortBy(ctx, fn(a, b) => a.compare(b))
     }
 }
 
 impl<T> [T] {
-    export fn take<C: Alloc>(self, ctx: C, n: Int): [T];
+    export fn take<C: Allocator>(self, ctx: C, n: Int): [T];
 
-    export fn drop<C: Alloc>(self, ctx: C, n: Int): [T];
+    export fn drop<C: Allocator>(self, ctx: C, n: Int): [T];
 
-    export fn slice<C: Alloc>(self, ctx: C, start: Int, end: Int): [T];
+    export fn slice<C: Allocator>(self, ctx: C, start: Int, end: Int): [T];
 
     /// Everything but the element at `index`. An index outside the list removes
     /// nothing.
-    export fn removeAt<C: Alloc>(self, ctx: C, index: Int): [T] {
+    export fn removeAt<C: Allocator>(self, ctx: C, index: Int): [T] {
         self.take(ctx, index).concat(ctx, self.drop(ctx, index + 1))
     }
 
@@ -382,7 +382,7 @@ impl<T> [T] {
     ///
     /// A list shorter than `size` has no windows, and a `size` of zero or less
     /// has none either.
-    export fn windows<C: Alloc>(self, ctx: C, size: Int): [[T]] {
+    export fn windows<C: Allocator>(self, ctx: C, size: Int): [[T]] {
         if (size <= 0) {
             empty<[T]>()
         } else {
@@ -398,14 +398,14 @@ impl<T> [T] {
     /// about every element already kept. For a large list, `sortBy` and a walk
     /// over neighbours is the O(n log n) answer, and `core/orderedset` is the one
     /// that also answers membership.
-    export fn uniqueBy<C: Alloc>(self, ctx: C, cmp: fn(T, T) => Order): [T] {
+    export fn uniqueBy<C: Allocator>(self, ctx: C, cmp: fn(T, T) => Order): [T] {
         uniqueFrom(ctx, self, cmp, 0, empty<T>())
     }
 }
 
 /// Tail-recursive rather than a `map` over indices, because the lambda would
 /// have to capture the list (SPEC 10.6).
-fn windowsFrom<T, C: Alloc>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
+fn windowsFrom<T, C: Allocator>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
     if (at + size > xs.len()) {
         acc
     } else {
@@ -413,7 +413,7 @@ fn windowsFrom<T, C: Alloc>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[
     }
 }
 
-fn uniqueFrom<T, C: Alloc>(
+fn uniqueFrom<T, C: Allocator>(
     ctx: C,
     xs: [T],
     cmp: fn(T, T) => Order,
@@ -444,30 +444,30 @@ fn equalAt<T>(seen: [T], x: T, cmp: fn(T, T) => Order, at: Int): Bool {
 }
 
 impl<A> [A] {
-    export fn zip<B, C: Alloc>(self, ctx: C, other: [B]): [(A, B)];
+    export fn zip<B, C: Allocator>(self, ctx: C, other: [B]): [(A, B)];
 }
 
 impl<T> [[T]] {
-    export fn flatten<C: Alloc>(self, ctx: C): [T];
+    export fn flatten<C: Allocator>(self, ctx: C): [T];
 }
 
 impl [Str] {
     /// Declared here rather than in `core/str` because its receiver is `[Str]`,
     /// and a method lives in its receiver type's defining module.
-    export fn join<C: Alloc>(self, ctx: C, separator: Str): Str;
+    export fn join<C: Allocator>(self, ctx: C, separator: Str): Str;
 }
 
 export fn empty<T>(): [T];
 
 /// `[from, from+1, ..., to-1]`. Counting without a loop and without a `Range`
 /// type — design/non-goals.md records why neither exists.
-export fn range<C: Alloc>(ctx: C, start: Int, end: Int): [Int];
+export fn range<C: Allocator>(ctx: C, start: Int, end: Int): [Int];
 
-export fn repeat<T, C: Alloc>(ctx: C, item: T, times: Int): [T];
+export fn repeat<T, C: Allocator>(ctx: C, item: T, times: Int): [T];
 
 /// `[f(0), f(1), ..., f(n - 1)]`. `repeat` for an element that depends on its
 /// own position. An `n` of zero or less is the empty list.
-export fn generate<T, C: Alloc>(ctx: C, n: Int, f: fn(Int) => T): [T] {
+export fn generate<T, C: Allocator>(ctx: C, n: Int, f: fn(Int) => T): [T] {
     range(ctx, 0, n).map(ctx, fn(i) => f(i))
 }
 
@@ -518,13 +518,13 @@ impl<A> [A] {
     /// `[[1], [], [2, 3]]` flattened as it is built.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let doubled = [1, 2, 3].flatMap(ctx, fn(n) => [n, n]);
@@ -536,23 +536,23 @@ impl<A> [A] {
     /// ```stdout
     /// 6
     /// ```
-    export fn flatMap<B, C: Alloc>(self, ctx: C, transform: fn(A) => [B]): [B] {
+    export fn flatMap<B, C: Allocator>(self, ctx: C, transform: fn(A) => [B]): [B] {
         self.map(ctx, transform).flatten(ctx)
     }
 
     /// `flatMap`, but the step takes the context instead of capturing it — the
     /// form to use when building each piece allocates.
-    export fn flatMapCtx<B, C: Alloc>(self, ctx: C, transform: fn(C, A) => [B]): [B] {
+    export fn flatMapCtx<B, C: Allocator>(self, ctx: C, transform: fn(C, A) => [B]): [B] {
         self.mapCtx(ctx, transform).flatten(ctx)
     }
 
     /// `map` with the element's position, counting from zero.
-    export fn mapIndexed<B, C: Alloc>(self, ctx: C, transform: fn(Int, A) => B): [B] {
+    export fn mapIndexed<B, C: Allocator>(self, ctx: C, transform: fn(Int, A) => B): [B] {
         mappedFrom(ctx, self, transform, 0, empty<B>())
     }
 
     /// `mapIndexed`, with the context threaded rather than captured.
-    export fn mapIndexedCtx<B, C: Alloc>(
+    export fn mapIndexedCtx<B, C: Allocator>(
         self,
         ctx: C,
         transform: fn(C, Int, A) => B,
@@ -561,7 +561,7 @@ impl<A> [A] {
     }
 }
 
-fn mappedFrom<A, B, C: Alloc>(
+fn mappedFrom<A, B, C: Allocator>(
     ctx: C,
     xs: [A],
     f: fn(Int, A) => B,
@@ -574,7 +574,7 @@ fn mappedFrom<A, B, C: Alloc>(
     }
 }
 
-fn mappedCtxFrom<A, B, C: Alloc>(
+fn mappedCtxFrom<A, B, C: Allocator>(
     ctx: C,
     xs: [A],
     f: fn(C, Int, A) => B,
@@ -596,26 +596,26 @@ impl<T> [T] {
 
     /// `filter` with the element's position — "every other one" without a
     /// counter threaded through a fold.
-    export fn filterIndexed<C: Alloc>(self, ctx: C, keep: fn(Int, T) => Bool): [T] {
+    export fn filterIndexed<C: Allocator>(self, ctx: C, keep: fn(Int, T) => Bool): [T] {
         keptFrom(ctx, self, keep, 0, empty<T>())
     }
 
     /// Each element paired with its position. `mapIndexed` is this and a `map`
     /// without the list in between.
-    export fn indexed<C: Alloc>(self, ctx: C): [(Int, T)] {
+    export fn indexed<C: Allocator>(self, ctx: C): [(Int, T)] {
         pairedFrom(ctx, self, 0, empty<(Int, T)>())
     }
 
     /// The longest leading run the predicate accepts. It stops at the first
     /// element it refuses and does not look past it, which is what tells this
     /// from `filter`.
-    export fn takeWhile<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): [T] {
+    export fn takeWhile<C: Allocator>(self, ctx: C, keep: fn(T) => Bool): [T] {
         self.take(ctx, runLength(self, keep, 0))
     }
 
     /// Everything after the longest leading run the predicate accepts — the
     /// other half of `takeWhile`.
-    export fn dropWhile<C: Alloc>(self, ctx: C, skip: fn(T) => Bool): [T] {
+    export fn dropWhile<C: Allocator>(self, ctx: C, skip: fn(T) => Bool): [T] {
         self.drop(ctx, runLength(self, skip, 0))
     }
 
@@ -624,13 +624,13 @@ impl<T> [T] {
     /// length is not a multiple, and a `size` of zero or less has no groups.
     ///
     /// ```buri run
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     let groups = [1, 2, 3, 4, 5].chunks(ctx, 2);
@@ -643,7 +643,7 @@ impl<T> [T] {
     /// ```stdout
     /// 3 1
     /// ```
-    export fn chunks<C: Alloc>(self, ctx: C, size: Int): [[T]] {
+    export fn chunks<C: Allocator>(self, ctx: C, size: Int): [[T]] {
         if (size <= 0) {
             empty<[T]>()
         } else {
@@ -653,21 +653,21 @@ impl<T> [T] {
 
     /// The elements the predicate accepts and the ones it refuses, each in the
     /// order they arrived. One pass, where two `filter`s are two.
-    export fn partition<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): ([T], [T]) {
+    export fn partition<C: Allocator>(self, ctx: C, keep: fn(T) => Bool): ([T], [T]) {
         partitionFrom(ctx, self, keep, 0, empty<T>(), empty<T>())
     }
 
     /// The list with `item` at `index`, everything from there on moved along.
     /// An `index` past the end appends and one below zero prepends, so there is
     /// no way to insert into a hole.
-    export fn insertAt<C: Alloc>(self, ctx: C, index: Int, item: T): [T] {
+    export fn insertAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T] {
         let at = clampIndex(index, self.len());
         self.take(ctx, at).push(ctx, item).concat(ctx, self.drop(ctx, at))
     }
 
     /// The list with the element at `index` exchanged for `item`. An index
     /// outside the list changes nothing, which is `removeAt`'s rule.
-    export fn replaceAt<C: Alloc>(self, ctx: C, index: Int, item: T): [T] {
+    export fn replaceAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T] {
         if (index < 0 || index >= self.len()) {
             self
         } else {
@@ -677,7 +677,7 @@ impl<T> [T] {
 
     /// `replaceAt` where the new element is built from the old one. An index
     /// outside the list changes nothing and never calls `update`.
-    export fn updateAt<C: Alloc>(self, ctx: C, index: Int, update: fn(T) => T): [T] {
+    export fn updateAt<C: Allocator>(self, ctx: C, index: Int, update: fn(T) => T): [T] {
         match (self.get(index)) {
             .None => self,
             .Some(x) => self.replaceAt(ctx, index, update(x)),
@@ -687,7 +687,7 @@ impl<T> [T] {
     /// `push` at the other end. It copies the whole list, where `push` usually
     /// does not — an array is contiguous, so a new first element moves every
     /// other one.
-    export fn pushFront<C: Alloc>(self, ctx: C, item: T): [T] {
+    export fn pushFront<C: Allocator>(self, ctx: C, item: T): [T] {
         empty<T>().push(ctx, item).concat(ctx, self)
     }
 
@@ -704,7 +704,7 @@ fn foldedFrom<T, B>(xs: [T], f: fn(B, Int, T) => B, at: Int, acc: B): B {
     }
 }
 
-fn keptFrom<T, C: Alloc>(
+fn keptFrom<T, C: Allocator>(
     ctx: C,
     xs: [T],
     keep: fn(Int, T) => Bool,
@@ -720,7 +720,7 @@ fn keptFrom<T, C: Alloc>(
     }
 }
 
-fn pairedFrom<T, C: Alloc>(ctx: C, xs: [T], at: Int, acc: [(Int, T)]): [(Int, T)] {
+fn pairedFrom<T, C: Allocator>(ctx: C, xs: [T], at: Int, acc: [(Int, T)]): [(Int, T)] {
     match (xs.get(at)) {
         .None => acc,
         .Some(x) => pairedFrom(ctx, xs, at + 1, acc.push(ctx, (at, x))),
@@ -736,7 +736,7 @@ fn runLength<T>(xs: [T], keep: fn(T) => Bool, at: Int): Int {
     }
 }
 
-fn chunksFrom<T, C: Alloc>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
+fn chunksFrom<T, C: Allocator>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
     if (at >= xs.len()) {
         acc
     } else {
@@ -745,7 +745,7 @@ fn chunksFrom<T, C: Alloc>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T
     }
 }
 
-fn partitionFrom<T, C: Alloc>(
+fn partitionFrom<T, C: Allocator>(
     ctx: C,
     xs: [T],
     keep: fn(T) => Bool,
@@ -959,7 +959,7 @@ impl<T> [T] {
     /// A `fold` that keeps its working. One element out per element in — the
     /// running value *after* each step, so the seed is not in the answer and
     /// `[1, 2, 3].scan(ctx, add, 0)` is `[1, 3, 6]`.
-    export fn scan<B, C: Alloc>(self, ctx: C, step: fn(B, T) => B, init: B): [B] {
+    export fn scan<B, C: Allocator>(self, ctx: C, step: fn(B, T) => B, init: B): [B] {
         scanFrom(ctx, self, step, 0, init, empty<B>())
     }
 
@@ -975,16 +975,16 @@ impl<T> [T] {
 
     /// The list cut in two at `index`: everything before it, then the rest.
     /// `take` and `drop` in one call, clamped the way they are.
-    export fn splitAt<C: Alloc>(self, ctx: C, index: Int): ([T], [T]) {
+    export fn splitAt<C: Allocator>(self, ctx: C, index: Int): ([T], [T]) {
         (self.take(ctx, index), self.drop(ctx, index))
     }
 
     /// The first element and everything after it, or `.None` when there is no
     /// first element.
     ///
-    /// It names `Alloc` where `first` does not: a Buri list is a value rather
+    /// It names `Allocator` where `first` does not: a Buri list is a value rather
     /// than a view, so the tail is a copy (SPEC 10.5).
-    export fn splitFirst<C: Alloc>(self, ctx: C): Option<(T, [T])> {
+    export fn splitFirst<C: Allocator>(self, ctx: C): Option<(T, [T])> {
         match (self.get(0)) {
             .None => .None,
             .Some(head) => .Some((head, self.drop(ctx, 1))),
@@ -993,21 +993,21 @@ impl<T> [T] {
 
     /// `separator` between every neighbouring pair, and nowhere else. A list of
     /// one and the empty list come back unchanged.
-    export fn intersperse<C: Alloc>(self, ctx: C, separator: T): [T] {
+    export fn intersperse<C: Allocator>(self, ctx: C, separator: T): [T] {
         interFrom(ctx, self, separator, 0, empty<T>())
     }
 
     /// Neighbouring elements `same` calls equal, grouped. The groups are runs,
     /// so two equal elements with something else between them land in two
     /// groups.
-    export fn chunkBy<C: Alloc>(self, ctx: C, same: fn(T, T) => Bool): [[T]] {
+    export fn chunkBy<C: Allocator>(self, ctx: C, same: fn(T, T) => Bool): [[T]] {
         runsFrom(ctx, self, same, 0, empty<T>(), empty<[T]>())
     }
 
     /// One element per run of neighbours `same` calls equal — the first of each
     /// run. O(n) comparisons, where `uniqueBy` is O(n²) because it looks at
     /// every element it has already kept.
-    export fn deduplicateBy<C: Alloc>(self, ctx: C, same: fn(T, T) => Bool): [T] {
+    export fn deduplicateBy<C: Allocator>(self, ctx: C, same: fn(T, T) => Bool): [T] {
         dedupeFrom(ctx, self, same, 0, empty<T>())
     }
 
@@ -1018,7 +1018,7 @@ impl<T> [T] {
     }
 }
 
-fn scanFrom<T, B, C: Alloc>(
+fn scanFrom<T, B, C: Allocator>(
     ctx: C,
     xs: [T],
     step: fn(B, T) => B,
@@ -1042,7 +1042,7 @@ fn reduceFrom<T>(xs: [T], combine: fn(T, T) => T, at: Int, acc: T): T {
     }
 }
 
-fn interFrom<T, C: Alloc>(ctx: C, xs: [T], separator: T, at: Int, acc: [T]): [T] {
+fn interFrom<T, C: Allocator>(ctx: C, xs: [T], separator: T, at: Int, acc: [T]): [T] {
     match (xs.get(at)) {
         .None => acc,
         .Some(x) => {
@@ -1052,7 +1052,7 @@ fn interFrom<T, C: Alloc>(ctx: C, xs: [T], separator: T, at: Int, acc: [T]): [T]
     }
 }
 
-fn runsFrom<T, C: Alloc>(
+fn runsFrom<T, C: Allocator>(
     ctx: C,
     xs: [T],
     same: fn(T, T) => Bool,
@@ -1078,7 +1078,7 @@ fn runsFrom<T, C: Alloc>(
     }
 }
 
-fn dedupeFrom<T, C: Alloc>(
+fn dedupeFrom<T, C: Allocator>(
     ctx: C,
     xs: [T],
     same: fn(T, T) => Bool,
@@ -1102,12 +1102,12 @@ fn dedupeFrom<T, C: Alloc>(
 impl<A, B> [(A, B)] {
     /// The left halves and the right halves, in two lists — `zip` run
     /// backwards.
-    export fn unzip<C: Alloc>(self, ctx: C): ([A], [B]) {
+    export fn unzip<C: Allocator>(self, ctx: C): ([A], [B]) {
         unzipFrom(ctx, self, 0, empty<A>(), empty<B>())
     }
 }
 
-fn unzipFrom<A, B, C: Alloc>(
+fn unzipFrom<A, B, C: Allocator>(
     ctx: C,
     pairs: [(A, B)],
     at: Int,
@@ -1131,7 +1131,7 @@ fn unzipFrom<A, B, C: Alloc>(
 impl<A> [A] {
     /// `zip` and a `map` in one pass, so no list of pairs is built. It stops at
     /// the shorter of the two, the way `zip` does.
-    export fn zipWith<B, R, C: Alloc>(
+    export fn zipWith<B, R, C: Allocator>(
         self,
         ctx: C,
         other: [B],
@@ -1141,7 +1141,7 @@ impl<A> [A] {
     }
 }
 
-fn zippedFrom<A, B, R, C: Alloc>(
+fn zippedFrom<A, B, R, C: Allocator>(
     ctx: C,
     xs: [A],
     ys: [B],
@@ -1164,14 +1164,14 @@ fn zippedFrom<A, B, R, C: Alloc>(
 /// never returns.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/list" import * as list;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let halves = list.unfold(ctx, 8, fn(n) => {
@@ -1185,11 +1185,11 @@ fn zippedFrom<A, B, R, C: Alloc>(
 /// ```stdout
 /// 4
 /// ```
-export fn unfold<T, S, C: Alloc>(ctx: C, seed: S, step: fn(S) => Option<(T, S)>): [T] {
+export fn unfold<T, S, C: Allocator>(ctx: C, seed: S, step: fn(S) => Option<(T, S)>): [T] {
     unfoldFrom(ctx, seed, step, empty<T>())
 }
 
-fn unfoldFrom<T, S, C: Alloc>(
+fn unfoldFrom<T, S, C: Allocator>(
     ctx: C,
     seed: S,
     step: fn(S) => Option<(T, S)>,
@@ -1206,7 +1206,7 @@ fn unfoldFrom<T, S, C: Alloc>(
 /// A negative `step` counts down and stops *above* `end`, so the bound is
 /// always the one the count is moving towards. A `step` of zero has no answer
 /// that terminates, so it is the empty list.
-export fn rangeBy<C: Alloc>(ctx: C, start: Int, end: Int, step: Int): [Int] {
+export fn rangeBy<C: Allocator>(ctx: C, start: Int, end: Int, step: Int): [Int] {
     if (step == 0) {
         empty<Int>()
     } else {
@@ -1214,7 +1214,7 @@ export fn rangeBy<C: Alloc>(ctx: C, start: Int, end: Int, step: Int): [Int] {
     }
 }
 
-fn strideFrom<C: Alloc>(ctx: C, at: Int, end: Int, step: Int, acc: [Int]): [Int] {
+fn strideFrom<C: Allocator>(ctx: C, at: Int, end: Int, step: Int, acc: [Int]): [Int] {
     let done = if (step > 0) { at >= end } else { at <= end };
     if (done) { acc } else { strideFrom(ctx, at + step, end, step, acc.push(ctx, at)) }
 }
@@ -1257,9 +1257,9 @@ impl [Float] {
     /// The middle value once sorted, or the mean of the two middle values when
     /// the length is even. `.None` for an empty list.
     ///
-    /// It sorts, so it names `Alloc` where `meanFloat` does not. A `NaN` in the
+    /// It sorts, so it names `Allocator` where `meanFloat` does not. A `NaN` in the
     /// list leaves the order undefined and the answer with it.
-    export fn median<C: Alloc>(self, ctx: C): Option<Float> {
+    export fn median<C: Allocator>(self, ctx: C): Option<Float> {
         let sorted = self.sort(ctx);
         let n = sorted.len();
         if (n == 0) {

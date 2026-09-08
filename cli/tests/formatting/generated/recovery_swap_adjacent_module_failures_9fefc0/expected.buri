@@ -3,20 +3,20 @@
 // pointing at the line that has to change.
 
 from "core/codegen" import { Diagnostic };
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/proto_gen" import { generated, generatedWith, HEAD, spanText };
 
 codes
 
-fn<C: Alloc>(ctx: C, diagnostics: [Diagnostic]): [Str] {
+fn<C: Allocator>(ctx: C, diagnostics: [Diagnostic]): [Str] {
     diagnostics.map(ctx, fn(d) => d.code)
 }
 
 test "a field type that names nothing is reported where it is written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = [HEAD, "message M { Missing x = 1; }\n"].join(ctx, "");
     let out = generated(ctx, text);
@@ -29,7 +29,7 @@ test "a field type that names nothing is reported where it is written" {
 
 test "a short name two packages claim is ambiguous where a field reaches through it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let here = [
         HEAD,
@@ -54,7 +54,7 @@ test "a short name two packages claim is ambiguous where a field reaches through
 
 test "the same name written in full is one answer, and no complaint" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let here = [
         HEAD,
@@ -72,7 +72,7 @@ test "the same name written in full is one answer, and no complaint" {
 
 test "a fully-qualified name declared twice names both files" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let here = [HEAD, "package p;\n", "message Dup { int32 b = 1; }\n"].join(ctx, "");
     let there = [HEAD, "package p;\n", "message Dup { int32 a = 1; }\n"].join(ctx, "");

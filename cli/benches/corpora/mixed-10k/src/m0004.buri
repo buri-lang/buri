@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
@@ -48,7 +48,7 @@ export fn compute4_0(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_0<C: Alloc>(ctx: C): Int {
+export fn probe4_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute4_0(7)
 }
@@ -73,7 +73,7 @@ export fn parseBoth4_1(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_1<C: Alloc>(ctx: C): Int {
+export fn probe4_1<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth4_1("1", "2")) {
         .Some(v) => v,
@@ -84,7 +84,7 @@ export fn probe4_1<C: Alloc>(ctx: C): Int {
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label4_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label4_2<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "bravo" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -97,7 +97,7 @@ export fn constants4_2(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_2<C: Alloc>(ctx: C): Int {
+export fn probe4_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants4_2();
     label4_2(ctx, a, e).len() + b
 }
@@ -131,14 +131,14 @@ export fn start4_3(ticks: Int): State4_3 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_3<C: Alloc>(ctx: C): Int {
+export fn probe4_3<C: Allocator>(ctx: C): Int {
     let s = start4_3(5);
     rank4_3(s) + s.show(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest4_4<C: Alloc>(ctx: C): Int {
+export fn digest4_4<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [7091, 9310, 6941, 4612, 2527, 607];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -153,7 +153,7 @@ export fn drain4_4(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_4<C: Alloc>(ctx: C): Int {
+export fn probe4_4<C: Allocator>(ctx: C): Int {
     digest4_4(ctx) + drain4_4()
 }
 
@@ -194,7 +194,7 @@ export fn start4_5(ticks: Int): State4_5 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_5<C: Alloc>(ctx: C): Int {
+export fn probe4_5<C: Allocator>(ctx: C): Int {
     let s = start4_5(5);
     rank4_5(s) + s.show(ctx).len()
 }
@@ -219,7 +219,7 @@ export fn parseBoth4_6(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_6<C: Alloc>(ctx: C): Int {
+export fn probe4_6<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth4_6("1", "2")) {
         .Some(v) => v,
@@ -230,7 +230,7 @@ export fn probe4_6<C: Alloc>(ctx: C): Int {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest4_7<C: Alloc>(ctx: C): Int {
+export fn digest4_7<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [3612, 1804, 3877, 7110, 4365];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -245,7 +245,7 @@ export fn drain4_7(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_7<C: Alloc>(ctx: C): Int {
+export fn probe4_7<C: Allocator>(ctx: C): Int {
     digest4_7(ctx) + drain4_7()
 }
 
@@ -264,21 +264,21 @@ impl Rec4_8 {
         self.f0 * factor + 594
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec4_8: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_8<C: Alloc>(ctx: C): Int {
+export fn probe4_8<C: Allocator>(ctx: C): Int {
     let r = Rec4_8 { f0: 7, f1: "probe", f2: 1.5, f3: true };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label4_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label4_9<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "foxtrot" } else { "alpha" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -291,7 +291,7 @@ export fn constants4_9(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_9<C: Alloc>(ctx: C): Int {
+export fn probe4_9<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants4_9();
     label4_9(ctx, a, e).len() + b
 }
@@ -325,14 +325,14 @@ export fn start4_10(ticks: Int): State4_10 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_10<C: Alloc>(ctx: C): Int {
+export fn probe4_10<C: Allocator>(ctx: C): Int {
     let s = start4_10(5);
     rank4_10(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach4<C: Alloc>(ctx: C): Int {
+export fn reach4<C: Allocator>(ctx: C): Int {
     0
         + probe4_0(ctx)
         + probe4_1(ctx)

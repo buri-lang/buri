@@ -258,7 +258,7 @@ pub enum Ret {
     /// no fields.
     ///
     /// The out-pointer is **omitted where `T` is zero-sized**, which is
-    /// `TestFs.writeFile`'s `Result<(), IoError>`. A parameter for a value that
+    /// `TestFileSystem.writeFile`'s `Result<(), IoError>`. A parameter for a value that
     /// occupies no bytes is one the two sides can disagree about for free, and
     /// `Ret::Out` already drops it for the same reason.
     Res,
@@ -296,8 +296,8 @@ pub struct Entry {
     /// cannot answer it. Asking the argument's *type* instead ("is it a
     /// `Ty::Ctx`?") is the same question only while every `C` is instantiated
     /// at a `context { … }` record, and `C` is an ordinary type parameter with
-    /// an ordinary bound (SPEC 10.1): a value that *implements* `Alloc`
-    /// satisfies `C: Alloc` without being a context, which is what SPEC 10.8's
+    /// an ordinary bound (SPEC 10.1): a value that *implements* `Allocator`
+    /// satisfies `C: Allocator` without being a context, which is what SPEC 10.8's
     /// attenuating `ReadOnly<C>` and `core/host/testing`'s `alloc()` both are.
     /// One of those in this position spread to a leaf the C signature has no
     /// parameter for and shifted every argument after it — which links, runs,
@@ -361,7 +361,7 @@ pub const ENTRIES: &[Entry] = &[
     // Every one of these answers a *view* into the receiver's block and increfs
     // its base before doing so (`cli/runtime/text.rs`'s header). That is what
     // makes `slice`, `trim` and `splitOnce` allocation-free, which is what
-    // `str.buri:26-45` says by declaring them without an `Alloc` bound.
+    // `str.buri:26-45` says by declaring them without an `Allocator` bound.
     e("str.charAt", "buri_rt_str_char_at", Ret::Opt),
     e("str.slice", "buri_rt_str_slice", Ret::Out),
     e("str.trim", "buri_rt_str_trim", Ret::Out),
@@ -377,7 +377,7 @@ pub const ENTRIES: &[Entry] = &[
     e("str.hash", "buri_rt_str_hash", Ret::Scalar),
     e("str.toInt", "buri_rt_str_to_int", Ret::Opt),
     e("str.toFloat", "buri_rt_str_to_float", Ret::Opt),
-    // -- core/str, `Alloc`-bounded ------------------------------------------
+    // -- core/str, `Allocator`-bounded ------------------------------------------
     cx(e("str.split", "buri_rt_str_split", Ret::Out), 1),
     cx(e("str.splitAny", "buri_rt_str_split_any", Ret::Out), 1),
     cx(e("str.lines", "buri_rt_str_lines", Ret::Out), 1),
@@ -514,8 +514,8 @@ pub const ENTRIES: &[Entry] = &[
     // [`Ret::ResMsg`], the column below — which is why these eleven carry it and
     // the five stream writers above deliberately do not.
     //
-    // `self` is `HostFs`, an empty struct, so it flattens to nothing and no row
-    // here needs a `ctx` column: neither `FsRead` nor `FsWrite` declares a
+    // `self` is `HostFileSystem`, an empty struct, so it flattens to nothing and no row
+    // here needs a `ctx` column: neither `FileSystemRead` nor `FileSystemWrite` declares a
     // context parameter, and the allocation these do is `buri_rt_alloc`'s.
     //
     // **One host type for two effects**, which is what keeps these keys — and
@@ -527,32 +527,32 @@ pub const ENTRIES: &[Entry] = &[
     // **A `Path` argument is the same three C parameters a `Str` was**, and
     // that is rule 1 of `lib.rs` §2 rather than a coincidence: a parameter is
     // flattened into its scalar leaves, and a one-field struct wrapping a `Str`
-    // has the `Str`'s three. So the split of `Fs` into `FsRead` and `FsWrite`
+    // has the `Str`'s three. So the split of `FileSystem` into `FileSystemRead` and `FileSystemWrite`
     // and the move from `Str` to `Path` changed the *keys* in this column and
     // not one symbol or one signature in `cli/runtime/host.rs`.
     //
     // `fileExists` is the one that is not a `Result` — it answers `Bool` and
     // cannot fail — which is why it sits with the scalars below and not here.
-    e("host.HostFs.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
-    e("host.HostFs.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
-    e("host.HostFs.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
-    e("host.HostFs.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
-    e("host.HostFs.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
-    e("host.HostFs.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
-    e("host.HostFs.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
-    e("host.HostFs.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
-    e("host.HostFs.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
-    e("host.HostFs.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
-    e("host.HostFs.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
+    e("host.HostFileSystem.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
+    e("host.HostFileSystem.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
+    e("host.HostFileSystem.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
+    e("host.HostFileSystem.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
+    e("host.HostFileSystem.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
+    e("host.HostFileSystem.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
+    e("host.HostFileSystem.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
+    e("host.HostFileSystem.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
+    e("host.HostFileSystem.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
+    e("host.HostFileSystem.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
+    e("host.HostFileSystem.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
     // `metadata`'s `.Ok` is a **struct** rather than a `Str` or a list, which
     // costs no column: `Ret::Out`'s pointer is the destination's own slot, so
     // the entry writes `Metadata`'s three fields where they already belong and
     // `cli/runtime/host.rs`'s `BuriMetadata` is the layout transcribed —
     // `net.rs`'s `BuriRequest` one level down.
-    e("host.HostFs.metadata", "buri_rt_host_fs_metadata", Ret::ResMsg),
-    e("host.HostFs.readRange", "buri_rt_host_fs_read_range", Ret::ResMsg),
-    e("host.HostFs.realPath", "buri_rt_host_fs_real_path", Ret::ResMsg),
-    e("host.HostFs.copyFile", "buri_rt_host_fs_copy_file", Ret::ResMsg),
+    e("host.HostFileSystem.metadata", "buri_rt_host_fs_metadata", Ret::ResMsg),
+    e("host.HostFileSystem.readRange", "buri_rt_host_fs_read_range", Ret::ResMsg),
+    e("host.HostFileSystem.realPath", "buri_rt_host_fs_real_path", Ret::ResMsg),
+    e("host.HostFileSystem.copyFile", "buri_rt_host_fs_copy_file", Ret::ResMsg),
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -565,14 +565,14 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `self` is empty at all four, so the C call of `args` is the out-pointer
     // and nothing else.
-    e("host.HostEnv.variable", "buri_rt_host_env_variable", Ret::Opt),
-    e("host.HostEnv.args", "buri_rt_host_env_args", Ret::Out),
+    e("host.HostEnvironment.variable", "buri_rt_host_env_variable", Ret::Opt),
+    e("host.HostEnvironment.arguments", "buri_rt_host_env_arguments", Ret::Out),
     // Three more of the same two shapes: two `Str`s and a `[(Str, Str)]`,
     // which is `[Header]`'s layout and so is `list_of_headers`' block.
-    e("host.HostEnv.currentDirectory", "buri_rt_host_env_current_directory", Ret::Out),
-    e("host.HostEnv.allVariables", "buri_rt_host_env_all_variables", Ret::Out),
+    e("host.HostEnvironment.currentDirectory", "buri_rt_host_env_current_directory", Ret::Out),
+    e("host.HostEnvironment.allVariables", "buri_rt_host_env_all_variables", Ret::Out),
     e(
-        "host.HostEnv.operatingSystemName",
+        "host.HostEnvironment.operatingSystemName",
         "buri_rt_host_env_operating_system_name",
         Ret::Out,
     ),
@@ -588,7 +588,7 @@ pub const ENTRIES: &[Entry] = &[
     // -- the scalar capabilities --------------------------------------------
     // `Tcp`'s four. A dial answers a handle and a read answers octets, both
     // `Result<_, IoError>` with `.Other(Str)` on the error side — so both are
-    // `Ret::ResMsg`, exactly as `host.HostFs`'s eleven are and for the same
+    // `Ret::ResMsg`, exactly as `host.HostFileSystem`'s eleven are and for the same
     // reason: a socket meets failures `IoError` has no variant for, and the
     // sentence is the only actionable half of one. `tcpWrite`'s `.Ok` is `()`
     // and so has no payload out-pointer, and `tcpClose` answers nothing at all.
@@ -596,19 +596,19 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostTcp.tcpRead", "buri_rt_host_tcp_read", Ret::ResMsg),
     e("host.HostTcp.tcpWrite", "buri_rt_host_tcp_write", Ret::ResMsg),
     e("host.HostTcp.tcpClose", "buri_rt_host_tcp_close", Ret::Void),
-    e("host.HostFs.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
-    e("host.HostClock.nowMillis", "buri_rt_host_clock_now_millis", Ret::Scalar),
-    e("host.HostClock.sleepMillis", "buri_rt_host_clock_sleep_millis", Ret::Void),
+    e("host.HostFileSystem.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
+    e("host.HostClock.nowMilliseconds", "buri_rt_host_clock_now_milliseconds", Ret::Scalar),
+    e("host.HostClock.sleepMilliseconds", "buri_rt_host_clock_sleep_milliseconds", Ret::Void),
     // A reading off a clock that only goes forward, in nanoseconds. `Ret::Scalar`
-    // like `nowMillis` and for the same reason: one `i64` out, nothing in but the
+    // like `nowMilliseconds` and for the same reason: one `i64` out, nothing in but the
     // dropped `self`.
     e(
         "host.HostClock.monotonicNanoseconds",
         "buri_rt_host_clock_monotonic_nanoseconds",
         Ret::Scalar,
     ),
-    e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
-    e("host.HostRand.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
+    e("host.HostRandom.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
+    e("host.HostRandom.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
     // The one row here whose symbol may not be in the archive: it is behind the
     // runtime's `crypto` feature, and `runtime_native::crypto_intrinsic` is
     // what turns a toolchain built without it into a refusal naming the
@@ -617,8 +617,8 @@ pub const ENTRIES: &[Entry] = &[
     // toolchain's copy carries it is the feature file's question and is asked
     // separately, exactly as `host.HostListen.*` is.
     e("host.HostEntropy.bytes", "buri_rt_host_entropy_bytes", Ret::Out),
-    e("host.HostProc.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
-    // `allocate(self, bytes) -> Region`. `self` is `HostAlloc`, an empty
+    e("host.HostProcess.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
+    // `allocate(self, bytes) -> Region`. `self` is `HostAllocator`, an empty
     // struct, so it flattens to nothing and the C call is the one `i64`; the
     // result is `struct Region(I64)`, whose single leaf is what makes
     // [`Ret::Scalar`] right where `host_testing.stdout`'s
@@ -626,13 +626,13 @@ pub const ENTRIES: &[Entry] = &[
     // signature, and `buri_rt_host_alloc_allocate` returns an `i64` rather
     // than a struct.
     //
-    // MEMORY.md §7 is the body: `HostAlloc` is zero-sized and unbounded, so
+    // MEMORY.md §7 is the body: `HostAllocator` is zero-sized and unbounded, so
     // the charge is the request and the accounting is the caller's. The row is
-    // here rather than open-coded next to `TestAlloc.allocate` because the
+    // here rather than open-coded next to `TestAllocator.allocate` because the
     // archive already has the body and `llvm/runtime.rs` already calls it — two
     // backends reaching one definition of a *defined* cost model, which is what
     // §7.1 means by "the same number on both backends".
-    e("host.HostAlloc.allocate", "buri_rt_host_alloc_allocate", Ret::Scalar),
+    e("host.HostAllocator.allocate", "buri_rt_host_alloc_allocate", Ret::Scalar),
     // -- Tasks --------------------------------------------------------------
     //
     // `parallel(self, ctx, items, f)`. `self` is `HostTasks`, an empty struct,
@@ -744,7 +744,7 @@ pub const ENTRIES: &[Entry] = &[
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the
-    // handle *is* the allocator here, so these are the one part of the `Alloc`
+    // handle *is* the allocator here, so these are the one part of the `Allocator`
     // story that needs no argument this ABI drops (`runtime_call`, above).
     // `charge` is the one that can end the process, and it is `Ret::Scalar`
     // rather than `Ret::NoReturn` because it returns on every request that
@@ -853,18 +853,18 @@ pub const ENTRIES: &[Entry] = &[
     // with the archive by accident on both supported targets and be an ABI
     // disagreement nothing diagnoses.
     //
-    // `TestFs`'s eleven methods answer a `Result<T, IoError>`, which was the
+    // `TestFileSystem`'s eleven methods answer a `Result<T, IoError>`, which was the
     // shape this table had no `Ret` for; §2.1 is that shape and [`Ret::Res`] is
-    // the row for it. `host.HostFs.readFile` is still absent, and for a
+    // the row for it. `host.HostFileSystem.readFile` is still absent, and for a
     // different reason: the archive has a body for it and this table has no
     // row, which is a gap rather than a shape.
     //
-    // `alloc` and `TestAlloc.allocate` are open-coded and are named in
+    // `alloc` and `TestAllocator.allocate` are open-coded and are named in
     // [`the_unimplemented_surface_is_not_claimed`].
     //
-    // `proc` and `TestProc.exitWith` are absent and are not named there either,
-    // for `TestNet.fetch`'s reason rather than the allocator's: both are Buri
-    // bodies, so no key reaches this table to be missing from it. `TestProc`
+    // `proc` and `TestProcess.exitWith` are absent and are not named there either,
+    // for `TestNetwork.fetch`'s reason rather than the allocator's: both are Buri
+    // bodies, so no key reaches this table to be missing from it. `TestProcess`
     // records nothing because nothing can read it back.
     e("host_testing.stdout", "buri_rt_host_testing_stdout", Ret::Out),
     e("host_testing.stderr", "buri_rt_host_testing_stderr", Ret::Out),
@@ -898,11 +898,11 @@ pub const ENTRIES: &[Entry] = &[
     // The stream's log, read back. A log is state the runner keeps, so it is
     // here for the reason the handle table itself is.
     e("host_testing.TestStdin.calls", "buri_rt_host_testing_test_stdin_calls", Ret::Out),
-    // `TestFs`'s twenty-two, and every one of them takes a **handle** rather
-    // than a `TestFs`. That value is a handle and a fault plan since the plan
+    // `TestFileSystem`'s twenty-two, and every one of them takes a **handle** rather
+    // than a `TestFileSystem`. That value is a handle and a fault plan since the plan
     // landed, and an argument crosses as its leaves — so a row taking `self`
     // would be handed three values where it expects one, which is the crash
-    // `TestNet.calls` found first. The eleven filesystem methods are Buri bodies
+    // `TestNetwork.calls` found first. The eleven filesystem methods are Buri bodies
     // over these rows; `host_testing.buri` says why the plan is in the program.
     //
     // `snapshot` is `Ret::Out` over a `[(Str, Str)]` — one block of two-`Str`
@@ -973,20 +973,20 @@ pub const ENTRIES: &[Entry] = &[
     // operation at all: a test writing a call down performs no effect, so it
     // has no context to reach `bytes.fromUtf8` with.
     //
-    // The other three are `TestNet`'s. `net()` and `TestNet.fetch` are Buri
+    // The other three are `TestNetwork`'s. `net()` and `TestNetwork.fetch` are Buri
     // bodies and have no row — the absent-key list below says why — but the
     // *log* is state, so the handle naming it is minted here
     // (`alloc.newCounter`'s shape), written by `recordFetch` once the responder
     // has answered, and read back by `netCalls`. `recordFetch` takes `Request`
     // flattened by §2 rule 1, which is `buri_rt_host_net_fetch`'s argument list
-    // without its answer; `netCalls` takes the handle rather than the `TestNet`,
+    // without its answer; `netCalls` takes the handle rather than the `TestNetwork`,
     // because that value carries the responder too and an argument crosses as
     // its leaves.
     e("host_testing.spelled", "buri_rt_host_testing_spelled", Ret::Out),
     e("host_testing.newNet", "buri_rt_host_testing_new_net", Ret::Scalar),
     e("host_testing.recordFetch", "buri_rt_host_testing_record_fetch", Ret::Void),
     e("host_testing.netCalls", "buri_rt_host_testing_net_calls", Ret::Out),
-    // `tcp()`'s seven. Its shape is `TestStdin`'s rather than `TestNet`'s —
+    // `tcp()`'s seven. Its shape is `TestStdin`'s rather than `TestNetwork`'s —
     // what a test writes down is a script and what it reads back is a log, and
     // there is no responder to keep in the program — so the handle names all of
     // it and nothing here needs a plan. `recordTcpRead` is `Ret::Opt` because
@@ -1045,13 +1045,13 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
     e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
     e(
-        "host_testing.TestClock.nowMillis",
-        "buri_rt_host_testing_test_clock_now_millis",
+        "host_testing.TestClock.nowMilliseconds",
+        "buri_rt_host_testing_test_clock_now_milliseconds",
         Ret::Scalar,
     ),
     e(
-        "host_testing.TestClock.sleepMillis",
-        "buri_rt_host_testing_test_clock_sleep_millis",
+        "host_testing.TestClock.sleepMilliseconds",
+        "buri_rt_host_testing_test_clock_sleep_milliseconds",
         Ret::Void,
     ),
     e(
@@ -1060,10 +1060,10 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Scalar,
     ),
     e("host_testing.rand", "buri_rt_host_testing_rand", Ret::Out),
-    e("host_testing.TestRand.seed", "buri_rt_host_testing_test_rand_seed", Ret::Out),
-    e("host_testing.TestRand.nextInt", "buri_rt_host_testing_test_rand_next_int", Ret::Scalar),
+    e("host_testing.TestRandom.seed", "buri_rt_host_testing_test_rand_seed", Ret::Out),
+    e("host_testing.TestRandom.nextInt", "buri_rt_host_testing_test_rand_next_int", Ret::Scalar),
     e(
-        "host_testing.TestRand.nextFloat",
+        "host_testing.TestRandom.nextFloat",
         "buri_rt_host_testing_test_rand_next_float",
         Ret::Scalar,
     ),
@@ -1071,28 +1071,28 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestEntropy.seed", "buri_rt_host_testing_test_entropy_seed", Ret::Out),
     e("host_testing.TestEntropy.bytes", "buri_rt_host_testing_test_entropy_bytes", Ret::Out),
     e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
-    e("host_testing.TestEnv.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
-    e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
-    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
-    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
+    e("host_testing.TestEnvironment.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
+    e("host_testing.TestEnvironment.withArguments", "buri_rt_host_testing_test_env_with_arguments", Ret::Out),
+    e("host_testing.TestEnvironment.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
+    e("host_testing.TestEnvironment.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
     e(
-        "host_testing.TestEnv.currentDirectory",
+        "host_testing.TestEnvironment.currentDirectory",
         "buri_rt_host_testing_test_env_current_directory",
         Ret::Out,
     ),
     e(
-        "host_testing.TestEnv.allVariables",
+        "host_testing.TestEnvironment.allVariables",
         "buri_rt_host_testing_test_env_all_variables",
         Ret::Out,
     ),
     e(
-        "host_testing.TestEnv.operatingSystemName",
+        "host_testing.TestEnvironment.operatingSystemName",
         "buri_rt_host_testing_test_env_operating_system_name",
         Ret::Out,
     ),
     // The spawn double is a log and nothing else — the scripted answer holds an
     // `IoError`, which §2.1 cannot hand back across a row, so it stays in the
-    // program and `spawnProcess` is a Buri body. `TestNet`'s arrangement.
+    // program and `spawnProcess` is a Buri body. `TestNetwork`'s arrangement.
     e("host_testing.newSpawn", "buri_rt_host_testing_new_spawn", Ret::Scalar),
     e("host_testing.recordSpawn", "buri_rt_host_testing_record_spawn", Ret::Void),
     e("host_testing.spawnCalls", "buri_rt_host_testing_spawn_calls", Ret::Out),
@@ -1232,7 +1232,7 @@ mod tests {
         for entry in ENTRIES {
             assert_eq!(symbol_for(entry.key), entry.symbol, "{}", entry.key);
         }
-        assert_eq!(symbol_for("host.HostFs.readFile"), "buri_rt_host_fs_read_file");
+        assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_fs_read_file");
         assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
         assert_eq!(symbol_for("str.splitOnce"), "buri_rt_str_split_once");
     }
@@ -1249,17 +1249,17 @@ mod tests {
             "list.zip",
             "list.flatten",
             "json.decode",
-            // `host.HostFs`'s eleven, `host.HostEnv`'s two and
+            // `host.HostFileSystem`'s eleven, `host.HostEnvironment`'s two and
             // `host.HostStdin`'s two used to be here — fifteen keys with a body
             // in `cli/runtime/host.rs`, no row in either runtime table, and a
             // native binary that could not touch a file or read its own
             // arguments (buri-lang/buri#36). They are rows now, and the two
-            // halves of that gap were different: `Env` and `Stdin` were waiting
+            // halves of that gap were different: `Environment` and `Stdin` were waiting
             // on nothing but the row, and the filesystem was waiting on §2.1's message
             // shape, because `IoError.Other(Str)` is what a real filesystem
             // answers for every kind the six classified variants do not name.
             //
-            // `host.HostNet.fetch` is absent for a *third* reason, and it is
+            // `host.HostNetwork.fetch` is absent for a *third* reason, and it is
             // the one this list exists to distinguish. The archive has a body
             // (`cli/runtime/host.rs`), and the shape is not merely missing: it
             // is not expressible. `Ret::Res` names the error variant by index
@@ -1267,10 +1267,10 @@ mod tests {
             // `NetError` carries a `Str` on `BadUrl` and on `Transport`. A row
             // here needs §2.1 widened first, not a `Ret` picked from the ones
             // that exist.
-            "host.HostNet.fetch",
+            "host.HostNetwork.fetch",
             // `core/host/testing`'s `net()` answers the same shape and needs
-            // no row at all: `TestNet` carries its responder as a value and
-            // `TestNet.fetch` is a Buri body that calls it, so no key is
+            // no row at all: `TestNetwork` carries its responder as a value and
+            // `TestNetwork.fetch` is a Buri body that calls it, so no key is
             // produced for it here. That is the same wall read from the other
             // side — a responder is a `{ code, env }` pair the archive has no
             // way to invoke, and its answer is the `Result<Response, NetError>`
@@ -1283,17 +1283,17 @@ mod tests {
             // program and only its rendering and its fired flags cross.
             //
             // `host_testing.fs` is absent for a different reason and is not a
-            // gap: `fs()` is a Buri body too now, because a `TestFs` is a handle
+            // gap: `fs()` is a Buri body too now, because a `TestFileSystem` is a handle
             // and a plan. `newFs` is the row that mints the handle.
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements: the
             // allocator is two instructions on both native backends.
             "host_testing.alloc",
-            "host_testing.TestAlloc.allocate",
+            "host_testing.TestAllocator.allocate",
             // Buri bodies, for the reason two paragraphs up.
             "host_testing.fs",
-            "host_testing.TestFs.readFile",
-            "host_testing.TestFs.faults",
+            "host_testing.TestFileSystem.readFile",
+            "host_testing.TestFileSystem.faults",
             // `TestTasks.faults` is a Buri body over `replan` and `addFault`,
             // for the reason its two twins are: a plan is walked one entry at a
             // time, and the walk is the program's.
@@ -1314,7 +1314,7 @@ mod tests {
         assert!(entry("str.concat").is_none());
     }
 
-    /// `host.HostNet.fetch`, in both directions.
+    /// `host.HostNetwork.fetch`, in both directions.
     ///
     /// The archive exports exactly the symbol the mangling rule produces — so
     /// a row added later needs no invention — and this table has no row for
@@ -1324,8 +1324,8 @@ mod tests {
     /// as `str.concat`'s pair does one row above.
     #[test]
     fn host_net_fetch_has_a_symbol_and_no_row() {
-        assert_eq!(symbol_for("host.HostNet.fetch"), "buri_rt_host_net_fetch");
-        assert!(entry("host.HostNet.fetch").is_none());
+        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_net_fetch");
+        assert!(entry("host.HostNetwork.fetch").is_none());
     }
 
     /// The module a key's first segment names, for the keys whose operations
@@ -1414,8 +1414,8 @@ mod tests {
     ///
     /// This is the test that would have caught the bug the column exists for.
     /// The rule it replaced asked the *argument's type* — "is it a `Ty::Ctx`?"
-    /// — which is the same answer only while every `C: Alloc` is instantiated
-    /// at a `context { … }` record; a value that merely implements `Alloc`
+    /// — which is the same answer only while every `C: Allocator` is instantiated
+    /// at a `context { … }` record; a value that merely implements `Allocator`
     /// satisfies the bound (SPEC 10.1, 10.8) and slipped through as an extra
     /// leaf. A column can be wrong the same way a type test was, so it is
     /// derived here from the one place that cannot be: the signature.
@@ -1487,8 +1487,8 @@ mod tests {
     /// One standard-library module's text.
     ///
     /// Two modules declare effects that this table has rows for: `core/effect`,
-    /// and `core/fs`, which declares `FsRead` and `FsWrite` because their
-    /// methods name a `Path` and `core/path` names `Alloc`.
+    /// and `core/fs`, which declares `FileSystemRead` and `FileSystemWrite` because their
+    /// methods name a `Path` and `core/path` names `Allocator`.
     fn module_source(path: &str) -> &'static str {
         crate::compiler::standard_library::MODULES
             .iter()
@@ -1521,7 +1521,7 @@ mod tests {
         out
     }
 
-    /// **Every operation of the filesystem, `Env` and `Stdin` has a row.**
+    /// **Every operation of the filesystem, `Environment` and `Stdin` has a row.**
     ///
     /// This is buri-lang/buri#36 as an assertion. `cli/runtime/host.rs` had a
     /// body for all sixteen and this table had a row for one of them
@@ -1534,16 +1534,16 @@ mod tests {
     /// `removeDir` — and the next operation after it — is covered by the commit
     /// that declares it rather than by somebody remembering this test. The
     /// filesystem is two rows of that scan now and not one, which is the same
-    /// mechanism catching the split: `FsRead` and `FsWrite` are declared in
+    /// mechanism catching the split: `FileSystemRead` and `FileSystemWrite` are declared in
     /// `core/fs`, and a method of either with no entry is a native program
     /// refused.
     #[test]
     fn every_operation_of_the_host_file_and_environment_effects_has_a_row() {
         let mut checked = 0usize;
         for (module, effect, host) in [
-            ("core/fs", "FsRead", "HostFs"),
-            ("core/fs", "FsWrite", "HostFs"),
-            ("core/effect", "Env", "HostEnv"),
+            ("core/fs", "FileSystemRead", "HostFileSystem"),
+            ("core/fs", "FileSystemWrite", "HostFileSystem"),
+            ("core/effect", "Environment", "HostEnvironment"),
             ("core/effect", "Stdin", "HostStdin"),
         ] {
             let methods = effect_methods(module, effect);
@@ -1593,21 +1593,21 @@ mod tests {
         assert_eq!(
             carrying,
             vec![
-                "host.HostFs.appendFile",
-                "host.HostFs.copyFile",
-                "host.HostFs.makeDir",
-                "host.HostFs.metadata",
-                "host.HostFs.readDir",
-                "host.HostFs.readFile",
-                "host.HostFs.readFileBytes",
-                "host.HostFs.readRange",
-                "host.HostFs.realPath",
-                "host.HostFs.removeDir",
-                "host.HostFs.removeFile",
-                "host.HostFs.renameFile",
-                "host.HostFs.syncFile",
-                "host.HostFs.writeFile",
-                "host.HostFs.writeFileBytes",
+                "host.HostFileSystem.appendFile",
+                "host.HostFileSystem.copyFile",
+                "host.HostFileSystem.makeDir",
+                "host.HostFileSystem.metadata",
+                "host.HostFileSystem.readDir",
+                "host.HostFileSystem.readFile",
+                "host.HostFileSystem.readFileBytes",
+                "host.HostFileSystem.readRange",
+                "host.HostFileSystem.realPath",
+                "host.HostFileSystem.removeDir",
+                "host.HostFileSystem.removeFile",
+                "host.HostFileSystem.renameFile",
+                "host.HostFileSystem.syncFile",
+                "host.HostFileSystem.writeFile",
+                "host.HostFileSystem.writeFileBytes",
                 // Starting a program fails the way the filesystem does and for
                 // the same reason: `ENOEXEC` and `E2BIG` have no `IoError`
                 // variant either, and the string is the only place a refused
@@ -1616,7 +1616,7 @@ mod tests {
                 "host.HostTcp.tcpConnect",
                 "host.HostTcp.tcpRead",
                 "host.HostTcp.tcpWrite",
-                // Two doubles with a sentence to give. A `TestFs` whose
+                // Two doubles with a sentence to give. A `TestFileSystem` whose
                 // directory still holds something answers `.Other` for the same
                 // reason a real one does, and a `readRange` at a negative
                 // offset says so — both in the words the JavaScript double

@@ -23,7 +23,7 @@
 //! There is no `fail`. A test that has to fail asserts on the value it has: a
 //! verdict rendered as a `Str`, or the `Option` itself.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/order" import { Eq };
 
 /// Fails unless `a == b`. Requires `Eq`, and nothing else.
@@ -49,14 +49,14 @@ export fn notEq<T: Eq>(actual: T, expected: T): () {
 /// names neither map.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/map" import * as map;
 /// from "core/testing/assert" import * as assert;
 ///
 /// test "two maps built in different orders hold the same entries" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     let one = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
 ///     let two = map.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
@@ -71,7 +71,7 @@ export fn notEq<T: Eq>(actual: T, expected: T): () {
 /// The runner renders both sides *structurally*, so a failure shows a map's
 /// buckets rather than its entries — which is the layout the comparison just
 /// decided not to care about, and is still where the difference is.
-export fn eqWith<T, C: Alloc>(
+export fn eqWith<T, C: Allocator>(
     ctx: C,
     actual: T,
     expected: T,
@@ -154,20 +154,20 @@ export fn len<T>(xs: [T], expected: Int): () {
 /// up beside sorted.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/testing/assert" import * as assert;
 ///
 /// test "the keys are all there, whatever order they came out in" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     assert.unordered(ctx, [3, 1, 2], [1, 2, 3]);
 /// }
 /// ```
 ///
 /// Sorting costs O(n log n) and two lists.
-export fn unordered<T: Ord, C: Alloc>(ctx: C, actual: [T], expected: [T]): () {
+export fn unordered<T: Ord, C: Allocator>(ctx: C, actual: [T], expected: [T]): () {
     let sortedActual = actual.sort(ctx);
     let sortedExpected = expected.sort(ctx);
     report(

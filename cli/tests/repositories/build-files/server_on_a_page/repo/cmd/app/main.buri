@@ -6,14 +6,14 @@
 // `Tasks` is bound because `serve` fans its accept loop out over the carrier
 // pool, one worker per handler the acceptor will host. On a page that is a
 // second refusal rather than a second problem: `WEB` grants neither.
-from "core/effect" import { Alloc, Listen, Tasks };
+from "core/effect" import { Allocator, Listen, Tasks };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Tasks: host.tasks,
     };

@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0012.buri" import { blend12, Node12, reach12, seed12 };
@@ -56,7 +56,7 @@ export fn parseBoth18_0(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_0<C: Alloc>(ctx: C): Int {
+export fn probe18_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth18_0("1", "2")) {
         .Some(v) => v,
@@ -75,7 +75,7 @@ export fn firstOr18_1<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll18_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll18_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -85,13 +85,13 @@ export fn useGeneric18_1(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_1<C: Alloc>(ctx: C): Int {
+export fn probe18_1<C: Allocator>(ctx: C): Int {
     useGeneric18_1([1, 2], ["a"]) + describeAll18_1(ctx, [1, 2]).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label18_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label18_2<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "bravo" } else { "foxtrot" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -104,7 +104,7 @@ export fn constants18_2(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_2<C: Alloc>(ctx: C): Int {
+export fn probe18_2<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants18_2();
     label18_2(ctx, a, e).len() + b
 }
@@ -125,14 +125,14 @@ impl Rec18_3 {
         self.f0 * factor + 282
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec18_3: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_3<C: Alloc>(ctx: C): Int {
+export fn probe18_3<C: Allocator>(ctx: C): Int {
     let r = Rec18_3 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -154,7 +154,7 @@ export fn compute18_4(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_4<C: Alloc>(ctx: C): Int {
+export fn probe18_4<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute18_4(7)
 }
@@ -179,7 +179,7 @@ export fn parseBoth18_5(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_5<C: Alloc>(ctx: C): Int {
+export fn probe18_5<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth18_5("1", "2")) {
         .Some(v) => v,
@@ -208,7 +208,7 @@ export fn parseBoth18_6(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_6<C: Alloc>(ctx: C): Int {
+export fn probe18_6<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth18_6("1", "2")) {
         .Some(v) => v,
@@ -219,7 +219,7 @@ export fn probe18_6<C: Alloc>(ctx: C): Int {
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest18_7<C: Alloc>(ctx: C): Int {
+export fn digest18_7<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [7553, 4893, 2474, 774, 701, 7280, 5704, 3186, 7433, 8315, 782];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -234,7 +234,7 @@ export fn drain18_7(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_7<C: Alloc>(ctx: C): Int {
+export fn probe18_7<C: Allocator>(ctx: C): Int {
     digest18_7(ctx) + drain18_7()
 }
 
@@ -269,7 +269,7 @@ export fn start18_8(ticks: Int): State18_8 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_8<C: Alloc>(ctx: C): Int {
+export fn probe18_8<C: Allocator>(ctx: C): Int {
     let s = start18_8(5);
     rank18_8(s) + s.show(ctx).len()
 }
@@ -290,21 +290,21 @@ impl Rec18_9 {
         self.f0 * factor + 22
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec18_9: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe18_9<C: Alloc>(ctx: C): Int {
+export fn probe18_9<C: Allocator>(ctx: C): Int {
     let r = Rec18_9 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach18<C: Alloc>(ctx: C): Int {
+export fn reach18<C: Allocator>(ctx: C): Int {
     0
         + probe18_0(ctx)
         + probe18_1(ctx)

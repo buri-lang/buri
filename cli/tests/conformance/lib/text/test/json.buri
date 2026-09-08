@@ -5,7 +5,7 @@
 // document is that document. Both directions, because each catches what the
 // other cannot.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { Json, JsonError };
@@ -13,7 +13,7 @@ from "core/testing/assert" import * as assert;
 
 fn parsed(text: Str): Json {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.ok(json.parse(ctx, text))
 }
@@ -59,7 +59,7 @@ test "the escapes this module reads" {
 
 test "the empty array and the empty object" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(parsed("[]"), Json.Array([]));
     assert.eq(json.stringify(ctx, parsed("[]")), "[]");
@@ -96,21 +96,21 @@ test "whitespace between every token is ignored" {
 
 test "stringify is compact" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(json.stringify(ctx, parsed("{\"a\": [1, 2]}")), "{\"a\":[1,2]}");
 }
 
 test "stringify escapes what parse unescapes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(json.stringify(ctx, Json.Str("a\"b\\c\nd")), "\"a\\\"b\\\\c\\nd\"");
 }
 
 test "quote is the string rendering on its own" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(json.quote(ctx, "hi"), "\"hi\"");
 }
@@ -118,7 +118,7 @@ test "quote is the string rendering on its own" {
 // The property the whole module is for: text in, text out, unchanged.
 test "a document round trips through parse and stringify" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let doc =
         "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"],\"n\":3,\"ok\":true,\"none\":null}";
@@ -127,7 +127,7 @@ test "a document round trips through parse and stringify" {
 
 test "object key order survives the round trip" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A map would lose this. The association list is why it does not.
     let doc = "{\"z\":1,\"a\":2,\"m\":3}";
@@ -136,7 +136,7 @@ test "object key order survives the round trip" {
 
 test "a value round trips through stringify and parse" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let v = Json.Object([
         ("k", Json.Array([Json.Num(1.0), Json.Bool(false), Json.Null])),
@@ -148,7 +148,7 @@ test "a value round trips through stringify and parse" {
 
 fn failure(text: Str): JsonError {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.err(json.parse(ctx, text))
 }
@@ -215,7 +215,7 @@ test "a surrogate pair is one character, and half of one is an error" {
 // to escape it — otherwise this module produces documents it cannot read.
 test "a control character is written as an escape" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(json.stringify(ctx, Json.Str("a\u{1}b")), "\"a\\u0001b\"");
     assert.eq(json.stringify(ctx, parsed("\"\\u0000\"")), "\"\\u0000\"");
@@ -225,7 +225,7 @@ test "a control character is written as an escape" {
 // what stands between a deep document and a crash.
 test "nesting past the limit is an error rather than a crash" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let deep = "[".repeat(ctx, 600).concat(ctx, "]".repeat(ctx, 600));
     // The verdict as a value, so a failure reports which of the three answers
@@ -240,7 +240,7 @@ test "nesting past the limit is an error rather than a crash" {
 
 test "nesting inside the limit is fine" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ok = "[".repeat(ctx, 100).concat(ctx, "]".repeat(ctx, 100));
     assert.isTrue(json.parse(ctx, ok).isOk());
@@ -285,7 +285,7 @@ test "asObject is asArray's twin" {
 
 test "keys are the object's own, in document order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(parsed("{\"b\":1,\"a\":2}").keys(ctx), ["b", "a"]);
     assert.isEmpty(parsed("{}").keys(ctx));
@@ -314,7 +314,7 @@ test "path walks a chain of keys" {
 
 test "pretty printing lays a document out over lines" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         json.stringifyPretty(ctx, parsed("{\"a\":1,\"b\":[2,3]}"), 2),
@@ -329,7 +329,7 @@ test "pretty printing lays a document out over lines" {
 
 test "an empty array and an empty object have nothing to lay out" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(json.stringifyPretty(ctx, parsed("[]"), 2), "[]");
     assert.eq(json.stringifyPretty(ctx, parsed("{}"), 2), "{}");
@@ -342,7 +342,7 @@ test "an empty array and an empty object have nothing to lay out" {
 
 test "a zero or negative indent still puts one value on a line" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(json.stringifyPretty(ctx, parsed("[1,2]"), 0), "[\n1,\n2\n]");
     assert.eq(json.stringifyPretty(ctx, parsed("[1,2]"), 0 - 3), "[\n1,\n2\n]");
@@ -350,7 +350,7 @@ test "a zero or negative indent still puts one value on a line" {
 
 test "a pretty rendering parses back to the value it came from" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let doc = parsed("{\"a\":[1,{\"b\":null,\"c\":[true,false]}],\"d\":\"x\"}");
     assert.eq(assert.ok(json.parse(ctx, json.stringifyPretty(ctx, doc, 2))), doc);
@@ -358,7 +358,7 @@ test "a pretty rendering parses back to the value it came from" {
 
 test "sorting keys makes two orderings of one document render the same" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = parsed("{\"b\":1,\"a\":2}");
     let other = parsed("{\"a\":2,\"b\":1}");
@@ -369,7 +369,7 @@ test "sorting keys makes two orderings of one document render the same" {
 
 test "sorting reaches every depth and leaves array order alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(
         json.stringifySorted(ctx, parsed("{\"b\":{\"d\":1,\"c\":2},\"a\":[3,1,2]}")),
@@ -386,7 +386,7 @@ test "sorting reaches every depth and leaves array order alone" {
 
 test "sorting is by Str order, and stable where two keys are equal" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Uppercase sorts before lowercase, which is scalar order and not a locale's.
     assert.eq(
@@ -425,7 +425,7 @@ test "asInt at the edge of what a Float counts one at a time" {
 
 test "an empty container inside another has nothing to lay out either" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The empty cases at every depth, and beside a sibling that is not empty.
     assert.eq(json.stringifyPretty(ctx, parsed("[[]]"), 2), "[\n  []\n]");
@@ -455,7 +455,7 @@ test "an empty container inside another has nothing to lay out either" {
 
 test "sorting keys is by scalar, whatever the key is written in" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Scalar order, so everything ASCII comes before anything that is not, and
     // a longer key that starts with a shorter one comes after it.

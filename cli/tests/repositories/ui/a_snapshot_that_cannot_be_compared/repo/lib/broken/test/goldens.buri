@@ -5,7 +5,7 @@
 // blocks that name one share it: `--update` leaves the picture the later block
 // painted, and the earlier one then reads a golden that is not its own.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -13,7 +13,7 @@ from "ui/testing" import { headless, snapshot };
 
 test "a golden nobody has recorded" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "never-recorded", ui.text(.Const("Ada")), .Hover);
@@ -21,7 +21,7 @@ test "a golden nobody has recorded" {
 
 test "a golden that is not a whole picture" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "truncated", ui.text(.Const("Ada")), .Hover);
@@ -29,7 +29,7 @@ test "a golden that is not a whole picture" {
 
 test "one name, and this block painted first" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "shared", ui.text(.Const("first")), .Hover);
@@ -37,7 +37,7 @@ test "one name, and this block painted first" {
 
 test "one name, and this block painted second" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "shared", ui.text(.Const("second")), .Hover);

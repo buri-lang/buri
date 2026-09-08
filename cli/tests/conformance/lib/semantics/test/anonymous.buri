@@ -11,7 +11,7 @@
 // The two strings the grammar keeps for blocks, `{ }` and `{ name }`, are
 // pinned here too: they still mean what they meant.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/semantics" import {
@@ -82,7 +82,7 @@ test "an anonymous literal equals the headed literal it stands for" {
 
 test "derived `Show` cannot tell the two spellings apart" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let anon: World = { hi: "hi" };
     assert.eq(anon.show(ctx), World { hi: "hi" }.show(ctx));

@@ -1,7 +1,7 @@
 error: expected an identifier, found `,` [unexpected-token]
   --> main.buri:29:25
    |
-29 |         Alloc: alloc(), ,
+29 |         Allocator: alloc(), ,
    |                         ^
    |
    = expected: an identifier

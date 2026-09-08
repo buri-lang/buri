@@ -1,7 +1,7 @@
 // The application half: one scope, a long-lived loop and a timer in it, and a
 // handler that spawns after the body has returned.
 
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host/testing" import { alloc, clock, stdout, tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -11,7 +11,7 @@ from "//lib/page" import { open, run, sweep };
 test "a scope waits for the socket loop and the timer it was given" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
         Stdout: out,
         Tasks: tasks(),
@@ -31,7 +31,7 @@ test "a scope waits for the socket loop and the timer it was given" {
 test "a handler spawns into the scope the page handed it" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
         Stdout: out,
         Tasks: tasks(),
@@ -53,7 +53,7 @@ test "a handler spawns into the scope the page handed it" {
 test "the double chooses the order two spawned tasks run in" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
         Stdout: out,
         Tasks: tasks().seed(1),
@@ -71,7 +71,7 @@ test "the double chooses the order two spawned tasks run in" {
 test "a task spawned by a task is inside the same scope" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: clock(),
         Stdout: out,
         Tasks: tasks(),

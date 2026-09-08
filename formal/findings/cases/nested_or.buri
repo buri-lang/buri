@@ -2,7 +2,7 @@
 // column. A nested one survives, is exposed by `specialize`, and is then
 // dropped -- `specializeRow` and `defaultRow` both ignore an or-headed row.
 // Prediction: this exhaustive match is rejected.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -15,7 +15,7 @@ fn describe(x: Option<Bool>): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let n = describe(.Some(true));

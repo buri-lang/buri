@@ -8,11 +8,11 @@
 // What is asserted, beyond the sequence: that a draw is a *function* of the
 // generator it was given, that the bounded draw has no modulo bias, that
 // `split` gives two streams and leaves neither caller holding the other's, and
-// that the seed a `Rand` context supplies is assembled the same way on both
+// that the seed a `Random` context supplies is assembled the same way on both
 // backends.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Rand };
+from "core/effect" import { Allocator, Random };
 from "core/host/testing" import { alloc, rand };
 from "core/random" import * as random;
 from "core/random" import { Gen };
@@ -65,7 +65,7 @@ test "a bool is the top bit of a draw" {
 
 test "bytes are eight to a draw, least significant first" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (b, _) = random.seeded(1).nextBytes(ctx, 16);
     assert.eq(bytes.toHex(ctx, b), "c15c0289ec2d0a9167ec8e65a18debbe");
@@ -73,7 +73,7 @@ test "bytes are eight to a draw, least significant first" {
 
 test "a partial draw takes only the octets that were asked for" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (b, _) = random.seeded(1).nextBytes(ctx, 3);
     // The first three of the sixteen above: a short request is the same draw
@@ -139,9 +139,9 @@ test "a parent's sequence does not depend on how many children it made" {
 
 // --- the seed a context supplies -------------------------------------------------------
 
-test "a generator seeded from Rand is assembled the same way on both backends" {
+test "a generator seeded from Random is assembled the same way on both backends" {
     let ctx = context {
-        Rand: rand(),
+        Random: rand(),
     };
     let g = random.gen(ctx);
     // Four sixteen-bit draws, low half first. The literal is what pins the
@@ -153,10 +153,10 @@ test "a generator seeded from Rand is assembled the same way on both backends" {
 
 // --- the effectful door, which is still the other one ---------------------------------
 
-test "core/random's own bytes are the Rand door, not this one" {
+test "core/random's own bytes are the Random door, not this one" {
     let ctx = context {
-        Alloc: alloc(),
-        Rand: rand(),
+        Allocator: alloc(),
+        Random: rand(),
     };
     // One draw per octet through the effect, which is a different sequence from
     // `Gen.nextBytes`'s eight-to-a-draw and is meant to be: the two doors are

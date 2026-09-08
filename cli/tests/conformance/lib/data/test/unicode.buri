@@ -6,7 +6,7 @@
 // cases below are the two things worth asserting: the rules, named one at a
 // time, and the UCD's own vectors, sliced.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/str" import * as str;
 from "core/str" import { Normalization };
@@ -16,7 +16,7 @@ from "core/testing/assert" import * as assert;
 
 test "graphemes of ASCII is one piece per character" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("abc".graphemes(ctx), ["a", "b", "c"]);
     assert.eq("a b".graphemes(ctx), ["a", " ", "b"]);
@@ -24,7 +24,7 @@ test "graphemes of ASCII is one piece per character" {
 
 test "graphemes of the empty string has no pieces" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty("".graphemes(ctx));
     assert.eq("".graphemeCount(), 0);
@@ -32,7 +32,7 @@ test "graphemes of the empty string has no pieces" {
 
 test "a combining mark stays with the letter it is on" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = "éa";
     assert.eq(text.graphemes(ctx), ["é", "a"]);
@@ -48,7 +48,7 @@ test "a combining mark stays with the letter it is on" {
 // carriage return in a source file is worse than a line of setup.
 test "CR LF is one cluster" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let crlf = str.fromChars(ctx, ['\r', '\n']);
     let lfcr = str.fromChars(ctx, ['\n', '\r']);
@@ -65,7 +65,7 @@ test "CR LF is one cluster" {
 // emoji are one cluster however long the chain.
 test "a zero-width joiner sequence is one cluster" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("👨‍👩‍👦".graphemeCount(), 1);
     assert.eq("👍🏽".graphemeCount(), 1);
@@ -76,7 +76,7 @@ test "a zero-width joiner sequence is one cluster" {
 // odd one left over is its own.
 test "regional indicators pair into flags" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("🇬🇧".graphemeCount(), 1);
     assert.eq("🇬🇧🇫🇷".graphemeCount(), 2);
@@ -88,7 +88,7 @@ test "regional indicators pair into flags" {
 // are one cluster.
 test "an Indic conjunct is one cluster" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("क्षि".graphemeCount(), 1);
     assert.eq("कष".graphemeCount(), 2);
@@ -97,7 +97,7 @@ test "an Indic conjunct is one cluster" {
 // GB6 to GB8: a Hangul syllable written as jamo is one cluster.
 test "Hangul jamo make one syllable" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("한".graphemeCount(), 1);
     assert.eq("한".graphemeCount(), 1);
@@ -106,7 +106,7 @@ test "Hangul jamo make one syllable" {
 
 test "graphemeCount agrees with graphemes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = "á🇬🇧👨‍👩z";
     assert.eq(text.graphemeCount(), text.graphemes(ctx).len());
@@ -117,7 +117,7 @@ test "graphemeCount agrees with graphemes" {
 
 test "Nfc composes and Nfd decomposes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("é".normalize(ctx, .Nfc), "é");
     assert.eq("é".normalize(ctx, .Nfd), "é");
@@ -127,7 +127,7 @@ test "Nfc composes and Nfd decomposes" {
 
 test "text with nothing to normalize comes back as it was" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("abc".normalize(ctx, .Nfc), "abc");
     assert.eq("abc".normalize(ctx, .Nfd), "abc");
@@ -141,7 +141,7 @@ test "text with nothing to normalize comes back as it was" {
 // keep them: that is the whole difference between the two pairs.
 test "the compatibility forms fold a ligature and a superscript" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("ﬁ".normalize(ctx, .Nfkc), "fi");
     assert.eq("ﬁ".normalize(ctx, .Nfkd), "fi");
@@ -154,7 +154,7 @@ test "the compatibility forms fold a ligature and a superscript" {
 // class order whichever way round they were written.
 test "combining marks are reordered by class" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("q̣̇".normalize(ctx, .Nfd), "q̣̇");
     assert.eq("q̣̇".normalize(ctx, .Nfd), "q̣̇");
@@ -163,7 +163,7 @@ test "combining marks are reordered by class" {
 
 test "Hangul composes and decomposes by arithmetic" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("한".normalize(ctx, .Nfd), "한");
     assert.eq("한".normalize(ctx, .Nfc), "한");
@@ -176,7 +176,7 @@ test "Hangul composes and decomposes by arithmetic" {
 // U+0344 is one of the ones a naive implementation gets wrong.
 test "a composition exclusion is not recomposed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("ẛ̣".normalize(ctx, .Nfc), "ẛ̣");
     assert.eq("ẛ̣".normalize(ctx, .Nfd), "ẛ̣");
@@ -194,7 +194,7 @@ test "Normalization is a value that compares and renders" {
 
 test "caseFold lowercases the ASCII letters" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("ABC".caseFold(ctx), "abc");
     assert.eq("abc".caseFold(ctx), "abc");
@@ -206,7 +206,7 @@ test "caseFold lowercases the ASCII letters" {
 // whole difference from `equalsIgnoreCase`.
 test "caseFold expands where the folding is more than one scalar" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("Straße".caseFold(ctx), "strasse");
     assert.eq("STRASSE".caseFold(ctx), "strasse");
@@ -216,7 +216,7 @@ test "caseFold expands where the folding is more than one scalar" {
 
 test "caseFold brings both sigmas together" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("Σ".caseFold(ctx), "σ");
     assert.eq("σ".caseFold(ctx), "σ");
@@ -225,7 +225,7 @@ test "caseFold brings both sigmas together" {
 
 test "caseFold is idempotent" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let once = "Straße ΣΣ ﬁ".caseFold(ctx);
     assert.eq(once.caseFold(ctx), once);
@@ -237,7 +237,7 @@ test "caseFold is idempotent" {
 // other answer.
 test "caseFold has no locale, so the Turkish dotted capital keeps its dot" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("İ".caseFold(ctx), "i̇");
     assert.eq("İ".caseFold(ctx).len(), 2);
@@ -252,7 +252,7 @@ test "caseFold has no locale, so the Turkish dotted capital keeps its dot" {
 // letters onto the capitals rather than the other way round.
 test "caseFold takes Cherokee to its uppercase letters" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("ꭰ".caseFold(ctx), "Ꭰ");
     assert.eq("Ꭰ".caseFold(ctx), "Ꭰ");
@@ -265,7 +265,7 @@ test "caseFold takes Cherokee to its uppercase letters" {
 // altogether, and none of it is a lowercasing.
 test "caseFold is not toLower" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq("ﬄ".caseFold(ctx), "ffl");
     assert.eq("ẛ".caseFold(ctx), "ṡ");
@@ -288,7 +288,7 @@ test "caseFold is not toLower" {
 // `Char` literal below U+0020 keeps its escape.
 
 /// Joined, the clusters have to come back cut in exactly those places.
-fn breaks<C: Alloc>(ctx: C, clusters: [[Char]]): () {
+fn breaks<C: Allocator>(ctx: C, clusters: [[Char]]): () {
     let want = clusters.mapCtx(ctx, fn(c, cs) => str.fromChars(c, cs));
     let text = want.join(ctx, "");
     assert.eq(text.graphemes(ctx), want);
@@ -297,7 +297,7 @@ fn breaks<C: Alloc>(ctx: C, clusters: [[Char]]): () {
 
 test "grapheme break vectors, 0 to 60" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [[' '], [' ']]);
     breaks(ctx, [[' ', '̈'], [' ']]);
@@ -363,7 +363,7 @@ test "grapheme break vectors, 0 to 60" {
 
 test "grapheme break vectors, 60 to 120" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['\r'], ['ਃ']]);
     breaks(ctx, [['\r'], ['̈', 'ਃ']]);
@@ -429,7 +429,7 @@ test "grapheme break vectors, 60 to 120" {
 
 test "grapheme break vectors, 120 to 180" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['\n'], ['ऄ']]);
     breaks(ctx, [['\n'], ['̈'], ['ऄ']]);
@@ -495,7 +495,7 @@ test "grapheme break vectors, 120 to 180" {
 
 test "grapheme break vectors, 180 to 240" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['\u{1}'], ['‍']]);
     breaks(ctx, [['\u{1}'], ['̈', '‍']]);
@@ -561,7 +561,7 @@ test "grapheme break vectors, 180 to 240" {
 
 test "grapheme break vectors, 240 to 300" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['🇦', '🇦']]);
     breaks(ctx, [['🇦', '̈'], ['🇦']]);
@@ -627,7 +627,7 @@ test "grapheme break vectors, 240 to 300" {
 
 test "grapheme break vectors, 300 to 360" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['؀', '각']]);
     breaks(ctx, [['؀', '̈'], ['각']]);
@@ -693,7 +693,7 @@ test "grapheme break vectors, 300 to 360" {
 
 test "grapheme break vectors, 360 to 420" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['ਃ', 'ऀ']]);
     breaks(ctx, [['ਃ', '̈', 'ऀ']]);
@@ -759,7 +759,7 @@ test "grapheme break vectors, 360 to 420" {
 
 test "grapheme break vectors, 420 to 480" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['ᅠ'], ['\u{1}']]);
     breaks(ctx, [['ᅠ', '̈'], ['\u{1}']]);
@@ -825,7 +825,7 @@ test "grapheme break vectors, 420 to 480" {
 
 test "grapheme break vectors, 480 to 540" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['ᆨ', 'ᆨ']]);
     breaks(ctx, [['ᆨ', '̈'], ['ᆨ']]);
@@ -891,7 +891,7 @@ test "grapheme break vectors, 480 to 540" {
 
 test "grapheme break vectors, 540 to 600" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['가'], ['⌚']]);
     breaks(ctx, [['가', '̈'], ['⌚']]);
@@ -957,7 +957,7 @@ test "grapheme break vectors, 540 to 600" {
 
 test "grapheme break vectors, 600 to 660" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['ः'], ['\r']]);
     breaks(ctx, [['ः', '̈'], ['\r']]);
@@ -1023,7 +1023,7 @@ test "grapheme break vectors, 600 to 660" {
 
 test "grapheme break vectors, 660 to 720" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['ऄ'], ['ᄀ']]);
     breaks(ctx, [['ऄ', '̈'], ['ᄀ']]);
@@ -1089,7 +1089,7 @@ test "grapheme break vectors, 660 to 720" {
 
 test "grapheme break vectors, 720 to 780" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['ൎ', 'ൎ']]);
     breaks(ctx, [['ൎ', '̈'], ['ൎ']]);
@@ -1155,7 +1155,7 @@ test "grapheme break vectors, 720 to 780" {
 
 test "grapheme break vectors, 780 to 840" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['क'], ['͸']]);
     breaks(ctx, [['क', '̈'], ['͸']]);
@@ -1221,7 +1221,7 @@ test "grapheme break vectors, 780 to 840" {
 
 test "grapheme break vectors, 840 to 900" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['̀'], ['؀']]);
     breaks(ctx, [['̀', '̈'], ['؀']]);
@@ -1287,7 +1287,7 @@ test "grapheme break vectors, 840 to 900" {
 
 test "grapheme break vectors, 900 to 960" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['ऀ', 'ः']]);
     breaks(ctx, [['ऀ', '̈', 'ः']]);
@@ -1353,7 +1353,7 @@ test "grapheme break vectors, 900 to 960" {
 
 test "grapheme break vectors, 960 to 1020" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['्', '्']]);
     breaks(ctx, [['्', '̈', '्']]);
@@ -1419,7 +1419,7 @@ test "grapheme break vectors, 960 to 1020" {
 
 test "grapheme break vectors, 1020 to 1080" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['͸', '‌']]);
     breaks(ctx, [['͸', '̈', '‌']]);
@@ -1485,7 +1485,7 @@ test "grapheme break vectors, 1020 to 1080" {
 
 test "grapheme break vectors, 1080 to 1093" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     breaks(ctx, [['✁', '‍', '✁']]);
     breaks(ctx, [['a', '‍'], ['✁']]);
@@ -1515,7 +1515,7 @@ test "grapheme break vectors, 1080 to 1093" {
 // are cheaper per case, are complete instead.
 
 /// One row: the source, then the four forms it takes.
-fn forms<C: Alloc>(ctx: C, source: Str, nfc: Str, nfd: Str, nfkc: Str, nfkd: Str): () {
+fn forms<C: Allocator>(ctx: C, source: Str, nfc: Str, nfd: Str, nfkc: Str, nfkd: Str): () {
     assert.eq(source.normalize(ctx, .Nfc), nfc);
     assert.eq(source.normalize(ctx, .Nfd), nfd);
     assert.eq(source.normalize(ctx, .Nfkc), nfkc);
@@ -1524,7 +1524,7 @@ fn forms<C: Alloc>(ctx: C, source: Str, nfc: Str, nfd: Str, nfkc: Str, nfkd: Str
 
 test "normalization vectors, 0 to 60" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "Ḋ", "Ḋ", "Ḋ", "Ḋ", "Ḋ");
     forms(ctx, "È̄", "È̄", "È̄", "È̄", "È̄");
@@ -1590,7 +1590,7 @@ test "normalization vectors, 0 to 60" {
 
 test "normalization vectors, 60 to 120" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "ℐ", "ℐ", "ℐ", "I", "I");
     forms(ctx, "ℭ", "ℭ", "ℭ", "C", "C");
@@ -1656,7 +1656,7 @@ test "normalization vectors, 60 to 120" {
 
 test "normalization vectors, 120 to 180" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "갆", "갆", "갆", "갆", "갆");
     forms(ctx, "갚", "갚", "갚", "갚", "갚");
@@ -1722,7 +1722,7 @@ test "normalization vectors, 120 to 180" {
 
 test "normalization vectors, 180 to 240" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "낶", "낶", "낶", "낶", "낶");
     forms(ctx, "냊", "냊", "냊", "냊", "냊");
@@ -1788,7 +1788,7 @@ test "normalization vectors, 180 to 240" {
 
 test "normalization vectors, 240 to 300" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "땦", "땦", "땦", "땦", "땦");
     forms(ctx, "땺", "땺", "땺", "땺", "땺");
@@ -1854,7 +1854,7 @@ test "normalization vectors, 240 to 300" {
 
 test "normalization vectors, 300 to 360" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "먖", "먖", "먖", "먖", "먖");
     forms(ctx, "먪", "먪", "먪", "먪", "먪");
@@ -1920,7 +1920,7 @@ test "normalization vectors, 300 to 360" {
 
 test "normalization vectors, 360 to 420" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "뻆", "뻆", "뻆", "뻆", "뻆");
     forms(ctx, "뻚", "뻚", "뻚", "뻚", "뻚");
@@ -1986,7 +1986,7 @@ test "normalization vectors, 360 to 420" {
 
 test "normalization vectors, 420 to 480" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "썶", "썶", "썶", "썶", "썶");
     forms(ctx, "쎊", "쎊", "쎊", "쎊", "쎊");
@@ -2052,7 +2052,7 @@ test "normalization vectors, 420 to 480" {
 
 test "normalization vectors, 480 to 540" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "젦", "젦", "젦", "젦", "젦");
     forms(ctx, "젺", "젺", "젺", "젺", "젺");
@@ -2118,7 +2118,7 @@ test "normalization vectors, 480 to 540" {
 
 test "normalization vectors, 540 to 600" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "쳖", "쳖", "쳖", "쳖", "쳖");
     forms(ctx, "쳪", "쳪", "쳪", "쳪", "쳪");
@@ -2184,7 +2184,7 @@ test "normalization vectors, 540 to 600" {
 
 test "normalization vectors, 600 to 660" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "톆", "톆", "톆", "톆", "톆");
     forms(ctx, "톚", "톚", "톚", "톚", "톚");
@@ -2250,7 +2250,7 @@ test "normalization vectors, 600 to 660" {
 
 test "normalization vectors, 660 to 720" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "혶", "혶", "혶", "혶", "혶");
     forms(ctx, "홊", "홊", "홊", "홊", "홊");
@@ -2316,7 +2316,7 @@ test "normalization vectors, 660 to 720" {
 
 test "normalization vectors, 720 to 780" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "ﲮ", "ﲮ", "ﲮ", "سح", "سح");
     forms(ctx, "ﳂ", "ﳂ", "ﳂ", "قح", "قح");
@@ -2382,7 +2382,7 @@ test "normalization vectors, 720 to 780" {
 
 test "normalization vectors, 780 to 840" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "𝕽", "𝕽", "𝕽", "R", "R");
     forms(ctx, "𝖑", "𝖑", "𝖑", "l", "l");
@@ -2448,7 +2448,7 @@ test "normalization vectors, 780 to 840" {
 
 test "normalization vectors, 840 to 900" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "最", "最", "最", "最", "最");
     forms(ctx, "楂", "楂", "楂", "楂", "楂");
@@ -2514,7 +2514,7 @@ test "normalization vectors, 840 to 900" {
 
 test "normalization vectors, 900 to 960" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "a᷺̖᪵֚b", "a᷺̖᪵֚b", "a᷺̖᪵֚b", "a᷺̖᪵֚b", "a᷺̖᪵֚b");
     forms(ctx, "a᷺̖ᫀ֚b", "a᷺̖ᫀ֚b", "a᷺̖ᫀ֚b", "a᷺̖ᫀ֚b", "a᷺̖ᫀ֚b");
@@ -2580,7 +2580,7 @@ test "normalization vectors, 900 to 960" {
 
 test "normalization vectors, 960 to 999" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     forms(ctx, "Ǚ", "Ǚ", "Ǚ", "Ǚ", "Ǚ");
     forms(ctx, "Ȫ", "Ȫ", "Ȫ", "Ȫ", "Ȫ");

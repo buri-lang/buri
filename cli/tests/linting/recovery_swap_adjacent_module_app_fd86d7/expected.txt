@@ -1,7 +1,7 @@
-warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
   --> lib/recovery_swap_adjacent_module_app_fd86d7/main.buri:15:16
    |
-15 | fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
    |                ^^^^^
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
@@ -9,7 +9,7 @@ warning: bound `Alloc` on `C` is not used by this function [unused-context-bound
 error: expected an identifier, found `+` [unexpected-token]
   --> lib/recovery_swap_adjacent_module_app_fd86d7/main.buri:22:21
    |
-22 | fn shout<C: Alloc + + Clock Stdout>(ctx: C, label: Str): Result<(), IoError> {
+22 | fn shout<C: Allocator + + Clock Stdout>(ctx: C, label: Str): Result<(), IoError> {
    |                     ^
    |
    = expected: an identifier

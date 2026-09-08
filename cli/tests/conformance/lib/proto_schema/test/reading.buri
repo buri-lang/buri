@@ -6,7 +6,7 @@
 // alternative is a test per construct, each with its own schema, and then no
 // case says what happens when they sit in one file.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "std/codegen/proto/schema" import * as schema;
@@ -16,7 +16,7 @@ from "std/codegen/proto/schema" import {
 from "//lib/proto_schema" import { at, lines, read, withEdition };
 
 /// The schema every case here reads.
-fn everything<C: Alloc>(ctx: C): Str {
+fn everything<C: Allocator>(ctx: C): Str {
     withEdition(
         ctx,
         lines(ctx, [
@@ -52,7 +52,7 @@ fn everything<C: Alloc>(ctx: C): Str {
 
 test "a schema reads as the declarations it makes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let parsed = read(ctx, everything(ctx));
     assert.isEmpty(parsed.errors);
@@ -67,7 +67,7 @@ test "a schema reads as the declarations it makes" {
 
 test "an enum keeps its values, in order, with their numbers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let colour = assert.some(read(ctx, everything(ctx)).schema.enums.get(0));
     assert.eq(colour.name, "Colour");
@@ -80,7 +80,7 @@ test "an enum keeps its values, in order, with their numbers" {
 
 test "a message keeps the fields that are not in a oneof, in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
     assert.eq(person.name, "Person");
@@ -112,7 +112,7 @@ test "a message keeps the fields that are not in a oneof, in order" {
 
 test "a oneof keeps its cases, and a case carries no label" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
     assert.len(person.oneofs, 1);
@@ -127,7 +127,7 @@ test "a oneof keeps its cases, and a case carries no label" {
 
 test "a nested message and a nested enum sit inside the message that declared them" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
     assert.len(person.messages, 1);
@@ -140,7 +140,7 @@ test "a nested message and a nested enum sit inside the message that declared th
 
 test "a feature resolves from the field outwards, and the edition is the floor" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let s = read(ctx, everything(ctx)).schema;
     assert.eq(assert.some(s.features.fieldPresence), Presence.Implicit);
@@ -175,7 +175,7 @@ test "the edition's own defaults are the ones protobuf resolves" {
 
 test "every declaration carries the span of the text that produced it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = everything(ctx);
     let s = read(ctx, text).schema;
@@ -196,7 +196,7 @@ test "every declaration carries the span of the text that produced it" {
 
 test "comments of both kinds are trivia, wherever they fall" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(
         ctx,
@@ -214,7 +214,7 @@ test "comments of both kinds are trivia, wherever they fall" {
 
 test "option and reserved are skipped rather than refused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(
         ctx,
@@ -237,7 +237,7 @@ test "option and reserved are skipped rather than refused" {
 
 test "reserved is skipped in all three scopes it may be written in" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The file, an enum and a message. Only the middle one is covered above,
     // and each is a branch of its own in the reader — a `reserved` the file
@@ -271,7 +271,7 @@ test "reserved is skipped in all three scopes it may be written in" {
 
 test "a source-only feature is read past, so a schema can opt out of the naming lint" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(
         ctx,
@@ -288,7 +288,7 @@ test "a source-only feature is read past, so a schema can opt out of the naming 
 
 test "a malformed field does not swallow the rest of the file" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(ctx, "message M { int32 = 1; string ok = 2; }\n");
     let parsed = read(ctx, text);
@@ -302,7 +302,7 @@ test "a malformed field does not swallow the rest of the file" {
 /// a corecursive nested message, an enum with a negative value, an enum with an
 /// `option` and aliased values, a field option the reader steps over, the names
 /// the JSON convention is tested with, and a nine-case oneof.
-fn vendored<C: Alloc>(ctx: C): Str {
+fn vendored<C: Allocator>(ctx: C): Str {
     withEdition(
         ctx,
         lines(ctx, [
@@ -352,7 +352,7 @@ fn vendored<C: Alloc>(ctx: C): Str {
 
 test "the shapes the vendored conformance schema is made of read clean" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let parsed = read(ctx, vendored(ctx));
     assert.isEmpty(parsed.errors);

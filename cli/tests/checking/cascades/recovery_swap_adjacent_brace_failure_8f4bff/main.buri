@@ -2,14 +2,14 @@
 
 from "core/codegen" import * as codegen;
 from "core/codegen" import { Response };
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host/testing" import { alloc, stdin, stdout };
 from "core/testing/assert" import * as assert;
 
 test "no input at all is an error, and nothing is written" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin(),
         Stdout: out,
     };
@@ -24,7 +24,7 @@ test "no input at all is an error, and nothing is written" {
 test "a line that is not JSON is an error" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines(["not a document"]),
         Stdout: out,
     };
@@ -39,7 +39,7 @@ test "a line that is not JSON is an error" {
 test "a JSON document that is not an object is an error" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines(["[1,2]"]),
         Stdout: out,
     };
@@ -54,7 +54,7 @@ test "a JSON document that is not an object is an error" {
 test "an inputs that is not a list is an error" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines(["{\"inputs\":\"lib/wire/p.proto\"}"]),
         Stdout: out,
     };
@@ -66,7 +66,7 @@ test "an inputs that is not a list is an error" {
 test "an input that is not a (path, text) pair is an error" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines(["{\"inputs\":[[\"lib/wire/p.proto\"]]}"]),
         Stdoutout :,
     };
@@ -81,7 +81,7 @@ test "an input that is not a (path, text) pair is an error" {
 test "a dependency that is not a pair of strings is an error" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdin: stdin().lines(["{\"inputs\":[],\"dependencies\":[[\"a\",7]]}"]),
         Stdout: out,
     };

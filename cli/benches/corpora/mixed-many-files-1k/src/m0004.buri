@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
@@ -46,13 +46,13 @@ export fn compute4_0(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe4_0<C: Alloc>(ctx: C): Int {
+export fn probe4_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute4_0(7)
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach4<C: Alloc>(ctx: C): Int {
+export fn reach4<C: Allocator>(ctx: C): Int {
     0 + probe4_0(ctx) + reach1(ctx)
 }

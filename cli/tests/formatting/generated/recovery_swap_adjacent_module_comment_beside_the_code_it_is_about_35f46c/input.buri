@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };      // what a page may allocate with
+from "core/effect" import { Allocator };      // what a page may allocate with
 from "core/io" import * as io;
 
 Count type = I64;        // the default integer, named for what it counts

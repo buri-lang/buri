@@ -14,7 +14,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/host/testing" import { alloc, clock, stdout, tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
@@ -30,7 +30,7 @@ fn say<C: Stdout>(ctx: C, what: Str): () {
 
 test "a scope answers what its body answered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: tasks(),
     };
@@ -40,7 +40,7 @@ test "a scope answers what its body answered" {
 test "a scope that spawns nothing runs nothing" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -51,7 +51,7 @@ test "a scope that spawns nothing runs nothing" {
 test "the body finishes before anything spawned in it starts" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -65,7 +65,7 @@ test "the body finishes before anything spawned in it starts" {
 test "a scope returns only once every task spawned in it has finished" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -81,7 +81,7 @@ test "a scope returns only once every task spawned in it has finished" {
 test "a task spawned by a task is waited for too" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -100,7 +100,7 @@ test "a timer is a task that sleeps" {
     let out = stdout();
     let ticking = clock();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Clock: ticking,
         Stdout: out,
         Tasks: tasks(),
@@ -129,7 +129,7 @@ test "a timer is a task that sleeps" {
 test "tasks() spawns in program order" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -140,7 +140,7 @@ test "tasks() spawns in program order" {
 test "a seed is the order the spawned tasks run in" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks().seed(5),
     };
@@ -151,7 +151,7 @@ test "a seed is the order the spawned tasks run in" {
 test "the double records a spawned task the way it records any other" {
     let scheduler = tasks();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: scheduler,
     };
@@ -160,7 +160,7 @@ test "the double records a spawned task the way it records any other" {
 }
 
 /// Three tasks, spawned in a written order, each saying which it is.
-fn spawnThree<C: Alloc + Stdout + Tasks>(ctx: C, here: Scope): () {
+fn spawnThree<C: Allocator + Stdout + Tasks>(ctx: C, here: Scope): () {
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "a"));
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "b"));
     let _ = tasks.spawn(ctx, here, fn(c) => say(c, "c"));
@@ -172,7 +172,7 @@ fn spawnThree<C: Alloc + Stdout + Tasks>(ctx: C, here: Scope): () {
 test "a scope is inert, so a lambda may capture it" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };
@@ -208,7 +208,7 @@ enum Turn {
 ///
 /// A socket would answer this question by being closed. The actor is the same
 /// answer with the network taken out of it, so the file holds both sides.
-fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+fn gate<C: Allocator + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
     Actor {
         state: turns,
         step: fn(c, left, message) => {
@@ -225,7 +225,7 @@ enum Ask {
 }
 
 /// The long-lived loop: one frame per turn, and it ends when it is told to.
-fn frames<C: Alloc + Stdout + Tasks>(
+fn frames<C: Allocator + Stdout + Tasks>(
     ctx: C,
     keeper: Address<C, Int, Ask, Turn>,
     n: Int,
@@ -242,7 +242,7 @@ fn frames<C: Alloc + Stdout + Tasks>(
 test "a spawned loop stops when the actor it asks says to" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: out,
         Tasks: tasks(),
     };

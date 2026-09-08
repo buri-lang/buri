@@ -5,13 +5,13 @@
 // word a person has to change — so a refusal that kept its sentence and lost
 // either of those has stopped working.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/proto_schema" import { FILE, lines, pointsAt, read, under, withEdition };
 
 /// `text` is refused under `code`, with the span over `token`.
-fn refuses<C: Alloc>(ctx: C, text: Str, code: Str, token: Str): () {
+fn refuses<C: Allocator>(ctx: C, text: Str, code: Str, token: Str): () {
     let parsed = read(ctx, text);
     let d = assert.some(under(parsed, code));
     assert.eq(pointsAt(ctx, text, d), token);
@@ -23,7 +23,7 @@ fn refuses<C: Alloc>(ctx: C, text: Str, code: Str, token: Str): () {
 
 test "a syntax declaration asks for the migration, not for a different word" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(
         ctx,
@@ -44,7 +44,7 @@ test "a syntax declaration asks for the migration, not for a different word" {
 
 test "an edition before 2026 is refused at the edition it names" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(ctx, "edition = \"2023\";\n", "proto-edition", "\"2023\"");
     refuses(ctx, "edition = \"2024\";\n", "proto-edition", "\"2024\"");
@@ -57,7 +57,7 @@ test "an edition before 2026 is refused at the edition it names" {
 
 test "a file that declares no edition is refused at the file" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The span is the start of the file, because there is no token to point at
     // — the problem is the line that is not there.
@@ -76,7 +76,7 @@ test "a file that declares no edition is refused at the file" {
 
 test "service and rpc are refused, because there is no transport to generate against" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(ctx, "service S { rpc Go (A) returns (B); }\n");
     refuses(ctx, text, "proto-unsupported", "service");
@@ -88,7 +88,7 @@ test "service and rpc are refused, because there is no transport to generate aga
 
 test "extend and extensions are refused wherever they are written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(
         ctx,
@@ -106,7 +106,7 @@ test "extend and extensions are refused wherever they are written" {
 
 test "a group is refused at the word" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(
         ctx,
@@ -118,7 +118,7 @@ test "a group is refused at the word" {
 
 test "a map field is refused at its type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(
         ctx,
@@ -130,7 +130,7 @@ test "a map field is refused at its type" {
 
 test "the labels editions removed are refused at the label" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(
         ctx,
@@ -153,7 +153,7 @@ test "the labels editions removed are refused at the label" {
 
 test "a public import is refused at the word public" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(
         ctx,
@@ -167,7 +167,7 @@ test "a public import is refused at the word public" {
 
 test "a feature value this mapping cannot express is refused by name" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refusedFeature(ctx, "features.field_presence = LEGACY_REQUIRED");
     refusedFeature(ctx, "features.enum_type = CLOSED");
@@ -177,7 +177,7 @@ test "a feature value this mapping cannot express is refused by name" {
 }
 
 /// `option <setting>;` is refused, with the span over the setting itself.
-fn refusedFeature<C: Alloc>(ctx: C, setting: Str): () {
+fn refusedFeature<C: Allocator>(ctx: C, setting: Str): () {
     let text = withEdition(
         ctx,
         lines(ctx, ["option ".concat(ctx, setting).concat(ctx, ";")]),
@@ -187,7 +187,7 @@ fn refusedFeature<C: Alloc>(ctx: C, setting: Str): () {
 
 test "a refused feature is refused on a field too, where it is written" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(
         ctx,
@@ -199,7 +199,7 @@ test "a refused feature is refused on a field too, where it is written" {
 
 test "the block form of a feature is one spelling too many" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(ctx, "option features = { field_presence: IMPLICIT };\n");
     refuses(ctx, text, "proto-unsupported", "features =");
@@ -211,7 +211,7 @@ test "the block form of a feature is one spelling too many" {
 
 test "a feature nobody has heard of is named, with a near miss offered" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(ctx, "option features.field_presense = EXPLICIT;\n");
     refuses(ctx, text, "proto-unknown-feature", "features.field_presense = EXPLICIT");
@@ -225,7 +225,7 @@ test "a feature nobody has heard of is named, with a near miss offered" {
 
 test "a feature with no near miss gets the list instead" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(ctx, "option features.wobbling = YES;\n");
     let d = assert.some(under(read(ctx, text), "proto-unknown-feature"));
@@ -236,7 +236,7 @@ test "a feature with no near miss gets the list instead" {
 
 test "a oneof case takes no label, and the case is kept so the rest is still read" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(
         ctx,
@@ -253,7 +253,7 @@ test "a oneof case takes no label, and the case is kept so the rest is still rea
 
 test "a field number outside the range, and one protobuf reserves, are refused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(ctx, withEdition(ctx, "message M { int32 x = 0; }\n"), "proto-schema", "0");
     refuses(
@@ -273,7 +273,7 @@ test "a field number outside the range, and one protobuf reserves, are refused" 
 
 test "an enum starts at zero, and an empty one is refused at its name" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     refuses(ctx, withEdition(ctx, "enum E { E_ONE = 1; }\n"), "proto-schema", "E_ONE");
     refuses(ctx, withEdition(ctx, "enum E { }\n"), "proto-schema", "E");
@@ -281,7 +281,7 @@ test "an enum starts at zero, and an empty one is refused at its name" {
 
 test "nesting is bounded, so a file of nothing but message M { is a diagnostic" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let text = withEdition(ctx, "message M {".repeat(ctx, 40));
     let parsed = read(ctx, text);
@@ -290,7 +290,7 @@ test "nesting is bounded, so a file of nothing but message M { is a diagnostic" 
 
 test "no schema can crash the reader, and every diagnostic says what to do" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let cases = [
         "edition = \"\\é\";",

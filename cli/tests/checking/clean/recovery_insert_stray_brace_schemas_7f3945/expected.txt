@@ -6,7 +6,7 @@ error: this function body is missing its closing `}` [unclosed-delimiter]
    |
   --> main.buri:21:67
    |
-21 | export fn generated<C: Alloc>(ctx: C, text: Str): proto.Generated {
+21 | export fn generated<C: Allocator>(ctx: C, text: Str): proto.Generated {
    |                                                                   ^ opened here
    |
    = fix: write `}` here

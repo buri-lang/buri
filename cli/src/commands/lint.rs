@@ -2809,7 +2809,7 @@ fn mentions_param(t: &crate::compiler::semantics::types::Ty, gi: u32) -> bool {
 ///
 /// Read from the declaring module's syntax tree, because `GenericInfo` keeps
 /// the resolved [`TraitId`]s and the span of the parameter as a whole — the
-/// text `Fs` sits at is only in the tree the parser built.
+/// text `FileSystem` sits at is only in the tree the parser built.
 ///
 /// [`TraitId`]: crate::compiler::semantics::types::TraitId
 fn bound_spans(
@@ -2830,7 +2830,7 @@ fn bound_spans(
 /// The bytes that take a set of bounds out of one type parameter's list.
 ///
 /// **One rewrite, not one per bound**, and the separators are why: deleting
-/// `Fs` from `<C: Alloc + Fs + Io>` has to take a `+` with it, and so does
+/// `FileSystem` from `<C: Allocator + Fs + Io>` has to take a `+` with it, and so does
 /// deleting `Io` — the same `+`. Two findings whose edits both claim it are
 /// refused as overlapping and neither is applied, so the whole removal is
 /// computed once here and every finding about the parameter carries it.

@@ -18,7 +18,7 @@ error: `T` cannot be interpolated [not-interpolatable]
      compiles, printing what p.show(ctx) produces.
 
      A hand-written impl Show is the other case, and it stays your call. show<C:
-     Alloc>(self, ctx: C) names a context the interpolation cannot reach, so
+     Allocator>(self, ctx: C) names a context the interpolation cannot reach, so
      write the conversion out.
 
        str.format(ctx, "the suit is ${suit.show(ctx)}")

@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -63,13 +63,13 @@ export fn start0_0(ticks: Int): State0_0 {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe0_0<C: Alloc>(ctx: C): Int {
+export fn probe0_0<C: Allocator>(ctx: C): Int {
     let s = start0_0(5);
     rank0_0(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach0<C: Alloc>(ctx: C): Int {
+export fn reach0<C: Allocator>(ctx: C): Int {
     0 + probe0_0(ctx)
 }

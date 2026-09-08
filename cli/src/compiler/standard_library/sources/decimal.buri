@@ -8,13 +8,13 @@
 //!
 //! ```buri run
 //! from "core/decimal" import * as decimal;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let a = decimal.of(10, 1);
@@ -52,7 +52,7 @@
 //! one of them rather than writing the literal out.
 
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/order" import { Eq, Hash, Ord, Order, Show };
@@ -94,7 +94,7 @@ impl Ord for Decimal {
 }
 
 impl Show for Decimal {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         self.text(ctx)
     }
 }
@@ -260,9 +260,9 @@ impl Decimal {
     ///
     /// ```buri
     /// from "core/decimal" import * as decimal;
-    /// from "core/effect" import { Alloc };
+    /// from "core/effect" import { Allocator };
     ///
-    /// export fn written<C: Alloc>(ctx: C, a: decimal.Decimal): Str {
+    /// export fn written<C: Allocator>(ctx: C, a: decimal.Decimal): Str {
     ///     a.text(ctx)
     /// }
     /// ```
@@ -270,7 +270,7 @@ impl Decimal {
     /// Exactly `scale` digits after the point, and at least one before it, so
     /// `of(5, 2)` prints `0.05`. `parse` reads back what this writes, and the
     /// two round-trip: the canonical form has no trailing zero to lose.
-    export fn text<C: Alloc>(self, ctx: C): Str {
+    export fn text<C: Allocator>(self, ctx: C): Str {
         if (self.scale <= 0) {
             str.fromInt(ctx, self.units)
         } else {
@@ -465,7 +465,7 @@ fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, In
 }
 
 /// The digits of a number at or below zero, most significant first.
-fn countDown<C: Alloc>(ctx: C, n: Int, acc: [Char]): [Char] {
+fn countDown<C: Allocator>(ctx: C, n: Int, acc: [Char]): [Char] {
     let digit = character.fromDigit(0 - n % 10, 10).withDefault('0');
     let rest = n / 10;
     let next = [digit].concat(ctx, acc);

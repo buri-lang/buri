@@ -4,7 +4,7 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
@@ -58,7 +58,7 @@ export fn parseBoth20_0(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_0<C: Alloc>(ctx: C): Int {
+export fn probe20_0<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth20_0("1", "2")) {
         .Some(v) => v,
@@ -77,7 +77,7 @@ export fn firstOr20_1<T>(xs: [T], fallback: T): T {
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
-export fn describeAll20_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
+export fn describeAll20_1<T: Show, C: Allocator>(ctx: C, xs: [T]): [Str] {
     xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
@@ -87,13 +87,13 @@ export fn useGeneric20_1(ns: [Int], ss: [Str]): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_1<C: Alloc>(ctx: C): Int {
+export fn probe20_1<C: Allocator>(ctx: C): Int {
     useGeneric20_1([1, 2], ["a"]) + describeAll20_1(ctx, [1, 2]).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
-export fn digest20_2<C: Alloc>(ctx: C): Int {
+export fn digest20_2<C: Allocator>(ctx: C): Int {
     let xs: [Int] = [5054, 8466, 7841, 3327, 2305, 8670, 5002, 4907, 6513, 43, 679];
     let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
     let total = kept.fold(fn(acc, x) => acc + x, 0);
@@ -108,7 +108,7 @@ export fn drain20_2(): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_2<C: Alloc>(ctx: C): Int {
+export fn probe20_2<C: Allocator>(ctx: C): Int {
     digest20_2(ctx) + drain20_2()
 }
 
@@ -123,14 +123,14 @@ export fn compute20_3(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_3<C: Alloc>(ctx: C): Int {
+export fn probe20_3<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute20_3(7)
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label20_4<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label20_4<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "delta" } else { "golf" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -143,14 +143,14 @@ export fn constants20_4(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_4<C: Alloc>(ctx: C): Int {
+export fn probe20_4<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants20_4();
     label20_4(ctx, a, e).len() + b
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
-export fn label20_5<C: Alloc>(ctx: C, id: Int, name: Str): Str {
+export fn label20_5<C: Allocator>(ctx: C, id: Int, name: Str): Str {
     let prefix = if (id < 0) { "alpha" } else { "delta" };
     let body = str.format(ctx, "${prefix}-${name}-${id}");
     body.toUpper(ctx)
@@ -163,7 +163,7 @@ export fn constants20_5(): (Int, Int, Float, Char, Str) {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_5<C: Alloc>(ctx: C): Int {
+export fn probe20_5<C: Allocator>(ctx: C): Int {
     let (a, b, _, _, e) = constants20_5();
     label20_5(ctx, a, e).len() + b
 }
@@ -184,14 +184,14 @@ impl Rec20_6 {
         self.f0 * factor + 49
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec20_6: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_6<C: Alloc>(ctx: C): Int {
+export fn probe20_6<C: Allocator>(ctx: C): Int {
     let r = Rec20_6 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
     r.scaled(3) + r.render(ctx).len()
 }
@@ -216,7 +216,7 @@ export fn parseBoth20_7(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_7<C: Alloc>(ctx: C): Int {
+export fn probe20_7<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth20_7("1", "2")) {
         .Some(v) => v,
@@ -245,7 +245,7 @@ export fn parseBoth20_8(left: Str, right: Str): Option<Int> {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_8<C: Alloc>(ctx: C): Int {
+export fn probe20_8<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     let extra = match (parseBoth20_8("1", "2")) {
         .Some(v) => v,
@@ -266,7 +266,7 @@ export fn compute20_9(input: Int): Int {
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_9<C: Alloc>(ctx: C): Int {
+export fn probe20_9<C: Allocator>(ctx: C): Int {
     let _ = ctx;
     compute20_9(7)
 }
@@ -286,21 +286,21 @@ impl Rec20_10 {
         self.f0 * factor + 942
     }
 
-    /// Allocates, and says so with `C: Alloc`.
-    export fn render<C: Alloc>(self, ctx: C): Str {
+    /// Allocates, and says so with `C: Allocator`.
+    export fn render<C: Allocator>(self, ctx: C): Str {
         str.format(ctx, "rec20_10: ${self.f0}/${self.f1}")
     }
 }
 
 /// Reaches everything above from one call. See `reach` below.
-export fn probe20_10<C: Alloc>(ctx: C): Int {
+export fn probe20_10<C: Allocator>(ctx: C): Int {
     let r = Rec20_10 { f0: 7, f1: "probe", f2: 1.5, f3: true };
     r.scaled(3) + r.render(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
-export fn reach20<C: Alloc>(ctx: C): Int {
+export fn reach20<C: Allocator>(ctx: C): Int {
     0
         + probe20_0(ctx)
         + probe20_1(ctx)

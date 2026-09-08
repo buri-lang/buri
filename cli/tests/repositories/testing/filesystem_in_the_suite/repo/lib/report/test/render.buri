@@ -6,9 +6,9 @@
 // same in-memory filesystem with its contents written here instead, so both
 // backends read the same bytes and neither needs a runner to be handed them.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead };
+from "core/fs" import { FileSystemRead };
 from "core/host/testing" import { alloc, fs as memory };
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
@@ -16,8 +16,8 @@ from "//lib/report" import { footer, render, trailer };
 
 test "renders the statement" {
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: memory().files([
+        Allocator: alloc(),
+        FileSystemRead: memory().files([
             ("test/golden/statement.txt", "coffee 4.50\nbooks 32.00\nrefund 1.00\n"),
         ]),
     };
@@ -29,8 +29,8 @@ test "renders the statement" {
 // it in the source tree, and not the one this test asks for.
 test "a file the suite did not name is not there" {
     let ctx = context {
-        Alloc: alloc(),
-        FsRead: memory().files([("test/golden/statement.txt", "")]),
+        Allocator: alloc(),
+        FileSystemRead: memory().files([("test/golden/statement.txt", "")]),
     };
     let _ = assert.err(fs.readText(ctx, path.of(ctx, "test/golden/absent.txt")));
 }

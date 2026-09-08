@@ -32,7 +32,7 @@ error: `Outer` does not implement `Eq` [missing-conformance]
      What to do
      ──────────
 
-     Bind a value whose type has impl Alloc for ....
+     Bind a value whose type has impl Allocator for ....
 
      Why
      ───

@@ -32,7 +32,7 @@
 
 from "core/bits" import * as bits;
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/order" import { Eq, Ord, Order, Show };
 from "core/str" import * as str;
@@ -210,7 +210,7 @@ export fn maxValue<T: Bounded>(): T;
 /// `width` is a floor and never truncates: a value needing more digits than
 /// asked for gets them. `width` at or below zero asks for the shortest form,
 /// which is one digit for zero.
-export fn toHex<C: Alloc>(ctx: C, x: Int, width: Int): Str {
+export fn toHex<C: Allocator>(ctx: C, x: Int, width: Int): Str {
     let digits = max(width, significantNibbles(x, 16));
     str.fromChars(
         ctx,
@@ -466,10 +466,10 @@ export fn absoluteDifference(a: Int, b: Int): Int {
 /// nine.
 ///
 /// ```buri
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/number" import * as number;
 ///
-/// export fn binary<C: Alloc>(ctx: C, n: Int): Str {
+/// export fn binary<C: Allocator>(ctx: C, n: Int): Str {
 ///     number.toRadix(ctx, n, 2)
 /// }
 /// ```
@@ -480,7 +480,7 @@ export fn absoluteDifference(a: Int, b: Int): Int {
 ///
 /// A radix outside 2 to 36 is clamped into it: there is no digit alphabet past
 /// either end, and the signature has no room to say so.
-export fn toRadix<C: Alloc>(ctx: C, value: Int, radix: Int): Str {
+export fn toRadix<C: Allocator>(ctx: C, value: Int, radix: Int): Str {
     let base = clamp(2, 36, radix);
     if (value == 0) {
         "0"
@@ -494,7 +494,7 @@ export fn toRadix<C: Alloc>(ctx: C, value: Int, radix: Int): Str {
 }
 
 /// The digits of a number at or below zero, most significant first.
-fn countDown<C: Alloc>(ctx: C, n: Int, base: Int, acc: [Char]): [Char] {
+fn countDown<C: Allocator>(ctx: C, n: Int, base: Int, acc: [Char]): [Char] {
     let digit = character.fromDigit(0 - n % base, base).withDefault('0');
     let rest = n / base;
     let next = [digit].concat(ctx, acc);

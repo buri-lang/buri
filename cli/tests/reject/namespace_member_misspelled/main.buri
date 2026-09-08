@@ -1,12 +1,12 @@
 // EXPECT: did you mean `readText`?
-from "core/effect" import { Alloc, Stdout };
-from "core/fs" import { FsRead };
+from "core/effect" import { Allocator, Stdout };
+from "core/fs" import { FileSystemRead };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
 from "core/path" import * as filepath;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
   let _ = fs.readTxt(ctx, filepath.of(ctx, "wal"));
   .Ok(())
 }

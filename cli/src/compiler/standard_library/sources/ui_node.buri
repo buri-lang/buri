@@ -17,7 +17,7 @@
 //! Building a tree needs no context, no allocator and no authority. Every
 //! constructor below is pure, and `C` is unbounded in all of them. A `Node<C>`
 //! keeps its one type parameter because handlers are open-ended: a press may
-//! legitimately need `Net`, and `main` picks the budget of effects a program
+//! legitimately need `Network`, and `main` picks the budget of effects a program
 //! permits. `C` occurs only in argument position, so holding a `Node<C>` is not
 //! holding a `C`, which is what lets `mount` take one as ordinary data
 //! (SPEC 10.2).
@@ -29,7 +29,7 @@
 //! there rather than rebuilding it. Everything else runs once — a component is
 //! an ordinary function, and it is called once.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "ui/effect" import { Event, Scope, Ui };
 from "ui/prop" import { Prop };
@@ -373,7 +373,7 @@ fn rootScope(): Scope;
 /// A heading's level fixes its size and its weight: 1 is 32px and 700, 2 is
 /// 24px and 700, 3 is 20px and 600, 4 is 18px and 600, 5 is 16px and 600, and
 /// 6 is 14px and 600. Levels outside one to six clamp, as `heading` says.
-export fn describe<C: Alloc>(ctx: C, root: Node<C>, state: State): Str {
+export fn describe<C: Allocator>(ctx: C, root: Node<C>, state: State): Str {
     let head = ["buri-scene 1", "viewport 800 600"];
     head.concat(ctx, nodeLines(ctx, state, root, 0)).join(ctx, "\n")
 }
@@ -383,7 +383,7 @@ export fn describe<C: Alloc>(ctx: C, root: Node<C>, state: State): Str {
 /// Mirrors the runtime's own render, minus the document: a box is an `e` line
 /// and its children are one level deeper, text is a `t` line, and the three
 /// reactive constructors are read once and expanded.
-fn nodeLines<C: Alloc>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
+fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
     let scope = rootScope();
     match (node.0) {
         .Nothing => [],
@@ -442,7 +442,7 @@ fn nodeLines<C: Alloc>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
 }
 
 /// An `e` line for a box, then everything inside it one level deeper.
-fn container<C: Alloc>(
+fn container<C: Allocator>(
     ctx: C,
     state: State,
     styles: [Style],
@@ -459,7 +459,7 @@ fn container<C: Alloc>(
 }
 
 /// Every child's lines, in order.
-fn childLines<C: Alloc>(
+fn childLines<C: Allocator>(
     ctx: C,
     state: State,
     children: [Node<C>],
@@ -480,7 +480,7 @@ fn childLines<C: Alloc>(
 ///
 /// The row closure is called directly. It takes its context as a parameter, so
 /// there is nothing to capture and no computation to run it under.
-fn rowLines<C: Alloc>(
+fn rowLines<C: Allocator>(
     ctx: C,
     state: State,
     rowAt: fn(C, Scope, Int) => Node<C>,
@@ -500,7 +500,7 @@ fn rowLines<C: Alloc>(
 
 /// One `e` line: the depth, the classes the styles chose, and the declarations
 /// they wrote out. The classes come first, as the pseudo-property `class`.
-fn elementLine<C: Alloc>(ctx: C, depth: Int, classes: [Str], declarations: [Str]): Str {
+fn elementLine<C: Allocator>(ctx: C, depth: Int, classes: [Str], declarations: [Str]): Str {
     let all = if (classes.isEmpty()) {
         declarations
     } else {
@@ -513,7 +513,7 @@ fn elementLine<C: Alloc>(ctx: C, depth: Int, classes: [Str], declarations: [Str]
 
 /// One `t` line. A backslash, a newline and a carriage return are the three
 /// characters the format escapes, and there is no fourth.
-fn textLine<C: Alloc>(ctx: C, depth: Int, content: Str): Str {
+fn textLine<C: Allocator>(ctx: C, depth: Int, content: Str): Str {
     let body = content
         .replace(ctx, "\\", "\\\\")
         .replace(ctx, "\n", "\\n")
@@ -522,7 +522,7 @@ fn textLine<C: Alloc>(ctx: C, depth: Int, content: Str): Str {
 }
 
 /// A heading's own size and weight.
-fn headingCss<C: Alloc>(ctx: C, level: Int): [Str] {
+fn headingCss<C: Allocator>(ctx: C, level: Int): [Str] {
     let size = if (level == 1) {
         32
     } else if (level == 2) {
@@ -552,12 +552,12 @@ fn headingCss<C: Alloc>(ctx: C, level: Int): [Str] {
 
 /// The class each conflict slot ended up with. Last slot wins, which is the
 /// scan the runtime makes over the same pairs.
-fn classNames<C: Alloc>(ctx: C, state: State, styles: [Style]): [Str] {
+fn classNames<C: Allocator>(ctx: C, state: State, styles: [Style]): [Str] {
     lastPerSlot(ctx, slotsIn(ctx, state, styles, 0, []), 0, [])
 }
 
 /// Every `(slot, class)` pair the list contributes, in order.
-fn slotsIn<C: Alloc>(
+fn slotsIn<C: Allocator>(
     ctx: C,
     state: State,
     styles: [Style],
@@ -594,7 +594,7 @@ fn slotsIn<C: Alloc>(
 }
 
 /// The class of each slot's last pair.
-fn lastPerSlot<C: Alloc>(ctx: C, pairs: [(Int, Str)], at: Int, acc: [Str]): [Str] {
+fn lastPerSlot<C: Allocator>(ctx: C, pairs: [(Int, Str)], at: Int, acc: [Str]): [Str] {
     match (pairs.get(at)) {
         .None => acc,
         .Some(pair) => {
@@ -622,7 +622,7 @@ fn slotAgain(pairs: [(Int, Str)], at: Int, slot: Int): Bool {
 
 /// Every inline declaration the list writes out, in order. A later declaration
 /// of the same property wins, which is what the painter does with them.
-fn inlineIn<C: Alloc>(
+fn inlineIn<C: Allocator>(
     ctx: C,
     state: State,
     styles: [Style],
@@ -663,7 +663,7 @@ fn inlineIn<C: Alloc>(
 ///
 /// The same CSS `semantics::styles` writes into the stylesheet, so a style that
 /// folded and one that did not paint the same.
-fn declare<C: Alloc>(ctx: C, style: Style): [Str] {
+fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
     match (style) {
         .Layout(layout) => layoutCss(ctx, layout),
         .AlignMain(align) => [decl(ctx, "justify-content", alignCss(align))],
@@ -749,11 +749,11 @@ fn declare<C: Alloc>(ctx: C, style: Style): [Str] {
 }
 
 /// One `name:value` pair.
-fn decl<C: Alloc>(ctx: C, name: Str, value: Str): Str {
+fn decl<C: Allocator>(ctx: C, name: Str, value: Str): Str {
     str.format(ctx, "${name}:${value}")
 }
 
-fn layoutCss<C: Alloc>(ctx: C, layout: Layout): [Str] {
+fn layoutCss<C: Allocator>(ctx: C, layout: Layout): [Str] {
     match (layout) {
         .Column => ["display:flex", "flex-direction:column"],
         .Row => ["display:flex", "flex-direction:row"],
@@ -767,7 +767,7 @@ fn layoutCss<C: Alloc>(ctx: C, layout: Layout): [Str] {
     }
 }
 
-fn trackList<C: Alloc>(ctx: C, tracks: [Track], at: Int, acc: [Str]): [Str] {
+fn trackList<C: Allocator>(ctx: C, tracks: [Track], at: Int, acc: [Str]): [Str] {
     match (tracks.get(at)) {
         .None => acc,
         .Some(track) => {
@@ -776,7 +776,7 @@ fn trackList<C: Alloc>(ctx: C, tracks: [Track], at: Int, acc: [Str]): [Str] {
     }
 }
 
-fn trackCss<C: Alloc>(ctx: C, track: Track): Str {
+fn trackCss<C: Allocator>(ctx: C, track: Track): Str {
     match (track) {
         .Fraction(n) => str.format(ctx, "${n}fr"),
         .Fixed(length) => lengthCss(ctx, length),
@@ -784,7 +784,7 @@ fn trackCss<C: Alloc>(ctx: C, track: Track): Str {
     }
 }
 
-fn lengthCss<C: Alloc>(ctx: C, length: Length): Str {
+fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
     match (length) {
         .Px(n) => str.format(ctx, "${n}px"),
         .Rem(n) => str.format(ctx, "${n}rem"),
@@ -798,7 +798,7 @@ fn lengthCss<C: Alloc>(ctx: C, length: Length): Str {
 ///
 /// A token stays a `var()`, exactly as the stylesheet writes it: a theme says
 /// what it is worth, and a theme is installed at mount.
-fn colorCss<C: Alloc>(ctx: C, color: Color): Str {
+fn colorCss<C: Allocator>(ctx: C, color: Color): Str {
     match (color) {
         .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
         .Rgba(r, g, b, a) => str.format(ctx, "rgba(${r},${g},${b},${a})"),
@@ -812,7 +812,7 @@ fn colorCss<C: Alloc>(ctx: C, color: Color): Str {
     }
 }
 
-fn shadowCss<C: Alloc>(ctx: C, shadow: Shadow): Str {
+fn shadowCss<C: Allocator>(ctx: C, shadow: Shadow): Str {
     let x = lengthCss(ctx, shadow.x);
     let y = lengthCss(ctx, shadow.y);
     let blur = lengthCss(ctx, shadow.blur);
@@ -821,7 +821,7 @@ fn shadowCss<C: Alloc>(ctx: C, shadow: Shadow): Str {
     str.format(ctx, "${x} ${y} ${blur} ${spread} ${color}")
 }
 
-fn fontStack<C: Alloc>(ctx: C, family: FontFamily): Str {
+fn fontStack<C: Allocator>(ctx: C, family: FontFamily): Str {
     match (family) {
         .Sans => "ui-sans-serif,system-ui,sans-serif",
         .Serif => "ui-serif,Georgia,serif",
@@ -830,7 +830,7 @@ fn fontStack<C: Alloc>(ctx: C, family: FontFamily): Str {
     }
 }
 
-fn truncateCss<C: Alloc>(ctx: C, lines: Int): [Str] {
+fn truncateCss<C: Allocator>(ctx: C, lines: Int): [Str] {
     if (lines > 0) {
         [
             "display:-webkit-box",

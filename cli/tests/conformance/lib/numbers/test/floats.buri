@@ -7,7 +7,7 @@
 // wherever the point is to test arithmetic rather than to test rounding; the
 // tests that do exercise rounding say so.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/math" import * as math;
 from "core/number" import * as number;
@@ -306,7 +306,7 @@ test "F32 rounds a decimal literal to binary32" {
 
 test "a whole-number float renders with a point" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(str.fromFloat(ctx, 1.0), "1.0");
     assert.eq(str.fromFloat(ctx, 0.0), "0.0");
@@ -316,7 +316,7 @@ test "a whole-number float renders with a point" {
 
 test "a fractional float renders its digits" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(str.fromFloat(ctx, 0.5), "0.5");
     assert.eq(str.fromFloat(ctx, -0.25), "-0.25");
@@ -325,7 +325,7 @@ test "a fractional float renders its digits" {
 
 test "the special values render as names rather than numbers" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(str.fromFloat(ctx, inf()), "inf");
     assert.eq(str.fromFloat(ctx, negInf()), "-inf");
@@ -335,7 +335,7 @@ test "the special values render as names rather than numbers" {
 
 test "show on a float agrees with str.fromFloat" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a: F64 = 1.5;
     assert.eq(a.show(ctx), str.fromFloat(ctx, 1.5));
@@ -345,7 +345,7 @@ test "show on a float agrees with str.fromFloat" {
 
 test "str.toFloat parses what str.fromFloat wrote" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.some(str.fromFloat(ctx, 1.5).toFloat()), 1.5);
     assert.eq(assert.some(str.fromFloat(ctx, -0.25).toFloat()), -0.25);
@@ -599,7 +599,7 @@ fn smallest(): Float {
 
 test "the odd functions keep the sign of a negative zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // `sinh`, `tanh`, `asinh` and `atanh` are odd, so each answers `-0.0` at
     // `-0.0` — and `-0.0` is the value a sign that was thrown away shows up at.

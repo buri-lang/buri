@@ -80,12 +80,12 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `fn toJson<C: Alloc>(self, ctx: C): Json` — `Show.show`'s shape,
+    /// `fn toJson<C: Allocator>(self, ctx: C): Json` — `Show.show`'s shape,
     /// because encoding allocates for the same reason rendering does.
     fn declare_to_json(&mut self, p: Prim, json_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
-        let alloc = self.known_traits.get("Alloc").copied();
+        let alloc = self.known_traits.get("Allocator").copied();
         let generics = vec![GenericInfo {
             name: "C".into(),
             bounds: alloc.into_iter().collect(),
@@ -289,7 +289,7 @@ impl<'a> Checker<'a> {
         let eq = self.method(p, "eq", vec![self_ty.clone()], bool_ty);
         let compare =
             order.as_ref().map(|o| self.method(p, "compare", vec![self_ty.clone()], o.clone()));
-        // Rendering allocates, so `show` names `Alloc`.
+        // Rendering allocates, so `show` names `Allocator`.
         let show = self.show_method(p, str_ty);
         let hash = self.method(p, "hash", Vec::new(), u64_ty);
 
@@ -357,11 +357,11 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `fn show<C: Alloc>(self, ctx: C): Str`
+    /// `fn show<C: Allocator>(self, ctx: C): Str`
     fn show_method(&mut self, p: Prim, str_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
-        let alloc = self.known_traits.get("Alloc").copied();
+        let alloc = self.known_traits.get("Allocator").copied();
         let generics = vec![GenericInfo {
             name: "C".into(),
             bounds: alloc.into_iter().collect(),

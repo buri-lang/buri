@@ -1715,7 +1715,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// and the header is at `ptr - 16` — so a slice that pointed into the
     /// middle of the source's block would have no header at all, and the first
     /// `decref` of it would read sixteen bytes of somebody's elements as a
-    /// reference count. The `Alloc` bound on every list producer in `list.buri`
+    /// reference count. The `Allocator` bound on every list producer in `list.buri`
     /// is the language saying the same thing.
     ///
     /// The elements are **retained**, because the copy is a second owner of
@@ -2324,8 +2324,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one, allocating through `buri_rt_alloc` and reading no
                 // capability. Every context built from `core/host` happens to be
                 // empty structs, so the two readings agree until a program
-                // builds one from `core/host/testing`, whose `TestAlloc` is
-                // `struct TestAlloc(I64)` and carries a handle. Then a check on
+                // builds one from `core/host/testing`, whose `TestAllocator` is
+                // `struct TestAllocator(I64)` and carries a handle. Then a check on
                 // the leaf count refuses a valid program, and a *spread* on the
                 // leaf count would put one extra word into a C signature that
                 // has no parameter for it and shift every argument after it into
@@ -3552,7 +3552,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The **contexts** come out of the record rather than out of `arg`: they
     /// are the same value at every element, and a C signature has no parameter
-    /// for one. A zero-sized context is no leaves at all; `TestAlloc`'s handle
+    /// for one. A zero-sized context is no leaves at all; `TestAllocator`'s handle
     /// is one, and [`STEP_CTX`] is where it was put.
     ///
     /// The **index** comes out of neither. It is the runtime's loop counter,
@@ -4871,10 +4871,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `lower::template`'s `str.concat(a, b)` is two and never had one.
     ///
     /// By position rather than by type. This asked `Ty::Ctx` once, which is the
-    /// same question only while every `C: Alloc` is instantiated at a `context
+    /// same question only while every `C: Allocator` is instantiated at a `context
     /// { … }` record — and `C` is an ordinary type parameter with an ordinary
-    /// bound (SPEC 10.1), so a value that merely *implements* `Alloc` satisfies
-    /// it. `core/host/testing`'s `alloc()` is `struct TestAlloc(I64)` and
+    /// bound (SPEC 10.1), so a value that merely *implements* `Allocator` satisfies
+    /// it. `core/host/testing`'s `alloc()` is `struct TestAllocator(I64)` and
     /// carries a handle; one of those in this position spread to a leaf and
     /// `pieces` was read off by one from there on.
     const fn concat_ctx(argc: usize) -> Option<usize> {
@@ -5555,7 +5555,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // stdout, an in-memory filesystem — and its state lives on the test
             // runner's side, which is why those are rows in the runtime table.
             //
-            // `alloc()` is a fresh `TestAlloc(handle)`, and the handle names an
+            // `alloc()` is a fresh `TestAllocator(handle)`, and the handle names an
             // arena the runner reclaims. Natively there is no runner and one
             // allocator, so the handle names nothing and zero is as good a name
             // as any.
@@ -5572,7 +5572,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // function of the *types*, computed by `middle::layout`, so
             // `allocate` returns what it was asked for and the accounting is the
             // caller's.
-            "host_testing.TestAlloc.allocate" => {
+            "host_testing.TestAllocator.allocate" => {
                 let Some(bytes) = args.get(1).copied() else { return false };
                 let value = self.get(state, bytes);
                 self.set(state, dest, value);
@@ -8801,7 +8801,7 @@ fn open_coded_key(key: &str) -> bool {
             | "list.len"
             | "list.empty"
             | "host_testing.alloc"
-            | "host_testing.TestAlloc.allocate"
+            | "host_testing.TestAllocator.allocate"
             | "list.zip"
             | "list.flatten"
             // `core/alloc`'s copy-out, which is the per-type copy glue and a
@@ -9566,7 +9566,7 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
         for inst in &block.insts {
             match inst {
                 // One allocation, from `buri_rt_alloc` — which is inaccessible
-                // memory (CODEGEN-LLVM.md §3.1's `Alloc`-bounded row).
+                // memory (CODEGEN-LLVM.md §3.1's `Allocator`-bounded row).
                 ir::Inst::MakeArray { .. } => o.allocates = true,
                 ir::Inst::MakeClosure { env: Some(_), .. } => o.allocates = true,
                 ir::Inst::Abort { .. } => o.aborts = true,

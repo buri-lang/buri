@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -33,7 +33,7 @@ impl Wide for Point {
 export let origin: Point = Point { x: 0, y: 0 };
 
 /// Every construct the printer can write, in one function.
-export fn probe<C: Alloc>(ctx: C, n: Int): Int {
+export fn probe<C: Allocator>(ctx: C, n: Int): Int {
     let pair: (Int, Int) = (n, n + 1);
     let items: [Int] = [1, 2, 3];
     let nothing: () = ();

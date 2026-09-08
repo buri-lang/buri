@@ -4,7 +4,7 @@
 // empty queue is given one: an empty queue is where the rebalance that makes
 // the amortized bound work is actually visible.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/queue" import * as queue;
@@ -20,7 +20,7 @@ test "an empty queue has no elements" {
 
 test "of builds a queue from a list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let q = queue.of([1, 2, 3]);
     assert.eq(q.len(), 3);
@@ -31,7 +31,7 @@ test "of builds a queue from a list" {
 
 test "push adds to the back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let q = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
     assert.eq(q.toList(ctx), [1, 2]);
@@ -39,7 +39,7 @@ test "push adds to the back" {
 
 test "pushFront adds to the front" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let q = queue.empty<Int>().push(ctx, 1).pushFront(ctx, 0);
     assert.eq(q.toList(ctx), [0, 1]);
@@ -69,7 +69,7 @@ test "peek of an empty queue is None" {
 
 test "pop takes from the front and returns the rest" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (v, rest) = assert.some(queue.of([1, 2, 3]).pop(ctx));
     assert.eq(v, 1);
@@ -78,7 +78,7 @@ test "pop takes from the front and returns the rest" {
 
 test "popBack takes from the back" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let (v, rest) = assert.some(queue.of([1, 2, 3]).popBack(ctx));
     assert.eq(v, 3);
@@ -87,7 +87,7 @@ test "popBack takes from the back" {
 
 test "pop of an empty queue is None" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isTrue(queue.empty<Int>().pop(ctx).isNone());
     assert.isTrue(queue.empty<Int>().popBack(ctx).isNone());
@@ -98,7 +98,7 @@ test "pop of an empty queue is None" {
 // come out is insertion order, which is what a queue means.
 test "pop reverses the back when the front is spent" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let q = queue.empty<Int>().push(ctx, 1).push(ctx, 2).push(ctx, 3);
     let (a, q1) = assert.some(q.pop(ctx));
@@ -112,7 +112,7 @@ test "pop reverses the back when the front is spent" {
 
 test "popBack reverses the front when the back is spent" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let q = queue.empty<Int>().pushFront(ctx, 1).pushFront(ctx, 2);
     let (a, q1) = assert.some(q.popBack(ctx));
@@ -126,7 +126,7 @@ test "popBack reverses the front when the back is spent" {
 
 test "equals ignores how the elements are split" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Same contents, opposite construction: one all pushed to the back, one all
     // pushed to the front. Their `front`/`back` fields do not match.
@@ -138,7 +138,7 @@ test "equals ignores how the elements are split" {
 
 test "equals is false for different contents" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = queue.of([1, 2]);
     let b = queue.of([2, 1]);
@@ -147,7 +147,7 @@ test "equals is false for different contents" {
 
 test "equals is false for different lengths" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isFalse(queue.of([1]).equals(ctx, queue.of([1, 2])));
 }
@@ -156,7 +156,7 @@ test "equals is false for different lengths" {
 
 test "pushing and popping at both ends keeps the order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let q = queue.empty<Int>().push(ctx, 2).pushFront(ctx, 1).push(ctx, 3);
     assert.eq(q.toList(ctx), [1, 2, 3]);
@@ -169,7 +169,7 @@ test "pushing and popping at both ends keeps the order" {
 
 test "a queue of one is both ends at once" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let q = queue.empty<Str>().push(ctx, "only");
     assert.eq(assert.some(q.peek()), "only");
@@ -181,7 +181,7 @@ test "a queue of one is both ends at once" {
 
 test "toList of an empty queue is empty" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(queue.empty<Int>().toList(ctx), list.empty<Int>());
 }

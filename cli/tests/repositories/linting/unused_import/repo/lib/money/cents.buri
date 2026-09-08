@@ -2,10 +2,10 @@
 // `Str`, and a method resolves through its receiver's defining module rather
 // than through the namespace this import binds — so the binding does nothing.
 //
-// `Alloc` is used, in `describe`'s bounds. The rule has to count a bound as a
+// `Allocator` is used, in `describe`'s bounds. The rule has to count a bound as a
 // use, or every library that threads a context would report a false finding.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 
 derive Eq, Show for Cents;
@@ -15,6 +15,6 @@ export fn fromCents(c: I64): Cents {
     Cents(c)
 }
 
-export fn describe<C: Alloc>(ctx: C, c: Cents): Str {
+export fn describe<C: Allocator>(ctx: C, c: Cents): Str {
     "some".concat(ctx, " cents")
 }

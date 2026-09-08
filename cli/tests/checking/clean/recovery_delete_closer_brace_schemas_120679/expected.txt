@@ -15,7 +15,7 @@ error: this function body is missing its closing `}` [unclosed-delimiter]
    |
   --> main.buri:50:77
    |
-50 | export fn block<C: Alloc>(ctx: C, out: [Str], head: Str, count: Int): [Str] {
+50 | export fn block<C: Allocator>(ctx: C, out: [Str], head: Str, count: Int): [Str] {
    |                                                                             ^ opened here
    |
    = fix: write `}` here

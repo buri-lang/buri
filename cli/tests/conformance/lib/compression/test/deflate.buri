@@ -8,7 +8,7 @@
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError };
 from "core/compression" import * as compression;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/random" import * as random;
@@ -17,42 +17,42 @@ from "core/testing/assert" import * as assert;
 
 fn octets(text: Str): [U8] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     bytes.toUtf8(ctx, text)
 }
 
 fn text(b: [U8]): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     bytes.fromUtf8(ctx, b).withDefault("<not utf-8>")
 }
 
 fn packed(raw: [U8]): [U8] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     compression.deflate(ctx, raw)
 }
 
 fn unpacked(body: [U8]): Result<[U8], DecodeError> {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     compression.inflate(ctx, body)
 }
 
 fn wrapped(raw: [U8]): [U8] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     compression.gzip(ctx, raw)
 }
 
 fn unwrapped(body: [U8]): Result<[U8], DecodeError> {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     compression.gunzip(ctx, body)
 }
@@ -61,7 +61,7 @@ fn unwrapped(body: [U8]): Result<[U8], DecodeError> {
 /// is a splice rather than a write.
 fn changed(b: [U8], index: Int, value: U8): [U8] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     b.take(ctx, index).push(ctx, value).concat(ctx, b.drop(ctx, index + 1))
 }
@@ -70,7 +70,7 @@ fn changed(b: [U8], index: Int, value: U8): [U8] {
 // its chain rather than answering with one enormous run.
 fn large(): [U8] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     list
         .range(ctx, 0, 120)
@@ -382,7 +382,7 @@ test "what it writes, it reads" {
 
 test "a run longer than one match code round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 700 bytes of one value: longer than the 258 a single length code can say,
     // so the emitter has to write more than one back-reference.
@@ -451,7 +451,7 @@ test "what gzip writes, gunzip reads" {
 
 test "the header is the fixed ten bytes RFC 1952 asks for" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let member = wrapped(octets("x"));
     assert.eq(member.take(ctx, 10), [31, 139, 8, 0, 0, 0, 0, 0, 0, 255]);
@@ -459,7 +459,7 @@ test "the header is the fixed ten bytes RFC 1952 asks for" {
 
 test "a member is not a member without its magic number" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let zeroes: [U8] = list.repeat(ctx, 0, 24);
     assert.eq(assert.err(unwrapped(zeroes)), DecodeError(0));
@@ -621,7 +621,7 @@ test "one byte there and back, through both wrappers" {
 
 test "an input of nothing but zeroes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let zeroes: [U8] = list.repeat(ctx, 0, 4096);
     assert.eq(assert.ok(unpacked(packed(zeroes))), zeroes);
@@ -632,7 +632,7 @@ test "an input of nothing but zeroes" {
 
 test "an input nothing can compress still round-trips" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let noise = random.seeded(20260907).nextBytes(ctx, 1200).0;
     assert.eq(assert.ok(unpacked(packed(noise))), noise);
@@ -648,7 +648,7 @@ test "an input nothing can compress still round-trips" {
 // second copy sits exactly `filler + 10` bytes after the first.
 fn spanning(filler: Int): [U8] {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let marker: [U8] = [77, 97, 114, 107, 101, 114, 48, 49, 50, 51];
     marker.concat(ctx, list.repeat(ctx, 90, filler)).concat(ctx, marker)
@@ -672,7 +672,7 @@ test "a match at the window's last distance is taken, and one past it is not" {
 
 test "a stored block reaches its 65535-byte limit and the next one carries the rest" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Two stored blocks by hand: the first is the largest one the format has,
     // the second is the final three bytes. `deflate` never writes one, so this
@@ -705,7 +705,7 @@ test "a dynamic block claiming more codes than the format has" {
 
 test "bytes after the final block are not read" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let trailing: [U8] = [75, 76, 74, 6, 0, 1, 2, 3];
     assert.eq(text(assert.ok(unpacked(trailing))), "abc");
@@ -726,14 +726,14 @@ test "two members in one file check the first against the second's trailer" {
 
 test "a member whose compressed body was cut" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eq(assert.err(unwrapped(GZIP_HELLO.take(ctx, 20))), DecodeError(20));
 }
 
 test "a member whose trailer was cut" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The stream inflates, and then runs past where the trailer has to start.
     assert.eq(assert.err(unwrapped(GZIP_HELLO.take(ctx, 28))), DecodeError(24));
@@ -741,7 +741,7 @@ test "a member whose trailer was cut" {
 
 test "a member of exactly the length the header check allows" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let seventeen = GZIP_HELLO.take(ctx, 17);
     assert.eq(assert.err(unwrapped(seventeen)), DecodeError(0));

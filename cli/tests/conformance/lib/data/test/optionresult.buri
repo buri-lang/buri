@@ -1,7 +1,7 @@
 // core/option and core/result — SPEC 5.7 (the prelude enums), 5.7.1
 // (`Result` is must-use), 6.8 (`?`).
 
-from "core/effect" import { Alloc, Stdin };
+from "core/effect" import { Allocator, Stdin };
 from "core/host/testing" import { alloc, stdin };
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -146,7 +146,7 @@ test "option andThen returns None when the inner step fails" {
 
 test "option mapCtx threads the context into the function" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let o: Option<Int> = .Some(7);
     assert.eq(assert.some(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "7");
@@ -154,7 +154,7 @@ test "option mapCtx threads the context into the function" {
 
 test "option mapCtx leaves None alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let o: Option<Int> = .None;
     assert.none(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)));
@@ -162,7 +162,7 @@ test "option mapCtx leaves None alone" {
 
 test "option andThenCtx threads the context into the continuation" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let o: Option<Int> = .Some(6);
     let out = o.andThenCtx(ctx, fn(c, n) => Option.Some(str.fromInt(c, n)));
@@ -171,7 +171,7 @@ test "option andThenCtx threads the context into the continuation" {
 
 test "option andThenCtx skips the continuation on None" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let o: Option<Int> = .None;
     assert.none(o.andThenCtx(ctx, fn(c, n) => Option.Some(str.fromInt(c, n))));
@@ -304,7 +304,7 @@ test "mapErr is how an error crosses a boundary between error types" {
 
 test "mapCtx threads the context into the function" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Ok(9);
     assert.eq(assert.ok(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "9");
@@ -312,7 +312,7 @@ test "mapCtx threads the context into the function" {
 
 test "mapCtx leaves Err alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Err("boom");
     assert.eq(assert.err(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "boom");
@@ -320,7 +320,7 @@ test "mapCtx leaves Err alone" {
 
 test "mapErrCtx wraps the error with allocated context" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Err("bad left");
     let out = r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"));
@@ -329,7 +329,7 @@ test "mapErrCtx wraps the error with allocated context" {
 
 test "mapErrCtx leaves Ok alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Ok(3);
     assert.eq(assert.ok(r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"))), 3);
@@ -337,7 +337,7 @@ test "mapErrCtx leaves Ok alone" {
 
 test "mapErrCtx may change the error type" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Err("nope");
     let mapped: Result<Int, Int> = r.mapErrCtx(ctx, fn(c, e) => {
@@ -370,7 +370,7 @@ test "result andThen composes twice" {
 
 test "andThenCtx threads the context into the continuation" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Ok(5);
     let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
@@ -379,7 +379,7 @@ test "andThenCtx threads the context into the continuation" {
 
 test "andThenCtx leaves Err alone" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let r: Result<Int, Str> = .Err("boom");
     let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
@@ -608,7 +608,7 @@ test "assert.err returns the error" {
 
 test "a list of Options can be folded into a list of values" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs: [Option<Int>] = [.Some(1), .None, .Some(3)];
     let kept = xs.foldCtx(
@@ -654,7 +654,7 @@ test "foldResult over a list of Results stops at the first bad parse" {
 
 test "mapping a parse over a list yields Options in order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let parsed = ["1", "x", "3"].map(ctx, fn(s) => s.toInt());
     assert.eq(parsed.len(), 3);
@@ -711,7 +711,7 @@ test "isSomeAnd asks the predicate only when the value is there" {
 
 test "toList is one element or none" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let some: Option<Int> = .Some(3);
     let none: Option<Int> = .None;
@@ -762,7 +762,7 @@ test "orElse chains the failures" {
 
 test "orElseCtx takes the context instead of capturing it" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let bad: Result<Int, Str> = .Err("no");
     let ok: Result<Int, Str> = .Ok(2);
@@ -882,7 +882,7 @@ test "result orElse leaves its alternative unrun for an Ok" {
 
 test "result orElseCtx leaves its alternative unrun for an Ok" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let ok: Result<Int, Str> = .Ok(1);
     assert.eq(assert.ok(ok.orElseCtx(ctx, fn(_c, _e) => .Ok(neverRun()))), 1);
@@ -927,7 +927,7 @@ test "flatten is one layer only, and takes the empty layer from either side" {
 
 test "zip and toList over the shapes a caller actually holds" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // A tuple zips like anything else, because nothing is looked into.
     let left: Option<(Int, Int)> = .Some((1, 2));

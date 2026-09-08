@@ -2095,37 +2095,37 @@ mod tests {
     #[test]
     fn a_projection_never_reads_a_base_this_block_has_already_released() {
         let p = lower(&program(
-            "from \"core/effect\" import { Alloc };\n\
+            "from \"core/effect\" import { Allocator };\n\
              from \"core/host\" import * as host;\n\n\
              struct Inner { export items: [Str] }\n\
              struct Outer { export inner: Inner, export tag: Str }\n\
              enum Held { One { name: Str, rest: [Str] }, Two { name: Str } }\n\
              struct Holder { export held: Held, export label: Str }\n\n\
-             fn make<C: Alloc>(ctx: C): Outer {\n\
+             fn make<C: Allocator>(ctx: C): Outer {\n\
              \x20 Outer { inner: Inner { items: [\"x\".repeat(ctx, 8)] }, tag: \"y\".repeat(ctx, 8) }\n\
              }\n\n\
              fn identity<T>(value: T): T { value }\n\n\
-             fn holder<C: Alloc>(ctx: C): Holder {\n\
+             fn holder<C: Allocator>(ctx: C): Holder {\n\
              \x20 Holder {\n\
              \x20   held: .One { name: \"n\".repeat(ctx, 8), rest: [\"r\".repeat(ctx, 8)] },\n\
              \x20   label: \"l\".repeat(ctx, 8),\n\
              \x20 }\n\
              }\n\n\
-             fn used<C: Alloc>(ctx: C, label: Str, names: [Str]): Int {\n\
+             fn used<C: Allocator>(ctx: C, label: Str, names: [Str]): Int {\n\
              \x20 label.len() + names.map(ctx, fn(s) => s.len()).len()\n\
              }\n\n\
-             export fn projected<C: Alloc>(ctx: C): Int {\n\
+             export fn projected<C: Allocator>(ctx: C): Int {\n\
              \x20 let inner = identity(make(ctx)).inner;\n\
              \x20 inner.items.len()\n\
              }\n\n\
-             export fn armed<C: Alloc>(ctx: C): Int {\n\
+             export fn armed<C: Allocator>(ctx: C): Int {\n\
              \x20 let h = holder(ctx);\n\
              \x20 match (h.held) {\n\
              \x20   .One { name, rest } => used(ctx, h.label, [name].concat(ctx, rest)),\n\
              \x20   .Two { name } => used(ctx, h.label, [name]),\n\
              \x20 }\n\
              }",
-            "  let ctx = context { Alloc: host.alloc };\n\
+            "  let ctx = context { Allocator: host.alloc };\n\
              \x20 let _ = projected(ctx) + armed(ctx);",
         ));
         let mut bases = 0usize;
@@ -2556,15 +2556,15 @@ export fn step(n: Int): Int {
     fn a_binding_nothing_reads_is_still_dropped() {
         let p = lower_plain(&program(
             "
-from \"core/effect\" import { Alloc };
+from \"core/effect\" import { Allocator };
 from \"core/host\" import * as host;
 
-export fn junk<C: Alloc>(ctx: C, n: Int): Int {
+export fn junk<C: Allocator>(ctx: C, n: Int): Int {
   let s = \"z\".repeat(ctx, n);
   n
 }
 ",
-            "  let _ = junk(context { Alloc: host.alloc }, 4);",
+            "  let _ = junk(context { Allocator: host.alloc }, 4);",
         ));
         assert_eq!(
             render(&p, ":junk"),

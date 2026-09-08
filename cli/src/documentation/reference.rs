@@ -553,13 +553,13 @@ mod tests {
     fn the_signatures_are_the_real_ones() {
         let modules = stdlib();
         let (_, map_fn) = find_item(&modules, "core/list.map").expect("core/list.map");
-        assert!(map_fn.signature.contains("map<B, C: Alloc>"), "{}", map_fn.signature);
-        assert_eq!(map_fn.api.effects(), ["Alloc".to_string()], "map allocates and says so");
+        assert!(map_fn.signature.contains("map<B, C: Allocator>"), "{}", map_fn.signature);
+        assert_eq!(map_fn.api.effects(), ["Allocator".to_string()], "map allocates and says so");
 
         let (_, len) = find_item(&modules, "core/list.len").expect("core/list.len");
         assert!(len.api.effects().is_empty(), "len is pure");
 
-        let (_, alloc) = find_item(&modules, "core/effect.Alloc").expect("core/effect.Alloc");
+        let (_, alloc) = find_item(&modules, "core/effect.Allocator").expect("core/effect.Allocator");
         assert_eq!(alloc.kind(), ItemKind::Effect);
         assert!(alloc.api.members().iter().any(|m| m.name == "allocate"));
     }

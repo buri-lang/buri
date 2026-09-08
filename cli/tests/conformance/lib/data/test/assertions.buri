@@ -9,7 +9,7 @@
 // A passing assertion has no value to inspect, so what each test asserts is
 // that the run *reaches the line after it*.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
@@ -38,7 +38,7 @@ test "contains works at any Eq element type" {
 
 test "isEmpty holds for the empty list however it was built" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.isEmpty(list.empty<Int>());
     assert.isEmpty([1].filter(ctx, fn(x) => x > 9));
@@ -111,7 +111,7 @@ test "approxEqRelative holds at zero, at equality and across signs" {
 
 test "eqWith compares two maps built in different orders" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let one = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
     let two = map.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
@@ -121,7 +121,7 @@ test "eqWith compares two maps built in different orders" {
 
 test "eqWith holds for two empty maps and for two empty sets" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eqWith(ctx, map.empty<Str, Int>(), map.empty<Str, Int>(), fn(c, a, b) => {
         a.equals(c, b)
@@ -134,7 +134,7 @@ test "eqWith holds for two empty maps and for two empty sets" {
 
 test "eqWith takes any comparison, not only a collection's equals" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // Same last digit, different numbers: the comparison decides what equal is.
     assert.eqWith(ctx, 13, 33, fn(_c, a, b) => a % 10 == b % 10);
@@ -171,7 +171,7 @@ test "startsWith holds for a prefix, the whole string and the empty one" {
 
 test "unordered holds however the two lists are arranged" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.unordered(ctx, [3, 1, 2], [1, 2, 3]);
     assert.unordered(ctx, [1, 2, 3], [1, 2, 3]);
@@ -181,7 +181,7 @@ test "unordered holds however the two lists are arranged" {
 
 test "unordered counts duplicates and holds for two empty lists" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.unordered(ctx, [1, 1, 2], [2, 1, 1]);
     assert.unordered(ctx, list.empty<Int>(), list.empty<Int>());
@@ -193,7 +193,7 @@ test "unordered counts duplicates and holds for two empty lists" {
 
 test "eqWith takes each collection that answers equals rather than deriving Eq" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let sortedOne = orderedmap.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
     let sortedTwo = orderedmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
@@ -208,7 +208,7 @@ test "eqWith takes each collection that answers equals rather than deriving Eq" 
 
 test "eqWith holds for a value against itself whatever the comparison" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.eqWith(ctx, "text", "text", fn(_c, a, b) => a == b);
     assert.eqWith(ctx, list.empty<Int>(), list.empty<Int>(), fn(_c, a, b) => {
@@ -238,7 +238,7 @@ test "a needle as long as the haystack, and one at the very end" {
 
 test "unordered holds for one element and for a list against itself" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.unordered(ctx, [7], [7]);
     let items = [5, 3, 5, 1];
@@ -248,7 +248,7 @@ test "unordered holds for one element and for a list against itself" {
 
 test "unordered is the type's own Ord, so text and characters sort too" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     assert.unordered(ctx, ["b", "a", "b"], ["b", "b", "a"]);
     assert.unordered(ctx, ['z', 'a'], ['a', 'z']);

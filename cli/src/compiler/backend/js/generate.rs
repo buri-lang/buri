@@ -701,7 +701,7 @@ fn split_chunks(
 /// Whether this artifact reaches a node module by name.
 ///
 /// Two are reached, and they are not the same module. `runtime.js`'s `$fsp` is
-/// `node:fs/promises`, which every `Fs` method waits on; `$fs` is the
+/// `node:fs/promises`, which every `FileSystem` method waits on; `$fs` is the
 /// synchronous `fs`, and it answers the two writers that must not wait —
 /// `$writeRaw`, behind `Stdout.writeBytes`, and `$write`, which empties the
 /// buffered streams on the exit path, where an asynchronous write is truncated
@@ -712,7 +712,7 @@ fn split_chunks(
 /// `process.exit` to lose a write to, neither has a descriptor to write
 /// synchronously to, and — this is why the answer is not simply `true` — a
 /// bundler would try to resolve `node:module` for a browser, and a worker
-/// deploys with no node under it at all. One that reaches `Fs` or `writeBytes`
+/// deploys with no node under it at all. One that reaches `FileSystem` or `writeBytes`
 /// still gets the prologue, guarded, and `$fs` says out loud that the platform
 /// grants neither.
 ///
@@ -724,7 +724,7 @@ fn needs_require(program: &Program, platform: Platform) -> bool {
     }
     program.funcs.iter().any(|f| {
         f.intrinsic_key().is_some_and(|k| {
-            k.starts_with("host.HostFs.") || k == "host.HostStdout.writeBytes"
+            k.starts_with("host.HostFileSystem.") || k == "host.HostStdout.writeBytes"
         })
     })
 }

@@ -15,7 +15,7 @@ backend, native and HTML email are others.
 
 The design rests on one idea: **a signal handle is inert data, and the
 authority to read or write it travels through `ctx`.** That is the same split
-`Alloc` and `Region` already use — the handle is the reference, the context is
+`Allocator` and `Region` already use — the handle is the reference, the context is
 the capability.
 
 ## Effects
@@ -38,7 +38,7 @@ export effect Ui {
 }
 
 /// Starting requests. A separate effect because the *shape* is different, not
-/// because the authority is: `Net.fetch` blocks until the response arrives,
+/// because the authority is: `Network.fetch` blocks until the response arrives,
 /// which on a platform with an interface means freezing it. A platform grants
 /// one or the other, never both.
 export effect Fetch {
@@ -171,7 +171,7 @@ Enter in a field inside one runs `onSubmit`, the browser's own dispatch rather
 than a key handler every app would otherwise write.
 
 `Node<C>` keeps its one type parameter because handlers are open-ended. A press
-may legitimately need `Net`, and `main` chose the effect budget. Everything else
+may legitimately need `Network`, and `main` chose the effect budget. Everything else
 (`Prop`, `Style`, `Signal`) names no context type and is plain, capturable data.
 
 Three constructors put reactivity *in* the tree, and each re-runs the smallest
@@ -205,7 +205,7 @@ export enum Style {
   Background(Color), Foreground(Color), Truncate(Int), ...,
 
   // and six combinators
-  Group([Style]),                       // composition; array literal, no Alloc
+  Group([Style]),                       // composition; array literal, no Allocator
   On(State, [Style]),                   // pseudo-class; static, in the stylesheet
   At(Screen, [Style]),                  // breakpoint;   static, in the stylesheet
   When(Prop<Bool>, [Style], [Style]),   // both branches statically extracted
@@ -355,7 +355,7 @@ already had. That is the whole reason dark mode is not a second stylesheet.
 3. **Derivation is pure.** `.Computed(fn(c) => user.read(c).name)` needs no
    enclosing `ctx`, so a component that only reads props and builds a tree has
    no context parameter and is pure by §10.4.
-4. **Tree and style construction need no `Alloc`.** Struct, enum, array and
+4. **Tree and style construction need no `Allocator`.** Struct, enum, array and
    closure literals are fixed-size construction (§10.5).
 5. **A captured generic must be bound where the type is actually stored.**
    `Prop<T>` holds its `T`, so capturing one needs `T: Eq` or another ordinary
@@ -424,7 +424,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, counter(ctx, "clicks"), [app.themed(appTheme)])
 }
 ```
@@ -470,7 +470,7 @@ language one, and the existing machinery covers it:
   against the platforms its rule's `outputs` name — every one of them, plus
   every platform its suite names in `test.platforms`, because a test binary
   links `main` in. So it refuses `Ui: host.ui` under `platform: LINUX`, refuses
-  `FsRead: host.fs` under `platform: WEB`, and refuses a binary declaring both
+  `FileSystemRead: host.fs` under `platform: WEB`, and refuses a binary declaring both
   `MACOS` and `WEB` for the second whichever one is being built. The diagnostic
   is `effect-not-on-platform`, and it names the effect, the platforms that do
   not allow it, and the platforms that *do* grant it. A platform *is* the set of
@@ -484,16 +484,16 @@ language one, and the existing machinery covers it:
 
   Three consequences worth writing down. **A grant is a pair** — the value and
   the implementation struct — and both are refused together: a host struct has
-  no private field, so allowing `HostNet` while refusing `net` would leave the
-  authority one `Net: host.HostNet {}` away. **A build still subsets
+  no private field, so allowing `HostNetwork` while refusing `net` would leave the
+  authority one `Network: host.HostNetwork {}` away. **A build still subsets
   `core/host` per output**, the backstop this check sits in front of. And **a
   rule that declares no platforms commits to none**: a library with no
   `platforms` field is platform-generic and is never refused, which keeps a
-  bound — `FsRead` taken as a bound rather than bound to a host — legal
+  bound — `FileSystemRead` taken as a bound rather than bound to a host — legal
   everywhere, a page included.
 
-  WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Net`, `Tasks`, `Ui`
-  and `Watch`, and withholds `FsRead`, `FsWrite`, `Stdin`, `Env`, `Proc`,
+  WEB grants `Allocator`, `Stdout`, `Stderr`, `Clock`, `Random`, `Network`, `Tasks`, `Ui`
+  and `Watch`, and withholds `FileSystemRead`, `FileSystemWrite`, `Stdin`, `Environment`, `Process`,
   `Listen` and `Sockets`. `LINUX` and `MACOS` grant all fourteen non-UI effects
   and neither UI one; `JS` grants twelve of the fourteen — everything but
   `Listen` and `Sockets`.
@@ -560,7 +560,7 @@ from "//lib/cardlib" import { Token };
 from "core/host" import * as host;
 from "ui/effect" import { Fetch, Ui, Watch };
 from "ui/node" import * as ui;
-// context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch, Fetch: host.fetch }
+// context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch, Fetch: host.fetch }
 ```
 
 A component test:
@@ -603,7 +603,7 @@ this document's first draft, with the reason.
 | Rule 5 over `Signal<T>` | over `Prop<T>` | `Signal` is phantom in `T` and carries nothing; `Prop` stores its `T` |
 | Style literals "cached with the module" | a `Vec` on `Checked` | the machinery it named does not exist: test cases are not cached, verdicts are |
 | Const-folding *or* generated token modules | const-folding | it improves an ordinary style helper too, where a generator would have helped tokens alone |
-| Blocking `Net.fetch` for pages | a separate `Fetch` effect | a callback shape, so a request does not freeze a page; a platform grants one or the other |
+| Blocking `Network.fetch` for pages | a separate `Fetch` effect | a callback shape, so a request does not freeze a page; a platform grants one or the other |
 | "Enforcement already exists" | it does now | the main-only import rule existed; the per-output host subset did not, and was built — and is a compile error over every declared output at once now, `effect-not-on-platform` |
 | Screen widths "app config at mount" | fixed at 40/48/64/80 rem | a breakpoint that varies per app is one a library cannot compose against |
 | No way to express hover | `On(State, [Style])` | a pseudo-class costs nothing and survives to targets that have no pointer |

@@ -2,7 +2,7 @@
 // unfinished work is listed rather than found by whichever grep somebody
 // remembers to run.
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -13,7 +13,7 @@ fn banner(): Str {
 
 export fn main(): Result<(), Str> {
     , let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")

@@ -117,7 +117,7 @@ macro_rules! unless_ready {
 /// argument.
 ///
 /// Standard output is no longer the only channel out of a native program —
-/// `host.HostFs.*` and `host.HostEnv.*` have rows in both runtime tables since
+/// `host.HostFileSystem.*` and `host.HostEnvironment.*` have rows in both runtime tables since
 /// buri-lang/buri#36, and [`a_native_binary_touches_files_and_reads_its_own_arguments`]
 /// is what says so — but it is still the only *unbuffered-on-demand* one, and a
 /// server that has to announce a port before it blocks has nowhere else to put
@@ -143,7 +143,7 @@ fn padding() -> String {
 fn tcp_client() -> String {
     String::from(
         r#"from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Env, Stdout, Tcp };
+from "core/effect" import { Allocator, Environment, Stdout, Tcp };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -152,19 +152,19 @@ from "core/net/tcp" import { Stream };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
+        Allocator: host.alloc,
+        Environment: host.env,
         Stdout: host.stdout,
         Tcp: host.tcp,
     };
-    let port = env.args(ctx).first().andThen(fn(a) => a.toInt()).withDefault(0);
+    let port = env.withArguments(ctx).first().andThen(fn(a) => a.toInt()).withDefault(0);
     match (tcp.connect(ctx, "127.0.0.1", port)) {
         .Err(_e) => .Err("the dial failed"),
         .Ok(stream) => exchange(ctx, stream),
     }
 }
 
-fn exchange<C: Alloc + Stdout + Tcp>(ctx: C, stream: Stream): Result<(), Str> {
+fn exchange<C: Allocator + Stdout + Tcp>(ctx: C, stream: Stream): Result<(), Str> {
     match (stream.write(ctx, bytes.toUtf8(ctx, "ping\n"))) {
         .Err(_e) => .Err("the write failed"),
         .Ok(_sent) => {
@@ -177,7 +177,7 @@ fn exchange<C: Alloc + Stdout + Tcp>(ctx: C, stream: Stream): Result<(), Str> {
 }
 
 /// Reads until a newline has arrived, however many segments it took.
-fn whole<C: Alloc + Tcp>(ctx: C, stream: Stream, sofar: [U8]): Result<[U8], Str> {
+fn whole<C: Allocator + Tcp>(ctx: C, stream: Stream, sofar: [U8]): Result<[U8], Str> {
     if (sofar.contains(10)) {
         .Ok(sofar)
     } else {
@@ -194,7 +194,7 @@ fn whole<C: Alloc + Tcp>(ctx: C, stream: Stream, sofar: [U8]): Result<[U8], Str>
     }
 }
 
-fn said<C: Alloc + Stdout + Tcp>(ctx: C, stream: Stream, answer: [U8]): Result<(), Str> {
+fn said<C: Allocator + Stdout + Tcp>(ctx: C, stream: Stream, answer: [U8]): Result<(), Str> {
     let text = bytes.fromUtf8(ctx, answer).withDefault("<not utf-8>");
     let _shown = io.println(ctx, "got ${text.trim()}").ignore();
     let _closed = stream.close(ctx);
@@ -223,7 +223,7 @@ fn said<C: Alloc + Stdout + Tcp>(ctx: C, stream: Stream, answer: [U8]): Result<(
 /// sentence naming the switch that would have said yes.
 fn quic_server() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Listen, Stdout };
+        r#"from "core/effect" import { Allocator, Listen, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -231,7 +231,7 @@ from "core/net/server" import * as server;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Stdout: host.stdout,
     };
@@ -263,7 +263,7 @@ export fn main(): Result<(), Str> {
 /// any other**.
 fn tls_running_server(certificate: &std::path::Path, key: &std::path::Path) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -271,7 +271,7 @@ from "core/net/server" import * as server;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Stdout: host.stdout,
         Tasks: host.tasks,
@@ -315,7 +315,7 @@ export fn main(): Result<(), Str> {{
 /// once the socket closes the next `listenAccept` is `.Closed`.
 fn path_scoped_socket_server() -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -324,7 +324,7 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Sockets: host.sockets,
         Stdout: host.stdout,
@@ -383,7 +383,7 @@ export fn main(): Result<(), Str> {{
 /// do WebSockets answers is its own business.
 fn no_hooks_server() -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -392,7 +392,7 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Stdout: host.stdout,
         Tasks: host.tasks,
@@ -446,7 +446,7 @@ export fn main(): Result<(), Str> {{
 ///   socket ending and not a server falling over.
 fn overflowing_socket_server(flood: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -464,7 +464,7 @@ fn flood<C: Sockets>(ctx: C, socket: Socket, left: Int): Int {{
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Sockets: host.sockets,
         Stdout: host.stdout,
@@ -530,7 +530,7 @@ export fn main(): Result<(), Str> {{
 /// that cannot reach runner-side state can record nothing at all.
 fn both_worlds_server() -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -539,13 +539,13 @@ from "core/net/server" import {{ Message, Socket }};
 from "core/str" import * as str;
 
 /// The answer, wherever it is asked for.
-fn answer<C: Alloc>(ctx: C, question: Str): Str {{
+fn answer<C: Allocator>(ctx: C, question: Str): Str {{
     str.format(ctx, "you said ${{question}}")
 }}
 
-/// The hook, written once. `Alloc` for the answer, `Sockets` for the push, and
+/// The hook, written once. `Allocator` for the answer, `Sockets` for the push, and
 /// nothing about a listener anywhere in the bound.
-fn reply<C: Alloc + Sockets>(ctx: C, socket: Socket, message: Message): Int {{
+fn reply<C: Allocator + Sockets>(ctx: C, socket: Socket, message: Message): Int {{
     match (message) {{
         .Text(text) => {{
             let _pushed = socket.send(ctx, .Text(answer(ctx, text)));
@@ -561,7 +561,7 @@ fn reply<C: Alloc + Sockets>(ctx: C, socket: Socket, message: Message): Int {{
 /// A `Sockets` with no network behind it: it says what it was handed.
 struct Paper<C>(C);
 
-impl<C: Alloc + Stdout> Sockets for Paper<C> {{
+impl<C: Allocator + Stdout> Sockets for Paper<C> {{
     fn socketSendText(self, _socket: Int, text: Str): () {{
         let _said = io.println(self.0, "paper ${{text}}").ignore();
         ()
@@ -578,7 +578,7 @@ impl<C: Alloc + Stdout> Sockets for Paper<C> {{
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Sockets: host.sockets,
         Stdout: host.stdout,
@@ -608,11 +608,11 @@ export fn main(): Result<(), Str> {{
             // was pushed. It runs after the port line because the port line is
             // the one the test reads first.
             let printing = context {{
-                Alloc: host.alloc,
+                Allocator: host.alloc,
                 Stdout: host.stdout,
             }};
             let onPaper = context {{
-                Alloc: host.alloc,
+                Allocator: host.alloc,
                 Sockets: Paper(printing),
             }};
             let _papered = reply(onPaper, Socket(1), .Text("hello"));
@@ -1399,7 +1399,7 @@ mod read_loop_tests {
 // ---------------------------------------------------------------------------
 
 /// A program that uses every part of the filesystem a scratch directory needs,
-/// plus both operations of `Env`.
+/// plus both operations of `Environment`.
 ///
 /// **Every path is relative**, so the run below decides where the program
 /// works by choosing its working directory rather than by baking one into the
@@ -1410,7 +1410,7 @@ mod read_loop_tests {
 /// a one-field struct, so it flattens to the three C parameters a `Str` was,
 /// and if that were wrong every call below would read a different file.
 ///
-/// It binds `FsRead` and `FsWrite` separately, which is what the split costs a
+/// It binds `FileSystemRead` and `FileSystemWrite` separately, which is what the split costs a
 /// program that does both — and buys the one below it, which binds neither.
 ///
 /// It ends by removing what it made, which is the half `makeDir` had no
@@ -1418,9 +1418,9 @@ mod read_loop_tests {
 /// that a program can leave the filesystem as it found it.
 fn host_surface() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Env, Stdout };
+        r#"from "core/effect" import { Allocator, Environment, Stdout };
 from "core/env" import * as env;
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -1428,10 +1428,10 @@ from "core/path" import * as filepath;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
-        FsRead: host.fs,
-        FsWrite: host.fs,
+        Allocator: host.alloc,
+        Environment: host.env,
+        FileSystemRead: host.fs,
+        FileSystemWrite: host.fs,
         Stdout: host.stdout,
     };
     let run = filepath.of(ctx, "scratch/run");
@@ -1442,7 +1442,7 @@ export fn main(): Result<(), Str> {
     let _p1 = io.println(ctx, "read ${body}").mapErr(fn(_e) => "print")?;
     let names = fs.listDir(ctx, run).mapErr(fn(_e) => "listDir")?;
     let _p2 = io.println(ctx, "dir ${names.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
-    let args = env.args(ctx);
+    let args = env.withArguments(ctx);
     let _p3 = io.println(ctx, "args ${args.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
     let seen = match (env.get(ctx, "BURI_E2E_VARIABLE")) {
         .Some(value) => value,
@@ -1479,17 +1479,17 @@ export fn main(): Result<(), Str> {
 /// nothing to flush for.
 fn read_only_surface() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Stdout };
-from "core/fs" import { FsRead, FsWrite, Path };
+        r#"from "core/effect" import { Allocator, Stdout };
+from "core/fs" import { FileSystemRead, FileSystemWrite, Path };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/path" import * as filepath;
 from "core/str" import * as str;
 
-/// Names `FsRead` and nothing else: no call this makes can write, and the
+/// Names `FileSystemRead` and nothing else: no call this makes can write, and the
 /// compiler is what says so.
-fn describe<C: Alloc + FsRead>(ctx: C, at: Path): Str {
+fn describe<C: Allocator + FileSystemRead>(ctx: C, at: Path): Str {
     match (fs.readBytesIfExists(ctx, at)) {
         .Err(_e) => "unreadable",
         .Ok(.None) => "absent",
@@ -1499,9 +1499,9 @@ fn describe<C: Alloc + FsRead>(ctx: C, at: Path): Str {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        FsRead: host.fs,
-        FsWrite: host.fs,
+        Allocator: host.alloc,
+        FileSystemRead: host.fs,
+        FileSystemWrite: host.fs,
         Stdout: host.stdout,
     };
     let db = filepath.of(ctx, "atomic.db");
@@ -1702,7 +1702,7 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
             "read hello",
             // `readDir` sees what `writeText` created, and nothing else.
             "dir note.txt",
-            // `Env`'s two, in the order the effect declares them.
+            // `Environment`'s two, in the order the effect declares them.
             "args alpha,beta",
             "var seen",
             // `removeDir` is `rmdir(2)` and not `rm -r`: a directory that still
@@ -1738,9 +1738,9 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
 /// `EntryKind` exists for, and a walk that followed one would not come back.
 fn real_tree() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Entropy, Env, IoError, Stdout };
+        r#"from "core/effect" import { Allocator, Entropy, Environment, IoError, Stdout };
 from "core/env" import * as env;
-from "core/fs" import { EntryKind, FsRead, FsWrite };
+from "core/fs" import { EntryKind, FileSystemRead, FileSystemWrite };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -1781,14 +1781,14 @@ fn refused<T>(answer: Result<T, IoError>): Str {
 
 /// The entries as `name:kind`, sorted — `readDir` answers in the operating
 /// system's own order, which is not an order a test may depend on.
-fn listed<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
+fn listed<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, Str> {
     let entries = fs.listDirectoryEntries(ctx, at).mapErr(fn(_e) => "listDirectoryEntries")?;
     let shown = entries.mapCtx(ctx, fn(c, entry) => str.format(c, "${entry.0}:${named(entry.1)}"));
     .Ok(shown.sort(ctx).join(ctx, " "))
 }
 
 /// Every path under `root`, written from it and sorted, for `listed`'s reason.
-fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
+fn walked<C: Allocator + FileSystemRead>(ctx: C, root: Path): Result<Str, Str> {
     let found = fs.walk(ctx, root).mapErr(fn(_e) => "walk")?;
     let shown = found.mapCtx(
         ctx,
@@ -1803,7 +1803,7 @@ fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
 /// The links and the two directories the harness made beside the binary:
 /// nothing in `core/fs` creates a symbolic link or takes a permission away, and
 /// both are what `EntryKind` and the walk's refusals are about.
-fn harnessMade<C: Alloc + Env + FsRead + FsWrite + Stdout>(ctx: C, here: Path): Result<(), Str> {
+fn harnessMade<C: Allocator + Environment + FileSystemRead + FileSystemWrite + Stdout>(ctx: C, here: Path): Result<(), Str> {
     // A link `metadata` must not follow, and one that points at nothing: both
     // are `.Symlink`, and neither is what it points at.
     let link = here.join(ctx, "pointer");
@@ -1855,11 +1855,11 @@ fn harnessMade<C: Alloc + Env + FsRead + FsWrite + Stdout>(ctx: C, here: Path): 
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Entropy: host.entropy,
-        Env: host.env,
-        FsRead: host.fs,
-        FsWrite: host.fs,
+        Environment: host.env,
+        FileSystemRead: host.fs,
+        FileSystemWrite: host.fs,
         Stdout: host.stdout,
     };
 
@@ -2217,9 +2217,9 @@ fn permissions(mode: u32) -> std::fs::Permissions {
 fn child_processes() -> String {
     String::from(
         r#"from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Env, IoError, Stdin, Stdout };
+from "core/effect" import { Allocator, Environment, IoError, Stdin, Stdout };
 from "core/env" import * as env;
-from "core/fs" import { FsRead };
+from "core/fs" import { FileSystemRead };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -2228,7 +2228,7 @@ from "core/process" import * as process;
 from "core/process" import { Command, Spawn };
 from "core/str" import * as str;
 
-fn text<C: Alloc>(ctx: C, body: [U8]): Str {
+fn text<C: Allocator>(ctx: C, body: [U8]): Str {
     match (bytes.fromUtf8(ctx, body)) {
         .Ok(said) => said.trim(),
         .Err(_e) => "?",
@@ -2255,7 +2255,7 @@ fn refused<T>(answer: Result<T, IoError>): Str {
     }
 }
 
-fn found<C: Alloc + Env + FsRead>(ctx: C, program: Str): Result<Path, Str> {
+fn found<C: Allocator + Environment + FileSystemRead>(ctx: C, program: Str): Result<Path, Str> {
     match (process.which(ctx, program)) {
         .Some(at) => .Ok(at),
         .None => .Err(str.format(ctx, "no `${program}` on PATH")),
@@ -2271,7 +2271,7 @@ fn shown(at: Option<Path>): Str {
 
 /// Everything on standard input, as text and as octets. Two modes rather than
 /// one call: a stream is lines or octets and never both, which `Stdin` states.
-fn filtered<C: Alloc + Stdin + Stdout>(ctx: C, mode: Str): Result<(), Str> {
+fn filtered<C: Allocator + Stdin + Stdout>(ctx: C, mode: Str): Result<(), Str> {
     if (mode == "read") {
         let whole = io.readAll(ctx);
         io
@@ -2287,7 +2287,7 @@ fn filtered<C: Alloc + Stdin + Stdout>(ctx: C, mode: Str): Result<(), Str> {
 }
 
 /// Where `PATH` says these are, under whatever `PATH` this run was given.
-fn lookups<C: Alloc + Env + FsRead + Stdout>(ctx: C): Result<(), Str> {
+fn lookups<C: Allocator + Environment + FileSystemRead + Stdout>(ctx: C): Result<(), Str> {
     io
         .println(
             ctx,
@@ -2298,9 +2298,9 @@ fn lookups<C: Alloc + Env + FsRead + Stdout>(ctx: C): Result<(), Str> {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
-        FsRead: host.fs,
+        Allocator: host.alloc,
+        Environment: host.env,
+        FileSystemRead: host.fs,
         Spawn: host.spawn,
         Stdin: host.stdin,
         Stdout: host.stdout,
@@ -2308,7 +2308,7 @@ export fn main(): Result<(), Str> {
 
     // The harness runs this binary four times: once for the children, twice for
     // the two whole-input readers, and once with a `PATH` of its own.
-    let mode = env.args(ctx).get(0).withDefault("");
+    let mode = env.withArguments(ctx).get(0).withDefault("");
     if (mode == "read" || mode == "bytes") {
         filtered(ctx, mode)
     } else if (mode == "path") {
@@ -2318,7 +2318,7 @@ export fn main(): Result<(), Str> {
     }
 }
 
-fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
+fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     let yes = found(ctx, "true")?;
     let no = found(ctx, "false")?;
     let cat = found(ctx, "cat")?;
@@ -2662,7 +2662,7 @@ fn heap_checked(name: &str, source: &str) -> (Vec<String>, String) {
 fn replaced_fields() -> String {
     String::from(
         r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -2673,7 +2673,7 @@ struct Basket {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let base = Basket {
@@ -2723,7 +2723,7 @@ fn a_functional_update_releases_the_field_it_replaced() {
 fn early_return() -> String {
     String::from(
         r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -2743,7 +2743,7 @@ fn step(frame: Frame): Result<(Int, Frame), Str> {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let ok = step(Frame { body: "o".repeat(ctx, 9000), at: 0 });
@@ -2795,7 +2795,7 @@ fn actor_payloads() -> String {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped, Stopped };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -2809,7 +2809,7 @@ enum Noted {
     Held(Str),
 }
 
-fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Note, Noted> {
+fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Note, Noted> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
@@ -2831,7 +2831,7 @@ fn size(answered: Result<Noted, Stopped>): Int {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
@@ -2918,14 +2918,14 @@ fn an_actor_leaks_none_of_what_its_messages_and_answers_carried() {
 fn chained_projection() -> String {
     String::from(
         r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct Inner { lines: [Str] }
 struct Outer { inner: Inner, tag: Str }
 
-fn outer<C: Alloc>(ctx: C, n: Int): Outer {
+fn outer<C: Allocator>(ctx: C, n: Int): Outer {
     Outer {
         inner: Inner { lines: [1, 2, 3].mapCtx(ctx, fn(c, i) => "line".repeat(c, n + i)) },
         tag: "t".repeat(ctx, n),
@@ -2935,7 +2935,7 @@ fn outer<C: Alloc>(ctx: C, n: Int): Outer {
 fn identity<T>(value: T): T { value }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let held = identity(outer(ctx, 3)).inner.lines.len();
     let joined = identity(outer(ctx, 4)).inner.lines.join(ctx, ",").len();
     let _ = io.println(ctx, "held ${held} joined ${joined}").ignore();
@@ -2956,13 +2956,13 @@ export fn main(): Result<(), Str> {
 fn defaulted_projection() -> String {
     String::from(
         r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct Wrapper { octets: [U8] }
 
-fn payload<C: Alloc>(ctx: C, n: Int): [U8] {
+fn payload<C: Allocator>(ctx: C, n: Int): [U8] {
     [1, 2, 3].map(ctx, fn(i) => (i + n).wrapToU8())
 }
 
@@ -2971,7 +2971,7 @@ fn size(held: Option<Wrapper>, fallback: Wrapper): Int {
 }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let present = size(
         .Some(Wrapper { octets: payload(ctx, 10) }),
         Wrapper { octets: payload(ctx, 20) },
@@ -3073,7 +3073,7 @@ fn heap_is_clean(name: &str, source: &str, lines: &[&str]) {
 fn early_return_out_of_an_arm() -> String {
     String::from(
         r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -3081,13 +3081,13 @@ fn refused(at: Int): Result<Int, Str> {
     if (at > 1) { .Err("refused") } else { .Ok(at) }
 }
 
-fn suffixed<C: Alloc>(ctx: C, seed: Str): Option<Str> {
+fn suffixed<C: Allocator>(ctx: C, seed: Str): Option<Str> {
     .Some(seed.repeat(ctx, 30000))
 }
 
 /// `temp` points into an `Option` this `match` built, and the release of that
 /// `Option` sits after the arms — past the `?`.
-fn through_an_arm<C: Alloc>(ctx: C, seed: Str, at: Int): Result<Int, Str> {
+fn through_an_arm<C: Allocator>(ctx: C, seed: Str, at: Int): Result<Int, Str> {
     match (suffixed(ctx, seed)) {
         .None => .Err("none"),
         .Some(temp) => {
@@ -3098,7 +3098,7 @@ fn through_an_arm<C: Alloc>(ctx: C, seed: Str, at: Int): Result<Int, Str> {
 }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let wrote = through_an_arm(ctx, "a", 0);
     let failed = through_an_arm(ctx, "b", 7);
     let _ = io.println(ctx, "wrote ${wrote.isOk()} failed ${failed.isOk()}").ignore();
@@ -3117,11 +3117,11 @@ export fn main(): Result<(), Str> {
 fn discarded_bindings() -> String {
     String::from(
         r#"
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-fn made<C: Alloc>(ctx: C, seed: Str): Str {
+fn made<C: Allocator>(ctx: C, seed: Str): Str {
     seed.repeat(ctx, 50000)
 }
 
@@ -3135,7 +3135,7 @@ fn taken(r: Result<Str, Str>, fallback: Str): Str {
 }
 
 export fn main(): Result<(), Str> {
-    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     // Discarded outright.
     let _ = made(ctx, "a");
     // And discarded after a `match` handed it out of a value it consumed.
@@ -3209,7 +3209,7 @@ fn echoing_socket_server() -> String {
 /// reconnect row needs two of.
 fn echoing_socket_server_for(sockets: u32) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -3218,7 +3218,7 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {{
     let ctx = context {{
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Listen: host.listen,
         Sockets: host.sockets,
         Stdout: host.stdout,
@@ -3279,12 +3279,12 @@ export fn main(): Result<(), Str> {{
 /// every row in this file binds `port: 0`: a test that picks a port races the
 /// pick against the bind.
 ///
-/// `Env` is in the context and `Listen` is not, which is the shape of the claim
+/// `Environment` is in the context and `Listen` is not, which is the shape of the claim
 /// — this program has no authority to accept anything, and it does not need
 /// one to hold a socket.
 fn dialling_client() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -3294,13 +3294,13 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
+        Allocator: host.alloc,
+        Environment: host.env,
         Sockets: host.sockets,
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let port = env.args(ctx).first().withDefault("0");
+    let port = env.withArguments(ctx).first().withDefault("0");
     let dialled = websocket.connect(ctx, Client {
         url: str.format(ctx, "ws://127.0.0.1:${port}/socket"),
         onOpen: fn(c, socket, response) => {
@@ -3585,7 +3585,7 @@ fn a_client_handed_a_signature_for_another_handshake_refuses_it() {
 /// out say which session heard what.
 fn reconnecting_client() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Clock, Env, Sockets, Stdout, WebSocketClient };
+        r#"from "core/effect" import { Allocator, Clock, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -3595,7 +3595,7 @@ from "core/net/websocket" import { Client };
 from "core/str" import * as str;
 from "core/time" import * as time;
 
-fn saying<C: Alloc + Sockets + Stdout + WebSocketClient>(
+fn saying<C: Allocator + Sockets + Stdout + WebSocketClient>(
     url: Str,
     session: Int,
     word: Str,
@@ -3621,7 +3621,7 @@ fn saying<C: Alloc + Sockets + Stdout + WebSocketClient>(
 }
 
 /// Dial, and when the socket has closed, sleep and dial again.
-fn following<C: Alloc + Clock + Sockets + Stdout + WebSocketClient>(
+fn following<C: Allocator + Clock + Sockets + Stdout + WebSocketClient>(
     ctx: C,
     url: Str,
     session: Int,
@@ -3646,14 +3646,14 @@ fn following<C: Alloc + Clock + Sockets + Stdout + WebSocketClient>(
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Clock: host.clock,
-        Env: host.env,
+        Environment: host.env,
         Sockets: host.sockets,
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let port = env.args(ctx).first().withDefault("0");
+    let port = env.withArguments(ctx).first().withDefault("0");
     let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
     let sessions = following(ctx, url, 1, 2);
     let _said = io.println(ctx, "reconnected ${sessions}").ignore();
@@ -3737,7 +3737,7 @@ fn a_client_reconnects_by_calling_connect_again() {
 /// and this prints the reason the program was handed for it.
 fn rounds_client() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -3747,7 +3747,7 @@ from "core/str" import * as str;
 
 /// Hooks that say nothing, so what this program prints is the ending and only
 /// the ending.
-fn quiet<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
+fn quiet<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
     Client {
         url: url,
         onOpen: fn(_c, _socket, _response) => 0,
@@ -3758,7 +3758,7 @@ fn quiet<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int
 
 /// Dial, print how it ended, and dial again. A self tail call, so a hundred
 /// sessions would cost one frame.
-fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(ctx: C, url: Str, left: Int): () {
+fn dialling<C: Allocator + Sockets + Stdout + WebSocketClient>(ctx: C, url: Str, left: Int): () {
     if (left <= 0) {
         ()
     } else {
@@ -3772,13 +3772,13 @@ fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(ctx: C, url: Str, lef
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
+        Allocator: host.alloc,
+        Environment: host.env,
         Sockets: host.sockets,
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let args = env.args(ctx);
+    let args = env.withArguments(ctx);
     let port = args.get(0).withDefault("0");
     let rounds = args.get(1).withDefault("0").toInt().withDefault(0);
     let _ran = dialling(ctx, str.format(ctx, "ws://127.0.0.1:${port}/socket"), rounds);
@@ -3862,7 +3862,7 @@ fn a_client_reads_every_close_a_far_side_can_send() {
 /// two — is a different header on each side of the wire.
 fn sizing_client() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -3871,7 +3871,7 @@ from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
 from "core/str" import * as str;
 
-fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str, large: Int): Client<C, Int> {
+fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str, large: Int): Client<C, Int> {
     Client {
         url: url,
         onOpen: fn(c, socket, _response) => {
@@ -3905,13 +3905,13 @@ fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str, large: Int): Cl
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
+        Allocator: host.alloc,
+        Environment: host.env,
         Sockets: host.sockets,
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let args = env.args(ctx);
+    let args = env.withArguments(ctx);
     let port = args.get(0).withDefault("0");
     // Past 125 and past 65535, which are the two points where a frame's length
     // stops fitting where it was. Given on the command line so the number is
@@ -4094,7 +4094,7 @@ fn a_server_that_answers_nothing_at_all_is_a_socket_that_never_opened() {
 /// catch an abort.
 fn aborting_client() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -4104,13 +4104,13 @@ from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
+        Allocator: host.alloc,
+        Environment: host.env,
         Sockets: host.sockets,
         Stdout: host.stdout,
         WebSocketClient: host.websocketClient,
     };
-    let port = env.args(ctx).first().withDefault("0");
+    let port = env.withArguments(ctx).first().withDefault("0");
     let zero = port.len() - port.len();
     let dialled = websocket.connect(ctx, Client {
         url: str.format(ctx, "ws://127.0.0.1:${port}/socket"),

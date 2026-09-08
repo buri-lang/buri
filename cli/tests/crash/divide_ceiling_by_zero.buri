@@ -3,15 +3,15 @@
 // `number.divideCeiling` rounds the other way from `divFloor` and stops the same
 // way: a zero divisor is `/`'s abort, not a rounded answer (`number.buri`,
 // SPEC 6.2).
-from "core/effect" import { Alloc, Stdout, Env };
+from "core/effect" import { Allocator, Stdout, Environment };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/number" import * as number;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
-  let zero = env.args(ctx).len();
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Environment: host.env };
+  let zero = env.arguments(ctx).len();
   let _ = io.println(ctx, "${number.divideCeiling(7, zero)}").ignore();
   .Ok(())
 }

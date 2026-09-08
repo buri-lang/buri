@@ -114,14 +114,14 @@
 //! the contexts nobody migrated — the ones written by hand — and the bindings
 //! a **dead bound** kept alive. `unused-context-bound`'s fix over the two
 //! corpora settled both, in that order, because the second follows from the
-//! first: `fn note<C: Alloc + Stdout>` whose body only prints forces
-//! `Alloc: alloc()` into the context of every test that calls it.
+//! first: `fn note<C: Allocator + Stdout>` whose body only prints forces
+//! `Allocator: alloc()` into the context of every test that calls it.
 //!
 //! Fifteen dead bounds went, over three rounds (the rule has a fixed point and
 //! reaching it takes as many passes as the call graph is deep), and **two
 //! hundred and forty-seven contexts then shrank** — two hundred and thirty-nine
-//! here and eight in `cli/tests/example` — dropping 251 bindings: 176 `Alloc`,
-//! 72 `Watch` and 3 `Net`. Fifty-eight of them were reachable *only* after the
+//! here and eight in `cli/tests/example` — dropping 251 bindings: 176 `Allocator`,
+//! 72 `Watch` and 3 `Network`. Fifty-eight of them were reachable *only* after the
 //! bounds went, measured by running the same sweep against the tree before
 //! them.
 //!
@@ -133,7 +133,7 @@
 //! written by hand against `core/host/testing` rather than rewritten from a
 //! world assembled for it — no commit in its history builds one. That leaves
 //! `semantics/evaluation.buri`, which is migrated and dropped fifty-one
-//! `Alloc`s: fifty of them are the dead bound on `note` and its nine
+//! `Allocator`s: fifty of them are the dead bound on `note` and its nine
 //! neighbours, which the migration could not have seen, and the fifty-first is
 //! one binding it genuinely left behind, out of the four hundred and
 //! sixty-four sites its three batches wrote here.
@@ -382,7 +382,7 @@ const PACKAGES: &[Case] = &[
     // merely different.
     included("memory/allocators.buri"),
     // `core/alloc`'s scope, on the same terms: every effect forwarding through
-    // a `Scoped<C>` and `Alloc` not forwarding are both claims about *who was
+    // a `Scoped<C>` and `Allocator` not forwarding are both claims about *who was
     // charged*, which is the defined model and so the same integers here as on
     // the JavaScript side. The arena's pages are the other half of the slice
     // and are asserted where they are visible — `cli/runtime/memory.rs`'s own
@@ -435,7 +435,7 @@ const PACKAGES: &[Case] = &[
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what said
     // so on the day each stopped being true.
     //
-    // Neither builds one any more: both name `Alloc` alone. The reason above is
+    // Neither builds one any more: both name `Allocator` alone. The reason above is
     // why each *was* out, and it is left standing because the reason a file was
     // excluded is the thing this ledger records — but the pressure it names is
     // gone from those files and from every other in the corpus.
@@ -583,15 +583,15 @@ const PACKAGES: &[Case] = &[
     // that out loud on the native one too (design/grammar-rationale.md 12.3).
     included("semantics/anonymous.buri"),
     // The eighth: `core/host/testing`'s ten doubles. Seven of them are handles
-    // over `cli/runtime/testing.rs`'s table; `TestAlloc` is the two
-    // instructions both backends open-code, and `TestNet` and `TestProc` are
+    // over `cli/runtime/testing.rs`'s table; `TestAllocator` is the two
+    // instructions both backends open-code, and `TestNetwork` and `TestProcess` are
     // Buri bodies with no row at all. So the file reaches nothing the archive
     // did not already have. It is here rather than folded into `effects.buri`
     // because the two ask different questions: `effects.buri` is about contexts
     // and `host_testing.buri` is about the doubles a context binds.
     included("semantics/host_testing.buri"),
-    // The ninth: `Request` and `Response`, the two types `Net.fetch` speaks in.
-    // No `Net` call in it reaches the network — a fresh `net()` refuses and the rest
+    // The ninth: `Request` and `Response`, the two types `Network.fetch` speaks in.
+    // No `Network` call in it reaches the network — a fresh `net()` refuses and the rest
     // is construction — so what this proves natively is the *shape*: a struct
     // holding a `[Header]` and a `[U8]`, its derived `Eq` and `Show`, and the
     // `core/bytes` pair underneath the text constructors.
@@ -667,7 +667,7 @@ const PACKAGES: &[Case] = &[
     // reaching no host, with every answer a number somebody else published.
     included("checksum/checksum.buri"),
     // The seeded `Entropy` double and the two doors onto it. Native from the
-    // day it landed: `TestEntropy` shares `Slot::Rand` with `TestRand` in
+    // day it landed: `TestEntropy` shares `Slot::Rand` with `TestRandom` in
     // `cli/runtime/testing.rs`, so the sequence this file writes down is the
     // one both backends draw.
     included("crypto/entropy.buri"),
@@ -1400,7 +1400,7 @@ fn the_test_platform_agrees_with_the_runner() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r##"from "core/effect" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+    const SOURCE: &str = r##"from "core/effect" import { Allocator, Clock, Environment, Random, Stderr, Stdin, Stdout };
 from "core/env" import * as env;
 from "core/host/testing" import {
   alloc, clock, env, rand, stderr, stdin, stdout,
@@ -1425,7 +1425,7 @@ fn shout<C: Stderr>(ctx: C, what: Str): () {
 
 test "captured reads back what a function printed" {
   let sink = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Allocator: alloc(), Stdout: sink };
   speak(ctx, "hello");
   assert.eq(sink.captured(), "[hello]\n");
 }
@@ -1433,7 +1433,7 @@ test "captured reads back what a function printed" {
 test "a fresh sink is empty and stays independent" {
   let first = stdout();
   let second = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: first };
+  let ctx = context { Allocator: alloc(), Stdout: first };
   speak(ctx, "one");
   assert.eq(second.captured(), "");
   assert.eq(first.captured(), "[one]\n");
@@ -1441,7 +1441,7 @@ test "a fresh sink is empty and stays independent" {
 
 test "captured accumulates in the order things were printed" {
   let sink = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Allocator: alloc(), Stdout: sink };
   let _ = io.print(ctx, "a").ignore();
   let _ = io.println(ctx, "b").ignore();
   let _ = io.print(ctx, "c").ignore();
@@ -1450,7 +1450,7 @@ test "captured accumulates in the order things were printed" {
 
 test "writeBytes is captured as the text the octets spell" {
   let sink = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Allocator: alloc(), Stdout: sink };
   let _ = io.writeBytes(ctx, [104, 105]).ignore();
   assert.eq(sink.captured(), "hi");
 }
@@ -1458,7 +1458,7 @@ test "writeBytes is captured as the text the octets spell" {
 test "standard error is its own transcript" {
   let out = stdout();
   let err = stderr();
-  let ctx = context { Alloc: alloc(), Stdout: out, Stderr: err };
+  let ctx = context { Allocator: alloc(), Stdout: out, Stderr: err };
   shout(ctx, "bad");
   assert.eq(err.captured(), "<bad\n");
   assert.eq(out.captured(), "");
@@ -1466,7 +1466,7 @@ test "standard error is its own transcript" {
 
 test "a test clock starts where it was put and moves only when moved" {
   let dial = clock().at(1000);
-  let ctx = context { Alloc: alloc(), Clock: dial };
+  let ctx = context { Allocator: alloc(), Clock: dial };
   assert.eq(time.now(ctx).0, 1000);
   assert.eq(time.now(ctx).0, 1000);
   let _ = time.sleepMs(ctx, 5);
@@ -1476,48 +1476,48 @@ test "a test clock starts where it was put and moves only when moved" {
 }
 
 test "a seeded generator is the same sequence on every backend" {
-  let ctx = context { Alloc: alloc(), Rand: rand().seed(0) };
+  let ctx = context { Allocator: alloc(), Random: rand().seed(0) };
   assert.eq(random.int(ctx, 0, 100), 69);
   assert.eq(random.int(ctx, 0, 100), 89);
   assert.eq(random.int(ctx, 10, 11), 10);
-  let ctx2 = context { Alloc: alloc(), Rand: rand().seed(7) };
+  let ctx2 = context { Allocator: alloc(), Random: rand().seed(7) };
   assert.eq(random.int(ctx2, 0, 1000), 583);
 }
 
 test "two generators with the same seed agree with each other" {
-  let a = context { Alloc: alloc(), Rand: rand().seed(42) };
-  let b = context { Alloc: alloc(), Rand: rand().seed(42) };
+  let a = context { Allocator: alloc(), Random: rand().seed(42) };
+  let b = context { Allocator: alloc(), Random: rand().seed(42) };
   assert.eq(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
 }
 
 test "an environment holds what it was given and nothing else" {
   let ctx = context {
-    Alloc: alloc(),
-    Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).arguments(["--verbose", "x"]),
+    Allocator: alloc(),
+    Environment: env().variables([("HOME", "/tmp"), ("LANG", "C")]).withArguments(["--verbose", "x"]),
   };
   assert.eq(assert.some(env.get(ctx, "HOME")), "/tmp");
   assert.eq(assert.some(env.get(ctx, "LANG")), "C");
   assert.isTrue(env.get(ctx, "PATH").isNone());
-  let args = env.args(ctx);
+  let args = env.withArguments(ctx);
   assert.eq(args.len(), 2);
   assert.eq(args.join(ctx, " "), "--verbose x");
 }
 
 test "an empty environment has no variables and no arguments" {
-  let ctx = context { Alloc: alloc(), Env: env() };
+  let ctx = context { Allocator: alloc(), Environment: env() };
   assert.isTrue(env.get(ctx, "HOME").isNone());
-  assert.eq(env.args(ctx).len(), 0);
+  assert.eq(env.withArguments(ctx).len(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
-  let ctx = context { Alloc: alloc(), Stdin: stdin().lines(["one", "two"]) };
+  let ctx = context { Allocator: alloc(), Stdin: stdin().lines(["one", "two"]) };
   assert.eq(assert.some(io.readLine(ctx)), "one");
   assert.eq(assert.some(io.readLine(ctx)), "two");
   assert.isTrue(io.readLine(ctx).isNone());
 }
 
 test "a stdin of octets reads them, and readLine finds nothing there" {
-  let ctx = context { Alloc: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
+  let ctx = context { Allocator: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
   let first = assert.some(io.readBytes(ctx, 3));
   assert.eq(first.len(), 3);
   assert.eq(assert.some(first.get(0)), 1);
@@ -1576,7 +1576,7 @@ fn self_through_a_context_is_the_implementing_type() {
         return;
     }
     const SOURCE: &str = r#"from "core/effect" import {
-  Alloc, Clock, Listen, Net, Request, Response, Sockets, Stdout, Tasks,
+  Allocator, Clock, Listen, Network, Request, Response, Sockets, Stdout, Tasks,
 };
 from "core/host/testing" import { alloc, clock, stdout };
 from "core/io" import * as io;
@@ -1591,7 +1591,7 @@ from "//lib/semantics" import {
 test "the handler is handed the caller's context" {
   let sink = stdout();
   let ctx = context {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Listen: OneShotListen { bindsTo: "10.0.0.1" },
     Stdout: sink,
     Tasks: SerialTasks { label: "serial", bias: 4 },
@@ -1617,7 +1617,7 @@ test "the handler is handed the caller's context" {
 
 test "and a task is handed the context" {
   let ctx = context {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Clock: clock().at(5),
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
@@ -1627,9 +1627,9 @@ test "and a task is handed the context" {
 
 test "and through a bound the call still lands" {
   let ctx = context {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
-    Net: TeapotNet { body: [] },
+    Network: TeapotNet { body: [] },
     Sockets: QuietSockets {},
     Tasks: SerialTasks { label: "serial", bias: 0 },
   };

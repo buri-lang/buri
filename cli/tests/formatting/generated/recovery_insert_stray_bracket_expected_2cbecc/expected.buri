@@ -2,7 +2,7 @@ export fn f(): Int {
     let ctx = context {
         ..parent,
         Clock: Fixed(0),
-        Alloc: System(),
+        Allocator: System(),
     };
     let total: [Int] = [1, 2, , 3];
     total.len()

@@ -1707,7 +1707,7 @@ function $alloc_total(h) {
 
 // --- core/alloc's scope (G4) -------------------------------------------------
 //
-// `Scoped<C>` forwards every effect but `Alloc`, and its `Alloc` charges the
+// `Scoped<C>` forwards every effect but `Allocator`, and its `Allocator` charges the
 // arena named by these handles. What the *native* runtime does on top of this
 // — reserve the bytes as anonymous pages and `munmap` them at release — has no
 // counterpart here and needs none: this backend has a garbage collector under
@@ -2021,7 +2021,7 @@ function $utf8Lossy(b) {
 
 // `require` does not exist in an ES module on node, so the backend emits a
 // `createRequire` prologue when — and only when — a program actually reaches
-// one of the two modules below. A program whose `main` binds neither `Fs` nor
+// one of the two modules below. A program whose `main` binds neither `FileSystem` nor
 // `Stdout.writeBytes` never gets one.
 //
 // The synchronous half answers the two writers that must not wait:
@@ -2043,9 +2043,9 @@ function $fsOrNull() {
   return null;
 }
 
-// The filesystem every `Fs` method reaches: `node:fs/promises`, so that a read
+// The filesystem every `FileSystem` method reaches: `node:fs/promises`, so that a read
 // is a wait rather than a stall. **Node and Bun only.** A browser has no such
-// module and no browser platform grants `Fs` (`standard_library`'s grant
+// module and no browser platform grants `FileSystem` (`standard_library`'s grant
 // table), so the abort below is unreachable from a `WEB` artifact and is what
 // a mis-grant would say out loud rather than silently.
 // A `Path` is a one-field struct, and generated code represents a struct as an
@@ -2460,7 +2460,7 @@ function $host_HostEnv_variable(self, name) {
   return v === undefined ? undefined : $some(v);
 }
 
-function $host_HostEnv_args(self) {
+function $host_HostEnv_arguments(self) {
   if (typeof Bun !== "undefined") return Bun.argv.slice(2);
   if (typeof process !== "undefined") return process.argv.slice(2);
   return [];
@@ -2884,7 +2884,7 @@ async function $host_HostWebSocketClient_connectSocket(self, url) {
   };
   // One await on a promise three handlers resolve. Nothing spins and nothing
   // blocks, so a page keeps rendering while this is in flight — the same
-  // thing that let `Net.fetch` onto a page.
+  // thing that let `Network.fetch` onto a page.
   const failed = await opening;
   if (failed !== null) return $err([$SERVE_TRANSPORT, failed]);
   const handle = $wsNext++;
@@ -3273,7 +3273,7 @@ function $ui_write(cell, v) {
 // than N.
 //
 // The transaction is the handler's *synchronous* run, and that is the whole of
-// the decision now that a handler can wait. A page grants `Net`, so a press
+// the decision now that a handler can wait. A page grants `Network`, so a press
 // may write "asking the server", suspend on the answer, and write again when
 // it arrives — and those are two transactions, not one held open across the
 // wait. Holding it open would mean the first notice did not reach the document
@@ -4732,7 +4732,7 @@ function $slot(x) {
 //
 // Configuration answers a *new* handle rather than editing the one it was
 // called on, so `clock()` and `clock().at(1000)` are two clocks and a test
-// holding both holds two. `TestFs.readOnly` is the one that answers a new
+// holding both holds two. `TestFileSystem.readOnly` is the one that answers a new
 // handle over the *same* two objects, because attenuating a filesystem is not
 // copying it.
 
@@ -4840,7 +4840,7 @@ function $host_testing_TestStdin_calls(self) {
   });
 }
 
-// A `TestFs` handle is a *view*: the files and directories it reads and writes,
+// A `TestFileSystem` handle is a *view*: the files and directories it reads and writes,
 // and whether writes through this view are refused. `readOnly` answers a second
 // view over the *same* two objects, which is what makes `readOnly` a method
 // without turning it into a copy — an attenuating view holds the inner
@@ -4851,8 +4851,8 @@ function $host_testing_TestStdin_calls(self) {
 // `-1` where nothing has called `faults`; it travels with a builder exactly as
 // `ro` does.
 //
-// Every row below takes the **handle** rather than the `TestFs`, because a
-// `TestFs` is a handle *and* a fault plan and an argument crosses as its leaves.
+// Every row below takes the **handle** rather than the `TestFileSystem`, because a
+// `TestFileSystem` is a handle *and* a fault plan and an argument crosses as its leaves.
 // That is `$host_testing_netCalls`'s reason, one slice later.
 function $tslot(h) {
   return $t.h[Number(h)];
@@ -5421,7 +5421,7 @@ function $host_testing_TestWebSocketClient_connectReceive(self, socket) {
 
 // A fresh, empty log, and the handle that names it. A bare `I64` rather than a
 // handle-carrying value, because `net()` is a Buri body that builds the
-// `TestNet` around it — the responder in the other field is a value this file
+// `TestNetwork` around it — the responder in the other field is a value this file
 // cannot make.
 function $host_testing_newNet() {
   return $tmint({ calls: [], plan: -1 });
@@ -5462,8 +5462,8 @@ function $host_testing_recordFetch(h, method, url, headers, body, timeout) {
 // Every request this network answered, in that order. A `NetCall` is a newtype
 // over `Request`, so each one is its request in a one-element array.
 //
-// By the handle and not by the `TestNet`: that value carries a responder as
-// well, and `TestNet.calls` is the Buri body that unwraps it — the one `calls()`
+// By the handle and not by the `TestNetwork`: that value carries a responder as
+// well, and `TestNetwork.calls` is the Buri body that unwraps it — the one `calls()`
 // in this module that is not a row of its own.
 function $host_testing_netCalls(h) {
   return $t.h[Number(h)].calls.map(function (r) {
@@ -5534,7 +5534,7 @@ function $host_testing_tcpCalls(h) {
 }
 
 // The read-back, without the effect: the same answer `readFile` gives, and no
-// `Fs` bound needed to ask it.
+// `FileSystem` bound needed to ask it.
 function $host_testing_fsRead(h, p) {
   const f = $tslot(h).files;
   return p in f ? $ok($utf8Lossy(f[p])) : $err([0]);
@@ -5772,7 +5772,7 @@ function $host_testing_TestClock_sleepMillis(self, ms) {
 }
 
 // One reading, two clocks: the monotonic side is the millisecond side in
-// nanoseconds, so `sleepMillis` moves both together and a test can assert an
+// nanoseconds, so `sleepMilliseconds` moves both together and a test can assert an
 // elapsed measurement without waiting for one.
 function $host_testing_TestClock_monotonicNanoseconds(self) {
   return $slot(self).now * 1000000n;
@@ -5809,7 +5809,7 @@ function $host_testing_TestRand_nextFloat(self) {
   return $nextRand($slot(self)) / 4294967296;
 }
 
-// The seeded `Entropy`, on `TestRand`'s own generator and at its own seeds, so
+// The seeded `Entropy`, on `TestRandom`'s own generator and at its own seeds, so
 // `entropy().seed(7)` and `rand().seed(7)` draw the same sequence — one octet
 // per step, which is the low byte `nextInt(0, 256)` would have taken. A sealed
 // value written into an assertion therefore holds on both backends.
@@ -5843,7 +5843,7 @@ function $host_testing_TestEnv_variables(self, vars) {
   return $handle({ vars: v, args: $slot(self).args.slice() });
 }
 
-function $host_testing_TestEnv_arguments(self, args) {
+function $host_testing_TestEnv_withArguments(self, args) {
   return $handle({ vars: Object.assign({}, $slot(self).vars), args: args.slice() });
 }
 
@@ -5852,7 +5852,7 @@ function $host_testing_TestEnv_variable(self, name) {
   return name in v ? $some(v[name]) : undefined;
 }
 
-function $host_testing_TestEnv_args(self) {
+function $host_testing_TestEnv_arguments(self) {
   return $slot(self).args.slice();
 }
 
@@ -5888,7 +5888,7 @@ function $host_testing_newSpawn() {
 
 // The plan is the program, the working directory and then the arguments, and
 // the split happens here for the reason `host_testing.buri` gives: a Buri body
-// would need an `Alloc` and an effect method takes only `self`.
+// would need an `Allocator` and an effect method takes only `self`.
 function $host_testing_recordSpawn(h, plan) {
   $tslot(h).calls.push([plan.length > 0 ? plan[0] : "", plan.slice(2)]);
   return 0;
@@ -5900,10 +5900,10 @@ function $host_testing_spawnCalls(h) {
   });
 }
 
-// `proc()` has no function here and no slot: `TestProc` records nothing,
-// because nothing can read it back. `proc()` is `TestProc(0)` and `exitWith`
+// `proc()` has no function here and no slot: `TestProcess` records nothing,
+// because nothing can read it back. `proc()` is `TestProcess(0)` and `exitWith`
 // is an empty body, both written in `host_testing.buri` — the same shape
-// `TestNet` has, reached for the plainer reason.
+// `TestNetwork` has, reached for the plainer reason.
 
 // --- core/testing/assert ------------------------------------------------------------
 //

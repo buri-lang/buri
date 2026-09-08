@@ -2,7 +2,7 @@
 // Nothing above this arm covers anything. The alternative that kills the third
 // one is the first one, in the same arm — alternatives are tried left to right,
 // so each is asked about the ones to its left as well as about the arms above.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -16,7 +16,7 @@ fn area(s: Shape): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${area(Shape.Empty)}").ignore();
   .Ok(())
 }
