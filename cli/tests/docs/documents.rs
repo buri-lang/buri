@@ -543,6 +543,140 @@ fn no_document_invents_a_flag() {
     );
 }
 
+/// The pages an agent reads before it writes a suite: the shipped skills and
+/// the testing guide.
+const AGENT_TESTING_PAGES: &[&str] = &["cli/src/docs/guides/testing.md"];
+
+/// The two testing modules whose names those pages spell out, as
+/// `<prefix>.<name>` — the prefix being what every one of them writes for
+/// `import * as`.
+const TESTING_MODULES: &[(&str, &str)] = &[
+    ("assert", "core/testing/assert"),
+    ("check", "core/testing/check"),
+];
+
+/// Every `assert.<name>` and `check.<name>` those pages write is a name the
+/// module actually exports.
+///
+/// `buri-testing` carried a table row for `assert.fail(msg)` long after the
+/// function was removed. Nothing caught it: the row is prose, and the suite
+/// that compiles the documentation compiles fenced examples. The skill is the
+/// first thing an agent reads, so the row cost a compile-and-fix cycle on the
+/// first test anybody wrote that wanted to fail on purpose.
+///
+/// A denial is checked the other way round. "There is no `assert.fail`" is a
+/// sentence the page has to be able to write, and it earns the same guarantee:
+/// the name must be absent, so the sentence cannot outlive the removal it
+/// describes either.
+#[test]
+fn every_assertion_the_agent_pages_name_exists() {
+    let mut pages: Vec<(String, String)> = buri::commands::add::skills::SKILLS
+        .iter()
+        .map(|s| (format!("skill {}", s.name), s.text.to_string()))
+        .collect();
+    for doc in AGENT_TESTING_PAGES {
+        pages.push(((*doc).to_string(), read(doc)));
+    }
+
+    let mut wrong = Vec::new();
+    let mut checked = 0;
+    for (prefix, module) in TESTING_MODULES {
+        let exports = std_exports(module);
+        assert!(
+            exports.len() > 5,
+            "`{module}` renders {} exports; is the scan still reading the source?",
+            exports.len()
+        );
+        for (page, text) in &pages {
+            for (n, line) in text.lines().enumerate() {
+                for (name, denied) in member_mentions(line, prefix) {
+                    checked += 1;
+                    let at = format!("{page}:{}: `{prefix}.{name}`", n + 1);
+                    match (exports.contains(&name), denied) {
+                        (false, false) => {
+                            wrong.push(format!("{at} — `{module}` exports no such name"));
+                        }
+                        (true, true) => {
+                            wrong.push(format!("{at} — `{module}` does export it"));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 20, "only {checked} names were checked; are the pages still being read?");
+    assert!(
+        wrong.is_empty(),
+        "these pages name an assertion the module disagrees about:\n{}\n  \
+         A page an agent reads before writing a suite is the one place a stale \
+         name costs a compile-and-fix cycle on the first test.",
+        wrong.join("\n")
+    );
+}
+
+/// The names a standard library module exports, off its `export` lines. An
+/// indented line is a body rather than a declaration, and a `//!` or `///`
+/// line is a comment, so a top-level prefix is the whole rule.
+fn std_exports(path: &str) -> std::collections::HashSet<String> {
+    let module = buri::compiler::standard_library::MODULES
+        .iter()
+        .find(|m| m.path == path)
+        .unwrap_or_else(|| panic!("`{path}` is not a standard library module"));
+    let mut out = std::collections::HashSet::new();
+    for line in module.source.lines() {
+        let Some(rest) = line.strip_prefix("export ") else { continue };
+        let rest = ["fn ", "let ", "struct ", "enum ", "type "]
+            .iter()
+            .find_map(|keyword| rest.strip_prefix(keyword))
+            .unwrap_or(rest);
+        let name: String =
+            rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if !name.is_empty() {
+            out.insert(name);
+        }
+    }
+    out
+}
+
+/// Every `<prefix>.<name>` on one line, and whether the page wrote it as a
+/// **denial** — "there is no `assert.fail`", in prose or in bold.
+///
+/// A name has to start immediately after the dot, which is what keeps the
+/// sentence "the compiler will check." out of this: prose ends a `check` with
+/// a space or a line break, never with an identifier.
+fn member_mentions(line: &str, prefix: &str) -> Vec<(String, bool)> {
+    let needle = format!("{prefix}.");
+    let mut out = Vec::new();
+    let mut at = 0;
+    while let Some(found) = line[at..].find(&needle) {
+        let start = at + found;
+        let before = &line[..start];
+        at = start + needle.len();
+        // `core/testing/assert` and `list.check` are other words, not this one.
+        if before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '/' || c == '.') {
+            continue;
+        }
+        let name: String =
+            line[at..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if name.is_empty() || !name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
+            continue;
+        }
+        at += name.len();
+        out.push((name, denies(before)));
+    }
+    out
+}
+
+/// Whether the words in front of a mention deny it. Markdown emphasis and the
+/// opening backtick are not words, so they come out first: "There is **no
+/// `assert.fail`**" says `no` exactly as the unadorned sentence does.
+fn denies(before: &str) -> bool {
+    let words: String = before.chars().filter(|c| !matches!(c, '*' | '_' | '`')).collect();
+    let words = words.trim_end();
+    words.ends_with(" no") || words.ends_with(" not") || words == "no"
+}
+
 /// `buri docs language/types | head` must not panic. A pipe closing early is the
 /// reader saying it has enough, not an error — and it is the first thing
 /// anybody does with a command that prints a page.
