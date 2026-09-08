@@ -3201,6 +3201,13 @@ impl Jit<'_> {
     ///
     /// The `.Err` arm renders the value it was handed, so a value that had
     /// already lost digits would say so rather than hide behind the message.
+    ///
+    /// # The four shapes
+    ///
+    /// [`Checked`] names them. Three of the four have a *source* the machine
+    /// can compare directly against the target's ends; the fourth, `F64 -> F32`,
+    /// has no integer range at all and asks a different question — whether the
+    /// value survived as a finite one.
     #[allow(
         clippy::too_many_arguments,
         reason = "the program and the function index locate the `Result`'s layout, \
@@ -3219,16 +3226,7 @@ impl Jit<'_> {
         dest: u32,
     ) -> Result<(), String> {
         let refuse = || format!("Body::Runtime num.{}.to{}", from.name(), to.name());
-        // Integers only. A float source has `NaN` and the infinities to answer
-        // for, and `Char` is a set of scalar values rather than a range.
-        if !from.is_integer() || !to.is_integer() {
-            return Err(refuse());
-        }
-        let (Some((tag, _, _)), Some((from_lo, from_hi)), Some((to_lo, to_hi))) =
-            (prim_tag(from), from.int_range(), to.int_range())
-        else {
-            return Err(refuse());
-        };
+        let Some(kind) = Checked::of(from, to) else { return Err(refuse()) };
         let Some(ir::Type::Agg(id)) = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied())
         else {
             return Err(refuse());
@@ -3256,33 +3254,108 @@ impl Jit<'_> {
         let verdict = st.scratch;
         let err = st.label();
         let done = st.label();
-        for (op, needed, pattern) in
-            [("lt", to_lo > from_lo, to_lo as u128), ("gt", to_hi < from_hi, to_hi)]
-        {
-            if !needed {
-                continue;
+        match kind {
+            // Integer to integer. The test is at the **source's** width, and a
+            // bound the source cannot reach is not tested at all.
+            Checked::Ints => {
+                let (Some((tag, _, _)), Some((from_lo, from_hi)), Some((to_lo, to_hi))) =
+                    (prim_tag(from), from.int_range(), to.int_range())
+                else {
+                    return Err(refuse());
+                };
+                for (op, needed, pattern) in
+                    [("lt", to_lo > from_lo, to_lo as u128), ("gt", to_hi < from_hi, to_hi)]
+                {
+                    if !needed {
+                        continue;
+                    }
+                    self.imm_num(bound, from, pattern);
+                    self.cmp_to(tag, op, src, bound, verdict, err, true);
+                }
+                self.convert(st, from, to, src, dest + ok_at)?;
             }
-            self.imm_num(bound, from, pattern);
-            self.emit(
-                &format!("bin/{op}/{tag}/ff/f"),
-                &[
-                    ("JIT_D", V::I(u64::from(verdict))),
-                    ("JIT_A", V::I(u64::from(src))),
-                    ("JIT_B", V::I(u64::from(bound))),
-                    ("JIT_CONT", V::Fall),
-                ],
-            );
-            let brkey = self.arm_key("br/f", "JIT_F");
-            self.emit(
-                &brkey,
-                &[
-                    ("JIT_A", V::I(u64::from(verdict))),
-                    ("JIT_T", V::Blk(err)),
-                    ("JIT_F", V::Fall),
-                ],
-            );
+            // A float source, which has three ways not to fit where an integer
+            // one has two: it can be fractional, it can be `NaN`, and it can be
+            // infinite. JavaScript answers all three with the same `.Err`
+            // (`runtime.js`'s `$convChecked` tests `Number.isInteger` first and
+            // the range second), and so does this.
+            //
+            // **The bounds are written one past the end.** `v > I64::MAX` is
+            // not a comparison a double can make — `I64::MAX` has no double —
+            // and rounding it up would accept `2^63`, which JavaScript's
+            // `BigInt` comparison rejects. Every `hi + 1` is a power of two and
+            // every `lo` is zero or a negative one, so both bounds are exact
+            // doubles and `v >= hi + 1` is the same question with an answer.
+            Checked::FloatToInt => {
+                let v = self.as_f64(st, from, src);
+                let (Some((to_lo, to_hi)), Some((_, tw, _))) = (to.int_range(), prim_tag(to))
+                else {
+                    return Err(refuse());
+                };
+                #[allow(
+                    clippy::cast_precision_loss,
+                    reason = "every integer type's lower bound is zero or a negative power \
+                              of two, which a double holds exactly"
+                )]
+                let lo = to_lo as f64;
+                #[allow(
+                    clippy::cast_precision_loss,
+                    reason = "every `hi + 1` here is a power of two at most 2^64, which a \
+                              double holds exactly; that is the property the bound relies on"
+                )]
+                let over = (to_hi + 1) as f64;
+                self.imm_num(bound, Prim::F64, u128::from(lo.to_bits()));
+                self.cmp_to("f64", "lt", v, bound, verdict, err, true);
+                self.imm_num(bound, Prim::F64, u128::from(over.to_bits()));
+                self.cmp_to("f64", "ge", v, bound, verdict, err, true);
+                // In range, so the truncation is exact and the round trip back
+                // through a double says whether the value was an integer at
+                // all. `NaN` never gets this far — it fails both comparisons
+                // above the way JavaScript's `isInteger` fails it.
+                let raw = st.scratch + (super::rtcall::RAW_WORD + 1) * 8;
+                let back = st.scratch + (super::rtcall::RAW_WORD + 2) * 8;
+                let unsigned = !to.is_signed();
+                self.cvt(if unsigned { "cvt/f2u" } else { "cvt/f2i" }, raw, v);
+                self.cvt(if unsigned { "cvt/u2f" } else { "cvt/i2f" }, back, raw);
+                self.cmp_to("f64", "ne", back, v, verdict, err, true);
+                self.narrow(raw, dest + ok_at, tw);
+            }
+            // `U32 -> Char`, where the target is a set of scalar values rather
+            // than a range: everything above U+10FFFF is out, and so is the
+            // surrogate block in the middle of it (`runtime.js`'s `$toChar`).
+            Checked::ToChar => {
+                let Some((tag, _, _)) = prim_tag(from) else { return Err(refuse()) };
+                let scalar = st.label();
+                self.imm_num(bound, from, 0x0010_ffff);
+                self.cmp_to(tag, "gt", src, bound, verdict, err, true);
+                self.imm_num(bound, from, 0xd800);
+                self.cmp_to(tag, "lt", src, bound, verdict, scalar, true);
+                self.imm_num(bound, from, 0xdfff);
+                self.cmp_to(tag, "gt", src, bound, verdict, scalar, true);
+                self.emit("jump", &[("JIT_T", V::Blk(err))]);
+                let here = self.region.code_addr();
+                st.place(scalar, here);
+                self.convert(st, from, to, src, dest + ok_at)?;
+            }
+            // `F64 -> F32`, which fails only where the value does not survive
+            // as a finite binary32. Asked of the answer rather than of the
+            // input: the rounded value is infinite exactly when the input
+            // overflowed — or was infinite already, and an infinity converts to
+            // an infinity rather than failing.
+            Checked::ToF32 => {
+                let back = st.scratch + super::rtcall::RAW_WORD * 8;
+                self.cvt("cvt/f2f32", dest + ok_at, src);
+                self.cvt("cvt/f322f", back, dest + ok_at);
+                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+                    let survived = st.label();
+                    self.imm_num(bound, Prim::F64, u128::from(infinite.to_bits()));
+                    self.cmp_to("f64", "ne", back, bound, verdict, survived, true);
+                    self.cmp_to("f64", "ne", src, bound, verdict, err, true);
+                    let here = self.region.code_addr();
+                    st.place(survived, here);
+                }
+            }
         }
-        self.convert(st, from, to, src, dest + ok_at)?;
         self.store_disc(&result, dest, 0);
         self.emit("jump", &[("JIT_T", V::Blk(done))]);
 
@@ -3294,6 +3367,86 @@ impl Jit<'_> {
         let here = self.region.code_addr();
         st.place(done, here);
         Ok(())
+    }
+
+    /// `frame[verdict] = frame[a] <op> frame[b]`, and the branch to `target`
+    /// that answer takes. `when` says on which of the two it leaves.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a comparison and its branch: the two operands, where the answer \
+                  lands, the width to compare at, and the arm that leaves"
+    )]
+    fn cmp_to(
+        &mut self,
+        tag: &str,
+        op: &str,
+        a: u32,
+        b: u32,
+        verdict: u32,
+        target: u32,
+        when: bool,
+    ) {
+        self.emit(
+            &format!("bin/{op}/{tag}/ff/f"),
+            &[
+                ("JIT_D", V::I(u64::from(verdict))),
+                ("JIT_A", V::I(u64::from(a))),
+                ("JIT_B", V::I(u64::from(b))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        let brkey = self.arm_key("br/f", if when { "JIT_F" } else { "JIT_T" });
+        let (t, f) =
+            if when { (V::Blk(target), V::Fall) } else { (V::Fall, V::Blk(target)) };
+        self.emit(
+            &brkey,
+            &[("JIT_A", V::I(u64::from(verdict))), ("JIT_T", t), ("JIT_F", f)],
+        );
+    }
+
+    /// One `cvt/*` stencil, which every conversion here is a sequence of.
+    fn cvt(&mut self, key: &str, dest: u32, src: u32) {
+        self.emit(
+            key,
+            &[
+                ("JIT_D", V::I(u64::from(dest))),
+                ("JIT_A", V::I(u64::from(src))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+    }
+
+    /// A whole word as the target's own width, which is how a frame slot holds
+    /// an integer: zero-extended at that width, whatever its signedness
+    /// (`sources.rs::write`).
+    fn narrow(&mut self, src: u32, dest: u32, bits: u32) {
+        if bits >= 64 {
+            self.mv(dest, src, 8);
+        } else {
+            self.emit(
+                &format!("zext/{bits}"),
+                &[
+                    ("JIT_D", V::I(u64::from(dest))),
+                    ("JIT_A", V::I(u64::from(src))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+        }
+    }
+
+    /// A float operand as a **double**, wherever it started.
+    ///
+    /// An `F32` sits in its frame slot as its own thirty-two bits, and every
+    /// sequence below reads a slot as a double — so the widening happens once,
+    /// here, and it is exact. It is also what JavaScript compares: an `F32`
+    /// there is a `number`, which is the double this produces.
+    fn as_f64(&mut self, st: &Fn2, from: Prim, src: u32) -> u32 {
+        if from == Prim::F32 {
+            let wide = st.scratch + super::rtcall::RAW_WORD * 8;
+            self.cvt("cvt/f322f", wide, src);
+            return wide;
+        }
+        src
     }
 
     /// `saturatingAdd`, `saturatingSub`, `saturatingMul`.
@@ -3782,10 +3935,26 @@ impl Jit<'_> {
                 }
                 Ok(())
             }
-            // Float to integer rounds toward zero, and out of range is
-            // undefined in C but not in this language: the shape needs the
-            // clamp `llvm/emit.rs::float_to_int` emits, and it is not here.
-            (true, false) => Err(format!("a conversion from `{}`", from.name())),
+            // Float to integer rounds toward zero, and out of range saturates
+            // rather than being undefined — `sources.rs`'s `cvt/f2i` writes the
+            // clamp out, which is the same answer `llvm/emit.rs::float_to_int`
+            // gets from `llvm.fptosi.sat`.
+            //
+            // **Signed, whatever the target is.** This arm is the *wrapping*
+            // family's and a checked conversion's `.Ok` both, and the wrapping
+            // one takes the low bits of a two's-complement truncation: JavaScript
+            // reads `(-1.5).wrapToU8()` as `asUintN(8, -1n)`, which is `255`, and
+            // a truncation toward zero followed by the target's own width is that
+            // number. `convert_checked` is the one caller that wants the other
+            // direction — a `U64` above `2^63` — and it emits its own conversion
+            // for that reason.
+            (true, false) => {
+                let wide = self.as_f64(st, from, src);
+                let raw = st.scratch + super::rtcall::RAW_WORD * 8 + 8;
+                self.cvt("cvt/f2i", raw, wide);
+                self.narrow(raw, dest, tw);
+                Ok(())
+            }
             (false, false) => {
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
                 let at = self.widen(src, wide, fw, fsigned);
@@ -3958,6 +4127,52 @@ impl Jit<'_> {
         }
         let here = self.region.code_addr();
         st.place(ok, here);
+    }
+}
+
+/// The shapes an **inexact** conversion comes in, which is what
+/// [`Jit::convert_checked`] switches on.
+///
+/// SPEC 6.2.1 gives one rule — `x.toT()` answers `Result<T, RangeError>`
+/// wherever not every `x` fits a `T` — and the rule reaches four different
+/// questions, because "does not fit" is not one machine test. Naming them here
+/// rather than testing the two primitives at each site is what keeps the
+/// refusal honest: a pair that is none of the four is a pair this backend has
+/// no body for, said once.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Checked {
+    /// Both integers: a range at the source's own width.
+    Ints,
+    /// A float into an integer, which can also be fractional, `NaN` or
+    /// infinite. The target is refused past sixty-four bits, where the frame
+    /// slot is two words and there is no single conversion stencil for it.
+    FloatToInt,
+    /// `U32 -> Char`: not a range but a set, with the surrogate block cut out
+    /// of the middle of it.
+    ToChar,
+    /// `F64 -> F32`, which has no integer range to test at all.
+    ToF32,
+}
+
+impl Checked {
+    fn of(from: Prim, to: Prim) -> Option<Self> {
+        if from.is_integer() && to.is_integer() {
+            return Some(Checked::Ints);
+        }
+        if from.is_float() && to.is_integer() && to.bits() <= 64 {
+            return Some(Checked::FloatToInt);
+        }
+        // `U32` is the only source the language declares `toChar` on
+        // (`semantics/builtins.rs`), and the bounds below are written at that
+        // width, so a narrower source would be compared against a constant its
+        // type cannot hold.
+        if from == Prim::U32 && to == Prim::Char {
+            return Some(Checked::ToChar);
+        }
+        if from == Prim::F64 && to == Prim::F32 {
+            return Some(Checked::ToF32);
+        }
+        None
     }
 }
 

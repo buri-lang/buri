@@ -35,8 +35,8 @@ from "ui/effect" import { Event, Scope, Ui };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal };
 from "ui/style" import {
-    Align, BorderStyle, Color, Cursor, Edge, FontFamily, Layout, Length, Shadow, State,
-    Style, TextCase, TextLine, TextWrap, Track, Weight,
+    Align, BorderStyle, Color, Cursor, Edge, FontFamily, Layout, Length, ListMarker,
+    Shadow, State, Style, TextCase, TextLine, TextWrap, Track, Weight,
 };
 from "ui/theme" import { Theme };
 
@@ -382,6 +382,11 @@ fn rootScope(): Scope;
 /// <declarations>`) or run of text (`t <depth> <text>`). A line at depth `d`
 /// is a child of the nearest line above it at depth `d - 1`.
 ///
+/// An image is a box carrying `image:<source>`, its `;` and `\` escaped. The
+/// painter reads a `data:` URI holding a PNG and paints every other source —
+/// an SVG data URI, an address, a path — as a placeholder box of the same size,
+/// because a snapshot fetches nothing.
+///
 /// `state` is the pseudo-class the snapshot is taken in. An `On(s, ...)`
 /// contributes its styles when `s` is that state and nothing otherwise. An
 /// `At(...)` contributes nothing at all — a breakpoint's rules are in the
@@ -413,10 +418,17 @@ fn nodeLines<C: Alloc>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
             ]
         },
         .Stack(styles, children) => container(ctx, state, styles, children, depth),
-        // The role paints nothing: it is what a reader is told, not what a
-        // painter draws.
-        .Region(_role, styles, children) => {
-            container(ctx, state, styles, children, depth)
+        // A role paints nothing — it is what a reader is told, not what a
+        // painter draws — except the table roles, whose whole point is a
+        // two-dimensional arrangement a browser gives them for free.
+        .Region(role, styles, children) => {
+            container(
+                ctx,
+                state,
+                roleStyles(ctx, role, styles, children),
+                children,
+                depth,
+            )
         },
         .Button(label, styles, _onPress) => {
             [
@@ -427,7 +439,14 @@ fn nodeLines<C: Alloc>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
         .Link(_dest, styles, children) => {
             container(ctx, state, styles, children, depth)
         },
-        .Image(_source, _alt) => [elementLine(ctx, depth, [], [])],
+        // A picture is a box with a source in it. The painter reads a data URI
+        // it can and paints a placeholder box at the same size for one it
+        // cannot; `alt` is what a reader is *told* and never what is drawn, so
+        // it is not in the scene.
+        .Image(source, _alt) => {
+            let declaration = decl(ctx, "image", escapeValue(ctx, source.read(scope)));
+            [elementLine(ctx, depth, [], [declaration])]
+        },
         // The styles are the input's, not the label's, so the label around it
         // is a plain box and the line under it carries the classes.
         .Field(label, _kind, styles, value) => {
@@ -537,6 +556,51 @@ fn elementLine<C: Alloc>(ctx: C, depth: Int, classes: [Str], declarations: [Str]
     str.format(ctx, "e ${depth} ${body}")
 }
 
+/// What a role adds to an element's own styles.
+///
+/// A `<table>`'s rows and cells arrange themselves in a browser, so a scene
+/// that says nothing about them paints every cell on a line of its own. A row
+/// is a grid of one equal column per cell, which is what makes the second row's
+/// cells line up under the first's, and a header cell is bold and centred, which
+/// is what every browser's own stylesheet does to a `<th>`. The caller's styles
+/// come after, so a caller who sets their own still wins.
+fn roleStyles<C: Alloc>(
+    ctx: C,
+    role: Role,
+    styles: [Style],
+    children: [Node<C>],
+): [Style] {
+    match (role) {
+        .TableRow => {
+            if (children.isEmpty()) {
+                styles
+            } else {
+                [.Layout(.Grid(columns(ctx, children.len(), []))), .Group(styles)]
+            }
+        },
+        .ColumnHeader => [.FontWeight(.Bold), .TextAlign(.Center), .Group(styles)],
+        .RowHeader => [.FontWeight(.Bold), .TextAlign(.Center), .Group(styles)],
+        _ => styles,
+    }
+}
+
+/// `n` tracks that share the row evenly — a table row's cells.
+fn columns<C: Alloc>(ctx: C, n: Int, acc: [Track]): [Track] {
+    if (acc.len() >= n) {
+        acc
+    } else {
+        let track: Track = .Fraction(1);
+        columns(ctx, n, acc.push(ctx, track))
+    }
+}
+
+/// A declaration's value, with the two characters the scene format reserves
+/// escaped: the backslash, and the semicolon that ends a declaration. An image
+/// source is a data URI and a data URI is full of both.
+fn escapeValue<C: Alloc>(ctx: C, value: Str): Str {
+    value.replace(ctx, "\\", "\\\\").replace(ctx, ";", "\\;")
+}
+
 /// One `t` line. A backslash, a newline and a carriage return are the three
 /// characters the format escapes, and there is no fourth.
 fn textLine<C: Alloc>(ctx: C, depth: Int, content: Str): Str {
@@ -595,7 +659,7 @@ fn slotsIn<C: Alloc>(
         .None => acc,
         .Some(style) => {
             let more = match (style) {
-                .Extracted(classes) => classes.pairs(),
+                .Extracted(classes) => statePairs(ctx, state, classes.pairs(), 0, []),
                 .Group(inner) => slotsIn(ctx, state, inner, 0, []),
                 .On(on, inner) => {
                     if (stateRank(on) == stateRank(state)) {
@@ -617,6 +681,44 @@ fn slotsIn<C: Alloc>(
             slotsIn(ctx, state, styles, at + 1, acc.concat(ctx, more))
         },
     }
+}
+
+/// The pairs of an extracted style that apply in `state`.
+///
+/// **This is where a pseudo-class is read back.** The compiler folds an
+/// `On(s, ...)` into the classes it emits, so the group itself is gone by the
+/// time this walk sees one; what is left is the conflict slot, which carries
+/// the condition the class was scoped to. A slot's low digits are that
+/// condition — thirty of them per property, five breakpoints to a state, and
+/// zero for "in every state" — so a hover class can be told from a plain one
+/// and left out of every document but the hovered one.
+fn statePairs<C: Alloc>(
+    ctx: C,
+    state: State,
+    pairs: [(Int, Str)],
+    at: Int,
+    acc: [(Int, Str)],
+): [(Int, Str)] {
+    match (pairs.get(at)) {
+        .None => acc,
+        .Some(pair) => {
+            let (slot, _name) = pair;
+            let scoped = slotState(slot);
+            let next = if (scoped < 0 || scoped == stateRank(state)) {
+                acc.push(ctx, pair)
+            } else {
+                acc
+            };
+            statePairs(ctx, state, pairs, at + 1, next)
+        },
+    }
+}
+
+/// The state a conflict slot is scoped to, as a `State`'s rank, and `-1` for a
+/// slot that applies whatever the state is. A breakpoint is the other half of
+/// the condition and is not a state, so it answers `-1` too.
+fn slotState(slot: Int): Int {
+    slot % 30 / 5 - 1
 }
 
 /// The class of each slot's last pair.
@@ -770,6 +872,7 @@ fn declare<C: Alloc>(ctx: C, style: Style): [Str] {
         .TextWrap(wrapping) => [decl(ctx, "text-wrap", textWrapName(wrapping))],
         .Truncate(lines) => truncateCss(ctx, lines),
         .Cursor(cursor) => [decl(ctx, "cursor", cursorName(cursor))],
+        .ListMarker(marker) => [decl(ctx, "list-style-type", markerName(marker))],
         _ => [],
     }
 }
@@ -950,6 +1053,14 @@ fn cursorName(cursor: Cursor): Str {
         .Pointer => "pointer",
         .Text => "text",
         .NotAllowed => "not-allowed",
+    }
+}
+
+fn markerName(marker: ListMarker): Str {
+    match (marker) {
+        .None => "none",
+        .Disc => "disc",
+        .Decimal => "decimal",
     }
 }
 

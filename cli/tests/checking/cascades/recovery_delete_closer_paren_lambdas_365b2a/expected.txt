@@ -1,0 +1,42 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:35:20
+   |
+35 | fn twice(f: fn(Int => Int, n: Int): Int {
+   |                    ^^
+   |
+  --> main.buri:35:15
+   |
+35 | fn twice(f: fn(Int => Int, n: Int): Int {
+   |               ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `:` [unexpected-token]
+  --> main.buri:35:35
+   |
+35 | fn twice(f: fn(Int => Int, n: Int): Int {
+   |                                   ^
+   |
+   = expected: `=>`
+   = actual: `:`
+   = fix: write `=>` here
+error: there is nothing named `twice` in scope [unresolved-name]
+  --> main.buri:90:15
+   |
+90 |     assert.eq(twice(fn(n) => n + 1, 10), 12);
+   |               ^^^^^
+   |
+   = fix: declare `twice`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `twice` in scope [unresolved-name]
+  --> main.buri:94:15
+   |
+94 |     assert.eq(twice(fn(n): Int => n * 2, 3), 12);
+   |               ^^^^^
+   |
+   = fix: declare `twice`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `twice` in scope [unresolved-name]
+  --> main.buri:98:15
+   |
+98 |     assert.eq(twice(fn(n) => twice(fn(m) => m + 2, n), 0), 8);
+   |               ^^^^^
+   |
+   = fix: declare `twice`, or import it — a name is in scope only from this module's own declarations and its imports

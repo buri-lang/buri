@@ -277,10 +277,9 @@ mod tests {
     #[test]
     fn every_block_a_build_file_writes_is_found() {
         let schema = schema();
-        for name in [
-            "library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules",
-            "allow",
-        ] {
+        for name in
+            ["library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
+        {
             assert!(schema.block(name).is_some(), "no message for `{name}`");
         }
         // Nested messages, reached through the field that holds them.
@@ -294,10 +293,9 @@ mod tests {
     #[test]
     fn the_field_lists_agree_with_the_formatter() {
         let schema = schema();
-        for block in [
-            "", "library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules",
-            "allow",
-        ] {
+        for block in
+            ["", "library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
+        {
             let mut ordered: Vec<&str> = crate::build::textproto::schema_order(block).to_vec();
             let mut declared: Vec<&str> =
                 schema.fields(block).iter().map(|f| f.name.as_str()).collect();
@@ -342,19 +340,6 @@ mod tests {
         let default = schema.enumeration("rules", "default").expect("RuleDefault");
         let names: Vec<&str> = default.constants.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["RULE_DEFAULT_UNSPECIFIED", "ENABLED", "DISABLED"]);
-    }
-
-    /// The same lockstep for `allow`: a rule the toolchain will exempt a
-    /// declaration from has a repeated field here, and nothing else does.
-    #[test]
-    fn every_exemptable_lint_has_a_field_in_the_repo_schema() {
-        let schema = schema();
-        let declared = schema.fields("allow");
-        let names: Vec<&str> = declared.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, crate::documentation::lints::allow_fields());
-        for f in declared {
-            assert!(f.repeated, "`{}` is not a list of declarations", f.name);
-        }
     }
 
     #[test]

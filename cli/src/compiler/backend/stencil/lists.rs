@@ -953,18 +953,29 @@ fn t(k: u32) -> u32 {
 /// Where a whole element is staged on its way between two blocks.
 ///
 /// Past the twenty-four single words above, and the only part of a frame whose
-/// size depends on a *type* — so it is the one that has a bound and a refusal
-/// rather than a fixed index. `jit::SCRATCH_WORDS` is what makes the room, and
-/// [`STAGE_ROOM`] is what is left of it.
-const STAGE: u32 = LOOP_SCRATCH + 24 * 8;
-const STAGE_ROOM: u32 = super::jit::SCRATCH_WORDS as u32 * 8 - STAGE;
+/// size depends on a *type* — so it is the one a frame is measured for rather
+/// than given a fixed index. `jit::SCRATCH_WORDS` is what makes the room every
+/// frame gets for nothing, and [`BASE_STAGE_ROOM`] is what is left of it;
+/// `jit::frame_sigs` adds whatever a function's own widest element needs past
+/// that.
+pub(crate) const STAGE: u32 = LOOP_SCRATCH + 24 * 8;
 
-/// The staging area is what a frame has left after everything with a fixed
-/// index has taken its own, so a word added anywhere above silently narrows the
-/// widest element a `[T]` may have. Asserted rather than remembered: a frame
-/// that no longer has the room says so at compile time, where the answer is to
-/// raise `jit::SCRATCH_WORDS` beside it.
-const _: () = assert!(STAGE_ROOM >= 320);
+/// The staging room a frame has without being measured for one.
+///
+/// It is what is left after everything with a fixed index has taken its own, so
+/// a word added anywhere above narrows it. Asserted rather than remembered: a
+/// frame that no longer has the room says so at compile time, where the answer
+/// is to raise `jit::SCRATCH_WORDS` beside it.
+///
+/// **A wider element is not refused for being wider than this.** It used to be,
+/// and an `ast.Item` — 448 bytes, so every `[Item]` in `core/buri/ast` — was
+/// what the refusal named (buri-lang/buri#48). `jit::frame_sigs` measures each
+/// function against the elements it actually stages and buys the difference,
+/// which leaves this as the floor rather than the ceiling: the helper bodies
+/// `glue.rs` generates are sized from a constant and stage nothing wider than a
+/// `Str`, and this is the room they have.
+pub(crate) const BASE_STAGE_ROOM: u32 = super::jit::SCRATCH_WORDS as u32 * 8 - STAGE;
+const _: () = assert!(BASE_STAGE_ROOM >= 320);
 
 /// One list operation's operands, as frame offsets paired with their IR types.
 ///
@@ -1064,16 +1075,23 @@ impl Jit<'_> {
     }
 
     /// Where one whole element is staged on its way between two blocks, or a
-    /// refusal when the element is wider than the frame keeps room for.
+    /// refusal when the element is wider than *this* frame keeps room for.
     ///
-    /// The one part of a frame whose size depends on a *type*, so it is the one
-    /// with a bound: everything else this file uses is a single word at a fixed
-    /// index. `jit::SCRATCH_WORDS` makes the room and [`STAGE_ROOM`] is what is
-    /// left of it once the indices above have theirs.
+    /// The one part of a frame whose size depends on a *type*: everything else
+    /// this file uses is a single word at a fixed index. So the room is read
+    /// off the frame rather than off a constant — `jit::frame_sigs` sizes each
+    /// frame from the elements its own function stages, and
+    /// [`BASE_STAGE_ROOM`] is only the floor every frame gets for nothing.
+    ///
+    /// The refusal stays as the backstop it now is. A frame that was measured
+    /// has the room by construction; one that was not — a helper `glue.rs`
+    /// sized from a constant — says so here rather than writing an element past
+    /// the end of itself and into the frame the callee is about to take.
     fn stage(&mut self, st: &Fn2, size: u32) -> Option<u32> {
-        if size > STAGE_ROOM {
+        let room = st.frame.size.saturating_sub(st.scratch + STAGE);
+        if size > room {
             self.unsupported(format!(
-                "a `[T]` whose element is {size} bytes, past the {STAGE_ROOM} a frame \
+                "a `[T]` whose element is {size} bytes, past the {room} this frame \
                  stages one in"
             ));
             return None;

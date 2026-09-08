@@ -1,0 +1,9 @@
+error: expected an expression, found `+` [unexpected-token]
+  --> main.buri:98:45
+   |
+98 |     assert.eq(twice(fn(n) => twice(fn(m) => + m 2, n), 0), 8);
+   |                                             ^
+   |
+   = expected: an expression
+   = actual: `+`
+   = fix: write a value here
