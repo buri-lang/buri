@@ -89,7 +89,7 @@ fn at<C>(
             ui.region(.Main, [], [
                 ui.heading(1, .Const(title)),
                 ui.text(.Const(visitors)),
-                ui.button(label, onPress),
+                ui.button(label, [], onPress),
             ])
         },
         "/about" => ui.region(.Main, [], [ui.heading(1, .Const("About"))]),

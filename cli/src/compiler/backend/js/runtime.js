@@ -4293,8 +4293,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // button that submits the form it happens to be inside is the surprise
     // this vocabulary exists to remove.
     $dom_attribute(element, "type", "button");
+    $tree_styles(element, node[2]);
     $tree_text(node[1], element, null);
-    const onPress = node[2];
+    const onPress = node[3];
     $dom_listen(element, "click", () =>
       // One transaction, so that a handler which writes three signals causes
       // one pass over the watchers rather than three.
@@ -4305,7 +4306,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   if (tag === 6) {
     const element = $tree_element(parent, "a", anchor);
     $tree_bind(node[1], (dest) => $dom_attribute(element, "href", dest));
-    $tree_children(ctx, element, [], node[2]);
+    $tree_children(ctx, element, node[2], node[3]);
     return;
   }
   if (tag === 7) {
@@ -4324,8 +4325,11 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const kind = node[2];
     const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
     if (kind !== 1) $dom_attribute(element, "type", $TREE_FIELD_KINDS[kind]);
-    const cell = node[3][0];
-    $tree_bind([1, node[3]], (value) => {
+    // The styles are the input's rather than the label's: the input is what a
+    // reader focuses and what a browser disables.
+    $tree_styles(element, node[3]);
+    const cell = node[4][0];
+    $tree_bind([1, node[4]], (value) => {
       // Writing what is already there moves the caret in a real browser.
       if (element.value !== value) element.value = value;
     });
@@ -4336,9 +4340,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const wrapper = $tree_element(parent, "label", anchor);
     const element = $tree_element(wrapper, "input", null);
     $dom_attribute(element, "type", "checkbox");
+    $tree_styles(element, node[2]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
-    const cell = node[2][0];
-    $tree_bind([1, node[2]], (value) => {
+    const cell = node[3][0];
+    $tree_bind([1, node[3]], (value) => {
       element.checked = value;
     });
     $dom_listen(element, "change", () => $ui_flush(() => $ui_write(cell, element.checked)));
