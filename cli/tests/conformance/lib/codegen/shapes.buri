@@ -104,6 +104,68 @@ export fn oddAnd(i: Int): Bool {
     if (i <= 0) { true } else { i > -1 && evenAnd(i - 1) }
 }
 
+// -----------------------------------------------------------------------------
+// A loop with two back edges, and a call between them
+// -----------------------------------------------------------------------------
+//
+// `else if (…) { recurse } else { test && recurse }` is one loop entered from
+// two places, and the arm that tests calls something before it recurses. A
+// backend that keeps the loop's index in a register has to say where that
+// register is *the* index and where the frame slot is, because the call in
+// between takes the register — and a walk like this reads the index on both
+// sides of one.
+//
+// The stencil backend said "in a register" everywhere, so the index the second
+// arm handed back was whatever the call had left. `walkSkipping("aab", 0)`
+// answered `true`: it checked index 0, jumped to a nonsense index past the
+// bound, and never looked at the `'b'` (buri-lang/buri#47).
+//
+// Both shapes need the bound to be a *literal*. Against a computed one the
+// comparison is a call of its own, which puts a barrier in the loop and stops
+// the promotion before it starts — so `value.len()` here would test nothing.
+
+/// True when every character below index 3 is `'a'`, skipping index 1.
+export fn walkSkipping(value: Str, index: Int): Bool {
+    if (index >= 3) {
+        true
+    } else if (index == 1) {
+        walkSkipping(value, index + 1)
+    } else {
+        match (value.charAt(index)) {
+            .Some(found) => found == 'a' && walkSkipping(value, index + 1),
+            .None => false,
+        }
+    }
+}
+
+/// The validator the bug was found in: the `else if` steps over a UUID's four
+/// dashes and the last arm checks a hex digit. It accepted every 36-character
+/// string that began with one.
+export fn hexDigitsFrom(value: Str, index: Int): Bool {
+    if (index >= 36) {
+        true
+    } else if (index == 8 || index == 13 || index == 18 || index == 23) {
+        hexDigitsFrom(value, index + 1)
+    } else {
+        match (value.charAt(index)) {
+            .Some(found) => found.isHexDigit() && hexDigitsFrom(value, index + 1),
+            .None => false,
+        }
+    }
+}
+
+/// The same loop with nothing but a call in the arm that recurses, so a wrong
+/// answer here is the index alone rather than the index and a `match`.
+export fn lengthNever(value: Str, index: Int): Bool {
+    if (index >= 3) {
+        true
+    } else if (index == 1) {
+        lengthNever(value, index + 1)
+    } else {
+        value.len() != index && lengthNever(value, index + 1)
+    }
+}
+
 derive Eq, Show for Pair;
 // -----------------------------------------------------------------------------
 // Derived structural equality
