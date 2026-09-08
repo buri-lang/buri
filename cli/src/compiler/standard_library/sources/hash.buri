@@ -78,8 +78,8 @@ export fn fnv1a32(b: [U8]): U32 {
 }
 
 /// One octet folded into a 32-bit hash, stepped as each octet arrives.
-export fn fnv1a32Step(h: U32, octet: U8): U32 {
-    (h ^ octet.toU32()).wrappingMultiply(FNV32_PRIME)
+export fn fnv1a32Step(hash: U32, octet: U8): U32 {
+    (hash ^ octet.toU32()).wrappingMultiply(FNV32_PRIME)
 }
 
 /// FNV-1a at 64 bits.
@@ -88,8 +88,8 @@ export fn fnv1a64(b: [U8]): U64 {
 }
 
 /// One octet folded into a 64-bit hash.
-export fn fnv1a64Step(h: U64, octet: U8): U64 {
-    (h ^ octet.toU64()).wrappingMultiply(FNV64_PRIME)
+export fn fnv1a64Step(hash: U64, octet: U8): U64 {
+    (hash ^ octet.toU64()).wrappingMultiply(FNV64_PRIME)
 }
 
 // --- CRC-32C --------------------------------------------------------------------
@@ -180,14 +180,14 @@ struct State {
 /// ```stdout
 /// true
 /// ```
-export fn siphash24(k0: U64, k1: U64, b: [U8]): U64 {
+export fn siphash24(key0: U64, key1: U64, b: [U8]): U64 {
     let n = b.length();
     let whole = n - n % 8;
     let start = State {
-        v0: k0 ^ SIP_V0,
-        v1: k1 ^ SIP_V1,
-        v2: k0 ^ SIP_V2,
-        v3: k1 ^ SIP_V3,
+        v0: key0 ^ SIP_V0,
+        v1: key1 ^ SIP_V1,
+        v2: key0 ^ SIP_V2,
+        v3: key1 ^ SIP_V3,
     };
     let compressed = sipWords(start, b, 0, whole);
     // The last word is the remaining octets with the input length in its top

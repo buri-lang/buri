@@ -65,8 +65,8 @@
 //! `load` takes the **name of a function**. A lambda, a local holding one, or
 //! anything that is not a function at all is `lazy-not-a-function`.
 
-/// Answers `f`, having fetched the chunk it was split into.
+/// Answers `transform`, having fetched the chunk it was split into.
 ///
 /// One file per `load`ed function, written beside the artifact and fetched
-/// when this call runs. Native backends have no chunks and answer `f`.
-export fn load<F>(f: F): F;
+/// when this call runs. Native backends have no chunks and answer `transform`.
+export fn load<F>(transform: F): F;

@@ -136,18 +136,18 @@
 from "core/alloc" import * as alloc;
 from "core/effect" import { Allocator, Tasks };
 
-/// Runs `f` over every item and answers the results in the items' order.
+/// Runs `step` over every item and answers the results in the items' order.
 ///
-/// The `Int` `f` receives is the item's own index, so a task knows where it is
+/// The `Int` `step` receives is the item's own index, so a task knows where it is
 /// without the closure counting.
 ///
 /// An empty list answers an empty list and runs nothing.
 export fn parallel<C: Allocator + Tasks, A, B>(
     ctx: C,
     items: [A],
-    f: fn(C, Int, A) => B,
+    step: fn(C, Int, A) => B,
 ): [B] {
-    ctx.parallel(ctx, items, f)
+    ctx.parallel(ctx, items, step)
 }
 
 // --- Background work ----------------------------------------------------------
@@ -178,9 +178,9 @@ export fn scope<C: Allocator + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
     answer
 }
 
-/// Starts `f` in `scope`, and answers without waiting for it.
+/// Starts `step` in `scope`, and answers without waiting for it.
 ///
-/// `f` is handed the caller's whole context, so a task may do anything the code
+/// `step` is handed the caller's whole context, so a task may do anything the code
 /// around it could and nothing more: a lambda may not capture an
 /// effect-carrying value (SPEC 10.6).
 ///
@@ -192,8 +192,8 @@ export fn scope<C: Allocator + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
 /// A spawn that arrives while the scope's own drain is running is picked up by
 /// that drain. One that arrives after it has ended — which on a page is what a
 /// handler does — runs here, on the task that spawned it.
-export fn spawn<C: Allocator + Tasks>(ctx: C, scope: Scope, f: fn(C) => ()): () {
-    let _ = scopePush(ctx, scope.0, alloc.copyAcross([carried(f)]));
+export fn spawn<C: Allocator + Tasks>(ctx: C, scope: Scope, step: fn(C) => ()): () {
+    let _ = scopePush(ctx, scope.0, alloc.copyAcross([carried(step)]));
     match (scopeEnter(ctx, scope.0)) {
         false => (),
         true => {

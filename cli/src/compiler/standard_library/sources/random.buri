@@ -55,8 +55,8 @@ from "core/orderedmap" import { OrderedMap };
 
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.
-export fn int<C: Random>(ctx: C, lo: Int, hi: Int): Int {
-    ctx.nextInt(lo, hi)
+export fn int<C: Random>(ctx: C, low: Int, high: Int): Int {
+    ctx.nextInt(low, high)
 }
 
 /// Uniform in `[0.0, 1.0)`.
@@ -160,19 +160,19 @@ impl Generator {
     /// `2^64 % span` values come up one time more often than the rest. This
     /// rejects the draws in that leftover prefix, then takes the remainder.
     ///
-    /// **An empty range answers `lo` and does not step the generator.**
+    /// **An empty range answers `low` and does not step the generator.**
     /// `random.int` aborts on one instead, since it performs an effect and has a
     /// process to stop.
-    export fn nextInt(self, lo: Int, hi: Int): (Int, Generator) {
-        if (hi <= lo) {
-            (lo, self)
+    export fn nextInt(self, low: Int, high: Int): (Int, Generator) {
+        if (high <= low) {
+            (low, self)
         } else {
-            let span = hi.wrappingSubtract(lo).wrapToU64();
+            let span = high.wrappingSubtract(low).wrapToU64();
             let zero: U64 = 0;
             // `2^64 % span`, computed inside sixty-four bits: `2^64 - span` is
             // congruent to `2^64` and is a number that fits.
             let (draw, next) = rejecting(self, zero.wrappingSubtract(span) % span);
-            (lo.wrappingAdd((draw % span).wrapToI64()), next)
+            (low.wrappingAdd((draw % span).wrapToI64()), next)
         }
     }
 

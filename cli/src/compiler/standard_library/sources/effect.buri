@@ -65,7 +65,7 @@ export effect Stdout {
     ///
     /// `print` takes a `Template` and the platform encodes it; this takes bytes
     /// and the platform encodes nothing.
-    fn writeBytes(self, b: [U8]): Result<(), IoError>;
+    fn writeBytes(self, bytes: [U8]): Result<(), IoError>;
 }
 
 /// Writing to standard error, on `Stdout`'s terms, `Result` included. The two
@@ -77,14 +77,14 @@ export effect Stderr {
 
 export effect Stdin {
     fn readLine(self): Option<Str>;
-    /// Exactly `n` octets, or fewer at end of input — `.None` when there were
+    /// Exactly `count` octets, or fewer at end of input — `.None` when there were
     /// none at all.
     ///
     /// Blocks until the octets arrive. `readLine` reads the input to its end,
     /// so a program using it cannot answer before the other side has finished
     /// speaking; this is how a request/response protocol over a pipe is
     /// written.
-    fn readBytes(self, n: Int): Option<[U8]>;
+    fn readBytes(self, count: Int): Option<[U8]>;
 }
 
 // `FileSystem` is not here. It split into `FileSystemRead` and `FileSystemWrite`, and the platform
@@ -126,7 +126,7 @@ export effect Clock {
 /// rather than an effect, with the same distribution and the same numbers
 /// twice.
 export effect Random {
-    fn nextInt(self, lo: Int, hi: Int): Int;
+    fn nextInt(self, low: Int, high: Int): Int;
     fn nextFloat(self): Float;
 }
 
@@ -224,9 +224,9 @@ export effect Process {
 /// on the calling carrier. All three answer the same list. `core/tasks` has the
 /// table.
 export effect Tasks {
-    /// Runs `f` over every item and answers the results in the items' order,
+    /// Runs `step` over every item and answers the results in the items' order,
     /// handing every step `ctx` — the caller's whole context.
-    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    fn parallel<C, A, B>(self, ctx: C, items: [A], step: fn(C, Int, A) => B): [B];
 }
 
 /// Accepting connections.

@@ -41,7 +41,7 @@ impl Stdout for HostStdout {
 
     fn println(self, text: Template): Result<(), IoError>;
 
-    fn writeBytes(self, b: [U8]): Result<(), IoError>;
+    fn writeBytes(self, bytes: [U8]): Result<(), IoError>;
 }
 
 export struct HostStderr {}
@@ -57,7 +57,7 @@ export struct HostStdin {}
 impl Stdin for HostStdin {
     fn readLine(self): Option<Str>;
 
-    fn readBytes(self, n: Int): Option<[U8]>;
+    fn readBytes(self, count: Int): Option<[U8]>;
 }
 
 /// The platform's filesystem.
@@ -123,7 +123,7 @@ impl Clock for HostClock {
 export struct HostRandom {}
 
 impl Random for HostRandom {
-    fn nextInt(self, lo: Int, hi: Int): Int;
+    fn nextInt(self, low: Int, high: Int): Int;
 
     fn nextFloat(self): Float;
 }
@@ -191,7 +191,7 @@ impl Spawn for HostSpawn {
 export struct HostTasks {}
 
 impl Tasks for HostTasks {
-    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    fn parallel<C, A, B>(self, ctx: C, items: [A], step: fn(C, Int, A) => B): [B];
 }
 
 /// Being a server rather than talking to one.

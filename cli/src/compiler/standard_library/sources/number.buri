@@ -90,10 +90,10 @@ export trait Bounded {
 /// `.None` means out of the type's range and nothing else, so `.Some(v)` always
 /// promises that `v` is the answer (SPEC 6.2.2).
 export trait Checked {
-    fn checkedAdd(self, rhs: Self): Option<Self>;
-    fn checkedSubtract(self, rhs: Self): Option<Self>;
-    fn checkedMultiply(self, rhs: Self): Option<Self>;
-    fn checkedDivide(self, rhs: Self): Option<Self>;
+    fn checkedAdd(self, other: Self): Option<Self>;
+    fn checkedSubtract(self, other: Self): Option<Self>;
+    fn checkedMultiply(self, other: Self): Option<Self>;
+    fn checkedDivide(self, other: Self): Option<Self>;
     /// `.None` on a zero divisor, and on nothing else: a remainder is always
     /// smaller than what it came from, so it cannot leave the type's range.
     /// `minValue.checkedRemainder(-1)` is `.Some(0)`, where the matching
@@ -111,18 +111,18 @@ export trait Checked {
 }
 
 export trait Wrapping {
-    fn wrappingAdd(self, rhs: Self): Self;
-    fn wrappingSubtract(self, rhs: Self): Self;
-    fn wrappingMultiply(self, rhs: Self): Self;
+    fn wrappingAdd(self, other: Self): Self;
+    fn wrappingSubtract(self, other: Self): Self;
+    fn wrappingMultiply(self, other: Self): Self;
 }
 
 /// Clamps to the type's own bounds, which at 64 bits and above are themselves
 /// rounded: `maxValue<I64>()` is the nearest `number` to I64's maximum, not that
 /// maximum. Use `Checked` where the difference matters.
 export trait Saturating {
-    fn saturatingAdd(self, rhs: Self): Self;
-    fn saturatingSubtract(self, rhs: Self): Self;
-    fn saturatingMultiply(self, rhs: Self): Self;
+    fn saturatingAdd(self, other: Self): Self;
+    fn saturatingSubtract(self, other: Self): Self;
+    fn saturatingMultiply(self, other: Self): Self;
 }
 
 // --- Free functions -------------------------------------------------------------
@@ -138,8 +138,8 @@ export fn max<T: Ordered>(a: T, b: T): T {
     if (a.compare(b) == Order.Less) { b } else { a }
 }
 
-export fn clamp<T: Ordered>(lo: T, hi: T, x: T): T {
-    min(hi, max(lo, x))
+export fn clamp<T: Ordered>(low: T, high: T, value: T): T {
+    min(high, max(low, value))
 }
 
 // --- Floor division and the Euclidean remainder ---------------------------------
@@ -200,18 +200,18 @@ export fn maxValue<T: Bounded>(): T;
 // The other direction — hexadecimal text back to a number — is
 // `str.toRadix(text, 16)`.
 
-/// `x` in lowercase hexadecimal, zero-padded to at least `width` digits.
+/// `value` in lowercase hexadecimal, zero-padded to at least `width` digits.
 ///
-/// **A bit pattern, not a signed numeral.** The digits are `x`'s 64-bit two's
+/// **A bit pattern, not a signed numeral.** The digits are `value`'s 64-bit two's
 /// complement, so `toHex(ctx, -1, 0)` is `ffffffffffffffff` and not `-1`, and
 /// `toHex(ctx, x, 16)` is the sixteen digits of a `U64` whichever end of the
-/// range `x` came from.
+/// range `value` came from.
 ///
 /// `width` is a floor and never truncates: a value needing more digits than
 /// asked for gets them. `width` at or below zero asks for the shortest form,
 /// which is one digit for zero.
-export fn toHex<C: Allocator>(ctx: C, x: Int, width: Int): Str {
-    let digits = max(width, significantNibbles(x, 16));
+export fn toHex<C: Allocator>(ctx: C, value: Int, width: Int): Str {
+    let digits = max(width, significantNibbles(value, 16));
     str.fromChars(
         ctx,
         list
@@ -223,7 +223,7 @@ export fn toHex<C: Allocator>(ctx: C, x: Int, width: Int): Str {
                 let nibble = if (shift >= 64) {
                     0
                 } else {
-                    lowNibble(bits.shiftRight(x, shift))
+                    lowNibble(bits.shiftRight(value, shift))
                 };
                 character.fromDigit(nibble, 16).withDefault('0')
             }),

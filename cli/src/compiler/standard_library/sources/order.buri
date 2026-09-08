@@ -50,15 +50,15 @@ impl Order {
 
 /// Reverses a comparator, for `sortBy`. The argument is a function value
 /// rather than an effect, so the lambda may capture it (SPEC 10.6).
-export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
-    fn(a, b) => cmp(b, a)
+export fn reverse<T>(compare: fn(T, T) => Order): fn(T, T) => Order {
+    fn(a, b) => compare(b, a)
 }
 
 /// Reverses a comparator when `descending` is true, and hands it back
 /// untouched when it is false. The direction of a sort is usually data: a
 /// column's `ORDER BY ... DESC`, a flag on a request.
-export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Order {
-    if (descending) { reverse(cmp) } else { cmp }
+export fn reverseIf<T>(descending: Bool, compare: fn(T, T) => Order): fn(T, T) => Order {
+    if (descending) { reverse(compare) } else { compare }
 }
 
 /// Compares by a key rather than by the whole value: `cmp(key(a), key(b))`.
@@ -103,26 +103,26 @@ export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Or
 /// ```stdout
 /// a b c
 /// ```
-export fn by<T, K>(key: fn(T) => K, cmp: fn(K, K) => Order): fn(T, T) => Order {
-    fn(a, b) => cmp(key(a), key(b))
+export fn by<T, K>(key: fn(T) => K, compare: fn(K, K) => Order): fn(T, T) => Order {
+    fn(a, b) => compare(key(a), key(b))
 }
 
 /// Comparators in priority order: the first that does not answer `.Equal`
 /// decides, and an empty list answers `.Equal` for every pair. `Order.then` is
 /// the two-comparator case written by hand.
-export fn chain<T>(cmps: [fn(T, T) => Order]): fn(T, T) => Order {
-    fn(a, b) => chainAt(cmps, 0, a, b)
+export fn chain<T>(comparators: [fn(T, T) => Order]): fn(T, T) => Order {
+    fn(a, b) => chainAt(comparators, 0, a, b)
 }
 
 /// Walks by index rather than folding: a fold's lambda would have to capture `a`
 /// and `b`, and a lambda may not capture a value whose type could be a context,
 /// which an unbounded `T` could (SPEC 10.6).
-fn chainAt<T>(cmps: [fn(T, T) => Order], at: Int, a: T, b: T): Order {
-    match (cmps.get(at)) {
+fn chainAt<T>(comparators: [fn(T, T) => Order], at: Int, a: T, b: T): Order {
+    match (comparators.get(at)) {
         .None => .Equal,
         .Some(cmp) => {
             match (cmp(a, b)) {
-                .Equal => chainAt(cmps, at + 1, a, b),
+                .Equal => chainAt(comparators, at + 1, a, b),
                 decided => decided,
             }
         },

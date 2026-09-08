@@ -164,8 +164,8 @@ export fn time(hour: Int, minute: Int, second: Int, millisecond: Int): Option<Ti
 }
 
 /// Midnight, which every date has.
-export fn midnight(d: Date): DateTime {
-    DateTime { date: d, time: Time { hour: 0, minute: 0, second: 0, millisecond: 0 } }
+export fn midnight(date: Date): DateTime {
+    DateTime { date: date, time: Time { hour: 0, minute: 0, second: 0, millisecond: 0 } }
 }
 
 // --- days since the epoch -------------------------------------------------------
@@ -175,12 +175,12 @@ export fn midnight(d: Date): DateTime {
 // count era by era. Exact, and integer-only.
 
 /// Days from 1970-01-01 to this date. Negative before it.
-export fn toDays(d: Date): Int {
-    let y = if (d.month <= 2) { d.year - 1 } else { d.year };
+export fn toDays(date: Date): Int {
+    let y = if (date.month <= 2) { date.year - 1 } else { date.year };
     let era = number.divideFloor(y, 400);
     let yoe = y - era * 400;
-    let mp = (d.month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d.day - 1;
+    let mp = (date.month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + date.day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe - 719468
 }
@@ -200,8 +200,8 @@ export fn fromDays(days: Int): Date {
 }
 
 /// 1970-01-01 was a Thursday, which is what anchors this.
-export fn weekday(d: Date): Weekday {
-    let n = number.remainderEuclidean(toDays(d) + 3, 7);
+export fn weekday(date: Date): Weekday {
+    let n = number.remainderEuclidean(toDays(date) + 3, 7);
     if (n == 0) {
         .Monday
     } else if (n == 1) {
@@ -220,13 +220,13 @@ export fn weekday(d: Date): Weekday {
 }
 
 /// 1 on the first of January.
-export fn dayOfYear(d: Date): Int {
-    toDays(d) - toDays(Date { year: d.year, month: 1, day: 1 }) + 1
+export fn dayOfYear(date: Date): Int {
+    toDays(date) - toDays(Date { year: date.year, month: 1, day: 1 }) + 1
 }
 
 impl Date {
-    export fn addDays(self, n: Int): Date {
-        fromDays(toDays(self) + n)
+    export fn addDays(self, count: Int): Date {
+        fromDays(toDays(self) + count)
     }
 
     /// How many days from `self` to `other`, negative if `other` is earlier.
@@ -237,8 +237,8 @@ impl Date {
     /// Adds months, clamping the day to what the resulting month holds — so
     /// January 31st plus one month is the 28th or the 29th, not the 3rd of
     /// March.
-    export fn addMonths(self, n: Int): Date {
-        let total = self.year * 12 + (self.month - 1) + n;
+    export fn addMonths(self, count: Int): Date {
+        let total = self.year * 12 + (self.month - 1) + count;
         let year = number.divideFloor(total, 12);
         let month = number.remainderEuclidean(total, 12) + 1;
         let last = daysInMonth(year, month);
@@ -249,8 +249,8 @@ impl Date {
         }
     }
 
-    export fn addYears(self, n: Int): Date {
-        self.addMonths(n * 12)
+    export fn addYears(self, count: Int): Date {
+        self.addMonths(count * 12)
     }
 
     /// How many *whole* months from `self` to `other`, negative if `other` is
@@ -338,8 +338,8 @@ fn isoWeekday(d: Date): Int {
 // -----------------------------------------------------------------------------
 
 /// The UTC date-time an instant names.
-export fn fromInstant(i: Instant): DateTime {
-    let milliseconds = i.0;
+export fn fromInstant(instant: Instant): DateTime {
+    let milliseconds = instant.0;
     // Floor division and a never-negative remainder, so an instant before the
     // epoch lands on the right day at a real time of day.
     let days = number.divideFloor(milliseconds, MILLISECONDS_PER_DAY);
@@ -356,25 +356,25 @@ export fn fromInstant(i: Instant): DateTime {
 }
 
 /// The inverse, reading the date-time as UTC.
-export fn toInstant(dt: DateTime): Instant {
+export fn toInstant(dateTime: DateTime): Instant {
     Instant(
-        toDays(dt.date) * MILLISECONDS_PER_DAY
-            + dt.time.hour * MILLISECONDS_PER_HOUR
-            + dt.time.minute * MILLISECONDS_PER_MINUTE
-            + dt.time.second * MILLISECONDS_PER_SECOND
-            + dt.time.millisecond,
+        toDays(dateTime.date) * MILLISECONDS_PER_DAY
+            + dateTime.time.hour * MILLISECONDS_PER_HOUR
+            + dateTime.time.minute * MILLISECONDS_PER_MINUTE
+            + dateTime.time.second * MILLISECONDS_PER_SECOND
+            + dateTime.time.millisecond,
     )
 }
 
 /// The length of time between two instants. `b.duration(a)` says the same thing
 /// on the receiver, and is the spelling to reach for.
-export fn between(a: Instant, b: Instant): Duration {
-    b.duration(a)
+export fn between(start: Instant, end: Instant): Duration {
+    end.duration(start)
 }
 
 /// A point, moved by a length. `i.plus(d)`, likewise.
-export fn plus(i: Instant, d: Duration): Instant {
-    i.plus(d)
+export fn plus(i: Instant, duration: Duration): Instant {
+    i.plus(duration)
 }
 
 // -----------------------------------------------------------------------------
@@ -385,10 +385,10 @@ export fn plus(i: Instant, d: Duration): Instant {
 ///
 /// A year before zero writes a leading minus, which `parseDate` does not read:
 /// the calendar goes back further than the format does.
-export fn formatDate<C: Allocator>(ctx: C, d: Date): Str {
-    let y = pad(ctx, d.year, 4);
-    let m = pad(ctx, d.month, 2);
-    let day = pad(ctx, d.day, 2);
+export fn formatDate<C: Allocator>(ctx: C, date: Date): Str {
+    let y = pad(ctx, date.year, 4);
+    let m = pad(ctx, date.month, 2);
+    let day = pad(ctx, date.day, 2);
     str.format(ctx, "${y}-${m}-${day}")
 }
 
@@ -403,9 +403,9 @@ export fn formatTime<C: Allocator>(ctx: C, time: Time): Str {
 }
 
 /// `2026-08-15T13:45:00.000Z` — always UTC, always with milliseconds.
-export fn formatDateTime<C: Allocator>(ctx: C, dt: DateTime): Str {
-    let d = formatDate(ctx, dt.date);
-    let t = formatTime(ctx, dt.time);
+export fn formatDateTime<C: Allocator>(ctx: C, dateTime: DateTime): Str {
+    let d = formatDate(ctx, dateTime.date);
+    let t = formatTime(ctx, dateTime.time);
     str.format(ctx, "${d}T${t}Z")
 }
 

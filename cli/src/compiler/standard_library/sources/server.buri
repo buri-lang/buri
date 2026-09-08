@@ -724,8 +724,8 @@ fn ending<C: Listen>(ctx: C, handle: Int, e: ServeError): Result<(), ServeError>
 /// variant, so this needs no `Allocator` and works from anywhere. `e.detail` holds
 /// the platform's own words, and a program that wants both writes
 /// `"${server.errorText(e)}: ${e.detail}"`.
-export fn errorText(e: ServeError): Str {
-    match (e.cause) {
+export fn errorText(error: ServeError): Str {
+    match (error.cause) {
         .AddressInUse => "the address is already in use",
         .AddressNotAvailable => "the address is not available on this machine",
         .PermissionDenied => "listening was not permitted",

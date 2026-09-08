@@ -174,11 +174,11 @@ impl Str {
     export fn chars<C: Allocator>(self, ctx: C): [Char];
 }
 
-export fn fromChars<C: Allocator>(ctx: C, cs: [Char]): Str;
+export fn fromChars<C: Allocator>(ctx: C, characters: [Char]): Str;
 
-export fn fromInt<C: Allocator>(ctx: C, n: Int): Str;
+export fn fromInt<C: Allocator>(ctx: C, value: Int): Str;
 
-export fn fromFloat<C: Allocator>(ctx: C, x: Float): Str;
+export fn fromFloat<C: Allocator>(ctx: C, value: Float): Str;
 
 impl Str {
     export fn padStart<C: Allocator>(self, ctx: C, width: Int, fill: Char): Str;

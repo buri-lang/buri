@@ -57,7 +57,7 @@ derive Equal, Show for DecodeError;
 export struct DecodeError(export Int);
 
 /// The UTF-8 encoding of a string.
-export fn toUtf8<C: Allocator>(ctx: C, s: Str): [U8];
+export fn toUtf8<C: Allocator>(ctx: C, text: Str): [U8];
 
 /// The string those bytes encode, or where they stopped being one.
 export fn fromUtf8<C: Allocator>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
@@ -637,13 +637,13 @@ fn joinHalves(hi: Int, lo: Int): Int {
 
 /// The zigzag transform: a small negative number becomes a small positive one,
 /// so that a varint of it is short. -1 is 1, 1 is 2, -2 is 3.
-export fn zigzag(x: Int): Int {
-    if (x < 0) { (0 - x) * 2 - 1 } else { x * 2 }
+export fn zigzag(value: Int): Int {
+    if (value < 0) { (0 - value) * 2 - 1 } else { value * 2 }
 }
 
 /// Its inverse.
-export fn unzigzag(n: Int): Int {
-    if (n % 2 == 0) { n / 2 } else { 0 - (n + 1) / 2 }
+export fn unzigzag(value: Int): Int {
+    if (value % 2 == 0) { value / 2 } else { 0 - (value + 1) / 2 }
 }
 
 // --- Fixed-width numbers ------------------------------------------------------------
@@ -652,7 +652,7 @@ export fn unzigzag(n: Int): Int {
 // field uses.
 
 /// The eight bytes of an IEEE 754 double.
-export fn f64ToBytes<C: Allocator>(ctx: C, x: Float): [U8];
+export fn f64ToBytes<C: Allocator>(ctx: C, value: Float): [U8];
 
 /// The double encoded by the eight bytes at `at`, or `.None` if there are not
 /// eight. A NaN comes back as the canonical quiet NaN on every backend — the
@@ -662,7 +662,7 @@ export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
 
 /// The four bytes of an IEEE 754 single. A `Float` that single precision cannot
 /// represent rounds, exactly as storing one in a `float` field does.
-export fn f32ToBytes<C: Allocator>(ctx: C, x: Float): [U8];
+export fn f32ToBytes<C: Allocator>(ctx: C, value: Float): [U8];
 
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
 /// A NaN canonicalizes, as it does at eight bytes.
@@ -678,50 +678,50 @@ export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
 // that produce a *slice* name `Allocator`.
 
 /// Eight octets, most significant first.
-export fn fromU64BigEndian(x: U64): [U8] {
+export fn fromU64BigEndian(value: U64): [U8] {
     [
-        bits.shiftRightU64(x, 56).wrapToU8(),
-        bits.shiftRightU64(x, 48).wrapToU8(),
-        bits.shiftRightU64(x, 40).wrapToU8(),
-        bits.shiftRightU64(x, 32).wrapToU8(),
-        bits.shiftRightU64(x, 24).wrapToU8(),
-        bits.shiftRightU64(x, 16).wrapToU8(),
-        bits.shiftRightU64(x, 8).wrapToU8(),
-        x.wrapToU8(),
+        bits.shiftRightU64(value, 56).wrapToU8(),
+        bits.shiftRightU64(value, 48).wrapToU8(),
+        bits.shiftRightU64(value, 40).wrapToU8(),
+        bits.shiftRightU64(value, 32).wrapToU8(),
+        bits.shiftRightU64(value, 24).wrapToU8(),
+        bits.shiftRightU64(value, 16).wrapToU8(),
+        bits.shiftRightU64(value, 8).wrapToU8(),
+        value.wrapToU8(),
     ]
 }
 
 /// Eight octets, least significant first.
-export fn fromU64LittleEndian(x: U64): [U8] {
+export fn fromU64LittleEndian(value: U64): [U8] {
     [
-        x.wrapToU8(),
-        bits.shiftRightU64(x, 8).wrapToU8(),
-        bits.shiftRightU64(x, 16).wrapToU8(),
-        bits.shiftRightU64(x, 24).wrapToU8(),
-        bits.shiftRightU64(x, 32).wrapToU8(),
-        bits.shiftRightU64(x, 40).wrapToU8(),
-        bits.shiftRightU64(x, 48).wrapToU8(),
-        bits.shiftRightU64(x, 56).wrapToU8(),
+        value.wrapToU8(),
+        bits.shiftRightU64(value, 8).wrapToU8(),
+        bits.shiftRightU64(value, 16).wrapToU8(),
+        bits.shiftRightU64(value, 24).wrapToU8(),
+        bits.shiftRightU64(value, 32).wrapToU8(),
+        bits.shiftRightU64(value, 40).wrapToU8(),
+        bits.shiftRightU64(value, 48).wrapToU8(),
+        bits.shiftRightU64(value, 56).wrapToU8(),
     ]
 }
 
 /// Four octets, most significant first.
-export fn fromU32BigEndian(x: U32): [U8] {
+export fn fromU32BigEndian(value: U32): [U8] {
     [
-        bits.shiftRightU32(x, 24).wrapToU8(),
-        bits.shiftRightU32(x, 16).wrapToU8(),
-        bits.shiftRightU32(x, 8).wrapToU8(),
-        x.wrapToU8(),
+        bits.shiftRightU32(value, 24).wrapToU8(),
+        bits.shiftRightU32(value, 16).wrapToU8(),
+        bits.shiftRightU32(value, 8).wrapToU8(),
+        value.wrapToU8(),
     ]
 }
 
 /// Four octets, least significant first.
-export fn fromU32LittleEndian(x: U32): [U8] {
+export fn fromU32LittleEndian(value: U32): [U8] {
     [
-        x.wrapToU8(),
-        bits.shiftRightU32(x, 8).wrapToU8(),
-        bits.shiftRightU32(x, 16).wrapToU8(),
-        bits.shiftRightU32(x, 24).wrapToU8(),
+        value.wrapToU8(),
+        bits.shiftRightU32(value, 8).wrapToU8(),
+        bits.shiftRightU32(value, 16).wrapToU8(),
+        bits.shiftRightU32(value, 24).wrapToU8(),
     ]
 }
 
