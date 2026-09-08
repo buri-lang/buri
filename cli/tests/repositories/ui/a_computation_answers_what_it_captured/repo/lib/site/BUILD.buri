@@ -1,0 +1,9 @@
+# No `platforms` here: `describe` is Buri, so the suite runs under whichever
+# backend the run asks for, and the case asks for both.
+library {
+    sources: ["site.buri"]
+
+    test {
+        sources: ["test/site.buri"]
+    }
+}
