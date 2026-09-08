@@ -958,6 +958,135 @@ fn said<C: Allocator>(ctx: C, answer: Result<Response, NetError>): Str {{
     );
 }
 
+/// **What a program printed is on the pipe before the program blocks**, on the
+/// JavaScript backend.
+///
+/// buri-lang/buri#66: standard output is buffered on both backends, and
+/// nothing between a print and the exit emptied that buffer, so a program that
+/// printed and then waited held every line until it stopped and a redirected
+/// log stayed empty for the whole life of the process. `runtime.js`'s
+/// `$aboutToBlock` is the rule here and `cli/runtime/host.rs`'s
+/// `about_to_block` is the same rule on the native backend;
+/// `native::e2e::what_a_server_prints_reaches_a_pipe_before_it_blocks` is that
+/// half. Either half alone would let one promise become two.
+///
+/// **The child's standard output is a pipe**, which is the half of the bug a
+/// terminal hides, and its standard input is a pipe this test holds open and
+/// never writes to. So the program really is blocked when the second line is
+/// read: the only thing that can end its `readLine` is input that never comes.
+///
+/// **The assertion is on what was read, not on when.** Each line is waited for
+/// behind [`PATIENTLY`], so a runtime that withholds one fails with a sentence
+/// rather than hanging, and the child is asked whether it has exited only
+/// *after* both have arrived — a run that passed because the program had
+/// already finished and flushed on its way out is therefore not possible.
+///
+/// The two lines are two of the doors the rule is kept at: `starting` is
+/// printed and then slept on, and `waiting` is printed and then read against.
+#[test]
+fn what_a_program_prints_reaches_a_pipe_before_it_blocks() {
+    /// The child, killed on the way out however the row leaves — including the
+    /// way out a failing assertion takes, which would otherwise leave a node
+    /// process parked on a pipe nobody is going to write to.
+    struct Blocked {
+        child: std::process::Child,
+        reader: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Drop for Blocked {
+        fn drop(&mut self) {
+            let _killed = self.child.kill();
+            let _reaped = self.child.wait();
+            if let Some(reader) = self.reader.take() {
+                let _joined = reader.join();
+            }
+        }
+    }
+
+    let scratch = Scratch::repo("prints-before-blocking");
+    scratch.write("cmd/announce/BUILD.buri", JS_BINARY);
+    scratch.write(
+        "cmd/announce/main.buri",
+        r#"
+from "core/effect" import { Allocator, Clock, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Allocator: host.alloc,
+    Clock: host.clock,
+    Stdin: host.stdin,
+    Stdout: host.stdout,
+  };
+  // Printed, and then slept on.
+  let _ = io.println(ctx, "starting").ignore();
+  let _ = time.sleep(ctx, time.milliseconds(25));
+  // Printed, and then waited on: nothing ever arrives on standard input, so
+  // this is where the program stays until the test stops it.
+  let _ = io.println(ctx, "waiting").ignore();
+  let _ = io.readLine(ctx);
+  .Ok(())
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/announce"]).ok();
+
+    let mut child = Command::new(js_runtime())
+        .arg(scratch.artifact("cmd/announce"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("the javascript runtime runs");
+
+    // The reader is a thread of its own so that the wait for each line is
+    // bounded: `BufRead::read_line` on a pipe nobody writes to has no deadline,
+    // and a suite that waits forever for a line is the failure this repository's
+    // rules exist to prevent.
+    let stdout = child.stdout.take().expect("a piped stdout");
+    let (said, saying) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        use std::io::BufRead as _;
+        let mut reader = std::io::BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => return,
+                Ok(_read) => {
+                    if said.send(line).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+    let mut blocked = Blocked { child, reader: Some(reader) };
+
+    let next = |which: &str| {
+        saying.recv_timeout(PATIENTLY).unwrap_or_else(|e| {
+            panic!(
+                "the program's {which} line never reached the pipe within {PATIENTLY:?}: {e} — \
+                 standard output was withheld while the program was blocked"
+            )
+        })
+    };
+    let starting = next("first");
+    let waiting = next("second");
+
+    // Asked only now: a program that had already run to the end would have
+    // flushed on its way out, and that is not what this row is about.
+    let still_running = matches!(blocked.child.try_wait(), Ok(None));
+
+    assert_eq!(starting, "starting\n", "the first line is not what the program printed");
+    assert_eq!(waiting, "waiting\n", "the second line is not what the program printed");
+    assert!(
+        still_running,
+        "the program had already exited, so both lines could have been its exit flush"
+    );
+}
+
 /// **When a `core/lazy` chunk is fetched**, asked of a running artifact.
 ///
 /// `build::repositories`' `lazy_chunks` case reads the split off the two files
