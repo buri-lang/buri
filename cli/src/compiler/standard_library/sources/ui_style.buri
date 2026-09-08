@@ -141,6 +141,10 @@ export enum Style {
     /// Fixes one edge of a child at a distance, taking it out of the flow. Two
     /// `Pin`s naming different edges compose. The distance is measured from the
     /// nearest ancestor with a `Position`, or from the page.
+    ///
+    /// A pin is all an element needs to leave the flow, and a `Position` beside
+    /// it wins: `.Position(.PinViewport)` with four pins is an overlay held to
+    /// the viewport's edges.
     Pin(Edge, Length),
     /// How this element relates to the flow — and, declared after `Pin` so it
     /// wins, what a pinned child gets measured against.
@@ -158,7 +162,8 @@ export enum Style {
     PaddingX(Length),
     /// Space inside the top and bottom edges.
     PaddingY(Length),
-    /// Space inside one edge.
+    /// Space inside one edge. Two `PaddingEdge`s naming different edges
+    /// compose.
     PaddingEdge(Edge, Length),
 
     /// How wide.
