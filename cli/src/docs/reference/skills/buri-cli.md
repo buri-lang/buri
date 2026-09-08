@@ -59,7 +59,8 @@ read it, and naming one elsewhere is an error that says which commands do.
 | `--explain` | build, test, run | one line per action: whether it ran or the cache served it, and the key |
 | `--check-reproducible` | build | build twice in separate directories and compare byte for byte |
 | `--filter=<substring>` | test | run only the tests whose name contains this |
-| `--watch` | test | re-run on every change to a declared input, until interrupted |
+| `--watch` | test, run | re-run on every change to a declared input, until interrupted; on `buri run` it rebuilds the page being served |
+| `--port=<port>` | run | where the page `buri run` serves listens — default 4000, `0` takes whatever is free |
 | `--check` | format, gen, docs | report what would change and exit 1, writing nothing |
 | `--fix` | lint | apply the findings that have one mechanical answer |
 | `--format=<human\|markdown\|json>` | docs | how a page is printed |
@@ -144,13 +145,20 @@ suite's `sources`; every `BUILD.buri`; and `REPO.buri`. It polls each with one
 prints nothing at all. **Nothing watches a new file until something declares
 it** — run `buri gen`, and the loop sees the build file change. A `BUILD.buri`
 that stops parsing prints its diagnostics, and the loop keeps watching. `buri`
-refuses `--watch` with `--force`, and when stdout is not a terminal.
+refuses `--watch` with `--force`, and — for `test` — when stdout is not a
+terminal.
 
 ### `run`
 
 It builds exactly one binary and executes it, with real authority: the real
 filesystem, the real environment. The context its `main` builds still bounds
 what the program can do.
+
+A `WEB` output has no process to start, so it is served instead — the address is
+printed once, files under the artifact directory are answered as themselves, and
+every other path gets the entry shell, so the page's own router sees the address
+that was typed. Nothing is cached, `--watch` rebuilds into the next request, and
+the worker half of a website is not run in front of it.
 
 ### `lint`
 
