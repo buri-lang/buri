@@ -73,7 +73,12 @@ jobs:
         include:
           - { os: blacksmith-12vcpu-macos-latest, arch: arm64 }
           - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
-          - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
+          # Eight cores, not four: this leg's cores are 2.6x slower than the
+          # x86_64 runner's (measured on run 34121595426, uniformly across every
+          # binary), and the suite is started 2x nproc wide, so the leg's wall
+          # clock is the four-core queue. Measured at four: 23 minutes; the
+          # other two legs finish in six and eleven.
+          - { os: blacksmith-8vcpu-ubuntu-2404-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
     env:
       CC: clang
