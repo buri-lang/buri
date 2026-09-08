@@ -31,5 +31,14 @@ export fn fetch(request: Request): Response {
     let ctx = context {
         Allocator: host.alloc,
     };
-    http.html(ctx, web.shell(ctx, request.path(), web.render(page()), .Null))
+    http.html(
+        ctx,
+        web.shell(
+            ctx,
+            request.path(),
+            web.Document { ..web.defaultDocument(), title: "both" },
+            web.render(page()),
+            .Null,
+        ),
+    )
 }
