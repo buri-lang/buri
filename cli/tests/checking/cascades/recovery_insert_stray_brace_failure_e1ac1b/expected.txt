@@ -1,0 +1,16 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:73:22
+   |
+73 |         Stdin: stdin(? ).lines(["{\"inputs\":[[\"lib/wire/p.proto\"]]}"]),
+   |                      ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:78:32
+   |
+78 |         assert.err(codegen.run(ctx, silent)),
+   |                                ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

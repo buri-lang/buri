@@ -1,5 +1,5 @@
-error [missing-terminator] 2:21-2:21
+error [missing-terminator] 2:24-2:24
 message: a `derive` declaration ends with `;`
 fix: write `;` here
-edit: 2:21-2:21 ";"
+edit: 2:24-2:24 ";"
 

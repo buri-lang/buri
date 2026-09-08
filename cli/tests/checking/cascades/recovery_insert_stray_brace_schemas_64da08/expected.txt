@@ -1,0 +1,17 @@
+error: expected a pattern, found `@` [unexpected-token]
+  --> main.buri:70:9
+   |
+70 |     let @ wanted = bytes.toUtf8(ctx, piece);
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `@`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `wanted` in scope [unresolved-name]
+  --> main.buri:74:37
+   |
+74 |         .find(fn(pair) => pair.1 == wanted);
+   |                                     ^^^^^^
+   |
+   = did you mean `printed`?
+   = fix: correct the spelling, or declare it

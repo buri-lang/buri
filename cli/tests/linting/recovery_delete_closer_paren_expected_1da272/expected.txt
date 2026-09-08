@@ -1,0 +1,29 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_1da272/main.buri:34:53
+   |
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                                     ^^
+   |
+  --> lib/recovery_delete_closer_paren_expected_1da272/main.buri:34:45
+   |
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                             ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `:` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_expected_1da272/main.buri:34:72
+   |
+34 | fn rendered<C: Allocator>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                                                        ^
+   |
+   = expected: `=>`
+   = actual: `:`
+   = fix: write `=>` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_delete_closer_paren_expected_1da272/main.buri:51:23
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
+   |                       ^^^^^^^^
+   |
+   = did you mean `Ordered`?
+   = fix: correct the spelling, or declare it

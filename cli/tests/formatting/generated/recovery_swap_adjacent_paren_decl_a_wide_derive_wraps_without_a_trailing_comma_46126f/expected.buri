@@ -1,5 +1,6 @@
 export struct Meters(Float export);
 
 derive
-    Equal, Ordered, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display, Sendable
+    Equal, Ordered, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display,
+    Sendable
 for Meters;

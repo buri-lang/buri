@@ -1,9 +1,0 @@
-error: expected an identifier, found `,` [unexpected-token]
-  --> main.buri:36:61
-   |
-36 |     assert.equal(table.get(assert.some(uuid.fromBytes(id.0))). ,Some("ada"));
-   |                                                             ^
-   |
-   = expected: an identifier
-   = actual: `,`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,30 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:21:5
+   |
+21 |     assert.equal(time.secondsFloat(0.0, time.ZERO);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `secondsFloat` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:21:18
+   |
+21 |     assert.equal(time.secondsFloat(0.0, time.ZERO);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:21:51
+   |
+21 |     assert.equal(time.secondsFloat(0.0, time.ZERO);
+   |                                                   ^
+   |
+  --> main.buri:21:17
+   |
+21 |     assert.equal(time.secondsFloat(0.0, time.ZERO);
+   |                 ^ opened here
+   |
+   = fix: write `)` here

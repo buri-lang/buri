@@ -8,10 +8,10 @@ error: expected an identifier, found `@` [unexpected-token]
   = actual: `@`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
 error: expected a declaration, found `;` [unexpected-token]
- --> lib/recovery_insert_stray_brace_cents_d9a31b/lib.buri:4:38
+ --> lib/recovery_insert_stray_brace_cents_d9a31b/lib.buri:4:42
   |
 4 | from "core/effect" import { @ Allocator };
-  |                                      ^
+  |                                          ^
   |
   = expected: a declaration
   = actual: `;`
@@ -28,7 +28,7 @@ error: `Allocator` is not a trait or effect [not-a-trait]
  --> lib/recovery_insert_stray_brace_cents_d9a31b/lib.buri:7:23
   |
 7 | export fn describe<C: Allocator>(ctx: C): Str {
-  |                       ^^^^^
+  |                       ^^^^^^^^^
   |
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Allocator` as one

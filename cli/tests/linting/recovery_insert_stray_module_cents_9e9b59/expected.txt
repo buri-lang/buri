@@ -8,10 +8,10 @@ error: expected `import`, found `,` [unexpected-token]
   = actual: `,`
   = fix: write `import` here
 error: expected a declaration, found `;` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_9e9b59/lib.buri:4:38
+ --> lib/recovery_insert_stray_module_cents_9e9b59/lib.buri:4:42
   |
 4 | from "core/effect" , import { Allocator };
-  |                                      ^
+  |                                          ^
   |
   = expected: a declaration
   = actual: `;`
@@ -28,7 +28,7 @@ error: `Allocator` is not a trait or effect [not-a-trait]
  --> lib/recovery_insert_stray_module_cents_9e9b59/lib.buri:7:23
   |
 7 | export fn describe<C: Allocator>(ctx: C): Str {
-  |                       ^^^^^
+  |                       ^^^^^^^^^
   |
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Allocator` as one
