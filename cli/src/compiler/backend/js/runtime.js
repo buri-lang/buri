@@ -3692,6 +3692,8 @@ const $TREE_TEXT_ALIGNMENTS = [
 
 const $TREE_CURSORS = ["default", "pointer", "text", "not-allowed"];
 
+const $TREE_LIST_MARKERS = ["none", "disc", "decimal"];
+
 // Logical edges, so a right-to-left page is right by construction.
 const $TREE_EDGES = ["block-start", "block-end", "inline-start", "inline-end"];
 
@@ -3719,7 +3721,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all forty-five properties
+// `$tree_declare` below is the run-time lowering of all forty-six properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -3983,8 +3985,10 @@ function $tree_declare(style, out) {
       out.set("-webkit-line-clamp", "none");
       out.set("overflow", "visible");
     }
-  } else {
+  } else if (tag === 50) {
     out.set("cursor", $TREE_CURSORS[value]);
+  } else {
+    out.set("list-style-type", $TREE_LIST_MARKERS[value]);
   }
 }
 

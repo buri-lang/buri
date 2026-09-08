@@ -81,7 +81,7 @@ at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 45 properties and five ways of composing them. Every property is
+`ui/style` is 46 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -161,6 +161,13 @@ shadow on a field — so your styles are all there is. Those rules are
 `:where(...)`, which weighs nothing in the cascade, and only the elements the
 program actually builds get one. A checkbox is left alone: `appearance: none`
 erases the tick, and this vocabulary has nothing to draw a new one with.
+
+**A list region is reset the same way.** `region(.List, ...)` is a `ul`, and a
+browser marks and indents one by itself, so the sheet drops the disc, the
+indent and the margin — a rail, a menu and a tab strip are all lists, and none
+of them wants a bullet. `ListMarker(.Disc)` or `ListMarker(.Decimal)` asks for
+marks back. They hang outside the item, as a browser's do, so give the list a
+`PaddingEdge(.Start, ...)` for them to sit in.
 
 Constant folding is what makes design tokens work. `.Background(Token.Surface.color())`
 is a *call*, not a literal, and it still reaches the stylesheet: the extractor

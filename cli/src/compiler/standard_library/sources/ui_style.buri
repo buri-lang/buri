@@ -233,6 +233,12 @@ export enum Style {
 
     /// What the pointer looks like over this element.
     Cursor(Cursor),
+
+    /// What marks each item of a list region. Nothing marks one unless this
+    /// asks for it — the role is what a reader is told, and a browser's disc
+    /// is styling nobody asked for. A mark hangs outside the item, so give the
+    /// list `PaddingEdge(.Start, ...)` and the marks sit in it.
+    ListMarker(ListMarker),
 }
 
 /// How a container arranges its children.
@@ -507,6 +513,20 @@ export enum Cursor {
     Text,
     /// Something that would refuse.
     NotAllowed,
+}
+
+/// What marks each item of a list.
+///
+/// A list region is a list because of its role, and a role paints nothing. The
+/// stylesheet clears the browser's own marker and indent from every list, so
+/// this is how a list that wants marks asks for them.
+export enum ListMarker {
+    /// Nothing at all. What a navigation rail, a menu and a tab strip want.
+    None,
+    /// A filled disc.
+    Disc,
+    /// 1., 2., 3., counting the items in order.
+    Decimal,
 }
 
 /// A shadow cast by an element.
