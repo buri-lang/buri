@@ -4332,7 +4332,7 @@ pub unsafe extern "C" fn buri_rt_host_listen_bind(
             return 0;
         }
     };
-    // **A suspension point** (`rt.rs` §2), for `buri_rt_host_net_fetch`'s
+    // **A suspension point** (`rt.rs` §2), for `buri_rt_host_network_fetch`'s
     // reason: the bind is a syscall that can block on name resolution, and a
     // carrier is not the caller's to lose. The Buri blocks below are built
     // after the park returns, on the carrier and under the baton.

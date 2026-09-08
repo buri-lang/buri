@@ -667,7 +667,7 @@ pub fn cold_call(ctx: &Context, call: CallSiteValue<'_>) {
 }
 
 /// `noreturn` + `cold` on a call that does not come back: an abort, or
-/// `buri_rt_host_proc_exit_with`.
+/// `buri_rt_host_process_exit_with`.
 pub fn noreturn_call(ctx: &Context, call: CallSiteValue<'_>) {
     cold_call(ctx, call);
     call_attr(ctx, call, AttributeLoc::Function, "noreturn", 0);

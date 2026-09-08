@@ -1551,7 +1551,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rand(out: *mut i64) {
 /// # Safety
 /// `out` must be writable and aligned for an `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_rand_seed(
+pub unsafe extern "C" fn buri_rt_host_testing_test_random_seed(
     _handle: i64,
     seed: i64,
     out: *mut i64,
@@ -1567,7 +1567,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_rand_seed(
 /// An empty range aborts with the same message `host.HostRandom.nextInt` and
 /// `runtime.js` use, which `cli/tests/crash/random_range_empty` pins.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_rand_next_int(handle: i64, lo: i64, hi: i64) -> i64 {
+pub extern "C" fn buri_rt_host_testing_test_random_next_int(handle: i64, lo: i64, hi: i64) -> i64 {
     if hi <= lo {
         crate::buri_rt_abort_random_range();
     }
@@ -1577,7 +1577,7 @@ pub extern "C" fn buri_rt_host_testing_test_rand_next_int(handle: i64, lo: i64, 
 
 /// `TestRandom::nextFloat` — `x / 2^32`, as `$host_testing_TestRandom_nextFloat`.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_rand_next_float(handle: i64) -> f64 {
+pub extern "C" fn buri_rt_host_testing_test_random_next_float(handle: i64) -> f64 {
     f64::from(next(handle)) / 4294967296.0
 }
 
@@ -1675,7 +1675,7 @@ fn env_args(handle: i64) -> Vec<String> {
 /// `xs` points at `count` `(Str, Str)` elements; `out` is writable and aligned
 /// for an `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_variables(
     handle: i64,
     xs: *const u8,
     count: u64,
@@ -1700,7 +1700,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
 /// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
 /// `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_with_arguments(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_with_arguments(
     handle: i64,
     xs: *const u8,
     count: u64,
@@ -1729,7 +1729,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_with_arguments(
 /// The name must be a live `Str` view; `out` writable and aligned for a
 /// [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_variable(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1755,7 +1755,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_arguments(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -2555,7 +2555,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_copy_file(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_current_directory(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_current_directory(
     _handle: i64,
     out: *mut BuriStr,
 ) {
@@ -2573,7 +2573,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_current_directory(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_all_variables(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_all_variables(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -2602,7 +2602,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_all_variables(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_operating_system_name(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_operating_system_name(
     _handle: i64,
     out: *mut BuriStr,
 ) {
@@ -2744,7 +2744,7 @@ pub extern "C" fn buri_rt_host_testing_net_with_plan(handle: i64) -> i64 {
 /// request, recorded after the responder has answered it.
 ///
 /// The five pieces are `Request`'s five fields flattened by §2 rule 1, which is
-/// exactly what `crate::buri_rt_host_net_fetch` is handed: the method's variant
+/// exactly what `crate::buri_rt_host_network_fetch` is handed: the method's variant
 /// index, the URL's three `Str` leaves, two `(ptr, len)` pairs, and the bound in
 /// milliseconds. They are put back together by
 /// [`buri_rt_host_testing_net_calls`].

@@ -11,7 +11,7 @@
 //!
 //! `cli/runtime/lib.rs` §1 states the rule — "every exported symbol is
 //! `buri_rt_` followed by `snake_case`", so `host.HostFileSystem.readFile` is
-//! `buri_rt_host_fs_read_file` — and a fifteen-line mangler would produce that
+//! `buri_rt_host_file_system_read_file` — and a fifteen-line mangler would produce that
 //! string. It would also produce `buri_rt_str_concat` for `str.concat` and
 //! `buri_rt_list_len` for `list.length`, **neither of which exists**: the archive
 //! is deliberately not the whole of the 203-function intrinsic surface
@@ -159,7 +159,7 @@ pub enum Ret {
     /// One integer of exactly this many bits, which is **not** the dest's
     /// register shape and is narrowed to it at the call site.
     ///
-    /// The C boundary has no `i1` and no `i8` enum tag: `buri_rt_str_eq`
+    /// The C boundary has no `i1` and no `i8` enum tag: `buri_rt_str_equal`
     /// returns `u8` and `buri_rt_str_compare` returns `i32`, while `Bool` is an
     /// `i1` and `Order` is whatever width `middle::layout` gave a three-variant
     /// bare tag. Declaring the import at the dest's width instead would be a
@@ -322,13 +322,13 @@ pub const ENTRIES: &[Entry] = &[
     // difference between `writeFile` and `writeFileBytes`.
     Entry {
         key: "host.HostFileSystem.readFile",
-        symbol: "buri_rt_host_fs_read_file",
+        symbol: "buri_rt_host_file_system_read_file",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.writeFile",
-        symbol: "buri_rt_host_fs_write_file",
+        symbol: "buri_rt_host_file_system_write_file",
         args: &[Arg::Dropped, Arg::Str, Arg::Str],
         ret: Ret::ResMsg,
     },
@@ -336,19 +336,19 @@ pub const ENTRIES: &[Entry] = &[
     // `Result`: a `Bool` comes back as the `u8` a C boundary has for it.
     Entry {
         key: "host.HostFileSystem.fileExists",
-        symbol: "buri_rt_host_fs_file_exists",
+        symbol: "buri_rt_host_file_system_file_exists",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::Int(8),
     },
     Entry {
         key: "host.HostFileSystem.readDir",
-        symbol: "buri_rt_host_fs_read_dir",
+        symbol: "buri_rt_host_file_system_read_dir",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.readFileBytes",
-        symbol: "buri_rt_host_fs_read_file_bytes",
+        symbol: "buri_rt_host_file_system_read_file_bytes",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
@@ -383,43 +383,43 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         key: "host.HostFileSystem.writeFileBytes",
-        symbol: "buri_rt_host_fs_write_file_bytes",
+        symbol: "buri_rt_host_file_system_write_file_bytes",
         args: &[Arg::Dropped, Arg::Str, Arg::List],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.appendFile",
-        symbol: "buri_rt_host_fs_append_file",
+        symbol: "buri_rt_host_file_system_append_file",
         args: &[Arg::Dropped, Arg::Str, Arg::List],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.renameFile",
-        symbol: "buri_rt_host_fs_rename_file",
+        symbol: "buri_rt_host_file_system_rename_file",
         args: &[Arg::Dropped, Arg::Str, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.removeFile",
-        symbol: "buri_rt_host_fs_remove_file",
+        symbol: "buri_rt_host_file_system_remove_file",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.removeDir",
-        symbol: "buri_rt_host_fs_remove_dir",
+        symbol: "buri_rt_host_file_system_remove_dir",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.makeDir",
-        symbol: "buri_rt_host_fs_make_dir",
+        symbol: "buri_rt_host_file_system_make_dir",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.syncFile",
-        symbol: "buri_rt_host_fs_sync_file",
+        symbol: "buri_rt_host_file_system_sync_file",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
@@ -428,25 +428,25 @@ pub const ENTRIES: &[Entry] = &[
     // writes `Metadata`'s three fields where they already belong.
     Entry {
         key: "host.HostFileSystem.metadata",
-        symbol: "buri_rt_host_fs_metadata",
+        symbol: "buri_rt_host_file_system_metadata",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.readRange",
-        symbol: "buri_rt_host_fs_read_range",
+        symbol: "buri_rt_host_file_system_read_range",
         args: &[Arg::Dropped, Arg::Str, Arg::Scalar, Arg::Scalar],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.realPath",
-        symbol: "buri_rt_host_fs_real_path",
+        symbol: "buri_rt_host_file_system_real_path",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostFileSystem.copyFile",
-        symbol: "buri_rt_host_fs_copy_file",
+        symbol: "buri_rt_host_file_system_copy_file",
         args: &[Arg::Dropped, Arg::Str, Arg::Str],
         ret: Ret::ResMsg,
     },
@@ -460,31 +460,31 @@ pub const ENTRIES: &[Entry] = &[
     // without them.
     Entry {
         key: "host.HostEnvironment.variable",
-        symbol: "buri_rt_host_env_variable",
+        symbol: "buri_rt_host_environment_variable",
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::Sum,
     },
     Entry {
         key: "host.HostEnvironment.arguments",
-        symbol: "buri_rt_host_env_arguments",
+        symbol: "buri_rt_host_environment_arguments",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
     Entry {
         key: "host.HostEnvironment.currentDirectory",
-        symbol: "buri_rt_host_env_current_directory",
+        symbol: "buri_rt_host_environment_current_directory",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
     Entry {
         key: "host.HostEnvironment.allVariables",
-        symbol: "buri_rt_host_env_all_variables",
+        symbol: "buri_rt_host_environment_all_variables",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
     Entry {
         key: "host.HostEnvironment.operatingSystemName",
-        symbol: "buri_rt_host_env_operating_system_name",
+        symbol: "buri_rt_host_environment_operating_system_name",
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
@@ -530,13 +530,13 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         key: "host.HostRandom.nextInt",
-        symbol: "buri_rt_host_rand_next_int",
+        symbol: "buri_rt_host_random_next_int",
         args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
         key: "host.HostRandom.nextFloat",
-        symbol: "buri_rt_host_rand_next_float",
+        symbol: "buri_rt_host_random_next_float",
         args: &[Arg::Dropped],
         ret: Ret::Scalar,
     },
@@ -552,13 +552,13 @@ pub const ENTRIES: &[Entry] = &[
     // budget check in the runtime (`memory.rs:330`).
     Entry {
         key: "host.HostAllocator.allocate",
-        symbol: "buri_rt_host_alloc_allocate",
+        symbol: "buri_rt_host_allocator_allocate",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
         key: "host.HostProcess.exitWith",
-        symbol: "buri_rt_host_proc_exit_with",
+        symbol: "buri_rt_host_process_exit_with",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::NoReturn,
     },
@@ -965,7 +965,7 @@ pub const ENTRIES: &[Entry] = &[
     // over a type with a `Str` in it (`derives.rs`'s `fn eq`).
     Entry {
         key: "str.equal",
-        symbol: "buri_rt_str_eq",
+        symbol: "buri_rt_str_equal",
         args: &[Arg::Str, Arg::Str],
         ret: Ret::Int(8),
     },
@@ -1147,10 +1147,10 @@ pub const ENTRIES: &[Entry] = &[
     // platform libm differ in the last bit, and a rendered `Float` shows all
     // seventeen digits of that difference. A named gap is a diagnostic; a libm
     // call is a conformance failure nobody can attribute.
-    Entry { key: "math.squareRoot", symbol: "buri_rt_math_sqrt", args: &[Arg::Scalar], ret: Ret::Scalar },
+    Entry { key: "math.squareRoot", symbol: "buri_rt_math_square_root", args: &[Arg::Scalar], ret: Ret::Scalar },
     Entry {
         key: "math.absoluteFloat",
-        symbol: "buri_rt_math_abs_float",
+        symbol: "buri_rt_math_absolute_float",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
@@ -1160,10 +1160,10 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
-    Entry { key: "math.ceiling", symbol: "buri_rt_math_ceil", args: &[Arg::Scalar], ret: Ret::Scalar },
+    Entry { key: "math.ceiling", symbol: "buri_rt_math_ceiling", args: &[Arg::Scalar], ret: Ret::Scalar },
     Entry {
         key: "math.truncate",
-        symbol: "buri_rt_math_trunc",
+        symbol: "buri_rt_math_truncate",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
@@ -1668,7 +1668,7 @@ pub const ENTRIES: &[Entry] = &[
     // back by `netCalls`. `recordFetch` is handed `Request` flattened by §2 rule
     // 1: the method's variant index as an `Int`, the URL's three leaves, two
     // `(ptr, len)` pairs and the bound in milliseconds —
-    // `buri_rt_host_net_fetch`'s argument list without its answer. `netCalls`
+    // `buri_rt_host_network_fetch`'s argument list without its answer. `netCalls`
     // takes the handle rather than the `TestNetwork`, because that value carries the
     // responder too and an argument crosses as its leaves.
     Entry {
@@ -1850,19 +1850,19 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         key: "host_testing.TestRandom.seed",
-        symbol: "buri_rt_host_testing_test_rand_seed",
+        symbol: "buri_rt_host_testing_test_random_seed",
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
         key: "host_testing.TestRandom.nextInt",
-        symbol: "buri_rt_host_testing_test_rand_next_int",
+        symbol: "buri_rt_host_testing_test_random_next_int",
         args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
         key: "host_testing.TestRandom.nextFloat",
-        symbol: "buri_rt_host_testing_test_rand_next_float",
+        symbol: "buri_rt_host_testing_test_random_next_float",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
@@ -1887,43 +1887,43 @@ pub const ENTRIES: &[Entry] = &[
     Entry { key: "host_testing.env", symbol: "buri_rt_host_testing_env", args: &[], ret: Ret::Out },
     Entry {
         key: "host_testing.TestEnvironment.variables",
-        symbol: "buri_rt_host_testing_test_env_variables",
+        symbol: "buri_rt_host_testing_test_environment_variables",
         args: &[Arg::Scalar, Arg::List],
         ret: Ret::Out,
     },
     Entry {
         key: "host_testing.TestEnvironment.withArguments",
-        symbol: "buri_rt_host_testing_test_env_with_arguments",
+        symbol: "buri_rt_host_testing_test_environment_with_arguments",
         args: &[Arg::Scalar, Arg::List],
         ret: Ret::Out,
     },
     Entry {
         key: "host_testing.TestEnvironment.variable",
-        symbol: "buri_rt_host_testing_test_env_variable",
+        symbol: "buri_rt_host_testing_test_environment_variable",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Sum,
     },
     Entry {
         key: "host_testing.TestEnvironment.arguments",
-        symbol: "buri_rt_host_testing_test_env_arguments",
+        symbol: "buri_rt_host_testing_test_environment_arguments",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
         key: "host_testing.TestEnvironment.currentDirectory",
-        symbol: "buri_rt_host_testing_test_env_current_directory",
+        symbol: "buri_rt_host_testing_test_environment_current_directory",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
         key: "host_testing.TestEnvironment.allVariables",
-        symbol: "buri_rt_host_testing_test_env_all_variables",
+        symbol: "buri_rt_host_testing_test_environment_all_variables",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
         key: "host_testing.TestEnvironment.operatingSystemName",
-        symbol: "buri_rt_host_testing_test_env_operating_system_name",
+        symbol: "buri_rt_host_testing_test_environment_operating_system_name",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -2411,12 +2411,12 @@ mod tests {
         for e in ENTRIES {
             assert_eq!(symbol_for(e.key), e.symbol, "{}", e.key);
         }
-        assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_fs_read_file");
-        assert_eq!(symbol_for("host.HostProcess.exitWith"), "buri_rt_host_proc_exit_with");
+        assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_file_system_read_file");
+        assert_eq!(symbol_for("host.HostProcess.exitWith"), "buri_rt_host_process_exit_with");
         assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
         // The one that does not collapse, because the repetition is real:
         // `memory.rs:330` exports it under this name.
-        assert_eq!(symbol_for("host.HostAllocator.allocate"), "buri_rt_host_alloc_allocate");
+        assert_eq!(symbol_for("host.HostAllocator.allocate"), "buri_rt_host_allocator_allocate");
         assert_eq!(symbol_for("list.map"), "buri_rt_list_map");
     }
 
@@ -2547,7 +2547,7 @@ mod tests {
     /// exists" and "this backend can call it" two separate claims.
     #[test]
     fn host_net_fetch_has_a_symbol_and_no_row() {
-        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_net_fetch");
+        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_network_fetch");
         assert!(entry("host.HostNetwork.fetch").is_none());
     }
 

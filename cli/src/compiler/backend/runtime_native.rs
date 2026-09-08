@@ -37,7 +37,7 @@ pub const SYMBOL_PREFIX: &str = "buri_rt_";
 /// The effect type repeats its module in its name, and the symbol does not
 /// repeat it twice — so a snake-cased segment that begins with the previous
 /// segment drops that prefix. `host.HostAllocator.allocate` is
-/// `buri_rt_host_alloc_allocate`, which is the same rule and keeps the
+/// `buri_rt_host_allocator_allocate`, which is the same rule and keeps the
 /// non-redundant repetition it happens to have.
 ///
 /// One copy for every backend, because the rule is the runtime's and not any
@@ -63,8 +63,8 @@ pub fn symbol_for(key: &str) -> String {
     out
 }
 
-/// `HostFileSystem` -> `host_fs`, `readFile` -> `read_file`, `nowMilliseconds` ->
-/// `now_milliseconds`. An underscore before an upper-case letter that follows a
+/// `HostFileSystem` -> `host_file_system`, `readFile` -> `read_file`,
+/// `nowMilliseconds` -> `now_milliseconds`. An underscore before an upper-case letter that follows a
 /// lower-case one or a digit; runs of capitals are not split, because no key
 /// has one.
 fn snake_into(segment: &str, out: &mut String) {

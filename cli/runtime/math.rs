@@ -39,14 +39,14 @@
 
 /// `math.squareRoot` — correctly rounded, by IEEE 754 §5.4.1.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_sqrt(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_square_root(x: f64) -> f64 {
     x.sqrt()
 }
 
 /// `math.absoluteFloat`. `abs(-0.0)` is `0.0` and `abs(NaN)` is `NaN`, which is what
 /// clearing the sign bit does and what `Math.abs` does.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_abs_float(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_absolute_float(x: f64) -> f64 {
     x.abs()
 }
 
@@ -58,13 +58,13 @@ pub extern "C" fn buri_rt_math_floor(x: f64) -> f64 {
 
 /// `math.ceiling` — toward positive infinity.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_ceil(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_ceiling(x: f64) -> f64 {
     x.ceil()
 }
 
 /// `math.truncate` — toward zero.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_math_trunc(x: f64) -> f64 {
+pub extern "C" fn buri_rt_math_truncate(x: f64) -> f64 {
     x.trunc()
 }
 

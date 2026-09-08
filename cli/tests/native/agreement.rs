@@ -2073,7 +2073,7 @@ export fn main(): Result<(), Str> {
 // `#[ignore]` beside it, for the reason row 10's did: it pinned
 // `host.HostAllocator.allocate` having no native body, and the debug backend has
 // one now — `runtime_table.rs`'s row reaches
-// `buri_rt_host_alloc_allocate`, which is the same archive body the release
+// `buri_rt_host_allocator_allocate`, which is the same archive body the release
 // backend has always called.
 
 /// MEMORY.md §7's model, on both backends, at the one row that charges its

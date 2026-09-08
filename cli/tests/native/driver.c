@@ -61,7 +61,7 @@ extern uint64_t buri_rt_rc(uint8_t *p);
 extern uint64_t buri_rt_cap(uint8_t *p);
 extern void buri_rt_heap_stats(BuriHeapStats *out);
 extern uint64_t buri_rt_live_blocks(void);
-extern int64_t buri_rt_host_alloc_allocate(int64_t bytes);
+extern int64_t buri_rt_host_allocator_allocate(int64_t bytes);
 
 /* values */
 extern void buri_rt_str_from_utf8(const uint8_t *bytes, uint64_t len, BuriStr *out);
@@ -93,36 +93,36 @@ extern void buri_rt_host_stderr_eprint(uint8_t *base, const uint8_t *ptr, uint64
 extern void buri_rt_host_stderr_eprintln(uint8_t *base, const uint8_t *ptr, uint64_t len);
 extern int32_t buri_rt_host_stdin_read_line(BuriStr *out);
 extern int32_t buri_rt_host_stdin_read_bytes(int64_t n, BuriList *out);
-extern int32_t buri_rt_host_fs_read_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern int32_t buri_rt_host_file_system_read_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out_ok, BuriStr *out_err);
-extern int32_t buri_rt_host_fs_write_file(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
+extern int32_t buri_rt_host_file_system_write_file(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
                                           uint8_t *bbase, const uint8_t *bptr, uint64_t blen,
                                           BuriStr *out_err);
-extern uint8_t buri_rt_host_fs_file_exists(uint8_t *base, const uint8_t *ptr, uint64_t len);
-extern int32_t buri_rt_host_fs_read_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern uint8_t buri_rt_host_file_system_file_exists(uint8_t *base, const uint8_t *ptr, uint64_t len);
+extern int32_t buri_rt_host_file_system_read_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                         BuriList *out_ok, BuriStr *out_err);
-extern int32_t buri_rt_host_fs_read_file_bytes(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern int32_t buri_rt_host_file_system_read_file_bytes(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                                BuriList *out_ok, BuriStr *out_err);
-extern int32_t buri_rt_host_fs_write_file_bytes(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
+extern int32_t buri_rt_host_file_system_write_file_bytes(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
                                                 const uint8_t *bptr, uint64_t blen,
                                                 BuriStr *out_err);
-extern int32_t buri_rt_host_fs_append_file(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
+extern int32_t buri_rt_host_file_system_append_file(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
                                            const uint8_t *bptr, uint64_t blen, BuriStr *out_err);
-extern int32_t buri_rt_host_fs_rename_file(uint8_t *fbase, const uint8_t *fptr, uint64_t flen,
+extern int32_t buri_rt_host_file_system_rename_file(uint8_t *fbase, const uint8_t *fptr, uint64_t flen,
                                            uint8_t *tbase, const uint8_t *tptr, uint64_t tlen,
                                            BuriStr *out_err);
-extern int32_t buri_rt_host_fs_remove_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern int32_t buri_rt_host_file_system_remove_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                            BuriStr *out_err);
-extern int32_t buri_rt_host_fs_remove_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern int32_t buri_rt_host_file_system_remove_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                           BuriStr *out_err);
-extern int32_t buri_rt_host_fs_make_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern int32_t buri_rt_host_file_system_make_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                         BuriStr *out_err);
-extern int32_t buri_rt_host_fs_sync_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern int32_t buri_rt_host_file_system_sync_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out_err);
 /* `Request` flattened: the method's variant index, the URL's three `Str`
  * leaves, then the `(ptr, len)` of a `[Header]` and of a `[U8]`, then
  * `timeoutMillis` — zero for the runtime's own bound. */
-extern int32_t buri_rt_host_net_fetch(int32_t method, uint8_t *ubase, const uint8_t *uptr,
+extern int32_t buri_rt_host_network_fetch(int32_t method, uint8_t *ubase, const uint8_t *uptr,
                                       uint64_t ulen, const uint8_t *hptr, uint64_t hlen,
                                       const uint8_t *bptr, uint64_t blen, int64_t timeout_millis,
                                       int64_t *out_status, BuriList *out_headers,
@@ -136,13 +136,13 @@ extern int32_t buri_rt_net_available(void);
 extern int32_t buri_rt_net_h3_available(void);
 extern int64_t buri_rt_host_clock_now_milliseconds(void);
 extern void buri_rt_host_clock_sleep_milliseconds(int64_t milliseconds);
-extern int64_t buri_rt_host_rand_next_int(int64_t lo, int64_t hi);
+extern int64_t buri_rt_host_random_next_int(int64_t lo, int64_t hi);
 extern void buri_rt_host_entropy_bytes(int64_t count, BuriList *out);
-extern double buri_rt_host_rand_next_float(void);
-extern int32_t buri_rt_host_env_variable(uint8_t *base, const uint8_t *ptr, uint64_t len,
+extern double buri_rt_host_random_next_float(void);
+extern int32_t buri_rt_host_environment_variable(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out);
-extern void buri_rt_host_env_arguments(BuriList *out);
-extern void buri_rt_host_proc_exit_with(int64_t code);
+extern void buri_rt_host_environment_arguments(BuriList *out);
+extern void buri_rt_host_process_exit_with(int64_t code);
 
 /* rendering — `cli/runtime/fmt.rs`. Every one writes an owned `Str` through an
  * out-pointer, which is §2 rule 2. */
@@ -184,7 +184,7 @@ extern int32_t buri_rt_str_split_once(uint8_t *base, const uint8_t *ptr, uint64_
                                       BuriStr *out);
 extern int32_t buri_rt_str_compare(uint8_t *base, const uint8_t *ptr, uint64_t len, uint8_t *obase,
                                    const uint8_t *optr, uint64_t olen);
-extern uint8_t buri_rt_str_eq(uint8_t *base, const uint8_t *ptr, uint64_t len, uint8_t *obase,
+extern uint8_t buri_rt_str_equal(uint8_t *base, const uint8_t *ptr, uint64_t len, uint8_t *obase,
                               const uint8_t *optr, uint64_t olen);
 extern uint64_t buri_rt_str_hash(uint8_t *base, const uint8_t *ptr, uint64_t len);
 extern int32_t buri_rt_str_to_int(uint8_t *base, const uint8_t *ptr, uint64_t len, int64_t *out);
@@ -293,7 +293,7 @@ static int mode_memory(void) {
   buri_rt_heap_stats(&stats);
   uint64_t leaked = stats.live_blocks - base_live;
 
-  if (buri_rt_host_alloc_allocate(4096) != 4096) {
+  if (buri_rt_host_allocator_allocate(4096) != 4096) {
     fprintf(stderr, "Allocator::allocate did not report its own charge\n");
     return 1;
   }
@@ -372,32 +372,32 @@ static int mode_fs(const char *dir) {
   snprintf(notdir, sizeof notdir, "%s/f.txt/under-a-file", dir);
 
   BuriStr err, ok, utf8;
-  int32_t wrote = buri_rt_host_fs_write_file(S(path), S("hello"), &err);
-  int32_t wrote_utf8 = buri_rt_host_fs_write_file(S(utf8path), S("h\xc3\xa9llo"), &err);
+  int32_t wrote = buri_rt_host_file_system_write_file(S(path), S("hello"), &err);
+  int32_t wrote_utf8 = buri_rt_host_file_system_write_file(S(utf8path), S("h\xc3\xa9llo"), &err);
   if (wrote_utf8 != BURI_OK) {
     fprintf(stderr, "writing the UTF-8 fixture failed with %d\n", wrote_utf8);
     return 1;
   }
 
-  uint8_t exists = buri_rt_host_fs_file_exists(S(path));
-  int32_t read = buri_rt_host_fs_read_file(S(path), &ok, &err);
-  int32_t read_utf8 = buri_rt_host_fs_read_file(S(utf8path), &utf8, &err);
+  uint8_t exists = buri_rt_host_file_system_file_exists(S(path));
+  int32_t read = buri_rt_host_file_system_read_file(S(path), &ok, &err);
+  int32_t read_utf8 = buri_rt_host_file_system_read_file(S(utf8path), &utf8, &err);
   if (read != BURI_OK || read_utf8 != BURI_OK) {
     fprintf(stderr, "reading back failed with %d / %d\n", read, read_utf8);
     return 1;
   }
 
   BuriList entries;
-  int32_t listed = buri_rt_host_fs_read_dir(S(dir), &entries, &err);
+  int32_t listed = buri_rt_host_file_system_read_dir(S(dir), &entries, &err);
   if (listed != BURI_OK) {
     fprintf(stderr, "readDir failed with %d\n", listed);
     return 1;
   }
 
   BuriStr ignored;
-  int32_t not_found = buri_rt_host_fs_read_file(S(missing), &ignored, &err);
-  int32_t not_a_dir = buri_rt_host_fs_read_file(S(notdir), &ignored, &err);
-  uint8_t exists_missing = buri_rt_host_fs_file_exists(S(missing));
+  int32_t not_found = buri_rt_host_file_system_read_file(S(missing), &ignored, &err);
+  int32_t not_a_dir = buri_rt_host_file_system_read_file(S(notdir), &ignored, &err);
+  uint8_t exists_missing = buri_rt_host_file_system_file_exists(S(missing));
 
   printf("write=%s exists=%d read=%.*s utf8=%.*s readdir=%llu missing=%d notdir=%d "
          "exists-missing=%d\n",
@@ -418,22 +418,22 @@ static int mode_wal(const char *dir) {
   snprintf(checkpoint, sizeof checkpoint, "%s/wal/checkpoint", dir);
 
   BuriStr err;
-  int32_t made = buri_rt_host_fs_make_dir(S(root), &err);
+  int32_t made = buri_rt_host_file_system_make_dir(S(root), &err);
   /* Twice, because an existing directory is `.Ok` and a WAL opens its own
    * directory on every start. */
-  int32_t made_again = buri_rt_host_fs_make_dir(S(root), &err);
+  int32_t made_again = buri_rt_host_file_system_make_dir(S(root), &err);
 
   /* Two records, each one append, with the commit point stated after each.
    * The first append creates the file. */
   static const uint8_t first[2] = {1, 10};
   static const uint8_t second[2] = {2, 20};
-  int32_t one = buri_rt_host_fs_append_file(S(log), first, 2, &err);
-  int32_t synced_one = buri_rt_host_fs_sync_file(S(log), &err);
-  int32_t two = buri_rt_host_fs_append_file(S(log), second, 2, &err);
-  int32_t synced_two = buri_rt_host_fs_sync_file(S(log), &err);
+  int32_t one = buri_rt_host_file_system_append_file(S(log), first, 2, &err);
+  int32_t synced_one = buri_rt_host_file_system_sync_file(S(log), &err);
+  int32_t two = buri_rt_host_file_system_append_file(S(log), second, 2, &err);
+  int32_t synced_two = buri_rt_host_file_system_sync_file(S(log), &err);
 
   BuriList replayed;
-  int32_t read = buri_rt_host_fs_read_file_bytes(S(log), &replayed, &err);
+  int32_t read = buri_rt_host_file_system_read_file_bytes(S(log), &replayed, &err);
   if (read != BURI_OK) {
     fprintf(stderr, "replaying the log failed with %d\n", read);
     return 1;
@@ -442,20 +442,20 @@ static int mode_wal(const char *dir) {
   /* Checkpoint: the temporary, made durable, swapped in, and the directory
    * entry made durable so the swap survives too. */
   static const uint8_t body[1] = {30};
-  int32_t wrote = buri_rt_host_fs_write_file_bytes(S(tmp), body, 1, &err);
-  int32_t synced_tmp = buri_rt_host_fs_sync_file(S(tmp), &err);
-  int32_t renamed = buri_rt_host_fs_rename_file(S(tmp), S(checkpoint), &err);
-  int32_t synced_dir = buri_rt_host_fs_sync_file(S(root), &err);
-  uint8_t tmp_gone = buri_rt_host_fs_file_exists(S(tmp));
+  int32_t wrote = buri_rt_host_file_system_write_file_bytes(S(tmp), body, 1, &err);
+  int32_t synced_tmp = buri_rt_host_file_system_sync_file(S(tmp), &err);
+  int32_t renamed = buri_rt_host_file_system_rename_file(S(tmp), S(checkpoint), &err);
+  int32_t synced_dir = buri_rt_host_file_system_sync_file(S(root), &err);
+  uint8_t tmp_gone = buri_rt_host_file_system_file_exists(S(tmp));
 
   BuriList kept;
-  int32_t read_checkpoint = buri_rt_host_fs_read_file_bytes(S(checkpoint), &kept, &err);
+  int32_t read_checkpoint = buri_rt_host_file_system_read_file_bytes(S(checkpoint), &kept, &err);
 
   /* Truncation after the checkpoint, and the same call a second time, which is
    * the one edge `remove` reports rather than swallowing. */
-  int32_t removed = buri_rt_host_fs_remove_file(S(log), &err);
-  int32_t removed_again = buri_rt_host_fs_remove_file(S(log), &err);
-  int32_t sync_missing = buri_rt_host_fs_sync_file(S(log), &err);
+  int32_t removed = buri_rt_host_file_system_remove_file(S(log), &err);
+  int32_t removed_again = buri_rt_host_file_system_remove_file(S(log), &err);
+  int32_t sync_missing = buri_rt_host_file_system_sync_file(S(log), &err);
 
   /* And the inverse of the `mkdir` this mode opened with, which the effect went
    * without until buri-lang/buri#38: the directory still holds the checkpoint,
@@ -468,10 +468,10 @@ static int mode_wal(const char *dir) {
   why.base = NULL;
   why.ptr = NULL;
   why.len = 0;
-  int32_t held = buri_rt_host_fs_remove_dir(S(root), &why);
-  int32_t dropped = buri_rt_host_fs_remove_file(S(checkpoint), &err);
-  int32_t rmdir = buri_rt_host_fs_remove_dir(S(root), &err);
-  uint8_t root_gone = buri_rt_host_fs_file_exists(S(root));
+  int32_t held = buri_rt_host_file_system_remove_dir(S(root), &why);
+  int32_t dropped = buri_rt_host_file_system_remove_file(S(checkpoint), &err);
+  int32_t rmdir = buri_rt_host_file_system_remove_dir(S(root), &err);
+  uint8_t root_gone = buri_rt_host_file_system_file_exists(S(root));
 
   printf("mkdir=%s,%s append=%s,%s sync=%s,%s log=", made == BURI_OK ? "ok" : "err",
          made_again == BURI_OK ? "ok" : "err", one == BURI_OK ? "ok" : "err",
@@ -498,12 +498,12 @@ static int mode_wal(const char *dir) {
 
 static int mode_env(void) {
   BuriStr value;
-  int32_t present = buri_rt_host_env_variable(S("BURI_RT_TEST"), &value);
+  int32_t present = buri_rt_host_environment_variable(S("BURI_RT_TEST"), &value);
   BuriStr absent;
-  int32_t missing = buri_rt_host_env_variable(S("BURI_RT_DEFINITELY_NOT_SET"), &absent);
+  int32_t missing = buri_rt_host_environment_variable(S("BURI_RT_DEFINITELY_NOT_SET"), &absent);
 
   BuriList args;
-  buri_rt_host_env_arguments(&args);
+  buri_rt_host_environment_arguments(&args);
 
   printf("var=%.*s missing=%s args=%llu:", present == BURI_OK ? bytes_of(value) : 0,
          present == BURI_OK ? chars_of(value) : "", missing == BURI_OK ? "some" : "none",
@@ -526,9 +526,9 @@ static int mode_clock_rand(void) {
 
   int in_range = 0;
   int varies = 0;
-  int64_t first = buri_rt_host_rand_next_int(5, 10);
+  int64_t first = buri_rt_host_random_next_int(5, 10);
   for (int i = 0; i < 1000; i++) {
-    int64_t v = buri_rt_host_rand_next_int(5, 10);
+    int64_t v = buri_rt_host_random_next_int(5, 10);
     if (v >= 5 && v < 10) {
       in_range++;
     }
@@ -539,7 +539,7 @@ static int mode_clock_rand(void) {
 
   int floats_in_range = 0;
   for (int i = 0; i < 1000; i++) {
-    double f = buri_rt_host_rand_next_float();
+    double f = buri_rt_host_random_next_float();
     if (f >= 0.0 && f < 1.0) {
       floats_in_range++;
     }
@@ -644,7 +644,7 @@ static int mode_net(const char *url) {
   sent[0].value = borrowed("buri");
   static const uint8_t payload[] = {0xf0, 0x9f, 0x91, 0x8b};
   int32_t result =
-      buri_rt_host_net_fetch(0, S(url), (const uint8_t *)sent, 1, payload, sizeof payload, 0,
+      buri_rt_host_network_fetch(0, S(url), (const uint8_t *)sent, 1, payload, sizeof payload, 0,
                              &status, &out_headers, &out_body, &err);
   if (result == BURI_OK) {
     const BuriHeader *got = (const BuriHeader *)out_headers.ptr;
@@ -756,7 +756,7 @@ static int mode_text(void) {
   printf("compare %d %d %d\n", buri_rt_str_compare(S("a"), S("b")),
          buri_rt_str_compare(S("a"), S("a")),
          buri_rt_str_compare(S("\xef\xbf\xbd"), S("\xf0\x90\x80\x80")));
-  printf("eq %d %d\n", buri_rt_str_eq(S("a"), S("a")), buri_rt_str_eq(S("a"), S("b")));
+  printf("eq %d %d\n", buri_rt_str_equal(S("a"), S("a")), buri_rt_str_equal(S("a"), S("b")));
 
   printf("toint %d ", buri_rt_str_to_int(S(" 42 "), &n));
   printf("%lld\n", (long long)n);
@@ -978,7 +978,7 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "exit") == 0) {
     buri_rt_host_stdout_println(S("buffered, and flushed by the exit"));
-    buri_rt_host_proc_exit_with(7);
+    buri_rt_host_process_exit_with(7);
   }
   if (strcmp(mode, "abort-div") == 0) {
     buri_rt_abort_div_zero();
@@ -987,7 +987,7 @@ int main(int argc, char **argv) {
     buri_rt_abort_shift();
   }
   if (strcmp(mode, "abort-random") == 0) {
-    buri_rt_host_rand_next_int(3, 3);
+    buri_rt_host_random_next_int(3, 3);
   }
   if (strcmp(mode, "abort-entropy-count") == 0) {
     BuriList out;

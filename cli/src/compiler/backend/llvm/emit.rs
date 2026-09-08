@@ -4944,7 +4944,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `==`, `<` and the rest at a `Str`, which has no comparison instruction.
     ///
-    /// `buri_rt_str_eq` is a byte compare with a length test in front and
+    /// `buri_rt_str_equal` is a byte compare with a length test in front and
     /// `buri_rt_str_compare` is a lexicographic one answering `Order`'s own
     /// numbering — `Less = 0`, `Equal = 1`, `Greater = 2`, in declaration order
     /// in `core/order`. Every relational operator is therefore that number
@@ -4967,7 +4967,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let equality = matches!(op, ir::BinOp::Eq | ir::BinOp::Ne);
         let (symbol, width) = if equality {
-            (runtime::entry("str.equal").map_or("buri_rt_str_eq", |e| e.symbol), 8)
+            (runtime::entry("str.equal").map_or("buri_rt_str_equal", |e| e.symbol), 8)
         } else {
             (runtime::entry("str.compare").map_or("buri_rt_str_compare", |e| e.symbol), 32)
         };
@@ -5568,7 +5568,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 true
             }
             // The identity on the byte count, which is exactly what
-            // `buri_rt_host_alloc_allocate` is: MEMORY.md §7 makes the charge a
+            // `buri_rt_host_allocator_allocate` is: MEMORY.md §7 makes the charge a
             // function of the *types*, computed by `middle::layout`, so
             // `allocate` returns what it was asked for and the accounting is the
             // caller's.

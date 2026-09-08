@@ -1600,7 +1600,7 @@ fn quarantine<T>(f: impl FnOnce(&mut Quarantine) -> T) -> T {
 /// reason.
 static HEAP_AUDIT_QUIET: AtomicBool = AtomicBool::new(false);
 
-/// Called by `abort::die` and by `buri_rt_host_proc_exit_with`.
+/// Called by `abort::die` and by `buri_rt_host_process_exit_with`.
 pub(crate) fn quiet_heap_audit() {
     HEAP_AUDIT_QUIET.store(true, Ordering::Relaxed);
 }
@@ -2025,7 +2025,7 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
 /// `HostAllocator` is zero-sized and unbounded, so this returns what it was asked
 /// for and the accounting is the caller's.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_alloc_allocate(bytes: i64) -> i64 {
+pub extern "C" fn buri_rt_host_allocator_allocate(bytes: i64) -> i64 {
     bytes
 }
 
