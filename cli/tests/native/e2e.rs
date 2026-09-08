@@ -108,22 +108,62 @@ macro_rules! unless_ready {
 // The programs
 // ---------------------------------------------------------------------------
 
-/// The eight kilobytes that make the port line readable *while the server is
-/// still running*.
+/// A server that says two things and then blocks, with nothing in either line
+/// but what it meant to say.
 ///
-/// `cli/runtime/host.rs` buffers standard output until `FLUSH_AT` or exit, so a
-/// fixture that has to be heard from *while it is still running* fills the
-/// buffer. `shared`'s own fixtures carry the same padding and the same
-/// argument.
+/// **The fixture for [`what_a_server_prints_reaches_a_pipe_before_it_blocks`]**,
+/// and its two lines are the two waits a server
+/// makes before it has answered anything: `starting` is followed by a sleep,
+/// and `listening on <port>` is followed by the `listenAccept` a server sits
+/// in between requests. Neither line is padded. Until buri-lang/buri#66 every
+/// server fixture in this suite carried eight kilobytes of `x` behind its port
+/// so that the print would fill the runtime's buffer and reach the pipe; the
+/// padding is gone from all of them, so each of those rows now reads a line
+/// that only a flush at the wait could have delivered.
 ///
-/// Standard output is no longer the only channel out of a native program —
-/// `host.HostFs.*` and `host.HostEnv.*` have rows in both runtime tables since
-/// buri-lang/buri#36, and [`a_native_binary_touches_files_and_reads_its_own_arguments`]
-/// is what says so — but it is still the only *unbuffered-on-demand* one, and a
-/// server that has to announce a port before it blocks has nowhere else to put
-/// the line.
-fn padding() -> String {
-    format!(r#"    let pad = "x".repeat(ctx, {});"#, crate::shared::STDOUT_BUFFER)
+/// It never stops by itself — no `requestLimit`, and no request is made — so
+/// the row that runs it ends by signalling, and what is read is read while the
+/// process is provably still running.
+fn announcing_server() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Clock, Listen, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Clock: host.clock,
+        Listen: host.listen,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let _starting = io.println(ctx, "starting").ignore();
+    let _slept = time.sleepMs(ctx, 50);
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(c, request) => http.text(c, request.path()),
+        drainMillis: .Some(5000),
+    };
+    match (server.bind(ctx, plan)) {
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {
+            let _announced = io.println(ctx, "listening on ${listener.port}").ignore();
+            match (server.run(ctx, listener, plan)) {
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_ok) => {
+                    let _done = io.println(ctx, "served").ignore();
+                    .Ok(())
+                },
+            }
+        },
+    }
+}
+"#,
+    )
 }
 
 /// A program that dials a socket, writes to it, reads until the answer is
@@ -286,8 +326,7 @@ export fn main(): Result<(), Str> {{
     match (server.bind(ctx, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
         .Ok(listener) => {{
-{padding}
-            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+            let _announced = io.println(ctx, "port ${{listener.port}}").ignore();
             match (server.run(ctx, listener, plan)) {{
                 .Err(e) => .Err(server.errorText(e)),
                 .Ok(_ok) => {{
@@ -301,7 +340,6 @@ export fn main(): Result<(), Str> {{
 "#,
         certificate = certificate.display(),
         key = key.display(),
-        padding = padding(),
     )
 }
 
@@ -314,63 +352,61 @@ export fn main(): Result<(), Str> {{
 /// it finish: the ordinary request is the first, the upgrade is the second, and
 /// once the socket closes the next `listenAccept` is `.Closed`.
 fn path_scoped_socket_server() -> String {
-    format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+    String::from(
+        r#"from "core/effect" import { Alloc, Listen, Sockets, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {{
-    let ctx = context {{
+export fn main(): Result<(), Str> {
+    let ctx = context {
         Alloc: host.alloc,
         Listen: host.listen,
         Sockets: host.sockets,
         Stdout: host.stdout,
         Tasks: host.tasks,
-    }};
-    let plan = server.Server {{
+    };
+    let plan = server.Server {
         port: 0,
-        onRequest: fn(c, request) => http.text(c, str.format(c, "handled ${{request.path()}}")),
+        onRequest: fn(c, request) => http.text(c, str.format(c, "handled ${request.path()}")),
         requestLimit: .Some(2),
         idleTimeoutMillis: .Some(20000),
-        websocket: .Some(server.WebSocket {{
+        websocket: .Some(server.WebSocket {
             path: "/socket",
-            onOpen: fn(c, _socket, request) => {{
-                let _said = io.println(c, "opened ${{request.path()}}").ignore();
+            onOpen: fn(c, _socket, request) => {
+                let _said = io.println(c, "opened ${request.path()}").ignore();
                 0
-            }},
-            onMessage: fn(c, socket, seen, message) => {{
-                match (message) {{
-                    .Text(text) => {{
-                        let said = str.format(c, "echo ${{text}}");
+            },
+            onMessage: fn(c, socket, seen, message) => {
+                match (message) {
+                    .Text(text) => {
+                        let said = str.format(c, "echo ${text}");
                         let _sent = socket.send(c, .Text(said));
                         seen + 1
-                    }},
+                    },
                     .Binary(_data) => seen,
-                }}
-            }},
+                }
+            },
             onClose: fn(_c, _socket, _seen, _reason) => (),
-        }}),
-    }};
-    match (server.bind(ctx, plan)) {{
+        }),
+    };
+    match (server.bind(ctx, plan)) {
         .Err(e) => .Err(server.errorText(e)),
-        .Ok(listener) => {{
-{padding}
-            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
-            match (server.run(ctx, listener, plan)) {{
+        .Ok(listener) => {
+            let _announced = io.println(ctx, "port ${listener.port}").ignore();
+            match (server.run(ctx, listener, plan)) {
                 .Err(e) => .Err(server.errorText(e)),
-                .Ok(_ok) => {{
+                .Ok(_ok) => {
                     let _done = io.println(ctx, "served").ignore();
                     .Ok(())
-                }},
-            }}
-        }},
-    }}
-}}
-"#,
-        padding = padding(),
+                },
+            }
+        },
+    }
+}
+"#
     )
 }
 
@@ -382,44 +418,42 @@ export fn main(): Result<(), Str> {{
 /// reaches `onRequest` like any other request, and what a server that does not
 /// do WebSockets answers is its own business.
 fn no_hooks_server() -> String {
-    format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
+    String::from(
+        r#"from "core/effect" import { Alloc, Listen, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {{
-    let ctx = context {{
+export fn main(): Result<(), Str> {
+    let ctx = context {
         Alloc: host.alloc,
         Listen: host.listen,
         Stdout: host.stdout,
         Tasks: host.tasks,
-    }};
-    let plan = server.Server {{
+    };
+    let plan = server.Server {
         port: 0,
-        onRequest: fn(c, request) => http.text(c, str.format(c, "no sockets here: ${{request.path()}}")),
+        onRequest: fn(c, request) => http.text(c, str.format(c, "no sockets here: ${request.path()}")),
         requestLimit: .Some(1),
         idleTimeoutMillis: .Some(20000),
-    }};
-    match (server.bind(ctx, plan)) {{
+    };
+    match (server.bind(ctx, plan)) {
         .Err(e) => .Err(server.errorText(e)),
-        .Ok(listener) => {{
-{padding}
-            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
-            match (server.run(ctx, listener, plan)) {{
+        .Ok(listener) => {
+            let _announced = io.println(ctx, "port ${listener.port}").ignore();
+            match (server.run(ctx, listener, plan)) {
                 .Err(e) => .Err(server.errorText(e)),
-                .Ok(_ok) => {{
+                .Ok(_ok) => {
                     let _done = io.println(ctx, "served").ignore();
                     .Ok(())
-                }},
-            }}
-        }},
-    }}
-}}
-"#,
-        padding = padding(),
+                },
+            }
+        },
+    }
+}
+"#
     )
 }
 
@@ -491,8 +525,7 @@ export fn main(): Result<(), Str> {{
     match (server.bind(ctx, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
         .Ok(listener) => {{
-{padding}
-            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+            let _announced = io.println(ctx, "port ${{listener.port}}").ignore();
             match (server.run(ctx, listener, plan)) {{
                 .Err(e) => .Err(server.errorText(e)),
                 .Ok(_ok) => {{
@@ -505,7 +538,6 @@ export fn main(): Result<(), Str> {{
 }}
 "#,
         flood = flood,
-        padding = padding(),
     )
 }
 
@@ -529,105 +561,103 @@ export fn main(): Result<(), Str> {{
 /// method takes only `self`, `self` is immutable, and a hand-written double
 /// that cannot reach runner-side state can record nothing at all.
 fn both_worlds_server() -> String {
-    format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+    String::from(
+        r#"from "core/effect" import { Alloc, Listen, Sockets, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
-from "core/net/server" import {{ Message, Socket }};
+from "core/net/server" import { Message, Socket };
 from "core/str" import * as str;
 
 /// The answer, wherever it is asked for.
-fn answer<C: Alloc>(ctx: C, question: Str): Str {{
-    str.format(ctx, "you said ${{question}}")
-}}
+fn answer<C: Alloc>(ctx: C, question: Str): Str {
+    str.format(ctx, "you said ${question}")
+}
 
 /// The hook, written once. `Alloc` for the answer, `Sockets` for the push, and
 /// nothing about a listener anywhere in the bound.
-fn reply<C: Alloc + Sockets>(ctx: C, socket: Socket, message: Message): Int {{
-    match (message) {{
-        .Text(text) => {{
+fn reply<C: Alloc + Sockets>(ctx: C, socket: Socket, message: Message): Int {
+    match (message) {
+        .Text(text) => {
             let _pushed = socket.send(ctx, .Text(answer(ctx, text)));
             1
-        }},
-        .Binary(_data) => {{
+        },
+        .Binary(_data) => {
             let _pushed = socket.send(ctx, .Text(answer(ctx, "bytes")));
             1
-        }},
-    }}
-}}
+        },
+    }
+}
 
 /// A `Sockets` with no network behind it: it says what it was handed.
 struct Paper<C>(C);
 
-impl<C: Alloc + Stdout> Sockets for Paper<C> {{
-    fn socketSendText(self, _socket: Int, text: Str): () {{
-        let _said = io.println(self.0, "paper ${{text}}").ignore();
+impl<C: Alloc + Stdout> Sockets for Paper<C> {
+    fn socketSendText(self, _socket: Int, text: Str): () {
+        let _said = io.println(self.0, "paper ${text}").ignore();
         ()
-    }}
+    }
 
-    fn socketSendBytes(self, _socket: Int, _body: [U8]): () {{
+    fn socketSendBytes(self, _socket: Int, _body: [U8]): () {
         ()
-    }}
+    }
 
-    fn socketClose(self, _socket: Int, _code: Int, _reason: Str): () {{
+    fn socketClose(self, _socket: Int, _code: Int, _reason: Str): () {
         ()
-    }}
-}}
+    }
+}
 
-export fn main(): Result<(), Str> {{
-    let ctx = context {{
+export fn main(): Result<(), Str> {
+    let ctx = context {
         Alloc: host.alloc,
         Listen: host.listen,
         Sockets: host.sockets,
         Stdout: host.stdout,
         Tasks: host.tasks,
-    }};
-    let plan = server.Server {{
+    };
+    let plan = server.Server {
         port: 0,
         onRequest: fn(_c, _request) => http.status(404),
         requestLimit: .Some(1),
         idleTimeoutMillis: .Some(20000),
-        websocket: .Some(server.WebSocket {{
+        websocket: .Some(server.WebSocket {
             path: "/socket",
             onOpen: fn(_c, _socket, _request) => 0,
             // The second world: the same function, the same argument shapes,
             // and a client on the far side of a real socket.
             onMessage: fn(c, socket, said, message) => said + reply(c, socket, message),
             onClose: fn(_c, _socket, _said, _reason) => (),
-        }}),
-    }};
-    match (server.bind(ctx, plan)) {{
+        }),
+    };
+    match (server.bind(ctx, plan)) {
         .Err(e) => .Err(server.errorText(e)),
-        .Ok(listener) => {{
-{padding}
-            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+        .Ok(listener) => {
+            let _announced = io.println(ctx, "port ${listener.port}").ignore();
             // The first world: no acceptor, no port, no client. A socket handle
             // this program invented, and a `Sockets` that writes down what it
             // was pushed. It runs after the port line because the port line is
             // the one the test reads first.
-            let printing = context {{
+            let printing = context {
                 Alloc: host.alloc,
                 Stdout: host.stdout,
-            }};
-            let onPaper = context {{
+            };
+            let onPaper = context {
                 Alloc: host.alloc,
                 Sockets: Paper(printing),
-            }};
+            };
             let _papered = reply(onPaper, Socket(1), .Text("hello"));
-            match (server.run(ctx, listener, plan)) {{
+            match (server.run(ctx, listener, plan)) {
                 .Err(e) => .Err(server.errorText(e)),
-                .Ok(_ok) => {{
+                .Ok(_ok) => {
                     let _done = io.println(ctx, "served").ignore();
                     .Ok(())
-                }},
-            }}
-        }},
-    }}
-}}
-"#,
-        padding = padding(),
+                },
+            }
+        },
+    }
+}
+"#
     )
 }
 
@@ -835,6 +865,91 @@ fn chose(back: &[u8]) -> Option<String> {
 // ---------------------------------------------------------------------------
 // The rows
 // ---------------------------------------------------------------------------
+
+/// **What a program printed is on the pipe before the program blocks** — the
+/// line an operator waits for, read out of a redirected log while the server
+/// that wrote it is still serving.
+///
+/// buri-lang/buri#66: a binary linking `core/net/server` held every line it
+/// had printed until it exited, so `> out.log` stayed empty for the whole life
+/// of the process and a supervisor waiting for "listening" waited forever.
+/// Linking the server is what changed it, because linking the server is what
+/// gives a program somewhere to block: the runtime buffers standard output,
+/// and nothing between a print and the exit emptied that buffer.
+///
+/// **The assertion is on what was read, not on when.** The child's standard
+/// output is a pipe — which is the half of the bug that a terminal hides — and
+/// the row reads two lines out of it, each behind `SERVER_DEADLINE` so a
+/// runtime that withholds them fails with a sentence rather than hanging. Both
+/// lines are read before the process is signalled, and the process is asked
+/// whether it has exited before either is believed, so a run that passed
+/// because the program had already finished is not possible.
+///
+/// The two lines are the two shapes of the wait: `starting` is printed and
+/// then slept on, and `listening on <port>` is printed and then accepted on.
+#[test]
+fn what_a_server_prints_reaches_a_pipe_before_it_blocks() {
+    unless_ready!();
+    let binary = built("e2e-announces", &announcing_server());
+    let mut child = std::process::Command::new(&binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+
+    // The reader is a thread of its own so that the wait for each line is
+    // bounded: `BufRead::read_line` on a pipe nobody writes to has no deadline,
+    // and a suite that waits forever for a line is the failure this file's
+    // rules exist to prevent.
+    let stdout = child.stdout.take().expect("a piped stdout");
+    let (said, saying) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => return,
+                Ok(_) => {
+                    if said.send(line).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+    let next = |what: &str| {
+        saying.recv_timeout(crate::shared::SERVER_DEADLINE).unwrap_or_else(|e| {
+            panic!(
+                "the program's {what} line never reached the pipe within {:?}: {e} — \
+                 standard output was withheld while the program was blocked",
+                crate::shared::SERVER_DEADLINE
+            )
+        })
+    };
+
+    let starting = next("first");
+    let listening = next("second");
+    assert_eq!(
+        child.try_wait().expect("could not ask whether the server had exited"),
+        None,
+        "the server exited before its lines were read, so this row read a flush on the \
+         way out rather than one before a wait"
+    );
+    assert_eq!(starting, "starting\n");
+    let port = listening
+        .strip_prefix("listening on ")
+        .and_then(|p| p.trim_end().parse::<u16>().ok())
+        .filter(|p| *p > 0)
+        .unwrap_or_else(|| panic!("the second line carried no port: {listening:?}"));
+    assert!(port > 0);
+
+    crate::shared::signalling(&child, crate::shared::SIGTERM);
+    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    assert_eq!(status.code(), Some(0), "the server did not stop cleanly");
+    reader.join().expect("the reader thread finished");
+}
 
 /// **A protocol this toolchain's runtime was not built for is refused when the
 /// port opens, in a sentence naming the switch.**
@@ -3254,8 +3369,7 @@ export fn main(): Result<(), Str> {{
     match (server.bind(ctx, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
         .Ok(listener) => {{
-{padding}
-            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+            let _announced = io.println(ctx, "port ${{listener.port}}").ignore();
             match (server.run(ctx, listener, plan)) {{
                 .Err(e) => .Err(server.errorText(e)),
                 .Ok(_ok) => {{
@@ -3267,7 +3381,6 @@ export fn main(): Result<(), Str> {{
     }}
 }}
 "#,
-        padding = padding(),
         sockets = sockets,
     )
 }

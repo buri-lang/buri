@@ -780,6 +780,39 @@ test "the sheet drops the chrome a browser draws by itself" {
     assert.isTrue(reset < padding);
 }
 
+test "a list has no marker until one is asked for" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A navigation rail, written the accessible way. The role is what a reader
+    // is told; the browser's disc and its forty-pixel indent are styling
+    // nobody asked for, so the sheet drops both.
+    let rail = ui.region(.List, [], [
+        ui.region(.ListItem, [], [
+            ui.link(.Const("/a"), [], [ui.text(.Const("Alpha"))]),
+        ]),
+    ]);
+    assert.eq(render(ctx, rail).markup(), "<ul><li><a href=\"/a\">Alpha</a></li></ul>");
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(":where(ul,ol){margin:0;padding:0;list-style:none}"));
+
+    // And back again for a list that wants them, with room for them to hang
+    // in. The class beats the reset, which is why the reset opens the sheet.
+    let numbered = ui.region(
+        .List,
+        [.PaddingEdge(.Start, .Px(24)), .ListMarker(.Decimal)],
+        [ui.region(.ListItem, [], [ui.text(.Const("first"))])],
+    );
+    assert.eq(
+        render(ctx, numbered).markup(),
+        "<ul class=\"pe-start-24 lm-decimal\"><li>first</li></ul>",
+    );
+    assert.isTrue(sheet.contains(".lm-decimal{list-style-type:decimal}"));
+    let reset = assert.some(sheet.indexOf(":where(ul,ol)"));
+    let marker = assert.some(sheet.indexOf(".lm-decimal{"));
+    assert.isTrue(reset < marker);
+}
+
 test "a form is submitted, which is behaviour and so not a role" {
     let ctx = context {
         Ui: headless(),

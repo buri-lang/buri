@@ -1,0 +1,12 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:51:19
+   |
+51 |     let f: fn(Int => Str = fn(x) => "n=${x}";
+   |                   ^^
+   |
+  --> main.buri:51:14
+   |
+51 |     let f: fn(Int => Str = fn(x) => "n=${x}";
+   |              ^ opened here
+   |
+   = fix: write `)` here

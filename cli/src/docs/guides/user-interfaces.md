@@ -81,7 +81,7 @@ at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 45 properties and five ways of composing them. Every property is
+`ui/style` is 46 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -175,6 +175,13 @@ styles are all there is. Those rules are `:where(...)`, which weighs nothing in
 the cascade, and only the elements the program actually builds get one. A
 checkbox is left alone: `appearance: none` erases the tick, and this vocabulary
 has nothing to draw a new one with.
+
+**A list region is reset the same way.** `region(.List, ...)` is a `ul`, and a
+browser marks and indents one by itself, so the sheet drops the disc, the
+indent and the margin — a rail, a menu and a tab strip are all lists, and none
+of them wants a bullet. `ListMarker(.Disc)` or `ListMarker(.Decimal)` asks for
+marks back. They hang outside the item, as a browser's do, so give the list a
+`PaddingEdge(.Start, ...)` for them to sit in.
 
 Constant folding is what makes design tokens work. `.Background(Token.Surface.color())`
 is a *call*, not a literal, and it still reaches the stylesheet: the extractor
@@ -345,6 +352,16 @@ The rest is short:
   the last `--update` wins.
 - `.FontSize` and `.LineHeight` bottom out at one pixel. Zero is a size a
   program may ask for and not a picture anyone can compare.
+- **A snapshot fetches nothing**, so an image paints from its source or not at
+  all. A `data:` URI holding a PNG paints at its own pixel size; every other
+  source — an SVG data URI, an address, a path — paints a framed grey
+  placeholder at the size the box around it declared.
+- `.Position(.PinViewport)` is measured against the page, so a dock pinned to
+  the bottom right lands in the bottom right however deep it was written, and it
+  paints over everything else.
+- `.Table` stacks its rows and a `.TableRow` divides into one equal column per
+  cell, so a column lines up down the table. `.ColumnHeader` and `.RowHeader`
+  are bold and centred, which is what a browser does to a `<th>`.
 - `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.

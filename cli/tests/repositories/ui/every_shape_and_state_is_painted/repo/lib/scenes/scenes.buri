@@ -2,7 +2,7 @@ from "core/effect" import { Alloc };
 from "core/str" import * as str;
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
-from "ui/style" import { Length, Shadow };
+from "ui/style" import { Color, Length, Shadow };
 
 /// `levels` stacks inside one another, each one padded and outlined, so what
 /// comes out is a hundred nested frames rather than one box.
@@ -183,4 +183,33 @@ fn flow<C>(len: Length): Node<C> {
             ui.text(.Const("grown")),
         ]),
     ])
+}
+
+/// A fixed track and two fractions across the page: the fractions divide what
+/// is left of the 800 after the first track's 80, one share against two, so the
+/// boundaries sit at 80, 320 and 800 however wide the sentence in a cell would
+/// rather be.
+///
+/// The three blocks are solid colours, so the boundaries are edges in the
+/// picture rather than a claim about a number.
+export fn fractions<C>(): Node<C> {
+    ui.stack([.Layout(.Grid([.Fixed(.Px(80)), .Fraction(1), .Fraction(2)]))], [
+        cell(.Rgb(200, 40, 40), "fixed"),
+        cell(
+            .Rgb(40, 150, 40),
+            "one share of what is left, and a line too long for it",
+        ),
+        cell(
+            .Rgb(40, 40, 200),
+            "two shares of what is left, and a line too long for them",
+        ),
+    ])
+}
+
+/// One cell of `fractions`: a solid block of colour with a run of text in it.
+fn cell<C>(shade: Color, words: Str): Node<C> {
+    ui.stack(
+        [.Background(shade), .Foreground(.Rgb(255, 255, 255)), .Height(.Px(120))],
+        [ui.text(.Const(words))],
+    )
 }

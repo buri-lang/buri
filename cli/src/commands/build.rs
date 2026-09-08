@@ -130,7 +130,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         // Which rules this repository turned off, wherever the catalogue runs.
         // A build that reports nothing because a rule is off says so here, or
         // the silence is indistinguishable from a clean tree.
-        if let Some(note) = crate::commands::lint::policy_note(&session) {
+        if let Some(note) = crate::commands::lint::rules_note(&session) {
             println!("{note}");
         }
     }

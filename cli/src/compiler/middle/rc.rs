@@ -3090,10 +3090,15 @@ impl Scan<'_> {
         let live = &arm_live;
         let mut befores: Vec<Live> = Vec::new();
         let mut ids: Vec<NodeId> = Vec::new();
+        // The back edges each arm takes, kept per arm rather than in one list:
+        // a drop the arms disagree about belongs on the paths of the arm that
+        // wanted it, and a jump in the arm beside it is a different path.
+        let mut arm_edges: Vec<Vec<(NodeId, Position)>> = Vec::new();
         let outer_jumps = std::mem::take(&mut self.jumps);
         let outer_diverged = std::mem::replace(&mut self.diverged, true);
         let mut k = 1usize;
         for a in arms {
+            let edges_before = self.jumps.len();
             let gid = a.guard.as_ref().map(|_| {
                 let g = self.child(id, k);
                 k += 1;
@@ -3167,6 +3172,7 @@ impl Scan<'_> {
             for b in &bound {
                 lb.remove(b);
             }
+            arm_edges.push(self.jumps.get(edges_before..).unwrap_or_default().to_vec());
             befores.push(lb);
             ids.push(bid);
         }
@@ -3184,8 +3190,38 @@ impl Scan<'_> {
         }
         let pairs: Vec<(NodeId, Live)> =
             ids.iter().copied().zip(befores).collect();
-        for (bid, b) in &pairs {
-            self.balance(*bid, b, &union);
+        // Whether the code after the arms is reachable at all.
+        let falls_through = !arms_diverged || arm_jumps.is_empty();
+        // **The root held open across the arms is never dropped at an arm's
+        // entry.** An arm ending in a `Continue` is scanned against an empty
+        // liveness — nothing after a back edge runs — so it reports the root as
+        // dead where an arm that falls through reports it live, and `balance`
+        // read that difference as "this arm is done with it". The drop it wrote
+        // at the arm's entry freed the block the arm's payload bindings point
+        // into, before the arm read them: `ui/node`'s `nodeLines` released the
+        // node it had matched on and *then* called the closure out of its
+        // `.Computed` payload, so the environment was gone and the retain
+        // inside it wrote through a header the allocator was already using as
+        // free-list storage — a `SIGSEGV` inside `buri_rt_alloc` somewhere else
+        // entirely (issue #65).
+        //
+        // The drop that arm does need goes at its own back edges instead, past
+        // every argument, which is where an argument reading the root still
+        // reads a live one. Per arm, because a jump in the arm beside it is a
+        // different path and the root may be what that one passes on.
+        for ((bid, b), edges) in pairs.iter().zip(&arm_edges) {
+            let mut theirs = union.clone();
+            if let Some(r) = kept.filter(|r| !edges.is_empty() && !b.contains(r)) {
+                theirs.remove(&r);
+                // Where no path falls through, `flush_at` below already writes
+                // this drop at every back edge.
+                if falls_through {
+                    for (node, at) in edges {
+                        self.push(*node, *at, RcOp::DecRef, Target::Local(r));
+                    }
+                }
+            }
+            self.balance(*bid, b, &theirs);
         }
         let before = union;
         let sid = self.child(id, 0);
@@ -3196,19 +3232,20 @@ impl Scan<'_> {
             !owns && compound(scrutinee) && self.counted_ty(&scrutinee.ty.clone());
         let smode = if owns || promoted { Mode::Own } else { Mode::Borrow };
         let out = self.expr(scrutinee, sid, &before, smode);
-        // The root held open above is dropped here, past every arm that read
-        // words out of it — the same handover [`Scan::children`] makes to its
-        // own `flush` below.
-        if let Some(r) = kept {
-            self.pending.push(r);
-        }
         // A scrutinee read for the last time is dropped after the arms, which
         // are the things reading what it holds — a payload binding points into
         // it, so dropping at an arm's entry would free what the arm is about
         // to read. Where every arm jumps there is no "after the arms", and the
         // last point before each back edge is where it goes instead.
-        // Whether the code after the arms is reachable at all.
-        let falls_through = !arms_diverged || arm_jumps.is_empty();
+        //
+        // The root held open above is dropped here, past every arm that read
+        // words out of it — the same handover [`Scan::children`] makes to its
+        // own `flush` below. An arm that jumps took its own drop above, and a
+        // `Continue` is a tail call, so exactly one of the two runs on any
+        // path.
+        if let Some(r) = kept {
+            self.pending.push(r);
+        }
         if falls_through {
             self.flush(id);
         } else {
@@ -3595,6 +3632,21 @@ fn fresh_leaf(e: &Expr) -> bool {
         // counted field implies a counted aggregate (`join`), so a drop that
         // fires here is a drop of a count the promotion took.
         return fresh(base) || compound(base);
+    }
+    // `x?` hands back the payload out of the value it was given, and the
+    // payload **inherits** that value's count: nothing releases the `Result`
+    // shell, because releasing it would release the payload with it. So the
+    // question is the projection's exactly — is the operand a temporary? —
+    // and where it is, what `?` produces is an owned reference with no name.
+    //
+    // Saying otherwise is saying nobody has to drop it, and
+    // `asArray(v, p)?.foldResultCtx(…)` is the shape that showed it: the list
+    // the `?` unwrapped was handed to a borrowing loop and then leaked, once
+    // per repeated field of a generated proto JSON decoder. The `let ys = …?;`
+    // spelling never leaked, because a binding is a name and a name is what
+    // `Scan` releases by.
+    if let ExprKind::Try { base, .. } = &e.kind {
+        return fresh(base);
     }
     matches!(
         e.kind,
@@ -4045,6 +4097,17 @@ export fn main(): Result<(), Str> {
                         st,
                     );
                     if promoted {
+                        st.bump_temp(sid, 1);
+                    } else if !consumed
+                        && fresh(scrutinee)
+                        && matches!(self.counted.counted(&scrutinee.ty.clone()), Answer::Yes)
+                    {
+                        // A scrutinee the match *built* is a temporary with a
+                        // count and no name, exactly as a fresh argument of a
+                        // `Continue` is: `Scan::match_` releases it before
+                        // every back edge and after the arms. Crediting only
+                        // the promoted case read `match (xs.get(at))` in a
+                        // tail-recursive walk as one release too many.
                         st.bump_temp(sid, 1);
                     }
                     if consumed {
@@ -4757,6 +4820,82 @@ export fn main(): Result<(), Str> {
             })
             .collect();
         assert!(incs.iter().any(|x| x == "prefix"), "{incs:?}");
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
+    /// A tail call that reads the value being matched on runs **before** that
+    /// value is released.
+    ///
+    /// `ui/node`'s `nodeLines` is the shape: a `match` on a node's one field,
+    /// arms that jump back into the walk, and one of them —
+    /// `.Computed(build) => nodeLines(ctx, state, build(scope), depth)` — whose
+    /// jump argument calls a closure that lives inside the matched node. The
+    /// root is deliberately held alive across the arms ([`Scan::match_`]'s
+    /// `kept`), but an arm ending in a `Continue` is scanned against an empty
+    /// liveness, so it reported the root as dead where an arm that fell through
+    /// reported it live, and [`Scan::balance`] settled that difference with a
+    /// drop at the jumping arm's **entry**. It freed the closure's environment
+    /// before the closure ran, and the retain inside the closure then wrote
+    /// through a header the allocator was already using as free-list storage —
+    /// a `SIGSEGV` inside `buri_rt_alloc`, arbitrarily far from the mistake.
+    /// Issue #65.
+    ///
+    /// So: no drop of the root at an arm's entry, and one at each back edge's
+    /// own key, which is past every argument that reads it.
+    #[test]
+    fn a_jumping_arm_drops_the_matched_value_after_its_arguments() {
+        let src = r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Held { Ready(Str), Deferred(fn(Int) => Held) }
+
+struct Box(Held);
+
+/// `nodeLines`'s shape: a match on the value's one field, and an arm that calls
+/// a closure out of the payload and jumps back with what it answered.
+export fn forced<C: Alloc>(ctx: C, held: Box, depth: Int): Str {
+  match (held.0) {
+    .Ready(s) => str.format(ctx, "${s}/${depth}"),
+    .Deferred(build) => forced(ctx, Box(build(depth)), depth + 1),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let name = str.format(ctx, "leaf");
+  let held = Box(.Deferred(fn(_i) => .Ready(name)));
+  let _ = io.println(ctx, forced(ctx, held, 0)).ignore();
+  .Ok(())
+}
+"#;
+        let program = compile_native(src);
+        let i = loop_body(&program, "forced");
+        let func = program.funcs.get(i.index()).expect("a function");
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        let fp = plan.func(i).expect("a plan");
+        let held = func
+            .locals
+            .iter()
+            .position(|l| l.name == "held")
+            .map(|k| LocalId(k as u32))
+            .expect("`forced` takes a parameter named held");
+        let drops: Vec<(Position, NodeId)> = fp
+            .sites
+            .iter()
+            .filter(|s| s.op == RcOp::DecRef && s.target == Target::Local(held))
+            .map(|s| (s.at, s.node))
+            .collect();
+        assert!(!drops.is_empty(), "the matched value is released somewhere");
+        // The whole claim: never at an arm's entry. A `Before` drop of the root
+        // runs ahead of the arm that reads the payload pointing into it.
+        assert!(
+            drops.iter().all(|(at, _)| *at == Position::After),
+            "the matched value is dropped at an arm's entry: {drops:?}"
+        );
         assert_eq!(check_balance(&program), Vec::<String>::new());
     }
 
