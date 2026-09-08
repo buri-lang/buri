@@ -14,4 +14,4 @@ FAIL //lib/scenes  test/states.buri  "on"
   the snapshot "state-checked" changed: see test/__snapshots__/state-checked.diff.png
   --> lib/scenes/test/states.buri:72:1
 
-9 passed, 5 failed, 0 skipped (0.0s)
+11 passed, 5 failed, 0 skipped (0.0s)

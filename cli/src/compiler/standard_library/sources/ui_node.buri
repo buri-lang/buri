@@ -382,6 +382,11 @@ fn rootScope(): Scope;
 /// <declarations>`) or run of text (`t <depth> <text>`). A line at depth `d`
 /// is a child of the nearest line above it at depth `d - 1`.
 ///
+/// An image is a box carrying `image:<source>`, its `;` and `\` escaped. The
+/// painter reads a `data:` URI holding a PNG and paints every other source —
+/// an SVG data URI, an address, a path — as a placeholder box of the same size,
+/// because a snapshot fetches nothing.
+///
 /// `state` is the pseudo-class the snapshot is taken in. An `On(s, ...)`
 /// contributes its styles when `s` is that state and nothing otherwise. An
 /// `At(...)` contributes nothing at all — a breakpoint's rules are in the
@@ -427,7 +432,14 @@ fn nodeLines<C: Alloc>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
         .Link(_dest, styles, children) => {
             container(ctx, state, styles, children, depth)
         },
-        .Image(_source, _alt) => [elementLine(ctx, depth, [], [])],
+        // A picture is a box with a source in it. The painter reads a data URI
+        // it can and paints a placeholder box at the same size for one it
+        // cannot; `alt` is what a reader is *told* and never what is drawn, so
+        // it is not in the scene.
+        .Image(source, _alt) => {
+            let declaration = decl(ctx, "image", escapeValue(ctx, source.read(scope)));
+            [elementLine(ctx, depth, [], [declaration])]
+        },
         // The styles are the input's, not the label's, so the label around it
         // is a plain box and the line under it carries the classes.
         .Field(label, _kind, styles, value) => {
@@ -535,6 +547,13 @@ fn elementLine<C: Alloc>(ctx: C, depth: Int, classes: [Str], declarations: [Str]
     };
     let body = all.join(ctx, ";");
     str.format(ctx, "e ${depth} ${body}")
+}
+
+/// A declaration's value, with the two characters the scene format reserves
+/// escaped: the backslash, and the semicolon that ends a declaration. An image
+/// source is a data URI and a data URI is full of both.
+fn escapeValue<C: Alloc>(ctx: C, value: Str): Str {
+    value.replace(ctx, "\\", "\\\\").replace(ctx, ";", "\\;")
 }
 
 /// One `t` line. A backslash, a newline and a carriage return are the three

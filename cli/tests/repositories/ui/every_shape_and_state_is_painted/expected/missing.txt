@@ -2,4 +2,4 @@ FAIL //lib/scenes  test/shapes.buri  "an empty tree is a page with nothing on it
   no snapshot for "never-recorded": run buri test --update to record one
   --> lib/scenes/test/shapes.buri:11:1
 
-13 passed, 1 failed, 0 skipped (0.0s)
+15 passed, 1 failed, 0 skipped (0.0s)
