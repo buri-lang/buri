@@ -1,0 +1,8 @@
+error: `Scope` does not satisfy `Ui` [unsatisfied-bound]
+  --> cmd/ui_scope_cannot_write/main.buri:23:11
+   |
+23 |   let _ = n.set(ctx, 0);
+   |           ^^^^^^^^^^^^^
+   |
+   = `Scope` implements `Allocator` and `Watch`, but not `Ui`
+   = fix: add `derive Ui for Scope;` in that type's own module, or write `impl Ui for Scope { ... }` there

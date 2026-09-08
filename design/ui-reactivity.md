@@ -61,6 +61,17 @@ An implementor of `Ui` grants strictly more than an implementor of `Watch`: it
 reads too, because `Signal.update<C: Ui>` reads the old value on its way to
 writing a new one.
 
+**A `Scope` also implements `Allocator`**, and that is what makes a derivation
+more than a projection: `filter`, `sort`, `map` and `str.format` all name
+`Allocator`, so a `Scope` that implements `Watch` alone can pick a value out of
+the graph and cannot build one. It grants nothing by doing so — `Allocator` is
+the one effect whose implementation carries no authority, because a `Region` is
+a number, which is the same reason `core/alloc` is importable anywhere and
+`core/host` is not. Writing stays out: `Ui` is the effect that writes, and a
+closure that wrote a signal it read would be a loop the runtime schedules rather
+than a value it caches. The two alternatives that lost, and the memory
+argument, are in `design/native/DECISIONS.md`.
+
 `Fetch`'s callback takes `Self` rather than a bare context type, and that is
 what makes a test double possible. A free `fetch<C: Fetch>` intrinsic would have
 one implementation for every `C`, so a headless `NoFetch` would still reach the
@@ -614,6 +625,7 @@ this document's first draft, with the reason.
 | No way to express hover | `On(State, [Style])` | a pseudo-class costs nothing and survives to targets that have no pointer |
 | A `ui` umbrella module | seven modules, no umbrella | an umbrella hides which module a name belongs to, and buys one import |
 | `ui.viewport` | not built | structural responsiveness is still open, and the signal is the smallest part of it |
+| `Scope` implements `Watch` alone | `Watch` **and** `Allocator` | a derivation that cannot allocate cannot filter, sort or format, so `each` could only ever walk a signal's raw contents and every formatted number in an app had to be a `.Const` built once and never updated (buri-lang/buri#50) |
 
 ## Open
 
