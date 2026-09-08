@@ -75,13 +75,15 @@ test "addition composes" {
 | `assert.gt(a, b)` / `ge` / `lt` / `le`, `approxEq(a, b, tolerance)` | on an `Ord`, and on `Float` within an absolute tolerance |
 | `assert.ok(r)` | fails unless `r` is `.Ok`; **returns the wrapped value** |
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
-| `assert.some(o)` | fails unless `o` is `.Some`; returns the wrapped value |
+| `assert.some(o)` / `none(o)` | fails unless `o` is `.Some` / `.None`; `some` returns the wrapped value |
 
 Reach for the narrowest one that fits: each names both values in its report,
 while `assert.isTrue(xs.contains(x))` says only "expected true, got false".
-There is no `assert.fail`. Everything but the last three returns `()`, so they
-stand alone as statements; the last three return a value, which is how you use
-up a must-use `Result`. A test source is the one place the language admits an
+There is no `assert.fail`. A test that has to fail on purpose asserts on the
+value it has — `assert.eq(verdict, "settled")` on a rendered `Str`, or
+`assert.none(o)` on the `Option` itself. Only `ok`, `err` and `some` return a
+value, which is how you use up a must-use `Result`; the rest answer `()` and
+stand alone as statements. A test source is the one place the language admits an
 expression statement, and only at type `()`, terminated by `;`.
 
 ```buri
