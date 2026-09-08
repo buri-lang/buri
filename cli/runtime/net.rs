@@ -2731,7 +2731,8 @@ fn answered(reply: Reply) -> hyper::Response<Once> {
 // accept loop in Buri because the runtime cannot hold a Buri value between two
 // calls of its own; F6 reached the same answer for an actor's state; and a
 // socket's state is the same question a third time — `onOpen` answers a value,
-// every `onMessage` answers the next one, and `onClose` sees the last. So
+// every `onMessage` answers the next one, and `onClose` answers the one that
+// leaves through `run`. So
 // `core/net/server` runs a socket's whole life on one worker, the state is a
 // local threaded through a self tail call, and this file holds a queue and a
 // framing rather than anything belonging to a program.

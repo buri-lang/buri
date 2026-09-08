@@ -29,10 +29,11 @@
 //!                 count + 1
 //!             },
 //!             onClose: fn(c, _socket, count, _reason) => {
-//!                 io.println(c, "got ${count} frames").ignore()
+//!                 let _said = io.println(c, "got ${count} frames").ignore();
+//!                 count
 //!             },
 //!         })
-//!         .map(fn(_reason) => ())
+//!         .map(fn(_ended) => ())
 //!         .mapErr(websocket.errorText)
 //! }
 //! ```
@@ -41,37 +42,58 @@
 //!
 //! One call is the socket's whole life: dial, run `onOpen`, run `onMessage` for
 //! each message, and run `onClose` when the far side goes or this end closes.
-//! The answer is the `CloseReason` it ended with.
+//! The answer is the reason it ended **and the state `onClose` answered**, so
+//! what a socket learned leaves with it.
 //!
 //! `.Err` means the socket was never opened — a URL this platform cannot dial, a
 //! machine that refused the connection, a server that did not answer `101`. Once
 //! a socket exists every ending is an `.Ok` carrying a reason.
 //!
 //! **Reconnecting is a loop around it.** There is no reconnect knob, no backoff
-//! setting and no retry count:
+//! setting and no retry count — and because the state comes back out, the next
+//! dial starts from what the last one learned. Here that is a session-resume
+//! token: it arrives in a frame, lands in the state, and goes back on the wire
+//! in the next socket's `onOpen`.
 //!
 //! ```buri
-//! from "core/effect" import { Clock, Sockets, WebSocketClient };
-//! from "core/net/server" import { CloseReason };
+//! from "core/effect" import { Allocator, Clock, Sockets, WebSocketClient };
 //! from "core/net/websocket" import * as websocket;
 //! from "core/net/websocket" import { Client };
+//! from "core/str" import * as str;
 //! from "core/time" import * as time;
 //!
-//! export fn following<C: Clock + Sockets + WebSocketClient>(
-//!     ctx: C,
-//!     client: Client<C, Int>,
-//!     tries: Int,
-//! ): CloseReason {
-//!     match (websocket.connect(ctx, client)) {
-//!         .Ok(reason) => reason,
-//!         .Err(_unreachable) => {
-//!             if (tries <= 0) {
-//!                 .Abnormal
-//!             } else {
-//!                 let _slept = time.sleep(ctx, time.milliseconds(1000));
-//!                 following(ctx, client, tries - 1)
+//! fn resuming<C: Allocator + Sockets + WebSocketClient>(token: Str): Client<C, Str> {
+//!     Client {
+//!         url: "ws://127.0.0.1:3000/socket",
+//!         onOpen: fn(c, socket, _response) => {
+//!             let _sent = socket.send(c, .Text(str.format(c, "resume ${token}")));
+//!             token
+//!         },
+//!         onMessage: fn(_c, _socket, sofar, message) => {
+//!             match (message) {
+//!                 .Text(text) => text,
+//!                 .Binary(_data) => sofar,
 //!             }
 //!         },
+//!         onClose: fn(_c, _socket, sofar, _reason) => sofar,
+//!     }
+//! }
+//!
+//! export fn following<C: Allocator + Clock + Sockets + WebSocketClient>(
+//!     ctx: C,
+//!     token: Str,
+//!     tries: Int,
+//! ): Str {
+//!     match (websocket.connect(ctx, resuming(token))) {
+//!         .Ok(ended) => {
+//!             if (tries <= 0) {
+//!                 ended.1
+//!             } else {
+//!                 let _slept = time.sleep(ctx, time.milliseconds(1000));
+//!                 following(ctx, ended.1, tries - 1)
+//!             }
+//!         },
+//!         .Err(_unreachable) => token,
 //!     }
 //! }
 //! ```
@@ -84,8 +106,9 @@
 //!
 //! Everything else reads the same as a server's hooks. `onOpen` answers the
 //! socket's first state, every later hook is handed the current one, and
-//! `onMessage` answers the next. `onClose` runs once, with the last state; the
-//! socket is already closed by then, so anything sent from there is dropped.
+//! `onMessage` answers the next. `onClose` runs once, with the last state, and
+//! answers the state `connect` hands back; the socket is already closed by
+//! then, so anything sent from there is dropped.
 //! `onMessage` sees `.Text` and `.Binary` and nothing else — a ping and a pong
 //! are the platform keeping the connection alive.
 //!
@@ -135,8 +158,9 @@ from "core/net/server" export { CloseReason, errorText, Message, Socket };
 /// `C` is the caller's own context and every hook is handed it, so a hook may do
 /// anything the context it was written beside can do. `S` is **the state this
 /// socket carries**: `onOpen` answers the first one, every later hook is handed
-/// the current one, and `onMessage` answers the next. `core/net/server`'s
-/// `WebSocket` says the same thing about the same three hooks.
+/// the current one and answers the next, and `onClose`'s answer is `connect`'s.
+/// `core/net/server`'s `WebSocket` says the same thing about the same three
+/// hooks.
 export struct Client<C, S> {
     /// Where to dial. `ws://…` or `wss://…`; anything else is
     /// `.Err(.Unsupported)` from `connect`.
@@ -151,21 +175,25 @@ export struct Client<C, S> {
     export onOpen: fn(C, Socket, Response) => S,
     /// A message arrived. Answers the state the next one will see.
     export onMessage: fn(C, Socket, S, Message) => S,
-    /// The socket is gone. Runs once, with the last state.
+    /// The socket is gone. Runs once, with the last state, and answers the
+    /// state `connect` hands back.
     ///
     /// **The socket is already closed when this runs**, so anything sent from
-    /// here is dropped. Use it to undo what `onOpen` did.
-    export onClose: fn(C, Socket, S, CloseReason) => (),
+    /// here is dropped. Use it to undo what `onOpen` did, and to say what this
+    /// socket leaves behind — a resume token the next dial sends back, say.
+    export onClose: fn(C, Socket, S, CloseReason) => S,
 }
 
-/// Dial, run the hooks, and answer the reason the socket ended.
+/// Dial, run the hooks, and answer the reason the socket ended beside the state
+/// it ended holding.
 ///
 /// One call and one socket. It returns when the socket closes, so a program that
-/// wants a second one calls it again — the module header writes that loop out.
+/// wants a second one calls it again — and the `S` in the answer is what the
+/// second one starts from. The module header writes that loop out.
 ///
-/// `.Err` is a socket that never opened. Everything after the handshake is
-/// `.Ok`: `.Ok(.Normal)` is a clean goodbye and `.Ok(.Abnormal)` is a connection
-/// that dropped.
+/// `.Err` is a socket that never opened, and there is no state in it because no
+/// hook ran. Everything after the handshake is `.Ok`: `.Ok((.Normal, s))` is a
+/// clean goodbye and `.Ok((.Abnormal, s))` is a connection that dropped.
 ///
 /// **`Sockets` is in the bound because the hooks push.** `connect` itself never
 /// calls a `Sockets` method — `socket.send` and `socket.close` are the hooks' —
@@ -173,7 +201,7 @@ export struct Client<C, S> {
 export fn connect<C: WebSocketClient + Sockets, S>(
     ctx: C,
     client: Client<C, S>,
-): Result<CloseReason, ServeError> {
+): Result<(CloseReason, S), ServeError> {
     match (ctx.connectSocket(client.url)) {
         .Err(e) => .Err(e),
         .Ok(connected) => .Ok(opened(ctx, client, connected)),
@@ -186,7 +214,7 @@ fn opened<C: WebSocketClient, S>(
     ctx: C,
     client: Client<C, S>,
     connected: Connected,
-): CloseReason {
+): (CloseReason, S) {
     let socket = Socket(connected.socket);
     let open = client.onOpen;
     let state = open(ctx, socket, Response {
@@ -209,7 +237,7 @@ fn pumping<C: WebSocketClient, S>(
     client: Client<C, S>,
     socket: Socket,
     state: S,
-): CloseReason {
+): (CloseReason, S) {
     match (ctx.connectReceive(socket.0)) {
         .Err(_gone) => closed(ctx, client, socket, state, .Abnormal),
         .Ok(received) => stepped(ctx, client, socket, state, received),
@@ -223,7 +251,7 @@ fn stepped<C: WebSocketClient, S>(
     socket: Socket,
     state: S,
     received: Received,
-): CloseReason {
+): (CloseReason, S) {
     match (received.frame) {
         .Closed => closed(ctx, client, socket, state, reasonOf(received.code)),
         .Text => {
@@ -242,18 +270,17 @@ fn stepped<C: WebSocketClient, S>(
     }
 }
 
-/// The close hook, run once, with the state the last message left, and the
-/// reason `connect` answers.
+/// The close hook, run once, with the state the last message left. Its answer
+/// and the reason are what `connect` answers.
 fn closed<C, S>(
     ctx: C,
     client: Client<C, S>,
     socket: Socket,
     state: S,
     reason: CloseReason,
-): CloseReason {
+): (CloseReason, S) {
     let close = client.onClose;
-    let _closed = close(ctx, socket, state, reason);
-    reason
+    (reason, close(ctx, socket, state, reason))
 }
 
 /// The number a socket closed with, as the reason a program reads.
