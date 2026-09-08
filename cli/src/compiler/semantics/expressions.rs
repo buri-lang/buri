@@ -699,8 +699,17 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// The `Field` case on its own, so that `check_field` can ask the question
     /// without building the field node it would otherwise have to hand
     /// `static_ref` — its first act is to require the base to be an identifier
-    /// and give up otherwise.
+    /// or a namespaced type name, and give up otherwise.
     fn static_ref_field(&mut self, base: ExprId, name: &str) -> Option<Static> {
+        // `shapes.Shape.Circle` — a variant qualified through a namespace
+        // import. The base is a path of its own rather than an identifier, so
+        // it is asked for the type it names before the one-identifier cases
+        // below. A namespace qualifies an enum the way it qualifies anything
+        // else, so the variants of that enum are reached the same way.
+        if let Some(con) = self.namespaced_tycon(base) {
+            let index = self.c.tables.variant_index(con, name)?;
+            return Some(Static::Variant(con, index));
+        }
         let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
         if self.lookup_local(head).is_some() {
             return None;
@@ -721,6 +730,24 @@ impl<'a, 'b> Infer<'a, 'b> {
             return Some(Static::Variant(con, index));
         }
         None
+    }
+
+    /// The type `ns.Name` names, where `ns` is a namespace import. `None` for
+    /// anything else, including a `ns` that a local shadows and a member the
+    /// module does not export — the caller carries on to whatever the
+    /// expression is instead, and `namespace_member_missing` reports the
+    /// member.
+    fn namespaced_tycon(&mut self, e: ExprId) -> Option<TyConId> {
+        let V::Field { base, name, .. } = self.tree().expr(e) else { return None };
+        let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
+        if self.lookup_local(head).is_some() {
+            return None;
+        }
+        let ns = self.c.scope(self.module).namespaces.get(head).copied()?;
+        match self.c.lookup_export(ns, name)? {
+            Sym::Ty(con) => Some(con),
+            _ => None,
+        }
     }
 
     /// A tuple struct's name is also its constructor, and `struct Meters(F64)`

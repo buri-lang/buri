@@ -577,6 +577,13 @@ const PACKAGES: &[Case] = &[
     // holding a `[Header]` and a `[U8]`, its derived `Eq` and `Show`, and the
     // `core/bytes` pair underneath the text constructors.
     included("semantics/http.buri"),
+    // The tenth: an enum reached through a namespace import. The alias is
+    // resolved away by the checker, so what reaches a backend is the same
+    // variant construction and the same decision tree as any other file here —
+    // which is the point. If the native set ever disagreed with the reference
+    // one on `ns.Enum.Variant`, the disagreement would be about the spelling
+    // rather than about the value, and no backend gets to see the spelling.
+    included("semantics/namespaces.buri"),
     // `core/cli`, driven end to end through `run` — which means the
     // environment double, two captured streams, and a handler reached through
     // a `fn(C, Arguments)` stored in a struct field. Nothing in it is an
