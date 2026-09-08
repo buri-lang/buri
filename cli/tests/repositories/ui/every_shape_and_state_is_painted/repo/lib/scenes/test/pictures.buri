@@ -16,15 +16,19 @@ from "ui/testing" import { headless, snapshot };
 
 /// An eight-pixel PNG, written out whole: a page fetches its images and a
 /// snapshot may not, so a data URI is the only source there is.
-let icon: Str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAABE0lEQVR4AQEIAff+ABQooP8UKKD/FCig/xQooP8UKKD/FCig/xQooP8UKKD/ABQooP/weBT/+vr6//r6+v/6+vr/+vr6//B4FP8UKKD/ABQooP/6+vr/8HgU//r6+v/6+vr/8HgU//r6+v8UKKD/ABQooP/6+vr/+vr6//B4FP/weBT/+vr6//r6+v8UKKD/ABQooP/6+vr/+vr6//B4FP/weBT/+vr6//r6+v8UKKD/ABQooP/6+vr/8HgU//r6+v/6+vr/8HgU//r6+v8UKKD/ABQooP/weBT/+vr6//r6+v/6+vr/+vr6//B4FP8UKKD/ABQooP8UKKD/FCig/xQooP8UKKD/FCig/xQooP8UKKD/kYav8fKAVrIAAAAASUVORK5CYII=";
+let icon: Str =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAABE0lEQVR4AQEIAff+ABQooP8UKKD/FCig/xQooP8UKKD/FCig/xQooP8UKKD/ABQooP/weBT/+vr6//r6+v/6+vr/+vr6//B4FP8UKKD/ABQooP/6+vr/8HgU//r6+v/6+vr/8HgU//r6+v8UKKD/ABQooP/6+vr/+vr6//B4FP/weBT/+vr6//r6+v8UKKD/ABQooP/6+vr/+vr6//B4FP/weBT/+vr6//r6+v8UKKD/ABQooP/6+vr/8HgU//r6+v/6+vr/8HgU//r6+v8UKKD/ABQooP/weBT/+vr6//r6+v/6+vr/+vr6//B4FP8UKKD/ABQooP8UKKD/FCig/xQooP8UKKD/FCig/xQooP8UKKD/kYav8fKAVrIAAAAASUVORK5CYII=";
 
 /// The vector form this vocabulary offers, and the one no bundled rasterizer
 /// reads. Its semicolons are the reason a declaration value escapes them.
-let glyph: Str = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12h14M12 5v14'/%3E%3C/svg%3E";
+let glyph: Str =
+    "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12h14M12 5v14'/%3E%3C/svg%3E";
 
 /// One icon in a box of its own, the way a component library ships one.
 fn framed<C>(source: Str): Node<C> {
-    ui.stack([.Width(.Px(24)), .Height(.Px(24))], [ui.image(.Const(source), .Const(""))])
+    ui.stack([.Width(.Px(24)), .Height(.Px(24))], [
+        ui.image(.Const(source), .Const("")),
+    ])
 }
 
 /// A row of icons, a picture at its own size, and a picture in a box far
