@@ -86,5 +86,8 @@ test "the state a snapshot is taken in reaches the document" {
     // Five pictures of one tree are five pictures because the documents behind
     // them are five documents. A tree whose only difference is an `On(...)`
     // group used to resolve to one, and every state golden was a copy.
-    assert.notEq(ui.describe(ctx, badge(), .Hover), ui.describe(ctx, badge(), .Checked));
+    assert.notEq(
+        ui.describe(ctx, badge(), .Hover),
+        ui.describe(ctx, badge(), .Checked),
+    );
 }

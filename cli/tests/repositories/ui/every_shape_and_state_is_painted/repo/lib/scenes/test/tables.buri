@@ -29,9 +29,15 @@ fn invoices<C>(): Node<C> {
                     .On(.Hover, [.Background(.Rgb(250, 210, 120))]),
                 ],
                 [
-                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [ui.text(.Const("Invoice"))]),
-                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [ui.text(.Const("Amount"))]),
-                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [ui.text(.Const("Status"))]),
+                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
+                        ui.text(.Const("Invoice")),
+                    ]),
+                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
+                        ui.text(.Const("Amount")),
+                    ]),
+                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
+                        ui.text(.Const("Status")),
+                    ]),
                 ],
             ),
             ui.region(.TableRow, [.On(.Hover, [.Background(.Rgb(250, 240, 205))])], [

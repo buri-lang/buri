@@ -422,7 +422,13 @@ fn nodeLines<C: Alloc>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
         .Region(role, styles, children) => {
-            container(ctx, state, roleStyles(ctx, role, styles, children), children, depth)
+            container(
+                ctx,
+                state,
+                roleStyles(ctx, role, styles, children),
+                children,
+                depth,
+            )
         },
         .Button(label, styles, _onPress) => {
             [
@@ -558,7 +564,12 @@ fn elementLine<C: Alloc>(ctx: C, depth: Int, classes: [Str], declarations: [Str]
 /// cells line up under the first's, and a header cell is bold and centred, which
 /// is what every browser's own stylesheet does to a `<th>`. The caller's styles
 /// come after, so a caller who sets their own still wins.
-fn roleStyles<C: Alloc>(ctx: C, role: Role, styles: [Style], children: [Node<C>]): [Style] {
+fn roleStyles<C: Alloc>(
+    ctx: C,
+    role: Role,
+    styles: [Style],
+    children: [Node<C>],
+): [Style] {
     match (role) {
         .TableRow => {
             if (children.isEmpty()) {
@@ -707,7 +718,7 @@ fn statePairs<C: Alloc>(
 /// slot that applies whatever the state is. A breakpoint is the other half of
 /// the condition and is not a state, so it answers `-1` too.
 fn slotState(slot: Int): Int {
-    ((slot % 30) / 5) - 1
+    slot % 30 / 5 - 1
 }
 
 /// The class of each slot's last pair.
