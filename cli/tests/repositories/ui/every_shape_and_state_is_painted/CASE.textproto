@@ -1,11 +1,13 @@
-# The shapes, the text, the states, the properties and the regions — nineteen
+# The shapes, the text, the states, the properties and the regions — twenty
 # pictures from six test sources, in one suite, compared byte for byte.
 #
 # `a_card_is_painted_and_compared/` beside this is the smallest whole
 # lifecycle. This one is the *range*: the ends of every axis a snapshot has.
 #
 #   * **The tree.** Nothing at all, one run of text, a hundred stacks deep, a
-#     thousand siblings.
+#     thousand siblings, and three lists that differ only by what marks their
+#     items — none, discs, numbers — because a marker is the one thing painted
+#     beside a box rather than on it.
 #   * **The text.** Marks that combine onto the letter before them, characters
 #     no bundled face has a glyph for, a run that reads right to left, and a
 #     line wider than the page — wrapped, and refusing to wrap.
@@ -24,7 +26,7 @@
 #     boundaries land at 80 and 320 rather than wherever the sentences would
 #     rather be.
 #
-# **Nineteen goldens, and they are the assertion.** They were recorded by the
+# **Twenty goldens, and they are the assertion.** They were recorded by the
 # copy-and-patch backend on a mac and CI compares them on Linux too, so this
 # directory is where "the same tree paints the same bytes on both hosts" is
 # claimed for text shaping rather than for boxes: `снимок.png` is the one
@@ -42,7 +44,7 @@
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "every tree shape, every state, every property the painter honours and every region it lays out, painted and compared against nineteen goldens, with the whole record-and-fail lifecycle over them"
+doc: "every tree shape, every state, every property the painter honours and every region it lays out, painted and compared against twenty goldens, with the whole record-and-fail lifecycle over them"
 
 run {
   args: ["test", "//lib/scenes", "--force"]
@@ -69,7 +71,7 @@ run {
 
 path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
 
-# `--update` records the one that was missing and rewrites the eighteen that
+# `--update` records the one that was missing and rewrites the nineteen that
 # already matched, and the run after it compares against what it just wrote.
 run {
   args: ["test", "//lib/scenes", "--update", "--force"]
