@@ -8,16 +8,9 @@ from "ui/node" import { Node };
 /// nested inside the `each` is the shape of it, and the reason this component
 /// exists here at all.
 export fn options<C>(items: [Str], keep: Str): Node<C> {
-    ui.stack(
-        [],
-        [
-            ui.each(
-                .Const(items),
-                fn(item) => item,
-                fn(_ctx, item, _index) => {
-                    ui.choose(.Const(item == keep), ui.text(.Const(item)), ui.nothing())
-                },
-            ),
-        ],
-    )
+    ui.stack([], [
+        ui.each(.Const(items), fn(item) => item, fn(_ctx, item, _index) => {
+            ui.choose(.Const(item == keep), ui.text(.Const(item)), ui.nothing())
+        }),
+    ])
 }
