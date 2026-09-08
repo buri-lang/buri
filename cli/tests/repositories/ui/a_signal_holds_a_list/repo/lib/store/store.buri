@@ -1,7 +1,7 @@
 //! One cell per list, built in one function from a plain record — the shape an
 //! application holds its state in.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "ui/effect" import { Ui };
 from "ui/signal" import { Signal, signal };
 
@@ -24,7 +24,7 @@ export struct Store {
     export ids: Signal<[Int]>,
 }
 
-export fn of<C: Alloc + Ui>(ctx: C, ledger: Ledger): Store {
+export fn of<C: Allocator + Ui>(ctx: C, ledger: Ledger): Store {
     Store {
         accounts: signal(ctx, ledger.accounts),
         labels: signal(ctx, ledger.labels),

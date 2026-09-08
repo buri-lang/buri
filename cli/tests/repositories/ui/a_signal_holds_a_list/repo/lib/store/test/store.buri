@@ -1,4 +1,4 @@
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
@@ -24,28 +24,28 @@ test "a block that builds no store" {
 
 test "a cell holds the whole list it was given" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
     };
     let store = of(ctx, ledger());
-    assert.len(store.ids.get(ctx), 3);
-    assert.len(store.labels.get(ctx), 2);
-    assert.len(store.accounts.get(ctx), 2);
-    assert.eq(assert.some(store.labels.get(ctx).get(1)), "food");
-    assert.eq(assert.some(store.accounts.get(ctx).get(0)).name, "current");
+    assert.length(store.ids.get(ctx), 3);
+    assert.length(store.labels.get(ctx), 2);
+    assert.length(store.accounts.get(ctx), 2);
+    assert.equal(assert.some(store.labels.get(ctx).get(1)), "food");
+    assert.equal(assert.some(store.accounts.get(ctx).get(0)).name, "current");
 }
 
 test "writing a cell replaces the whole list" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
     };
     let store = of(ctx, ledger());
     store.ids.set(ctx, [7, 8, 9, 10]);
-    assert.len(store.ids.get(ctx), 4);
-    assert.eq(assert.some(store.ids.get(ctx).get(3)), 10);
+    assert.length(store.ids.get(ctx), 4);
+    assert.equal(assert.some(store.ids.get(ctx).get(3)), 10);
     store.labels.set(ctx, ["rent", "food", "travel"]);
-    assert.eq(assert.some(store.labels.get(ctx).get(2)), "travel");
+    assert.equal(assert.some(store.labels.get(ctx).get(2)), "travel");
 }

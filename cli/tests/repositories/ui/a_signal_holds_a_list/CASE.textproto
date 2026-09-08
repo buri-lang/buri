@@ -36,8 +36,8 @@ run {
 # that never looked in one.
 edit {
   file: "lib/store/test/store.buri"
-  replace: "assert.len(store.labels.get(ctx), 2);"
-  with: "assert.len(store.labels.get(ctx), 9);"
+  replace: "assert.length(store.labels.get(ctx), 2);"
+  with: "assert.length(store.labels.get(ctx), 9);"
 }
 
 run {
