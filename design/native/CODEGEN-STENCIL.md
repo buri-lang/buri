@@ -810,7 +810,7 @@ invisible in the IR, and shows up as an unsigned number in a rendered string.
 declared return type has to be the one the entry actually returns: both psABIs
 leave the upper bits of an integer return narrower than a register
 **unspecified**.
-`buri_rt_str_eq` answers a `u8`, `buri_rt_char_to_upper` a `u32`, and a
+`buri_rt_str_equal` answers a `u8`, `buri_rt_char_to_upper` a `u32`, and a
 fallible entry's discriminant a C `int` — three widths, and a stencil
 declaring `uint64_t` for the first two reads whatever was in the register
 above the byte that mattered.

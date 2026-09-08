@@ -96,7 +96,7 @@
 //!
 //! **Every exported symbol is `buri_rt_` followed by `snake_case`.** No
 //! exceptions, including the host capabilities: `host.HostFileSystem.readFile` is
-//! `buri_rt_host_fs_read_file`. One prefix and one rule, so that "is this
+//! `buri_rt_host_file_system_read_file`. One prefix and one rule, so that "is this
 //! symbol ours" is a string comparison and not a table.
 //!
 //! ## 2. The calling convention
@@ -282,7 +282,7 @@
 //! that is not read off a type
 //!
 //! Everything above is `E`'s layout. Whether an entry *has* a message is not:
-//! `buri_rt_host_fs_read_file` and `buri_rt_host_testing_fs_read_file` answer
+//! `buri_rt_host_file_system_read_file` and `buri_rt_host_testing_fs_read_file` answer
 //! the same `Result<Str, IoError>` and have different C signatures, because the
 //! first can meet an `EISDIR` and the second is a map in memory. So the two
 //! runtime tables carry a `Ret::ResMsg` beside `Ret::Res`, and an entry's row
@@ -412,7 +412,7 @@
 //! measurement, so the accounting is a set of counters beside the allocator
 //! and not inside it:
 //!
-//!   * [`buri_rt_host_alloc_allocate`] — the platform's `Allocator`, which counts
+//!   * [`buri_rt_host_allocator_allocate`] — the platform's `Allocator`, which counts
 //!     nothing and answers the bytes it was asked for.
 //!   * [`buri_rt_alloc_new_counter`], [`buri_rt_alloc_charge`],
 //!     [`buri_rt_alloc_count`], [`buri_rt_alloc_total`] — `core/alloc`'s
@@ -516,7 +516,7 @@
 //! [`buri_rt_flush`] is required. Standard output and standard error are
 //! **buffered**, exactly as `$host` buffers them on JavaScript
 //! (`runtime.js:1224-1234`), so that the write ordering a program observes is
-//! the same on both backends. [`buri_rt_host_proc_exit_with`] and every abort
+//! the same on both backends. [`buri_rt_host_process_exit_with`] and every abort
 //! path flush for themselves; a normal return does not.
 //!
 //! ## 7. Platforms

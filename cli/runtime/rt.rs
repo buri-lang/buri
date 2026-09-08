@@ -129,7 +129,7 @@
 //! would still be guesses.
 //!
 //! [slp]: crate::buri_rt_host_clock_sleep_milliseconds
-//! [fch]: crate::buri_rt_host_net_fetch
+//! [fch]: crate::buri_rt_host_network_fetch
 //!
 //! ## 3. Threads, locks and poisoning
 //!

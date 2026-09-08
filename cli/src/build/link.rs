@@ -257,7 +257,7 @@ impl RuntimeArchive {
 /// native entry points call `buri_rt_argv_init` and `buri_rt_flush`
 /// unconditionally (`stencil/asm.rs`, `llvm/emit.rs::entry_point`), reference
 /// counting reaches `buri_rt_alloc`/`buri_rt_free`, a division emits
-/// `buri_rt_abort_div_zero`, `==` on `Str` emits `buri_rt_str_eq`, and none of
+/// `buri_rt_abort_div_zero`, `==` on `Str` emits `buri_rt_str_equal`, and none of
 /// those is a `FuncKind::Intrinsic` anybody could have walked for. A query over
 /// the program would have had to restate every emitter's structural calls, in a
 /// third place, and would have been wrong the first time one of them moved —

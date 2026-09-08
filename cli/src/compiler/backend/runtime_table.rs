@@ -223,7 +223,7 @@ pub enum Ret {
     /// two shapes beside it is worth stating: whether an enum error is *named
     /// by an index* is a property of the type, and whether an entry has
     /// anything to say when it names the payload-carrying one is a property of
-    /// the **implementation**. `buri_rt_host_fs_read_file` and
+    /// the **implementation**. `buri_rt_host_file_system_read_file` and
     /// `buri_rt_host_testing_fs_read_file` answer the same
     /// `Result<Str, IoError>` and have different C signatures, because the
     /// first can meet an `EISDIR` and the second is a map in memory.
@@ -373,7 +373,7 @@ pub const ENTRIES: &[Entry] = &[
     e("str.indexOf", "buri_rt_str_index_of", Ret::Opt),
     e("str.splitOnce", "buri_rt_str_split_once", Ret::Opt),
     e("str.compare", "buri_rt_str_compare", Ret::Tag),
-    e("str.equal", "buri_rt_str_eq", Ret::Scalar),
+    e("str.equal", "buri_rt_str_equal", Ret::Scalar),
     e("str.hash", "buri_rt_str_hash", Ret::Scalar),
     e("str.toInt", "buri_rt_str_to_int", Ret::Opt),
     e("str.toFloat", "buri_rt_str_to_float", Ret::Opt),
@@ -472,11 +472,11 @@ pub const ENTRIES: &[Entry] = &[
     // not here, and the short version is that IEEE 754 does not fix a
     // transcendental's answer, so V8 and the platform libm differ in the last
     // bit — which a rendered `Float` shows.
-    e("math.squareRoot", "buri_rt_math_sqrt", Ret::Scalar),
-    e("math.absoluteFloat", "buri_rt_math_abs_float", Ret::Scalar),
+    e("math.squareRoot", "buri_rt_math_square_root", Ret::Scalar),
+    e("math.absoluteFloat", "buri_rt_math_absolute_float", Ret::Scalar),
     e("math.floor", "buri_rt_math_floor", Ret::Scalar),
-    e("math.ceiling", "buri_rt_math_ceil", Ret::Scalar),
-    e("math.truncate", "buri_rt_math_trunc", Ret::Scalar),
+    e("math.ceiling", "buri_rt_math_ceiling", Ret::Scalar),
+    e("math.truncate", "buri_rt_math_truncate", Ret::Scalar),
     e("math.round", "buri_rt_math_round", Ret::Scalar),
     e("math.isNan", "buri_rt_math_is_nan", Ret::Scalar),
     e("math.isInfinite", "buri_rt_math_is_infinite", Ret::Scalar),
@@ -519,10 +519,11 @@ pub const ENTRIES: &[Entry] = &[
     // context parameter, and the allocation these do is `buri_rt_alloc`'s.
     //
     // **One host type for two effects**, which is what keeps these keys — and
-    // therefore `lib.rs` §1's symbol rule — where they were. A `HostFsRead`
-    // would mangle `readFile` to `buri_rt_host_fs_read_read_file`, and the
-    // filesystem being two grants is a fact about a *context* rather than about
-    // the platform, which has one.
+    // therefore `lib.rs` §1's symbol rule — to one family. A
+    // `HostFileSystemRead` would mangle `readFile` to
+    // `buri_rt_host_file_system_read_read_file`, and the filesystem being two
+    // grants is a fact about a *context* rather than about the platform, which
+    // has one.
     //
     // **A `Path` argument is the same three C parameters a `Str` was**, and
     // that is rule 1 of `lib.rs` §2 rather than a coincidence: a parameter is
@@ -533,26 +534,26 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `fileExists` is the one that is not a `Result` — it answers `Bool` and
     // cannot fail — which is why it sits with the scalars below and not here.
-    e("host.HostFileSystem.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
-    e("host.HostFileSystem.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
-    e("host.HostFileSystem.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
-    e("host.HostFileSystem.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
-    e("host.HostFileSystem.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
-    e("host.HostFileSystem.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
-    e("host.HostFileSystem.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
-    e("host.HostFileSystem.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
-    e("host.HostFileSystem.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
-    e("host.HostFileSystem.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
-    e("host.HostFileSystem.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
+    e("host.HostFileSystem.readFile", "buri_rt_host_file_system_read_file", Ret::ResMsg),
+    e("host.HostFileSystem.readDir", "buri_rt_host_file_system_read_dir", Ret::ResMsg),
+    e("host.HostFileSystem.readFileBytes", "buri_rt_host_file_system_read_file_bytes", Ret::ResMsg),
+    e("host.HostFileSystem.writeFile", "buri_rt_host_file_system_write_file", Ret::ResMsg),
+    e("host.HostFileSystem.writeFileBytes", "buri_rt_host_file_system_write_file_bytes", Ret::ResMsg),
+    e("host.HostFileSystem.appendFile", "buri_rt_host_file_system_append_file", Ret::ResMsg),
+    e("host.HostFileSystem.renameFile", "buri_rt_host_file_system_rename_file", Ret::ResMsg),
+    e("host.HostFileSystem.removeFile", "buri_rt_host_file_system_remove_file", Ret::ResMsg),
+    e("host.HostFileSystem.removeDir", "buri_rt_host_file_system_remove_dir", Ret::ResMsg),
+    e("host.HostFileSystem.makeDir", "buri_rt_host_file_system_make_dir", Ret::ResMsg),
+    e("host.HostFileSystem.syncFile", "buri_rt_host_file_system_sync_file", Ret::ResMsg),
     // `metadata`'s `.Ok` is a **struct** rather than a `Str` or a list, which
     // costs no column: `Ret::Out`'s pointer is the destination's own slot, so
     // the entry writes `Metadata`'s three fields where they already belong and
     // `cli/runtime/host.rs`'s `BuriMetadata` is the layout transcribed —
     // `net.rs`'s `BuriRequest` one level down.
-    e("host.HostFileSystem.metadata", "buri_rt_host_fs_metadata", Ret::ResMsg),
-    e("host.HostFileSystem.readRange", "buri_rt_host_fs_read_range", Ret::ResMsg),
-    e("host.HostFileSystem.realPath", "buri_rt_host_fs_real_path", Ret::ResMsg),
-    e("host.HostFileSystem.copyFile", "buri_rt_host_fs_copy_file", Ret::ResMsg),
+    e("host.HostFileSystem.metadata", "buri_rt_host_file_system_metadata", Ret::ResMsg),
+    e("host.HostFileSystem.readRange", "buri_rt_host_file_system_read_range", Ret::ResMsg),
+    e("host.HostFileSystem.realPath", "buri_rt_host_file_system_real_path", Ret::ResMsg),
+    e("host.HostFileSystem.copyFile", "buri_rt_host_file_system_copy_file", Ret::ResMsg),
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -565,15 +566,15 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `self` is empty at all four, so the C call of `args` is the out-pointer
     // and nothing else.
-    e("host.HostEnvironment.variable", "buri_rt_host_env_variable", Ret::Opt),
-    e("host.HostEnvironment.arguments", "buri_rt_host_env_arguments", Ret::Out),
+    e("host.HostEnvironment.variable", "buri_rt_host_environment_variable", Ret::Opt),
+    e("host.HostEnvironment.arguments", "buri_rt_host_environment_arguments", Ret::Out),
     // Three more of the same two shapes: two `Str`s and a `[(Str, Str)]`,
     // which is `[Header]`'s layout and so is `list_of_headers`' block.
-    e("host.HostEnvironment.currentDirectory", "buri_rt_host_env_current_directory", Ret::Out),
-    e("host.HostEnvironment.allVariables", "buri_rt_host_env_all_variables", Ret::Out),
+    e("host.HostEnvironment.currentDirectory", "buri_rt_host_environment_current_directory", Ret::Out),
+    e("host.HostEnvironment.allVariables", "buri_rt_host_environment_all_variables", Ret::Out),
     e(
         "host.HostEnvironment.operatingSystemName",
-        "buri_rt_host_env_operating_system_name",
+        "buri_rt_host_environment_operating_system_name",
         Ret::Out,
     ),
     // Starting a program. `self` is `HostSpawn`, an empty struct, so the C call
@@ -596,7 +597,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostTcp.tcpRead", "buri_rt_host_tcp_read", Ret::ResMsg),
     e("host.HostTcp.tcpWrite", "buri_rt_host_tcp_write", Ret::ResMsg),
     e("host.HostTcp.tcpClose", "buri_rt_host_tcp_close", Ret::Void),
-    e("host.HostFileSystem.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
+    e("host.HostFileSystem.fileExists", "buri_rt_host_file_system_file_exists", Ret::Scalar),
     e("host.HostClock.nowMilliseconds", "buri_rt_host_clock_now_milliseconds", Ret::Scalar),
     e("host.HostClock.sleepMilliseconds", "buri_rt_host_clock_sleep_milliseconds", Ret::Void),
     // A reading off a clock that only goes forward, in nanoseconds. `Ret::Scalar`
@@ -607,8 +608,8 @@ pub const ENTRIES: &[Entry] = &[
         "buri_rt_host_clock_monotonic_nanoseconds",
         Ret::Scalar,
     ),
-    e("host.HostRandom.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
-    e("host.HostRandom.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
+    e("host.HostRandom.nextInt", "buri_rt_host_random_next_int", Ret::Scalar),
+    e("host.HostRandom.nextFloat", "buri_rt_host_random_next_float", Ret::Scalar),
     // The one row here whose symbol may not be in the archive: it is behind the
     // runtime's `crypto` feature, and `runtime_native::crypto_intrinsic` is
     // what turns a toolchain built without it into a refusal naming the
@@ -617,13 +618,13 @@ pub const ENTRIES: &[Entry] = &[
     // toolchain's copy carries it is the feature file's question and is asked
     // separately, exactly as `host.HostListen.*` is.
     e("host.HostEntropy.bytes", "buri_rt_host_entropy_bytes", Ret::Out),
-    e("host.HostProcess.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
+    e("host.HostProcess.exitWith", "buri_rt_host_process_exit_with", Ret::NoReturn),
     // `allocate(self, bytes) -> Region`. `self` is `HostAllocator`, an empty
     // struct, so it flattens to nothing and the C call is the one `i64`; the
     // result is `struct Region(I64)`, whose single leaf is what makes
     // [`Ret::Scalar`] right where `host_testing.stdout`'s
     // `struct TestStdout(I64)` needs [`Ret::Out`] — the difference is the *C*
-    // signature, and `buri_rt_host_alloc_allocate` returns an `i64` rather
+    // signature, and `buri_rt_host_allocator_allocate` returns an `i64` rather
     // than a struct.
     //
     // MEMORY.md §7 is the body: `HostAllocator` is zero-sized and unbounded, so
@@ -632,7 +633,7 @@ pub const ENTRIES: &[Entry] = &[
     // archive already has the body and `llvm/runtime.rs` already calls it — two
     // backends reaching one definition of a *defined* cost model, which is what
     // §7.1 means by "the same number on both backends".
-    e("host.HostAllocator.allocate", "buri_rt_host_alloc_allocate", Ret::Scalar),
+    e("host.HostAllocator.allocate", "buri_rt_host_allocator_allocate", Ret::Scalar),
     // -- Tasks --------------------------------------------------------------
     //
     // `parallel(self, ctx, items, f)`. `self` is `HostTasks`, an empty struct,
@@ -978,7 +979,7 @@ pub const ENTRIES: &[Entry] = &[
     // *log* is state, so the handle naming it is minted here
     // (`alloc.newCounter`'s shape), written by `recordFetch` once the responder
     // has answered, and read back by `netCalls`. `recordFetch` takes `Request`
-    // flattened by §2 rule 1, which is `buri_rt_host_net_fetch`'s argument list
+    // flattened by §2 rule 1, which is `buri_rt_host_network_fetch`'s argument list
     // without its answer; `netCalls` takes the handle rather than the `TestNetwork`,
     // because that value carries the responder too and an argument crosses as
     // its leaves.
@@ -1060,34 +1061,34 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Scalar,
     ),
     e("host_testing.rand", "buri_rt_host_testing_rand", Ret::Out),
-    e("host_testing.TestRandom.seed", "buri_rt_host_testing_test_rand_seed", Ret::Out),
-    e("host_testing.TestRandom.nextInt", "buri_rt_host_testing_test_rand_next_int", Ret::Scalar),
+    e("host_testing.TestRandom.seed", "buri_rt_host_testing_test_random_seed", Ret::Out),
+    e("host_testing.TestRandom.nextInt", "buri_rt_host_testing_test_random_next_int", Ret::Scalar),
     e(
         "host_testing.TestRandom.nextFloat",
-        "buri_rt_host_testing_test_rand_next_float",
+        "buri_rt_host_testing_test_random_next_float",
         Ret::Scalar,
     ),
     e("host_testing.entropy", "buri_rt_host_testing_entropy", Ret::Out),
     e("host_testing.TestEntropy.seed", "buri_rt_host_testing_test_entropy_seed", Ret::Out),
     e("host_testing.TestEntropy.bytes", "buri_rt_host_testing_test_entropy_bytes", Ret::Out),
     e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
-    e("host_testing.TestEnvironment.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
-    e("host_testing.TestEnvironment.withArguments", "buri_rt_host_testing_test_env_with_arguments", Ret::Out),
-    e("host_testing.TestEnvironment.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
-    e("host_testing.TestEnvironment.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
+    e("host_testing.TestEnvironment.variables", "buri_rt_host_testing_test_environment_variables", Ret::Out),
+    e("host_testing.TestEnvironment.withArguments", "buri_rt_host_testing_test_environment_with_arguments", Ret::Out),
+    e("host_testing.TestEnvironment.variable", "buri_rt_host_testing_test_environment_variable", Ret::Opt),
+    e("host_testing.TestEnvironment.arguments", "buri_rt_host_testing_test_environment_arguments", Ret::Out),
     e(
         "host_testing.TestEnvironment.currentDirectory",
-        "buri_rt_host_testing_test_env_current_directory",
+        "buri_rt_host_testing_test_environment_current_directory",
         Ret::Out,
     ),
     e(
         "host_testing.TestEnvironment.allVariables",
-        "buri_rt_host_testing_test_env_all_variables",
+        "buri_rt_host_testing_test_environment_all_variables",
         Ret::Out,
     ),
     e(
         "host_testing.TestEnvironment.operatingSystemName",
-        "buri_rt_host_testing_test_env_operating_system_name",
+        "buri_rt_host_testing_test_environment_operating_system_name",
         Ret::Out,
     ),
     // The spawn double is a log and nothing else — the scripted answer holds an
@@ -1232,7 +1233,7 @@ mod tests {
         for entry in ENTRIES {
             assert_eq!(symbol_for(entry.key), entry.symbol, "{}", entry.key);
         }
-        assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_fs_read_file");
+        assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_file_system_read_file");
         assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
         assert_eq!(symbol_for("str.splitOnce"), "buri_rt_str_split_once");
     }
@@ -1324,7 +1325,7 @@ mod tests {
     /// as `str.concat`'s pair does one row above.
     #[test]
     fn host_net_fetch_has_a_symbol_and_no_row() {
-        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_net_fetch");
+        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_network_fetch");
         assert!(entry("host.HostNetwork.fetch").is_none());
     }
 

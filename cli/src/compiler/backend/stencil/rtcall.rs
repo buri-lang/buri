@@ -1083,7 +1083,7 @@ impl Jit<'_> {
 /// **The letter is the C return type's width, and `Leaf` is not where that
 /// lives.** [`Jit::leaves`] answers a *slot*, which is eight bytes for every
 /// integer; what the callee returns is the destination's own IR type, and a
-/// `Bool` comes back from `buri_rt_str_eq` as a `u8` where an `Int` comes back
+/// `Bool` comes back from `buri_rt_str_equal` as a `u8` where an `Int` comes back
 /// from `buri_rt_str_hash` as a `u64`. Both psABIs leave the upper bits of a
 /// narrower integer return **unspecified**, so a stencil that declared
 /// `uint64_t` for the first reads whatever was in the register — which AAPCS64
@@ -1139,7 +1139,7 @@ pub(crate) const EQUAL: u64 = 1;
 pub(crate) const GREATER: u64 = 2;
 
 impl Jit<'_> {
-    /// `buri_rt_str_eq` or `buri_rt_str_compare`, with the answer in `dest`.
+    /// `buri_rt_str_equal` or `buri_rt_str_compare`, with the answer in `dest`.
     ///
     /// **Six** arguments, not four: `lib.rs` §2 rule 1 flattens a `Str` to all
     /// three of its words, and both entries take two of them — the `base` each
@@ -1163,12 +1163,12 @@ impl Jit<'_> {
             Src::Word(b + STR_PTR),
             Src::Word(b + STR_LEN),
         ];
-        // `buri_rt_str_eq` answers a `u8` and `buri_rt_str_compare` a C `int`,
+        // `buri_rt_str_equal` answers a `u8` and `buri_rt_str_compare` a C `int`,
         // and both psABIs leave the rest of the register unspecified in both
         // cases: the result shape has to be the **declared** width, not the
         // register's, and not the wider of the two either. One shape for both
         // was a `Bool` read out of the top three bytes of an `int` on SysV.
-        let kind = if symbol == "buri_rt_str_eq" { "b" } else { "w" };
+        let kind = if symbol == "buri_rt_str_equal" { "b" } else { "w" };
         self.c_call(symbol, st, &args, &[], dest, kind)
     }
 
@@ -1181,7 +1181,7 @@ impl Jit<'_> {
     /// answer would leave the second comparing a boolean.
     ///
     /// `want` empty means the answer is already the boolean, which is
-    /// `buri_rt_str_eq`'s; `BinOp::Ne` is that answer inverted.
+    /// `buri_rt_str_equal`'s; `BinOp::Ne` is that answer inverted.
     pub(crate) fn order_test(&mut self, st: &Fn2, raw: u32, dest: u32, op: ir::BinOp, want: &[u64]) {
         let scratch = st.scratch + SPARE_WORD * 8;
         match (op, want) {

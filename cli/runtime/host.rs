@@ -3,7 +3,7 @@
 //! `core/host` exports one zero-sized implementation per effect a platform can
 //! grant, and `core/effect` declares what each of them grants. Every method of
 //! every one a *native* platform grants has a counterpart here, named by the
-//! rule in `lib.rs` §1: `host.HostFileSystem.readFile` is `buri_rt_host_fs_read_file`.
+//! rule in `lib.rs` §1: `host.HostFileSystem.readFile` is `buri_rt_host_file_system_read_file`.
 //!
 //! Five of the implementations have no counterpart *here*, and not one of them
 //! is an omission. `HostUi` and `HostWatch` drive a document, and a native
@@ -408,7 +408,7 @@ unsafe fn fail(e: &std::io::Error, out_err: *mut BuriStr) -> i32 {
 /// # Safety
 /// The path must be a live `Str` view; both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_read_file(
+pub unsafe extern "C" fn buri_rt_host_file_system_read_file(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -434,7 +434,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_read_file(
 /// # Safety
 /// Both `Str` views must be live; `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_write_file(
+pub unsafe extern "C" fn buri_rt_host_file_system_write_file(
     _pbase: *mut u8,
     pptr: *const u8,
     plen: u64,
@@ -460,7 +460,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_write_file(
 /// # Safety
 /// The path must be a live `Str` view.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_file_exists(
+pub unsafe extern "C" fn buri_rt_host_file_system_file_exists(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -480,7 +480,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_file_exists(
 /// # Safety
 /// The path must be a live `Str` view; both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_read_dir(
+pub unsafe extern "C" fn buri_rt_host_file_system_read_dir(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -510,13 +510,13 @@ pub unsafe extern "C" fn buri_rt_host_fs_read_dir(
 
 /// `FileSystem::readFileBytes` — `Result<[U8], IoError>`, the octets unchanged.
 ///
-/// The difference from [`buri_rt_host_fs_read_file`] is the decoding step it
+/// The difference from [`buri_rt_host_file_system_read_file`] is the decoding step it
 /// does not do: a file that is not text comes back as it is on disk.
 ///
 /// # Safety
 /// The path must be a live `Str` view; both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_read_file_bytes(
+pub unsafe extern "C" fn buri_rt_host_file_system_read_file_bytes(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -543,7 +543,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_read_file_bytes(
 /// The path must be a live `Str` view and `bptr`/`blen` a readable range;
 /// `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_write_file_bytes(
+pub unsafe extern "C" fn buri_rt_host_file_system_write_file_bytes(
     _pbase: *mut u8,
     pptr: *const u8,
     plen: u64,
@@ -569,9 +569,9 @@ pub unsafe extern "C" fn buri_rt_host_fs_write_file_bytes(
 /// overwriting each other's. `appendFileSync` opens with the same flag.
 ///
 /// # Safety
-/// As [`buri_rt_host_fs_write_file_bytes`].
+/// As [`buri_rt_host_file_system_write_file_bytes`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_append_file(
+pub unsafe extern "C" fn buri_rt_host_file_system_append_file(
     _pbase: *mut u8,
     pptr: *const u8,
     plen: u64,
@@ -606,7 +606,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_append_file(
 /// # Safety
 /// Both paths must be live `Str` views; `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_rename_file(
+pub unsafe extern "C" fn buri_rt_host_file_system_rename_file(
     _fbase: *mut u8,
     fptr: *const u8,
     flen: u64,
@@ -630,7 +630,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_rename_file(
 /// # Safety
 /// The path must be a live `Str` view; `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_remove_file(
+pub unsafe extern "C" fn buri_rt_host_file_system_remove_file(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -660,7 +660,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_remove_file(
 /// # Safety
 /// The path must be a live `Str` view; `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_remove_dir(
+pub unsafe extern "C" fn buri_rt_host_file_system_remove_dir(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -684,7 +684,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_remove_dir(
 /// # Safety
 /// The path must be a live `Str` view; `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_make_dir(
+pub unsafe extern "C" fn buri_rt_host_file_system_make_dir(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -713,7 +713,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_make_dir(
 /// # Safety
 /// The path must be a live `Str` view; `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_sync_file(
+pub unsafe extern "C" fn buri_rt_host_file_system_sync_file(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -797,7 +797,7 @@ fn modified_millis(m: &std::fs::Metadata) -> i64 {
 /// # Safety
 /// The path must be a live `Str` view; both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_metadata(
+pub unsafe extern "C" fn buri_rt_host_file_system_metadata(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -832,7 +832,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_metadata(
 /// # Safety
 /// The path must be a live `Str` view; both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_read_range(
+pub unsafe extern "C" fn buri_rt_host_file_system_read_range(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -877,7 +877,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_read_range(
 /// # Safety
 /// The path must be a live `Str` view; both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_real_path(
+pub unsafe extern "C" fn buri_rt_host_file_system_real_path(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -900,7 +900,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_real_path(
 
 /// `FileSystem::copyFile` — `Result<(), IoError>`, contents over `to`.
 ///
-/// **Not atomic**, which is the difference from [`buri_rt_host_fs_rename_file`]:
+/// **Not atomic**, which is the difference from [`buri_rt_host_file_system_rename_file`]:
 /// a reader of the destination can see half of it. Contents only — permissions,
 /// ownership and timestamps are not carried over, so the two backends promise
 /// the same thing, and `std::fs::copy`'s permission copy is the one place they
@@ -909,7 +909,7 @@ pub unsafe extern "C" fn buri_rt_host_fs_real_path(
 /// # Safety
 /// Both paths must be live `Str` views; `out_err` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_fs_copy_file(
+pub unsafe extern "C" fn buri_rt_host_file_system_copy_file(
     _fbase: *mut u8,
     fptr: *const u8,
     flen: u64,
@@ -1003,7 +1003,7 @@ pub(crate) unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> 
 /// out-pointers writable and aligned.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn buri_rt_host_net_fetch(
+pub unsafe extern "C" fn buri_rt_host_network_fetch(
     method: i32,
     _ubase: *mut u8,
     uptr: *const u8,
@@ -1138,7 +1138,7 @@ pub extern "C" fn buri_rt_host_clock_monotonic_nanoseconds() -> i64 {
 /// `runtime.js:1418` says, and pinned by `cli/tests/crash/random_range_empty`
 /// and `random_range_inverted`.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_rand_next_int(lo: i64, hi: i64) -> i64 {
+pub extern "C" fn buri_rt_host_random_next_int(lo: i64, hi: i64) -> i64 {
     if hi <= lo {
         crate::buri_rt_abort_random_range();
     }
@@ -1147,7 +1147,7 @@ pub extern "C" fn buri_rt_host_rand_next_int(lo: i64, hi: i64) -> i64 {
 
 /// `Random::nextFloat` — uniform in `[0, 1)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_rand_next_float() -> f64 {
+pub extern "C" fn buri_rt_host_random_next_float() -> f64 {
     rng::float()
 }
 
@@ -1156,7 +1156,7 @@ pub extern "C" fn buri_rt_host_rand_next_float() -> f64 {
 /// # Safety
 /// The name must be a live `Str` view; `out` writable and aligned.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_env_variable(
+pub unsafe extern "C" fn buri_rt_host_environment_variable(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -1179,7 +1179,7 @@ pub unsafe extern "C" fn buri_rt_host_env_variable(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_env_arguments(out: *mut BuriList) {
+pub unsafe extern "C" fn buri_rt_host_environment_arguments(out: *mut BuriList) {
     let recorded = lock(&ARGS).clone();
     let args = recorded.unwrap_or_else(|| {
         std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect()
@@ -1200,7 +1200,7 @@ pub unsafe extern "C" fn buri_rt_host_env_arguments(out: *mut BuriList) {
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_env_current_directory(out: *mut BuriStr) {
+pub unsafe extern "C" fn buri_rt_host_environment_current_directory(out: *mut BuriStr) {
     let at = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let value = str_of(&at);
     // SAFETY: the caller promises a writable, aligned destination.
@@ -1216,7 +1216,7 @@ pub unsafe extern "C" fn buri_rt_host_env_current_directory(out: *mut BuriStr) {
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_env_all_variables(out: *mut BuriList) {
+pub unsafe extern "C" fn buri_rt_host_environment_all_variables(out: *mut BuriList) {
     let pairs: Vec<(String, String)> = std::env::vars_os()
         .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
         .collect();
@@ -1234,7 +1234,7 @@ pub unsafe extern "C" fn buri_rt_host_env_all_variables(out: *mut BuriList) {
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_env_operating_system_name(out: *mut BuriStr) {
+pub unsafe extern "C" fn buri_rt_host_environment_operating_system_name(out: *mut BuriStr) {
     let value = str_of(std::env::consts::OS);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
@@ -1392,7 +1392,7 @@ pub(crate) unsafe fn strs(ptr: *const u8, len: u64) -> Vec<String> {
 
 /// `Process::exitWith`. Flushes first, and does not return.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_proc_exit_with(code: i64) -> ! {
+pub extern "C" fn buri_rt_host_process_exit_with(code: i64) -> ! {
     // A program that chose where to stop is entitled to be holding values, so
     // the test-mode exit audit stays quiet (`memory.rs`'s heap-check section).
     crate::memory::quiet_heap_audit();

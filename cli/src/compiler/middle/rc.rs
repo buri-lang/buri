@@ -5740,7 +5740,11 @@ export fn main(): Result<(), Str> {
 
     /// The golden of `the_parking_count_of_a_representative_program_is_a_golden`.
     const GOLDEN_PARKING: usize = 4;
-    const GOLDEN_FUNCS: usize = 9;
+    // Twelve since `sleepMs` went away: the snippet now writes
+    // `time.sleep(c, time.milliseconds(1))`, which is a `Duration`
+    // constructor and its two saturating helpers where a bare `Int` used to
+    // cross. Four of the twelve park, which is the number this golden is about.
+    const GOLDEN_FUNCS: usize = 12;
     const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
         "core/host:HostClock.sleepMilliseconds",
         "core/time:sleep",

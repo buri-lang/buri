@@ -2420,7 +2420,7 @@ export fn main(): Result<(), Str> {
         assert_eq!(
             printed(&program, &out, Op::Eq),
             vec![
-                "$derive$eq$P(l0, l1) = (Equal<I64>(l0.0, l1.0) && Equal<Str>(l0.1, l1.1))",
+                "$derive$eq$P(l0, l1) = (Eq<I64>(l0.0, l1.0) && Eq<Str>(l0.1, l1.1))",
                 // `o == .Less` asks for one at `Order` too, and a payloadless
                 // enum is a match on both tags.
                 "$derive$eq$Order(l0, l1) = match l0 { .v0 => match l1 { .v0 => true, _ => false }, \
@@ -2555,7 +2555,7 @@ export fn main(): Result<(), Str> {
             vec![
                 "$derive$eq$Shape(l0, l1) = match l0 { .v0 => match l1 { .v0 => true, _ => false }, \
                  .v1(l2, l4) => match l1 { .v1(l3, l5) => \
-                 (Equal<I64>(l2, l3) && Equal<I64>(l4, l5)), _ => false } }"
+                 (Eq<I64>(l2, l3) && Eq<I64>(l4, l5)), _ => false } }"
             ]
         );
         let joiner = joiner_of(&program, 5).expect("an arity-5 joiner");

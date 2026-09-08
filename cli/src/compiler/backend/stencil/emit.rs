@@ -1390,12 +1390,12 @@ impl<'a> Jit<'a> {
         let d = st.at(dest);
         let (a, b) = (st.at(lhs), st.at(rhs));
         let raw = st.scratch + super::rtcall::RAW_WORD * 8;
-        // `buri_rt_str_eq` answers the equality directly; every ordering is a
+        // `buri_rt_str_equal` answers the equality directly; every ordering is a
         // test of `buri_rt_str_compare`'s three-way answer, whose variants are
         // `Less`, `Equal`, `Greater` in that order (`core/order`).
         let (symbol, want): (&'static str, &[u64]) = match op {
-            BinOp::Eq => ("buri_rt_str_eq", &[]),
-            BinOp::Ne => ("buri_rt_str_eq", &[]),
+            BinOp::Eq => ("buri_rt_str_equal", &[]),
+            BinOp::Ne => ("buri_rt_str_equal", &[]),
             BinOp::Lt => ("buri_rt_str_compare", &[LESS]),
             BinOp::Le => ("buri_rt_str_compare", &[LESS, EQUAL]),
             BinOp::Gt => ("buri_rt_str_compare", &[GREATER]),
@@ -1421,7 +1421,7 @@ impl<'a> Jit<'a> {
     ) {
         // `Str` has no arithmetic and no `bin/*` stencil: a comparison of two
         // is a length-and-bytes question the runtime answers, which is what
-        // `buri_rt_str_eq` and `buri_rt_str_compare` are on the native side.
+        // `buri_rt_str_equal` and `buri_rt_str_compare` are on the native side.
         if matches!(prim, Prim::Str | Prim::Template) {
             return self.str_binary(st, dest, op, lhs, rhs);
         }
@@ -2759,7 +2759,7 @@ impl<'a> Jit<'a> {
         }
         if key == "str.equal" || key == "str.compare" {
             let symbol =
-                if key == "str.equal" { "buri_rt_str_eq" } else { "buri_rt_str_compare" };
+                if key == "str.equal" { "buri_rt_str_equal" } else { "buri_rt_str_compare" };
             match self.str_compare(st, symbol, p(0), p(1), ret0) {
                 Ok(()) => self.emit("ret", &[]),
                 Err(why) => self.unsupported(why),

@@ -509,7 +509,7 @@ pub unsafe extern "C" fn buri_rt_str_compare(
 /// # Safety
 /// Both ranges are readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_str_eq(
+pub unsafe extern "C" fn buri_rt_str_equal(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
