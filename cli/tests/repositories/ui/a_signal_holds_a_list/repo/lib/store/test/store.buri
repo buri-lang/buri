@@ -1,0 +1,51 @@
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/testing" import { headless, observer };
+from "//lib/store" import { Account, Ledger, of };
+
+fn ledger(): Ledger {
+    Ledger {
+        accounts: [
+            Account { name: "current", balance: 12 },
+            Account { name: "savings", balance: 34 },
+        ],
+        labels: ["rent", "food"],
+        ids: [1, 2, 3],
+    }
+}
+
+/// A block that names none of it. It is here because a store that is built
+/// anywhere in the binary used to take the whole process with it.
+test "a block that builds no store" {
+    assert.isTrue(true);
+}
+
+test "a cell holds the whole list it was given" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let store = of(ctx, ledger());
+    assert.len(store.ids.get(ctx), 3);
+    assert.len(store.labels.get(ctx), 2);
+    assert.len(store.accounts.get(ctx), 2);
+    assert.eq(assert.some(store.labels.get(ctx).get(1)), "food");
+    assert.eq(assert.some(store.accounts.get(ctx).get(0)).name, "current");
+}
+
+test "writing a cell replaces the whole list" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let store = of(ctx, ledger());
+    store.ids.set(ctx, [7, 8, 9, 10]);
+    assert.len(store.ids.get(ctx), 4);
+    assert.eq(assert.some(store.ids.get(ctx).get(3)), 10);
+    store.labels.set(ctx, ["rent", "food", "travel"]);
+    assert.eq(assert.some(store.labels.get(ctx).get(2)), "travel");
+}

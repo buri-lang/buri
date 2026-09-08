@@ -1,0 +1,16 @@
+from "core/testing/assert" import * as assert;
+from "//lib/deep" import { deep };
+
+/// Before, and after, the block that takes the process with it. Both pass, and
+/// what this case is about is that both are *reported* as passing.
+test "the block before" {
+    assert.isTrue(true);
+}
+
+test "the block that ends the process" {
+    assert.eq(deep(1), 1);
+}
+
+test "the block after" {
+    assert.isTrue(true);
+}

@@ -1129,6 +1129,9 @@ fn run_native(
         Ok(Verdicts::HeapCheck(line)) => {
             return Err(heap_check_failed(&session.workspace.label(target), &line))
         }
+        Ok(Verdicts::Died(how)) => {
+            return Err(the_binary_died(&session.workspace.label(target), &how))
+        }
         Err(e) => {
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
@@ -1298,12 +1301,13 @@ enum Block {
 
 /// What running a test binary's blocks produced.
 ///
-/// Three answers rather than two, because a heap-check failure is neither a
-/// verdict nor a timeout: the blocks all ran and every one of them may have
-/// passed, and what failed is the *binary* — it did not give back every block
-/// it allocated. Attributing that to whichever block happened to be last would
-/// name a test that is not the problem, so it comes back as its own thing and
-/// the caller reports it against the suite.
+/// Four answers rather than one, because two of the ways a binary can end are
+/// not a verdict on any block: the blocks all ran and every one of them may
+/// have passed, and what failed is the *binary* — it did not give back every
+/// block it allocated ([`Verdicts::HeapCheck`]), or it died with every block
+/// already reported ([`Verdicts::Died`]). Attributing either to whichever block
+/// happened to be last would name a test that is not the problem, so each comes
+/// back as its own thing and the caller reports it against the suite.
 enum Verdicts {
     /// One verdict per block, in the binary's own numbering.
     Blocks(Vec<Block>),
@@ -1312,6 +1316,11 @@ enum Verdicts {
     /// The runtime's heap check stopped the binary, and this is the line it
     /// printed.
     HeapCheck(String),
+    /// The binary ended badly with **no block of it left to blame**: every
+    /// block it was asked to run wrote its `left` line and the process then
+    /// died anyway — in a static initialiser after the last one, or on the way
+    /// out through `exit`. This is how it ended.
+    Died(String),
 }
 
 /// Runs a native test binary until every one of its `count` blocks has a
@@ -1380,21 +1389,21 @@ fn run_blocks(
         }
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         // The block the process was in, from the process itself. A run that
-        // ended some other way — a signal, or a failure before the first block
-        // — said nothing, and the honest attribution is then the block it was
-        // told to start at, with whatever it wrote to standard error.
+        // ended some other way — a signal — wrote no failure line, and the
+        // block it was in is then the first one that never wrote a `left` line
+        // either ([`died_after`]). A death with no block left to blame is not a
+        // verdict on any test and is reported against the suite.
         let noted = noted_failure(&stdout).filter(|n| (from..count).contains(&n.at));
-        let at = noted.as_ref().map_or(from, |n| n.at);
+        let at = match &noted {
+            Some(n) => n.at,
+            None => match died_after(&stdout, from, count) {
+                Some(at) => at,
+                None => return Ok(Verdicts::Died(how_it_ended(&out.status, &stderr))),
+            },
+        };
         let message = match &noted {
             Some(n) => n.message.clone(),
-            None => {
-                let text = stderr.trim().to_string();
-                if text.is_empty() {
-                    format!("the run exited {}", out.status.code().unwrap_or(-1))
-                } else {
-                    text
-                }
-            }
+            None => how_it_ended(&out.status, &stderr),
         };
         while blocks.len() < at {
             blocks.push(Block::Passed);
@@ -1407,6 +1416,50 @@ fn run_blocks(
         from = at + 1;
     }
     Ok(Verdicts::Blocks(blocks))
+}
+
+/// The block a process that said nothing died in: the first one from `from` on
+/// that never wrote its `left` line. `None` when every block wrote one, which
+/// is a death outside all of them.
+///
+/// The runtime writes that line at the end of every block it runs
+/// (`cli/runtime/testing.rs`'s `note_left`), so the blocks a dead process
+/// finished are a *fact* rather than the guess this used to make. The guess was
+/// "the block it was told to start at", and it cost a passing test its verdict
+/// every time: a binary that died in its second block reported the first as
+/// failing, then re-ran from the second and reported that one the same way, and
+/// so on to the end of the suite — which is how one bad block became
+/// `the run exited -1` against every test in a file.
+fn died_after(stdout: &str, from: usize, count: usize) -> Option<usize> {
+    let mut at = from;
+    for chunk in split_objects(stdout) {
+        if field_raw(&chunk, "left").is_none() {
+            continue;
+        }
+        if let Some(i) = field_raw(&chunk, "i").and_then(|i| i.parse::<usize>().ok()) {
+            at = at.max(i.saturating_add(1));
+        }
+    }
+    (at < count).then_some(at)
+}
+
+/// How a run that reported no failure of its own ended, in the words the report
+/// prints.
+///
+/// Whatever the binary wrote to standard error, where it wrote anything — that
+/// is the program's own account and beats any of ours. Otherwise the status:
+/// an exit code where there is one, and **a signal named as a signal** where
+/// there is not. `ExitStatus::code` is `None` for a process a signal killed, and
+/// printing `-1` for it said the one thing that was certainly untrue.
+fn how_it_ended(status: &std::process::ExitStatus, stderr: &str) -> String {
+    let text = stderr.trim();
+    if !text.is_empty() {
+        return text.to_string();
+    }
+    match status.code() {
+        Some(code) => format!("the run exited {code}"),
+        None => String::from("the run was killed by a signal"),
+    }
 }
 
 /// One block's verdict as the runner's JSON, which is where a native record and
@@ -1979,11 +2032,22 @@ struct Noted {
 
 /// The line a native test binary writes when a block aborts.
 ///
-/// The last object on standard output, because the process writes one and then
-/// stops; reading the last rather than the first means a suite that somehow
-/// produced two is reported by the one that ended it.
+/// The last object on standard output that carries a message, because the
+/// process writes one and then stops; reading the last rather than the first
+/// means a suite that somehow produced two is reported by the one that ended
+/// it.
 fn noted_failure(stdout: &str) -> Option<Noted> {
-    let chunk = split_objects(stdout).pop()?;
+    // The last object **carrying a message**: the stream also holds one line
+    // per block that returned, and those carry an index and nothing else
+    // (`cli/runtime/testing.rs`'s `note_left`). A block that aborted writes its
+    // line after them, so the last message is still this process's failure.
+    let mut objects = split_objects(stdout);
+    let chunk = loop {
+        let chunk = objects.pop()?;
+        if field(&chunk, "message").is_some() {
+            break chunk;
+        }
+    };
     let at = field_raw(&chunk, "i")?.parse().ok()?;
     let diff = match (field(&chunk, "actual"), field(&chunk, "expected")) {
         (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
@@ -2051,6 +2115,29 @@ fn heap_check_failed(label: &str, line: &str) -> Diagnostics {
             "this is a toolchain bug rather than a bug in the suite: a program's memory is \
              released by code the compiler inserted. Please report it with the suite that \
              provoked it",
+        ),
+    );
+    diagnostics
+}
+
+/// The diagnostic a suite gets whose binary died with every block of it already
+/// reported.
+///
+/// **Against the suite and not against a test**, for [`heap_check_failed`]'s
+/// reason: every block ran and said so, so there is no test whose behaviour
+/// this is. What is left is a program that could not get out of its own `main`
+/// — a static initialiser after the last block, or the way out through `exit` —
+/// and naming a passing test for it is what this whole path exists to stop.
+fn the_binary_died(label: &str, how: &str) -> Diagnostics {
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.push(
+        Diagnostic::error(
+            Span::NONE,
+            format!("the test binary for {label} ran every block and then died: {how}"),
+        )
+        .with_fix(
+            "this is a toolchain bug rather than a bug in the suite: every test in it \
+             finished. Please report it with the suite that provoked it",
         ),
     );
     diagnostics
@@ -2313,6 +2400,48 @@ fn report_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Which block a process that said nothing died in, off the `left` lines
+    /// the blocks that finished wrote.
+    ///
+    /// The whole-process half of this is
+    /// `repositories/testing/a_binary_that_dies_mid_suite`, where a real binary
+    /// really is killed. Here because the *last* row is the one no program can
+    /// be asked for on purpose: a binary that ran every block and died anyway
+    /// has no block to blame, and what the runner does with that is report it
+    /// against the suite rather than invent a fourth verdict for a suite of
+    /// three tests.
+    #[test]
+    fn a_dead_process_is_blamed_on_the_block_that_never_finished() {
+        let left = |indices: &[usize]| {
+            indices.iter().map(|i| format!("{{\"i\":{i},\"left\":1}}\n")).collect::<String>()
+        };
+        // Nothing finished: the block it was told to start at.
+        assert_eq!(died_after("", 0, 3), Some(0));
+        assert_eq!(died_after("", 2, 3), Some(2));
+        // The first two finished, so it died in the third.
+        assert_eq!(died_after(&left(&[0, 1]), 0, 3), Some(2));
+        // A resumed process, whose earlier blocks are somebody else's verdict.
+        assert_eq!(died_after(&left(&[1]), 1, 3), Some(2));
+        // A block that ran more than once writes a line per run.
+        assert_eq!(died_after(&left(&[0, 0, 0]), 0, 3), Some(1));
+        // Every block finished, and the process died outside all of them.
+        assert_eq!(died_after(&left(&[0, 1, 2]), 0, 3), None);
+        // A failure line is not a `left` line, and does not count as one.
+        assert_eq!(died_after("{\"i\":0,\"message\":\"boom\"}\n", 0, 3), Some(0));
+    }
+
+    /// A failure line is read past the `left` lines around it, and a process
+    /// that wrote only `left` lines noted no failure at all.
+    #[test]
+    fn a_noted_failure_is_the_last_line_carrying_a_message() {
+        let stdout = "{\"i\":0,\"left\":1}\n{\"i\":1,\"message\":\"boom\"}\n";
+        let noted = noted_failure(stdout).expect("the failure");
+        assert_eq!(noted.at, 1);
+        assert_eq!(noted.message, "boom");
+        assert!(noted_failure("{\"i\":0,\"left\":1}\n{\"i\":1,\"left\":1}\n").is_none());
+        assert!(noted_failure("").is_none());
+    }
 
     /// One line per `FAIL`, whatever the title holds.
     #[test]
