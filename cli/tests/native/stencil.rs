@@ -1992,6 +1992,8 @@ const CORPUS_COMPILES: &[&str] = &[
     "semantics/generics.buri",
     "semantics/host_testing.buri",
     "semantics/http.buri",
+    "semantics/lambdas.buri",
+    "semantics/namespaces.buri",
     "semantics/traits.buri",
     "semantics/variance.buri",
     "tasks/background.buri",
