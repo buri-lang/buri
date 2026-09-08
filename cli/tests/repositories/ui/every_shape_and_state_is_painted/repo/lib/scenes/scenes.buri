@@ -214,3 +214,28 @@ fn cell<C>(shade: Color, words: Str): Node<C> {
         [ui.text(.Const(words))],
     )
 }
+
+/// A box that clips, rounded, with a square child painted over every corner of
+/// it — and the same pair with no radius beside it.
+///
+/// The corners are the whole assertion. A clip that stopped at the box would
+/// paint both of these the same, because the child covers the parent exactly;
+/// a clip that follows the radius leaves the four corners of the left one as
+/// page rather than as child.
+export fn corners<C>(): Node<C> {
+    ui.stack([.Layout(.Row), .Gap(.Px(20)), .Padding(.Px(20))], [
+        clipping(.Px(40)),
+        clipping(.Px(0)),
+    ])
+}
+
+/// One of `corners`' two boxes: `radius` on a scrolling parent, filled edge to
+/// edge by a child that has no radius of its own.
+fn clipping<C>(radius: Length): Node<C> {
+    ui.stack([.Width(.Px(120)), .Height(.Px(120)), .Radius(radius), .Scroll(.Both)], [
+        ui.stack(
+            [.Width(.Px(120)), .Height(.Px(120)), .Background(.Rgb(20, 60, 160))],
+            [],
+        ),
+    ])
+}
