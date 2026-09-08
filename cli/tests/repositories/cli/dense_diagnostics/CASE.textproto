@@ -1,0 +1,22 @@
+# A diagnostic is printed with its explanation page under it, and `--dense`
+# says to leave that page out — the same thing the flag means to `buri docs`,
+# asked of a build. The two recorded reports are the whole claim: the same
+# error, the same caret, the same fix, and the prose under it in one file and
+# absent from the other.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "`--dense` prints a diagnostic without the explanation under it"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "explained.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--dense", "--force"]
+  exit: 1
+  golden: "dense.txt"
+}
