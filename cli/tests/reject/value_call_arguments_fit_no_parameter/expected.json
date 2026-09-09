@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected 3 arguments, found 2","code":"argument-count-mismatch","location":{"file":"cmd/value_call_arguments_fit_no_parameter/main.buri","line":7,"column":3,"endLine":7,"endColumn":13,"text":"  f(true, 1)"},"expected":"3","actual":"2","fix":"pass the following arguments: fn(I64, Str, Bool) => I64","notes":[],"related":[]}

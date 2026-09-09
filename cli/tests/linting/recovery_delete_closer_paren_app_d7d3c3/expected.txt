@@ -22,7 +22,7 @@ error: `label` takes 1 arguments, but 4 were given [wrong-argument-count]
    |
    = expected: 1
    = actual: 4
-   = fix: pass exactly 1
+   = fix: pass `label` the following arguments: label(ordered: Order)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_app_d7d3c3/main.buri:69:5
    |

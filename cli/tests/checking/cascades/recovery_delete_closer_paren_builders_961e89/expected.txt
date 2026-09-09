@@ -6,7 +6,7 @@ error: `Call` holds 2 values, but 1 were given [wrong-value-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
+   = fix: pass `Call` the following values: Call([Expr], [Expr])
 error: expected `Expr`, found `[Expr]` [type-mismatch]
   --> main.buri:76:23
    |

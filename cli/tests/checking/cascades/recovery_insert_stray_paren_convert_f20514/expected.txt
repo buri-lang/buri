@@ -6,7 +6,7 @@ error: `i32x4` takes 4 arguments, but 3 were given [wrong-argument-count]
    |
    = expected: 4
    = actual: 3
-   = fix: pass exactly 4
+   = fix: pass `i32x4` the following arguments: i32x4(x: Int, y: Int, z: Int, w: Int)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:19:78
    |

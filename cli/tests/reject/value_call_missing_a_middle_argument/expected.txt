@@ -1,0 +1,20 @@
+error: expected 3 arguments, found 2 [argument-count-mismatch]
+ --> cmd/value_call_missing_a_middle_argument/main.buri:8:3
+  |
+8 |   f(1, true)
+  |   ^^^^^^^^^^
+  |
+  = expected: 3
+  = actual: 2
+  = fix: the second argument is missing: fn(I64, Str, Bool) => I64
+
+    What to do
+    ──────────
+
+    Line the call up against the type the fix prints. A value's type has
+    parameters and no names for them, so where the argument types say which
+    position was left out the fix says that position, and where the call lines
+    up two ways, or more than one position has nothing to fill it, it says none
+    of them. A declaration counted the same way says more, because it has names
+    to say it with — wrong-argument-count is that page.
+

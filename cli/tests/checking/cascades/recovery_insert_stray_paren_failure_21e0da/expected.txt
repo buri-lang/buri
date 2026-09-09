@@ -6,7 +6,7 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:18:45
    |

@@ -6,7 +6,7 @@ error: `contains` takes 2 arguments, but 3 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 3
-   = fix: pass exactly 2
+   = fix: pass `contains` the following arguments: contains<T: Equal>(haystack: [T], needle: T)
 error: there is nothing named `extra` in scope [unresolved-name]
   --> main.buri:40:21
    |

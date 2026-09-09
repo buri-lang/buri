@@ -1,0 +1,8 @@
+// EXPECT: expected 3 arguments, found 2
+//
+// A `Bool` fills none of the first two positions, so no reading of this call
+// leaves exactly one parameter out, and the fix prints the type alone.
+fn go(): Int {
+  let f = fn(a: Int, b: Str, c: Bool): Int => a;
+  f(true, 1)
+}

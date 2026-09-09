@@ -6,7 +6,7 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
 error: `f32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
   --> main.buri:19:18
    |
@@ -15,7 +15,7 @@ error: `f32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
    |
    = expected: 4
    = actual: 5
-   = fix: pass exactly 4
+   = fix: pass `f32x4` the following arguments: f32x4(x: Float, y: Float, z: Float, w: Float)
 error: `F64` has no method `toInt` [no-such-method]
   --> main.buri:19:49
    |
