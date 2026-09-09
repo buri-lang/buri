@@ -497,6 +497,7 @@ export fn volume<C>(value: Signal<Str>): Node<C> {
         [.Width(.Px(180)), .Foreground(.Rgb(40, 50, 90))],
         [],
         value,
+        .Const(false),
     )
 }
 ```
