@@ -13,8 +13,9 @@ error: "//lib/units/units.buri" does not export `Raw` [no-such-export]
 
     If the module declares the name but holds it back, add export to the
     declaration there. If it declares no such name, the spelling is the mistake.
-    The diagnostic says which of the two it is, and offers the nearest exported
-    name.
+    The diagnostic says which of the two it is, and where there is a near miss
+    the fix names it. A name the standard library renamed is answered outright:
+    Alloc was renamed to Allocator.
 
     Why
     ───

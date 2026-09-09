@@ -4,7 +4,7 @@ error: `I64` has no method `fold` [no-such-method]
 16 |     let doubled = [1, 2, 3.fold(fn(acc, x) => acc + x, 0);
    |                            ^^^^
    |
-   = fix: check the spelling — `buri docs core/number` lists every method `I64` has, and one may not be added to it from outside `core/number`
+   = fix: check the spelling — `buri docs core/number` lists every method `I64` has
 error: this array is missing its closing `]` [unclosed-delimiter]
   --> main.buri:16:58
    |

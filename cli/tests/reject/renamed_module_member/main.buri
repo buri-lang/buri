@@ -1,0 +1,13 @@
+// EXPECT: "core/math" has no member `sqrt`
+// `sqrt` is `squareRoot` now. The diagnostic says so, rather than offering
+// whatever is nearest by edit distance.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/math" import * as math;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "${math.sqrt(2.0)}").ignore();
+  .Ok(())
+}

@@ -47,6 +47,8 @@
 //! that then failed to load, and a name in `PRELUDE` whose module was not
 //! loaded eagerly was silently not in scope.
 
+pub mod renamed;
+
 use crate::compiler::semantics::types::Prim;
 
 /// One module of the embedded standard library.
@@ -938,6 +940,69 @@ mod tests {
             assert_eq!(retired(&format!("{old}/lib.buri")), Some(*now));
         }
         assert_eq!(retired("core/list"), None);
+    }
+
+    /// A renamed name is gone, its module is real, and what it points at is
+    /// spelled the way the library spells it.
+    ///
+    /// The table is read only after a lookup has already failed, so a row for a
+    /// name that is still there would be dead at best and a lie at worst — it
+    /// would tell a reader to rewrite working code. `sqrt` is the shape: the
+    /// old spelling appears nowhere in `core/math`, and `squareRoot` does.
+    #[test]
+    fn no_renamed_name_is_still_exported() {
+        for row in renamed::RENAMED {
+            let src = source(row.module)
+                .unwrap_or_else(|| panic!("`{}` is no module", row.module));
+            // On the surface: anything `export`ed, plus a trait's or an
+            // effect's own members, which are indented and carry no `export`.
+            // A module-level private `let` is neither — which is exactly what
+            // `core/time`'s counts became.
+            let on_the_surface = |name: &str| {
+                src.lines().any(|l| {
+                    let t = l.trim_start();
+                    let indented = l.starts_with(' ');
+                    let keywords: &[&str] = match t.starts_with("export ") {
+                        true => &["fn ", "let ", "struct ", "enum ", "trait ", "effect ", "type "],
+                        false if indented => &["fn "],
+                        false => &[],
+                    };
+                    let rest = t.strip_prefix("export ").unwrap_or(t);
+                    keywords
+                        .iter()
+                        .filter_map(|k| rest.strip_prefix(k))
+                        .filter_map(|r| r.strip_prefix(name))
+                        .any(|r| r.starts_with(['(', '<', ':', ' ']))
+                })
+            };
+            assert!(
+                !on_the_surface(row.old),
+                "`{}` still has `{}`, so the rename row is a lie",
+                row.module,
+                row.old
+            );
+            if let renamed::Now::Named(now) = row.now {
+                assert!(
+                    on_the_surface(now),
+                    "`{}` says `{}` is `{now}`, which it does not have",
+                    row.module,
+                    row.old
+                );
+            }
+        }
+    }
+
+    /// The one thing a bare name has to get right: two modules that renamed the
+    /// same name differently answer with nothing rather than with one of them.
+    #[test]
+    fn a_bare_name_answers_only_where_the_modules_agree() {
+        assert!(renamed::anywhere("args").is_none(), "`args` has two answers");
+        let (note, fix) = renamed::anywhere("len").expect("`len` is `length` everywhere");
+        assert_eq!(note, "`len` was renamed to `length`");
+        assert_eq!(fix, "write `length`");
+        let (note, _) = renamed::in_module("core/time", "sleepMs").expect("a removed name");
+        assert_eq!(note, "`sleepMs` was removed; write `time.sleep(ctx, time.milliseconds(n))`");
+        assert!(renamed::in_module("core/list", "map").is_none());
     }
 
     /// `core/actor` declares no effect, so it opens no door — and the two
