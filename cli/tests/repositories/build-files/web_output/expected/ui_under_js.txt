@@ -1,7 +1,7 @@
 error: `ui` implements `Ui`, which is not allowed on the JS platform [effect-not-on-platform]
-  --> cmd/counter/main.buri:30:18
+  --> cmd/counter/main.buri:33:18
    |
-30 |         Ui: host.ui,
+33 |         Ui: host.ui,
    |                  ^^
    |
    = a platform is the set of effects its host exports; the reactive graph drives a document, and only a page has one
@@ -78,9 +78,9 @@ error: `ui` implements `Ui`, which is not allowed on the JS platform [effect-not
      it checks with the whole host granted.
 
 error: `watch` implements `Watch`, which is not allowed on the JS platform [effect-not-on-platform]
-  --> cmd/counter/main.buri:31:21
+  --> cmd/counter/main.buri:34:21
    |
-31 |         Watch: host.watch,
+34 |         Watch: host.watch,
    |                     ^^^^^
    |
    = a platform is the set of effects its host exports; reading the reactive graph is meaningless where nothing writes it

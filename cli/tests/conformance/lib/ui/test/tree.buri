@@ -1178,16 +1178,19 @@ test "a disabled control refuses a press, a fill and a flip" {
     let pressed = signal(ctx, 0);
     let name = signal(ctx, "ada");
     let done = signal(ctx, false);
-    let page = render(ctx, ui.stack([], [
-        ui.button(
-            .Const("save"),
-            [],
-            fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
-            .Const(true),
-        ),
-        ui.field(.Const("name"), .Text, [], name, .Const(true)),
-        ui.toggle(.Const("done"), [], done, .Const(true)),
-    ]));
+    let page = render(
+        ctx,
+        ui.stack([], [
+            ui.button(
+                .Const("save"),
+                [],
+                fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
+                .Const(true),
+            ),
+            ui.field(.Const("name"), .Text, [], name, .Const(true)),
+            ui.toggle(.Const("done"), [], done, .Const(true)),
+        ]),
+    );
     let _ = page.press("save");
     let _ = page.fill("name", "grace");
     let _ = page.flip("done");
@@ -1309,7 +1312,11 @@ test "a checked toggle answers the pointer's states as well as its own" {
         .On(.Checked, [.Background(.Rgb(40, 150, 60))]),
     ];
     let lit = signal(ctx, true);
-    let scene = ui.describe(ctx, ui.toggle(.Const("on"), both, lit, .Const(true)), .Hover);
+    let scene = ui.describe(
+        ctx,
+        ui.toggle(.Const("on"), both, lit, .Const(true)),
+        .Hover,
+    );
     assert.containsText(scene, "hover_op-0_5");
     assert.containsText(scene, "checked_bg-28963c");
     assert.containsText(scene, "checked:true");

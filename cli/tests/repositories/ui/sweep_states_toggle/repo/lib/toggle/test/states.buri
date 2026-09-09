@@ -11,7 +11,7 @@ from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/testing" import { headless, snapshot };
-from "//lib/toggle" import { responsive, resting };
+from "//lib/toggle" import { checked, responsive, resting };
 
 test "at rest" {
     let ctx = context {
@@ -103,12 +103,16 @@ test "refusing input" {
     snapshot(ctx, "toggle-disabled", responsive(ctx), .Disabled, []);
 }
 
+// A toggle is checked because its signal says so, not because the snapshot was
+// taken in `.Checked` (buri#119). So this is the one picture whose tree differs:
+// every box is on, and `responsive` — the tree the other five are taken of —
+// has them all off and carries no `checked_` class in any state.
 test "on" {
     let ctx = context {
         Allocator: alloc(),
         Ui: headless(),
     };
-    let scene = ui.describe(ctx, responsive(ctx), .Checked);
+    let scene = ui.describe(ctx, checked(ctx), .Checked);
     assert.containsText(scene, "checked_bg-");
     assert.containsText(scene, "checked_fg-");
     assert.containsText(scene, "checked_bw-");
@@ -119,5 +123,5 @@ test "on" {
     assert.isFalse(scene.contains("focus_"));
     assert.isFalse(scene.contains("active_"));
     assert.isFalse(scene.contains("disabled_"));
-    snapshot(ctx, "toggle-checked", responsive(ctx), .Checked, []);
+    snapshot(ctx, "toggle-checked", checked(ctx), .Checked, []);
 }
