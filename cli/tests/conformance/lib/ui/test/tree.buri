@@ -1678,6 +1678,38 @@ test "a list has no marker until one is asked for" {
     assert.isTrue(reset < marker);
 }
 
+test "a container with no layout is the column the default promises" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // `Layout`'s doc says a container with no `Layout` stacks its children
+    // downwards, and the headless painter has laid one out that way all along.
+    // As CSS's `display:block` the alignments below would be computed and do
+    // nothing, and the text would sit in the top-left corner of the box.
+    let tree = ui.stack([.Width(.Px(40)), .Height(.Px(40)), .AlignMain(.Center), .AlignCross(.Center)], [
+        ui.text(.Const("ok")),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"w-40 h-40 am-center ac-center\">ok</div>",
+    );
+
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ":where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}",
+        ),
+    );
+    // The four table elements are left out. A browser lays a table out itself,
+    // and that is what the scene document mirrors for them.
+    assert.isFalse(sheet.contains(",table,"));
+    assert.isFalse(sheet.contains(",td)"));
+    // It weighs nothing, so `row` still runs along the axis.
+    let flow = assert.some(sheet.indexOf("flex-direction:column}\n"));
+    let row = assert.some(sheet.indexOf(".lay-row{"));
+    assert.isTrue(flow < row);
+}
+
 test "a designed focus ring replaces the platform's rather than joining it" {
     let ctx = context {
         Ui: headless(),

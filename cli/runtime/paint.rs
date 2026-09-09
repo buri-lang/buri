@@ -95,7 +95,8 @@
 //! Two deliberate simplifications, each visible in a snapshot:
 //!
 //! * An element with no `display` lays out as a column of its children, which
-//!   is what a block box does for the trees this paints.
+//!   is `Layout`'s documented default and what the sheet's own reset gives a
+//!   container in a browser.
 //! * `list-style-type` is drawn by the element that carries it, beside each of
 //!   its own boxes, rather than inherited down to whatever a browser calls a
 //!   list item. A list region carries it and its items are its children, so
