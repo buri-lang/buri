@@ -1,0 +1,15 @@
+// A picture per rule about where the painter puts a border and a shadow.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/edges" import { widths };
+
+test "a border of any width sits inside the box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "edges-border-widths", widths(), .Hover, []);
+}

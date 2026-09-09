@@ -1,0 +1,32 @@
+// Where a border and a shadow land, which is the one thing about them a
+// picture is the only way to say.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Length };
+
+/// One box, sixty by thirty, outlined in the width it was given.
+fn bordered<C>(width: Length): Node<C> {
+    ui.stack(
+        [
+            .Width(.Px(60)),
+            .Height(.Px(30)),
+            .BorderWidth(width),
+            .BorderColor(.Rgb(0, 0, 0)),
+        ],
+        [],
+    )
+}
+
+/// Five widths, one to a box, each box's top edge at y=20 and its bottom at
+/// y=49. A border sits inside the box it belongs to, so every width is that
+/// many solid rows starting at y=20 — an odd one included.
+export fn widths<C>(): Node<C> {
+    ui.row([.Gap(.Px(20)), .Padding(.Px(20))], [
+        bordered(.Px(1)),
+        bordered(.Px(2)),
+        bordered(.Px(3)),
+        bordered(.Px(4)),
+        bordered(.Px(5)),
+    ])
+}
