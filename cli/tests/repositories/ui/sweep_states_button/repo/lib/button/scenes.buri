@@ -99,6 +99,7 @@ fn styled<C>(extra: [Style]): Node<C> {
             .Width(.Full),
             .Group(extra),
         ],
+        [],
         fn(_c, _e) => (),
         .Const(false),
     )
@@ -106,7 +107,7 @@ fn styled<C>(extra: [Style]): Node<C> {
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C>(extra: [Style]): Node<C> {
-    ui.button(.Const("press"), [.Group(extra)], fn(_c, _e) => (), .Const(false))
+    ui.button(.Const("press"), [.Group(extra)], [], fn(_c, _e) => (), .Const(false))
 }
 
 /// One label cell.

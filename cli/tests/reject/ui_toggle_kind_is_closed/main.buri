@@ -1,0 +1,23 @@
+// EXPECT: has no variant `Tick`
+//
+// A toggle draws its own mark, and which mark is a closed enum rather than a
+// style: the two shapes a design system has are `Checkbox` and `Switch`, and
+// there is no third to name. So a program cannot ask for a mark the runtime
+// and the painter have no drawing for.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+
+fn done<C>(value: Signal<Bool>): Node<C> {
+  ui.toggle(.Const("done"), .Tick, [], [], value, .Const(false))
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let value = signal(ctx, false);
+  ui.mount(ctx, done(value), [])
+}

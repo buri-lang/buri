@@ -1,0 +1,5 @@
+FAIL //lib/entry  test/pictures.buri  "and hovered"
+  the snapshot "button-rail-hover" changed: see test/__snapshots__/button-rail-hover.diff.png
+  --> lib/entry/test/pictures.buri:41:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

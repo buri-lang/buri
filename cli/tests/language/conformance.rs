@@ -2030,12 +2030,14 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     assert_eq!(code, 0, "the website did not answer:\n{stdout}{stderr}");
 
     let sent = "<main><h1>Buri</h1>visitors: 3\
-                <button type=\"button\">say thanks</button>\
-                <button type=\"button\">about</button>\
+                <button type=\"button\" aria-label=\"say thanks\">say thanks</button>\
+                <button type=\"button\" aria-label=\"about\">about</button>\
                 <article>home</article></main>\
                 <script id=\"buri-state\" type=\"application/json\" data-path=\"/\">\
                 {\"title\":\"Buri\",\"visitors\":3}</script>";
-    let pressed = sent.replace(">say thanks<", ">thanks<");
+    // The label is the accessible name as well as the glyphs, so a press moves
+    // both.
+    let pressed = sent.replace("say thanks", "thanks");
     // Only the region that read the path is rebuilt, so the button above it is
     // the very node the server wrote and still holds the signal a press wrote.
     let about = pressed.replace("<article>home</article>", "<article><h2>About</h2></article>");
@@ -2463,7 +2465,7 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     let sent = "<main><h1>Tom &amp; Jerry &lt;br&gt; ✓</h1>onetwo \
                 <img src=\"/cat.png\" alt=\"a cat\" />\
                 <aside><ul><li>alpha</li><li>beta</li></ul>\
-                <button type=\"button\">press me</button></aside>\
+                <button type=\"button\" aria-label=\"press me\">press me</button></aside>\
                 <article>home</article></main>";
     // Every `<` in the state is written `<`, which is how a string holding
     // `</script>` closes nothing — and it is a JSON escape, so what the page
@@ -2481,10 +2483,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     // --- The whole of a page's life, in one run -------------------------------
     let (code, stdout, stderr) = drive("plain", "/");
     assert_eq!(code, 0, "the page did not resume:\n{stdout}{stderr}");
-    let pressed = showing.replace(">press me<", ">pressed once<");
+    let pressed = showing.replace("press me", "pressed once");
     let about = pressed
         .replace("<article>home</article>", "<article><h2>About</h2>about</article>");
-    let again = about.replace(">pressed once<", ">pressed twice<");
+    let again = about.replace("pressed once", "pressed twice");
     assert_eq!(
         stdout,
         format!(
@@ -2725,7 +2727,7 @@ fn page<C>(
                             ),
                         ],
                     ),
-                    ui.button(label, [], onPress, .Const(false)),
+                    ui.button(label, [], [], onPress, .Const(false)),
                 ],
             ),
             ui.computed(fn(scope) => at(path.read(scope))),
@@ -2970,7 +2972,7 @@ from "ui/signal" import { Signal };
 /// inert buys — neither carries a context, so a lambda may hold both.
 fn page<C: Allocator + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>): Node<C> {
     ui.column([], [
-        ui.button(.Const("open"), [], fn(c, event) => {
+        ui.button(.Const("open"), [], [], fn(c, event) => {
             let _ = tasks.spawn(c, here, fn(c2) => {
                 let _ = time.sleep(c2, time.milliseconds(20));
                 let _ = status.set(c2, "the socket opened");

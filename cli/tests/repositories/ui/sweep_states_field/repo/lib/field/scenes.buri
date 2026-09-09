@@ -102,6 +102,7 @@ fn styled<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
             .Width(.Full),
             .Group(extra),
         ],
+        [],
         signal.signal(ctx, "typed"),
         .Const(false),
     )
@@ -113,6 +114,7 @@ fn bare<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
         .Const(name),
         kind,
         [.Group(extra)],
+        [],
         signal.signal(ctx, "typed"),
         .Const(false),
     )

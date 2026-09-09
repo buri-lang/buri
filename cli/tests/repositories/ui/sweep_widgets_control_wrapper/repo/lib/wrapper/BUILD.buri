@@ -1,0 +1,9 @@
+# One library and one test source: the box a labelled control's styles reach,
+# and the one they do not.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

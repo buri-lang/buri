@@ -1,0 +1,23 @@
+// EXPECT: expected `[Node<C>]`
+//
+// A button holds children the way a link does, so the third argument is a list
+// even when there is one thing in it. Handing it a bare node is the mistake the
+// shape invites, and it is a type error rather than a node quietly becoming a
+// list of one.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+
+fn entry<C>(): Node<C> {
+  ui.button(.Const("Overview"), [], ui.text(.Const("Overview")), fn(_c, _e) => (), .Const(false))
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let _ = signal(ctx, 0);
+  ui.mount(ctx, entry(), [])
+}

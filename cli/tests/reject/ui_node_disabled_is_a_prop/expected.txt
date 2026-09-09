@@ -1,8 +1,8 @@
 error: expected `Prop<Bool>`, found `Bool` [type-mismatch]
-  --> cmd/ui_node_disabled_is_a_prop/main.buri:16:65
+  --> cmd/ui_node_disabled_is_a_prop/main.buri:16:69
    |
-16 |   ui.mount(ctx, ui.button(.Const("save"), [], fn(_c, _e) => (), true), [])
-   |                                                                 ^^^^ the parameter type is `Prop<Bool>`
+16 |   ui.mount(ctx, ui.button(.Const("save"), [], [], fn(_c, _e) => (), true), [])
+   |                                                                     ^^^^ the parameter type is `Prop<Bool>`
    |
    = expected: `Prop<Bool>`
    = actual: `Bool`
