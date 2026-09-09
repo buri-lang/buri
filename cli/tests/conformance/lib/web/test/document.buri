@@ -172,6 +172,22 @@ test "every kind of node renders" {
         web.render(ui.field(.Const("story"), .Multiline, [], [], typed)),
         "<label><span>story</span><textarea>ada</textarea></label>",
     );
+    // A range carries the three numbers a slider is, so the markup a worker
+    // sends is a working slider before any of this program's code runs on the
+    // page: the browser has the thumb, the keys and the announcement from the
+    // attributes alone.
+    assert.equal(
+        web.render(
+            ui.field(
+                .Const("Volume"),
+                .Range(0.0, 100.0, 5.0),
+                [],
+                [],
+                signal(ctx, "40"),
+            ),
+        ),
+        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"5.0\" value=\"40\" /></label>",
+    );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
     assert.equal(
