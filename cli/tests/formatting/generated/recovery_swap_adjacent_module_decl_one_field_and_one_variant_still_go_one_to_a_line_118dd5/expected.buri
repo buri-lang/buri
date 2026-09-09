@@ -5,9 +5,7 @@ export struct Point {
     y: Int,
 }
 
-struct
-
-export One { only: Int }
+struct export One { only: Int }
 
 export enum Hello {
     World,

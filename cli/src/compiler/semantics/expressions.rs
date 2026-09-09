@@ -80,13 +80,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn check_block(&mut self, b: BlockId, expected: Option<&Ty>) -> typed::Expr {
         let t = self.tree();
         let block = t.block(b);
-        // A block whose `}` was never written is a region that did not parse:
-        // the parser read on past where it ended, so its statements are text
-        // the missing brace moved rather than a body. `Ty::Error` unifies with
-        // everything, so the syntax error stays the whole of what is reported.
+        // A block whose `}` was never written is read like any other — a file
+        // being typed is where an editor most needs the names in it, so its
+        // `let`s bind and hover, completion and go-to-definition see their
+        // types. What it does not do is *tell* the reader anything: where such
+        // a block ends is the parser's guess, so
+        // `Infer::retract_from_broken_blocks` takes back whatever was reported
+        // from inside it.
         if block.broken {
-            let span = t.span_of(block.span);
-            return typed::Expr::new(typed::ExprKind::Error, Ty::Error, span);
+            self.broken.push(t.span_of(block.span));
         }
         self.push_scope();
         let mut stmts = Vec::new();
@@ -162,6 +164,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             None => (None, Ty::Unit),
         };
         self.pop_scope();
+        // What a broken block's last statement came to says nothing about what
+        // the writer meant it to answer, and `Ty::Error` unifies with
+        // everything, so the declared return type above reports nothing.
+        let ty = if block.broken { Ty::Error } else { ty };
         typed::Expr::new(typed::ExprKind::Block { stmts, tail }, ty, t.span_of(block.span))
     }
 

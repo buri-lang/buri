@@ -6,6 +6,14 @@ warning: `size` is 41 lines long [oversized-function]
   |
   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
   = fix: find the responsibility boundaries in the body and give each one a function of its own
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_delete_closer_module_app_22327a/main.buri:14:21
+   |
+14 |                     if (n > 10000) { "huge" } else { "large" }
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
 error: an `if` used as a statement ends with `;` [missing-terminator]
   --> lib/recovery_delete_closer_module_app_22327a/main.buri:26:6
    |

@@ -1,10 +1,9 @@
 derive Equal, Ordered for Meters;
 export struct Meters(export Float);
 
-/// What this one is for.
-export enum Shape { Circle(Float), ? Empty }
-
 // why this derive
 derive Show for Shape;
+/// What this one is for.
+export enum Shape { Circle(Float), ? Empty }
 
 derive Equal for SomethingElsewhere;

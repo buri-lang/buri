@@ -14,10 +14,7 @@ let MAX_CENTS: I64 = 100_000_000;
 // `assert.equal` needs `Equal` to compare and `Show` to render a failure, so an error
 // type a test asserts on derives both.
 derive Equal, Show for ParseError;
-
-enum
-
-export ParseError {
+enum export ParseError {
     NotANumber { text: Str },
     TooLarge,
 }
