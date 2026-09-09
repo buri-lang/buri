@@ -1,0 +1,24 @@
+error: `Str` has no method `len` [no-such-method]
+  --> cmd/renamed_str_method/main.buri:10:39
+   |
+10 |   let _ = io.println(ctx, "${greeting.len()}").ignore();
+   |                                       ^^^
+   |
+   = did you mean `length`?
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+
+     What to do
+     ──────────
+
+     Check the spelling. If the type is one of yours, declare the method in an
+     impl block in that type's own module. If the type ships with the toolchain
+     — a Result, an I64 — or belongs to another package, it cannot gain one from
+     here, and buri docs <module> lists the methods it has.
+
+     Why
+     ───
+
+     A method is looked up in exactly one place: the module that declares the
+     receiver's type. There is no extension mechanism, so nobody can add a
+     method to a type from outside.
+
