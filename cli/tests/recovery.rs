@@ -14,10 +14,10 @@
 //!   *invariants* rather than to recorded output. A golden file can only say
 //!   what one case prints; an invariant says what every case must satisfy, and
 //!   that is the only shape in which "recovery works" is a claim at all.
-//! * **The curated half.** `cli/tests/recovery/`, one hand-written case per
-//!   list context in the grammar, each pinning the exact message, code, span
-//!   and edit. This is where the *wording* is decided, and it is written from
-//!   the maintainer's example outwards.
+//! * **The curated half.** `cli/tests/recovery/`, one case per construct the
+//!   grammar has and mutation shape the rows below name, each pinning the
+//!   exact message, code, span and edit. This is where the *wording* is
+//!   decided, and it is written from the maintainer's example outwards.
 //!
 //! ```text
 //! cargo test -p buri --test recovery                     # all of it
@@ -1130,14 +1130,27 @@ const BROKEN: &str = "export struct Route {\n    export name: Str,\n}\n\n\
 // The curated set
 // ---------------------------------------------------------------------------
 
-/// Each case in `cli/tests/recovery/` is one list context in the grammar, with
-/// the diagnostics it must produce written down in full:
+/// Each case in `cli/tests/recovery/` is one construct with one mistake in it,
+/// and the diagnostics it must produce written down in full:
 ///
 /// ```text
 /// cli/tests/recovery/match_arm_missing_comma/
 ///   main.buri       the program, with one token missing
 ///   expected.txt    every error, with its code, span, fix and edit
 /// ```
+///
+/// The named cases are the maintainer's, written from an example outwards. The
+/// `<construct>_<mutation>` ones cross every construct the grammar has with
+/// every mutation shape the rows above name — a missing closer, a stray token,
+/// a swapped pair, a deleted `,`, an unterminated string, a missing `;`, a
+/// keyword where a name goes, and a file that stops half way. A case whose
+/// recording reads wrong carries `// ISSUE:` naming what was filed about it, so
+/// the golden is a record of today rather than a claim that today is right.
+///
+/// A case says its module's role with `// ROLE:` when the construct is legal in
+/// one kind of module only — `test` in a test source, `effect` in a platform
+/// module — so that its golden carries the mutation's diagnostics and not a
+/// placement error.
 ///
 /// The recorded form is the fields rather than the rendered page: what these
 /// cases exist to pin is the *code*, the *span* and the *edit*, and the reject
@@ -1162,9 +1175,16 @@ fn recovery_cases_are_recorded() {
         require_annotation(&text, "// EXPECT:", &name);
 
         // A case that builds a context is the module that exports `main`, and
-        // only that module may import `core/host`.
-        let role =
-            if text.contains("\"core/host\"") { Role::Entry } else { Role::Source };
+        // only that module may import `core/host`. `test` and `effect` are
+        // legal in exactly one kind of module each, so a case about either
+        // says which with `// ROLE:` — otherwise its golden would carry a
+        // placement error the mutation had nothing to do with.
+        let role = match harness::annotation(&text, "// ROLE:").as_deref() {
+            Some("test") => Role::TestSource,
+            Some("platform") => Role::Platform,
+            _ if text.contains("\"core/host\"") => Role::Entry,
+            _ => Role::Source,
+        };
         let mut map = SourceMap::new();
         let analysis = driver::analyze_snippet(&mut map, "recovery", &text, role);
         let mut record = String::new();
@@ -1293,9 +1313,9 @@ fn message_audit_corpus() {
     std::fs::write(&out, &records).unwrap();
     eprintln!("message audit: {n} records written to {out}");
 
-    // The curated forty are on disk, so anything under that is a corpus that
+    // The curated set is on disk, so anything under its floor is a corpus that
     // stopped being reachable rather than a corpus that is small.
-    assert!(n >= 40, "the audit corpus is {n} records; the curated set alone is forty");
+    assert!(n >= 40, "the audit corpus is {n} records; the curated set alone clears forty");
 
     // The format `run.sh` reads, asserted here because it is generated here.
     // `awk` splits on `--- <n>` and pulls five fields out of each record; a
