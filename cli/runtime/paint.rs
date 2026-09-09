@@ -55,13 +55,13 @@
 //!
 //! An `e` line may also carry `image:<source>`, which makes the box a picture
 //! rather than a container. **The painter loads nothing** — no network, no
-//! disk — so the only source it can read is a `data:` URI holding a PNG this
-//! file's own reader accepts, and it paints that at its pixel size, scaled to
-//! whatever box the layout gave it. Every other source — an SVG data URI, an
-//! `http` URL, a path — paints a **placeholder**: a framed grey box at the size
-//! the scene declared for it, or filling the box around it when the scene
-//! declared none. A picture that is not there is better shown as a box than as
-//! nothing, which is what an image with no source used to be.
+//! disk — so the only source it can read is a `data:` URI, and [`image`] is
+//! what reads one: any PNG, and enough SVG to draw an icon. Every other source
+//! — an `http` URL, a path, an interlaced PNG, a media type that module does
+//! not decode — paints a **placeholder**: a framed grey box at the size the
+//! scene declared for it, or filling the box around it when the scene declared
+//! none. A picture that is not there is better shown as a box than as nothing,
+//! which is what an image with no source used to be.
 //!
 //! The sheet is read as class rules, plus **one shape of descendant rule**:
 //! `.<class>>*`, which is what `Layout(.Layers)` is written as. Every child of
@@ -114,6 +114,14 @@ use taffy::{Overflow, Point, TaffyTree, compute_leaf_layout};
 use tiny_skia::{
     FillRule, Mask, Paint, PathBuilder, Pixmap, PremultipliedColorU8, Stroke, StrokeDash, Transform,
 };
+
+/// What an image source paints: the PNG reader, the SVG subset, and the rule
+/// that sizes both. A child module rather than a sibling so that it can reach
+/// the painter's own box, blending and deflate tables.
+#[path = "image.rs"]
+mod image;
+
+use image::{Picture, decode, pixel_bytes};
 
 // ---------------------------------------------------------------------------
 // The bundled family
@@ -1592,7 +1600,7 @@ fn paint_with(
 
     // Every source read once, before the layout asks any of them how large it
     // is. `None` beside a node that has an `image` is the placeholder.
-    let pictures: Vec<Option<Image>> =
+    let pictures: Vec<Option<Picture>> =
         scene.nodes.iter().map(|node| node.image.as_deref().and_then(picture)).collect();
 
     let mut ids: Vec<Option<NodeId>> = vec![None; scene.nodes.len()];
@@ -1693,7 +1701,7 @@ fn paint_with(
 fn build(
     scene: &Scene,
     styles: &[Computed],
-    pictures: &[Option<Image>],
+    pictures: &[Option<Picture>],
     tree: &mut TaffyTree<usize>,
     indices: &[usize],
     ids: &mut [Option<NodeId>],
@@ -1727,17 +1735,19 @@ fn build(
 /// A picture's box: whatever the scene declared, and where it declared
 /// nothing, the size the source has.
 ///
-/// A source the painter read has a size in pixels, which is the size an `img`
-/// takes in a page when no rule says otherwise. A source it could not read has
-/// none, so the placeholder fills the box around it instead of collapsing to
-/// nothing — which is the whole complaint an image that painted blank was.
-fn picture_style(style: &Computed, picture: Option<&Image>) -> Style {
+/// A source the painter read has a size of its own — a PNG's pixels, an SVG's
+/// `width` and `height`, or its `viewBox` where it has only that — which is the
+/// size an `img` takes in a page when no rule says otherwise. A source it could
+/// not read has none, so the placeholder fills the box around it instead of
+/// collapsing to nothing — which is the whole complaint an image that painted
+/// blank was.
+fn picture_style(style: &Computed, picture: Option<&Picture>) -> Style {
     let mut out = taffy_style(style);
     let (width, height) = match picture {
-        Some(image) => (
-            Dimension::length(image.width as f32),
-            Dimension::length(image.height as f32),
-        ),
+        Some(picture) => {
+            let (w, h) = picture.intrinsic();
+            (Dimension::length(w), Dimension::length(h))
+        }
         None => (Dimension::percent(1.0), Dimension::percent(1.0)),
     };
     if style.size[0] == Len::Auto {
@@ -1753,7 +1763,7 @@ struct Painter<'a> {
     scene: &'a Scene,
     styles: &'a [Computed],
     /// One slot per scene node: the pixels of a picture whose source was read.
-    pictures: &'a [Option<Image>],
+    pictures: &'a [Option<Picture>],
     tree: &'a TaffyTree<usize>,
     ids: &'a [Option<NodeId>],
     fonts: &'a mut FontSystem,
@@ -1849,10 +1859,11 @@ impl Painter<'_> {
 
     /// Draws a picture into the box the layout gave it.
     ///
-    /// A source that was read is scaled to that box, nearest neighbour, in
-    /// integers — the same pixel for the same box on every host. A source that
-    /// was not is a framed grey placeholder, which says "a picture belongs
-    /// here" without pretending to be one.
+    /// A raster is scaled to that box, nearest neighbour, in integers — the
+    /// same pixel for the same box on every host. A vector is drawn into it at
+    /// the box's own size. A source that was not read is neither: it is a
+    /// framed grey placeholder, which says "a picture belongs here" without
+    /// pretending to be one.
     fn picture(
         &mut self,
         canvas: &mut Pixmap,
@@ -1861,12 +1872,12 @@ impl Painter<'_> {
         box_: Box2,
         clip: Option<&Mask>,
     ) {
-        let Some(image) = self.pictures.get(index).and_then(Option::as_ref) else {
+        let Some(picture) = self.pictures.get(index).and_then(Option::as_ref) else {
             fill(canvas, box_, 0.0, PLACEHOLDER_EDGE, style.opacity, clip);
             fill(canvas, box_.grow(-1.0), 0.0, PLACEHOLDER_FILL, style.opacity, clip);
             return;
         };
-        scaled(canvas, image, box_, style.opacity, clip);
+        picture.draw(canvas, box_, style.opacity, style.colour, clip);
     }
 
     /// The mark beside one item of a list, in the item's own colour and size.
@@ -2150,78 +2161,17 @@ const PLACEHOLDER_EDGE: Rgba = Rgba { r: 153, g: 153, b: 153, a: 1.0 };
 /// What is inside that frame.
 const PLACEHOLDER_FILL: Rgba = Rgba { r: 224, g: 224, b: 224, a: 1.0 };
 
-/// The pixels of an image source, or `None` for one this painter cannot read.
+/// The pixels or the shapes of an image source, or `None` for one this painter
+/// cannot read.
 ///
 /// **Nothing is fetched and nothing is opened.** A snapshot that reached the
-/// network would answer a different picture on a different day, so the one
+/// network would answer a different picture on a different day, so the only
 /// source that can be read is the one the scene carries whole: a `data:` URI
-/// holding a PNG in the form [`encode`] writes. Every other source — an SVG
-/// data URI, an `http` URL, a path — is a placeholder, and [`Painter::picture`]
+/// holding a PNG or an SVG. Every other source — an `http` URL, a path, a
+/// media type this does not decode — is a placeholder, and [`Painter::picture`]
 /// paints it as one.
-fn picture(source: &str) -> Option<Image> {
-    let data = source.strip_prefix("data:image/png;base64,")?;
-    decode(&base64(data)?).ok()
-}
-
-/// A base64 body, decoded. Whitespace is skipped, padding is optional, and any
-/// other character answers `None`.
-fn base64(text: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(text.len() / 4 * 3);
-    let mut acc: u32 = 0;
-    let mut bits = 0_u32;
-    for c in text.bytes() {
-        let sextet = match c {
-            b'A'..=b'Z' => u32::from(c - b'A'),
-            b'a'..=b'z' => u32::from(c - b'a') + 26,
-            b'0'..=b'9' => u32::from(c - b'0') + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'=' => break,
-            b' ' | b'\n' | b'\r' | b'\t' => continue,
-            _ => return None,
-        };
-        acc = (acc << 6) | sextet;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push(u8::try_from((acc >> bits) & 0xff).ok()?);
-        }
-    }
-    Some(out)
-}
-
-/// Draws an image into a box, nearest neighbour.
-///
-/// The source pixel for a device pixel is picked in integers — `(x - left) *
-/// width / box width` — so a scaled picture is the same picture on every host,
-/// which is the rule the whole file is written to.
-fn scaled(canvas: &mut Pixmap, image: &Image, box_: Box2, opacity: f32, clip: Option<&Mask>) {
-    let (width, height) = (box_.r - box_.l, box_.b - box_.t);
-    if width <= 0 || height <= 0 || image.width == 0 || image.height == 0 {
-        return;
-    }
-    let (cw, ch) = (canvas.width(), canvas.height());
-    let alpha = (opacity.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-    let pixels = canvas.pixels_mut();
-    for y in box_.t.max(0)..box_.b.min(ch as i32) {
-        let sy = (i64::from(y - box_.t) * i64::from(image.height)) / i64::from(height);
-        for x in box_.l.max(0)..box_.r.min(cw as i32) {
-            let sx = (i64::from(x - box_.l) * i64::from(image.width)) / i64::from(width);
-            let (Ok(sx), Ok(sy)) = (u32::try_from(sx), u32::try_from(sy)) else { continue };
-            let Some(source) = image.pixel(sx, sy) else { continue };
-            let i = (y as u32 as usize).saturating_mul(cw as usize).saturating_add(x as usize);
-            let coverage =
-                clip.map_or(255, |mask| mask.data().get(i).copied().unwrap_or(0));
-            let a = mul255(mul255(source[3], coverage), alpha);
-            if a == 0 {
-                continue;
-            }
-            let src = [mul255(source[0], a), mul255(source[1], a), mul255(source[2], a), a];
-            if let Some(slot) = pixels.get_mut(i) {
-                *slot = over(src, *slot);
-            }
-        }
-    }
+fn picture(source: &str) -> Option<Picture> {
+    image::read(source)
 }
 
 fn shade<'a>(colour: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
@@ -2599,31 +2549,6 @@ fn filter_rows(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     out
 }
 
-/// One filtered row, put back. `row` is rebuilt left to right, so the byte the
-/// filters call `a` is already unfiltered by the time it is read.
-fn unfilter(kind: u8, row: &mut [u8], previous: &[u8]) -> Result<(), String> {
-    if kind > 4 {
-        return Err(format!("the PNG uses row filter {kind}, which does not exist"));
-    }
-    for i in 0..row.len() {
-        let left = |r: &[u8]| i.checked_sub(BPP).and_then(|j| r.get(j)).copied().unwrap_or(0);
-        let a = left(row);
-        let b = previous.get(i).copied().unwrap_or(0);
-        let c = left(previous);
-        let add = match kind {
-            1 => a,
-            2 => b,
-            3 => ((u16::from(a) + u16::from(b)) / 2) as u8,
-            4 => paeth(a, b, c),
-            _ => 0,
-        };
-        if let Some(slot) = row.get_mut(i) {
-            *slot = slot.wrapping_add(add);
-        }
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // Deflate
 // ---------------------------------------------------------------------------
@@ -2928,257 +2853,12 @@ fn adler32(data: &[u8]) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// Reading a PNG back
-// ---------------------------------------------------------------------------
-
-/// The pixels of a PNG this painter wrote.
-#[derive(Debug)]
-struct Image {
-    width: u32,
-    height: u32,
-    rgba: Vec<u8>,
-}
-
-impl Image {
-    fn pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
-        if x >= self.width || y >= self.height {
-            return None;
-        }
-        let i = (y as usize)
-            .checked_mul(self.width as usize)?
-            .checked_add(x as usize)?
-            .checked_mul(4)?;
-        let slice = self.rgba.get(i..i.checked_add(4)?)?;
-        Some([*slice.first()?, *slice.get(1)?, *slice.get(2)?, *slice.get(3)?])
-    }
-}
-
-fn pixel_bytes(width: u32, height: u32) -> Result<usize, String> {
-    (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|n| n.checked_mul(4))
-        .ok_or_else(|| format!("the image {width}x{height} is too large to hold"))
-}
-
-/// Reads back what [`encode`] wrote: 8-bit RGBA, all five row filters, and
-/// deflate's stored and fixed-Huffman blocks.
-///
-/// Dynamic Huffman is the one thing it refuses, and that is a decision rather
-/// than an omission: a golden comes from [`render`], nothing here writes a
-/// dynamic block, and reading one would mean carrying a code-length decoder for
-/// a case that cannot arise. Stored blocks stay readable because this file used
-/// to write them.
-fn decode(png: &[u8]) -> Result<Image, String> {
-    let bad = |what: &str| format!("the PNG {what}");
-    if png.get(..8) != Some(&SIGNATURE) {
-        return Err(bad("does not start with a PNG signature"));
-    }
-    let mut offset = 8_usize;
-    let mut width = 0_u32;
-    let mut height = 0_u32;
-    let mut seen_header = false;
-    let mut zlib: Vec<u8> = Vec::new();
-
-    while offset < png.len() {
-        let head = png.get(offset..offset.saturating_add(8)).ok_or_else(|| bad("ends mid-chunk"))?;
-        let len = be32(head, 0).ok_or_else(|| bad("ends mid-chunk"))? as usize;
-        let kind = head.get(4..8).ok_or_else(|| bad("ends mid-chunk"))?.to_vec();
-        let start = offset.saturating_add(8);
-        let end = start.checked_add(len).ok_or_else(|| bad("names a chunk longer than itself"))?;
-        let data = png.get(start..end).ok_or_else(|| bad("names a chunk longer than itself"))?;
-        match kind.as_slice() {
-            b"IHDR" => {
-                if data.len() != 13 {
-                    return Err(bad("has an IHDR that is not thirteen bytes"));
-                }
-                width = be32(data, 0).ok_or_else(|| bad("has an unreadable IHDR"))?;
-                height = be32(data, 4).ok_or_else(|| bad("has an unreadable IHDR"))?;
-                let tail = data.get(8..13).unwrap_or(&[]);
-                if tail != [8, 6, 0, 0, 0] {
-                    return Err(bad("is not the 8-bit RGBA form this painter writes"));
-                }
-                seen_header = true;
-            }
-            b"IDAT" => zlib.extend_from_slice(data),
-            b"IEND" => break,
-            _ => {}
-        }
-        offset = end.saturating_add(4);
-    }
-    if !seen_header {
-        return Err(bad("has no IHDR"));
-    }
-    let raw = inflate(&zlib)?;
-
-    let stride = (width as usize).checked_mul(BPP).ok_or_else(|| bad("is too wide to hold"))?;
-    let expected = stride
-        .checked_add(1)
-        .and_then(|n| n.checked_mul(height as usize))
-        .ok_or_else(|| bad("is too large to hold"))?;
-    if raw.len() != expected {
-        return Err(bad("holds fewer rows than its header says"));
-    }
-    let mut rgba = Vec::with_capacity(pixel_bytes(width, height)?);
-    let mut previous = vec![0_u8; stride];
-    let mut row = vec![0_u8; stride];
-    for index in 0..height as usize {
-        let start = index.saturating_mul(stride.saturating_add(1));
-        let kind = raw.get(start).copied().ok_or_else(|| bad("ends mid-row"))?;
-        let from = start.saturating_add(1);
-        let line = raw.get(from..from.saturating_add(stride)).ok_or_else(|| bad("ends mid-row"))?;
-        row.copy_from_slice(line);
-        unfilter(kind, &mut row, &previous)?;
-        rgba.extend_from_slice(&row);
-        previous.copy_from_slice(&row);
-    }
-    Ok(Image { width, height, rgba })
-}
-
-fn be32(data: &[u8], at: usize) -> Option<u32> {
-    let slice = data.get(at..at.checked_add(4)?)?;
-    Some(u32::from_be_bytes([*slice.first()?, *slice.get(1)?, *slice.get(2)?, *slice.get(3)?]))
-}
-
-/// The other end of [`BitWriter`], reading the two orders it writes.
-struct BitReader<'a> {
-    data: &'a [u8],
-    at: usize,
-    bit: u32,
-}
-
-impl BitReader<'_> {
-    fn bit(&mut self) -> Option<u32> {
-        let byte = *self.data.get(self.at)?;
-        let value = (u32::from(byte) >> self.bit) & 1;
-        self.bit = self.bit.saturating_add(1);
-        if self.bit == 8 {
-            self.bit = 0;
-            self.at = self.at.saturating_add(1);
-        }
-        Some(value)
-    }
-
-    fn bits(&mut self, width: u32) -> Option<u32> {
-        let mut value = 0;
-        for i in 0..width {
-            value |= self.bit()? << i;
-        }
-        Some(value)
-    }
-
-    fn code(&mut self, width: u32) -> Option<u32> {
-        let mut value = 0;
-        for _ in 0..width {
-            value = (value << 1) | self.bit()?;
-        }
-        Some(value)
-    }
-
-    /// To the next byte boundary, which is where a stored block's length sits.
-    fn align(&mut self) {
-        if self.bit != 0 {
-            self.bit = 0;
-            self.at = self.at.saturating_add(1);
-        }
-    }
-}
-
-/// One symbol of the fixed literal/length tree.
-///
-/// RFC 1951 §3.2.6's table, read the other way: seven bits up to `0010111` is
-/// an end-or-length symbol, and every longer code starts above the range the
-/// shorter one claimed, so the width tells itself apart with no table.
-fn fixed_symbol(reader: &mut BitReader) -> Option<u16> {
-    let seven = reader.code(7)?;
-    if seven <= 0x17 {
-        return u16::try_from(256 + seven).ok();
-    }
-    let eight = (seven << 1) | reader.bit()?;
-    if (0x30..=0xbf).contains(&eight) {
-        return u16::try_from(eight - 0x30).ok();
-    }
-    if (0xc0..=0xc7).contains(&eight) {
-        return u16::try_from(280 + eight - 0xc0).ok();
-    }
-    let nine = (eight << 1) | reader.bit()?;
-    if (0x190..=0x1ff).contains(&nine) {
-        return u16::try_from(144 + nine - 0x190).ok();
-    }
-    None
-}
-
-/// A zlib stream of stored and fixed-Huffman blocks, unwrapped.
-fn inflate(zlib: &[u8]) -> Result<Vec<u8>, String> {
-    let bad = |what: &str| format!("the PNG's compressed data {what}");
-    if zlib.len() < 2 {
-        return Err(bad("is shorter than a zlib header"));
-    }
-    let mut reader = BitReader { data: zlib, at: 2, bit: 0 };
-    let mut out: Vec<u8> = Vec::new();
-    loop {
-        let last = reader.bits(1).ok_or_else(|| bad("ends mid-block"))?;
-        match reader.bits(2).ok_or_else(|| bad("ends mid-block"))? {
-            0 => {
-                reader.align();
-                let len = reader.bits(16).ok_or_else(|| bad("ends mid-block"))? as usize;
-                reader.bits(16).ok_or_else(|| bad("ends mid-block"))?;
-                for _ in 0..len {
-                    let byte = reader.bits(8).ok_or_else(|| bad("ends mid-block"))?;
-                    out.push(byte as u8);
-                }
-            }
-            1 => inflate_fixed(&mut reader, &mut out)?,
-            _ => return Err(bad("is not the deflate this painter writes")),
-        }
-        if last == 1 {
-            return Ok(out);
-        }
-    }
-}
-
-fn inflate_fixed(reader: &mut BitReader, out: &mut Vec<u8>) -> Result<(), String> {
-    let bad = |what: &str| format!("the PNG's compressed data {what}");
-    loop {
-        let symbol = fixed_symbol(reader).ok_or_else(|| bad("holds a code no tree has"))?;
-        match symbol {
-            0..=255 => out.push(symbol as u8),
-            256 => return Ok(()),
-            257..=285 => {
-                let index = usize::from(symbol).saturating_sub(257);
-                let (base, extra) =
-                    LENGTHS.get(index).copied().ok_or_else(|| bad("names no length"))?;
-                let more = reader.bits(u32::from(extra)).ok_or_else(|| bad("ends mid-match"))?;
-                let length = usize::from(base).saturating_add(more as usize);
-
-                let which = reader.code(5).ok_or_else(|| bad("ends mid-match"))? as usize;
-                let (first, dextra) =
-                    DISTANCES.get(which).copied().ok_or_else(|| bad("names no distance"))?;
-                let more = reader.bits(u32::from(dextra)).ok_or_else(|| bad("ends mid-match"))?;
-                let distance = usize::from(first).saturating_add(more as usize);
-
-                if distance == 0 || distance > out.len() {
-                    return Err(bad("copies from before the start of the image"));
-                }
-                let from = out.len().saturating_sub(distance);
-                for step in 0..length {
-                    let byte = out
-                        .get(from.saturating_add(step))
-                        .copied()
-                        .ok_or_else(|| bad("copies past what it has written"))?;
-                    out.push(byte);
-                }
-            }
-            _ => return Err(bad("names a symbol the fixed tree does not have")),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
+    use super::image::Image;
     use super::*;
 
     /// A scene with a viewport and nothing in it.
@@ -3784,15 +3464,15 @@ mod tests {
         assert_eq!(render(one), render(two));
     }
 
-    /// A source the painter cannot read — an SVG data URI is the common one,
-    /// since it is the only vector form `ui/node` offers — is a framed grey
-    /// box at the size the scene gave it. It used to be nothing at all: an
-    /// image line carried no source, so a row of icons painted as blank page.
+    /// A source the painter cannot read — an address is the common one, since
+    /// nothing here fetches — is a framed grey box at the size the scene gave
+    /// it. It used to be nothing at all: an image line carried no source, so a
+    /// row of icons painted as blank page.
     #[test]
     fn a_source_the_painter_cannot_read_paints_a_placeholder() {
         let scene = "buri-scene 1\nviewport 8 8\n\
                      e 0 width:6px;height:6px\n\
-                     e 1 image:data:image/svg+xml,%3Csvg viewBox='0 0 1 1'%3E%3C/svg%3E\n";
+                     e 1 image:https://example.com/logo.svg\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 0, 0), [153, 153, 153, 255]);
         assert_eq!(at(&image, 3, 3), [224, 224, 224, 255]);
@@ -4071,7 +3751,7 @@ mod tests {
         for kind in 0..5_u8 {
             let mut filtered = vec![0_u8; line.len()];
             apply_filter(kind, &line, &previous, &mut filtered);
-            unfilter(kind, &mut filtered, &previous).unwrap();
+            image::unfilter(kind, &mut filtered, &previous, 4).unwrap();
             assert_eq!(filtered, line, "filter {kind} did not come back");
         }
     }
@@ -4079,7 +3759,7 @@ mod tests {
     #[test]
     fn a_row_filter_that_does_not_exist_is_refused() {
         let mut row = vec![0_u8; 4];
-        assert!(unfilter(5, &mut row, &[0; 4]).is_err());
+        assert!(image::unfilter(5, &mut row, &[0; 4], 4).is_err());
     }
 
     /// A row identical to the one above costs nothing under both `Up` and
@@ -4135,7 +3815,7 @@ mod tests {
         // BFINAL then BTYPE, low bit first: 1, then 01, is `0b011`.
         assert_eq!(stream[2] & 0b111, 0b011);
         assert_eq!(&stream[stream.len() - 4..], adler32(&raw).to_be_bytes());
-        assert_eq!(inflate(&stream).unwrap(), raw);
+        assert_eq!(image::inflate(&stream).unwrap(), raw);
     }
 
     /// Repetition has to actually be spent: a run of one byte is a match, not
@@ -4145,7 +3825,7 @@ mod tests {
         let raw = vec![7_u8; 4096];
         let stream = deflate(&raw);
         assert!(stream.len() < 64, "4096 identical bytes became {} bytes", stream.len());
-        assert_eq!(inflate(&stream).unwrap(), raw);
+        assert_eq!(image::inflate(&stream).unwrap(), raw);
     }
 
     /// The stored blocks this file used to write are still readable, so a
@@ -4159,7 +3839,7 @@ mod tests {
         stream.extend_from_slice(&(!len).to_le_bytes());
         stream.extend_from_slice(body);
         stream.extend_from_slice(&adler32(body).to_be_bytes());
-        assert_eq!(inflate(&stream).unwrap(), body);
+        assert_eq!(image::inflate(&stream).unwrap(), body);
     }
 
     #[test]

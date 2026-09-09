@@ -1,0 +1,5 @@
+FAIL //lib/icons  test/icons.buri  "a red square, two red plus signs, and one box that stays grey"
+  the snapshot "icons" changed: see test/__snapshots__/icons.diff.png
+  --> lib/icons/test/icons.buri:11:1
+
+0 passed, 1 failed, 0 skipped (0.0s)
