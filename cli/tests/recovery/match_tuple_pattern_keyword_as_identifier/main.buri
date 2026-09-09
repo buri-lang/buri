@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `match`
+export fn pick(pair: (Int, Int)): Int {
+  match (pair) {
+    (0, match) => match,
+    (x, _) => x,
+  }
+}

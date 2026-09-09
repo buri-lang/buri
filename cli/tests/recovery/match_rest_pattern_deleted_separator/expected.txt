@@ -1,0 +1,10 @@
+error [unclosed-delimiter] 4:12-4:14
+message: this array pattern is missing its closing `]`
+fix: write `]` here
+related: 4:5-4:6 opened here
+
+error [unresolved-name] 4:31-4:35
+message: there is nothing named `rest` in scope
+fix: if you meant `Result`, use that; if not, a name is in scope only from this module's own declarations and its imports
+note: did you mean `Result`?
+

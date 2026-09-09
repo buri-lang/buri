@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `match`
+export fn sum(xs: [Int]): Int {
+  match (xs) {
+    [match, second] => match + second,
+    _ => 0,
+  }
+}

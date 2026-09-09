@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `@`
+export fn pick(pair: (Int, Int)): Int {
+  match (pair) {
+    ( @0, y) => y,
+    (x, _) => x,
+  }
+}

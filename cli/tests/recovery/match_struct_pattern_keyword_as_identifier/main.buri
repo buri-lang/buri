@@ -1,0 +1,11 @@
+// EXPECT: expected an identifier, found `match`
+export struct match {
+  export x: Int,
+  export y: Int,
+}
+
+export fn sum(point: match): Int {
+  match (point) {
+    match { x, y } => x + y,
+  }
+}

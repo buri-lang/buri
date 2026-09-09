@@ -1,0 +1,13 @@
+// EXPECT: expected an identifier, found `match`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
+export enum Shape {
+  match,
+  Square,
+}
+
+export fn sides(shape: Shape): Int {
+  match (shape) {
+    .match => 1,
+    .Square => 4,
+  }
+}

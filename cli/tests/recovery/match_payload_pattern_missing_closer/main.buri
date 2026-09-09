@@ -1,0 +1,12 @@
+// EXPECT: this variant payload pattern is missing its closing `)`
+export enum Shape {
+  Point(Int, Int),
+  Empty,
+}
+
+export fn size(shape: Shape): Int {
+  match (shape) {
+    .Point(x, y => x + y,
+    .Empty => 0,
+  }
+}

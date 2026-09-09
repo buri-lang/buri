@@ -1,0 +1,13 @@
+// EXPECT: this `match` does not cover `.Square`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/110
+export enum Shape {
+  Circle,
+  Square,
+}
+
+export fn sides(shape: Shape): Int {
+  match (shape) {
+    .Circle => 1
+    .Square => 4,
+  }
+}

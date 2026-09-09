@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `@`
+export fn head(xs: [Int]): Int {
+  match (xs) {
+    [ @first, ..rest] => first + rest.length(),
+    _ => 0,
+  }
+}

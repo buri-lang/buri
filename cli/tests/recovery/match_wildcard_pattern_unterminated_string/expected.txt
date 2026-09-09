@@ -1,0 +1,4 @@
+error [unterminated-string] 5:20-6:1
+message: unterminated string literal
+fix: close it with `"`; a string literal does not span a line break
+

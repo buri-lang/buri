@@ -1,0 +1,15 @@
+error [match-not-exhaustive] 4:3-5:20
+message: this `match` does not cover `[]`
+fix: add an arm for `[]`, or a `_` arm for everything left
+note: every `match` must cover its scrutinee's type
+
+error [missing-arrow] 5:20-5:20
+message: a match arm is `pattern => expression`
+fix: write `=>` here
+edit: 5:20-5:20 " =>"
+
+error [unclosed-delimiter] 6:1-6:1
+message: this `match` is missing its closing `}`
+fix: write `}` here
+related: 4:14-4:15 opened here
+

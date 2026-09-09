@@ -1,0 +1,7 @@
+// EXPECT: this array pattern is missing its closing `]`
+export fn sum(xs: [Int]): Int {
+  match (xs) {
+    [first, second => first + second,
+    _ => 0,
+  }
+}
