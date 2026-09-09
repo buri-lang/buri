@@ -1,0 +1,17 @@
+// EXPECT: expected `Prop<Bool>`
+//
+// Whether a control refuses input is a thing that changes — a save button is
+// unavailable while a save is in flight — so `disabled` is a `Prop<Bool>` and
+// not a `Bool`. A control that could only be told once would have to be torn
+// down and rebuilt to change its mind, which loses the focus and the caret
+// inside it. `.Const(true)` is the one that never changes.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.button(.Const("save"), [], [], fn(_c, _e) => (), true), [])
+}

@@ -147,6 +147,7 @@ fn cell<C: Ui>(
         [.Layout(.Column), .AlignCross(.Start), .Gap(.Px(3)), .Width(.Px(180))],
         signal(ctx, value),
         .Const(false),
+        .Const(false),
     )
 }
 

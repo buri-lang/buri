@@ -254,7 +254,7 @@ export fn colourPage<C>(): Node<C> {
             cell(
                 "image",
                 ui.stack(base([.Foreground(.Rgb(200, 30, 30))]), [
-                    ui.image(.Const(asAnImage), .Const("")),
+                    ui.image(.Const(asAnImage), .Const(""), []),
                 ]),
             ),
         ]),
@@ -431,6 +431,7 @@ fn pressable<C>(styles: [Style]): Node<C> {
         ],
         [ui.icon([.Width(.Px(16)), .Height(.Px(16))], glyph), ui.text(.Const("save"))],
         noop,
+        .Const(false),
     )
 }
 

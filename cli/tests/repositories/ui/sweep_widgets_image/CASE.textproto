@@ -1,0 +1,99 @@
+# A picture's own styles, painted — buri-lang/buri#123. `image` was the one
+# constructor with no `[Style]` slot, so a picture painted at its intrinsic size
+# wherever the flow put it and an avatar could not be built.
+#
+# Three pictures, each a labelled grid — a claim is a band and its values read
+# across. The bands are a fixed height and clip, so a cell that grows stays in
+# its own row instead of squashing the ones under it.
+#
+# What the pictures say, and what was read in them:
+#
+#   * `image-size` — a picture takes `Width`, `Height`, `AspectRatio` and the
+#     four bounds from its own styles. Every length CSS accepts is a size: the
+#     pixel, the rem at sixteen to one, the percentage of the containing box,
+#     and `Full`. `Auto` and no declaration at all are the same picture, which
+#     is what a browser does with them. Two `Width`s are last-wins, which is
+#     the conflict slot the property already had.
+#   * `image-chrome` — the corner, the frame and the wash. A `Radius` clips the
+#     picture rather than the box around it, which is the whole of what
+#     `rounded-[inherit]` does in the library this was ported from; a border is
+#     drawn round the corner it goes round, and the picture is drawn inside it.
+#     A `BorderEdge` puts a rule under a picture with nothing else round it.
+#   * `image-avatar` — the avatar the slot was asked for, and the two things a
+#     program could ask for before it. The `filled` cells are the picture
+#     filling a round box, cropped square and taking the corner: a real avatar.
+#     The band above them is the same picture with no box at all, so what the
+#     corner and the crop do is read on the picture itself.
+#     `box only` is the workaround — a round box with a picture of its own size
+#     inside it, square-cornered, because nothing in `ui/style` clips overflow
+#     (filed separately). `no box` is the picture with nothing said to it at
+#     all, which is what `image` used to be.
+#
+# The source is one the painter cannot load, so every cell is the placeholder
+# box. That is deliberate: a snapshot fetches nothing, and the placeholder is
+# painted at exactly the size and shape the styles asked for, which is the
+# thing under test.
+#
+# The lifecycle is `sweep_properties_*`'s: every golden compares, a renamed
+# snapshot is reported as missing rather than as a difference, `--update`
+# records it, the run after that compares against what it wrote, and an edit to
+# one number fails the comparison. Only the first run paints the whole suite;
+# the ones after it are `--filter`ed to the one picture they are about.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a picture sized, shaped and cropped by its own styles, and the avatar that needed all three, as 3 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/sweep", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/image-size.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sweep/test/pictures.buri"
+  replace: "\"image-size\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=sized"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sweep", "--update", "--force", "--filter=sized"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=sized"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: four pixels on the corner of one avatar, which is the
+# smallest edit that has to fail.
+edit {
+  file: "lib/sweep/scenes.buri"
+  replace: ".Radius(.Px(10))"
+  with: ".Radius(.Px(14))"
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=avatar"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/image-avatar.diff.png"  exists: true }

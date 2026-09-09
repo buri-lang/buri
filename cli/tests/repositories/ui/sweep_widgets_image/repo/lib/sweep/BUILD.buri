@@ -1,0 +1,9 @@
+# One library and one test source: three pictures of a styled `image`, and a
+# snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

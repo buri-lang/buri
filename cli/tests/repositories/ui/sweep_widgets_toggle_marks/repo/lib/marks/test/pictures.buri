@@ -21,12 +21,28 @@ test "a checkbox's tick" {
     };
     let off = ui.describe(
         ctx,
-        ui.toggle(.Const("x"), .Checkbox, [], [], signal(ctx, false), .Const(false)),
+        ui.toggle(
+            .Const("x"),
+            .Checkbox,
+            [],
+            [],
+            signal(ctx, false),
+            .Const(false),
+            .Const(false),
+        ),
         .Hover,
     );
     let on = ui.describe(
         ctx,
-        ui.toggle(.Const("x"), .Checkbox, [], [], signal(ctx, true), .Const(false)),
+        ui.toggle(
+            .Const("x"),
+            .Checkbox,
+            [],
+            [],
+            signal(ctx, true),
+            .Const(false),
+            .Const(false),
+        ),
         .Hover,
     );
     assert.isFalse(off.contains("mark:"));
@@ -41,12 +57,28 @@ test "a switch's thumb" {
     };
     let off = ui.describe(
         ctx,
-        ui.toggle(.Const("x"), .Switch, [], [], signal(ctx, false), .Const(false)),
+        ui.toggle(
+            .Const("x"),
+            .Switch,
+            [],
+            [],
+            signal(ctx, false),
+            .Const(false),
+            .Const(false),
+        ),
         .Hover,
     );
     let on = ui.describe(
         ctx,
-        ui.toggle(.Const("x"), .Switch, [], [], signal(ctx, true), .Const(false)),
+        ui.toggle(
+            .Const("x"),
+            .Switch,
+            [],
+            [],
+            signal(ctx, true),
+            .Const(false),
+            .Const(false),
+        ),
         .Hover,
     );
     assert.containsText(off, "am-start");

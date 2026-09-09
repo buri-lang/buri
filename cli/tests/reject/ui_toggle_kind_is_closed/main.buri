@@ -13,7 +13,7 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal, signal };
 
 fn done<C>(value: Signal<Bool>): Node<C> {
-  ui.toggle(.Const("done"), .Tick, [], [], value, .Const(false))
+  ui.toggle(.Const("done"), .Tick, [], [], value, .Const(false), .Const(false))
 }
 
 export fn main(): Result<(), Str> {

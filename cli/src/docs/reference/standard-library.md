@@ -695,10 +695,11 @@ box at all, corners included, and it makes no scroll container doing it —
 a pinned toaster dock asks for it so the page under it still answers a press,
 and each toast in the dock takes the pointer back.
 
-`heading`, `button`, `link`, `field`, `toggle` and `icon` take a `[Style]` like
-every container does, and it lands on the element itself — so a hover, focus or
-disabled rule fires on the thing that is hovered, focused or disabled, and a
-heading is the size its styles say rather than the size a browser picked.
+`heading`, `button`, `link`, `image`, `field`, `toggle` and `icon` take a
+`[Style]` like every container does, and it lands on the element itself — so a
+hover, focus or disabled rule fires on the thing that is hovered, focused or
+disabled, a picture is sized, shaped and rounded rather than the box around it,
+and a heading is the size its styles say rather than the size a browser picked.
 The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list, the inset border on a separator and
@@ -763,6 +764,13 @@ an icon follows the text beside it and turns over with a theme, which an
 construction and carries no name. The source is written out at the call site
 and the compiler reads it: an `<svg>` and the shapes inside it, and anything
 else is `icon-not-drawable`.
+
+`button`, `field` and `toggle` take a `disabled: Prop<Bool>` as well — beside
+`invalid` on the two that have one. It is an attribute rather than a style: it takes the control out of the tab order,
+refuses the press before the handler is reached, and tells a reader the control
+is unavailable rather than absent. It is also what makes `On(.Disabled, ...)`
+fire. `On(.Checked, ...)` needs no flag — a toggle's own signal says whether it
+is checked, so one page holds one toggle that is on and one that is off.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and

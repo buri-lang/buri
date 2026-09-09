@@ -1,0 +1,86 @@
+# A toggle that answers for its own checked state — buri-lang/buri#119.
+# `describe` read `On(.Checked, ...)` off the snapshot's state, so a page could
+# not hold one toggle that is on and one that is off: asking for `.Checked`
+# painted every box's checked styles, including the boxes bound to `false`.
+#
+# Two pictures of one tree, in the two states the answer could have come from,
+# and a `describe` assertion beside each so a picture is never the only witness.
+#
+#   * `checked-hover` — a hovered snapshot. The `off` row is the base colour
+#     everywhere and the `on` row carries the checked palette, which is the
+#     picture the issue asked for and the one that could not be painted before.
+#     The `hover too` column carries both rules: a hovered checked box matches
+#     `:hover` and `:checked` in a browser, and the picture says it does here.
+#   * `checked-snapshot` — the same tree under `.Checked`. The two switch rows
+#     are **unchanged**, because the answer is the control's and a snapshot
+#     cannot add to it. The `box` row is what moves: a plain `stack` holds no
+#     such answer, so the snapshot is still its to decide, and its cells light
+#     in this picture and not in the other.
+#
+# The columns are `Background`, a border, `Opacity`, a `Shadow`, all four at
+# once, and the pointer state beside them — so a picture says which declaration
+# reached the element rather than only that something did. Every switch's label
+# is `on` or `off`, so a picture cannot be read the wrong way round.
+#
+# The lifecycle is `sweep_properties_*`'s: every golden compares, a renamed
+# snapshot is reported as missing rather than as a difference, `--update`
+# records it, the run after that compares against what it wrote, and an edit to
+# one number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "one switch on and one off on the same page, in a state that names neither and in the one that used to name both, as 2 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/sweep", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/checked-hover.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sweep/test/pictures.buri"
+  replace: "\"checked-hover\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=neither"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sweep", "--update", "--force", "--filter=neither"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=neither"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one number in the checked palette, and the picture the
+# snapshot state is about moves with it.
+edit {
+  file: "lib/sweep/scenes.buri"
+  replace: ".Background(.Rgb(40, 150, 60))"
+  with: ".Background(.Rgb(40, 150, 100))"
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=holds"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/checked-snapshot.diff.png"  exists: true }

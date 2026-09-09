@@ -124,14 +124,19 @@ impl Rendered {
     ///
     /// A press is the pointer's, so a button under a `Passthrough(true)` does
     /// nothing at all — which is what a browser does with a click on one, and
-    /// what the pass-through is for.
+    /// what the pass-through is for. A disabled button does nothing either: it
+    /// is not dispatched to, so the handler behind it cannot run. Both are a
+    /// control this found and refused, not a control it could not find.
     export fn press(self, label: Str): ();
 
     /// Types `value` into the field labelled `label`, the way a reader replacing
     /// what was there would.
+    ///
+    /// Nothing is typed into a disabled field, so the signal behind one stays
+    /// where it was.
     export fn fill(self, label: Str, value: Str): ();
 
-    /// Flips the toggle labelled `label`.
+    /// Flips the toggle labelled `label`, unless it is disabled.
     export fn flip(self, label: Str): ();
 
     /// Submits the `index`th form, oldest first — what pressing Enter in one of

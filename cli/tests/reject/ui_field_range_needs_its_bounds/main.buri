@@ -14,5 +14,5 @@ from "ui/signal" import { signal };
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let volume = signal(ctx, "40");
-  ui.mount(ctx, ui.field(.Const("Volume"), .Range(0.0, 100.0), [], [], volume, .Const(false)), [])
+  ui.mount(ctx, ui.field(.Const("Volume"), .Range(0.0, 100.0), [], [], volume, .Const(false), .Const(false)), [])
 }

@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "the snapshot's Checked reaches what holds no answer of its own"
+  the snapshot "checked-snapshot" changed: see test/__snapshots__/checked-snapshot.diff.png
+  --> lib/sweep/test/pictures.buri:30:1
+
+0 passed, 1 failed, 1 skipped (0.0s)
