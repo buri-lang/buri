@@ -273,7 +273,15 @@ impl Jit<'_> {
             // the retain has an incref, which is the one `emit.rs` already
             // emits for a value going out of scope.
             if entry.extra == Extra::Owned {
-                match carried.and_then(|ty| self.value_release(ty)) {
+                match carried.clone().and_then(|ty| self.value_release(ty)) {
+                    Some(name) => ints.push(Src::Sym(name)),
+                    None => ints.push(Src::Imm(0)),
+                }
+                // And the equality after it: the question a write asks before
+                // it stores anything. `==` is structural, so the runtime — for
+                // which a cell is bytes and a `Str` in one is a pointer —
+                // cannot answer "is this the value already there" itself.
+                match carried.and_then(|ty| self.value_equal(prog, ty)) {
                     Some(name) => ints.push(Src::Sym(name)),
                     None => ints.push(Src::Imm(0)),
                 }
@@ -727,6 +735,19 @@ impl Jit<'_> {
     fn value_release(&mut self, ty: Ty) -> Option<String> {
         self.rc_counted(&ty)
             .then(|| self.helper(super::glue::Helper::Walk { ty, retain: false }))
+    }
+
+    /// The per-value **equality** glue for a type the reactive graph keeps a
+    /// value of, or `None` where `middle::derives` generated no comparison —
+    /// and then the graph falls back to the bytes, which is the whole of the
+    /// value for a scalar.
+    ///
+    /// The two beside it are walks this backend generates; this one wraps a
+    /// function the *middle end* generated, because "are these the same value"
+    /// is `==` and `==` is a language question rather than a layout one.
+    fn value_equal(&mut self, prog: &ir::Program, ty: Ty) -> Option<String> {
+        let func = prog.cell_equal.get(&ty).copied()?;
+        Some(self.helper(super::glue::Helper::Equal { ty, func: func.0 }))
     }
 
     /// One argument into its place in the scratch area.

@@ -1,0 +1,23 @@
+error: expected `:`, found `Location` [unexpected-token]
+  --> main.buri:45:15
+   |
+45 |         extra Location: address(headless(), "/signin"),
+   |               ^^^^^^^^
+   |
+   = expected: `:`
+   = actual: `Location`
+   = fix: write `:` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:47:17
+   |
+47 |     web.replace(ctx, "/dashboard");
+   |                 ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:48:27
+   |
+48 |     assert.equal(web.path(ctx), "/dashboard");
+   |                           ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
