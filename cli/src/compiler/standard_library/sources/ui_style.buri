@@ -347,7 +347,7 @@ export enum Color {
     /// fade cannot be done here: it lowers to `color-mix(in srgb,
     /// var(--pkg-name) 50%, transparent)` and the token stays a token. It is
     /// **last** in this enum because the order is the tag the runtime reads,
-    /// and the four above it were already numbered.
+    /// and the five above it were already numbered.
     Faded(TokenReference, Float),
 }
 
