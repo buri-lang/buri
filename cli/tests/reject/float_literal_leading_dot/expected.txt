@@ -16,27 +16,3 @@ error: expected an identifier, found `5` [unexpected-token]
     separator, a terminator, an arrow, a delimiter that never closed — carries
     its own code instead.
 
-error: there is nothing named `half` in scope [unresolved-name]
- --> cmd/float_literal_leading_dot/main.buri:9:30
-  |
-9 |   let _ = io.println(ctx, "${half}").ignore();
-  |                              ^^^^
-  |
-  = fix: declare `half`, or import it — a name is in scope only from this module's own declarations and its imports
-
-    What to do
-    ──────────
-
-    Correct the spelling, or declare it. Where there is a near miss the fix
-    names it: "if you meant double, use that; if not, a name is in scope only
-    from this module's own declarations and its imports". A name the standard
-    library renamed is not a guess and gets the answer instead — sqrt was
-    renamed to squareRoot.
-
-    Why
-    ───
-
-    There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name, which is what makes the
-    suggestion trustworthy.
-

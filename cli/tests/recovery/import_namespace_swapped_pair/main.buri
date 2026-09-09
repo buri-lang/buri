@@ -1,5 +1,4 @@
-// EXPECT: expected a declaration, found a string literal
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
+// EXPECT: expected `from`, found a string literal
 "core/list" from import * as list;
 
 export fn none(): [Int] {

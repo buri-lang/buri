@@ -1,8 +1,4 @@
-error [unexpected-token] 4:7-4:8
+error [unexpected-token] 3:7-3:8
 message: expected a pattern, found `@`
 fix: write a pattern: a binding, a literal, `.Variant`, or `_`
-
-error [unresolved-name] 5:7-5:12
-message: there is nothing named `value` in scope
-fix: declare `value`, or import it — a name is in scope only from this module's own declarations and its imports
 

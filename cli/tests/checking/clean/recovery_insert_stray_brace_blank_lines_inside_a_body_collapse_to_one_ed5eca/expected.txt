@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+ --> main.buri:5:11
+  |
+5 |   let b = @ 2;
+  |           ^
+  |
+  = expected: an expression
+  = actual: `@`
+  = fix: write a value here

@@ -1,0 +1,9 @@
+error: expected `:`, found `Location` [unexpected-token]
+  --> main.buri:45:15
+   |
+45 |         extra Location: address(headless(), "/signin"),
+   |               ^^^^^^^^
+   |
+   = expected: `:`
+   = actual: `Location`
+   = fix: write `:` here

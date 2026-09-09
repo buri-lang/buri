@@ -7,33 +7,11 @@ error: expected an identifier, found `@` [unexpected-token]
   = expected: an identifier
   = actual: `@`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: expected a declaration, found `;` [unexpected-token]
- --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:6:50
-  |
-6 | from "core/effect" import { @ Allocator, Stdout };
-  |                                                  ^
-  |
-  = expected: a declaration
-  = actual: `;`
-  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-error: `Allocator` is not a declared effect [not-an-effect]
-  --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:12:9
+warning: `total` is bound and never used [unused-variable]
+  --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:15:9
    |
-12 |         Allocator: host.alloc,
-   |         ^^^^^^^^^
+15 |     let total = 3 * 4;
+   |         ^^^^^
    |
-   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Allocator` is not one
-error: `Stdout` is not a declared effect [not-an-effect]
-  --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:13:9
-   |
-13 |         Stdout: host.stdout,
-   |         ^^^^^^
-   |
-   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Stdout` is not one
-error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
-  --> lib/recovery_insert_stray_brace_app_9d94a1/main.buri:16:5
-   |
-16 |     io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
-   |     ^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = fix: bound the type parameter with `Stdout`, or use a type that has one
+   = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+   = fix: use it, delete the `let`, or write `_` in its place

@@ -1,0 +1,9 @@
+error: expected `let`, found `b` [unexpected-token]
+ --> main.buri:4:5
+  |
+4 |     b let = 2;
+  |     ^
+  |
+  = expected: `let`
+  = actual: `b`
+  = fix: write `let` first: `let b`

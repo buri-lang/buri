@@ -1,5 +1,4 @@
 // EXPECT: expected an identifier, found `export`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
 fn export first<A, B>(a: A, b: B): A {
   let _ = b;
   a

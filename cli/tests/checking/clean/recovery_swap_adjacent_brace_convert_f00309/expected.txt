@@ -1,0 +1,9 @@
+error: expected `let`, found `far` [unexpected-token]
+  --> main.buri:26:5
+   |
+26 |     far let = simd.f32x4(nan, 1.0e300, -1.0e300, 3.0);
+   |     ^^^
+   |
+   = expected: `let`
+   = actual: `far`
+   = fix: write `let` first: `let far`
