@@ -351,15 +351,24 @@ impl Tally {
 /// hundred-case row is a sample and a sample has a spread.
 fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
-        ("one mistake is one diagnostic", "delete-closer") => 6,
+        // Lowered when `if-without-else` stopped being reported behind a branch
+        // whose own `}` was already reported missing (issue 111). Every case
+        // that row lost was a deleted closer inside an `if`, said twice. 67 of
+        // 1704 is 3.9%, read off a `BURI_RECOVERY_CAP=0` run, and four is that
+        // rounded up.
+        ("one mistake is one diagnostic", "delete-closer") => 4,
         ("one mistake is one diagnostic", "insert-stray") => 2,
         ("one mistake is one diagnostic", "swap-adjacent") => 1,
 
         ("the caret is on the mistake", "delete-closer") => 30,
         ("the caret is on the mistake", "delete-separator ()") => 5,
         ("the caret is on the mistake", "delete-separator {}") => 8,
-        ("the caret is on the mistake", "insert-stray") => 2,
-        ("the caret is on the mistake", "swap-adjacent") => 3,
+        // Both lowered with the same change (issue 111): a token wedged between
+        // a branch's `}` and its `else` now carries the caret, where the caret
+        // used to land on the branch — three lines above the mistake. 5 of 2184
+        // and 28 of 2109, which is 0.3% and 1.4% rounded up.
+        ("the caret is on the mistake", "insert-stray") => 1,
+        ("the caret is on the mistake", "swap-adjacent") => 2,
 
         ("the fix names the missing token", "delete-closer") => 19,
         ("the fix names the missing token", "delete-separator ()") => 5,

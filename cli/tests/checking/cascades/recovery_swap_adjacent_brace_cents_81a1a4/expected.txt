@@ -1,11 +1,12 @@
-error: `if` requires an `else` branch [if-without-else]
-  --> main.buri:41:34
+error: expected `else`, found a string literal [unexpected-token]
+  --> main.buri:41:38
    |
 41 |         let pad = if (rest < 10) { } "0" else { "" };
-   |                                  ^^^
+   |                                      ^^^
    |
-   = `if` is an expression, so both branches must produce a value of the same type
-   = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+   = expected: `else`
+   = actual: a string literal
+   = fix: delete it — the `else` branch follows
 error: there is nothing named `pad` in scope [unresolved-name]
   --> main.buri:42:39
    |
