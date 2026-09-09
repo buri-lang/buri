@@ -1,0 +1,5 @@
+// EXPECT: a statement ends with `;`
+export fn twice(n: Int): Int {
+  let double = fn(n: Int): Int => n * 2
+  double(n)
+}

@@ -1,0 +1,9 @@
+error [wrong-value-count] 3:3-3:6
+message: `Ok` holds 1 values, but 0 were given
+fix: `Ok` is missing its first value: Ok(T)
+
+error [unclosed-delimiter] 4:1-4:1
+message: this function body is missing its closing `}`
+fix: write `}` here
+related: 2:42-2:43 opened here
+

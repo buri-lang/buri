@@ -1,0 +1,8 @@
+// EXPECT: this function body is missing its closing `}`
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn sum(point: Point): Int {
+  point.x

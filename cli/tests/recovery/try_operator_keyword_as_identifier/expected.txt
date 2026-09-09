@@ -1,0 +1,8 @@
+error [unexpected-token] 3:7-3:12
+message: expected a pattern, found `match`
+fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+
+error [unexpected-token] 4:13-4:14
+message: expected `(`, found `*`
+fix: write `(` here
+

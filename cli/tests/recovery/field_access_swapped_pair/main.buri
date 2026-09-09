@@ -1,0 +1,9 @@
+// EXPECT: `.pointx` needs a known expected type
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn sum(point: Point): Int {
+  .pointx + point.y
+}

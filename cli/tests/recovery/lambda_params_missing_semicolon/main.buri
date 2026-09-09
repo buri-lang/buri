@@ -1,0 +1,5 @@
+// EXPECT: a statement ends with `;`
+export fn add(x: Int, y: Int): Int {
+  let sum = fn(a, b) => a + b
+  sum(x, y)
+}

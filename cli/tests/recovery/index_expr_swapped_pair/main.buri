@@ -1,0 +1,4 @@
+// EXPECT: expected `Option<I64>`, found `[_0]`
+export fn head(xs: [Int]): Option<Int> {
+  [xs0]
+}

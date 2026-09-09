@@ -1,0 +1,8 @@
+error [type-mismatch] 6:23-8:2
+message: expected `I64`, found `(<error>, Int)`
+
+error [unresolved-name] 7:4-7:8
+message: there is nothing named `add2` in scope
+fix: if you meant `add`, use that; if not, a name is in scope only from this module's own declarations and its imports
+note: did you mean `add`?
+

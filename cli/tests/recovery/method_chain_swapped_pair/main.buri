@@ -1,0 +1,4 @@
+// EXPECT: `.texttrim` needs a known expected type
+export fn width(text: Str): Int {
+  .texttrim().trimStart().length()
+}

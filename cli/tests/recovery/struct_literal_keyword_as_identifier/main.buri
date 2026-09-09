@@ -1,0 +1,9 @@
+// EXPECT: expected an identifier, found `match`
+export struct match {
+  export x: Int,
+  export y: Int,
+}
+
+export fn origin(): match {
+  match { x: 1, y: 2 }
+}

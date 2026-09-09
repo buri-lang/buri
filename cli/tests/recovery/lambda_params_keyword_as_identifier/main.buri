@@ -1,0 +1,5 @@
+// EXPECT: expected a pattern, found `match`
+export fn add(x: Int, y: Int): Int {
+  let match = fn(a, b) => a + b;
+  match(x, y)
+}

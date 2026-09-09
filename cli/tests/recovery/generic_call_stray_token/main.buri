@@ -1,0 +1,8 @@
+// EXPECT: this function body is missing its closing `}`
+fn identity<A>(value: A): A {
+  value
+}
+
+export fn same(n: Int): Int {
+  identity @<Int>(n)
+}

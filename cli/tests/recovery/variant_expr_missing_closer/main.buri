@@ -1,0 +1,4 @@
+// EXPECT: this call is missing its closing `)`
+export fn wrap(n: Int): Result<Int, Str> {
+  .Ok(n
+}

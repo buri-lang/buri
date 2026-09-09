@@ -1,0 +1,4 @@
+// EXPECT: this function body is missing its closing `}`
+export fn sum(pair: (Int, Int)): Int {
+  pair @.0 + pair.1
+}

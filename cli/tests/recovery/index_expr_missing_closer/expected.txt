@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 4:1-4:2
+message: this index is missing its closing `]`
+fix: write `]` here
+related: 3:5-3:6 opened here
+

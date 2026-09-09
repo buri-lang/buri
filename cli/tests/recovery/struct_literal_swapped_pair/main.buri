@@ -1,0 +1,10 @@
+// EXPECT: an expression statement is legal only in a test source
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/113
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn origin(): Point {
+  { Point x: 1, y: 2 }
+}
