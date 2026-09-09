@@ -720,6 +720,9 @@ struct Computed {
     case: Case,
     decoration: Decoration,
     nowrap: bool,
+    /// `text-wrap: balance`: break the run into the lines it would take
+    /// anyway, evened out.
+    balance: bool,
     /// `-webkit-line-clamp`: show at most this many lines and end the last one
     /// in an ellipsis. `None` is no limit.
     clamp: Option<usize>,
@@ -769,6 +772,7 @@ impl Computed {
             case: Case::None,
             decoration: Decoration::None,
             nowrap: false,
+            balance: false,
             clamp: None,
         }
     }
@@ -786,6 +790,7 @@ impl Computed {
         child.case = self.case;
         child.decoration = self.decoration;
         child.nowrap = self.nowrap;
+        child.balance = self.balance;
         // CSS puts the clamp on the block and counts the lines of the inline
         // content inside it. The painter's inline content is a `t` node one
         // level down, so the clamp has to reach it the way an inherited
@@ -995,7 +1000,10 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
                 _ => Decoration::None,
             };
         }
-        "text-wrap" => style.nowrap = value == "nowrap",
+        "text-wrap" => {
+            style.nowrap = value == "nowrap";
+            style.balance = value == "balance";
+        }
         // `none` is the value `Truncate(0)` writes, and it parses to no limit.
         "-webkit-line-clamp" => style.clamp = value.parse().ok().filter(|&n| n > 0),
         // `font-family` resolves to the bundled family whatever it names, and
@@ -1322,16 +1330,20 @@ fn shape(
     if style.letter_spacing != 0.0 {
         attrs = attrs.letter_spacing(style.letter_spacing / size);
     }
-    let content = transformed(text, style.case);
+    let mut content = transformed(text, style.case);
     lay(fonts, &mut buffer, &content, &attrs, style.align_text);
 
-    // A clamp is an answer about the run at the width it will take. Width
-    // `Some(0.0)` is the one place a run is asked how narrow it can be *made*,
-    // and the longest word is still the longest word however few lines a
-    // reader is shown; `None` is max-content, which is one line already.
-    if let (Some(limit), Some(w)) = (style.clamp, width) {
-        if w > 0.0 {
-            clamp(fonts, &mut buffer, &content, &attrs, style.align_text, limit);
+    // A clamp and a balance are answers about the run at the width it will
+    // take. Width `Some(0.0)` is the one place a run is asked how narrow it
+    // can be *made*, and neither changes that answer — the longest word is
+    // still the longest word; `None` is max-content, which is one line
+    // already.
+    if let Some(room) = width.filter(|&w| w > 0.0) {
+        if let Some(limit) = style.clamp {
+            content = clamp(fonts, &mut buffer, &content, &attrs, style.align_text, limit);
+        }
+        if style.balance {
+            balance(fonts, &mut buffer, &content, &attrs, style.align_text, room);
         }
     }
     buffer
@@ -1370,9 +1382,9 @@ fn clamp(
     attrs: &Attrs,
     align: cosmic_text::Align,
     limit: usize,
-) {
+) -> String {
     if line_count(buffer) <= limit {
-        return;
+        return text.to_string();
     }
     let cuts: Vec<usize> =
         text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
@@ -1390,7 +1402,81 @@ fn clamp(
         }
     }
     let head = cuts.get(lo).and_then(|&at| text.get(..at)).unwrap_or(text);
-    lay(fonts, buffer, &ellipsised(head), attrs, align);
+    let cut = ellipsised(head);
+    lay(fonts, buffer, &cut, attrs, align);
+    cut
+}
+
+/// Evens the line lengths out — `text-wrap: balance`, the way a browser
+/// approximates it.
+///
+/// The run keeps the number of lines it took at its full width, and takes them
+/// at the narrowest width that still does: a heading whose last line was one
+/// short word comes out as lines of a length. Which width that is comes from
+/// the shaper, by binary search over whole pixels, because a run only ever
+/// needs more lines as its room shrinks.
+///
+/// The breaks are then written back into the run as newlines and it is laid
+/// out in the room it was actually given. Setting the buffer to the narrow
+/// width and leaving it there would balance the lines and then align them
+/// inside that width, so a centred heading would sit left of centre in its
+/// box.
+fn balance(
+    fonts: &mut FontSystem,
+    buffer: &mut Buffer,
+    text: &str,
+    attrs: &Attrs,
+    align: cosmic_text::Align,
+    room: f32,
+) {
+    let target = line_count(buffer);
+    if target <= 1 {
+        return;
+    }
+    // `hi` is the room the run already fits in, so it always satisfies the
+    // search; `lo` climbs until the two meet on the narrowest width that does.
+    let (mut lo, mut hi) = (1_u32, room.ceil().max(1.0) as u32);
+    while lo < hi {
+        let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+        buffer.set_size(Some(mid as f32), None);
+        lay(fonts, buffer, text, attrs, align);
+        if line_count(buffer) <= target {
+            hi = mid;
+        } else {
+            lo = mid.saturating_add(1);
+        }
+    }
+    buffer.set_size(Some(lo as f32), None);
+    lay(fonts, buffer, text, attrs, align);
+
+    let broken = broken(buffer, text);
+    buffer.set_size(Some(room), None);
+    lay(fonts, buffer, &broken, attrs, align);
+}
+
+/// The run with a newline wherever the shaper broke it, so the same breaks
+/// survive being laid out in a wider box.
+fn broken(buffer: &Buffer, text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for run in buffer.layout_runs() {
+        let Some((from, to)) = run
+            .glyphs
+            .iter()
+            .map(|g| (g.start, g.end))
+            .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)))
+        else {
+            continue;
+        };
+        let line = text.get(from..to).unwrap_or_default().trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 /// The width and height a shaped buffer occupies.
@@ -3480,6 +3566,55 @@ mod tests {
         let whole = edge("Ada");
         let cut = edge("Ada bee");
         assert!(cut > whole, "the ellipsis puts ink past `Ada`: {cut} against {whole}");
+    }
+
+    /// **`text-wrap: balance` evens the lines out.** It breaks a run into the
+    /// number of lines `wrap` gave it, at the narrowest width that still does,
+    /// which is how a browser approximates a balanced heading. The painter
+    /// read the property as one bit, so `balance` painted byte for byte like
+    /// `wrap`.
+    #[test]
+    fn a_balanced_run_evens_its_lines_out_without_adding_one() {
+        let picture = |mode: &str| {
+            let scene = format!(
+                "buri-scene 1\nviewport 200 120\n\
+                 e 0 width:180px;font-size:13px;text-wrap:{mode}\n\
+                 t 1 A sentence long enough that it has to break somewhere, twice over.\n"
+            );
+            render_ok(&scene, "", "rest")
+        };
+        let spread = |image: &Image| {
+            let widths: Vec<u32> =
+                inked_lines(image).iter().map(|&(from, to)| to.saturating_sub(from)).collect();
+            let (top, bottom) = (widths.iter().max().copied(), widths.iter().min().copied());
+            top.unwrap_or(0).saturating_sub(bottom.unwrap_or(0))
+        };
+        let wrapped = picture("wrap");
+        let balanced = picture("balance");
+        assert_eq!(
+            inked_lines(&wrapped).len(),
+            inked_lines(&balanced).len(),
+            "balancing may not cost a line"
+        );
+        assert!(
+            spread(&balanced) < spread(&wrapped),
+            "balanced lines are closer in length: {} against {}",
+            spread(&balanced),
+            spread(&wrapped)
+        );
+    }
+
+    /// A run that already fits on one line has nothing to balance, so it does
+    /// not move.
+    #[test]
+    fn a_balanced_run_of_one_line_paints_where_it_did() {
+        let one = "buri-scene 1\nviewport 200 40\ne 0 width:180px;font-size:13px\nt 1 Ada\n";
+        let two = "buri-scene 1\nviewport 200 40\n\
+                   e 0 width:180px;font-size:13px;text-wrap:balance\nt 1 Ada\n";
+        let render = |scene: &str| {
+            render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap()
+        };
+        assert_eq!(render(one), render(two));
     }
 
     /// A source the painter cannot read — an SVG data URI is the common one,
