@@ -281,6 +281,42 @@ test "a constant condition still picks a side, and registers nothing to change" 
     );
 }
 
+// --- the scheme ----------------------------------------------------------------------
+
+test "a scheme is a theme that binds no token" {
+    // Nothing else in a page ever says whether it is dark, so a page that
+    // paints itself near-black still gets a white checkbox, a white scrollbar
+    // and a white date picker. One declaration, in the block the runtime
+    // rewrites anyway.
+    assert.equal(install([theme.scheme(.Dark)]), ":root{color-scheme:dark}\n");
+    assert.equal(install([theme.scheme(.Light)]), ":root{color-scheme:light}\n");
+}
+
+test "a scheme sits beside a package's values, in the order they were passed" {
+    assert.equal(
+        install([theme.scheme(.Dark), appThemed(night)]),
+        ":root{color-scheme:dark}\n:root{--app-bg:rgb(24,24,27);--app-fg:rgb(240,240,245)}\n",
+    );
+}
+
+test "switching flips the scheme with the values it goes with" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let dark = signal(ctx, false);
+    let themes = [
+        theme.switching(.Cell(dark), theme.scheme(.Dark), theme.scheme(.Light)),
+        theme.switching(.Cell(dark), appThemed(night), appThemed(day)),
+    ];
+    let _ = install(themes);
+    assert.isTrue(variables().contains("color-scheme:light"));
+    assert.isTrue(variables().contains("--app-bg:rgb(255,255,255)"));
+
+    dark.set(ctx, true);
+    assert.isTrue(variables().contains("color-scheme:dark"));
+    assert.isTrue(variables().contains("--app-bg:rgb(24,24,27)"));
+}
+
 // --- the inline tier -----------------------------------------------------------------
 
 test "a token the compiler could not fold is the same custom property inline" {
