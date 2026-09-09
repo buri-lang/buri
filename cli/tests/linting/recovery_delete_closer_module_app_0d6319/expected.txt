@@ -1,0 +1,20 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_0d6319/main.buri:10:20
+   |
+10 | fn palette(): [Str {
+   |                    ^
+   |
+  --> lib/recovery_delete_closer_module_app_0d6319/main.buri:10:15
+   |
+10 | fn palette(): [Str {
+   |               ^ opened here
+   |
+   = fix: write `]` here
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_delete_closer_module_app_0d6319/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own

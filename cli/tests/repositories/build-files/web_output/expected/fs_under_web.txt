@@ -1,7 +1,7 @@
 error: `fs` implements `FileSystemRead` or `FileSystemWrite`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/counter/main.buri:32:30
+  --> cmd/counter/main.buri:31:30
    |
-32 |         FileSystemRead: host.fs,
+31 |         FileSystemRead: host.fs,
    |                              ^^
    |
    = a platform is the set of effects its host exports; neither a page nor a worker has a filesystem to read

@@ -303,9 +303,13 @@ fn serving_a_page() {
 ///
 /// Beside them are the **sweeps**, which ask a different question: not whether
 /// the machinery works, but whether each property in the vocabulary paints
-/// what the stylesheet promises. `sweep_layout_*` is six cases and thirty-two
-/// pictures, one per layout property, each a labelled grid of every value that
-/// property has on the eight-hundred-wide page the viewport is. They are
+/// what the stylesheet promises. `sweep_layout_*` is seven cases and
+/// thirty-seven pictures, one per layout property, each a labelled grid of
+/// every value that property has on the eight-hundred-wide page the viewport
+/// is. `sweep_layout_bleed` is the one that reads as two components rather than
+/// as a grid, because that is what its property is for: the full-width rule
+/// inside a padded menu, and the avatar group whose children lap the one
+/// before them. They are
 /// generated rather than written, so an enumeration is the whole of a
 /// `ui/style` enum by construction, and every picture was read pixel by pixel
 /// against the CSS its classes lower to. Two pictures hold a row recorded as
@@ -347,9 +351,20 @@ fn serving_a_page() {
 /// A property that stops being painted turns its row into a row of identical
 /// cells rather than going quiet, which is what makes a grid worth more here
 /// than a picture per value.
+///
+/// The `sweep_widgets_*` cases ask the question a property sweep cannot: what a
+/// widget *is*, rather than what a style does to it. `button_children` is what a
+/// button holds — none, one, a mark beside a word, a subtree — and one rail
+/// painted resting and hovered, because the claim is that a wash covers the mark
+/// and the word together now that they are one element. `control_wrapper` is the
+/// two boxes a labelled control is: every layout property that only works on the
+/// `<label>`, tried there and then on the control instead, where it does
+/// nothing. `toggle_marks` is the tick and the thumb the widget draws for
+/// itself, each one off and on, so a picture says which state a toggle is in
+/// rather than only what colour it is.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 40);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 41);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

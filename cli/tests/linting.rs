@@ -153,6 +153,16 @@ const FLOOR: usize = 250;
 /// more of its own code than its seed did. Both read the typed tree and are
 /// asked only about bodies that checked, which is `unused-context-bound`'s
 /// guarantee two paragraphs up.
+///
+/// `oversized-function` counting a table as one line (#97) moves it to **50 of
+/// 2,000 (2.50%) and 17 of 600 (2.83%)**. Its fixture is now three bodies of
+/// forty-five lines each — an array literal, a `match`, and ordinary
+/// statements — which is a longer seed with more functions in it, and thirteen
+/// of the seventeen are `oversized-function`: eleven of them the deleted
+/// closer above, and two the same sentence said of a table. A stray `[`
+/// written into the middle of an array literal is not an array literal any
+/// more, so its rows are counted and the body is over the limit — the mistake
+/// destroying the shape, rather than a rule reading a gap.
 const INVENTED_CEILING: usize = 3;
 
 /// What share of the cases may lose a finding whose evidence survived.
@@ -262,7 +272,12 @@ const INVENTED_CEILING: usize = 3;
 /// takes the finding's own declaration with it and there is nothing left to
 /// lose.
 ///
-/// Three points, against 1.95% measured and 2.30% at the highest this has been:
+/// `oversized-function` counting a table as one line (#97) moves it down, to
+/// **34 of 2,000 (1.70%) and 9 of 600 (1.50%)**, and the residue is the same
+/// list one more time: `unused-field` in four cases, `unused-variable` and
+/// `unused-context-bound` in two each, `unused-variant` in one.
+///
+/// Three points, against 1.70% measured and 2.30% at the highest this has been:
 /// the ratchet keeps its headroom, which is what makes it a bound and not a
 /// description. It is not zero and cannot be while the proxy is a byte offset.
 const LOST_A_FINDING_CEILING: usize = 3;

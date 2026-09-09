@@ -71,6 +71,8 @@ const FIRST_PROPERTY: usize = 6;
 const STYLE_PIN: usize = 15;
 /// `PaddingEdge(Edge, Length)`.
 const STYLE_PADDING_EDGE: usize = 23;
+/// `Bleed(Edge, Length)`, declared last because nothing else writes a margin.
+const STYLE_BLEED: usize = 52;
 
 // `ui/node`'s `NodeKind`, whose variant order is load-bearing for the same
 // reason and says so in its own comment. Only the four that lower to an
@@ -166,10 +168,10 @@ const PIN_FLOW: u32 = 4;
 /// and the condition, packed into one number the runtime compares for equality.
 ///
 /// The sub-key is what stops two `Pin`s from colliding. A property is usually
-/// one declaration, so its variant is the whole key — but `Pin` and
-/// `PaddingEdge` name an *edge*, and two of them naming different edges write
-/// different declarations and compose. `ui/style` says so in both variants'
-/// documentation, and the edge is how the slot says it too.
+/// one declaration, so its variant is the whole key — but `Pin`, `PaddingEdge`
+/// and `Bleed` name an *edge*, and two of them naming different edges write
+/// different declarations and compose. `ui/style` says so in all three
+/// variants' documentation, and the edge is how the slot says it too.
 fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
     let variant = u32::try_from(variant).ok()?;
     variant
@@ -182,7 +184,7 @@ fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
 /// The sub-key a property's value falls in: the edge it names, or nothing.
 fn sub_key(variant: usize, args: &[Value]) -> u32 {
     match variant {
-        STYLE_PIN | STYLE_PADDING_EDGE => args
+        STYLE_PIN | STYLE_PADDING_EDGE | STYLE_BLEED => args
             .first()
             .and_then(Value::as_variant)
             .and_then(|(edge, _)| u32::try_from(edge).ok())
@@ -1166,6 +1168,39 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             // indent, and a marker asked for here must not put it back.
             Some(("lm", (*css).into(), one("list-style-type", css)))
         }
+
+        // out of the box the container put the child in
+        52 => {
+            let (property, edge) = edge_property("margin", first?)?;
+            let value = args.get(1)?;
+            let (_, key) = length(value)?;
+            Some(("bleed", format!("{edge}-{key}"), one(&property, &outwards(value)?)))
+        }
+        _ => None,
+    }
+}
+
+/// A bleed's length, as the margin it writes.
+///
+/// A bleed is a distance *outwards*, so the margin is its negation. Nothing
+/// goes the other way: an inward margin is the space between things, which
+/// belongs to the container, so a negative distance and `.Auto` — which is no
+/// distance at all — both bleed nothing.
+fn outwards(value: &Value) -> Option<String> {
+    let (which, args) = value.as_variant()?;
+    let out = |n: f64, unit: &str| -> Option<String> {
+        let rendered = number(n)?;
+        Some(if n > 0.0 { format!("-{rendered}{unit}") } else { "0px".to_owned() })
+    };
+    match which {
+        0 => {
+            let n = args.first()?.as_int()?;
+            Some(if n > 0 { format!("-{n}px") } else { "0px".to_owned() })
+        }
+        1 => out(args.first()?.as_float()?, "rem"),
+        2 => out(args.first()?.as_float()?, "%"),
+        3 => Some("0px".to_owned()),
+        4 => Some("-100%".to_owned()),
         _ => None,
     }
 }

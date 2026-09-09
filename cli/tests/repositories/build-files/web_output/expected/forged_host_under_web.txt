@@ -1,7 +1,7 @@
 error: `HostFileSystem` implements `FileSystemRead` or `FileSystemWrite`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/counter/main.buri:32:25
+  --> cmd/counter/main.buri:31:25
    |
-32 |         FileSystemRead: host.HostFileSystem {},
+31 |         FileSystemRead: host.HostFileSystem {},
    |                         ^^^^^^^^^^^^^^^^^^^
    |
    = a platform is the set of effects its host exports; neither a page nor a worker has a filesystem to read
