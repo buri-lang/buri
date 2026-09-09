@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/position.buri  "two pins naming different edges compose"
+  the snapshot "position-pin-compose" changed: see test/__snapshots__/position-pin-compose.diff.png
+  --> lib/scenes/test/position.buri:25:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

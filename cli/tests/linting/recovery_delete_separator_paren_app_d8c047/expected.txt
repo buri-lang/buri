@@ -39,7 +39,6 @@ error: expected `I64`, found `Char` [type-mismatch]
    |
    = expected: `I64`
    = actual: `Char`
-   = fix: produce a `I64` here, or change what surrounds it to accept a `Char`
 error: this index is missing its closing `]` [unclosed-delimiter]
   --> lib/recovery_delete_separator_paren_app_d8c047/main.buri:40:41
    |

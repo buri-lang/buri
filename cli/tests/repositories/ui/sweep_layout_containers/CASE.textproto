@@ -1,0 +1,71 @@
+# The other axis of the sweep: the containers the properties apply to. A
+# `stack` is in every other case here, so this one is `region` in all eighteen
+# `Role`s, and `each`.
+#
+# A role paints nothing — it is what a reader is told — so every cell of
+# `containers-roles.png` should be the same picture, and the table roles are
+# the stated exception. `containers-lists.png` and `containers-table.png` are
+# buri#69 and buri#64: a list is marked only where it asked to be, and a table
+# row divides into one even track per cell.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the containers a layout property applies to — every `Role` a region can take, a list with and without markers, a table's headers rows and cells, and `each` under three layouts"
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/scenes/test/__snapshots__/containers-roles.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to
+# record one rather than showing a difference against nothing.
+edit {
+  file: "lib/scenes/test/containers.buri"
+  replace: "\"containers-roles\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and
+# the run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/scenes", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one label in the last picture, and the difference
+# image on disk beside the golden it did not match.
+edit {
+  file: "lib/scenes/scenes.buri"
+  replace: "each under Layout(.Column)"
+  with: "each under Layout(.Col)"
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/containers-each.diff.png"  exists: true }
+path { path: "lib/scenes/test/__snapshots__/containers-roles.diff.png"  exists: false }

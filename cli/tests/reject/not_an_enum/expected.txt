@@ -1,7 +1,0 @@
-error: `[I64]` is not an enum [not-an-enum]
- --> cmd/not_an_enum/main.buri:3:19
-  |
-3 |   let xs: [Int] = .Some;
-  |                   ^^^^^
-  |
-  = fix: the dot form names an enum variant; write the value another way

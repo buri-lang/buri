@@ -263,9 +263,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let Ty::Con(con, args) = ty else {
                 if !ty.is_error() {
                     let shown = self.show_ty(ty);
-                    self.templated("not-an-enum", span)
-                        .bind("type", shown)
-                        .fix("a `.Variant` pattern matches an enum; match this value another way");
+                    self.report_dot_form_against(&shown, head, span);
                 }
                 return typed::PatKind::Error;
             };

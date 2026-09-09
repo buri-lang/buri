@@ -1,0 +1,235 @@
+// Stack, in every state.
+//
+// Seven columns: five properties one at a time, all five at once, and the
+// control that answers to nothing. `responsive` carries an `On` group for
+// every state; `resting` is the same tree with the groups gone, which is what
+// a resting picture is — `State` has no resting variant, so `snapshot` cannot
+// ask for one.
+//
+// The last row is the same control with no styles under the state's, so a
+// picture also says what the sheet's reset left behind.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Shadow, Style };
+
+/// One cast: the same offset, and a blur and a colour per state.
+fn cast(blur: Int, colour: Color): Shadow {
+    Shadow { x: .Px(4), y: .Px(4), blur: .Px(blur), spread: .Px(0), color: colour }
+}
+
+/// `Background`, one colour per state.
+fn backgroundStates(): [Style] {
+    [
+        .On(.Hover, [.Background(.Rgb(214, 44, 44))]),
+        .On(.Focus, [.Background(.Rgb(40, 150, 60))]),
+        .On(.Active, [.Background(.Rgb(48, 64, 200))]),
+        .On(.Disabled, [.Background(.Rgb(132, 132, 132))]),
+        .On(.Checked, [.Background(.Rgb(232, 188, 36))]),
+    ]
+}
+
+/// `Foreground`, one colour per state.
+fn foregroundStates(): [Style] {
+    [
+        .On(.Hover, [.Foreground(.Rgb(150, 20, 20))]),
+        .On(.Focus, [.Foreground(.Rgb(16, 90, 32))]),
+        .On(.Active, [.Foreground(.Rgb(20, 28, 120))]),
+        .On(.Disabled, [.Foreground(.Rgb(88, 88, 88))]),
+        .On(.Checked, [.Foreground(.Rgb(122, 96, 8))]),
+    ]
+}
+
+/// `BorderWidth` and `BorderColor`, one pair per state.
+fn borderStates(): [Style] {
+    [
+        .On(.Hover, [.BorderWidth(.Px(6)), .BorderColor(.Rgb(214, 44, 44))]),
+        .On(.Focus, [.BorderWidth(.Px(4)), .BorderColor(.Rgb(40, 150, 60))]),
+        .On(.Active, [.BorderWidth(.Px(8)), .BorderColor(.Rgb(48, 64, 200))]),
+        .On(.Disabled, [.BorderWidth(.Px(3)), .BorderColor(.Rgb(132, 132, 132))]),
+        .On(.Checked, [.BorderWidth(.Px(10)), .BorderColor(.Rgb(232, 188, 36))]),
+    ]
+}
+
+/// `Opacity`, one fraction per state.
+fn opacityStates(): [Style] {
+    [
+        .On(.Hover, [.Opacity(0.85)]),
+        .On(.Focus, [.Opacity(0.7)]),
+        .On(.Active, [.Opacity(0.55)]),
+        .On(.Disabled, [.Opacity(0.4)]),
+        .On(.Checked, [.Opacity(0.25)]),
+    ]
+}
+
+/// `Shadow`, one cast per state.
+fn shadowStates(): [Style] {
+    [
+        .On(.Hover, [.Shadow(cast(6, .Rgb(214, 44, 44)))]),
+        .On(.Focus, [.Shadow(cast(8, .Rgb(40, 150, 60)))]),
+        .On(.Active, [.Shadow(cast(10, .Rgb(48, 64, 200)))]),
+        .On(.Disabled, [.Shadow(cast(12, .Rgb(132, 132, 132)))]),
+        .On(.Checked, [.Shadow(cast(14, .Rgb(232, 188, 36)))]),
+    ]
+}
+
+/// All five at once, which is the same classes the five columns above ask for
+/// one at a time.
+fn allStates(): [Style] {
+    [
+        .Group(backgroundStates()),
+        .Group(foregroundStates()),
+        .Group(borderStates()),
+        .Group(opacityStates()),
+        .Group(shadowStates()),
+    ]
+}
+
+/// The control, with the base under `extra`.
+fn styled<C>(extra: [Style]): Node<C> {
+    ui.stack(
+        [
+            .Padding(.Px(8)),
+            .Background(.Rgb(150, 170, 200)),
+            .Foreground(.Rgb(24, 24, 24)),
+            .BorderWidth(.Px(2)),
+            .BorderColor(.Rgb(70, 90, 120)),
+            .Radius(.Px(4)),
+            .Width(.Full),
+            .Group(extra),
+        ],
+        [ui.text(.Const("box"))],
+    )
+}
+
+/// The same control with nothing under `extra`: what the sheet's reset left.
+fn bare<C>(extra: [Style]): Node<C> {
+    ui.stack([.Group(extra)], [ui.text(.Const("box"))])
+}
+
+/// One label cell.
+fn label<C>(text: Str): Node<C> {
+    ui.stack([], [ui.text(.Const(text))])
+}
+
+/// One row: a label track, then one cell per column.
+fn grid<C>(cells: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Layout(
+                .Grid([
+                    .Fixed(.Px(74)),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                ]),
+            ),
+            .Gap(.Px(8)),
+            .AlignCross(.Start),
+        ],
+        cells,
+    )
+}
+
+/// The column names.
+fn headings<C>(): Node<C> {
+    grid([
+        label(""),
+        label("background"),
+        label("foreground"),
+        label("border"),
+        label("opacity"),
+        label("shadow"),
+        label("all five"),
+        label("none"),
+    ])
+}
+
+/// The page: a title and the rows under it.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(8)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}
+
+/// The styled control, answering in one property per column.
+fn styledRow<C>(): Node<C> {
+    grid([
+        label("styled"),
+        styled(backgroundStates()),
+        styled(foregroundStates()),
+        styled(borderStates()),
+        styled(opacityStates()),
+        styled(shadowStates()),
+        styled(allStates()),
+        styled([]),
+    ])
+}
+
+/// The same row with nothing to answer with.
+fn restingRow<C>(): Node<C> {
+    grid([
+        label("styled"),
+        styled([]),
+        styled([]),
+        styled([]),
+        styled([]),
+        styled([]),
+        styled([]),
+        styled([]),
+    ])
+}
+
+/// The control with no styles under the state's.
+fn bareRow<C>(): Node<C> {
+    grid([
+        label("bare"),
+        bare(backgroundStates()),
+        bare(foregroundStates()),
+        bare(borderStates()),
+        bare(opacityStates()),
+        bare(shadowStates()),
+        bare(allStates()),
+        bare([]),
+    ])
+}
+
+/// The same bare row with nothing to answer with.
+fn bareRestingRow<C>(): Node<C> {
+    grid([
+        label("bare"),
+        bare([]),
+        bare([]),
+        bare([]),
+        bare([]),
+        bare([]),
+        bare([]),
+        bare([]),
+    ])
+}
+
+/// Every element answering to every state, one property to a column.
+export fn responsive<C>(): Node<C> {
+    page([ui.text(.Const("stack, in every state")), headings(), styledRow(), bareRow()])
+}
+
+/// The same tree with no `On` group anywhere: what it looks like at rest,
+/// whatever state it is painted in.
+export fn resting<C>(): Node<C> {
+    page([
+        ui.text(.Const("stack, in every state")),
+        headings(),
+        restingRow(),
+        bareRestingRow(),
+    ])
+}

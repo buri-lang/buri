@@ -1,0 +1,5 @@
+FAIL //lib/nested  test/states.buri  "at rest"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/nested/test/states.buri:16:1
+
+5 passed, 1 failed, 0 skipped (0.0s)

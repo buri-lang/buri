@@ -1,0 +1,5 @@
+FAIL //lib/nested  test/states.buri  "hovered"
+  the snapshot "nested-hover" changed: see test/__snapshots__/nested-hover.diff.png
+  --> lib/nested/test/states.buri:30:1
+
+5 passed, 1 failed, 0 skipped (0.0s)

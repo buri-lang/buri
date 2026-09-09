@@ -1,7 +1,0 @@
-error: a context binding ends with `,` [missing-separator]
-  --> main.buri:44:26
-   |
-44 |         Watch: observer()
-   |                          ^
-   |
-   = fix: write `,` here

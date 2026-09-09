@@ -269,7 +269,7 @@ fn serving_a_page() {
 /// JavaScript answer at all — there is no painter there. So the only tier that
 /// can ask this question is the one that links a real binary and runs it.
 ///
-/// Nine cases. Six are one axis of the snapshot each: the whole lifecycle over
+/// Nine cases pin the machinery. Six are one axis of the snapshot each: the whole lifecycle over
 /// one picture; the range of every axis a snapshot has over twenty-one; every
 /// way a comparison cannot be made; the invocation — `buri test` with no target
 /// at all — that puts two packages' suites in one binary; the platform, where a
@@ -294,9 +294,35 @@ fn serving_a_page() {
 /// `ui/testing` facility the native backend has no body for. Both bugs it pins
 /// reported as an abort with no message, which is a shape no lower tier can
 /// see — the binary linked, the front end was happy, and the process died.
+///
+/// Beside them are the **sweeps**, which ask a different question: not whether
+/// the machinery works, but whether each property in the vocabulary paints
+/// what the stylesheet promises. `sweep_layout_*` is six cases and thirty-two
+/// pictures, one per layout property, each a labelled grid of every value that
+/// property has on the eight-hundred-wide page the viewport is. They are
+/// generated rather than written, so an enumeration is the whole of a
+/// `ui/style` enum by construction, and every picture was read pixel by pixel
+/// against the CSS its classes lower to. Six pictures hold a row recorded as
+/// painted and known wrong; each case's own doc names the issue and says to
+/// re-record when it closes.
+///
+/// The `sweep_themes_*` cases are the theme, breakpoint and reactive sweep:
+/// the four colour slots a design token can fill on five primitives under five
+/// theme lists, the four breakpoints on the one page width a snapshot has,
+/// every derived tier painted either side of a write, what an image paints
+/// when nothing may be fetched, and the ends of every axis the tree has.
+///
+/// The `sweep_states_*` cases are the states sweep: every `State` against every
+/// interactive primitive, six pictures to a case — the resting one and one per
+/// state — each a labelled grid of `Background`, `Foreground`, `Border`,
+/// `Opacity` and `Shadow`, then all five at once, then a control that answers to
+/// nothing. Beside every picture is a `describe` assertion naming the classes
+/// that state applied, and every case's last step moves one number in the hover
+/// palette so exactly one of its six goldens fails. That is the tier-2 record
+/// that a state golden is not a copy of the resting one.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 9);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 26);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

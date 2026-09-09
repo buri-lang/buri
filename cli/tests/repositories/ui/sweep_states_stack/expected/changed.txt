@@ -1,0 +1,5 @@
+FAIL //lib/stack  test/states.buri  "hovered"
+  the snapshot "stack-hover" changed: see test/__snapshots__/stack-hover.diff.png
+  --> lib/stack/test/states.buri:30:1
+
+5 passed, 1 failed, 0 skipped (0.0s)

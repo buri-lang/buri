@@ -1,0 +1,8 @@
+FAIL //lib/pictures  test/pictures.buri  "one row per kind of source"
+  the snapshot "never-recorded" changed: see test/__snapshots__/never-recorded.diff.png
+  --> lib/pictures/test/pictures.buri:10:1
+FAIL //lib/pictures  test/pictures.buri  "one row per size the box around a picture declares"
+  the snapshot "images-sizes" changed: see test/__snapshots__/images-sizes.diff.png
+  --> lib/pictures/test/pictures.buri:18:1
+
+0 passed, 2 failed, 0 skipped (0.0s)

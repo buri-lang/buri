@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/grid.buri  "what a gap takes out of the shares"
+  the snapshot "grid-gaps" changed: see test/__snapshots__/grid-gaps.diff.png
+  --> lib/scenes/test/grid.buri:44:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

@@ -1,0 +1,542 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// The page every picture is drawn on: eight hundred wide with nothing inset
+/// either side, so a boundary in a picture is a number off the viewport's own
+/// edge.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))], rows)
+}
+
+/// One row of a picture: the value it shows, and the boxes that show it.
+fn band<C>(label: Str, demo: Node<C>): Node<C> {
+    ui.column([.Gap(.Px(2))], [
+        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
+            ui.text(.Const(label)),
+        ]),
+        demo,
+    ])
+}
+
+/// One blue child in an amber box four hundred wide. What the amber shows
+/// is the space the padding took.
+export fn padding<C>(): Node<C> {
+    page([
+        band(
+            "no padding at all",
+            ui.stack([.Background(.Rgb(230, 160, 20)), .Width(.Px(400))], [
+                ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], []),
+            ]),
+        ),
+        band(
+            "Padding(.Px(0))",
+            ui.stack(
+                [.Background(.Rgb(230, 160, 20)), .Width(.Px(400)), .Padding(.Px(0))],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "Padding(.Px(16))",
+            ui.stack(
+                [.Background(.Rgb(230, 160, 20)), .Width(.Px(400)), .Padding(.Px(16))],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "PaddingX(.Px(24))",
+            ui.stack(
+                [.Background(.Rgb(230, 160, 20)), .Width(.Px(400)), .PaddingX(.Px(24))],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "PaddingY(.Px(16))",
+            ui.stack(
+                [.Background(.Rgb(230, 160, 20)), .Width(.Px(400)), .PaddingY(.Px(16))],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "Padding(.Px(24)) then PaddingX(.Px(0))",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(400)),
+                    .Padding(.Px(24)),
+                    .PaddingX(.Px(0)),
+                ],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+    ])
+}
+
+/// Two `PaddingEdge`s naming different sides compose rather than the last
+/// one winning.
+export fn paddingEdges<C>(): Node<C> {
+    page([
+        band(
+            "PaddingEdge(.Top, .Px(20))",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(400)),
+                    .PaddingEdge(.Top, .Px(20)),
+                ],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "PaddingEdge(.Bottom, .Px(20))",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(400)),
+                    .PaddingEdge(.Bottom, .Px(20)),
+                ],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "PaddingEdge(.Start, .Px(20))",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(400)),
+                    .PaddingEdge(.Start, .Px(20)),
+                ],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "PaddingEdge(.End, .Px(20))",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(400)),
+                    .PaddingEdge(.End, .Px(20)),
+                ],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "PaddingEdge(.Top, .Px(20)) and PaddingEdge(.Start, .Px(20))",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(400)),
+                    .PaddingEdge(.Top, .Px(20)),
+                    .PaddingEdge(.Start, .Px(20)),
+                ],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+        band(
+            "all four edges at twenty",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(400)),
+                    .PaddingEdge(.Top, .Px(20)),
+                    .PaddingEdge(.Bottom, .Px(20)),
+                    .PaddingEdge(.Start, .Px(20)),
+                    .PaddingEdge(.End, .Px(20)),
+                ],
+                [ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(20))], [])],
+            ),
+        ),
+    ])
+}
+
+/// In a ground eight hundred wide. A rem is sixteen pixels and a snapshot
+/// has no reader preference to follow, so ten of them is a hundred and
+/// sixty. The last two rows agree because they should: a box in a column is
+/// as wide as the column whether it asks for `Auto` or for `Full`.
+export fn width<C>(): Node<C> {
+    page([
+        band(
+            "Width(.Px(200))",
+            ui.stack([.Background(.Rgb(232, 232, 238))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Height(.Px(24)),
+                        .Width(.Px(200)),
+                    ],
+                    [],
+                ),
+            ]),
+        ),
+        band(
+            "Width(.Rem(10.0))",
+            ui.stack([.Background(.Rgb(232, 232, 238))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Height(.Px(24)),
+                        .Width(.Rem(10.0)),
+                    ],
+                    [],
+                ),
+            ]),
+        ),
+        band(
+            "Width(.Percent(25.0))",
+            ui.stack([.Background(.Rgb(232, 232, 238))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Height(.Px(24)),
+                        .Width(.Percent(25.0)),
+                    ],
+                    [],
+                ),
+            ]),
+        ),
+        band(
+            "Width(.Full)",
+            ui.stack([.Background(.Rgb(232, 232, 238))], [
+                ui.stack(
+                    [.Background(.Rgb(40, 40, 200)), .Height(.Px(24)), .Width(.Full)],
+                    [],
+                ),
+            ]),
+        ),
+        band(
+            "Width(.Auto), with a word in the box",
+            ui.stack([.Background(.Rgb(232, 232, 238))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Width(.Auto),
+                    ],
+                    [ui.text(.Const("auto"))],
+                ),
+            ]),
+        ),
+    ])
+}
+
+/// In a ground eighty tall. A percentage is a share of that eighty; `Auto`
+/// is whatever the content needs, which for an empty box is nothing.
+export fn height<C>(): Node<C> {
+    page([
+        band(
+            "Height(.Px(40))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Height(.Px(80)), .Width(.Px(400))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .Height(.Px(40)),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Height(.Rem(2.0))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Height(.Px(80)), .Width(.Px(400))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .Height(.Rem(2.0)),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Height(.Percent(50.0))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Height(.Px(80)), .Width(.Px(400))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .Height(.Percent(50.0)),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Height(.Full)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Height(.Px(80)), .Width(.Px(400))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .Height(.Full),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Height(.Auto), with a word in the box",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Height(.Px(80)), .Width(.Px(400))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Height(.Auto),
+                        ],
+                        [ui.text(.Const("auto"))],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}
+
+/// Each row asks for one thing and is held to another.
+export fn minMax<C>(): Node<C> {
+    page([
+        band(
+            "Width(.Px(100)), MinWidth(.Px(300))",
+            ui.stack([.Background(.Rgb(232, 232, 238))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Height(.Px(24)),
+                        .Width(.Px(100)),
+                        .MinWidth(.Px(300)),
+                    ],
+                    [],
+                ),
+            ]),
+        ),
+        band(
+            "Width(.Px(600)), MaxWidth(.Px(200))",
+            ui.stack([.Background(.Rgb(232, 232, 238))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Height(.Px(24)),
+                        .Width(.Px(600)),
+                        .MaxWidth(.Px(200)),
+                    ],
+                    [],
+                ),
+            ]),
+        ),
+        band(
+            "Height(.Px(10)), MinHeight(.Px(40))",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Width(.Px(400))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Width(.Px(120)),
+                        .Height(.Px(10)),
+                        .MinHeight(.Px(40)),
+                    ],
+                    [],
+                ),
+            ]),
+        ),
+        band(
+            "Height(.Px(60)), MaxHeight(.Px(24))",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Width(.Px(400))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Width(.Px(120)),
+                        .Height(.Px(60)),
+                        .MaxHeight(.Px(24)),
+                    ],
+                    [],
+                ),
+            ]),
+        ),
+    ])
+}
+
+/// A box a hundred and twenty wide is that divided by the ratio tall. One
+/// is a square.
+export fn aspect<C>(): Node<C> {
+    page([
+        band(
+            "Width(.Px(120)), AspectRatio(1.0)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .AlignCross(.Start)],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .AspectRatio(1.0),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Width(.Px(120)), AspectRatio(2.0)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .AlignCross(.Start)],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .AspectRatio(2.0),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Width(.Px(120)), AspectRatio(3.0)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .AlignCross(.Start)],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .AspectRatio(3.0),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Width(.Px(120)), AspectRatio(0.75)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .AlignCross(.Start)],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(120)),
+                            .AspectRatio(0.75),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}
+
+/// A child three hundred by seventy in a box a hundred and sixty by forty.
+/// `Scroll` is `overflow: auto` in the sheet and there is no scrollbar to
+/// drag in a picture, so what it does here is cut the child to the box — on
+/// both axes whichever one it names, because an overflow that is not
+/// `visible` on one axis makes the other one scroll too.
+export fn overflow<C>(): Node<C> {
+    page([
+        band(
+            "no Scroll at all",
+            ui.stack(
+                [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Layout(.Column),
+                    .Width(.Px(160)),
+                    .Height(.Px(40)),
+                ],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(300)),
+                            .Height(.Px(70)),
+                            .Shrink(0),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Scroll(.X)",
+            ui.stack(
+                [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Layout(.Column),
+                    .Width(.Px(160)),
+                    .Height(.Px(40)),
+                    .Scroll(.X),
+                ],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(300)),
+                            .Height(.Px(70)),
+                            .Shrink(0),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Scroll(.Y)",
+            ui.stack(
+                [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Layout(.Column),
+                    .Width(.Px(160)),
+                    .Height(.Px(40)),
+                    .Scroll(.Y),
+                ],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(300)),
+                            .Height(.Px(70)),
+                            .Shrink(0),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Scroll(.Both)",
+            ui.stack(
+                [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Layout(.Column),
+                    .Width(.Px(160)),
+                    .Height(.Px(40)),
+                    .Scroll(.Both),
+                ],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(300)),
+                            .Height(.Px(70)),
+                            .Shrink(0),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}

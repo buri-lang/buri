@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:62:51
+   |
+62 |     assert.equal(log.recorded(), ["home", "about"];
+   |                                                   ^
+   |
+  --> main.buri:62:17
+   |
+62 |     assert.equal(log.recorded(), ["home", "about"];
+   |                 ^ opened here
+   |
+   = fix: write `)` here
