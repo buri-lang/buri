@@ -1,0 +1,8 @@
+FAIL //lib/sweep  test/pictures.buri  "one drawing, light"
+  the snapshot "icon-light" changed: see test/__snapshots__/icon-light.diff.png
+  --> lib/sweep/test/pictures.buri:74:1
+FAIL //lib/sweep  test/pictures.buri  "one drawing, dark"
+  the snapshot "icon-dark" changed: see test/__snapshots__/icon-dark.diff.png
+  --> lib/sweep/test/pictures.buri:82:1
+
+0 passed, 2 failed, 5 skipped (0.0s)

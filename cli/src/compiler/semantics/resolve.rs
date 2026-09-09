@@ -354,6 +354,16 @@ impl<'a> Checker<'a> {
             Bodies::All => None,
             Bodies::In(files) => Some(files.clone()),
         };
+        // Before extraction, so the folder reads bodies nothing has rewritten.
+        crate::compiler::semantics::icons::run(
+            self.loaded,
+            &self.tables,
+            &self.scopes,
+            &self.bodies,
+            &self.const_values,
+            self.diags,
+            only.as_deref(),
+        );
         let (styles, style_con) = crate::compiler::semantics::styles::run(
             self.loaded,
             &self.tables,

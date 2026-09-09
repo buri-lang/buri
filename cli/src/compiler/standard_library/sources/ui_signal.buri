@@ -23,6 +23,10 @@ impl<T> Signal<T> {
     ///
     /// Called inside a memo or a watcher, this is what subscribes that
     /// computation to this cell.
+    ///
+    /// What comes back is yours to build on:
+    /// `xs.set(ctx, xs.get(ctx).concat(ctx, [item]))` appends, because nothing
+    /// grown out of a `get` reaches back into the cell.
     export fn get<C: Watch>(self, ctx: C): T {
         ctx.read(self.0)
     }

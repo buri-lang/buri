@@ -103,6 +103,7 @@ const NODE_LINK: usize = 6;
 const NODE_FIELD: usize = 8;
 const NODE_TOGGLE: usize = 9;
 const NODE_IMAGE: usize = 7;
+const NODE_ICON: usize = 14;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -988,11 +989,11 @@ impl Reset {
             out.push_str(":where(hr){border:0;margin:0}\n");
         }
         if self.image {
-            // A picture is the one leaf a browser leaves inline, so it sits on
-            // the text baseline with a descender gap under it. Every other leaf
-            // here is a block, and the headless painter has no inline flow at
-            // all.
-            out.push_str(":where(img){display:block}\n");
+            // A picture and an inlined `<svg>` are the two leaves a browser
+            // leaves inline, so each sits on the text baseline with a descender
+            // gap under it. Every other leaf here is a block, and the headless
+            // painter has no inline flow at all.
+            out.push_str(":where(img,svg){display:block}\n");
         }
         out
     }
@@ -1020,7 +1021,7 @@ pub fn reset_in(
                 NODE_LINK => out.link = true,
                 NODE_FIELD => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
-                NODE_IMAGE => out.image = true,
+                NODE_IMAGE | NODE_ICON => out.image = true,
                 _ => {}
             }
         }
