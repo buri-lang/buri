@@ -1,0 +1,49 @@
+// A reversed stack: what it paints, and what it leaves alone.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/reverse" import { alignment, direction, shapes };
+
+test "four children, four layouts" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The layout arrives as a parameter here, so it lands in the inline tier
+    // rather than the sheet. `shapes` below writes one out and gets the class.
+    let scene = ui.describe(ctx, direction(), .Hover);
+    assert.containsText(scene, "flex-direction:row-reverse");
+    assert.containsText(scene, "flex-direction:column-reverse");
+    snapshot(ctx, "reverse-direction", direction(), .Hover, []);
+}
+
+test "the alignments run the other way too" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "reverse-alignment", alignment(), .Hover, []);
+}
+
+test "a toaster and a dialog footer" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The scene is the caller's order whatever the paint does with it: the
+    // toasts are written oldest first here, and the picture puts the newest on
+    // top.
+    let scene = ui.describe(ctx, shapes(), .Hover);
+    assert.containsText(scene, "lay-colrev");
+    let first = assert.some(scene.indexOf("first"));
+    let third = assert.some(scene.indexOf("third"));
+    assert.isTrue(first < third);
+    let cancel = assert.some(scene.indexOf("Cancel"));
+    let save = assert.some(scene.indexOf("Save"));
+    assert.isTrue(cancel < save);
+    snapshot(ctx, "reverse-shapes", shapes(), .Hover, []);
+}

@@ -1,0 +1,60 @@
+// A translate: what it moves, and what it leaves alone.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/translate" import { neighbours, press, units };
+
+test "every unit a translate takes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The two lengths arrive as parameters here, so every one of these lands
+    // in the inline tier. `neighbours` and `press` below write theirs out and
+    // get classes, and the two tiers are the same CSS by construction.
+    let scene = ui.describe(ctx, units(), .Hover);
+    assert.containsText(scene, "transform:translate(12px,0px)");
+    assert.containsText(scene, "transform:translate(0px,12px)");
+    assert.containsText(scene, "transform:translate(-12px,-12px)");
+    assert.containsText(scene, "transform:translate(1.0rem,0px)");
+    assert.containsText(scene, "transform:translate(1.0em,0px)");
+    assert.containsText(scene, "transform:translate(50.0%,0px)");
+    assert.containsText(scene, "transform:translate(0px,-25.0%)");
+    assert.containsText(scene, "transform:translate(auto,auto)");
+    assert.containsText(scene, "transform:translate(100%,0px)");
+    snapshot(ctx, "translate-units", units(), .Hover, []);
+}
+
+test "the boxes beside a shifted one do not move" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    assert.containsText(ui.describe(ctx, neighbours(), .Hover), "tr-8-8");
+    snapshot(ctx, "translate-neighbours", neighbours(), .Hover, []);
+}
+
+test "a button at rest" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A document is taken in one state, so the hovered one carries no
+    // `active_` class at all — and the picture is the buttons where the layout
+    // put them.
+    assert.isFalse(ui.describe(ctx, press(), .Hover).contains("active_"));
+    snapshot(ctx, "translate-press-resting", press(), .Hover, []);
+}
+
+test "and the same button held" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    assert.containsText(ui.describe(ctx, press(), .Active), "active_tr-0-1");
+    snapshot(ctx, "translate-press-active", press(), .Active, []);
+}

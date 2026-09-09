@@ -1,0 +1,204 @@
+// `Length.Em`, on the properties that take a length.
+//
+// A rem is a multiple of the root's text size and an em is a multiple of the
+// element's own, so the two agree at sixteen pixels and part company
+// everywhere else. Every picture here is that difference: an em row grows with
+// the text beside it and the rem row under it does not.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Length };
+
+/// The page every picture is drawn on: eight hundred wide, at the root size,
+/// so a box's own `FontSize` is the only thing that moves an em.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.PaddingY(.Px(6)), .Gap(.Px(10)), .FontSize(.Px(16))], rows)
+}
+
+/// One row of a picture: the value it shows, and the boxes that show it.
+fn band<C>(label: Str, demo: Node<C>): Node<C> {
+    ui.column([.Gap(.Px(2))], [
+        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
+            ui.text(.Const(label)),
+        ]),
+        demo,
+    ])
+}
+
+/// A filled box at its own text size, with `space` inside every edge.
+fn padded<C>(size: Int, space: Length): Node<C> {
+    ui.stack(
+        [.FontSize(.Px(size)), .Padding(space), .Background(.Rgb(232, 232, 238))],
+        [ui.text(.Const("Aa"))],
+    )
+}
+
+/// Half an em of padding at four text sizes, against half a rem at the same
+/// four. The em row's boxes pad by six, eight, twelve and sixteen pixels; the
+/// rem row's four are padded eight whatever the type is doing.
+export fn scaling<C>(): Node<C> {
+    page([
+        ui.text(.Const("padding: half an em, then half a rem, at 12/16/24/32px")),
+        band(
+            "Padding(.Em(0.5)) — 6, 8, 12, 16 pixels",
+            ui.stack([.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)], [
+                padded(12, .Em(0.5)),
+                padded(16, .Em(0.5)),
+                padded(24, .Em(0.5)),
+                padded(32, .Em(0.5)),
+            ]),
+        ),
+        band(
+            "Padding(.Rem(0.5)) — 8 pixels, four times",
+            ui.stack([.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)], [
+                padded(12, .Rem(0.5)),
+                padded(16, .Rem(0.5)),
+                padded(24, .Rem(0.5)),
+                padded(32, .Rem(0.5)),
+            ]),
+        ),
+    ])
+}
+
+/// One line of text, tracked by `spacing` at `size`.
+fn tracked<C>(size: Int, spacing: Length): Node<C> {
+    ui.stack(
+        [
+            .FontSize(.Px(size)),
+            .LetterSpacing(spacing),
+            .Background(.Rgb(240, 240, 246)),
+        ],
+        [ui.text(.Const("Handgloves"))],
+    )
+}
+
+/// The tracking values a design system actually names, at one size, then the
+/// widest of them at three sizes — which is the whole argument for the unit: an
+/// em of tracking is right at every size and a rem of it is right at one.
+export fn tracking<C>(): Node<C> {
+    page([
+        ui.text(.Const("letter-spacing, in em")),
+        band("-0.05em", tracked(28, .Em(-0.05))),
+        band("-0.025em — Tailwind's tracking-tight", tracked(28, .Em(-0.025))),
+        band("0em", tracked(28, .Em(0.0))),
+        band("0.05em", tracked(28, .Em(0.05))),
+        band("0.1em — tracking-widest", tracked(28, .Em(0.1))),
+        band(
+            "0.1em at 12, 20 and 32 px — the gap grows with the type",
+            ui.stack([.Layout(.Row), .Gap(.Px(12)), .AlignCross(.Start)], [
+                tracked(12, .Em(0.1)),
+                tracked(20, .Em(0.1)),
+                tracked(32, .Em(0.1)),
+            ]),
+        ),
+        band(
+            "0.1rem at the same three — one gap, three sizes",
+            ui.stack([.Layout(.Row), .Gap(.Px(12)), .AlignCross(.Start)], [
+                tracked(12, .Rem(0.1)),
+                tracked(20, .Rem(0.1)),
+                tracked(32, .Rem(0.1)),
+            ]),
+        ),
+    ])
+}
+
+/// A box a quarter larger than whatever it is inside.
+fn larger<C>(children: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .FontSize(.Em(1.25)),
+            .PaddingEdge(.Start, .Em(0.5)),
+            .Background(.Rgb(242, 240, 232)),
+        ],
+        children,
+    )
+}
+
+/// An em inside a `FontSize` is a multiple of the *parent's* size, which is
+/// what makes nesting compound: over a sixteen-pixel page the four boxes read
+/// 20, 25, 31.25 and 39 pixels, each a quarter more than the one around it,
+/// with the inset beside it growing the same way.
+export fn nesting<C>(): Node<C> {
+    page([
+        ui.text(.Const("FontSize(.Em(1.25)), nested four deep")),
+        larger([
+            ui.text(.Const("one")),
+            larger([
+                ui.text(.Const("two")),
+                larger([ui.text(.Const("three")), larger([ui.text(.Const("four"))])]),
+            ]),
+        ]),
+    ])
+}
+
+/// One filled square, for a gap to be visible between.
+fn swatch<C>(): Node<C> {
+    ui.stack([.Width(.Px(40)), .Height(.Px(24)), .Background(.Rgb(150, 170, 200))], [])
+}
+
+/// Every other property a length reaches, in em, at a text size of
+/// twenty-four — so one em is twenty-four pixels in every row.
+export fn properties<C>(): Node<C> {
+    page([
+        ui.text(.Const("one em of each, at a 24px text size")),
+        band(
+            "Gap",
+            ui.stack([.FontSize(.Px(24)), .Layout(.Row), .Gap(.Em(1.0))], [
+                swatch(),
+                swatch(),
+                swatch(),
+            ]),
+        ),
+        band(
+            "Width and Height",
+            ui.stack(
+                [
+                    .FontSize(.Px(24)),
+                    .Width(.Em(6.0)),
+                    .Height(.Em(2.0)),
+                    .Background(.Rgb(150, 170, 200)),
+                ],
+                [],
+            ),
+        ),
+        band(
+            "Radius and BorderWidth",
+            ui.stack(
+                [
+                    .FontSize(.Px(24)),
+                    .Width(.Em(6.0)),
+                    .Height(.Em(2.0)),
+                    .Radius(.Em(0.5)),
+                    .BorderWidth(.Em(0.25)),
+                    .BorderColor(.Rgb(40, 60, 90)),
+                    .Background(.Rgb(210, 220, 235)),
+                ],
+                [],
+            ),
+        ),
+        band(
+            "Pin, an em in from the top and the start of the box around it",
+            ui.stack(
+                [
+                    .FontSize(.Px(24)),
+                    .Position(.Flow),
+                    .Width(.Px(200)),
+                    .Height(.Px(80)),
+                    .Background(.Rgb(240, 240, 246)),
+                ],
+                [
+                    ui.stack(
+                        [
+                            .Pin(.Top, .Em(1.0)),
+                            .Pin(.Start, .Em(1.0)),
+                            .Width(.Px(24)),
+                            .Height(.Px(24)),
+                            .Background(.Rgb(200, 60, 60)),
+                        ],
+                        [],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}

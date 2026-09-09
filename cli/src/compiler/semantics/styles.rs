@@ -177,9 +177,9 @@ impl Cond {
     }
 }
 
-/// How many conditions a property divides into: six states counting "none", by
-/// five breakpoints counting "none", which is what `Cond::code` numbers.
-const CONDITIONS: u32 = 30;
+/// How many conditions a property divides into: seven states counting "none",
+/// by five breakpoints counting "none", which is what `Cond::code` numbers.
+const CONDITIONS: u32 = 35;
 
 /// How many sub-keys a property divides into: the four `Edge`s — which is also
 /// the four `Corner`s — and the one a `Pin` keeps its `position` in.
@@ -235,11 +235,14 @@ const SCREENS: [(&str, &str); 4] =
     [("sm", "40rem"), ("md", "48rem"), ("lg", "64rem"), ("xl", "80rem")];
 
 /// `(class prefix, pseudo-class)`, in `State`'s declaration order.
-const STATES: [(&str, &str); 5] = [
+const STATES: [(&str, &str); 6] = [
     ("hover", ":hover"),
     // `:focus-visible` rather than `:focus`, so a mouse press does not draw a
     // focus ring — which is what the vocabulary's `Focus` promises.
     ("focus", ":focus-visible"),
+    // The container's state rather than the element's: something inside it has
+    // the keyboard, which is what an input group rings on.
+    ("focuswithin", ":focus-within"),
     ("active", ":active"),
     ("disabled", ":disabled"),
     ("checked", ":checked"),
@@ -818,6 +821,12 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 /// rather than replacing it, so the platform's stays. So does a ring that only
 /// applies from a breakpoint upwards, because there is a width at which it
 /// paints nothing.
+///
+/// `State::FocusWithin` is deliberately not here. The platform's outline lands
+/// on the descendant that has the keyboard, not on the container that rings
+/// itself around it, so taking it away needs a descendant selector — a shape
+/// this sheet writes nowhere else. An input group therefore rings twice, once
+/// around the group and once around the field inside it.
 fn focus_ring(rules: &[&StyleRule]) -> String {
     let mut classes: Vec<&str> = rules
         .iter()
@@ -1070,7 +1079,20 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             match which {
                 0 => Some(("lay", "col".into(), one("display", "flex;flex-direction:column"))),
                 1 => Some(("lay", "row".into(), one("display", "flex;flex-direction:row"))),
-                2 => {
+                // Reversed: the document keeps the order it was written in and
+                // only the paint runs backwards, which is the whole reason a
+                // component that is handed its children can ask for one.
+                2 => Some((
+                    "lay",
+                    "colrev".into(),
+                    one("display", "flex;flex-direction:column-reverse"),
+                )),
+                3 => Some((
+                    "lay",
+                    "rowrev".into(),
+                    one("display", "flex;flex-direction:row-reverse"),
+                )),
+                4 => {
                     let Value::Array(tracks) = inner.first()? else { return None };
                     let mut rendered = Vec::new();
                     for track in tracks {
@@ -1354,6 +1376,19 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let (_, key) = length(value)?;
             Some(("bleed", format!("{edge}-{key}"), one(&property, &outwards(value)?)))
         }
+
+        // transform
+        56 => {
+            let (x, x_key) = length(first?)?;
+            let (y, y_key) = length(args.get(1)?)?;
+            // A `-` separates the two keys, and no length's key holds one, so
+            // the pair is injective the way each half is.
+            Some((
+                "tr",
+                format!("{x_key}-{y_key}"),
+                one("transform", &format!("translate({x},{y})")),
+            ))
+        }
         _ => None,
     }
 }
@@ -1376,9 +1411,10 @@ fn outwards(value: &Value) -> Option<String> {
             Some(if n > 0 { format!("-{n}px") } else { "0px".to_owned() })
         }
         1 => out(args.first()?.as_float()?, "rem"),
-        2 => out(args.first()?.as_float()?, "%"),
-        3 => Some("0px".to_owned()),
-        4 => Some("-100%".to_owned()),
+        2 => out(args.first()?.as_float()?, "em"),
+        3 => out(args.first()?.as_float()?, "%"),
+        4 => Some("0px".to_owned()),
+        5 => Some("-100%".to_owned()),
         _ => None,
     }
 }
@@ -1461,10 +1497,14 @@ fn length(value: &Value) -> Option<(String, String)> {
         }
         2 => {
             let n = number(args.first()?.as_float()?)?;
+            Some((format!("{n}em"), format!("e{}", number_key(&n))))
+        }
+        3 => {
+            let n = number(args.first()?.as_float()?)?;
             Some((format!("{n}%"), format!("pc{}", number_key(&n))))
         }
-        3 => Some(("auto".into(), "auto".into())),
-        4 => Some(("100%".into(), "full".into())),
+        4 => Some(("auto".into(), "auto".into())),
+        5 => Some(("100%".into(), "full".into())),
         _ => None,
     }
 }
