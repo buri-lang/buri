@@ -23,11 +23,3 @@ error: expected `;`, found `@` [unexpected-token]
    = expected: `;`
    = actual: `@`
    = fix: write `;` here
-error: there is nothing named `said` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_34d31c/main.buri:71:23
-   |
-71 |         .println(ctx, said.join(ctx, " "))
-   |                       ^^^^
-   |
-   = did you mean `main`?
-   = fix: if you meant `main`, use that; if not, a name is in scope only from this module's own declarations and its imports

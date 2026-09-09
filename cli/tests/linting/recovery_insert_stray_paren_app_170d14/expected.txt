@@ -43,11 +43,3 @@ error: expected `[Char]`, found a variant `.None` [type-mismatch]
    = expected: `[Char]`
    = actual: a variant `.None`
    = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[Char]`
-error: this arm is unreachable [unreachable-arm]
-  --> lib/recovery_insert_stray_paren_app_170d14/main.buri:35:9
-   |
-35 |         .None => '0',
-   |         ^^^^^^^^^^^^
-   |
-   = the arms before it already cover everything it matches
-   = fix: delete it, or move it above the arm that subsumes it

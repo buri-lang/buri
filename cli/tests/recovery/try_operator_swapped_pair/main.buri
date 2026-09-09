@@ -1,5 +1,4 @@
-// EXPECT: an expression statement is legal only in a test source
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/113
+// EXPECT: expected `let`, found `value`
 export fn twice(parsed: Result<Int, Str>): Result<Int, Str> {
   value let = parsed?;
   .Ok(value * 2)

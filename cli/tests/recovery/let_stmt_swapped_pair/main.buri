@@ -1,5 +1,4 @@
-// EXPECT: expected `I64`, found `fn() => I64`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/113
+// EXPECT: expected `let`, found `total`
 export fn total(): Int {
   total let: Int = 1 + 2;
   total

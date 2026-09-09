@@ -7,13 +7,6 @@ error: expected an expression, found `@` [unexpected-token]
    = expected: an expression
    = actual: `@`
    = fix: write a value here
-error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_bc7687/main.buri:15:16
-   |
-15 |     io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
-   |                ^^^
-   |
-   = fix: declare `ctx` as a parameter of this function
 warning: `ctx` is bound to something other than a context [ctx-rebinding]
   --> lib/recovery_insert_stray_brace_app_bc7687/main.buri:19:5
    |

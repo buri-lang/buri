@@ -15,10 +15,3 @@ error: expected `=`, found `context` [unexpected-token]
    = expected: `=`
    = actual: `context`
    = fix: write `=` here
-error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_swap_adjacent_brace_app_1898c3/main.buri:19:16
-   |
-19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
-   |                ^^^
-   |
-   = fix: declare `ctx` as a parameter of this function

@@ -1,0 +1,9 @@
+error: expected `=`, found `self` [unexpected-token]
+  --> main.buri:40:18
+   |
+40 |         let rest self =.0 % 100;
+   |                  ^^^^
+   |
+   = expected: `=`
+   = actual: `self`
+   = fix: write `=` here

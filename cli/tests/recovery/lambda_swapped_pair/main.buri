@@ -1,5 +1,4 @@
-// EXPECT: an expression statement is legal only in a test source
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/113
+// EXPECT: expected `let`, found `double`
 export fn twice(n: Int): Int {
   double let = fn(n: Int): Int => n * 2;
   double(n)

@@ -1,4 +1,4 @@
-// EXPECT: expected `I64`, found `fn() => I64`
+// EXPECT: expected a pattern, found `@`
 export fn total(): Int {
   let @ total: Int = 1 + 2;
   total

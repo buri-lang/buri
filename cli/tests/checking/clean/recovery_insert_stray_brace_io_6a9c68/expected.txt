@@ -1,0 +1,9 @@
+error: expected `:`, found `@` [unexpected-token]
+  --> main.buri:72:18
+   |
+72 |         Allocator@ : alloc(),
+   |                  ^
+   |
+   = expected: `:`
+   = actual: `@`
+   = fix: write `:` here

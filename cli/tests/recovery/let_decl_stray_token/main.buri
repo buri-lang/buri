@@ -1,5 +1,4 @@
 // EXPECT: expected an identifier, found `@`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/114
 let @ SEED: Int = 7;
 
 export fn seed(): Int {

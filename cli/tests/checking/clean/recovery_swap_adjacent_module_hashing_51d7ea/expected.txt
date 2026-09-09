@@ -1,0 +1,9 @@
+error: expected `from`, found a string literal [unexpected-token]
+  --> main.buri:13:1
+   |
+13 | "core/effect" from import { Allocator };
+   | ^^^^^^^^^^^^^
+   |
+   = expected: `from`
+   = actual: a string literal
+   = fix: write `from` first: `from "core/effect"`
