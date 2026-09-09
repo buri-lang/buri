@@ -1,0 +1,102 @@
+# The per-edge border and the per-corner radius, painted: `BorderEdge(Edge,
+# Length)` and `RadiusCorner(Corner, Length)`, at every `Length` there is, on
+# their own, composed, against the whole-box property each of them narrows, on
+# every primitive, and as the two controls they were asked for.
+#
+# Four pictures, each a labelled grid — a claim is a band and its values read
+# across. The bands are a fixed height and clip, so a cell that grows stays in
+# its own row instead of squashing the ones under it.
+#
+# What the pictures say, and what was read in them:
+#
+#   * `edges-border` — an edge takes its width from a `Length`, and only a
+#     length CSS accepts is a width: `10%`, `Auto` and `Full` paint nothing,
+#     because a browser drops the declaration. Two edges compose and four do;
+#     the same edge twice is last-wins. `BorderWidth` is broader and written
+#     earlier, so the edge overrides it in either written order — the two
+#     middle cells of that band are the same picture, which is the point.
+#     `BorderStyle` is broader still and written later, so it dashes or erases
+#     what an edge drew, and `BorderColor` stays whole-box.
+#   * `edges-radius` — the same shape for corners, plus the two things a corner
+#     changes about what is already painted: a border follows the corner it
+#     goes round, and where two radii on one side add up to more than the side
+#     is long, all four scale by one factor, which is what CSS does.
+#   * `edges-primitives` — both properties on all nine primitives. A `text` and
+#     an `image` take no styles of their own, so their cell styles the
+#     container, which is where a property on either of them goes anyway.
+#   * `edges-group` — buri-lang/buri#101's joined button group and
+#     buri-lang/buri#108's row rule, which is what the pair exists for. The
+#     children are square where they meet and round at the ends, and two
+#     neighbours share one hairline because every child but the first drops its
+#     start edge. The caller maps over its own children, so nothing here needs
+#     a selector.
+#
+# **One band is pinned as painted rather than as right**: a percentage radius
+# in `edges-radius` — `50%` and `Full` — resolves against the box's width on
+# both axes, so it draws a circular corner where CSS draws an ellipse of the
+# width and the height. That is how `Radius` has always been painted and
+# `RadiusCorner` inherits it; re-record when it is fixed.
+#
+# The lifecycle is `sweep_properties_*`'s: every golden compares, a renamed
+# snapshot is reported as missing rather than as a difference, `--update`
+# records it, the run after that compares against what it wrote, and an edit to
+# one number fails the comparison. Only the first run paints the whole suite;
+# the ones after it are `--filter`ed to the one picture they are about.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "BorderEdge and RadiusCorner at every length, composed, against the whole-box properties they narrow, on every primitive, and as the joined group and the row rule they were asked for, as 4 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/sweep", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/edges-border.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sweep/test/pictures.buri"
+  replace: "\"edges-border\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=border"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sweep", "--update", "--force", "--filter=border"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=border"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: four pixels on one corner of the over-subscribed cell,
+# which moves the factor every corner is scaled by and so moves the picture.
+edit {
+  file: "lib/sweep/scenes.buri"
+  replace: ".RadiusCorner(.TopStart, .Px(40))"
+  with: ".RadiusCorner(.TopStart, .Px(44))"
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=radius"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/edges-radius.diff.png"  exists: true }
