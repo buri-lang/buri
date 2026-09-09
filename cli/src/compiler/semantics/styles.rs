@@ -71,6 +71,16 @@ const FIRST_PROPERTY: usize = 6;
 const STYLE_PIN: usize = 15;
 /// `PaddingEdge(Edge, Length)`.
 const STYLE_PADDING_EDGE: usize = 23;
+/// `Shadow(Shadow)`.
+const STYLE_SHADOW: usize = 38;
+/// `Shadows([Shadow])`, which writes the same declaration and so shares
+/// `Shadow`'s conflict slot.
+const STYLE_SHADOWS: usize = 39;
+
+/// `ui/style`'s `Color`, for the two variants that carry an alpha: `Rgba`, and
+/// the `Faded` token `alpha` answers for one.
+const COLOR_RGBA: usize = 1;
+const COLOR_FADED: usize = 5;
 
 // `ui/node`'s `NodeKind`, whose variant order is load-bearing for the same
 // reason and says so in its own comment. Only the four that lower to an
@@ -169,7 +179,12 @@ const PIN_FLOW: u32 = 4;
 /// `PaddingEdge` name an *edge*, and two of them naming different edges write
 /// different declarations and compose. `ui/style` says so in both variants'
 /// documentation, and the edge is how the slot says it too.
+///
+/// The one place the key is *not* the variant is `Shadows`, which writes the
+/// same `box-shadow` `Shadow` does. Two spellings of one declaration are one
+/// slot, so the last written wins rather than both landing on the element.
 fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
+    let variant = if variant == STYLE_SHADOWS { STYLE_SHADOW } else { variant };
     let variant = u32::try_from(variant).ok()?;
     variant
         .checked_mul(SUB_KEYS)?
@@ -246,6 +261,7 @@ pub fn run(
     let mut ex = Extractor {
         style_con,
         classes_con,
+        color_con: ui_style_type(loaded, scopes, "Color"),
         tables,
         original_bodies: &original_bodies,
         original_consts: &original_consts,
@@ -270,6 +286,7 @@ pub fn run(
             continue;
         }
         if let Some(init) = consts.get_mut(&id) {
+            ex.alphas(init);
             ex.walk(init, Cond::default());
         }
     }
@@ -280,6 +297,7 @@ pub fn run(
             continue;
         }
         if let Some(body) = bodies.get_mut(&id) {
+            ex.alphas(&body.expr);
             ex.walk(&mut body.expr, Cond::default());
         }
     }
@@ -305,6 +323,8 @@ struct Extractor<'a> {
     /// `ui/style`'s `Classes`, the private-field wrapper an `Extracted`
     /// payload is: only this pass and `ui/style` can build one.
     classes_con: TyConId,
+    /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
+    color_con: Option<TyConId>,
     tables: &'a Tables,
     original_bodies: &'a HashMap<FnId, typed::Body>,
     original_consts: &'a HashMap<ConstId, typed::Expr>,
@@ -336,6 +356,37 @@ impl<'a> Extractor<'a> {
         self.diags
             .items
             .push(Diagnostic::templated("style-not-static", span).with_bind("problem", message));
+    }
+
+    /// Refuses every colour whose alpha is outside `0.0..=1.0`.
+    ///
+    /// Its own walk, before the extraction one, for two reasons. A colour has
+    /// to be refused wherever it was written — inside a `Computed`'s closure
+    /// as much as in a folded list — and the extraction walk reaches a folded
+    /// style's colour only as part of the value it folded, which has no span
+    /// of its own. And it fires **once**: a colour that folded is not descended
+    /// into, and a bare `Const` reference is left to the declaration that wrote
+    /// it, so a module-level colour is reported where it is written rather than
+    /// once more at every use.
+    fn alphas(&mut self, e: &typed::Expr) {
+        if self.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_)) {
+            if let Some(value) = self.folder().eval(e, &Env::default()) {
+                if let Some(a) = alpha_of(&value) {
+                    if !(0.0..=1.0).contains(&a) {
+                        self.diags.items.push(
+                            Diagnostic::templated("style-alpha-out-of-range", e.span)
+                                .with_bind("alpha", a.to_string()),
+                        );
+                    }
+                }
+                return;
+            }
+        }
+        typed::children(e, &mut |child| self.alphas(child));
+    }
+
+    fn is_color(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Con(id, args) if Some(*id) == self.color_con && args.is_empty())
     }
 
     /// The generic descent: anything that is not itself a style.
@@ -981,18 +1032,24 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             Some(("op", number_key(&value), one("opacity", &value)))
         }
         38 => {
-            let Value::Struct(fields) = first? else { return None };
-            let (x, _) = length(fields.first()?)?;
-            let (y, _) = length(fields.get(1)?)?;
-            let (blur, _) = length(fields.get(2)?)?;
-            let (spread, _) = length(fields.get(3)?)?;
-            let (colour, _) = colour(fields.get(4)?)?;
-            let css = format!("{x} {y} {blur} {spread} {colour}");
+            let css = shadow(first?)?;
+            Some(("sh", digest(&css), one("box-shadow", &css)))
+        }
+        // The layers in the order they were written, which is the order a
+        // browser paints them — first over last. One layer here renders what
+        // `Shadow` renders, so the two arrive at one class and one rule.
+        39 => {
+            let Value::Array(layers) = first? else { return None };
+            let mut rendered = Vec::with_capacity(layers.len());
+            for layer in layers {
+                rendered.push(shadow(layer)?);
+            }
+            let css = rendered.join(",");
             Some(("sh", digest(&css), one("box-shadow", &css)))
         }
 
         // text
-        39 => {
+        40 => {
             let (which, inner) = first?.as_variant()?;
             let stack = match which {
                 0 => "ui-sans-serif,system-ui,sans-serif".to_string(),
@@ -1013,25 +1070,25 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             };
             Some(("ff", digest(&stack), one("font-family", &stack)))
         }
-        40 => spacing("fs", "font-size", first?),
-        41 => {
+        41 => spacing("fs", "font-size", first?),
+        42 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) = [("400", "regular"), ("500", "medium"), ("600", "semibold"), ("700", "bold")]
                 .get(which)
                 .copied()?;
             Some(("fw", key.into(), one("font-weight", css)))
         }
-        42 => {
+        43 => {
             let on = first?.as_bool()?;
             let css = if on { "italic" } else { "normal" };
             Some(("it", css.into(), one("font-style", css)))
         }
-        43 => {
+        44 => {
             let value = number(first?.as_float()?)?;
             Some(("lh", number_key(&value), one("line-height", &value)))
         }
-        44 => spacing("ls", "letter-spacing", first?),
-        45 => {
+        45 => spacing("ls", "letter-spacing", first?),
+        46 => {
             let (_, key) = align(first?)?;
             // Text has no leftover room to distribute, so every distribution
             // means justified.
@@ -1041,7 +1098,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             };
             Some(("ta", key.into(), one("text-align", css)))
         }
-        46 => {
+        47 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) = [
                 ("none", "aswritten"),
@@ -1053,7 +1110,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             .copied()?;
             Some(("tc", key.into(), one("text-transform", css)))
         }
-        47 => {
+        48 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) =
                 [("none", "none"), ("underline", "underline"), ("line-through", "strike")]
@@ -1061,12 +1118,12 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
                     .copied()?;
             Some(("tl", key.into(), one("text-decoration-line", css)))
         }
-        48 => {
+        49 => {
             let (which, _) = first?.as_variant()?;
             let css = ["wrap", "nowrap", "balance"].get(which)?;
             Some(("tw", (*css).into(), one("text-wrap", css)))
         }
-        49 => {
+        50 => {
             let lines = first?.as_int()?;
             if lines <= 0 {
                 return Some((
@@ -1089,7 +1146,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
 
         // interaction
-        50 => {
+        51 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) = [
                 ("auto", "default"),
@@ -1103,7 +1160,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
 
         // lists
-        51 => {
+        52 => {
             let (which, _) = first?.as_variant()?;
             let css = ["none", "disc", "decimal"].get(which)?;
             // The type, not the shorthand: the reset already cleared the
@@ -1112,6 +1169,28 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
         _ => None,
     }
+}
+
+/// A colour's alpha, where it has one. `Rgb`, `Transparent` and `Inherit` do
+/// not, and a token's is decided by whatever theme is installed.
+fn alpha_of(colour: &Value) -> Option<f64> {
+    let (which, args) = colour.as_variant()?;
+    match which {
+        COLOR_RGBA => args.get(3)?.as_float(),
+        COLOR_FADED => args.get(1)?.as_float(),
+        _ => None,
+    }
+}
+
+/// One `Shadow`, as the four lengths and the colour a `box-shadow` layer is.
+fn shadow(value: &Value) -> Option<String> {
+    let Value::Struct(fields) = value else { return None };
+    let (x, _) = length(fields.first()?)?;
+    let (y, _) = length(fields.get(1)?)?;
+    let (blur, _) = length(fields.get(2)?)?;
+    let (spread, _) = length(fields.get(3)?)?;
+    let (colour, _) = colour(fields.get(4)?)?;
+    Some(format!("{x} {y} {blur} {spread} {colour}"))
 }
 
 /// A property whose only value is a `Length`.
@@ -1193,6 +1272,20 @@ fn colour(value: &Value) -> Option<(String, String)> {
         }
         3 => Some(("transparent".into(), "none".into())),
         4 => Some(("inherit".into(), "inherit".into())),
+        // A token, faded. Blending it here is impossible — nothing knows what
+        // a token is worth until a theme is installed — so the token stays a
+        // token inside a `color-mix` and follows the theme like any `var()`.
+        5 => {
+            let Value::Struct(parts) = args.first()? else { return None };
+            let namespace = parts.first()?.as_str()?;
+            let name = parts.get(1)?.as_str()?;
+            let a = number(args.get(1)?.as_float()?)?;
+            let percent = number(args.get(1)?.as_float()? * 100.0)?;
+            Some((
+                format!("color-mix(in srgb,var(--{namespace}-{name}) {percent}%,transparent)"),
+                format!("{}a{}", token_key(namespace, name), number_key(&a)),
+            ))
+        }
         _ => None,
     }
 }

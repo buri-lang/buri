@@ -3726,7 +3726,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all forty-six properties
+// `$tree_declare` below is the run-time lowering of all forty-seven properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -3764,7 +3764,31 @@ function $tree_color(color) {
   // look the same on the page.
   if (tag === 2) return "var(--" + $ui_theme_name(color[1]) + ")";
   if (tag === 3) return "transparent";
-  return "inherit";
+  if (tag === 4) return "inherit";
+  // A faded token. The token stays a token, so a theme decides the hue and the
+  // mix decides only how much of it there is.
+  return (
+    "color-mix(in srgb,var(--" +
+    $ui_theme_name(color[1]) +
+    ") " +
+    color[2] * 100 +
+    "%,transparent)"
+  );
+}
+
+// One layer of a `box-shadow`.
+function $tree_shadow(shadow) {
+  return (
+    $tree_length(shadow[0]) +
+    " " +
+    $tree_length(shadow[1]) +
+    " " +
+    $tree_length(shadow[2]) +
+    " " +
+    $tree_length(shadow[3]) +
+    " " +
+    $tree_color(shadow[4])
+  );
 }
 
 function $tree_track(track) {
@@ -3948,39 +3972,32 @@ function $tree_declare(style, out) {
   } else if (tag === 37) {
     out.set("opacity", String(value));
   } else if (tag === 38) {
-    out.set(
-      "box-shadow",
-      $tree_length(value[0]) +
-        " " +
-        $tree_length(value[1]) +
-        " " +
-        $tree_length(value[2]) +
-        " " +
-        $tree_length(value[3]) +
-        " " +
-        $tree_color(value[4]),
-    );
+    out.set("box-shadow", $tree_shadow(value));
   } else if (tag === 39) {
-    out.set("font-family", $tree_font(value));
+    // One declaration, the layers in the order they were written — which is
+    // the order a browser paints them, first over last.
+    out.set("box-shadow", value.map($tree_shadow).join(","));
   } else if (tag === 40) {
-    out.set("font-size", $tree_length(value));
+    out.set("font-family", $tree_font(value));
   } else if (tag === 41) {
-    out.set("font-weight", $TREE_WEIGHTS[value]);
+    out.set("font-size", $tree_length(value));
   } else if (tag === 42) {
-    out.set("font-style", value ? "italic" : "normal");
+    out.set("font-weight", $TREE_WEIGHTS[value]);
   } else if (tag === 43) {
-    out.set("line-height", String(value));
+    out.set("font-style", value ? "italic" : "normal");
   } else if (tag === 44) {
-    out.set("letter-spacing", $tree_length(value));
+    out.set("line-height", String(value));
   } else if (tag === 45) {
-    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
+    out.set("letter-spacing", $tree_length(value));
   } else if (tag === 46) {
-    out.set("text-transform", $TREE_TEXT_CASES[value]);
+    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
   } else if (tag === 47) {
-    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
+    out.set("text-transform", $TREE_TEXT_CASES[value]);
   } else if (tag === 48) {
-    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
+    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
   } else if (tag === 49) {
+    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
+  } else if (tag === 50) {
     if (value > 0) {
       out.set("display", "-webkit-box");
       out.set("-webkit-box-orient", "vertical");
@@ -3990,7 +4007,7 @@ function $tree_declare(style, out) {
       out.set("-webkit-line-clamp", "none");
       out.set("overflow", "visible");
     }
-  } else if (tag === 50) {
+  } else if (tag === 51) {
     out.set("cursor", $TREE_CURSORS[value]);
   } else {
     out.set("list-style-type", $TREE_LIST_MARKERS[value]);
