@@ -487,11 +487,31 @@ export fn title<C>(text: Str): Node<C> {
 
 The sheet opens by dropping what a browser paints on one of these by itself —
 the bevel on a button, the blue underline on a link, the border and the inner
-shadow on a field, the size, the weight and the margins on a heading — so your
+shadow on a field, the size, the weight and the margins on a heading, the inset
+border on a separator, the baseline a picture or an icon sits on — so your
 styles are all there is. Those rules are `:where(...)`, which weighs nothing in
-the cascade, and only the elements the program actually builds get one. The same
-rules lay a labelled control's `<label>` out as a wrapping row and give a
-checkbox its box and its mark, and a class on either beats them.
+the cascade,
+and only the elements the program actually builds get one. The same rules lay a
+labelled control's `<label>` out as a wrapping row and give a checkbox its box
+and its mark, and a class on either beats them.
+
+Two of the opening rules are about every element rather than about one:
+
+- **A size is the whole box.** `box-sizing: border-box`, so a `Width` beside a
+  `Padding` or a `BorderWidth` counts them inside it and a full-width padded
+  child stays inside its parent. It is what the headless painter measures too.
+- **A container with no `Layout` is a column**, which is what `Layout`'s default
+  says it is. `AlignMain` and `AlignCross` therefore mean something on a bare
+  `stack`. The four table elements keep a browser's own table layout, because
+  that is what the scene document mirrors for them.
+
+**A designed focus ring replaces the platform's.** A browser paints its own
+`outline` over anything you put on the focused element, so the sheet takes it
+away from exactly the elements that draw a ring of their own — an
+`On(.Focus, ...)` carrying a `Shadow`, `Shadows`, `BorderWidth` or `BorderEdge`.
+A control that styles nothing keeps the platform's ring, and so does one whose
+ring only starts at a breakpoint, because there is a width at which it paints
+nothing.
 
 **A list region is reset the same way.** `region(.List, ...)` is a `ul`, and a
 browser marks and indents one by itself, so the sheet drops the disc, the
@@ -612,6 +632,23 @@ That is what makes dark mode free. `theme.switching(condition, whenTrue,
 whenFalse)` takes a `Prop<Bool>`: a signal the app writes, a stored preference,
 a media query bridged into one. When it changes the runtime writes the block of
 values again. No class changes, no element is touched.
+
+`theme.scheme(.Dark)` is a theme that binds no token and says only which scheme
+the page is in — `color-scheme`, in the same `:root` block. It is what the
+platform paints its own things in: a native control, the document scrollbar, a
+date picker, the form autofill. Without it a page painted near-black still
+reports itself light, and every one of those glares white. It belongs to the
+app rather than to a package, and `switching` takes one on either side.
+
+```buri
+from "ui/prop" import { Prop };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+export fn schemeFor(dark: Prop<Bool>): Theme {
+    theme.switching(dark, theme.scheme(.Dark), theme.scheme(.Light))
+}
+```
 
 ## Snapshots
 

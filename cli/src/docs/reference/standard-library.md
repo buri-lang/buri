@@ -695,12 +695,25 @@ disabled, a picture is sized, shaped and rounded rather than the box around it,
 and a
 heading is the size its styles say rather than the size a browser picked. The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
-the marker and indent it paints on a list — so what is left is what the styles
+the marker and indent it paints on a list, the inset border on a separator and
+the baseline a picture or an icon sits on — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.
+
+The same opening rules make a size the whole box (`box-sizing: border-box`, so
+padding and a border count inside a `Width`), make a container that names no
+`Layout` a column, and take the platform's focus outline away from the elements
+that draw a ring of their own — an `On(.Focus, ...)` carrying a `Shadow`,
+`Shadows`, `BorderWidth` or `BorderEdge`. A control that styles nothing keeps
+the platform's ring.
 
 A container has a state of its own: `On(.FocusWithin, ...)` fires while
 something inside it has the keyboard, which is how an input group carries one
 hairline and one ring around a prefix, a bare field and a suffix.
+
+`theme.scheme(.Dark)` is a theme that binds no token and says only which scheme
+the page is in, so the native controls and the scrollbar follow it. It goes in
+`mount`'s list beside a package's themes, and `switching` takes one on either
+side.
 
 `button(label, styles, children, onPress)` holds children the way `link` does,
 and one with none shows its label. The label stays a parameter and rides in

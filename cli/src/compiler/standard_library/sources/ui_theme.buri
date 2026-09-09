@@ -41,7 +41,8 @@ from "ui/style" import { Color, TokenReference };
 /// one apart.
 export struct Theme(ThemeKind);
 
-/// What a theme is, kept private so that `Theme` stays opaque.
+/// What a theme is, kept private so that `Theme` stays opaque. The variant
+/// order is load-bearing — the JavaScript runtime reads a theme by its tag.
 enum ThemeKind {
     /// Each token, paired with what it is worth.
     Values([(Color, Color)]),
@@ -49,6 +50,20 @@ enum ThemeKind {
     /// false. Each list holds one theme; an array is how a value refers to its
     /// own type.
     Switching(Prop<Bool>, [Theme], [Theme]),
+    /// Which scheme the page is in while this theme applies.
+    Scheme(Scheme),
+}
+
+/// Whether a page is dark or light.
+///
+/// Not a colour: it is what the *platform* paints its own things in — a native
+/// control, the document scrollbar, a date picker, the form autofill. A page
+/// that paints itself near-black and never says so gets all of them in white.
+export enum Scheme {
+    /// A light page.
+    Light,
+    /// A dark one.
+    Dark,
 }
 
 /// A package's tokens, resolved.
@@ -71,6 +86,25 @@ export fn themed(bindings: [(Color, Color)]): Theme {
 /// computation over one.
 export fn switching(condition: Prop<Bool>, whenTrue: Theme, whenFalse: Theme): Theme {
     Theme(.Switching(condition, [whenTrue], [whenFalse]))
+}
+
+/// A theme that binds no token and says only which scheme the page is in.
+///
+/// ```buri
+/// from "ui/theme" import * as theme;
+/// from "ui/theme" import { Theme };
+///
+/// export fn dark(): Theme {
+///     theme.scheme(.Dark)
+/// }
+/// ```
+///
+/// It goes in `mount`'s list beside a package's own themes, and it belongs to
+/// the app rather than to a package: a library writes `themed` and has no idea
+/// which scheme the app is in. `switching` takes one on either side, so the
+/// scheme flips with the values it goes with.
+export fn scheme(which: Scheme): Theme {
+    Theme(.Scheme(which))
 }
 
 // --- The flattened document --------------------------------------------------
@@ -118,9 +152,18 @@ fn blocks<C: Allocator>(ctx: C, themes: [Theme], at: Int, acc: [Str]): [Str] {
                         blocks(ctx, whenFalse, 0, [])
                     }
                 },
+                .Scheme(which) => [str.format(ctx, "scheme ${schemeName(which)}")],
             };
             blocks(ctx, themes, at + 1, acc.concat(ctx, lines))
         },
+    }
+}
+
+/// What a scheme is called, in the document and in the declaration alike.
+fn schemeName(which: Scheme): Str {
+    match (which) {
+        .Light => "light",
+        .Dark => "dark",
     }
 }
 
