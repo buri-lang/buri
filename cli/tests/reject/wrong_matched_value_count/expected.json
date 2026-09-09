@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Circle` holds 2 values, but 1 were matched","code":"wrong-matched-value-count","location":{"file":"cmd/wrong_matched_value_count/main.buri","line":9,"column":5,"endLine":9,"endColumn":15,"text":"    .Circle(a) => a,"},"expected":"2","actual":"1","fix":"match exactly 2, or end the pattern with `..`","notes":[],"related":[]}

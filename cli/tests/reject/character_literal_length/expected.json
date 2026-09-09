@@ -1,0 +1,1 @@
+{"severity":"error","message":"a character literal holds exactly one Unicode scalar value","code":"character-literal-length","location":{"file":"cmd/character_literal_length/main.buri","line":8,"column":11,"endLine":8,"endColumn":13,"text":"  let c = 'ab';"},"fix":"use a string literal for more than one","notes":[],"related":[]}

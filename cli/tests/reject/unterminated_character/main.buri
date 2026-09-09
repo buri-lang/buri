@@ -1,0 +1,8 @@
+// EXPECT: unterminated character literal
+fn initial(): Char {
+  '
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

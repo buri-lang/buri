@@ -1,0 +1,7 @@
+error: `\u` must be followed by `{`, as in `\u{1F600}` [unbraced-unicode-escape]
+ --> cmd/unbraced_unicode_escape/main.buri:8:12
+  |
+8 |   let s = "\u0041";
+  |            ^^
+  |
+  = fix: brace the code point: `\u{1F600}`

@@ -1,0 +1,24 @@
+// EXPECT: `Point` already implements `Measurable`
+struct Point {
+  export x: Int,
+}
+
+trait Measurable {
+  fn size(self): Int;
+}
+
+impl Measurable for Point {
+  fn size(self): Int {
+    self.x
+  }
+}
+
+impl Measurable for Point {
+  fn size(self): Int {
+    self.x
+  }
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

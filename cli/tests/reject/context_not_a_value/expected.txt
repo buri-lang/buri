@@ -1,0 +1,8 @@
+error: `Console` is a context; construct one by calling it [context-not-a-value]
+  --> cmd/context_not_a_value/main.buri:11:22
+   |
+11 |   let _ = io.println(Console, "hi").ignore();
+   |                      ^^^^^^^
+   |
+   = each call builds a fresh context, so two tests never share one's state
+   = fix: write `Console()`

@@ -1,0 +1,14 @@
+// EXPECT: `Point` already has a method `size`
+struct Point {
+  export x: Int,
+}
+
+impl Point {
+  fn size(self): Int {
+    self.x
+  }
+
+  fn size(self): Int {
+    self.x
+  }
+}

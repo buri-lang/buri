@@ -1,0 +1,7 @@
+error: `Pair` takes 2 type arguments [type-argument-arity]
+ --> cmd/type_argument_arity/main.buri:7:18
+  |
+7 | derive Equal for Pair<Int>;
+  |                  ^^^^^^^^^
+  |
+  = fix: a `derive` names the constructor alone: `derive ... for Pair;`

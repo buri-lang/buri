@@ -1,0 +1,11 @@
+// EXPECT: `load` takes the name of a function, and this is _1
+from "core/lazy" import * as lazy;
+
+fn eager(): Int {
+  let f = lazy.load(3);
+  f
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

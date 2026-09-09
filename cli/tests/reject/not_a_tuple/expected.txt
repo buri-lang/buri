@@ -1,0 +1,7 @@
+error: `[I64]` is not a tuple [not-a-tuple]
+ --> cmd/not_a_tuple/main.buri:3:3
+  |
+3 |   xs.0
+  |   ^^^^
+  |
+  = fix: index a tuple or a tuple struct; name a field otherwise

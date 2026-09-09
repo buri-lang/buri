@@ -1,0 +1,7 @@
+error: `Circle` has a payload, so the pattern needs one [missing-payload-pattern]
+ --> cmd/missing_payload_pattern/main.buri:9:5
+  |
+9 |     .Circle => 1,
+  |     ^^^^^^^
+  |
+  = fix: write `.Circle(..)`, or name each field

@@ -1,0 +1,5 @@
+// EXPECT: `Bogus` is not a trait
+derive Bogus for Point;
+struct Point {
+  export x: Int,
+}

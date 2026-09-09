@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Int` takes no type arguments","code":"no-type-arguments","location":{"file":"cmd/no_type_arguments/main.buri","line":2,"column":13,"endLine":2,"endColumn":21,"text":"fn width(n: Int<Str>): Int {"},"fix":"drop them","notes":[],"related":[]}

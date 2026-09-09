@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Pair` takes 2 type arguments","code":"type-argument-arity","location":{"file":"cmd/type_argument_arity/main.buri","line":7,"column":18,"endLine":7,"endColumn":27,"text":"derive Equal for Pair<Int>;"},"fix":"a `derive` names the constructor alone: `derive ... for Pair;`","notes":[],"related":[]}

@@ -1,0 +1,8 @@
+error: `I64` cannot be indexed [not-indexable]
+ --> cmd/not_indexable/main.buri:3:3
+  |
+3 |   n[0]
+  |   ^^^^
+  |
+  = indexing is defined on `[T]`, and yields `Option<T>`
+  = fix: index an array; for a tuple, write `.0`

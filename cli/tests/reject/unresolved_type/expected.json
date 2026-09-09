@@ -1,0 +1,1 @@
+{"severity":"error","message":"there is no type `Widgett`","code":"unresolved-type","location":{"file":"cmd/unresolved_type/main.buri","line":8,"column":10,"endLine":8,"endColumn":17,"text":"  let n: Widgett = 1;"},"fix":"declare it, import it, or correct the spelling","notes":[],"related":[]}

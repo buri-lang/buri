@@ -1,0 +1,7 @@
+error: `?` takes a `Result` or an `Option`, found `I64` [try-operand]
+ --> cmd/try_operand/main.buri:3:11
+  |
+3 |   let m = n?;
+  |           ^^
+  |
+  = fix: `?` propagates a failure; this value is neither a `Result` nor an `Option`

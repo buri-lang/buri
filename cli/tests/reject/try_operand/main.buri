@@ -1,0 +1,5 @@
+// EXPECT: `?` takes a `Result` or an `Option`, found `I64`
+fn go(n: Int): Option<Int> {
+  let m = n?;
+  Option.Some(m)
+}

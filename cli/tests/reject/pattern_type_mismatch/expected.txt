@@ -1,0 +1,9 @@
+error: expected `I64`, found a `Point` pattern [pattern-type-mismatch]
+ --> cmd/pattern_type_mismatch/main.buri:8:5
+  |
+8 |     Point { x } => x,
+  |     ^^^^^^^^^^^
+  |
+  = expected: `I64`
+  = actual: a `Point` pattern
+  = fix: match the shape of `I64`

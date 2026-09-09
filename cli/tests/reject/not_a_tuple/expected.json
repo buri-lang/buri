@@ -1,0 +1,1 @@
+{"severity":"error","message":"`[I64]` is not a tuple","code":"not-a-tuple","location":{"file":"cmd/not_a_tuple/main.buri","line":3,"column":3,"endLine":3,"endColumn":7,"text":"  xs.0"},"fix":"index a tuple or a tuple struct; name a field otherwise","notes":[],"related":[]}

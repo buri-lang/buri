@@ -1,0 +1,8 @@
+error: a context declaration takes no parameters [context-call-with-arguments]
+  --> cmd/context_call_with_arguments/main.buri:11:22
+   |
+11 |   let _ = io.println(Console(1), "hi").ignore();
+   |                      ^^^^^^^^^^
+   |
+   = what varies between call sites is expressed by overriding, not by arguments
+   = fix: call it with no arguments; override what varies with `context { ..base, ... }`

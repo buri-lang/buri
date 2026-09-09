@@ -1,0 +1,9 @@
+// EXPECT: field `x` is given twice
+struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+fn go(): Point {
+  Point { x: 1, x: 2, y: 3 }
+}

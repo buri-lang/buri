@@ -1,0 +1,7 @@
+error: `Bogus` is not a trait [derive-not-a-trait]
+ --> cmd/derive_not_a_trait/main.buri:2:8
+  |
+2 | derive Bogus for Point;
+  |        ^^^^^
+  |
+  = fix: name a declared trait; `derive` generates a trait's methods

@@ -1,0 +1,7 @@
+error: `::` is not an operator [colon-colon-not-an-operator]
+ --> cmd/colon_colon_not_an_operator/main.buri:8:15
+  |
+8 |   let n = list::empty;
+  |               ^^
+  |
+  = fix: a module's members are reached with `.`, as in `list.empty`

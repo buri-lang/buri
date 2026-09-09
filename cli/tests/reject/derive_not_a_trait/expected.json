@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Bogus` is not a trait","code":"derive-not-a-trait","location":{"file":"cmd/derive_not_a_trait/main.buri","line":2,"column":8,"endLine":2,"endColumn":13,"text":"derive Bogus for Point;"},"fix":"name a declared trait; `derive` generates a trait's methods","notes":[],"related":[]}

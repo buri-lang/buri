@@ -1,0 +1,6 @@
+// EXPECT: the defining module of `[T]` is `core/list`
+impl [Int] {
+  fn total(self): Int {
+    0
+  }
+}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`(I64, I64)` has no methods","code":"type-has-no-methods","location":{"file":"cmd/type_has_no_methods/main.buri","line":2,"column":6,"endLine":2,"endColumn":16,"text":"impl (Int, Int) {"},"fix":"write a free function instead, and call it as one","notes":["tuples, function types, and `Template` have no defining module"],"related":[]}

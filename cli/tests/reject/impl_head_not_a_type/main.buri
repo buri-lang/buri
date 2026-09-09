@@ -1,0 +1,10 @@
+// EXPECT: an `impl` names a declared type
+trait Measurable {
+  fn size(self): Int;
+}
+
+impl Measurable for [Int] {
+  fn size(self): Int {
+    0
+  }
+}

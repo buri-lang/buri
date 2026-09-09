@@ -1,0 +1,1 @@
+{"severity":"error","message":"`\\u{D800}` is not a Unicode scalar value","code":"not-a-scalar-value","location":{"file":"cmd/not_a_scalar_value/main.buri","line":8,"column":12,"endLine":8,"endColumn":20,"text":"  let s = \"\\u{D800}\";"},"fix":"a scalar value is at most 10FFFF and outside D800-DFFF","notes":[],"related":[]}

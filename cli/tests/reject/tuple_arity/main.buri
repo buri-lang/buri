@@ -1,0 +1,5 @@
+// EXPECT: a tuple has arity 2 or more
+export fn main(): Result<(), Str> {
+  let t = (1,);
+  .Ok(())
+}

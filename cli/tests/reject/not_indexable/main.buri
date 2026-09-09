@@ -1,0 +1,4 @@
+// EXPECT: `I64` cannot be indexed
+fn read(n: Int): Option<Int> {
+  n[0]
+}

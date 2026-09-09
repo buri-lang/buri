@@ -1,0 +1,1 @@
+{"severity":"error","message":"`::` is not an operator","code":"colon-colon-not-an-operator","location":{"file":"cmd/colon_colon_not_an_operator/main.buri","line":8,"column":15,"endLine":8,"endColumn":17,"text":"  let n = list::empty;"},"fix":"a module's members are reached with `.`, as in `list.empty`","notes":[],"related":[]}

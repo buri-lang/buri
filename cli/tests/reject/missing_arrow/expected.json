@@ -1,0 +1,1 @@
+{"severity":"error","message":"a match arm is `pattern => expression`","code":"missing-arrow","location":{"file":"cmd/missing_arrow/main.buri","line":4,"column":4,"endLine":4,"endColumn":4,"text":"  1 1,"},"fix":"write `=>` here","notes":[],"related":[]}

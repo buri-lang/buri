@@ -1,0 +1,11 @@
+// EXPECT: a 2-tuple has no element 5
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let pair = (1, 2);
+  let n = pair.5;
+  .Ok(())
+}

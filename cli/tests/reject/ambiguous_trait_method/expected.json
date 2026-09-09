@@ -1,0 +1,1 @@
+{"severity":"error","message":"`size` is declared by both `Left` and `Right`","code":"ambiguous-trait-method","location":{"file":"cmd/ambiguous_trait_method/main.buri","line":11,"column":5,"endLine":11,"endColumn":9,"text":"  x.size()"},"fix":"call it as a function to say which: `Left.size(x, y)`","notes":[],"related":[]}

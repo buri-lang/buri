@@ -1,0 +1,1 @@
+{"severity":"error","message":"//cmd/no_main exports no `main`","code":"no-main","location":null,"fix":"add `export fn main(): Result<(), Str> { ... }` to its `main.buri`","notes":[],"related":[]}

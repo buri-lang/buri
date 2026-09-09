@@ -1,0 +1,7 @@
+error: `0b12` is not a valid base-2 integer, or does not fit in 128 bits [integer-not-in-base]
+ --> cmd/integer_not_in_base/main.buri:8:11
+  |
+8 |   let n = 0b12;
+  |           ^^^^
+  |
+  = fix: use digits base-2 admits, and a value inside 128 bits

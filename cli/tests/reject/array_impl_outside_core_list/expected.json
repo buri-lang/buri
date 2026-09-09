@@ -1,0 +1,1 @@
+{"severity":"error","message":"the defining module of `[T]` is `core/list`","code":"array-impl-outside-core-list","location":{"file":"cmd/array_impl_outside_core_list/main.buri","line":2,"column":6,"endLine":2,"endColumn":11,"text":"impl [Int] {"},"fix":"write a free function over the array instead","notes":[],"related":[]}

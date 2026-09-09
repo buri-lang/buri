@@ -1,0 +1,28 @@
+error: `ctx` must come first, or immediately after `self` [ctx-not-first]
+ --> cmd/duplicate_ctx_parameter/main.buri:6:29
+  |
+6 | fn twice<C: Stdout>(ctx: C, ctx: C): () {
+  |                             ^^^^^^
+  |
+  = the calling convention is receiver first, context second, everything else after
+  = fix: move `ctx` to that position
+
+    What to do
+    ──────────
+
+    Move ctx to that position.
+
+    Why
+    ───
+
+    The position is what makes effectfulness readable: you answer "can this
+    function touch the world?" from the first two parameters and stop.
+
+error: a function has at most one `ctx` parameter [duplicate-ctx-parameter]
+ --> cmd/duplicate_ctx_parameter/main.buri:6:29
+  |
+6 | fn twice<C: Stdout>(ctx: C, ctx: C): () {
+  |                             ^^^^^^
+  |
+  = a function cannot take two independent contexts; bundle them into one type instead
+  = fix: combine the two into one context, which is what `context { ..base, ... }` is for

@@ -1,0 +1,12 @@
+error: `Point` already has a method `size` [duplicate-method]
+  --> cmd/duplicate_method/main.buri:11:6
+   |
+11 |   fn size(self): Int {
+   |      ^^^^
+   |
+ --> cmd/duplicate_method/main.buri:7:6
+  |
+7 |   fn size(self): Int {
+  |      ^^^^ first declared here
+  |
+  = fix: rename one of them
