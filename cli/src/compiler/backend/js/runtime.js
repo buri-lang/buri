@@ -3712,6 +3712,10 @@ const $TREE_TEXT_LINES = ["none", "underline", "line-through"];
 
 const $TREE_TEXT_WRAPS = ["wrap", "nowrap", "balance"];
 
+// `flex-direction`, in `Layout`'s own order. The two reversed ones paint
+// backwards and leave the document's order alone.
+const $TREE_DIRECTIONS = ["column", "row", "column-reverse", "row-reverse"];
+
 const $TREE_FONTS = [
   "ui-sans-serif,system-ui,sans-serif",
   "ui-serif,Georgia,serif",
@@ -3726,7 +3730,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all forty-six properties
+// `$tree_declare` below is the run-time lowering of all forty-seven properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -3748,8 +3752,10 @@ function $tree_length(length) {
   const tag = length[0];
   if (tag === 0) return length[1] + "px";
   if (tag === 1) return length[1] + "rem";
-  if (tag === 2) return length[1] + "%";
-  if (tag === 3) return "auto";
+  // A rem follows the root's text size and an em follows this element's.
+  if (tag === 2) return length[1] + "em";
+  if (tag === 3) return length[1] + "%";
+  if (tag === 4) return "auto";
   return "100%";
 }
 
@@ -3865,17 +3871,17 @@ function $tree_declare(style, out) {
   const tag = style[0];
   const value = style[1];
   if (tag === 6) {
-    if (value[0] === 2) {
+    if (value[0] === 4) {
       out.set("display", "grid");
       out.set("grid-template-columns", value[1].map($tree_track).join(" "));
-    } else if (value[0] === 3) {
+    } else if (value[0] === 5) {
       // The children's half of `Layers` — every child in one cell — is a rule
       // about descendants, which an element's own style attribute cannot say.
       // A `Layers` that reached this tier stacks nothing.
       out.set("display", "grid");
     } else {
       out.set("display", "flex");
-      out.set("flex-direction", value[0] === 1 ? "row" : "column");
+      out.set("flex-direction", $TREE_DIRECTIONS[value[0]]);
     }
   } else if (tag === 7) {
     out.set("justify-content", $TREE_ALIGNMENTS[value]);
@@ -3992,8 +3998,10 @@ function $tree_declare(style, out) {
     }
   } else if (tag === 50) {
     out.set("cursor", $TREE_CURSORS[value]);
-  } else {
+  } else if (tag === 51) {
     out.set("list-style-type", $TREE_LIST_MARKERS[value]);
+  } else {
+    out.set("transform", "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")");
   }
 }
 

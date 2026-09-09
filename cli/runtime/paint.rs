@@ -39,7 +39,9 @@
 //!
 //! The properties [`apply`] names, and no others: flexbox and grid, padding,
 //! sizing, background, border, radius, shadow, opacity, and the text
-//! properties. They are the same CSS `semantics::styles::declaration` writes
+//! properties, plus the one transform the vocabulary has — a translate, which
+//! shifts a box after it is laid out and moves nothing around it. They are the
+//! same CSS `semantics::styles::declaration` writes
 //! into the stylesheet and `$tree_declare` writes inline, so a style that
 //! folded and one that did not paint alike. Anything else parses and is
 //! ignored, which is what lets the vocabulary grow without breaking a scene.
@@ -162,7 +164,8 @@ const MAX_VIEWPORT: u32 = 8192;
 pub struct Request<'a> {
     pub scene: &'a str,
     pub stylesheet: &'a str,
-    /// "rest", "hover", "focus", "active", "disabled" or "checked".
+    /// "rest", "hover", "focus", "focus-within", "active", "disabled" or
+    /// "checked".
     pub state: &'a str,
     /// The custom-property block the snapshot's themes resolved to — one or
     /// more `:root{--name:value;…}` blocks, exactly what `mount` installs.
@@ -512,6 +515,9 @@ enum State {
     Rest,
     Hover,
     Focus,
+    /// The container's own: something inside it has the keyboard. A whole
+    /// document is painted in it, the way every other state is.
+    FocusWithin,
     Active,
     Disabled,
     Checked,
@@ -523,6 +529,7 @@ impl State {
             "rest" => Ok(Self::Rest),
             "hover" => Ok(Self::Hover),
             "focus" => Ok(Self::Focus),
+            "focus-within" => Ok(Self::FocusWithin),
             "active" => Ok(Self::Active),
             "disabled" => Ok(Self::Disabled),
             "checked" => Ok(Self::Checked),
@@ -534,6 +541,7 @@ impl State {
         match pseudo {
             "hover" => Some(Self::Hover),
             "focus-visible" => Some(Self::Focus),
+            "focus-within" => Some(Self::FocusWithin),
             "active" => Some(Self::Active),
             "disabled" => Some(Self::Disabled),
             "checked" => Some(Self::Checked),
@@ -711,6 +719,9 @@ struct Shadow {
 struct Computed {
     flow: Flow,
     column: bool,
+    /// `column-reverse` or `row-reverse`: the children are laid out backwards
+    /// and the document keeps the order it was written in.
+    reverse: bool,
     wrap: bool,
     justify: Option<AlignContent>,
     align_items: Option<AlignItems>,
@@ -749,6 +760,9 @@ struct Computed {
     radius: Len,
     opacity: f32,
     shadow: Option<Shadow>,
+    /// `transform: translate(x, y)`, applied after the layout, so nothing
+    /// around the box moves with it. A percentage is of the box's own size.
+    translate: Option<(Len, Len)>,
     marker: Marker,
 
     font_size: f32,
@@ -777,6 +791,7 @@ impl Computed {
         Self {
             flow: Flow::Flex,
             column: true,
+            reverse: false,
             wrap: false,
             justify: None,
             align_items: None,
@@ -806,6 +821,7 @@ impl Computed {
             radius: Len::Px(0.0),
             opacity: 1.0,
             shadow: None,
+            translate: None,
             marker: Marker::None,
             font_size: ROOT_FONT_SIZE,
             weight: 400,
@@ -870,6 +886,7 @@ fn resolve(
             // A `.<class>>*` rule is the enclosing box's class rather than this
             // one's, so a child rule is matched against the node above.
             let holder = holder.and_then(|i| scene.node(i));
+            let mut declarations: Vec<(&str, Cow<'_, str>)> = Vec::new();
             for rule in sheet {
                 let named = if rule.child {
                     holder.is_some_and(|h| h.classes.contains(&rule.class))
@@ -878,12 +895,28 @@ fn resolve(
                 };
                 if rule.min_width <= width && rule.state.is_none_or(|s| s == state) && named {
                     for (name, value) in &rule.declarations {
-                        apply(&mut style, name, &substitute(value, variables), &parent);
+                        declarations.push((name, substitute(value, variables)));
                     }
                 }
             }
             for (name, value) in &node.declarations {
-                apply(&mut style, name, &substitute(value, variables), &parent);
+                declarations.push((name, substitute(value, variables)));
+            }
+            // **`font-size` is computed before everything beside it**, because
+            // every `em` on this element is a multiple of the size the element
+            // ends up at — and the sheet writes `gap` and `padding` before
+            // `font-size`, which is a rule about *conflicting* declarations and
+            // says nothing about this. The last one wins, and it is itself a
+            // multiple of the parent's size, which is what CSS resolves an `em`
+            // in a `font-size` against.
+            if let Some((name, value)) = declarations.iter().rev().find(|(n, _)| *n == "font-size")
+            {
+                apply(&mut style, name, value, &parent);
+            }
+            for (name, value) in &declarations {
+                if *name != "font-size" {
+                    apply(&mut style, name, value, &parent);
+                }
             }
         }
         for &child in node.children.iter().rev() {
@@ -912,7 +945,10 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             "flex" | "-webkit-box" => style.flow = Flow::Flex,
             _ => {}
         },
-        "flex-direction" => style.column = value != "row",
+        "flex-direction" => {
+            style.column = !value.starts_with("row");
+            style.reverse = value.ends_with("-reverse");
+        }
         "flex-wrap" => style.wrap = value == "wrap",
         "justify-content" => style.justify = alignment(value),
         "align-items" => style.align_items = item_alignment(value),
@@ -1009,6 +1045,10 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             }
         }
         "box-shadow" => style.shadow = shadow(value, font_size),
+        // The one transform the vocabulary writes. An unreadable one is
+        // ignored, which is what a browser does with a declaration it cannot
+        // parse.
+        "transform" => style.translate = translate(value, font_size).or(style.translate),
         "list-style-type" => {
             style.marker = match value {
                 "disc" => Marker::Disc,
@@ -1083,7 +1123,7 @@ fn set_sides<const N: usize>(sides: &mut [Len], which: [usize; N], value: Option
     }
 }
 
-fn length(value: &str, _font_size: f32) -> Option<Len> {
+fn length(value: &str, font_size: f32) -> Option<Len> {
     if value == "auto" {
         return Some(Len::Auto);
     }
@@ -1093,10 +1133,24 @@ fn length(value: &str, _font_size: f32) -> Option<Len> {
     if let Some(n) = value.strip_suffix("rem") {
         return n.parse::<f32>().ok().map(|n| Len::Px(n * REM));
     }
+    // After `rem`, which ends in the same two letters. An em is the element's
+    // own text size, and the caller passes the size in force where the
+    // declaration was written — so a `font-size` in em reads the size it
+    // inherited, exactly as CSS resolves one.
+    if let Some(n) = value.strip_suffix("em") {
+        return n.parse::<f32>().ok().map(|n| Len::Px(n * font_size));
+    }
     if let Some(n) = value.strip_suffix('%') {
         return n.parse().ok().map(Len::Percent);
     }
     value.parse().ok().map(Len::Px)
+}
+
+/// `translate(<length>,<length>)`, the one transform the sheet writes.
+fn translate(value: &str, font_size: f32) -> Option<(Len, Len)> {
+    let inner = value.trim().strip_prefix("translate(")?.strip_suffix(')')?;
+    let (x, y) = inner.split_once(',')?;
+    Some((length(x.trim(), font_size)?, length(y.trim(), font_size)?))
 }
 
 fn track(value: &str, font_size: f32) -> Len {
@@ -1232,7 +1286,12 @@ fn taffy_style(c: &Computed) -> Style {
             Flow::Flex => Display::Flex,
             Flow::Grid => Display::Grid,
         },
-        flex_direction: if c.column { FlexDirection::Column } else { FlexDirection::Row },
+        flex_direction: match (c.column, c.reverse) {
+            (true, false) => FlexDirection::Column,
+            (true, true) => FlexDirection::ColumnReverse,
+            (false, false) => FlexDirection::Row,
+            (false, true) => FlexDirection::RowReverse,
+        },
         flex_wrap: if c.wrap { FlexWrap::Wrap } else { FlexWrap::NoWrap },
         justify_content: c.justify,
         align_items: c.align_items,
@@ -1785,8 +1844,9 @@ impl Painter<'_> {
             return;
         };
         let Ok(layout) = self.tree.layout(id) else { return };
-        let left = x + layout.location.x;
-        let top = y + layout.location.y;
+        let (across, down) = shift(style, layout.size);
+        let left = x + layout.location.x + across;
+        let top = y + layout.location.y + down;
         let right = left + layout.size.width;
         let bottom = top + layout.size.height;
         let box_ = Box2 { l: px(left), t: px(top), r: px(right), b: px(bottom) };
@@ -1900,8 +1960,9 @@ impl Painter<'_> {
             return;
         };
         let Ok(layout) = self.tree.layout(id) else { return };
-        let left = x + layout.location.x;
-        let top = y + layout.location.y;
+        let (across, down) = shift(style, layout.size);
+        let left = x + layout.location.x + across;
+        let top = y + layout.location.y + down;
         let gap = style.font_size * MARKER_GAP;
         match kind {
             Marker::None => {}
@@ -2107,6 +2168,15 @@ impl Box2 {
         path.close();
         path.finish()
     }
+}
+
+/// Where a `transform: translate` puts a box, against the size it was laid out
+/// at. Applied after the layout, so no sibling moves — which is the whole
+/// reason a control presses by a pixel this way rather than with a padding.
+fn shift(style: &Computed, size: Size<f32>) -> (f32, f32) {
+    style.translate.map_or((0.0, 0.0), |(across, down)| {
+        (resolve_length(across, size.width), resolve_length(down, size.height))
+    })
 }
 
 fn resolve_length(len: Len, basis: f32) -> f32 {

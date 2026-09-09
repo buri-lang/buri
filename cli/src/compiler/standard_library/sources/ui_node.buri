@@ -731,9 +731,9 @@ fn slotsIn<C: Allocator>(
 /// `On(s, ...)` into the classes it emits, so the group itself is gone by the
 /// time this walk sees one; what is left is the conflict slot, which carries
 /// the condition the class was scoped to. A slot's low digits are that
-/// condition — thirty of them per property, five breakpoints to a state, and
-/// zero for "in every state" — so a hover class can be told from a plain one
-/// and left out of every document but the hovered one.
+/// condition — thirty-five of them per property, five breakpoints to a state,
+/// and zero for "in every state" — so a hover class can be told from a plain
+/// one and left out of every document but the hovered one.
 fn statePairs<C: Allocator>(
     ctx: C,
     state: State,
@@ -760,7 +760,7 @@ fn statePairs<C: Allocator>(
 /// slot that applies whatever the state is. A breakpoint is the other half of
 /// the condition and is not a state, so it answers `-1` too.
 fn slotState(slot: Int): Int {
-    slot % 30 / 5 - 1
+    slot % 35 / 5 - 1
 }
 
 /// The class of each slot's last pair.
@@ -915,6 +915,11 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         .Truncate(lines) => truncateCss(ctx, lines),
         .Cursor(cursor) => [decl(ctx, "cursor", cursorName(cursor))],
         .ListMarker(marker) => [decl(ctx, "list-style-type", markerName(marker))],
+        .Translate(x, y) => {
+            let across = lengthCss(ctx, x);
+            let down = lengthCss(ctx, y);
+            [decl(ctx, "transform", str.format(ctx, "translate(${across},${down})"))]
+        },
         _ => [],
     }
 }
@@ -928,6 +933,8 @@ fn layoutCss<C: Allocator>(ctx: C, layout: Layout): [Str] {
     match (layout) {
         .Column => ["display:flex", "flex-direction:column"],
         .Row => ["display:flex", "flex-direction:row"],
+        .ColumnReverse => ["display:flex", "flex-direction:column-reverse"],
+        .RowReverse => ["display:flex", "flex-direction:row-reverse"],
         .Grid(tracks) => {
             let columns = trackList(ctx, tracks, 0, []).join(ctx, " ");
             ["display:grid", decl(ctx, "grid-template-columns", columns)]
@@ -959,6 +966,7 @@ fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
     match (length) {
         .Px(n) => str.format(ctx, "${n}px"),
         .Rem(n) => str.format(ctx, "${n}rem"),
+        .Em(n) => str.format(ctx, "${n}em"),
         .Percent(n) => str.format(ctx, "${n}%"),
         .Auto => "auto",
         .Full => "100%",
@@ -1112,8 +1120,9 @@ fn stateRank(state: State): Int {
     match (state) {
         .Hover => 0,
         .Focus => 1,
-        .Active => 2,
-        .Disabled => 3,
-        .Checked => 4,
+        .FocusWithin => 2,
+        .Active => 3,
+        .Disabled => 4,
+        .Checked => 5,
     }
 }

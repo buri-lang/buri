@@ -1,0 +1,5 @@
+FAIL //lib/em  test/em.buri  "tracking that follows the type it tracks"
+  the snapshot "em-tracking" changed: see test/__snapshots__/em-tracking.diff.png
+  --> lib/em/test/em.buri:28:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

@@ -1,0 +1,64 @@
+// An em against a rem, on every property a length reaches.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/em" import { nesting, properties, scaling, tracking };
+
+test "half an em of padding at four text sizes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // One declaration across the whole row, because an em is a distance and
+    // not a number of pixels: four boxes at four sizes share it and pad by four
+    // amounts. The padding arrives as a parameter, so it lands in the inline
+    // tier rather than the sheet — which is the tier the picture is the proof
+    // for, since both write the same CSS.
+    let scene = ui.describe(ctx, scaling(), .Hover);
+    assert.containsText(scene, "font-size:12px;padding:0.5em");
+    assert.containsText(scene, "font-size:32px;padding:0.5em");
+    assert.containsText(scene, "font-size:32px;padding:0.5rem");
+    snapshot(ctx, "em-scaling", scaling(), .Hover, []);
+}
+
+test "tracking that follows the type it tracks" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, tracking(), .Hover);
+    assert.containsText(scene, "letter-spacing:-0.025em");
+    assert.containsText(scene, "letter-spacing:0.1em");
+    assert.containsText(scene, "letter-spacing:0.1rem");
+    snapshot(ctx, "em-tracking", tracking(), .Hover, []);
+}
+
+test "an em in a font size is the parent's size" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // Written out rather than passed in, so it folded: one class, four boxes,
+    // four sizes.
+    let scene = ui.describe(ctx, nesting(), .Hover);
+    assert.containsText(scene, "fs-e1_25");
+    assert.containsText(scene, "pe-start-e0_5");
+    snapshot(ctx, "em-nesting", nesting(), .Hover, []);
+}
+
+test "every property an em reaches" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, properties(), .Hover);
+    assert.containsText(scene, "gap-e1");
+    assert.containsText(scene, "w-e6");
+    assert.containsText(scene, "r-e0_5");
+    assert.containsText(scene, "pin-top-e1");
+    snapshot(ctx, "em-properties", properties(), .Hover, []);
+}

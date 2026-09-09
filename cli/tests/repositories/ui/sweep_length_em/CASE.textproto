@@ -1,0 +1,84 @@
+# `Length.Em`, in four pictures.
+#
+# A rem follows the root's text size and an em follows the element's own, so
+# every picture here is a row that grows with its type beside a row that does
+# not.
+#
+# `em-scaling.png` is the pair: half an em of padding at 12/16/24/32px, then
+# half a rem at the same four. The em row pads by 6, 8, 12 and 16 pixels and the
+# rem row by eight, four times. It is also the record that a `font-size` on the
+# same element is computed before the `em` beside it — the sheet writes
+# `padding` first, and CSS resolves the em against the size the element ends up
+# at rather than the one it inherited.
+#
+# `em-tracking.png` is the motivation: -0.05, -0.025, 0, 0.05 and 0.1 em at one
+# size, then 0.1em at three sizes over 0.1rem at the same three. The em rows
+# space out with the type and the rem rows keep one gap.
+#
+# `em-nesting.png` is the other half of the rule: an em *in* a `FontSize` is a
+# multiple of the parent's size, so four boxes each a quarter larger read 16,
+# 20, 25 and 31.25 pixels down the page.
+#
+# `em-properties.png` is the reach — `Gap`, `Width`, `Height`, `Radius`,
+# `BorderWidth` and `Pin`, all at a 24px text size, so one em is 24 pixels in
+# every row.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an em against a rem on every property that takes a length, painted and compared against four goldens with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/em", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/em/test/__snapshots__/em-scaling.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/em/test/em.buri"
+  replace: "\"em-scaling\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/em", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/em/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/em", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/em/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/em", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin, and the one that says the unit is doing the work: an em of
+# tracking becomes a rem of it, and only the tracking picture moves — the two
+# agree at sixteen pixels and nowhere else.
+edit {
+  file: "lib/em/scenes.buri"
+  replace: "tracked(32, .Em(0.1))"
+  with: "tracked(32, .Rem(0.1))"
+}
+
+run {
+  args: ["test", "//lib/em", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/em/test/__snapshots__/em-tracking.diff.png"  exists: true }
+path { path: "lib/em/test/__snapshots__/em-scaling.diff.png"  exists: false }
