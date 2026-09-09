@@ -515,7 +515,7 @@ fn cell<C>(label: Str, inner: Node<C>): Node<C> {
 /// The subject every cell holds: a `button`, whose styles land on the button
 /// itself.
 fn subject<C>(styles: [Style], words: Str): Node<C> {
-    ui.button(.Const(words), base(styles), fn(_c, _e) => ())
+    ui.button(.Const(words), base(styles), [], fn(_c, _e) => ())
 }
 
 /// What every subject carries before the cell's own styles, which come

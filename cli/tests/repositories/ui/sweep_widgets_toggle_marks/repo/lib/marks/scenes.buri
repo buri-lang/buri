@@ -1,0 +1,181 @@
+//! The two marks a toggle draws for itself, each one off and on.
+//!
+//! A page is a band per thing that changes the mark, and a band holds the same
+//! toggle twice: bound to `false`, then to `true`. So off and on sit beside
+//! each other and the difference between them is the whole subject — a tick
+//! that is there or is not, a thumb at the near end or at the far one.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node, ToggleKind };
+from "ui/signal" import { signal };
+from "ui/style" import { Length, Style };
+
+/// A checkbox: the tick, at every size and colour the box can be.
+export fn checkboxPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("checkbox — the tick is there when it is on")),
+        band("size — the tick is the largest square the box holds", [
+            pair(ctx, "12px", .Checkbox, box([.Width(.Px(12)), .Height(.Px(12))])),
+            pair(ctx, "16px", .Checkbox, box([])),
+            pair(ctx, "24px", .Checkbox, box([.Width(.Px(24)), .Height(.Px(24))])),
+            pair(ctx, "2rem", .Checkbox, box([.Width(.Rem(2.0)), .Height(.Rem(2.0))])),
+        ]),
+        band("Foreground draws the mark", [
+            pair(ctx, "near black", .Checkbox, box([])),
+            pair(
+                ctx,
+                "white on ink",
+                .Checkbox,
+                box([.Background(.Rgb(24, 24, 40)), .Foreground(.Rgb(255, 255, 255))]),
+            ),
+            pair(ctx, "red", .Checkbox, box([.Foreground(.Rgb(200, 30, 30))])),
+            pair(ctx, "rgba 0.3", .Checkbox, box([.Foreground(.Rgba(0, 0, 0, 0.3))])),
+        ]),
+        band("the box the tick sits in", [
+            pair(
+                ctx,
+                "border 2px",
+                .Checkbox,
+                box([.BorderWidth(.Px(2)), .BorderColor(.Rgb(70, 90, 120))]),
+            ),
+            pair(ctx, "radius 4px", .Checkbox, box([.Radius(.Px(4))])),
+            pair(ctx, "radius full", .Checkbox, box([.Radius(.Full)])),
+            pair(
+                ctx,
+                "padding 3px",
+                .Checkbox,
+                box([.Width(.Px(24)), .Height(.Px(24)), .Padding(.Px(3))]),
+            ),
+        ]),
+        band("On(.Checked) beside the mark — buri#119", [
+            pair(
+                ctx,
+                "fill on",
+                .Checkbox,
+                box([
+                    .On(.Checked, [
+                        .Background(.Rgb(48, 64, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                    ]),
+                ]),
+            ),
+        ]),
+    ])
+    // buri#119: `On(.Checked, ...)` fires from the state a snapshot was
+    // asked for and not from the signal the toggle holds, so the `on` cell
+    // here is grey where a browser paints it blue. Painted, and known
+    // wrong; re-record when that closes.
+}
+
+/// A switch: the thumb, and the end of the track it sits at.
+export fn switchPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("switch — the thumb travels")),
+        band("size", [
+            pair(ctx, "32 by 18", .Switch, track(.Px(32), .Px(18), [])),
+            pair(ctx, "44 by 24", .Switch, track(.Px(44), .Px(24), [])),
+            pair(ctx, "56 by 28", .Switch, track(.Px(56), .Px(28), [])),
+            pair(ctx, "3rem by 1rem", .Switch, track(.Rem(3.0), .Rem(1.0), [])),
+        ]),
+        band("the room the thumb travels in", [
+            pair(
+                ctx,
+                "no padding",
+                .Switch,
+                track(.Px(44), .Px(24), [.Padding(.Px(0))]),
+            ),
+            pair(ctx, "padding 2px", .Switch, track(.Px(44), .Px(24), [])),
+            pair(
+                ctx,
+                "padding 6px",
+                .Switch,
+                track(.Px(44), .Px(24), [.Padding(.Px(6))]),
+            ),
+            pair(
+                ctx,
+                "square track",
+                .Switch,
+                track(.Px(44), .Px(24), [.Radius(.Px(0))]),
+            ),
+        ]),
+        band("Foreground draws the thumb, Background the track", [
+            pair(ctx, "white on grey", .Switch, track(.Px(44), .Px(24), [])),
+            pair(
+                ctx,
+                "ink on sand",
+                .Switch,
+                track(.Px(44), .Px(24), [
+                    .Background(.Rgb(232, 214, 170)),
+                    .Foreground(.Rgb(40, 30, 10)),
+                ]),
+            ),
+            pair(
+                ctx,
+                "rgba 0.4",
+                .Switch,
+                track(.Px(44), .Px(24), [.Foreground(.Rgba(255, 255, 255, 0.4))]),
+            ),
+        ]),
+        band("On(.Checked) beside the travel — buri#119", [
+            pair(
+                ctx,
+                "green when on",
+                .Switch,
+                track(.Px(44), .Px(24), [
+                    .On(.Checked, [.Background(.Rgb(40, 150, 60))]),
+                ]),
+            ),
+        ]),
+    ])
+    // buri#119 again: the track stays grey where a browser paints it green.
+}
+
+/// A checkbox's box: something to see the tick against, with the caller's own
+/// styles last.
+fn box(styles: [Style]): [Style] {
+    [.Background(.Rgb(226, 232, 244)), .Group(styles)]
+}
+
+/// A switch's track: a pill of a size, with the caller's own styles last.
+fn track(width: Length, height: Length, styles: [Style]): [Style] {
+    [
+        .Width(width),
+        .Height(height),
+        .Radius(.Full),
+        .Padding(.Px(2)),
+        .Background(.Rgb(150, 160, 180)),
+        .Foreground(.Rgb(255, 255, 255)),
+        .Group(styles),
+    ]
+}
+
+/// One value: its name, and the same toggle off and then on.
+fn pair<C: Ui>(ctx: C, name: Str, kind: ToggleKind, styles: [Style]): Node<C> {
+    ui.column([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)], [
+        ui.text(.Const(name)),
+        ui.toggle(.Const("off"), kind, styles, [], signal(ctx, false)),
+        ui.toggle(.Const("on"), kind, styles, [], signal(ctx, true)),
+    ])
+}
+
+/// One band: its name, then a cell per value.
+fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
+    ui.column([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
+        ui.text(.Const(name)),
+        ui.row([.Gap(.Px(8)), .AlignCross(.Start)], cells),
+    ])
+}
+
+/// The page: a title and the bands under it.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(8)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}

@@ -1,0 +1,86 @@
+# What a button holds, and the wash that covers all of it.
+#
+# Three pictures. The first is the shapes a button's children take: none, one, a
+# mark beside a word, a chevron after it, a subtree, and a spacer that pushes
+# inside the button. A button with no children shows its label, which is the one
+# place the accessible name and the glyphs are the same string — everywhere else
+# the label is an attribute, so what a reader hears is never what is drawn.
+#
+# The other two are the reason. They are one navigation rail, painted resting
+# and hovered, whose entries are a mark and a word inside the button. The wash
+# that says hovered and the wash that says current page are on the button
+# itself, so both cover the mark and the word together. Before this a button
+# held no children: the pair had to be a row, the wash went on the row, and only
+# the focus ring stayed on the thing a reader presses.
+#
+# The resting picture is taken in `.Disabled` rather than in a resting state,
+# because `State` has no resting variant and nothing here answers to `Disabled`.
+#
+# The marks are boxes rather than pictures: every image paints as a placeholder
+# in a snapshot (#85), so a square of the entry's own colour is what an icon
+# looks like here.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the children a button holds and the wash that covers them, as 3 pictures — the shapes, and one rail resting and hovered — with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/entry", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/entry/test/__snapshots__/button-content.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/entry/test/pictures.buri"
+  replace: "\"button-content\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/entry", "--force", "--filter=holds"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/entry/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/entry", "--update", "--force", "--filter=holds"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/entry/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/entry", "--force", "--filter=holds"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: the entry's wash moves by three, which changes the hovered
+# picture and leaves the resting one alone. That is the record that the two are
+# two documents rather than one taken twice.
+edit {
+  file: "lib/entry/scenes.buri"
+  replace: ".On(.Hover, [.Background(.Rgb(238, 240, 246))])"
+  with: ".On(.Hover, [.Background(.Rgb(238, 240, 249))])"
+}
+
+run {
+  args: ["test", "//lib/entry", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/entry/test/__snapshots__/button-rail-hover.diff.png"  exists: true }
+path { path: "lib/entry/test/__snapshots__/button-rail-resting.diff.png"  exists: false }
