@@ -1,0 +1,11 @@
+// EXPECT: `place` takes 4 arguments, but 2 were given
+//
+// Two parameters have nothing to fill them, so there is nothing to name: the
+// fix prints the signature and lets the reader line the call up against it.
+fn place(x: Int, y: Int, width: Int, height: Int): Int {
+  x + y + width + height
+}
+
+fn go(): Int {
+  place(1, 2)
+}

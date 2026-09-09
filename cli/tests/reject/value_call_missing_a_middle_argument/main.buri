@@ -1,0 +1,9 @@
+// EXPECT: expected 3 arguments, found 2
+//
+// A value's type has parameters and no names for them, so what the fix can say
+// is which position was left out: a `Bool` is not the `Str` that comes second,
+// and the two given line up either side of it.
+fn go(): Int {
+  let f = fn(a: Int, b: Str, c: Bool): Int => a;
+  f(1, true)
+}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Row` holds 3 values, but 2 were given","code":"wrong-value-count","location":{"file":"cmd/constructor_missing_a_middle_value/main.buri","line":8,"column":3,"endLine":8,"endColumn":15,"text":"  Row(1, true)"},"expected":"3","actual":"2","fix":"`Row` is missing its second value: Row(Int, Str, Bool)","notes":[],"related":[]}

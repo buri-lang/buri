@@ -6,7 +6,7 @@ error: `f32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
    |
    = expected: 4
    = actual: 5
-   = fix: pass exactly 4
+   = fix: pass `f32x4` the following arguments: f32x4(x: Float, y: Float, z: Float, w: Float)
 error: there is nothing named `extra` in scope [unresolved-name]
   --> main.buri:19:35
    |

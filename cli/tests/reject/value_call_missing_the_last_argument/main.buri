@@ -1,0 +1,8 @@
+// EXPECT: expected 3 arguments, found 2
+//
+// The two given fill the first two, so the position with nothing left to fill
+// it is the last.
+fn go(): Int {
+  let f = fn(a: Int, b: Str, c: Bool): Int => a;
+  f(1, "row")
+}

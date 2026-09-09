@@ -6,7 +6,7 @@ error: `stdin` takes 0 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 0
    = actual: 1
-   = fix: pass exactly 0
+   = fix: pass `stdin` the following arguments: stdin()
 error: `.lines` needs a known expected type [unannotated-variant]
   --> main.buri:56:22
    |
