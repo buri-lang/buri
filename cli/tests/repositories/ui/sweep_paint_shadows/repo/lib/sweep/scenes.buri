@@ -126,7 +126,13 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
         band("button", [
             cell(
                 "raised",
-                ui.button(.Const("press"), base(raised), [], fn(_c, _e) => ()),
+                ui.button(
+                    .Const("press"),
+                    base(raised),
+                    [],
+                    fn(_c, _e) => (),
+                    .Const(false),
+                ),
             ),
         ]),
         band("link", [
@@ -144,6 +150,7 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
                     base(raised),
                     [],
                     signal(ctx, "Ada"),
+                    .Const(false),
                     .Const(false),
                 ),
             ),

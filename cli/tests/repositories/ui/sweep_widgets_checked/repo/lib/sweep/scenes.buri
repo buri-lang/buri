@@ -1,0 +1,172 @@
+// A toggle that answers for itself — buri#119.
+//
+// `describe` read `On(.Checked, ...)` off the snapshot's state, so a page could
+// not hold one toggle that is on and one that is off: asking for `.Checked`
+// painted every box's checked styles, including the boxes bound to `false`.
+// The signal is the answer, which is what a browser reads `:checked` off.
+//
+// Every row alternates: off, on, off, on. The picture is right only if the
+// second and fourth cells of a row differ from the first and third, in the same
+// way, in every state a snapshot can name.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import * as signal;
+from "ui/style" import { Color, Shadow, Style };
+
+/// One cast, so a shadow column says which state it is in by its colour.
+fn cast(colour: Color): Shadow {
+    Shadow { x: .Px(3), y: .Px(3), blur: .Px(6), spread: .Px(0), color: colour }
+}
+
+/// What a box says it looks like when it is checked, one property per column.
+fn track(): [Style] {
+    [.On(.Checked, [.Background(.Rgb(40, 150, 60))])]
+}
+
+fn ringed(): [Style] {
+    [.On(.Checked, [.BorderWidth(.Px(6)), .BorderColor(.Rgb(232, 188, 36))])]
+}
+
+fn dimmed(): [Style] {
+    [.On(.Checked, [.Opacity(0.35)])]
+}
+
+fn cast_(): [Style] {
+    [.On(.Checked, [.Shadow(cast(.Rgb(48, 64, 200)))])]
+}
+
+fn all(): [Style] {
+    [.Group(track()), .Group(ringed()), .Group(dimmed()), .Group(cast_())]
+}
+
+/// The pointer states beside the checked ones, so a picture says the two do not
+/// crowd each other out: a hovered checked box matches both rules in a browser.
+fn hovered(): [Style] {
+    [
+        .On(.Hover, [.BorderColor(.Rgb(214, 44, 44)), .BorderWidth(.Px(4))]),
+        .Group(track()),
+    ]
+}
+
+fn base(extra: [Style]): [Style] {
+    [
+        .Width(.Px(44)),
+        .Height(.Px(24)),
+        .Radius(.Full),
+        .Background(.Rgb(150, 160, 180)),
+        .BorderWidth(.Px(2)),
+        .BorderColor(.Rgb(70, 90, 120)),
+        .Group(extra),
+    ]
+}
+
+/// One switch, bound to `on`. The label says which it is, so a picture cannot
+/// be read the wrong way round.
+fn switch<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
+    let name = if (on) { "on" } else { "off" };
+    ui.toggle(
+        .Const(name),
+        .Switch,
+        base(extra),
+        [],
+        signal.signal(ctx, on),
+        .Const(false),
+        .Const(false),
+    )
+}
+
+/// A plain box carrying the same `On(.Checked, ...)`. Nothing but a toggle
+/// answers for `:checked`, so this one is still the snapshot's to decide — and
+/// that is the difference the two pictures are taken to show.
+fn box<C>(extra: [Style]): Node<C> {
+    ui.stack(base(extra), [])
+}
+
+fn label<C>(text: Str): Node<C> {
+    ui.stack([], [ui.text(.Const(text))])
+}
+
+fn row<C>(cells: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Layout(
+                .Grid([
+                    .Fixed(.Px(84)),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                ]),
+            ),
+            .Gap(.Px(8)),
+            .AlignCross(.Start),
+        ],
+        cells,
+    )
+}
+
+fn headings<C>(): Node<C> {
+    row([
+        label(""),
+        label("track"),
+        label("ring"),
+        label("dim"),
+        label("shadow"),
+        label("all four"),
+        label("hover too"),
+    ])
+}
+
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(8)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}
+
+/// One row of switches, all bound the same way.
+fn switches<C: Ui>(ctx: C, name: Str, on: Bool): Node<C> {
+    row([
+        label(name),
+        switch(ctx, on, track()),
+        switch(ctx, on, ringed()),
+        switch(ctx, on, dimmed()),
+        switch(ctx, on, cast_()),
+        switch(ctx, on, all()),
+        switch(ctx, on, hovered()),
+    ])
+}
+
+/// The row of plain boxes, which hold no answer of their own.
+fn boxes<C>(): Node<C> {
+    row([
+        label("box"),
+        box(track()),
+        box(ringed()),
+        box(dimmed()),
+        box(cast_()),
+        box(all()),
+        box(hovered()),
+    ])
+}
+
+/// The page the issue is about: one switch that is off and one that is on, side
+/// by side, and a plain box under them.
+export fn mixedPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("checked, from the control's own value")),
+        headings(),
+        switches(ctx, "off", false),
+        switches(ctx, "on", true),
+        boxes(),
+    ])
+}

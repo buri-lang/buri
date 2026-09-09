@@ -1,0 +1,87 @@
+# A control that refuses input — buri-lang/buri#126. Nothing could put an
+# element into `State::Disabled` before, so every `On(.Disabled, ...)` ever
+# written was dead code and a control that should refuse input stayed
+# focusable.
+#
+# Two pictures of one tree, in the two states the answer could have come from,
+# and a `describe` assertion beside each so a picture is never the only witness.
+#
+#   * `disabled-flag` — a **hovered** snapshot, so nothing about the state the
+#     picture was taken in can be doing this. Each control appears twice: with
+#     the flag clear and with it set. Only the second of each pair carries the
+#     disabled palette, which is what says the flag is what fires the rule.
+#   * `disabled-snapshot` — the same tree under `.Disabled`. The flag only ever
+#     *adds* a state, so a control that carries none is still what the snapshot
+#     is asking about and every cell lights. That is the one direction this
+#     differs from `Checked`, where the widget's answer is the whole answer.
+#
+# The columns are `Background` with `Opacity`, a border, a foreground with a
+# heavier `Opacity`, and all three at once — so a picture says which
+# declaration reached the element rather than only that something did.
+#
+# The label beside a field and a toggle is the runtime's `<label>` and carries
+# no styles of its own, which is why the dimming here is the control's box and
+# never its text.
+#
+# The lifecycle is `sweep_properties_*`'s: every golden compares, a renamed
+# snapshot is reported as missing rather than as a difference, `--update`
+# records it, the run after that compares against what it wrote, and an edit to
+# one number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a button, a field and a toggle with the disabled flag clear and set, and the same tree under a disabled snapshot, as 2 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/sweep", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/disabled-flag.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sweep/test/pictures.buri"
+  replace: "\"disabled-flag\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=fires"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sweep", "--update", "--force", "--filter=fires"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=fires"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one number in the disabled palette, and only the picture
+# that is not about the snapshot moves.
+edit {
+  file: "lib/sweep/scenes.buri"
+  replace: ".Background(.Rgb(132, 132, 132))"
+  with: ".Background(.Rgb(132, 132, 172))"
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=question"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/disabled-snapshot.diff.png"  exists: true }

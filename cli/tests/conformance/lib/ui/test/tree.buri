@@ -854,9 +854,13 @@ test "a press does not reach an element the pointer passes through" {
     let page = render(
         ctx,
         ui.stack([.Layout(.Layers)], [
-            ui.button(.Const("flip"), [], [], fn(c, _e) => {
-                presses.set(c, presses.get(c) + 1)
-            }),
+            ui.button(
+                .Const("flip"),
+                [],
+                [],
+                fn(c, _e) => { presses.set(c, presses.get(c) + 1) },
+                .Const(false),
+            ),
             ui.stack([.Passthrough(true)], []),
         ]),
     );
@@ -869,13 +873,21 @@ test "a press does not reach an element the pointer passes through" {
     let dock = render(
         ctx,
         ui.stack([.Passthrough(true)], [
-            ui.button(.Const("dead"), [], [], fn(c, _e) => {
-                ignored.set(c, ignored.get(c) + 1)
-            }),
+            ui.button(
+                .Const("dead"),
+                [],
+                [],
+                fn(c, _e) => { ignored.set(c, ignored.get(c) + 1) },
+                .Const(false),
+            ),
             ui.stack([.Passthrough(false)], [
-                ui.button(.Const("live"), [], [], fn(c, _e) => {
-                    ignored.set(c, ignored.get(c) + 10)
-                }),
+                ui.button(
+                    .Const("live"),
+                    [],
+                    [],
+                    fn(c, _e) => { ignored.set(c, ignored.get(c) + 10) },
+                    .Const(false),
+                ),
             ]),
         ]),
     );
@@ -922,7 +934,15 @@ test "a failing control announces so, and the ring hangs off the attribute" {
     let ring: [Style] = [.On(.Invalid, [.BorderColor(.Rgb(220, 38, 38))])];
     let page = render(
         ctx,
-        ui.field(.Const("Email"), .Email, ring, [], email, .Cell(failing)),
+        ui.field(
+            .Const("Email"),
+            .Email,
+            ring,
+            [],
+            email,
+            .Cell(failing),
+            .Const(false),
+        ),
     );
     assert.equal(
         page.markup(),
@@ -954,7 +974,15 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     let agreed = signal(ctx, false);
     let page = render(
         ctx,
-        ui.toggle(.Const("terms"), .Checkbox, [], [], agreed, .Const(true)),
+        ui.toggle(
+            .Const("terms"),
+            .Checkbox,
+            [],
+            [],
+            agreed,
+            .Const(true),
+            .Const(false),
+        ),
     );
     assert.equal(
         page.markup(),
@@ -964,7 +992,15 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     // every field and toggle in this suite already says.
     let quiet = render(
         ctx,
-        ui.toggle(.Const("done"), .Checkbox, [], [], agreed, .Const(false)),
+        ui.toggle(
+            .Const("done"),
+            .Checkbox,
+            [],
+            [],
+            agreed,
+            .Const(false),
+            .Const(false),
+        ),
     );
     assert.equal(
         quiet.markup(),
@@ -1501,6 +1537,7 @@ test "a translate shifts the painted box and moves no sibling" {
         [.Radius(.Px(8)), .On(.Active, [.Translate(.Px(0), .Px(1))])],
         [],
         fn(_c, _e) => (),
+        .Const(false),
     );
     assert.equal(
         render(ctx, save).markup(),
@@ -1728,9 +1765,13 @@ test "a button carries its label, and a press runs its handler" {
         Watch: observer(),
     };
     let count = signal(ctx, 0);
-    let tree = ui.button(.Const("add"), [], [], fn(c, e) => {
-        count.update(c, fn(n) => n + 1)
-    });
+    let tree = ui.button(
+        .Const("add"),
+        [],
+        [],
+        fn(c, e) => { count.update(c, fn(n) => n + 1) },
+        .Const(false),
+    );
     let page = render(ctx, tree);
     // The label is the accessible name, so it is an attribute; a button with no
     // children shows it, which is the one place the name and the glyphs agree.
@@ -1758,6 +1799,7 @@ test "a button holds children, and its label stays its name" {
         [.Padding(.Px(4))],
         [ui.text(.Const("*")), ui.text(.Const("Overview"))],
         fn(c, e) => count.update(c, fn(n) => n + 1),
+        .Const(false),
     );
     let page = render(ctx, tree);
     assert.equal(
@@ -1787,7 +1829,13 @@ test "a handler is handed the context the tree was rendered with" {
     // `lambda-captures-effect`, which is `cli/tests/reject/`'s business.
     let page = render(
         ctx,
-        ui.button(.Const("go"), [], [], fn(c, e) => seen.set(c, "pressed")),
+        ui.button(
+            .Const("go"),
+            [],
+            [],
+            fn(c, e) => seen.set(c, "pressed"),
+            .Const(false),
+        ),
     );
     let _ = page.press("go");
     assert.equal(seen.get(ctx), "pressed");
@@ -1817,8 +1865,8 @@ test "an image says what it shows" {
         Ui: headless(),
     };
     let tree = ui.stack([], [
-        ui.image(.Const("/cat.png"), .Const("a cat, asleep")),
-        ui.image(.Const("/rule.png"), .Const("")),
+        ui.image(.Const("/cat.png"), .Const("a cat, asleep"), []),
+        ui.image(.Const("/rule.png"), .Const(""), []),
     ]);
     // The empty string is how a decorative image says it is decorative,
     // which a reader has to be told and cannot guess.
@@ -1968,7 +2016,7 @@ test "a field is labelled, and what is typed into it is in its signal" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
     );
     assert.equal(
         page.markup(),
@@ -1985,7 +2033,7 @@ test "a field follows its signal when something else writes it" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
     );
     let _ = name.set(ctx, "grace");
     assert.equal(
@@ -2000,11 +2048,43 @@ test "a field kind is what the field accepts" {
     };
     let value = signal(ctx, "");
     let tree = ui.stack([], [
-        ui.field(.Const("story"), .Multiline, [], [], value, .Const(false)),
-        ui.field(.Const("secret"), .Password, [], [], value, .Const(false)),
-        ui.field(.Const("address"), .Email, [], [], value, .Const(false)),
-        ui.field(.Const("how many"), .Number, [], [], value, .Const(false)),
-        ui.field(.Const("query"), .Search, [], [], value, .Const(false)),
+        ui.field(
+            .Const("story"),
+            .Multiline,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("secret"),
+            .Password,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("address"),
+            .Email,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("how many"),
+            .Number,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(.Const("query"), .Search, [], [], value, .Const(false), .Const(false)),
     ]);
     assert.equal(
         render(ctx, tree).markup(),
@@ -2020,7 +2100,15 @@ test "a toggle is two states and a label" {
     let done = signal(ctx, false);
     let page = render(
         ctx,
-        ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)),
+        ui.toggle(
+            .Const("done"),
+            .Checkbox,
+            [],
+            [],
+            done,
+            .Const(false),
+            .Const(false),
+        ),
     );
     assert.equal(
         page.markup(),
@@ -2053,12 +2141,20 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)),
+            ui.toggle(
+                .Const("done"),
+                .Checkbox,
+                [],
+                [],
+                done,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 ${box}\nt 1 done",
+            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 ${box};checked:false\nt 1 done",
         ),
     );
     // A field is the same wrapper with the text first, which is the order the
@@ -2066,7 +2162,7 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+            ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
             .Hover,
         ),
         str.format(
@@ -2100,6 +2196,7 @@ test "a labelled control takes styles for the box around it" {
         [.Grow(1)],
         site,
         .Const(false),
+        .Const(false),
     );
     assert.equal(
         render(ctx, tree).markup(),
@@ -2123,6 +2220,7 @@ test "a labelled control takes styles for the box around it" {
                 [.Layout(.Column)],
                 site,
                 .Const(false),
+                .Const(false),
             ),
             .Hover,
         ),
@@ -2142,18 +2240,34 @@ test "a toggle draws its own mark" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("email"), .Switch, [], [], off, .Const(false)),
+            ui.toggle(
+                .Const("email"),
+                .Switch,
+                [],
+                [],
+                off,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
-        "am-start\ne 2 mark:thumb;height:100%;aspect-ratio:1",
+        "am-start;checked:false\ne 2 mark:thumb;height:100%;aspect-ratio:1",
     );
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false)),
+            ui.toggle(
+                .Const("email"),
+                .Switch,
+                [],
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
-        "am-end\ne 2 mark:thumb;height:100%;aspect-ratio:1",
+        "am-end;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1",
     );
     // A checkbox has its tick only when it is on. Before this a ticked checkbox
     // was a filled square with no check in it.
@@ -2161,7 +2275,15 @@ test "a toggle draws its own mark" {
         ui
             .describe(
                 ctx,
-                ui.toggle(.Const("done"), .Checkbox, [], [], off, .Const(false)),
+                ui.toggle(
+                    .Const("done"),
+                    .Checkbox,
+                    [],
+                    [],
+                    off,
+                    .Const(false),
+                    .Const(false),
+                ),
                 .Hover,
             )
             .contains("mark:"),
@@ -2169,7 +2291,15 @@ test "a toggle draws its own mark" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("done"), .Checkbox, [], [], on, .Const(false)),
+            ui.toggle(
+                .Const("done"),
+                .Checkbox,
+                [],
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
         "e 2 mark:tick;width:100%;height:100%",
@@ -2179,7 +2309,15 @@ test "a toggle draws its own mark" {
     assert.equal(
         render(
             ctx,
-            ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false)),
+            ui.toggle(
+                .Const("email"),
+                .Switch,
+                [],
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
         ).markup(),
         "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
     );
@@ -2196,6 +2334,252 @@ test "a toggle draws its own mark" {
         sheet,
         ":where(input[type=checkbox]:not([role=switch]):checked)::before{",
     );
+}
+
+test "an image takes styles of its own, and they land on the picture" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // buri#123: `image` was the one constructor with no `[Style]` slot, so a
+    // picture could not be told to fill its box, to crop square or to take the
+    // box's corner, and an avatar could not be built. The styles are the
+    // picture's rather than a wrapper's: a wrapper's own width is the
+    // wrapper's.
+    let tree = ui.image(.Const("/a.png"), .Const(""), [
+        .Width(.Full),
+        .AspectRatio(1.0),
+        .Radius(.Px(9999)),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<img src=\"/a.png\" alt=\"\" class=\"w-full ar-1 r-9999\" />",
+    );
+    // The scene carries the same three, behind the `image:` that says the box
+    // is a picture — the source comes first, so a style still wins over it.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:w-full ar-1 r-9999;image:/a.png",
+    );
+}
+
+test "a picture's styles take the conflict slots every other element's do" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // Two entries naming different edges compose; the same edge twice is
+    // last-wins; and a `Position`, an `On` and an `At` beside them each land
+    // where they land on any other element.
+    let tree = ui.image(.Const("/a.png"), .Const("a"), [
+        .PaddingEdge(.Top, .Px(4)),
+        .PaddingEdge(.Bottom, .Px(6)),
+        .PaddingEdge(.Top, .Px(8)),
+        .Position(.Sticky),
+        .On(.Hover, [.Opacity(0.5)]),
+        .At(.Medium, [.Width(.Px(40))]),
+    ]);
+    let classes = "class:pe-top-8 pe-bottom-6 pos-sticky hover_op-0_5 md_w-40";
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${classes};image:/a.png"),
+    );
+    // The same list at rest keeps the breakpoint class — a breakpoint is the
+    // stylesheet's business, not the snapshot's — and drops the hover one.
+    let resting = "class:pe-top-8 pe-bottom-6 pos-sticky md_w-40";
+    assert.equal(
+        ui.describe(ctx, tree, .Focus),
+        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${resting};image:/a.png"),
+    );
+}
+
+test "a disabled control says so in its markup" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // buri#126: nothing could put an element into `State::Disabled`, so every
+    // `On(.Disabled, ...)` ever written was dead code and a control that should
+    // refuse input stayed focusable. The attribute is what takes it out of the
+    // tab order and tells a reader it is unavailable rather than absent.
+    let name = signal(ctx, "ada");
+    let done = signal(ctx, false);
+    let tree = ui.stack([], [
+        ui.button(.Const("save"), [], [], fn(_c, _e) => (), .Const(true)),
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(true)),
+        ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false), .Const(true)),
+    ]);
+    assert.containsText(
+        render(ctx, tree).markup(),
+        "<button type=\"button\" aria-label=\"save\" disabled>save</button>",
+    );
+    assert.containsText(
+        render(ctx, tree).markup(),
+        "<input type=\"text\" value=\"ada\" disabled />",
+    );
+    assert.containsText(
+        render(ctx, tree).markup(),
+        "<input type=\"checkbox\" disabled />",
+    );
+}
+
+test "a disabled control refuses a press, a fill and a flip" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // What a browser does with one: it is not dispatched to at all, so the
+    // handler behind it cannot run and the signal behind it cannot move. A
+    // handler that no-ops fixes neither the tab order nor what is announced,
+    // which is why this is an attribute rather than a style.
+    let pressed = signal(ctx, 0);
+    let name = signal(ctx, "ada");
+    let done = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack([], [
+            ui.button(
+                .Const("save"),
+                [],
+                [],
+                fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
+                .Const(true),
+            ),
+            ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(true)),
+            ui.toggle(
+                .Const("done"),
+                .Checkbox,
+                [],
+                [],
+                done,
+                .Const(false),
+                .Const(true),
+            ),
+        ]),
+    );
+    let _ = page.press("save");
+    let _ = page.fill("name", "grace");
+    let _ = page.flip("done");
+    assert.equal(pressed.get(ctx), 0);
+    assert.equal(name.get(ctx), "ada");
+    assert.isFalse(done.get(ctx));
+}
+
+test "whether a control refuses input may vary" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let busy = signal(ctx, true);
+    let pressed = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.button(
+            .Const("save"),
+            [],
+            [],
+            fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
+            .Cell(busy),
+        ),
+    );
+    assert.containsText(page.markup(), "disabled");
+    let _ = page.press("save");
+    assert.equal(pressed.get(ctx), 0);
+    let _ = busy.set(ctx, false);
+    assert.isFalse(page.markup().contains("disabled"));
+    let _ = page.press("save");
+    assert.equal(pressed.get(ctx), 1);
+}
+
+test "On(.Disabled) fires from the control's own flag, in every state" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The flag adds the state and never takes one away: a control whose flag is
+    // set is unavailable whatever the snapshot was taken in, and a control
+    // whose flag is clear is still what a `.Disabled` snapshot is asking about.
+    let dim: [Style] = [.On(.Disabled, [.Opacity(0.5)])];
+    let refusing = ui.button(.Const("save"), dim, [], fn(_c, _e) => (), .Const(true));
+    let pressable = ui.button(.Const("save"), dim, [], fn(_c, _e) => (), .Const(false));
+    assert.equal(
+        ui.describe(ctx, refusing, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:disabled_op-0_5;disabled:true\nt 1 save",
+    );
+    assert.equal(
+        ui.describe(ctx, pressable, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 \nt 1 save",
+    );
+    // The snapshot still reaches a control that holds no such flag, which is
+    // the question `.Disabled` was always asking.
+    assert.equal(
+        ui.describe(ctx, pressable, .Disabled),
+        "buri-scene 1\nviewport 800 600\ne 0 class:disabled_op-0_5\nt 1 save",
+    );
+}
+
+test "a toggle's own value decides its checked styles" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // buri#119: `describe` read `On(.Checked, ...)` off the snapshot's state, so
+    // a page could not hold one toggle that is on and one that is off. A
+    // browser decides `:checked` from the control's own property, which is the
+    // signal the toggle is bound to — the same signal the mark is drawn from.
+    let on: [Style] = [.On(.Checked, [.Background(.Rgb(40, 150, 60))])];
+    let off = signal(ctx, false);
+    let lit = signal(ctx, true);
+    let tree = ui.column([], [
+        ui.toggle(.Const("off"), .Switch, on, [], off, .Const(false), .Const(false)),
+        ui.toggle(.Const("on"), .Switch, on, [], lit, .Const(false), .Const(false)),
+    ]);
+    let hovered = ui.describe(ctx, tree, .Hover);
+    assert.containsText(hovered, "checked:false");
+    assert.containsText(hovered, "checked_bg-28963c;checked:true");
+    // Exactly one of the two boxes is lit, in a state that names neither.
+    assert.equal(hovered.split(ctx, "checked_bg-28963c").length(), 2);
+    // The same two under a `.Checked` snapshot: the answer is still the
+    // control's, so the one bound to `false` stays as it was.
+    assert.equal(ui.describe(ctx, tree, .Checked), hovered);
+}
+
+test "the snapshot's Checked reaches what holds no answer of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // Nothing but a toggle answers for `:checked`, so a box carrying
+    // `On(.Checked, ...)` is still the snapshot's to decide.
+    let box = ui.stack([.On(.Checked, [.Opacity(0.25)])], []);
+    assert.equal(
+        ui.describe(ctx, box, .Checked),
+        "buri-scene 1\nviewport 800 600\ne 0 class:checked_op-0_25",
+    );
+    assert.equal(ui.describe(ctx, box, .Hover), "buri-scene 1\nviewport 800 600\ne 0 ");
+}
+
+test "a checked toggle answers the pointer's states as well as its own" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A hovered, checked box matches both rules in a browser, and `State` being
+    // one value is the snapshot's limitation rather than the element's.
+    let both: [Style] = [
+        .On(.Hover, [.Opacity(0.5)]),
+        .On(.Checked, [.Background(.Rgb(40, 150, 60))]),
+    ];
+    let lit = signal(ctx, true);
+    let scene = ui.describe(
+        ctx,
+        ui.toggle(.Const("on"), .Switch, both, [], lit, .Const(false), .Const(true)),
+        .Hover,
+    );
+    assert.containsText(scene, "hover_op-0_5");
+    assert.containsText(scene, "checked_bg-28963c");
+    assert.containsText(scene, "checked:true");
+    assert.containsText(scene, "disabled:true");
 }
 
 test "a field's kind is in the scene, and a password's value is never in it" {
@@ -2221,7 +2605,7 @@ test "a field's kind is in the scene, and a password's value is never in it" {
 fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
     ui.describe(
         ctx,
-        ui.field(.Const("secret"), kind, [], [], value, .Const(false)),
+        ui.field(.Const("secret"), kind, [], [], value, .Const(false), .Const(false)),
         .Hover,
     )
 }
@@ -2246,6 +2630,7 @@ test "a range field is a slider, and the browser drives it" {
             [],
             [],
             volume,
+            .Const(false),
             .Const(false),
         ),
     );
@@ -2288,6 +2673,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
                 [],
                 volume,
                 .Const(false),
+                .Const(false),
             ),
             .Hover,
         ),
@@ -2309,6 +2695,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
                 [],
                 signal(ctx, "9"),
                 .Const(false),
+                .Const(false),
             ),
             .Hover,
         ),
@@ -2326,6 +2713,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
                 [],
                 [],
                 signal(ctx, "a;b"),
+                .Const(false),
                 .Const(false),
             ),
             .Hover,
@@ -2363,6 +2751,7 @@ test "a range field's styles land on the input, and compose the way a control's 
         [],
         volume,
         .Const(false),
+        .Const(false),
     );
     assert.equal(
         render(ctx, tree).markup(),
@@ -2391,15 +2780,25 @@ test "a control takes styles of its own, and they land on the control" {
             [.Padding(.Px(12)), .On(.Hover, [.Opacity(0.9)])],
             [],
             fn(_c, _e) => (),
+            .Const(false),
         ),
         ui.link(.Const("/prices"), [.Foreground(.Rgb(9, 9, 9))], []),
-        ui.field(.Const("name"), .Text, [.Radius(.Px(4))], [], name, .Const(false)),
+        ui.field(
+            .Const("name"),
+            .Text,
+            [.Radius(.Px(4))],
+            [],
+            name,
+            .Const(false),
+            .Const(false),
+        ),
         ui.toggle(
             .Const("done"),
             .Checkbox,
             [.Width(.Px(20))],
             [],
             done,
+            .Const(false),
             .Const(false),
         ),
     ]);
@@ -2562,7 +2961,15 @@ test "a toggle's own styles paint, because the reset takes the native control aw
     assert.equal(
         render(
             ctx,
-            ui.toggle(.Const("Email me"), .Switch, styles, [], on, .Const(false)),
+            ui.toggle(
+                .Const("Email me"),
+                .Switch,
+                styles,
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
         ).markup(),
         "<label><input type=\"checkbox\" role=\"switch\" class=\"w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414\" checked /><span>Email me</span></label>",
     );
@@ -2581,7 +2988,15 @@ test "a toggle's own styles paint, because the reset takes the native control aw
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("Email me"), .Switch, styles, [], on, .Const(false)),
+            ui.toggle(
+                .Const("Email me"),
+                .Switch,
+                styles,
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
             .Checked,
         ),
         "am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414",
@@ -2634,6 +3049,7 @@ test "a designed focus ring replaces the platform's rather than joining it" {
         [.On(.Focus, [.BorderWidth(.Px(3))])],
         [],
         fn(_c, _e) => (),
+        .Const(false),
     );
     assert.equal(
         render(ctx, ringed).markup(),
@@ -2648,12 +3064,14 @@ test "a designed focus ring replaces the platform's rather than joining it" {
         [.On(.Focus, [.Opacity(0.7)])],
         [],
         fn(_c, _e) => (),
+        .Const(false),
     );
     let wide = ui.button(
         .Const("wide"),
         [.At(.Small, [.On(.Focus, [.BorderWidth(.Px(2))])])],
         [],
         fn(_c, _e) => (),
+        .Const(false),
     );
     assert.equal(
         render(ctx, faded).markup(),
@@ -2685,7 +3103,7 @@ test "a separator is a rule the caller paints, and a picture is its own block" {
     // text baseline beside whatever was written before it.
     let tree = ui.stack([], [
         ui.region(.Separator, [.Height(.Px(1)), .Background(.Rgb(229, 229, 229))], []),
-        ui.image(.Const("/logo.png"), .Const("")),
+        ui.image(.Const("/logo.png"), .Const(""), []),
     ]);
     assert.equal(
         render(ctx, tree).markup(),
@@ -2716,7 +3134,15 @@ test "a form is submitted, which is behaviour and so not a role" {
     let page = render(
         ctx,
         ui.form(fn(c, e) => added.set(c, draft.get(c)), [], [
-            ui.field(.Const("what"), .Text, [], [], draft, .Const(false)),
+            ui.field(
+                .Const("what"),
+                .Text,
+                [],
+                [],
+                draft,
+                .Const(false),
+                .Const(false),
+            ),
         ]),
     );
     let _ = page.fill("what", "milk");
@@ -3066,7 +3492,7 @@ fn appendRow<C: Allocator + Ui + Watch>(ctx: C, xs: Signal<[Str]>): () {
 
 fn growable<C>(xs: Signal<[Str]>, add: fn(C, Event) => ()): Node<C> {
     ui.column([], [
-        ui.button(.Const("go"), [], [], add),
+        ui.button(.Const("go"), [], [], add, .Const(false)),
         ui.region(.List, [], [ui.each(.Cell(xs), itself, labelRow)]),
     ])
 }
@@ -3105,7 +3531,13 @@ test "one press is one update, however many signals it writes" {
 
     let page = render(
         ctx,
-        ui.button(.Const("both"), [], [], fn(c, e) => writeBoth(c, first, second)),
+        ui.button(
+            .Const("both"),
+            [],
+            [],
+            fn(c, e) => writeBoth(c, first, second),
+            .Const(false),
+        ),
     );
     let _ = page.press("both");
 
@@ -3145,7 +3577,13 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
     ui.column([], [
-        ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1)),
+        ui.button(
+            .Const(label),
+            [],
+            [],
+            fn(c, e) => count.update(c, fn(n) => n + 1),
+            .Const(false),
+        ),
         badge(.Const(label), .Cell(count)),
         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
     ])

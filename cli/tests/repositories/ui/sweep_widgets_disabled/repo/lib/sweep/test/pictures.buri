@@ -1,0 +1,42 @@
+// Two pictures of one tree: what the control's own flag lights, and what a
+// `.Disabled` snapshot lights beside it.
+//
+// The `describe` assertion in each is what says the two pictures are two
+// documents. The resting one carries `disabled:true` on the controls that
+// refuse input and on no others; the snapshot one lights every cell, because
+// a flag that is clear takes nothing away from the question `.Disabled` asks.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import { flagPage };
+
+test "the flag is what fires On(.Disabled)" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // Hover, so nothing about the snapshot's state can be doing this.
+    let scene = ui.describe(ctx, flagPage(ctx), .Hover);
+    assert.containsText(scene, "disabled:true");
+    assert.containsText(scene, "disabled_bg-");
+    assert.containsText(scene, "disabled_op-");
+    assert.containsText(scene, "disabled_bw-");
+    assert.containsText(scene, "disabled_fg-");
+    assert.isFalse(scene.contains("hover_"));
+    snapshot(ctx, "disabled-flag", flagPage(ctx), .Hover, []);
+}
+
+test "a snapshot still asks every control the question" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, flagPage(ctx), .Disabled);
+    assert.containsText(scene, "disabled:true");
+    assert.containsText(scene, "disabled_bg-");
+    snapshot(ctx, "disabled-snapshot", flagPage(ctx), .Disabled, []);
+}

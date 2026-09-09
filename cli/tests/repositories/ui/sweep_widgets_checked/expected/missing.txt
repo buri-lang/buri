@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "one switch on and one off, in a state that names neither"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/sweep/test/pictures.buri:15:1
+
+0 passed, 1 failed, 1 skipped (0.0s)

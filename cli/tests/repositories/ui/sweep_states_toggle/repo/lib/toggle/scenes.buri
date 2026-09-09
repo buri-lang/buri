@@ -88,7 +88,12 @@ fn allStates(): [Style] {
 }
 
 /// The control, with the base under `extra`.
-fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
+///
+/// `on` is the box's own answer to `On(.Checked, ...)`: a toggle is checked
+/// because its signal says so, not because the snapshot was taken in
+/// `.Checked`. So the four pointer states run with the box off, and the checked
+/// picture is the same tree with it on.
+fn styled<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
     ui.toggle(
         .Const("on"),
         .Checkbox,
@@ -103,7 +108,8 @@ fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
             .Group(extra),
         ],
         [],
-        signal.signal(ctx, true),
+        signal.signal(ctx, on),
+        .Const(false),
         .Const(false),
     )
 }
@@ -112,7 +118,7 @@ fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
 /// shape a toggle is written in everywhere. The label sits beside the box on
 /// one line, and the `<label>` the runtime wraps the pair in is what puts it
 /// there.
-fn boxed<C: Ui>(ctx: C, extra: [Style]): Node<C> {
+fn boxed<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
     ui.toggle(
         .Const("on"),
         .Checkbox,
@@ -126,19 +132,21 @@ fn boxed<C: Ui>(ctx: C, extra: [Style]): Node<C> {
             .Group(extra),
         ],
         [],
-        signal.signal(ctx, true),
+        signal.signal(ctx, on),
+        .Const(false),
         .Const(false),
     )
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
-fn bare<C: Ui>(ctx: C, extra: [Style]): Node<C> {
+fn bare<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
     ui.toggle(
         .Const("on"),
         .Checkbox,
         [.Group(extra)],
         [],
-        signal.signal(ctx, true),
+        signal.signal(ctx, on),
+        .Const(false),
         .Const(false),
     )
 }
@@ -199,97 +207,108 @@ fn page<C>(rows: [Node<C>]): Node<C> {
 }
 
 /// The styled control, answering in one property per column.
-fn styledRow<C: Ui>(ctx: C): Node<C> {
+fn styledRow<C: Ui>(ctx: C, on: Bool): Node<C> {
     grid([
         label("styled"),
-        styled(ctx, backgroundStates()),
-        styled(ctx, foregroundStates()),
-        styled(ctx, borderStates()),
-        styled(ctx, opacityStates()),
-        styled(ctx, shadowStates()),
-        styled(ctx, allStates()),
-        styled(ctx, []),
+        styled(ctx, on, backgroundStates()),
+        styled(ctx, on, foregroundStates()),
+        styled(ctx, on, borderStates()),
+        styled(ctx, on, opacityStates()),
+        styled(ctx, on, shadowStates()),
+        styled(ctx, on, allStates()),
+        styled(ctx, on, []),
     ])
 }
 
 /// The same row with nothing to answer with.
-fn restingRow<C: Ui>(ctx: C): Node<C> {
+fn restingRow<C: Ui>(ctx: C, on: Bool): Node<C> {
     grid([
         label("styled"),
-        styled(ctx, []),
-        styled(ctx, []),
-        styled(ctx, []),
-        styled(ctx, []),
-        styled(ctx, []),
-        styled(ctx, []),
-        styled(ctx, []),
+        styled(ctx, on, []),
+        styled(ctx, on, []),
+        styled(ctx, on, []),
+        styled(ctx, on, []),
+        styled(ctx, on, []),
+        styled(ctx, on, []),
+        styled(ctx, on, []),
     ])
 }
 
 /// The checkbox row, answering in one property per column.
-fn boxedRow<C: Ui>(ctx: C): Node<C> {
+fn boxedRow<C: Ui>(ctx: C, on: Bool): Node<C> {
     grid([
         label("boxed"),
-        boxed(ctx, backgroundStates()),
-        boxed(ctx, foregroundStates()),
-        boxed(ctx, borderStates()),
-        boxed(ctx, opacityStates()),
-        boxed(ctx, shadowStates()),
-        boxed(ctx, allStates()),
-        boxed(ctx, []),
+        boxed(ctx, on, backgroundStates()),
+        boxed(ctx, on, foregroundStates()),
+        boxed(ctx, on, borderStates()),
+        boxed(ctx, on, opacityStates()),
+        boxed(ctx, on, shadowStates()),
+        boxed(ctx, on, allStates()),
+        boxed(ctx, on, []),
     ])
 }
 
 /// The same row with nothing to answer with.
-fn boxedRestingRow<C: Ui>(ctx: C): Node<C> {
+fn boxedRestingRow<C: Ui>(ctx: C, on: Bool): Node<C> {
     grid([
         label("boxed"),
-        boxed(ctx, []),
-        boxed(ctx, []),
-        boxed(ctx, []),
-        boxed(ctx, []),
-        boxed(ctx, []),
-        boxed(ctx, []),
-        boxed(ctx, []),
+        boxed(ctx, on, []),
+        boxed(ctx, on, []),
+        boxed(ctx, on, []),
+        boxed(ctx, on, []),
+        boxed(ctx, on, []),
+        boxed(ctx, on, []),
+        boxed(ctx, on, []),
     ])
 }
 
 /// The control with no styles under the state's.
-fn bareRow<C: Ui>(ctx: C): Node<C> {
+fn bareRow<C: Ui>(ctx: C, on: Bool): Node<C> {
     grid([
         label("bare"),
-        bare(ctx, backgroundStates()),
-        bare(ctx, foregroundStates()),
-        bare(ctx, borderStates()),
-        bare(ctx, opacityStates()),
-        bare(ctx, shadowStates()),
-        bare(ctx, allStates()),
-        bare(ctx, []),
+        bare(ctx, on, backgroundStates()),
+        bare(ctx, on, foregroundStates()),
+        bare(ctx, on, borderStates()),
+        bare(ctx, on, opacityStates()),
+        bare(ctx, on, shadowStates()),
+        bare(ctx, on, allStates()),
+        bare(ctx, on, []),
     ])
 }
 
 /// The same bare row with nothing to answer with.
-fn bareRestingRow<C: Ui>(ctx: C): Node<C> {
+fn bareRestingRow<C: Ui>(ctx: C, on: Bool): Node<C> {
     grid([
         label("bare"),
-        bare(ctx, []),
-        bare(ctx, []),
-        bare(ctx, []),
-        bare(ctx, []),
-        bare(ctx, []),
-        bare(ctx, []),
-        bare(ctx, []),
+        bare(ctx, on, []),
+        bare(ctx, on, []),
+        bare(ctx, on, []),
+        bare(ctx, on, []),
+        bare(ctx, on, []),
+        bare(ctx, on, []),
+        bare(ctx, on, []),
     ])
 }
 
 /// Every element answering to every state, one property to a column.
 export fn responsive<C: Ui>(ctx: C): Node<C> {
+    stated(ctx, false)
+}
+
+/// The same tree with every box on, which is the only way its `On(.Checked)`
+/// styles fire: the value is the answer, and the snapshot's state is not.
+export fn checked<C: Ui>(ctx: C): Node<C> {
+    stated(ctx, true)
+}
+
+/// The tree the state pictures are taken of, with every box `on` or off.
+fn stated<C: Ui>(ctx: C, on: Bool): Node<C> {
     page([
         ui.text(.Const("toggle, in every state")),
         headings(),
-        styledRow(ctx),
-        boxedRow(ctx),
-        bareRow(ctx),
+        styledRow(ctx, on),
+        boxedRow(ctx, on),
+        bareRow(ctx, on),
     ])
 }
 
@@ -299,8 +318,8 @@ export fn resting<C: Ui>(ctx: C): Node<C> {
     page([
         ui.text(.Const("toggle, in every state")),
         headings(),
-        restingRow(ctx),
-        boxedRestingRow(ctx),
-        bareRestingRow(ctx),
+        restingRow(ctx, false),
+        boxedRestingRow(ctx, false),
+        bareRestingRow(ctx, false),
     ])
 }
