@@ -102,6 +102,7 @@ fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
             .Group(extra),
         ],
         signal.signal(ctx, true),
+        .Const(false),
     )
 }
 
@@ -122,12 +123,13 @@ fn boxed<C: Ui>(ctx: C, extra: [Style]): Node<C> {
             .Group(extra),
         ],
         signal.signal(ctx, true),
+        .Const(false),
     )
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C: Ui>(ctx: C, extra: [Style]): Node<C> {
-    ui.toggle(.Const("on"), [.Group(extra)], signal.signal(ctx, true))
+    ui.toggle(.Const("on"), [.Group(extra)], signal.signal(ctx, true), .Const(false))
 }
 
 /// One label cell.

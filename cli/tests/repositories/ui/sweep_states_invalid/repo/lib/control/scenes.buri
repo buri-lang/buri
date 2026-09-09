@@ -1,0 +1,142 @@
+// `State::Invalid`, the failure treatment every design system paints.
+//
+// Seven columns: `Background`, `Foreground`, `Border`, `Opacity` and `Shadow`
+// one at a time, then all five at once, then the cell that answers to nothing
+// — so a picture says which element responded and how, with the one that did
+// not beside the ones that did.
+//
+// `failing` carries the `On(.Invalid, ...)` groups and marks the two controls
+// invalid; `resting` is the same tree with both gone, which is what a resting
+// picture is — `State` has no resting variant, so `snapshot` cannot ask for
+// one.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import * as signal;
+from "ui/style" import { Shadow, Style };
+
+/// The page every picture is drawn on: eight hundred wide, so a boundary in a
+/// picture is a number off the viewport's own edge.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))], rows)
+}
+
+/// One row: the label, then the cells.
+fn band<C>(label: Str, cells: [Node<C>]): Node<C> {
+    ui.column([.Gap(.Px(2))], [
+        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
+            ui.text(.Const(label)),
+        ]),
+        ui.row([.Gap(.Px(10))], cells),
+    ])
+}
+
+/// The ring a failure is drawn with: a spread and no blur, so it is a band
+/// around the control rather than a slab behind it.
+fn ring(): Shadow {
+    Shadow {
+        x: .Px(0),
+        y: .Px(0),
+        blur: .Px(0),
+        spread: .Px(3),
+        color: .Rgb(248, 180, 180),
+    }
+}
+
+/// All five properties at once, which is the same classes the five columns
+/// below ask for one at a time.
+fn everything(): [Style] {
+    [
+        .On(
+            .Invalid,
+            [
+                .Background(.Rgb(254, 226, 226)),
+                .Foreground(.Rgb(153, 27, 27)),
+                .BorderWidth(.Px(3)),
+                .BorderColor(.Rgb(220, 38, 38)),
+                .Opacity(0.55),
+                .Shadow(ring()),
+            ],
+        ),
+    ]
+}
+
+/// The base every cell carries, so a cell is visible before a state touches
+/// it.
+fn base(extra: [Style]): [Style] {
+    [
+        .Width(.Px(96)),
+        .Height(.Px(40)),
+        .Padding(.Px(6)),
+        .Background(.Rgb(150, 170, 200)),
+        .Foreground(.Rgb(24, 24, 24)),
+        .BorderWidth(.Px(2)),
+        .BorderColor(.Rgb(70, 90, 120)),
+        .Radius(.Px(4)),
+        .Group(extra),
+    ]
+}
+
+/// One cell.
+fn cell<C>(extra: [Style]): Node<C> {
+    ui.stack(base(extra), [ui.text(.Const("cell"))])
+}
+
+/// The tree, with the state groups on it or with nothing on it at all.
+fn tree<C: Ui>(ctx: C, stated: Bool): Node<C> {
+    let background: [Style] = [.On(.Invalid, [.Background(.Rgb(254, 226, 226))])];
+    let foreground: [Style] = [.On(.Invalid, [.Foreground(.Rgb(153, 27, 27))])];
+    let border: [Style] = [
+        .On(.Invalid, [.BorderWidth(.Px(3)), .BorderColor(.Rgb(220, 38, 38))]),
+    ];
+    let opacity: [Style] = [.On(.Invalid, [.Opacity(0.55)])];
+    let shadow: [Style] = [.On(.Invalid, [.Shadow(ring())])];
+    let all = everything();
+    let on = fn(styles: [Style]) => if (stated) { styles } else { [] };
+    page([
+        band("stack, one property to a cell, then all five, then none", [
+            cell(on(background)),
+            cell(on(foreground)),
+            cell(on(border)),
+            cell(on(opacity)),
+            cell(on(shadow)),
+            cell(on(all)),
+            cell([]),
+        ]),
+        band("heading, button and link", [
+            ui.heading(3, base(on(all)), .Const("head")),
+            ui.button(.Const("press"), base(on(all)), fn(_c, _e) => ()),
+            ui.link(.Const("/a"), base(on(all)), [ui.text(.Const("go"))]),
+        ]),
+        // The two controls that can *enter* the state: `invalid` is a
+        // parameter on each, and it is what writes the `aria-invalid` the
+        // rule asks about.
+        band("field and toggle, marked invalid", [
+            ui.field(
+                .Const("Email"),
+                .Email,
+                base(on(all)),
+                signal.signal(ctx, "ada@"),
+                .Const(stated),
+            ),
+            ui.toggle(
+                .Const("terms"),
+                base(on(all)),
+                signal.signal(ctx, false),
+                .Const(stated),
+            ),
+        ]),
+    ])
+}
+
+/// The tree with the `On(.Invalid, ...)` groups on it.
+export fn failing<C: Ui>(ctx: C): Node<C> {
+    tree(ctx, true)
+}
+
+/// The same tree with the groups gone: what a control looks like before it
+/// fails anything.
+export fn resting<C: Ui>(ctx: C): Node<C> {
+    tree(ctx, false)
+}

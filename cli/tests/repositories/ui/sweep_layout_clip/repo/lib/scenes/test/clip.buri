@@ -1,0 +1,40 @@
+// `Clip`: what a box does with what runs past its edge, and what the corners
+// do about it.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { against, corners, overflow, primitives };
+
+test "what a box does with a child larger than it is" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "clip-overflow", overflow(), .Hover, []);
+}
+
+test "a full-bleed child cut to the corners its parent has" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "clip-corners", corners(), .Hover, []);
+}
+
+test "a clip beside a scroll, either way round" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "clip-against-scroll", against(), .Hover, []);
+}
+
+test "every primitive that holds a child, clipped and not" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "clip-primitives", primitives(), .Hover, []);
+}
