@@ -218,7 +218,9 @@ export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<
             .PaddingY(.Px(6)),
             .Radius(.Px(6)),
             .BorderWidth(.Px(1)),
-            .Group(if (first) { [] } else {
+            .Group(if (first) {
+                []
+            } else {
                 [
                     .RadiusCorner(.TopStart, .Px(0)),
                     .RadiusCorner(.BottomStart, .Px(0)),
