@@ -1,0 +1,19 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:43:6
+   |
+43 |     }
+   |      ^
+   |
+   = fix: write `;` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:56:5
+   |
+56 |     export fn parts(self): (I64, I64) {
+   |     ^^^^^^
+   |
+  --> main.buri:38:55
+   |
+38 |     export fn format<C: Allocator>(self, ctx: C): Str {
+   |                                                       ^ opened here
+   |
+   = fix: write `}` here

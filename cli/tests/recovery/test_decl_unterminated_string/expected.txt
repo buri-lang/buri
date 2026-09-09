@@ -1,12 +1,8 @@
-error [unterminated-string] 6:19-7:1
+error [unterminated-string] 5:19-6:1
 message: unterminated string literal
 fix: close it with `"`; a string literal does not span a line break
 
-error [unexpected-token] 7:3-7:9
-message: expected `{`, found `assert`
-fix: write `{` here
-
-error [unexpected-token] 8:1-8:2
+error [unexpected-token] 7:1-7:2
 message: expected a declaration, found `}`
 fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
 
