@@ -2,8 +2,3 @@ error [unterminated-string] 3:18-4:1
 message: unterminated string literal
 fix: close it with `"`; a string literal does not span a line break
 
-error [unclosed-delimiter] 4:1-4:2
-message: this tuple is missing its closing `)`
-fix: write `)` here
-related: 3:3-3:4 opened here
-

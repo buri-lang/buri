@@ -1,5 +1,4 @@
 // EXPECT: unterminated string literal
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/116
 export fn size(n: Int): Str {
   match (n) {
     n if n > 10 => "large,

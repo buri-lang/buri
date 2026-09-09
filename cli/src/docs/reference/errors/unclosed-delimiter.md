@@ -22,6 +22,9 @@ An abandoned construct takes the rest of the file with it: whatever closer comes
 next is read as this construct's, and the errors that follow are about the
 miscount rather than about the program. Naming the opener stops that.
 
+A block whose `}` never turned up is where the parser guessed it ended, so
+nothing in it gets typechecked. Close it and the types come back.
+
 ## A program that provokes it
 
 ```buri fail code=unclosed-delimiter

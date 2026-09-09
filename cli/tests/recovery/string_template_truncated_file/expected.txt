@@ -1,7 +1,3 @@
-error [wrong-argument-count] 6:3-6:14
-message: `format` takes 2 arguments, but 0 were given
-fix: pass `format` the following arguments: format<C: Allocator>(ctx: C, template: Template)
-
 error [unclosed-delimiter] 7:1-7:1
 message: this call is missing its closing `)`
 fix: write `)` here
