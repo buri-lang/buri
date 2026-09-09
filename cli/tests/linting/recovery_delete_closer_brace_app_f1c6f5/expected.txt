@@ -1,4 +1,4 @@
-warning: `write` is 45 lines long [oversized-function]
+warning: `write` is 41 lines long [oversized-function]
   --> lib/recovery_delete_closer_brace_app_f1c6f5/main.buri:17:4
    |
 17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
