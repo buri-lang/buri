@@ -15,7 +15,6 @@ error: expected `F64`, found `fn(F64) => Duration` [type-mismatch]
    |
    = expected: `F64`
    = actual: `fn(F64) => Duration`
-   = fix: produce a `F64` here, or change what surrounds it to accept a `fn(F64) => Duration`
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:40:48
    |

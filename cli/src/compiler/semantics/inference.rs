@@ -718,23 +718,38 @@ impl<'a, 'b> Infer<'a, 'b> {
             // There is no implicit promotion of any kind, and the most common
             // way to hit this is expecting one. The conversion is named
             // explicitly, because which one it is depends on whether the value
-            // can fail to fit.
+            // can fail to fit. Every other mismatch gets no `fix`: the only
+            // sentence there is to write is "produce the expected type", which
+            // the `expected` and `actual` lines have already said.
             if is_numeric_mismatch(&a, &b) {
                 d = d
                     .with_note("there is no implicit promotion of any kind")
                     .with_fix(numeric_fix(&a, &b));
-            } else {
-                if let Some(note) = unpinned_literal_note(&a, &b) {
-                    d = d.with_note(note);
-                }
-                d = d.with_fix(format!(
-                    "produce {} here, or change what surrounds it to accept {}",
-                    b.noun_phrase(),
-                    a.noun_phrase()
-                ));
+            } else if let Some(note) = unpinned_literal_note(&a, &b) {
+                d = d.with_note(note);
             }
             self.c.diags.push(d);
         }
+    }
+
+    /// A `.Variant` — as an expression or as a pattern — where the position
+    /// expects something that is not an enum.
+    ///
+    /// It is an ordinary type mismatch, so it reads as one: the position wants
+    /// `expected`, and what is written is a variant. The note teaches the
+    /// syntax, because a reader who wrote the dot form usually believes the
+    /// position is an enum, and nothing here can guess the value they meant.
+    pub(crate) fn report_dot_form_against(&mut self, expected: &str, variant: &str, span: Span) {
+        let wanted = format!("`{expected}`");
+        let written = format!("a variant `.{variant}`");
+        self.templated("type-mismatch", span)
+            .bind("expected", wanted.clone())
+            .bind("found", written.clone())
+            .mismatch(wanted, written)
+            .note(format!(
+                "a value written with a leading dot names a variant of the enum the \
+                 position expects, and this position expects `{expected}`"
+            ));
     }
 
     pub(crate) fn resolve(&self, t: &Ty) -> Ty {
