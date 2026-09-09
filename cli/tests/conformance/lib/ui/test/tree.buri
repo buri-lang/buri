@@ -24,7 +24,7 @@ from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui, Watch };
+from "ui/effect" import { Event, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node };
 from "ui/prop" import { Prop };
@@ -1992,6 +1992,43 @@ test "formatted text follows the signal it was formatted from" {
     assert.equal(page.text(), "1 items");
     let _ = n.set(ctx, 12);
     assert.equal(page.text(), "12 items");
+}
+
+// buri-lang/buri#143, in the document. A handler that grows a list signal out
+// of the list the cell already holds is the ordinary way to append, and every
+// press has to reach the page — not the first one only.
+
+fn appendRow<C: Allocator + Ui + Watch>(ctx: C, xs: Signal<[Str]>): () {
+    let current = xs.get(ctx);
+    let next = str.format(ctx, "x${current.length()}");
+    xs.set(ctx, current.concat(ctx, [next]))
+}
+
+fn growable<C>(xs: Signal<[Str]>, add: fn(C, Event) => ()): Node<C> {
+    ui.column([], [
+        ui.button(.Const("go"), [], [], add),
+        ui.region(.List, [], [ui.each(.Cell(xs), itself, labelRow)]),
+    ])
+}
+
+test "each follows a get-then-set append on every press" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: alloc(),
+    };
+    let xs = signal(ctx, ["a", "b"]);
+    let page = render(ctx, growable(xs, fn(c, e) => appendRow(c, xs)));
+    assert.equal(page.text(), "go a b");
+    let _ = page.press("go");
+    assert.equal(page.text(), "go a b x2");
+    let _ = page.press("go");
+    assert.equal(page.text(), "go a b x2 x3");
+    let _ = page.press("go");
+    assert.equal(page.text(), "go a b x2 x3 x4");
+    // The state and the document say the same thing, which is the half the
+    // issue reported as a disagreement.
+    assert.equal(xs.get(ctx), ["a", "b", "x2", "x3", "x4"]);
 }
 
 // --- batching ------------------------------------------------------------------------
