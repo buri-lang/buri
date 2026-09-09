@@ -1,0 +1,40 @@
+// The containers a layout property applies to: every role, a list, a table and
+// `each`.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { eachRows, lists, roles, tables };
+
+test "every role a region can take, holding one row of two blocks" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "containers-roles", roles(), .Hover, []);
+}
+
+test "a list region, marked and unmarked" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "containers-lists", lists(), .Hover, []);
+}
+
+test "a table region, its rows and its three kinds of cell" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "containers-table", tables(), .Hover, []);
+}
+
+test "rows the walk asks for, under three layouts" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "containers-each", eachRows(), .Hover, []);
+}

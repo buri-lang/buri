@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/text.buri  "how narrow a run of text can be made"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/scenes/test/text.buri:10:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

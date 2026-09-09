@@ -1,0 +1,76 @@
+// The flex axis and everything measured along it, one picture per property.
+//
+// Every value of a property is a labelled row of the same picture, so a
+// property that stopped being read moves exactly one golden.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import {
+    alignCross, alignMain, alignSelf, directions, gaps, growShrink, layers, wrapping,
+};
+
+test "every way a container arranges its children" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-direction", directions(), .Hover, []);
+}
+
+test "the space between children, both ways and one at a time" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-gap", gaps(), .Hover, []);
+}
+
+test "where children sit along the axis" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-align-main", alignMain(), .Hover, []);
+}
+
+test "where children sit across the axis" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-align-cross", alignCross(), .Hover, []);
+}
+
+test "one child overriding what its parent said about the cross axis" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-align-self", alignSelf(), .Hover, []);
+}
+
+test "whether children that do not fit start a new line" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-wrap", wrapping(), .Hover, []);
+}
+
+test "what a child takes of the room left over, and what it gives up" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-grow-shrink", growShrink(), .Hover, []);
+}
+
+test "the order children are written in is the order they stack in" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layout-layers", layers(), .Hover, []);
+}
