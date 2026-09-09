@@ -149,12 +149,25 @@ at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 50 properties and five ways of composing them. Every property is
+`ui/style` is 51 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
 right by construction, and a corner is the two edges that meet at it
 (`.TopStart`). What matters is where a style *goes*.
+
+A distance is a `Length`: `.Px`, `.Rem`, `.Em`, `.Percent`, `.Auto`, `.Full`. A
+rem follows the root's text size and an em follows the element's own, which is
+what tracking wants — `.LetterSpacing(.Em(-0.025))` is right at every size the
+type is ever set at, and the rem that matches it at sixteen pixels is wrong at
+every other.
+
+`Layout` is `.Column`, `.Row`, `.ColumnReverse`, `.RowReverse`, `.Grid` and
+`.Layers`. A reversed stack paints its children backwards and leaves the
+document's order alone — the order the caller wrote, and the order a screen
+reader and the tab ring read — so a toaster grows from the bottom and a dialog
+footer puts the confirming action on top without the caller reordering anything.
+A grid does not reverse: its children go in the tracks the container named.
 
 `Bleed(Edge, Length)` is the one way *out* of the box a container put a child
 in, and it is a distance outwards rather than a margin: `.Auto` and a negative
@@ -194,9 +207,12 @@ get one class and one rule. Nothing is generated at run time.
 
 Two constructors exist only in this tier, because neither has an inline form:
 
-- `On(State, [Style])` is a pseudo-class — hover, focus, pressed, disabled,
-  checked. **This is why hover is not an event.** It costs nothing, needs no
-  signal write on a mouse move, and maps to a native pressed or focused trait.
+- `On(State, [Style])` is a pseudo-class — hover, focus, focus-within,
+  pressed, disabled, checked. **This is why hover is not an event.** It costs
+  nothing, needs no signal write on a mouse move, and maps to a native pressed
+  or focused trait. `Focus` is the element's own keyboard attention and
+  `FocusWithin` is a container's: the wrapper of an input group owns the
+  hairline and the ring, and the control inside it stays bare.
 - `At(Screen, [Style])` is a breakpoint, from one of four widths upwards.
   Mobile-first: the media queries are written in ascending order, so a larger
   tier overrides a smaller one by position, and there is never a maximum-width
@@ -362,6 +378,10 @@ export fn avatar<C>(source: Str): Node<C> {
 }
 ```
 
+`Translate(Length, Length)` moves an element after it has been laid out, so
+nothing around it shifts. That is what a press is:
+`On(.Active, [.Translate(.Px(0), .Px(1))])` sinks a button by a pixel and leaves
+the row it is in alone, where a padding would reflow the row.
 **A state a widget holds is the widget's answer, not the snapshot's.**
 `button`, `field` and `toggle` take a `disabled: Prop<Bool>`, and it is an
 attribute rather than a style: it takes the control out of the tab order,

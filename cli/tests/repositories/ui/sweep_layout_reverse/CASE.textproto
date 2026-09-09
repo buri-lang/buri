@@ -1,0 +1,75 @@
+# `Layout.ColumnReverse` and `Layout.RowReverse`, in three pictures.
+#
+# Every stack on these pages is handed the same children in the same written
+# order. What moves is only the paint.
+#
+# `reverse-direction.png` is the four arrangements one under another, four
+# numbered children in each: a reversed row reads four, three, two, one from the
+# left, and a reversed column reads them bottom to top.
+#
+# `reverse-alignment.png` is the fact that catches people out: the main axis
+# runs the other way, so `AlignMain(.Start)` in a reversed row is the *right*
+# edge. Six rows, a plain row over a reversed one at each of three alignments.
+#
+# `reverse-shapes.png` is the two shapes the issue named — a toaster whose
+# newest toast is nearest the bottom, and a dialog footer with the confirming
+# action on top — and the test beside it reads the rendered document to say the
+# arrays are still oldest-first.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the two reversed layouts against the two plain ones, painted and compared against three goldens with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/reverse", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/reverse/test/__snapshots__/reverse-direction.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/reverse/test/reverse.buri"
+  replace: "\"reverse-direction\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/reverse", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/reverse/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/reverse", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/reverse/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/reverse", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: the first `Layout(.ColumnReverse)` written out is the
+# toaster's, and with it gone only the picture holding it moves.
+edit {
+  file: "lib/reverse/scenes.buri"
+  replace: ".Layout(.ColumnReverse)"
+  with: ".Layout(.Column)"
+}
+
+run {
+  args: ["test", "//lib/reverse", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/reverse/test/__snapshots__/reverse-shapes.diff.png"  exists: true }
+path { path: "lib/reverse/test/__snapshots__/reverse-direction.diff.png"  exists: false }

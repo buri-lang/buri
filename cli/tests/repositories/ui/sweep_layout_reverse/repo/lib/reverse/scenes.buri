@@ -1,0 +1,187 @@
+// `Layout.ColumnReverse` and `Layout.RowReverse`.
+//
+// The children are written one, two, three, four in every stack on this page.
+// What changes down a picture is only where the painter puts them: a reversed
+// stack starts at the far end and runs back, and the document — what a screen
+// reader and the tab ring read — is untouched.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Align, Layout, Style };
+
+/// The page every picture is drawn on.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.PaddingY(.Px(6)), .Gap(.Px(10)), .FontSize(.Px(13))], rows)
+}
+
+/// One row of a picture: the value it shows, and the boxes that show it.
+fn band<C>(label: Str, demo: Node<C>): Node<C> {
+    ui.column([.Gap(.Px(2))], [
+        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
+            ui.text(.Const(label)),
+        ]),
+        demo,
+    ])
+}
+
+/// One numbered child, wide enough to read.
+fn item<C>(n: Str): Node<C> {
+    ui.stack(
+        [
+            .Width(.Px(60)),
+            .Height(.Px(28)),
+            .AlignMain(.Center),
+            .AlignCross(.Center),
+            .Background(.Rgb(150, 170, 200)),
+            .Foreground(.Rgb(255, 255, 255)),
+        ],
+        [ui.text(.Const(n))],
+    )
+}
+
+/// A stack of four numbered children, arranged as `layout` says. Every stack on
+/// this page is handed them in this one order.
+fn stackOf<C>(layout: Layout): Node<C> {
+    ui.stack(
+        [
+            .Layout(layout),
+            .Gap(.Px(6)),
+            .Padding(.Px(6)),
+            .Width(.Px(360)),
+            .AlignCross(.Start),
+            .Background(.Rgb(238, 238, 244)),
+        ],
+        [item("one"), item("two"), item("three"), item("four")],
+    )
+}
+
+/// The four arrangements one after another, each holding the same four children
+/// in the same written order. A reversed row reads four, three, two, one from
+/// the left; a reversed column reads them bottom to top.
+export fn direction<C>(): Node<C> {
+    page([
+        ui.text(.Const("the same four children, written one to four, in four layouts")),
+        band("Layout(.Row)", stackOf(.Row)),
+        band(
+            "Layout(.RowReverse) — four at the left, one at the right",
+            stackOf(.RowReverse),
+        ),
+        band("Layout(.Column)", stackOf(.Column)),
+        band(
+            "Layout(.ColumnReverse) — four at the top, one at the bottom",
+            stackOf(.ColumnReverse),
+        ),
+    ])
+}
+
+/// Two children in a stack aligned along its main axis by `align`.
+fn aligned<C>(layout: Layout, align: Align): Node<C> {
+    ui.stack(
+        [
+            .Layout(layout),
+            .AlignMain(align),
+            .Gap(.Px(6)),
+            .Padding(.Px(6)),
+            .Width(.Px(360)),
+            .AlignCross(.Start),
+            .Background(.Rgb(238, 238, 244)),
+        ],
+        [item("one"), item("two")],
+    )
+}
+
+/// **The main axis runs the other way, so the alignments do too.** `Start` in a
+/// reversed row is the right-hand edge and `End` is the left one, which is why
+/// a dialog footer can put the confirming action at the end of a row on a wide
+/// screen and on top of the cancelling one on a narrow one, with the caller
+/// reordering nothing.
+export fn alignment<C>(): Node<C> {
+    page([
+        ui.text(.Const("AlignMain, in a row and in a reversed row")),
+        band("Row, Start", aligned(.Row, .Start)),
+        band(
+            "RowReverse, Start — the axis begins at the right",
+            aligned(.RowReverse, .Start),
+        ),
+        band("Row, End", aligned(.Row, .End)),
+        band("RowReverse, End", aligned(.RowReverse, .End)),
+        band("Row, SpaceBetween", aligned(.Row, .SpaceBetween)),
+        band("RowReverse, SpaceBetween", aligned(.RowReverse, .SpaceBetween)),
+    ])
+}
+
+/// One toast.
+fn toast<C>(text: Str): Node<C> {
+    ui.stack(
+        [
+            .Padding(.Px(8)),
+            .Radius(.Px(6)),
+            .Background(.Rgb(38, 38, 44)),
+            .Foreground(.Rgb(245, 245, 250)),
+        ],
+        [ui.text(.Const(text))],
+    )
+}
+
+/// What a footer's actions are styled like.
+fn action(): [Style] {
+    [
+        .PaddingX(.Px(12)),
+        .PaddingY(.Px(6)),
+        .Radius(.Px(6)),
+        .Background(.Rgb(24, 24, 27)),
+        .Foreground(.Rgb(255, 255, 255)),
+    ]
+}
+
+/// The two shapes the issue named: a toaster whose newest toast is nearest the
+/// bottom it grows from, and a dialog footer that puts the confirming action on
+/// top. Both arrays are oldest-first, which is the order the caller has.
+export fn shapes<C>(): Node<C> {
+    page([
+        ui.text(.Const("a toaster and a dialog footer, both written oldest-first")),
+        band(
+            "ColumnReverse — \"third\" is written last and painted at the top",
+            ui.stack(
+                [
+                    .Layout(.ColumnReverse),
+                    .AlignCross(.Start),
+                    .Gap(.Px(6)),
+                    .Padding(.Px(8)),
+                    .Width(.Px(240)),
+                    .Background(.Rgb(238, 238, 244)),
+                ],
+                [toast("first"), toast("second"), toast("third")],
+            ),
+        ),
+        band(
+            "a footer: Cancel then Save in the array, Save on top",
+            ui.stack(
+                [
+                    .Layout(.ColumnReverse),
+                    .AlignCross(.Stretch),
+                    .Gap(.Px(6)),
+                    .Padding(.Px(8)),
+                    .Width(.Px(240)),
+                    .Background(.Rgb(238, 238, 244)),
+                ],
+                [
+                    ui.button(
+                        .Const("Cancel"),
+                        action(),
+                        [],
+                        fn(_c, _e) => (),
+                        .Const(false),
+                    ),
+                    ui.button(
+                        .Const("Save"),
+                        action(),
+                        [],
+                        fn(_c, _e) => (),
+                        .Const(false),
+                    ),
+                ],
+            ),
+        ),
+    ])
+}

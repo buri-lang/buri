@@ -234,6 +234,7 @@ fn stateName(state: State): Str {
     match (state) {
         .Hover => "hover",
         .Focus => "focus",
+        .FocusWithin => "focus-within",
         .Active => "active",
         .Disabled => "disabled",
         .Checked => "checked",

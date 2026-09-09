@@ -1129,6 +1129,238 @@ test "a state inside a breakpoint is both at once" {
     );
 }
 
+test "an em is a length, and it follows the element's own text size" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A rem follows the root and an em follows this element, so tracking
+    // written once is right at every size the title is ever set at.
+    let tree = ui.stack(
+        [
+            .FontSize(.Px(18)),
+            .LetterSpacing(.Em(-0.025)),
+            .Gap(.Em(0.5)),
+            .Padding(.Em(1.0)),
+            .Width(.Em(12.0)),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"fs-18 ls-en0_025 gap-e0_5 p-e1 w-e12\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".ls-en0_025{letter-spacing:-0.025em}"));
+    assert.isTrue(sheet.contains(".gap-e0_5{gap:0.5em}"));
+    assert.isTrue(sheet.contains(".p-e1{padding:1em}"));
+    assert.isTrue(sheet.contains(".w-e12{width:12em}"));
+}
+
+test "an em resolves per property like every other length" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The same slot twice is last-wins, whichever unit each side is in.
+    let overridden = ui.stack([.Padding(.Em(1.0)), .Padding(.Px(4))], []);
+    assert.equal(render(ctx, overridden).markup(), "<div class=\"p-4\"></div>");
+    // Two edges are two slots, so they compose.
+    let edges = ui.stack(
+        [.PaddingEdge(.Top, .Em(0.5)), .PaddingEdge(.Bottom, .Em(1.5))],
+        [],
+    );
+    assert.equal(
+        render(ctx, edges).markup(),
+        "<div class=\"pe-top-e0_5 pe-bottom-e1_5\"></div>",
+    );
+    // And a condition is a slot of its own, in the stylesheet either way.
+    let stated = ui.stack(
+        [.On(.Hover, [.Gap(.Em(2.0))]), .At(.Medium, [.Gap(.Em(3.0))])],
+        [],
+    );
+    assert.equal(
+        render(ctx, stated).markup(),
+        "<div class=\"hover_gap-e2 md_gap-e3\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".pe-top-e0_5{padding-block-start:0.5em}"));
+    assert.isTrue(sheet.contains(".pe-bottom-e1_5{padding-block-end:1.5em}"));
+    assert.isTrue(sheet.contains(".hover_gap-e2:hover{gap:2em}"));
+    assert.isTrue(sheet.contains(".md_gap-e3{gap:3em}"));
+}
+
+test "a reversed layout paints backwards and leaves the document alone" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The order is the caller's, and it is the order a screen reader and the
+    // tab ring read. Only the paint is reversed.
+    let footer = ui.stack([.Layout(.ColumnReverse)], [
+        ui.text(.Const("cancel")),
+        ui.text(.Const("confirm")),
+    ]);
+    assert.equal(
+        render(ctx, footer).markup(),
+        "<div class=\"lay-colrev\">cancelconfirm</div>",
+    );
+    assert.equal(
+        render(ctx, ui.stack([.Layout(.RowReverse)], [])).markup(),
+        "<div class=\"lay-rowrev\"></div>",
+    );
+    // One property, so the last one written is the one that survives.
+    assert.equal(
+        render(ctx, ui.stack([.Layout(.Row), .Layout(.RowReverse)], [])).markup(),
+        "<div class=\"lay-rowrev\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(".lay-colrev{display:flex;flex-direction:column-reverse}"),
+    );
+    assert.isTrue(
+        sheet.contains(".lay-rowrev{display:flex;flex-direction:row-reverse}"),
+    );
+    // `Truncate` is declared after `Layout` and still overrides it, which is
+    // the ordering the four layouts shared and the two new ones join.
+    let layout = assert.some(sheet.indexOf(".lay-rowrev"));
+    let truncate = assert.some(sheet.indexOf(".trunc-"));
+    assert.isTrue(layout < truncate);
+}
+
+test "a translate shifts the painted box and moves no sibling" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The press every design system writes: a pixel down while the pointer is
+    // held, with the row around it exactly where it was.
+    let save = ui.button(
+        .Const("Save"),
+        [.Radius(.Px(8)), .On(.Active, [.Translate(.Px(0), .Px(1))])],
+        [],
+        fn(_c, _e) => (),
+        .Const(false),
+    );
+    assert.equal(
+        render(ctx, save).markup(),
+        "<button type=\"button\" aria-label=\"Save\" class=\"r-8 active_tr-0-1\">Save</button>",
+    );
+    // One slot: two translates are one transform, and the last wins.
+    assert.equal(
+        render(
+            ctx,
+            ui.stack(
+                [.Translate(.Px(4), .Px(4)), .Translate(.Em(0.5), .Percent(-50.0))],
+                [],
+            ),
+        ).markup(),
+        "<div class=\"tr-e0_5-pcn50\"></div>",
+    );
+    // A `Position` beside it is a different declaration and composes.
+    assert.equal(
+        render(
+            ctx,
+            ui.stack([.Position(.Sticky), .Translate(.Rem(1.0), .Auto)], []),
+        ).markup(),
+        "<div class=\"pos-sticky tr-r1-auto\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(".active_tr-0-1:active{transform:translate(0px,1px)}"),
+    );
+    assert.isTrue(sheet.contains(".tr-e0_5-pcn50{transform:translate(0.5em,-50%)}"));
+    assert.isTrue(sheet.contains(".tr-r1-auto{transform:translate(1rem,auto)}"));
+}
+
+test "focus-within is a state, and it is the container's own" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The input group: the wrapper owns the hairline and the ring, and the
+    // field inside it is bare.
+    let group = ui.row(
+        [
+            .BorderWidth(.Px(1)),
+            .On(.FocusWithin, [.BorderColor(.Rgb(2, 2, 2))]),
+            .At(.Small, [.On(.FocusWithin, [.Radius(.Px(3))])]),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, group).markup(),
+        "<div class=\"lay-row bw-1 focuswithin_bc-020202 sm_focuswithin_r-3\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(".focuswithin_bc-020202:focus-within{border-color:rgb(2,2,2)}"),
+    );
+    assert.isTrue(
+        sheet.contains(".sm_focuswithin_r-3:focus-within{border-radius:3px}"),
+    );
+    // `Focus` is `:focus-visible` on the element itself, so the two are
+    // different conditions and different slots.
+    let both = ui.stack(
+        [.On(.Focus, [.Opacity(0.9)]), .On(.FocusWithin, [.Opacity(0.8)])],
+        [],
+    );
+    assert.equal(
+        render(ctx, both).markup(),
+        "<div class=\"focus_op-0_9 focuswithin_op-0_8\"></div>",
+    );
+}
+
+test "a document is taken in one state, and carries only that state's classes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [
+            .Background(.Rgb(1, 1, 1)),
+            .On(.Hover, [.Background(.Rgb(2, 2, 2))]),
+            .On(.FocusWithin, [.Background(.Rgb(3, 3, 3))]),
+        ],
+        [],
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .FocusWithin),
+        "buri-scene 1\nviewport 800 600\ne 0 class:bg-010101 focuswithin_bg-030303",
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:bg-010101 hover_bg-020202",
+    );
+}
+
+test "the three new entries write the same declarations inline" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // `get` takes a context, so the folder stops at each of these and all three
+    // degrade to the tier `Computed` lives in. What they write out there has to
+    // be the CSS the classes above mean.
+    let reversed = signal(ctx, true);
+    let tracking = signal(ctx, 0.1);
+    let sunk = signal(ctx, -0.5);
+    let tree = ui.stack(
+        [
+            .Layout(if (reversed.get(ctx)) { .ColumnReverse } else { .Column }),
+            .LetterSpacing(.Em(tracking.get(ctx))),
+            .Translate(.Px(0), .Em(sunk.get(ctx))),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div style=\"display: flex; flex-direction: column-reverse; letter-spacing: 0.1em; transform: translate(0px,-0.5em)\"></div>",
+    );
+    // The scene document the headless painter reads says the same thing.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 display:flex;flex-direction:column-reverse;letter-spacing:0.1em;transform:translate(0px,-0.5em)",
+    );
+    assert.isFalse(stylesheet().contains("letter-spacing:0.1em"));
+}
+
 test "a `When` puts both branches in the stylesheet and swaps between them" {
     let ctx = context {
         Ui: headless(),

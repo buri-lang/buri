@@ -1,0 +1,16 @@
+// EXPECT: expected `F64`, found `Int`
+//
+// An em is a multiple of the element's own text size, so it is a fraction —
+// `0.9em` and `-0.025em` are the values a design system actually writes. A
+// whole number is what `Px` takes, and the two are not the same unit, so the
+// count is refused rather than widened.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([.LetterSpacing(.Em(1))], []), [])
+}
