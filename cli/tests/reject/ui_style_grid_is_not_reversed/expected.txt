@@ -1,0 +1,12 @@
+error: `Layout` has no variant `GridReverse` [no-such-variant]
+  --> cmd/ui_style_grid_is_not_reversed/main.buri:16:35
+   |
+16 |   ui.mount(ctx, ui.stack([.Layout(.GridReverse)], []), [])
+   |                                   ^^^^^^^^^^^^
+   |
+   = did you mean `.RowReverse`?
+   = fix: if you meant `.RowReverse`, use that; if not, `Layout`'s declaration lists its variants
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+

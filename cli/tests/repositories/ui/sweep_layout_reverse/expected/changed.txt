@@ -1,0 +1,5 @@
+FAIL //lib/reverse  test/reverse.buri  "a toaster and a dialog footer"
+  the snapshot "reverse-shapes" changed: see test/__snapshots__/reverse-shapes.diff.png
+  --> lib/reverse/test/reverse.buri:32:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

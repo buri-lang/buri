@@ -207,7 +207,7 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 52 properties. The arithmetic, because the cut line is the design:
+  // 53 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
   //    8  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge, Bleed
@@ -218,6 +218,7 @@ export enum Style {
   //       LetterSpacing, TextAlign, TextCase, TextLine, TextWrap, Truncate
   //    2  interaction: Cursor, Passthrough
   //    1  ListMarker
+  //    1  Translate — the one transform, applied after the layout
   //    1  Clip
   Layout(Layout),                       // on the container
   AlignMain(Align), AlignCross(Align),  // main/cross axis: survives direction flips
@@ -227,10 +228,11 @@ export enum Style {
   BorderEdge(Edge, Length),             // one edge; the colour stays whole-box
   RadiusCorner(Corner, Length),         // one corner; a joined group squares a side
   Bleed(Edge, Length),                  // the one way out of the container's box
-  Clip(Bool),                           // cut to the box, without a scroll container
-  Passthrough(Bool),                    // the pointer goes to whatever is behind
   Background(Color), Foreground(Color), Truncate(Int), ...,
   Shadow(Shadow), Shadows([Shadow]),    // one slot; the last written wins
+  Translate(Length, Length),            // after the layout; no sibling moves
+  Clip(Bool),                           // cut to the box, without a scroll container
+  Passthrough(Bool),                    // the pointer goes to whatever is behind
 
   // and six combinators
   Group([Style]),                       // composition; array literal, no Allocator
@@ -243,14 +245,21 @@ export enum Style {
 
 export enum Layout {
   Column, Row,              // stacks; Column is the default
+  ColumnReverse, RowReverse,// the same, painted backwards; the document keeps
+                            // the order the caller wrote, which is what a
+                            // screen reader and the tab ring read. A grid does
+                            // not reverse: its children go in named tracks
   Grid([Track]),            // explicit tracks; Track = Fraction(Int) | Fixed(Length) | Auto
   Layers,                   // children share one space (ZStack), in written order
 }
 
 export enum Edge   { Top, Bottom, Start, End }
 export enum Corner { TopStart, TopEnd, BottomStart, BottomEnd }
-export enum State { Hover, Focus, Active, Disabled, Checked, Invalid }
-                          // five the platform tracks, and one a program enters:
+export enum State { Hover, Focus, FocusWithin, Active, Disabled, Checked,
+                    Invalid }
+                          // Focus is :focus-visible on the element; FocusWithin
+                          // is the container's — an input group rings as one.
+                          // Six the platform tracks, and one a program enters:
                           // `field` and `toggle` take an `invalid`, which writes
                           // the `aria-invalid` the rule hangs off
 export enum Screen { Small, Medium, Large, ExtraLarge }
@@ -258,7 +267,10 @@ export enum Screen { Small, Medium, Large, ExtraLarge }
                           // 40 / 48 / 64 / 80 rem, which follow the reader's
                           // text size rather than the device's pixels
 
-export enum Length { Px(Int), Remainder(Float), Percent(Float), Auto, Full }
+export enum Length { Px(Int), Rem(Float), Em(Float), Percent(Float), Auto, Full }
+                          // Rem follows the root's text size, Em the element's
+                          // own — which is the only way tracking is right at
+                          // more than one size
 export enum Color  { Rgb(Int, Int, Int), Rgba(Int, Int, Int, Float),
                      Token(TokenReference), Transparent, Inherit,
                      Faded(TokenReference, Float) }
