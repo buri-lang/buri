@@ -683,6 +683,10 @@ stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.
 
+A container has a state of its own: `On(.FocusWithin, ...)` fires while
+something inside it has the keyboard, which is how an input group carries one
+hairline and one ring around a prefix, a bare field and a suffix.
+
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it
