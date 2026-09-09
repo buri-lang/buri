@@ -1,0 +1,5 @@
+FAIL //lib/entry  test/pictures.buri  "what a button holds"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/entry/test/pictures.buri:16:1
+
+0 passed, 1 failed, 2 skipped (0.0s)

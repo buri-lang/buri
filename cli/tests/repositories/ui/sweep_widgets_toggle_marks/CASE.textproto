@@ -1,0 +1,94 @@
+# The two marks a toggle draws for itself: a checkbox's tick and a switch's
+# thumb, each one off and on, at every size, colour and box shape that changes
+# them.
+#
+# A picture per `ToggleKind`, and a band per thing that moves the mark. Every
+# band holds the same toggle twice — bound to `false`, then to `true` — so off
+# and on are side by side and the difference between them is the whole subject.
+# That is what a snapshot of a toggle could not say before: the box changed
+# colour and nothing else, so a switch was a small filled bar and a ticked
+# checkbox was a filled square with no check in it.
+#
+# The mark follows the **signal**, because that is what a browser reads: an
+# `<input type=checkbox>` is `:checked` when its `checked` property is set, and
+# the property is the signal. The mark is drawn by the widget in all three
+# renderers — the sheet's `::before` on a page, `mark:tick` and `mark:thumb` in
+# the scene document, and a stroke and a disc in the painter — so a program can
+# neither ask for a mark that does not exist nor leave a toggle without one.
+#
+# **Two bands are pinned as painted rather than as right**, and it is a filed
+# bug. Re-record their goldens when it closes.
+#
+#   * #119 — `describe` reads an `On(.Checked, ...)` off the state a snapshot
+#     was asked for rather than off the toggle's own signal, so the `on` cell of
+#     each `On(.Checked)` band paints in the resting palette where a browser
+#     paints it in the checked one.
+#
+# Beside every picture is a `describe` assertion naming what the scene carries,
+# which is what says a mark is in the document and not only in the pixels: a
+# checkbox has `mark:tick` when it is on and nothing when it is off, and a
+# switch has `mark:thumb` either way with the alignment that moves it.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the tick a checkbox draws and the thumb a switch moves, each off and on across size, colour and box shape, as 2 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/marks", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/marks/test/__snapshots__/toggle-checkbox.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/marks/test/pictures.buri"
+  replace: "\"toggle-checkbox\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/marks", "--force", "--filter=tick"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/marks/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/marks", "--update", "--force", "--filter=tick"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/marks/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/marks", "--force", "--filter=tick"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: three more pixels of padding on the switch's track, which
+# moves every thumb in that picture and nothing in the other one.
+edit {
+  file: "lib/marks/scenes.buri"
+  replace: ".Padding(.Px(2))"
+  with: ".Padding(.Px(5))"
+}
+
+run {
+  args: ["test", "//lib/marks", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/marks/test/__snapshots__/toggle-switch.diff.png"  exists: true }
+path { path: "lib/marks/test/__snapshots__/toggle-checkbox.diff.png"  exists: false }
