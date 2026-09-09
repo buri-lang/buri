@@ -17,6 +17,10 @@
 //! `instant.plus(d)` moves by `d.milliseconds()`, and a length finer than a
 //! millisecond moves an instant by nothing.
 //!
+//! **A `Duration` is the only way to name a span.** The nanosecond counts are
+//! this module's own: `seconds(1)` builds the length and `d.nanoseconds()`
+//! reads it back, so nothing outside ever multiplies by a factor.
+//!
 //! **Every arithmetic operation saturates.** Overflow is undefined behaviour
 //! (SPEC 6.2), and a deadline is exactly where a program cannot afford it.
 //! `hours(1_000_000_000)` is the largest `Duration` rather than a wrapped
@@ -82,20 +86,20 @@ derive Equal, Ordered, Show for Monotonic;
 /// happened.
 export struct Monotonic(export I64);
 
-/// The length of no time at all, which is what an accumulator starts at.
-export let ZERO: Duration = Duration(0);
+/// The length of no time at all. `nanoseconds(0)` is what a caller writes.
+let ZERO: Duration = Duration(0);
 
-export let NANOSECONDS_PER_MICROSECOND: Int = 1_000;
+let NANOSECONDS_PER_MICROSECOND: Int = 1_000;
 
-export let NANOSECONDS_PER_MILLISECOND: Int = 1_000_000;
+let NANOSECONDS_PER_MILLISECOND: Int = 1_000_000;
 
-export let NANOSECONDS_PER_SECOND: Int = 1_000_000_000;
+let NANOSECONDS_PER_SECOND: Int = 1_000_000_000;
 
-export let NANOSECONDS_PER_MINUTE: Int = 60_000_000_000;
+let NANOSECONDS_PER_MINUTE: Int = 60_000_000_000;
 
-export let NANOSECONDS_PER_HOUR: Int = 3_600_000_000_000;
+let NANOSECONDS_PER_HOUR: Int = 3_600_000_000_000;
 
-export let NANOSECONDS_PER_DAY: Int = 86_400_000_000_000;
+let NANOSECONDS_PER_DAY: Int = 86_400_000_000_000;
 
 // -----------------------------------------------------------------------------
 // Building a length
