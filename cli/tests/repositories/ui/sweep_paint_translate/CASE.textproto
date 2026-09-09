@@ -1,0 +1,81 @@
+# `Translate(Length, Length)`, in four pictures.
+#
+# Every box is drawn inside a dashed outline the size of the slot the layout
+# gave it, so a shift reads against the room the box actually took.
+#
+# `translate-units.png` is every unit: pixels either way and both negative, a
+# rem, an em at a sixteen-pixel text size — the two land in the same place, and
+# that is the point of the pair — a percentage of the box's own width and
+# height, then the two degenerate ones. `Auto` is not a distance and moves
+# nothing, which is what the painter does with every other `auto` the vocabulary
+# lets you write into a place CSS has no meaning for one; `Full` is a hundred per
+# cent, so the box lands exactly beside itself.
+#
+# `translate-neighbours.png` is the reason the property exists: one of four
+# boxes shifted, with the other three where they were, over the same row with a
+# padding instead — which reflows it. The last row is a shifted box carrying its
+# text with it.
+#
+# `translate-press-resting.png` and `translate-press-active.png` are the shape
+# the issue named, `active:translate-y-px`: three buttons over a rule, at rest
+# and held. One pixel is a small difference and it is a real one — the two
+# goldens differ, and the `--force` run after the edit below proves a change to
+# it is caught.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a translate on every length the vocabulary has, the neighbours it does not move, and a button that sinks a pixel under the press, painted and compared against four goldens"
+
+run {
+  args: ["test", "//lib/translate", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/translate/test/__snapshots__/translate-units.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/translate/test/translate.buri"
+  replace: "\"translate-units\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/translate", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/translate/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/translate", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/translate/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/translate", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: the box that carries its text moves twice as far down, and
+# only the picture holding it changes.
+edit {
+  file: "lib/translate/scenes.buri"
+  replace: ".Translate(.Px(16), .Px(10))"
+  with: ".Translate(.Px(16), .Px(20))"
+}
+
+run {
+  args: ["test", "//lib/translate", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/translate/test/__snapshots__/translate-neighbours.diff.png"  exists: true }
+path { path: "lib/translate/test/__snapshots__/translate-units.diff.png"  exists: false }
