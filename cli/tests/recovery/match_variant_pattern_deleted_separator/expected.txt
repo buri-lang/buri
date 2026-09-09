@@ -1,0 +1,14 @@
+error [match-not-exhaustive] 9:3-12:4
+message: this `match` does not cover `.Square`
+fix: add an arm for `.Square`, or a `_` arm for everything left
+note: every `match` must cover its scrutinee's type
+
+error [no-such-field] 11:6-11:12
+message: `Int` has no field `Square`
+fix: check the spelling, or name a field the type declares
+
+error [unclosed-delimiter] 11:13-11:15
+message: this `match` is missing its closing `}`
+fix: write `}` here
+related: 9:17-9:18 opened here
+

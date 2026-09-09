@@ -1,0 +1,5 @@
+error [missing-arrow] 4:6-4:6
+message: a match arm is `pattern => expression`
+fix: write `=>` here
+edit: 4:6-4:6 " =>"
+

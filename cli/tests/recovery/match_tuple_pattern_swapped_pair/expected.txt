@@ -1,0 +1,9 @@
+error [missing-arrow] 4:6-4:6
+message: a match arm is `pattern => expression`
+fix: write `=>` here
+edit: 4:6-4:6 " =>"
+
+error [unexpected-token] 4:7-4:8
+message: expected an expression, found `,`
+fix: write a value here
+

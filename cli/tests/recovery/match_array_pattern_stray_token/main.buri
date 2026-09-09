@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `@`
+export fn sum(xs: [Int]): Int {
+  match (xs) {
+    [ @first, second] => first + second,
+    _ => 0,
+  }
+}

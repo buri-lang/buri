@@ -1,0 +1,12 @@
+error [unexpected-token] 4:3-4:8
+message: expected an identifier, found `match`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unresolved-type] 8:24-8:29
+message: there is no type `Shape`
+fix: declare it, import it, or correct the spelling
+
+error [unexpected-token] 10:6-10:11
+message: expected an identifier, found `match`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+

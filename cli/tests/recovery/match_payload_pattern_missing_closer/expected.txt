@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 9:17-9:19
+message: this variant payload pattern is missing its closing `)`
+fix: write `)` here
+related: 9:11-9:12 opened here
+
