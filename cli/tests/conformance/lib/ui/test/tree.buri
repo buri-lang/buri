@@ -2384,7 +2384,10 @@ test "a toggle's own styles paint, because the reset takes the native control aw
         .On(.Checked, [.Background(.Rgb(20, 20, 20))]),
     ];
     assert.equal(
-        render(ctx, ui.toggle(.Const("Email me"), .Switch, styles, [], on, .Const(false))).markup(),
+        render(
+            ctx,
+            ui.toggle(.Const("Email me"), .Switch, styles, [], on, .Const(false)),
+        ).markup(),
         "<label><input type=\"checkbox\" role=\"switch\" class=\"w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414\" checked /><span>Email me</span></label>",
     );
 
