@@ -1,0 +1,11 @@
+// EXPECT: `Alloc`
+// A `context` names its effects, so the old spelling fails there too.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "hi").ignore();
+  .Ok(())
+}

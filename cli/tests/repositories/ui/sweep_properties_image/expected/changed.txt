@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "the sizing properties, on a image"
+  the snapshot "image-size" changed: see test/__snapshots__/image-size.diff.png
+  --> lib/sweep/test/pictures.buri:56:1
+
+0 passed, 1 failed, 5 skipped (0.0s)

@@ -27,13 +27,16 @@ error: there is nothing named `n` in scope [unresolved-name]
   |                 ^
   |
   = did you mean `v`?
-  = fix: correct the spelling, or declare it
+  = fix: if you meant `v`, use that; if not, a name is in scope only from this module's own declarations and its imports
 
     What to do
     ──────────
 
-    Correct the spelling, or declare it. The diagnostic offers the nearest name
-    in scope.
+    Correct the spelling, or declare it. Where there is a near miss the fix
+    names it: "if you meant double, use that; if not, a name is in scope only
+    from this module's own declarations and its imports". A name the standard
+    library renamed is not a guess and gets the answer instead — sqrt was
+    renamed to squareRoot.
 
     Why
     ───

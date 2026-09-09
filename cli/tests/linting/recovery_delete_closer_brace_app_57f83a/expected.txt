@@ -20,7 +20,7 @@ error: `Template` has no method `mapErr` [no-such-method]
 20 |         .mapErr(fn(_e) => "could not write to standard output")
    |          ^^^^^^
    |
-   = fix: check the spelling — `buri docs core/number` lists every method `Template` has, and one may not be added to it from outside `core/number`
+   = fix: check the spelling — `buri docs core/number` lists every method `Template` has
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_brace_app_57f83a/main.buri:21:1
    |

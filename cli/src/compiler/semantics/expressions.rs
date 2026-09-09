@@ -605,19 +605,27 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             None => {
                 let _ = expected;
-                let mut note = None;
-                if self.c.scope(self.module).namespaces.contains_key(name) {
+                let note;
+                let fix;
+                if let Some((said, write)) = standard_library::renamed::anywhere(name) {
+                    note = Some(said);
+                    fix = write;
+                } else if self.c.scope(self.module).namespaces.contains_key(name) {
                     note = Some(format!("`{name}` is a module namespace; name a member of it"));
+                    fix = "correct the spelling, or declare it".to_string();
                 } else if let Some(near) = self.nearest_value(name) {
                     note = Some(format!("did you mean `{near}`?"));
-                }
-                let fix = match &note {
-                    Some(_) => "correct the spelling, or declare it".to_string(),
-                    None => format!(
+                    fix = crate::diagnostics::candidate_fix(
+                        &near,
+                        crate::diagnostics::NAMES_IN_SCOPE,
+                    );
+                } else {
+                    note = None;
+                    fix = format!(
                         "declare `{name}`, or import it — a name is in scope only from this \
                          module's own declarations and its imports"
-                    ),
-                };
+                    );
+                }
                 let d = self.templated("unresolved-name", span).bind("name", name);
                 d.fix(fix);
                 if let Some(n) = note {
@@ -1644,6 +1652,15 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let shown = self.show_ty(recv);
         let mut notes = Vec::new();
+        // A name the standard library used to have, asked of the type's own
+        // module first and of the whole table second: `Str.len` is `core/str`'s
+        // rename, and `.eq` is `core/order`'s however it was reached.
+        let home = self.method_home(recv);
+        let renamed = home
+            .as_ref()
+            .and_then(|(path, ..)| standard_library::renamed::in_module(path, name))
+            .or_else(|| standard_library::renamed::anywhere(name));
+        let mut near = None;
         match recv {
             Ty::Param(i) => {
                 let g = self.generics.get(*i as usize).cloned();
@@ -1667,9 +1684,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             Ty::Con(con, _) => {
-                let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
-                if let Some(near) = nearest(name, &refs) {
-                    notes.push(format!("did you mean `{near}`?"));
+                if renamed.is_none() {
+                    let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
+                    near = nearest(name, &refs).map(str::to_string);
+                    if let Some(n) = &near {
+                        notes.push(format!("did you mean `{n}`?"));
+                    }
                 }
                 if self.c.tables.field_index(*con, name).is_some() {
                     notes.push(format!("`{name}` is a field; a field is not called"));
@@ -1693,15 +1713,68 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {}
         }
-        let fix = self.no_method_fix(recv, &shown, name);
+        let fix = match (&renamed, &near) {
+            (Some((_, write)), _) => Some(write.clone()),
+            (None, Some(n)) => Some(crate::diagnostics::candidate_fix(
+                n,
+                &Self::where_the_methods_are(home.as_ref(), &shown),
+            )),
+            (None, None) => self.no_method_fix(recv, &shown, name),
+        };
         let d = self
             .templated("no-such-method", span)
             .bind("type", shown)
             .bind("method", name.to_string());
+        if let Some((note, _)) = renamed {
+            d.notes.push(note);
+        }
         d.notes.extend(notes);
         // After the binds: every `bind` re-renders the page's own fix over it.
         if let Some(fix) = fix {
             d.fix(fix);
+        }
+    }
+
+    /// Where a receiver's methods live: its defining module, that module's
+    /// role, and the `impl` header a caller could add one to when the module is
+    /// theirs to edit (SPEC 6.7.3).
+    ///
+    /// A primitive's table entry lives in a synthetic module, so its methods'
+    /// module is the one SPEC names rather than the one the entry points at.
+    fn method_home(&self, recv: &Ty) -> Option<(String, Role, Option<String>)> {
+        let Ty::Con(con, _) = recv else { return None };
+        let info = self.c.tables.tycon(*con);
+        match &info.def {
+            TyDef::Prim(p) => {
+                Some((standard_library::defining_module(*p).to_string(), Role::Std, None))
+            }
+            _ => {
+                let module = self.c.module(info.module);
+                let params: Vec<&str> = info.generics.iter().map(|g| g.name.as_str()).collect();
+                let header = if params.is_empty() {
+                    format!("impl {}", info.name)
+                } else {
+                    format!("impl<{0}> {1}<{0}>", params.join(", "), info.name)
+                };
+                Some((module.path.clone(), module.role, Some(header)))
+            }
+        }
+    }
+
+    /// Where to look when the candidate is not the one: a page for a type the
+    /// toolchain ships, the `impl` block for a type of your own.
+    fn where_the_methods_are(
+        home: Option<&(String, Role, Option<String>)>,
+        shown: &str,
+    ) -> String {
+        match home {
+            Some((path, Role::Std | Role::Platform, _)) | Some((path, _, None)) => {
+                format!("`buri docs {path}` lists every method `{shown}` has")
+            }
+            Some((path, _, Some(header))) => {
+                format!("`{shown}`'s methods are declared in `{header} {{ ... }}` in `{path}`")
+            }
+            None => format!("`{shown}` has no defining module, so it has no methods of its own"),
         }
     }
 
@@ -1719,36 +1792,20 @@ impl<'a, 'b> Infer<'a, 'b> {
                 "there is no module to declare `{name}` in, so write a free function taking \
                  the value, or wrap it in a struct of yours and give that the method"
             )),
-            Ty::Con(con, _) => {
-                let info = self.c.tables.tycon(*con);
-                // A primitive's table entry lives in a synthetic module; the
-                // module its methods are declared in is SPEC 6.7.3's.
-                let (path, role, header) = match &info.def {
-                    TyDef::Prim(p) => {
-                        (standard_library::defining_module(*p).to_string(), Role::Std, None)
+            Ty::Con(..) => {
+                let home = self.method_home(recv);
+                match home.as_ref() {
+                    Some((_, Role::Std | Role::Platform, _)) | Some((_, _, None)) => {
+                        Some(format!(
+                            "check the spelling — {}",
+                            Self::where_the_methods_are(home.as_ref(), shown)
+                        ))
                     }
-                    _ => {
-                        let module = self.c.module(info.module);
-                        let params: Vec<&str> =
-                            info.generics.iter().map(|g| g.name.as_str()).collect();
-                        let header = if params.is_empty() {
-                            format!("impl {}", info.name)
-                        } else {
-                            format!("impl<{0}> {1}<{0}>", params.join(", "), info.name)
-                        };
-                        (module.path.clone(), module.role, Some(header))
-                    }
-                };
-                match (role, header) {
-                    (Role::Std | Role::Platform, _) | (_, None) => Some(format!(
-                        "check the spelling — `buri docs {path}` lists every method `{shown}` \
-                         has, and one may not be added to it from outside `{path}`"
-                    )),
-                    (_, Some(header)) => Some(format!(
+                    Some((path, _, Some(header))) => Some(format!(
                         "check the spelling, or declare it in `{header} {{ ... }}` in \
-                         `{path}`, where the type is declared — a method may not be added \
-                         from anywhere else"
+                         `{path}`, where the type is declared"
                     )),
+                    None => None,
                 }
             }
             _ => None,
@@ -1922,19 +1979,24 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn report_no_field(&mut self, ty: &Ty, name: &str, span: Span) {
         let shown = self.show_ty(ty);
-        let mut note = None;
+        let mut near = None;
         if let Ty::Con(con, _) = ty {
             let names: Vec<String> =
                 self.c.tables.tycon(*con).fields().iter().map(|f| f.name.clone()).collect();
             let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-            note = nearest(name, &refs).map(|n| format!("did you mean `{n}`?"));
+            near = nearest(name, &refs).map(str::to_string);
         }
         let d = self
             .templated("no-such-field", span)
-            .bind("type", shown)
+            .bind("type", shown.clone())
             .bind("field", name.to_string());
-        if let Some(n) = note {
-            d.notes.push(n);
+        // After the binds: every `bind` re-renders the page's own fix over it.
+        if let Some(n) = near {
+            d.notes.push(format!("did you mean `{n}`?"));
+            d.fix(crate::diagnostics::candidate_fix(
+                &n,
+                &format!("`{shown}`'s declaration lists its fields"),
+            ));
         }
     }
 
@@ -1972,7 +2034,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let Some(index) = self.c.tables.variant_index(*con, name) else {
             let ty = self.c.tables.tycon(*con).name.clone();
-            let note = crate::compiler::semantics::patterns::no_variant_note(
+            let (note, fix) = crate::compiler::semantics::patterns::no_variant_advice(
                 &self.c.tables,
                 *con,
                 name,
@@ -1981,6 +2043,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .bind("type", ty)
                 .bind("variant", name.to_string());
             d.notes.extend(note);
+            // After the binds: every `bind` re-renders the page's own fix over it.
+            if let Some(fix) = fix {
+                d.fix(fix);
+            }
             return self.error_expr(span);
         };
         self.construct_variant(*con, index, args, span, Some(&exp), dot_span)
@@ -3140,7 +3206,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
                 let shown = t.type_head(effect_id).unwrap_or("?").to_string();
-                self.templated("not-an-effect", effect_span).bind("name", shown);
+                let renamed = standard_library::renamed::anywhere(&shown);
+                let d = self.templated("not-an-effect", effect_span).bind("name", shown);
+                // After the binds: every `bind` re-renders the page's own fix over it.
+                if let Some((note, fix)) = renamed {
+                    d.fix(fix);
+                    d.notes.push(note);
+                }
                 continue;
             };
             if !self.c.tables.trait_(tid).is_effect {

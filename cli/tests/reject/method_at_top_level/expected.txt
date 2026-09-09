@@ -24,20 +24,26 @@ error: `Square` has no method `area` [no-such-method]
 17 |   let _ = io.println(ctx, "${Square { side: 3 }.area()}").ignore();
    |                                                 ^^^^
    |
-   = fix: check the spelling, or declare it in `impl Square { ... }` in `//cmd/method_at_top_level/main.buri`, where the type is declared — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl Square { ... }` in `//cmd/method_at_top_level/main.buri`, where the type is declared
 
      What to do
      ──────────
 
      Check the spelling. If the type is one of yours, declare the method in an
      impl block in that type's own module. If the type ships with the toolchain
-     — a Result, an I64 — or belongs to another package, it cannot gain one from
-     here, and buri docs <module> lists the methods it has.
+     — a Result, an I64 — or belongs to another package, buri docs <module>
+     lists the methods it has.
+
+     Where there is a near miss the fix names it: "if you meant mapErrCtx, use
+     that; if not, buri docs core/result lists every method Result<I64, Str>
+     has". A method the standard library renamed is not a guess and gets the
+     answer instead — len was renamed to length.
 
      Why
      ───
 
      A method is looked up in exactly one place: the module that declares the
      receiver's type. There is no extension mechanism, so nobody can add a
-     method to a type from outside.
+     method to a type from outside — which is why the fix points a toolchain
+     type at its page rather than at an impl block you could not write.
 

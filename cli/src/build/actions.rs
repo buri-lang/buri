@@ -1775,6 +1775,16 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
 /// id and finds it, so the rules are in the page once, before the first paint,
 /// and the module has nothing to do about them.
 ///
+/// **Both names are addresses from the root.** A page routes on the address
+/// bar, so `buri run` answers every path that names no file with this document
+/// — and a browser resolves a relative address against the *request* path
+/// rather than against the site. A shell answered at `/components/button`
+/// naming `./main.mjs` would send the browser to
+/// `/components/button/main.mjs`, which nothing wrote: the module never
+/// arrives, nothing mounts, and the reader is looking at an empty document
+/// with no error in it. `/main.mjs` is the same file from every depth, which
+/// is what a site that routes on the client needs its shell to say.
+///
 /// Returns an empty vector for every platform that is not WEB.
 /// Where chunk `n` of a module sits: `<artifact>.<n>.mjs`, beside it.
 ///
@@ -1866,7 +1876,7 @@ pub fn web_companions(
         out.push((dir.join(format!("{base}.css")), stylesheet.to_string()));
     }
     let link = if styled {
-        format!("  <link id=\"buri-styles\" rel=\"stylesheet\" href=\"{}.css\">\n", escape(&base))
+        format!("  <link id=\"buri-styles\" rel=\"stylesheet\" href=\"/{}.css\">\n", escape(&base))
     } else {
         String::new()
     };
@@ -1885,7 +1895,7 @@ pub fn web_companions(
          \x20 <title>{title}</title>\n\
          {link}</head>\n\
          <body>\n\
-         \x20 <script type=\"module\" src=\"./{src}.mjs\"></script>\n\
+         \x20 <script type=\"module\" src=\"/{src}.mjs\"></script>\n\
          </body>\n\
          </html>\n",
         lang = escape(web.lang.as_deref().unwrap_or("en")),
@@ -2281,9 +2291,13 @@ mod tests {
     ///
     /// The `.html` is the whole of what "loadable in a browser as it stands"
     /// means mechanically, so the three things that make it true are asserted
-    /// rather than left to a reader of the format string: a module script that
-    /// names the module beside it, a stylesheet link carrying the id the
+    /// rather than left to a reader of the format string: a module script
+    /// naming the module from the root, a stylesheet link carrying the id the
     /// runtime's own injection looks for, and a `<body>` for `mount` to find.
+    ///
+    /// Both addresses start at `/` because this document answers every route.
+    /// A relative one resolves against the request path, so the deeper the
+    /// link a reader followed, the further from the module it would point.
     #[test]
     fn a_web_output_writes_a_stylesheet_and_a_shell() {
         let module = PathBuf::from("/out/web/cmd/counter/counter.mjs");
@@ -2300,8 +2314,11 @@ mod tests {
         );
         assert_eq!(files[0].1, ".p-r1{padding:1rem}");
         let html = &files[1].1;
-        assert!(html.contains("<script type=\"module\" src=\"./counter.mjs\">"), "{html}");
-        assert!(html.contains("<link id=\"buri-styles\" rel=\"stylesheet\" href=\"counter.css\">"), "{html}");
+        assert!(html.contains("<script type=\"module\" src=\"/counter.mjs\">"), "{html}");
+        assert!(
+            html.contains("<link id=\"buri-styles\" rel=\"stylesheet\" href=\"/counter.css\">"),
+            "{html}"
+        );
         assert!(html.contains("<body>"), "{html}");
 
         // No static styles: no file, and nothing linked. An empty stylesheet
@@ -2342,7 +2359,7 @@ mod tests {
         assert!(html.contains("<title>Counter &amp; &lt;Friends&gt;</title>"), "{html}");
         assert!(html.contains("<html lang=\"en-GB\">"), "{html}");
         // The module beside it is still named after the artifact.
-        assert!(html.contains("src=\"./counter.mjs\""), "{html}");
+        assert!(html.contains("src=\"/counter.mjs\""), "{html}");
     }
 
     // -- what a native refusal says -----------------------------------------
