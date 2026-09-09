@@ -13,7 +13,7 @@
 from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
-from "core/time" import { Duration }
+from "core/time" import { Duration };
 
 test "secondsFloat takes a fraction of a second" {
     assert.equal(time.secondsFloat(0.25), time.milliseconds(250));
@@ -37,7 +37,7 @@ test "a fraction no Duration can hold saturates, and a NaN is nothing" {
 
 test "secondsFloat and asSecondsFloat invert each other" {
     assert.approximatelyEqual(time.secondsFloat(0.125).asSecondsFloat(), 0.125, 1e-9);
-    assert.approximatelyEqual(time.secondsFloat(3.0).asSecondsFloat(), 3.0, 1e-9);
+    assert.approximatelyEqual(time.secondsFloat(3.0).asSecondsFloat(), 3.0, 1e-9;
     assert.approximatelyEqual(
         time.secondsFloat(0.0 - 1.5).asSecondsFloat(),
         0.0 - 1.5,

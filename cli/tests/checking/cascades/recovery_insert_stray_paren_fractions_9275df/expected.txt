@@ -1,0 +1,30 @@
+error: `approximatelyEqual` takes 3 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:40:5
+   |
+40 |     assert.approximatelyEqual(time.secondsFloat@ (3.0).asSecondsFloat(), 3.0, 1e-9);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 1
+   = fix: pass exactly 3
+error: expected `F64`, found `fn(F64) => Duration` [type-mismatch]
+  --> main.buri:40:31
+   |
+40 |     assert.approximatelyEqual(time.secondsFloat@ (3.0).asSecondsFloat(), 3.0, 1e-9);
+   |                               ^^^^^^^^^^^^^^^^^ the parameter type is `F64`
+   |
+   = expected: `F64`
+   = actual: `fn(F64) => Duration`
+   = fix: produce a `F64` here, or change what surrounds it to accept a `fn(F64) => Duration`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:40:48
+   |
+40 |     assert.approximatelyEqual(time.secondsFloat@ (3.0).asSecondsFloat(), 3.0, 1e-9);
+   |                                                ^
+   |
+  --> main.buri:40:30
+   |
+40 |     assert.approximatelyEqual(time.secondsFloat@ (3.0).asSecondsFloat(), 3.0, 1e-9);
+   |                              ^ opened here
+   |
+   = fix: write `)` here

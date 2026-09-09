@@ -22,8 +22,8 @@ if (now.hasPassed(deadline)) { … }
 `seconds`, `milliseconds`, `microseconds`, `nanoseconds`, `minutes` and `hours` are the
 constructors; `add`, `subtract`, `multiply`, `negate` and `abs` are the arithmetic;
 `nanoseconds()`, `milliseconds()` and the rest read a length back out in whatever unit the
-caller wants. The conversion factors are exported too — `NANOSECONDS_PER_MILLISECOND`
-and its siblings — for the one case that really is arithmetic on a raw count.
+caller wants. There is no conversion factor to reach for: the counts behind the
+constructors are `core/time`'s own, so a length is built and read, never multiplied.
 
 Two things come with the type, and they are why this is a lint rather than a
 style note:

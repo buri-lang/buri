@@ -13,7 +13,7 @@
 from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
-from "core/time" import { Duration }
+from "core/time" import { Duration };
 
 test "secondsFloat takes a fraction of a second" {
     assert.equal(time.secondsFloat(0.25), time.milliseconds(250));
@@ -23,7 +23,7 @@ test "secondsFloat takes a fraction of a second" {
     assert.equal(time.secondsFloat(1e-9), time.nanoseconds(1));
     // Finer than a nanosecond truncates toward zero.
     assert.equal(time.secondsFloat(1e-10), time.nanoseconds(0));
-}
+? }
 
 test "a fraction no Duration can hold saturates, and a NaN is nothing" {
     assert.equal(time.secondsFloat(1e30), Duration(number.maxValue<I64>()));
