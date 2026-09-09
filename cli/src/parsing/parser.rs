@@ -125,6 +125,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         depth: 0,
         trial: 0,
         chain: 0,
+        recovered_closer: false,
     };
     let mut module = p.module();
     // `//!` documents the module, so it belongs above everything. One that
@@ -483,6 +484,12 @@ struct Parser<'a> {
     /// a loop passes its own count to [`Parser::link`] instead, so there is
     /// nothing for it to leak.
     chain: u32,
+    /// Whether the block that just finished had its closing `}` recovered
+    /// rather than read — see [`Parser::block_inner`], which writes it, and
+    /// [`Parser::if_expr`], which reads it the moment the branch returns. A
+    /// branch whose `}` was already reported missing has cost the reader a
+    /// diagnostic, and `if-without-else` behind it is one mistake said twice.
+    recovered_closer: bool,
 }
 
 /// How deep the grammar may nest a production inside itself: an expression
@@ -2189,7 +2196,9 @@ impl<'a> Parser<'a> {
             }
         }
 
+        let read = self.is(Punctuation::RBrace);
         let end = self.expect_close(Punctuation::RBrace, construct, start)?;
+        self.recovered_closer = !read;
         // A block that recovered and has nothing to return is not an empty
         // block: its value is the error node, so the return type it is checked
         // against reports nothing.
@@ -2468,11 +2477,26 @@ impl<'a> Parser<'a> {
         let cond = self.expr()?;
         self.expect_close(Punctuation::RParen, "`if` condition", open)?;
         let then = self.block("`if` branch")?;
+        let branch_recovered = self.recovered_closer;
         // `else` is mandatory. There is nothing sensible for a missing branch
         // to produce in a language where `if` is an expression.
         if !self.is_keyword(Keyword::Else) {
-            let span = self.tree.span_of(self.tree.block(then).span);
-            self.templated("if-without-else", span);
+            // …but a branch is not missing when the `else` is right there
+            // behind one token nobody meant to write. The stray token is the
+            // whole mistake, so that is what the caret lands on, rather than a
+            // branch the reader can see they wrote.
+            if self.kind_at(self.pos.saturating_add(1)) == TokenKind::KeywordElse {
+                let found = self.found();
+                let span = self.span();
+                self.expected(span, "`else`", &found, "delete it — the `else` branch follows");
+            } else if !branch_recovered {
+                // A branch whose own `}` was reported missing has already said
+                // what went wrong. Its `else` was consumed by that recovery or
+                // never reached, and naming a branch nobody omitted on top of
+                // it is the same mistake twice.
+                let span = self.tree.span_of(self.tree.block(then).span);
+                self.templated("if-without-else", span);
+            }
             return Err(Bail);
         }
         self.bump();

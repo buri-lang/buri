@@ -18,6 +18,10 @@ error: `if` requires an `else` branch [if-without-else]
     An if has a value, so it has one on both paths. A missing else would be a
     value the language had to invent.
 
+    You only see this when the else is really absent. A branch whose } was
+    already reported missing, and a stray token between } and else, each get the
+    error that names them instead.
+
 error: there is nothing named `label` in scope [unresolved-name]
  --> cmd/if_without_else/main.buri:8:3
   |
