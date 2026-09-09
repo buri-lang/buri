@@ -1,0 +1,15 @@
+error: a match arm ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_app_ffc9e6/main.buri:60:19
+   |
+60 |         2 => "two"
+   |                   ^
+   |
+   = fix: write `,` here
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_delete_separator_brace_app_ffc9e6/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own

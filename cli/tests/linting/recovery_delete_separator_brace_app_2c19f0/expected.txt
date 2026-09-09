@@ -1,0 +1,15 @@
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_delete_separator_brace_app_2c19f0/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: a statement ends with `;` [missing-terminator]
+   --> lib/recovery_delete_separator_brace_app_2c19f0/main.buri:118:38
+    |
+118 |     let drinks = tea + coffee + juice
+    |                                      ^
+    |
+    = fix: write `;` here
