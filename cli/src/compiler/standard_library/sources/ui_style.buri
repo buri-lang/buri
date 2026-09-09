@@ -203,7 +203,9 @@ export enum Style {
     BorderColor(Color),
     /// What the border is drawn like.
     BorderStyle(BorderStyle),
-    /// How rounded the corners are.
+    /// How rounded the corners are. A `Percent` or a `Full` is a share of the
+    /// width across and of the height down, so a box wider than it is tall
+    /// rounds to an ellipse rather than a circle.
     Radius(Length),
     /// How rounded one corner is. Two `RadiusCorner`s naming different corners
     /// compose, which is how a caller that knows where a child sits — the

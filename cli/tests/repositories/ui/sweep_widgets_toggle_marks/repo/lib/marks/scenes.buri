@@ -137,7 +137,8 @@ fn box(styles: [Style]): [Style] {
     [.Background(.Rgb(226, 232, 244)), .Group(styles)]
 }
 
-/// A switch's track: a pill of a size, with the caller's own styles last.
+/// A switch's track: a size and a `Full` radius, which on a box wider than it
+/// is tall is an ellipse. The caller's own styles come last.
 fn track(width: Length, height: Length, styles: [Style]): [Style] {
     [
         .Width(width),
