@@ -40,10 +40,16 @@
 //! ## What a node holds
 //!
 //! `Vec<u8>` at a stride the caller names, and every entry that reads or writes
-//! one takes that stride. Two values are the same value when their bytes are
-//! equal, which is the native reading of `runtime.js`'s "identical is not a
-//! change". The bytes are opaque: what they mean, and any reference count
-//! inside them, belongs to the caller.
+//! one takes that stride. The bytes are opaque: what they mean, and any
+//! reference count inside them, belongs to the caller.
+//!
+//! **Which is why a write asks the caller whether two values are the same.**
+//! `==` is structural (SPEC 7.2), so two strings with the same text are one
+//! value wherever they live — and a cell holds a `Str` as a pointer, which
+//! comparing bytes reads as two different values. So a write carries [`Equal`],
+//! the type's own comparison generated where the type is known, beside the
+//! retain and the release. Bytes are the fallback and the whole answer for a
+//! scalar, which is the only shape they were ever right for.
 //!
 //! ## The flattened theme document
 //!
@@ -82,6 +88,22 @@ use crate::list::{Release, Retain};
 use crate::memory::{buri_rt_stack_acquire, buri_rt_stack_release};
 use crate::value::{list_of_strs, str_of, BuriList, BuriStr};
 use std::sync::Mutex;
+
+/// The per-value **equality** glue: answers whether two values of one type are
+/// the same value, by the comparison `==` makes at that type. Null where the
+/// backend generated none, and then two values are the same value when their
+/// bytes are.
+///
+/// Four arguments, and the first is the one that is not obvious. The body it
+/// reaches is *Buri code* — `middle::derives`'s generated `Equal`, called
+/// through a thunk the backend emitted — so the frame-threaded backend needs a
+/// Buri frame to run it in, exactly as a deferred body does
+/// ([`Compute`]). The LLVM backend works on the machine stack and ignores the
+/// word. `a` and `b` address one whole value each and `out` receives a byte:
+/// non-zero for equal.
+pub type Equal = Option<
+    unsafe extern "C" fn(frame: *mut u8, a: *const u8, b: *const u8, out: *mut u8),
+>;
 
 /// A runaway is a program whose watchers write what they read. The limit is not
 /// a policy, it is the difference between a diagnosis and a hung tab.
@@ -975,6 +997,13 @@ pub unsafe extern "C" fn buri_rt_ui_theme_variables(out: *mut BuriStr) {
 //
 // `core/list` needed no such word — nothing there holds a value past the call
 // — which is why the retain travelled alone until the graph arrived.
+//
+// **And a fourth word, the equality glue**, for the same reason the first three
+// exist: the question "is this the value already there" is one about the *type*
+// and this side has none. `middle::derives` generates the comparison and the
+// backend wraps it in [`Equal`]'s C shape, so a write of an equal `Str`, list
+// or record re-runs nothing on either backend rather than only on the one where
+// a value happens to fit in its own bytes.
 
 /// Runs a per-value glue function — the retain or the release — over one
 /// value, where there is one to run.
@@ -988,6 +1017,32 @@ unsafe fn walk(glue: Retain, at: *mut u8) {
         // SAFETY: the caller promises `at` is a whole value of that type.
         unsafe { f(at) };
     }
+}
+
+/// Two values of one type, compared by the comparison the language makes at
+/// that type — [`Equal`], run in a frame of this crate's own.
+///
+/// The frame is acquired here for the reason [`run`] acquires one: what the
+/// glue reaches is Buri code, and on the frame-threaded backend a Buri call
+/// works in a frame the caller sets aside. The LLVM backend's thunk ignores the
+/// word and uses the machine stack, so one shape serves both.
+///
+/// # Safety
+/// `a` and `b` each address one whole value of the type `same` was generated
+/// for.
+unsafe fn equal_values(
+    same: unsafe extern "C" fn(*mut u8, *const u8, *const u8, *mut u8),
+    a: *const u8,
+    b: *const u8,
+) -> bool {
+    let frame = buri_rt_stack_acquire();
+    let mut out = [0u8; 8];
+    // SAFETY: the caller promises two whole values; `frame` is a live Buri
+    // frame and `out` eight writable bytes, of which the glue writes the first.
+    unsafe { same(frame, a, b, out.as_mut_ptr()) };
+    // SAFETY: this thread acquired it above and the glue has returned.
+    unsafe { buri_rt_stack_release(frame) };
+    out[0] != 0
 }
 
 /// `ui/testing`'s `headless()` — the handle a `Headless` carries.
@@ -1029,6 +1084,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_signal(
     stride: usize,
     glue: Retain,
     drop: Release,
+    _same: Equal,
 ) -> i64 {
     give_back_at_exit();
     // SAFETY: forwarded to the caller's promise.
@@ -1074,8 +1130,19 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_read(
 /// destroys them, and released **after** it, because a watcher the write woke
 /// is entitled to see the new value first.
 ///
-/// Identical bytes are not a change, so a write that stored nothing takes no
+/// An equal value is not a change, so a write that stored nothing takes no
 /// reference and gives none back.
+///
+/// **Equal, not identical.** `==` is structural, so two strings with the same
+/// text are one value wherever they live — and a cell holds a `Str` as a
+/// pointer, which comparing bytes reads as two. [`Equal`] is the type's own
+/// comparison, generated where the type is known, and it is asked first. A type
+/// the backend generated none for falls back to the bytes, which is the whole
+/// of the value for a scalar.
+///
+/// The old value is what stays when the two are equal: nothing observable
+/// separates them, and keeping the one already held means the write takes no
+/// reference and the caller's argument is released as it always was.
 ///
 /// # Safety
 /// As [`buri_rt_ui_testing_headless_signal`].
@@ -1087,11 +1154,22 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_write(
     stride: usize,
     glue: Retain,
     drop: Release,
+    same: Equal,
 ) {
     let mut old = {
         let g = lock();
         g.get(id).map(|n| n.value.clone()).unwrap_or_default()
     };
+    if let Some(f) = same
+        && old.len() == stride
+        && stride > 0
+        && !value.is_null()
+        // SAFETY: `old` is a copy of one whole value of the cell's type and
+        // `value` is one the caller promises; `f` was generated for it.
+        && unsafe { equal_values(f, old.as_ptr(), value) }
+    {
+        return;
+    }
     // SAFETY: forwarded to the caller's promise.
     let changed = unsafe { write_changed(id, value, stride) };
     if !changed {

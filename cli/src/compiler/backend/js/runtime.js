@@ -3284,9 +3284,14 @@ function $ui_drain() {
 function $ui_write(cell, v) {
   const id = Number(cell);
   const n = $ui_at(id);
-  // Identical is not a change. This is what makes "wrote the same value, so
-  // nothing re-ran" a thing a test can assert.
-  if (n.value === v) return 0;
+  // An equal write is not a change. This is what makes "wrote the same value,
+  // so nothing re-ran" a thing a test can assert — and "the same value" is
+  // `==`, which is structural (SPEC 7.2), so it is `$eq` rather than `===`.
+  // Reference identity would call two lists of the same elements two values,
+  // and a cell holding one would re-render on every write of what it already
+  // held. The native backends compare with the type's own generated `Equal`
+  // (`cli/runtime/ui.rs`), which is the same answer at every type.
+  if ($eq(n.value, v)) return 0;
   n.value = v;
   $ui_notify(n);
   if ($ui.depth === 0) $ui_drain();

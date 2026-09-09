@@ -35,7 +35,8 @@
 /// in declaration order. A `Str` is three parameters and a `[T]` is two.
 ///
 /// Most variants consume one Buri argument and emit its leaves. [`Arg::Stride`],
-/// [`Arg::Retain`] and [`Arg::Release`] consume **no** Buri argument at all: they are §2 rule
+/// [`Arg::Retain`], [`Arg::Release`] and [`Arg::Equal`] consume **no** Buri
+/// argument at all: they are §2 rule
 /// 4's "a generic parameter is a pointer and a stride", where the two extra
 /// words come from `middle::layout` and from the backend's own glue rather than
 /// from the call. That is why this is a description of the *C* parameter list
@@ -81,6 +82,24 @@ pub enum Arg {
     /// and later writes over. Nothing in `core/list` does, which is why the
     /// retain travelled alone for as long as the graph was not here.
     Release,
+    /// The per-value **equality** glue: `void(frame, a, b, out)`, which writes
+    /// a byte through `out` saying whether two values of the type are the same
+    /// value. Null where nothing was generated for the type. Consumes no Buri
+    /// argument.
+    ///
+    /// It rides the same rows [`Arg::Release`] does, and answers the question
+    /// they ask *before* the store: a signal's rule is that writing a value
+    /// equal to the one it holds does nothing, and `==` is structural — so the
+    /// runtime, which has only bytes, cannot decide it. What this points at is
+    /// `middle::derives`'s generated comparison behind a thunk
+    /// ([`super::emit::Unit`]'s `Job::Equal`), which is [`Arg::Retain`]'s idea
+    /// once more: a function this backend generated, because the type does not
+    /// cross.
+    ///
+    /// `frame` is a Buri frame the runtime acquired. This backend's thunk uses
+    /// the machine stack and ignores it, exactly as its [`Arg::Compute`] passes
+    /// `frame_at` as `-1`; the frame-threaded backend runs the comparison in it.
+    Equal,
     // -- the closure trampoline ---------------------------------------------
     /// A **runtime-driven step**: four parameters, from one Buri closure
     /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
@@ -135,7 +154,8 @@ impl Arg {
             Arg::Step => 4,
             Arg::Str => 3,
             Arg::Bytes | Arg::List | Arg::Elems => 2,
-            Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain | Arg::Release => 1,
+            Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain | Arg::Release
+            | Arg::Equal => 1,
             Arg::Dropped => 0,
         }
     }
@@ -143,7 +163,7 @@ impl Arg {
     /// Whether this shape takes the next Buri argument. The two shapes the
     /// backend supplies for itself do not.
     pub fn consumes(self) -> bool {
-        !matches!(self, Arg::Stride | Arg::Retain | Arg::Release)
+        !matches!(self, Arg::Stride | Arg::Retain | Arg::Release | Arg::Equal)
     }
 }
 
@@ -2079,7 +2099,14 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "ui_testing.Headless.signal",
         symbol: "buri_rt_ui_testing_headless_signal",
-        args: &[Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain, Arg::Release],
+        args: &[
+            Arg::Scalar,
+            Arg::Spilled,
+            Arg::Stride,
+            Arg::Retain,
+            Arg::Release,
+            Arg::Equal,
+        ],
         ret: Ret::Scalar,
     },
     Entry {
@@ -2100,13 +2127,23 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
-    // The other row with a release beside its retain, for `signal`'s reason:
-    // a cell keeps the bytes it was written, so the write that replaces them
-    // gives the old ones back.
+    // The other row with a release and an equality beside its retain, for
+    // `signal`'s reason: a cell keeps the bytes it was written, so the write
+    // that replaces them gives the old ones back — and only replaces them where
+    // the new value is not the one already there, which is `==` at the cell's
+    // type and not a comparison of its bytes.
     Entry {
         key: "ui_testing.Headless.write",
         symbol: "buri_rt_ui_testing_headless_write",
-        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain, Arg::Release],
+        args: &[
+            Arg::Scalar,
+            Arg::Scalar,
+            Arg::Spilled,
+            Arg::Stride,
+            Arg::Retain,
+            Arg::Release,
+            Arg::Equal,
+        ],
         ret: Ret::Void,
     },
     // The deferred bodies. `Arg::Compute` is last for `Arg::Step`'s reason:
@@ -2603,7 +2640,7 @@ mod tests {
         ] {
             assert!(shape.consumes(), "{shape:?}");
         }
-        for shape in [Arg::Stride, Arg::Retain, Arg::Release] {
+        for shape in [Arg::Stride, Arg::Retain, Arg::Release, Arg::Equal] {
             assert!(!shape.consumes(), "{shape:?}");
             assert_eq!(shape.leaves(), 1);
         }
@@ -2625,6 +2662,12 @@ mod tests {
             // for a `T` this call never said the width of.
             let releases = e.args.iter().filter(|a| **a == Arg::Release).count();
             assert!(releases <= retains, "{}", e.key);
+            // And the equality rides with the release, for the same reason
+            // and over the same type: both are questions about the `T` the
+            // stride measures, and a row with one and not the other would be
+            // a store the runtime could keep and not compare.
+            let equals = e.args.iter().filter(|a| **a == Arg::Equal).count();
+            assert_eq!(equals, releases, "{}", e.key);
             // A row may name its `T` in the **result** rather than in an
             // argument, and then there is no `Arg::Elems` and no `Arg::Spilled`
             // to see: `ui_effect.Scope.read` and `ui_testing.Headless.read` are
@@ -2756,6 +2799,12 @@ mod tests {
                 here.args.iter().filter(|a| **a == Arg::Release).count(),
                 usize::from(shared.extra == Extra::Owned),
                 "{}: the two tables disagree about whether the runtime keeps this value",
+                shared.key
+            );
+            assert_eq!(
+                here.args.iter().filter(|a| **a == Arg::Equal).count(),
+                usize::from(shared.extra == Extra::Owned),
+                "{}: the two tables disagree about whether the runtime compares this value",
                 shared.key
             );
             assert_eq!(

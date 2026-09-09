@@ -179,6 +179,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
         units: units.names,
         types: types.list,
         crosses_tasks: plan.crosses_tasks,
+        cell_equal: program.cell_equal.clone(),
     }
 }
 

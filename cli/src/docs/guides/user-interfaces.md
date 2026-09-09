@@ -33,13 +33,15 @@ export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
 |---|---|
 | `signal(ctx, v)` | O(1) |
 | `get` | O(1) outside a computation. Inside one, O(k) in that computation's dependencies so far, because the edge is recorded once and recording it looks first |
-| `set`, `update` | O(1) when the value is unchanged, and otherwise O(d) over what read the cell, transitively through memos |
+| `set`, `update` | O(n) in the value's size to compare it with the one already there, and then O(d) over what read the cell — transitively through memos — where the two differ |
 | `memo(ctx, f)` | O(1) to declare — `f` does not run until something reads it, and then only after a cell it actually read has changed |
 | `watch(ctx, f)` | runs once now, and once per batch in which something it read changed |
 
 Tracking is automatic and exact: every run collects the dependencies afresh, so
 a read behind an `if` subscribes to the branch taken and not the other. Writing
-a value identical to the one already there re-runs nothing.
+a value equal to the one already there re-runs nothing — equal being `==`, which
+is structural, so two lists of the same elements are one value however each was
+built.
 
 ## Derived values
 
