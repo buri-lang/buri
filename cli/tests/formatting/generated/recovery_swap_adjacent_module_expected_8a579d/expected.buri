@@ -4,8 +4,6 @@ export trait T {}
 
 export struct S {}
 
-enum
-
-export E {}
+enum export E {}
 
 impl S {}

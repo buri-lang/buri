@@ -5,9 +5,7 @@ type Count = I64; // the default integer, named for what it counts
 
 type Ratio = F64;
 
-Basket
-
-struct {
+Basket struct {
     export items: Count, // how many, never how much
     export label: Str,
 }

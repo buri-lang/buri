@@ -1,3 +1,4 @@
+Equal derive, Ordered for Meters;
 export struct Meters(export Float);
 
 // why this derive
@@ -7,9 +8,5 @@ export enum Shape {
     Circle(Float),
     Empty,
 }
-
-Equal
-
-derive, Ordered for Meters;
 
 derive Equal for SomethingElsewhere;

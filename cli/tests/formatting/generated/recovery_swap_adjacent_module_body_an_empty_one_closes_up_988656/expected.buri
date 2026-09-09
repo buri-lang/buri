@@ -6,6 +6,4 @@ export struct S {}
 
 export enum E {}
 
-S
-
-impl {}
+S impl {}

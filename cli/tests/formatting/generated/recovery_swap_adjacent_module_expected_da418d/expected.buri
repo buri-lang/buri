@@ -10,9 +10,7 @@ struct Basket {
     export label: Str,
 }
 
-State
-
-enum {
+State enum {
     Empty, // nothing has been added yet
     Filled(Count),
 }

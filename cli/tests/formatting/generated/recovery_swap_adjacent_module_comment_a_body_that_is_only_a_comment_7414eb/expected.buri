@@ -6,8 +6,6 @@ export enum E {
     // only a comment, no variants
 }
 
-trait
-
-export T {
+trait export T {
   // only a comment, no methods
 }
