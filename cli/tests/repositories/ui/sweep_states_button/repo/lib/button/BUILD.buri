@@ -1,0 +1,9 @@
+# One scene library and one test source, so every picture here is painted by
+# one binary against one `test/__snapshots__`.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/states.buri"]
+    }
+}

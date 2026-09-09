@@ -1,0 +1,123 @@
+// Button, in every state — six pictures of one tree, and the classes behind each.
+//
+// The `describe` assertion beside every picture is what says a state golden is
+// no copy of the resting one: the hovered document carries the `hover_`
+// classes and none of the other four states', and the resting document
+// carries no state class at all.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/button" import { responsive, resting };
+
+test "at rest" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, resting(), .Hover);
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("focus_"));
+    assert.isFalse(scene.contains("active_"));
+    assert.isFalse(scene.contains("disabled_"));
+    assert.isFalse(scene.contains("checked_"));
+    snapshot(ctx, "button-resting", resting(), .Hover, []);
+}
+
+test "hovered" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, responsive(), .Hover);
+    assert.containsText(scene, "hover_bg-");
+    assert.containsText(scene, "hover_fg-");
+    assert.containsText(scene, "hover_bw-");
+    assert.containsText(scene, "hover_bc-");
+    assert.containsText(scene, "hover_op-");
+    assert.containsText(scene, "hover_sh-");
+    assert.isFalse(scene.contains("focus_"));
+    assert.isFalse(scene.contains("active_"));
+    assert.isFalse(scene.contains("disabled_"));
+    assert.isFalse(scene.contains("checked_"));
+    snapshot(ctx, "button-hover", responsive(), .Hover, []);
+}
+
+test "focused" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, responsive(), .Focus);
+    assert.containsText(scene, "focus_bg-");
+    assert.containsText(scene, "focus_fg-");
+    assert.containsText(scene, "focus_bw-");
+    assert.containsText(scene, "focus_bc-");
+    assert.containsText(scene, "focus_op-");
+    assert.containsText(scene, "focus_sh-");
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("active_"));
+    assert.isFalse(scene.contains("disabled_"));
+    assert.isFalse(scene.contains("checked_"));
+    snapshot(ctx, "button-focus", responsive(), .Focus, []);
+}
+
+test "pressed" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, responsive(), .Active);
+    assert.containsText(scene, "active_bg-");
+    assert.containsText(scene, "active_fg-");
+    assert.containsText(scene, "active_bw-");
+    assert.containsText(scene, "active_bc-");
+    assert.containsText(scene, "active_op-");
+    assert.containsText(scene, "active_sh-");
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("focus_"));
+    assert.isFalse(scene.contains("disabled_"));
+    assert.isFalse(scene.contains("checked_"));
+    snapshot(ctx, "button-active", responsive(), .Active, []);
+}
+
+test "refusing input" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, responsive(), .Disabled);
+    assert.containsText(scene, "disabled_bg-");
+    assert.containsText(scene, "disabled_fg-");
+    assert.containsText(scene, "disabled_bw-");
+    assert.containsText(scene, "disabled_bc-");
+    assert.containsText(scene, "disabled_op-");
+    assert.containsText(scene, "disabled_sh-");
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("focus_"));
+    assert.isFalse(scene.contains("active_"));
+    assert.isFalse(scene.contains("checked_"));
+    snapshot(ctx, "button-disabled", responsive(), .Disabled, []);
+}
+
+test "on" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, responsive(), .Checked);
+    assert.containsText(scene, "checked_bg-");
+    assert.containsText(scene, "checked_fg-");
+    assert.containsText(scene, "checked_bw-");
+    assert.containsText(scene, "checked_bc-");
+    assert.containsText(scene, "checked_op-");
+    assert.containsText(scene, "checked_sh-");
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("focus_"));
+    assert.isFalse(scene.contains("active_"));
+    assert.isFalse(scene.contains("disabled_"));
+    snapshot(ctx, "button-checked", responsive(), .Checked, []);
+}
