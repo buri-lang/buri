@@ -6,7 +6,7 @@ error: `notEqual` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
+   = fix: pass `notEqual` the following arguments: notEqual<T: Equal>(actual: T, expected: T)
 error: `of` takes 1 arguments, but 2 were given [wrong-argument-count]
   --> main.buri:36:21
    |
@@ -15,7 +15,7 @@ error: `of` takes 1 arguments, but 2 were given [wrong-argument-count]
    |
    = expected: 1
    = actual: 2
-   = fix: pass exactly 1
+   = fix: pass `of` the following arguments: of(value: Int)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:36:50
    |

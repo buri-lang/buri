@@ -6,7 +6,7 @@ error: `fold` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
+   = fix: pass `fold` the following arguments: fold<B>(self, step: fn(B, T) => B, init: B)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:16:55
    |

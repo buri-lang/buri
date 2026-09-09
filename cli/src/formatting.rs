@@ -2930,19 +2930,21 @@ fn param_text(t: &Tree, p: &Param) -> String {
     }
 }
 
-pub fn signature(t: &Tree, d: &FnDecl) -> String {
+/// What a caller has to write: the name, the generics it binds with their
+/// bounds, and every parameter with the type it takes. No `fn` and no answer —
+/// this is read against a call, not hovered over a declaration.
+pub fn call_signature(t: &Tree, d: &FnDecl) -> String {
     let params = d
         .params
         .iter()
         .map(|p| param_text(t, p))
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "fn {}{}({params}): {}",
-        t.name(d.name),
-        generics(t, &d.generics),
-        type_text(t, d.ret)
-    )
+    format!("{}{}({params})", t.name(d.name), generics(t, &d.generics))
+}
+
+pub fn signature(t: &Tree, d: &FnDecl) -> String {
+    format!("fn {}: {}", call_signature(t, d), type_text(t, d.ret))
 }
 
 pub fn generics(t: &Tree, g: &[GenericParam]) -> String {

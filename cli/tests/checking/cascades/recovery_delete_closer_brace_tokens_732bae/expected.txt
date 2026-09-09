@@ -14,7 +14,7 @@ error: `token` takes 2 arguments, but 3 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 3
-   = fix: pass exactly 2
+   = fix: pass `token` the following arguments: token(namespace: Str, name: Str)
 error: `.Accent` needs a known expected type [unannotated-variant]
   --> main.buri:42:13
    |

@@ -8,7 +8,7 @@
 use crate::build::buildfile::nearest;
 use crate::compiler::modules::Role;
 use crate::compiler::semantics::inference::{Infer, LitCheck};
-use crate::compiler::semantics::resolve::Sym;
+use crate::compiler::semantics::resolve::{Checker, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
@@ -27,6 +27,21 @@ enum Static {
     Const(ConstId),
     /// A tuple struct's name, which constructs one: `Meters(9.8)`.
     TupleStruct(TyConId),
+}
+
+/// A call that passed the wrong number of arguments, and what it was measured
+/// against.
+///
+/// `fill` and `types` are the parameters the arguments fill, so a method's
+/// receiver and the parameter it fills are not among them: the first as the
+/// declaration wrote them, the second as they stand at this call.
+struct Miscounted<'x> {
+    name: &'x str,
+    signature: &'x str,
+    fill: &'x [ParamInfo],
+    types: &'x [Ty],
+    args: &'x [ExprId],
+    checked: &'x [typed::Expr],
 }
 
 /// Where a method call dispatches.
@@ -963,24 +978,6 @@ impl<'a, 'b> Infer<'a, 'b> {
         // than a claim about the declaration.
         let expected_args =
             if receiver.is_some() { params.len().saturating_sub(1) } else { params.len() };
-        if args.len() != expected_args {
-            let (name, takes_ctx) = {
-                let info = self.c.tables.fn_info(f);
-                (info.name.clone(), info.params.iter().any(|p| p.role == ParamRole::Ctx))
-            };
-            let have = args.len();
-            let mut d = Diagnostic::templated("wrong-argument-count", span)
-                .with_bind("function", name.clone())
-                .with_bind("expected", expected_args.to_string())
-                .with_bind("given", have.to_string())
-                .with_mismatch(expected_args.to_string(), have.to_string());
-            // The most common cause is forgetting the context, which is always
-            // the parameter right after the receiver.
-            if takes_ctx && have.saturating_add(1) == expected_args {
-                d = d.with_fix("pass the context: the convention is receiver first, context second, everything else after");
-            }
-            self.c.diags.push(d);
-        }
 
         let mut hir_args = Vec::new();
         // The receiver takes the first slot and the arguments are checked
@@ -994,7 +991,31 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             hir_args.push(r);
         }
-        hir_args.extend(self.check_args(args, param_types));
+        if args.len() == expected_args {
+            hir_args.extend(self.check_args(args, param_types));
+        } else {
+            let (name, declared) = {
+                let info = self.c.tables.fn_info(f);
+                (info.name.clone(), info.params.clone())
+            };
+            let signature = signature_of_fn(self.c, f);
+            // The receiver fills the first parameter, so neither it nor that
+            // parameter takes part in what the arguments are lined up against.
+            let taken = declared.len().saturating_sub(param_types.len());
+            let fill: Vec<ParamInfo> = declared.into_iter().skip(taken).collect();
+            let types = param_types.to_vec();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted {
+                name: &name,
+                signature: &signature,
+                fill: &fill,
+                types: &types,
+                args,
+                checked: &checked,
+            };
+            self.report_wrong_argument_count(span, &call);
+            hir_args.extend(checked);
+        }
         self.check_lazy_load(f, &hir_args, args, span);
         typed::Expr::new(
             typed::ExprKind::CallFn {
@@ -1004,6 +1025,112 @@ impl<'a, 'b> Infer<'a, 'b> {
             ret,
             span,
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // A call that does not pass what the declaration takes
+    // -----------------------------------------------------------------------
+
+    /// The arguments of a call whose count is already wrong, each checked on
+    /// its own.
+    ///
+    /// Pairing them with the parameters left to right would be a guess — the
+    /// call is short somewhere, or long — and a guess that lands wrong is a
+    /// type error about an argument that is fine, printed under a diagnostic
+    /// that has already said what the mistake was.
+    fn check_unpaired(&mut self, args: &[ExprId]) -> Vec<typed::Expr> {
+        args.iter().map(|a| self.check_expr(*a, None)).collect()
+    }
+
+    /// Reports the count, and prints what the declaration takes.
+    fn report_wrong_argument_count(&mut self, span: Span, call: &Miscounted<'_>) {
+        let (name, signature) = (call.name, call.signature);
+        let mut d = Diagnostic::templated("wrong-argument-count", span)
+            .with_bind("function", name.to_string())
+            .with_bind("expected", call.types.len().to_string())
+            .with_bind("given", call.checked.len().to_string())
+            .with_bind("signature", signature.to_string())
+            .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
+        if let Some(missing) = self.missing_parameter(call) {
+            d = d.with_fix(format!("`{name}` requires a `{missing}` parameter: {signature}"));
+        }
+        self.c.diags.push(d);
+    }
+
+    /// The one parameter the call left out, where the arguments say which.
+    ///
+    /// Only when exactly one is missing, and only when exactly one position
+    /// answers: a call whose arguments line up two ways has not said which one
+    /// it forgot, and a guess would send the reader to the wrong end of the
+    /// line. Then the fix prints the signature and names nothing.
+    fn missing_parameter(&self, call: &Miscounted<'_>) -> Option<String> {
+        let Miscounted { fill, types, args, checked, .. } = *call;
+        if checked.len().saturating_add(1) != types.len() || fill.len() != types.len() {
+            return None;
+        }
+        let mut found: Option<String> = None;
+        for skip in 0..types.len() {
+            // One copy per reading: an alignment is a sequence of unifications,
+            // and the ones a losing reading made must not be left behind.
+            let mut probe = self.subst.clone();
+            let lines_up = checked.iter().zip(args).enumerate().all(|(i, (arg, id))| {
+                let at = if i < skip { i } else { i.saturating_add(1) };
+                match (fill.get(at), types.get(at)) {
+                    (Some(p), Some(want)) => self.argument_fits(*id, &arg.ty, p, want, &mut probe),
+                    _ => false,
+                }
+            });
+            if !lines_up {
+                continue;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = fill.get(skip).map(|p| p.name.clone());
+        }
+        found
+    }
+
+    /// Whether this argument could be the one that parameter takes.
+    ///
+    /// A dot form has no type of its own — it takes one from where it is
+    /// passed — and still says what kind of parameter it could fill: an enum
+    /// with that variant, and nothing else. A `ctx` parameter takes a context,
+    /// and a value that carries no effect is not one, which is what makes a
+    /// forgotten context nameable rather than a guess between two positions.
+    fn argument_fits(
+        &self,
+        arg: ExprId,
+        ty: &Ty,
+        param: &ParamInfo,
+        want: &Ty,
+        probe: &mut Subst,
+    ) -> bool {
+        if let Some(variant) = self.dot_form(arg) {
+            let Ty::Con(con, _) = probe.shallow(want) else { return false };
+            return self.c.tables.variant_index(con, &variant).is_some();
+        }
+        let resolved = probe.shallow(ty);
+        if !resolved.is_error()
+            && self.c.tables.is_effect_carrying(&resolved, &self.generics)
+                != (param.role == ParamRole::Ctx)
+        {
+            return false;
+        }
+        probe.unify(&self.c.tables, ty, want).is_ok()
+    }
+
+    /// The variant a `.Some(x)` or a bare `.None` names.
+    fn dot_form(&self, e: ExprId) -> Option<String> {
+        let t = self.tree();
+        let head = match t.expr(e) {
+            V::Call { callee, .. } => t.strip_type_args(callee),
+            _ => e,
+        };
+        match t.expr(head) {
+            V::DotVariant { name, .. } => Some(name.to_string()),
+            _ => None,
+        }
     }
 
     /// `core/lazy`'s `load` takes the **name of a function**, and nothing else.
@@ -1412,17 +1539,25 @@ impl<'a, 'b> Infer<'a, 'b> {
         // The receiver takes the first parameter, so the arguments are checked
         // against what is left.
         let rest = params.split_first().map_or(&[][..], |(_, rest)| rest);
-        if args.len() != rest.len() {
+        if args.len() == rest.len() {
+            hir_args.extend(self.check_args(args, rest));
+        } else {
             let name = method.name.clone();
-            let want = rest.len();
-            let have = args.len();
-            self.templated("wrong-argument-count", span)
-                .bind("function", name)
-                .bind("expected", want.to_string())
-                .bind("given", have.to_string())
-                .mismatch(want.to_string(), have.to_string());
+            let signature = signature_of_trait_method(self.c, tid, index);
+            let fill: Vec<ParamInfo> = method.params.iter().skip(1).cloned().collect();
+            let types = rest.to_vec();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted {
+                name: &name,
+                signature: &signature,
+                fill: &fill,
+                types: &types,
+                args,
+                checked: &checked,
+            };
+            self.report_wrong_argument_count(span, &call);
+            hir_args.extend(checked);
         }
-        hir_args.extend(self.check_args(args, rest));
         typed::Expr::new(
             typed::ExprKind::CallTrait { trait_id: tid, method: index, recv: recv_ty, targs, args: hir_args },
             ret,
@@ -3092,6 +3227,44 @@ impl<'a, 'b> Infer<'a, 'b> {
             result,
             span,
         )
+    }
+}
+
+/// What a function takes, as a caller has to write it.
+///
+/// The declaration's own syntax where there is some, through the printer
+/// `buri docs` and the language server's hover already use, so a diagnostic
+/// spells a parameter the way the source does — `Int` rather than the `I64` the
+/// table holds. A declaration nobody wrote — a primitive's method — is rendered
+/// from the table instead.
+fn signature_of_fn(c: &Checker, id: FnId) -> String {
+    let info = c.tables.fn_info(id);
+    if let Some((module, item)) = info.ast.item() {
+        let declared = match (info.ast, c.module(module).ast.items.get(item as usize)) {
+            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => Some(&**d),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => d.methods.get(sub as usize),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => d.methods.get(sub as usize),
+            _ => None,
+        };
+        if let Some(d) = declared {
+            return crate::formatting::call_signature(c.tree(module), d);
+        }
+    }
+    call_signature(&c.tables, &info.name, &info.generics, &info.params)
+}
+
+/// The same for a method reached through a bound, whose declaration is the
+/// trait's — including one nobody wrote, which `derive` supplies.
+fn signature_of_trait_method(c: &Checker, tid: TraitId, index: usize) -> String {
+    let info = c.tables.trait_(tid);
+    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
+        tree::Item::Trait(d) if d.name.span == info.span => d.methods.get(index),
+        _ => None,
+    });
+    match (declared, info.methods.get(index)) {
+        (Some(d), _) => crate::formatting::call_signature(c.tree(info.module), d),
+        (None, Some(m)) => call_signature(&c.tables, &m.name, &m.generics, &m.params),
+        (None, None) => info.name.clone(),
     }
 }
 

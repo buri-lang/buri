@@ -1170,7 +1170,10 @@ impl Tables {
 
 /// The substitution for one function body. Local, because top-level signatures
 /// are mandatory and no inference crosses a function boundary.
-#[derive(Default)]
+/// `Clone` because a question can be asked of a substitution without being
+/// asked *of* it: working out which parameter a call left out tries an
+/// alignment on a copy, so a reading that does not hold leaves nothing behind.
+#[derive(Default, Clone)]
 pub struct Subst {
     slots: Vec<Option<Ty>>,
     classes: Vec<Option<NumClass>>,
@@ -1527,6 +1530,51 @@ pub fn show(tables: &Tables, subst: Option<&Subst>, generics: &[GenericInfo], ty
     };
     let mut out = String::new();
     write_ty(&mut out, tables, subst, generics, &resolved);
+    out
+}
+
+/// A signature as a caller has to write it: the name, the generics it binds
+/// with their bounds, and every parameter with its type. `self` is written
+/// bare, the way a declaration writes it.
+///
+/// This renders a declaration the toolchain made rather than any source — a
+/// primitive's method, a trait method reached through a `derive`.
+/// [`crate::formatting::call_signature`] is the same rendering of syntax
+/// somebody wrote, and is what a diagnostic prints wherever there is some:
+/// only that one can say `Int` where the table says `I64`.
+pub fn call_signature(
+    tables: &Tables,
+    name: &str,
+    generics: &[GenericInfo],
+    params: &[ParamInfo],
+) -> String {
+    let mut out = String::from(name);
+    if !generics.is_empty() {
+        out.push('<');
+        for (i, g) in generics.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&g.name);
+            for (j, bound) in g.bounds.iter().enumerate() {
+                out.push_str(if j == 0 { ": " } else { " + " });
+                out.push_str(&tables.trait_(*bound).name);
+            }
+        }
+        out.push('>');
+    }
+    out.push('(');
+    for (i, p) in params.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        if p.role == ParamRole::SelfParam {
+            out.push_str("self");
+            continue;
+        }
+        let _ = write!(out, "{}: {}", p.name, show(tables, None, generics, &p.ty));
+    }
+    out.push(')');
     out
 }
 

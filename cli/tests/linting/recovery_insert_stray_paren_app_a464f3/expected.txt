@@ -14,7 +14,7 @@ error: `println` takes 2 arguments, but 3 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 3
-   = fix: pass exactly 2
+   = fix: pass `println` the following arguments: println<C: Stdout>(ctx: C, text: Template)
 error: there is nothing named `extra` in scope [unresolved-name]
   --> lib/recovery_insert_stray_paren_app_a464f3/main.buri:19:21
    |
