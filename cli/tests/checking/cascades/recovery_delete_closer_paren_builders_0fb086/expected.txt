@@ -13,7 +13,7 @@ error: `n` takes 1 arguments, but 2 were given [wrong-argument-count]
    |
    = expected: 1
    = actual: 2
-   = fix: pass exactly 1
+   = fix: pass `n` the following arguments: n(text: Str)
 error: there is nothing named `origin` in scope [unresolved-name]
   --> main.buri:37:44
    |

@@ -13,7 +13,7 @@ error: `record` takes 0 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 0
    = actual: 1
-   = fix: pass exactly 0
+   = fix: pass `record` the following arguments: record()
 error: `.ignore` needs a known expected type [unannotated-variant]
   --> lib/recovery_delete_closer_brace_app_d8c3b5/main.buri:26:20
    |

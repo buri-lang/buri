@@ -6,11 +6,38 @@ error: `heading` takes 3 arguments, but 2 were given [wrong-argument-count]
    |
    = expected: 3
    = actual: 2
-   = fix: pass exactly 3
-error: `[Style]` is not an enum [not-an-enum]
+   = fix: `heading` requires a `styles` parameter: heading(level: Int, styles: [Style], content: Prop)
+
+     What to do
+     ──────────
+
+     Line the call up against the signature the fix prints, which is the
+     declaration: the name, the generics with their bounds, and every parameter
+     with its name and type. The context is one of those parameters, so a call
+     that forgot it is short by one. Where the types of the arguments say which
+     parameter was left out, the fix names it; where the call lines up two ways,
+     or more than one parameter has nothing to fill it, it names none of them
+     rather than sending you to the wrong end of the line.
+
+error: `.Const` needs a known expected type [unannotated-variant]
   --> cmd/call_missing_an_argument_before_a_dot_form/main.buri:23:14
    |
 23 |   heading(2, .Const("title"))
    |              ^^^^^^
    |
-   = fix: the dot form names an enum variant; write the value another way
+   = fix: write the qualified form, as in `Option.Const(...)`, or annotate what this value is being used as
+
+     What to do
+     ──────────
+
+     Write the qualified form — Option.Some(...) — or annotate what this value
+     is being used as.
+
+     Why
+     ───
+
+     .Some is shorthand for "the Some of whatever type is expected here", and a
+     let with no annotation expects nothing. Inference flows into the shorthand,
+     never out of it, which is what leaves two enums free to share a variant
+     name.
+

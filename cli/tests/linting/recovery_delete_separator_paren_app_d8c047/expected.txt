@@ -14,15 +14,7 @@ error: `fromChars` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass the context: the convention is receiver first, context second, everything else after
-error: `Option<<error>>` does not satisfy `Allocator` [unsatisfied-bound]
-  --> lib/recovery_delete_separator_paren_app_d8c047/main.buri:40:5
-   |
-40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = `Option<<error>>` implements `Equal`, `Hash`, `Ordered` and `Show`, but not `Allocator`
-   = fix: add `derive Allocator for Option<<error>>;` in that type's own module, or write `impl Allocator for Option<<error>> { ... }` there
+   = fix: pass `fromChars` the following arguments: fromChars<C: Allocator>(ctx: C, characters: [Char])
 error: `C` cannot be indexed [not-indexable]
   --> lib/recovery_delete_separator_paren_app_d8c047/main.buri:40:19
    |

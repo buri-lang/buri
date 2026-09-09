@@ -6,7 +6,7 @@ error: `replace` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass the context: the convention is receiver first, context second, everything else after
+   = fix: `replace` requires a `path` parameter: replace<C: Location + Ui>(ctx: C, path: Str)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:63:20
    |

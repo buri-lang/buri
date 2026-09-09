@@ -6,32 +6,16 @@ error: `scale` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
-error: expected `I64`, found `Str` [type-mismatch]
-  --> cmd/trait_method_missing_an_argument/main.buri:10:11
-   |
-10 |   x.scale("cm")
-   |           ^^^^ the parameter type is `I64`
-   |
-   = expected: `I64`
-   = actual: `Str`
-   = fix: produce a `I64` here, or change what surrounds it to accept a `Str`
+   = fix: `scale` requires a `factor` parameter: scale(self, factor: Int, unit: Str)
 
      What to do
      ──────────
 
-     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
-     for every I32, while a narrowing one returns a Result because not every
-     value fits.
-
-     A bare numeric literal is reported as Int or Float, the type it takes when
-     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
-     let x: U8 = 1 — and it becomes any type of the same kind.
-
-     Why
-     ───
-
-     There is no promotion of any kind, in either direction. A language that
-     widened silently would make the width of an arithmetic result depend on the
-     shape of the expression rather than on what you wrote.
+     Line the call up against the signature the fix prints, which is the
+     declaration: the name, the generics with their bounds, and every parameter
+     with its name and type. The context is one of those parameters, so a call
+     that forgot it is short by one. Where the types of the arguments say which
+     parameter was left out, the fix names it; where the call lines up two ways,
+     or more than one parameter has nothing to fill it, it names none of them
+     rather than sending you to the wrong end of the line.
 

@@ -6,16 +6,7 @@ error: `approximatelyEqual` takes 3 arguments, but 1 were given [wrong-argument-
    |
    = expected: 3
    = actual: 1
-   = fix: pass exactly 3
-error: expected `F64`, found `fn(F64) => Duration` [type-mismatch]
-  --> main.buri:40:31
-   |
-40 |     assert.approximatelyEqual(time.secondsFloat@ (3.0).asSecondsFloat(), 3.0, 1e-9);
-   |                               ^^^^^^^^^^^^^^^^^ the parameter type is `F64`
-   |
-   = expected: `F64`
-   = actual: `fn(F64) => Duration`
-   = fix: produce a `F64` here, or change what surrounds it to accept a `fn(F64) => Duration`
+   = fix: pass `approximatelyEqual` the following arguments: approximatelyEqual(actual: Float, expected: Float, tolerance: Float)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:40:48
    |
