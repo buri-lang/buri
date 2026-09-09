@@ -173,6 +173,20 @@ fn valueText<C: Allocator>(ctx: C, color: Color): Str {
         .Rgba(r, g, b, a) => str.format(ctx, "rgba(${r},${g},${b},${a})"),
         .Transparent => "transparent",
         .Inherit => "inherit",
+        // A token bound to a faded token: the mix is the value, and the
+        // `var()` inside it is followed like any other.
+        .Faded(reference, a) => {
+            let space = reference.namespace();
+            let name = reference.name();
+            // `50`, not the `50.0` a `Float` shows as, so this and the page's
+            // own renderer write one text. `ui/node`'s `cssNumber` says why.
+            let shown = str.fromFloat(ctx, a * 100.0);
+            let percent = shown.stripSuffix(".0").withDefault(shown);
+            str.format(
+                ctx,
+                "color-mix(in srgb,var(--${space}-${name}) ${percent}%,transparent)",
+            )
+        },
         // Answered by `bindLine` before this is reached.
         .Token(_) => "",
     }
