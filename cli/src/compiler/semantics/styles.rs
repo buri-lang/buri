@@ -95,6 +95,7 @@ const NODE_HEADING: usize = 2;
 const NODE_BUTTON: usize = 5;
 const NODE_LINK: usize = 6;
 const NODE_FIELD: usize = 8;
+const NODE_TOGGLE: usize = 9;
 
 /// `ui/node`'s `Role::List`, the one role that lowers to an element a browser
 /// marks and indents by itself. A role is written at the call site rather than
@@ -813,14 +814,16 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 /// What comes out is also what the headless painter already draws: no padding
 /// nobody asked for, the surrounding font, no margin the scene document has
 /// no counterpart for, and no marker beside a list item. A toggle's box is
-/// deliberately left alone. `appearance:none` on a checkbox erases the tick,
-/// and this vocabulary has nothing to draw a new one with.
+/// cleared like every other control now that the widget draws its own mark:
+/// `appearance:none` erases a browser's tick, and the two rules below put back
+/// a tick and a thumb this vocabulary can paint.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Reset {
     pub heading: bool,
     pub button: bool,
     pub link: bool,
     pub field: bool,
+    pub toggle: bool,
     pub list: bool,
 }
 
@@ -829,6 +832,18 @@ pub struct Reset {
 /// look like the text around it.
 const CONTROL_RESET: &str =
     "appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit";
+
+/// A checkbox's tick, as the shape that masks the box's own colour.
+///
+/// A mask rather than a picture, because the mark takes the control's
+/// `Foreground` and a picture would carry a colour of its own. The geometry is
+/// the painter's `mark:tick` exactly — a stroke through the same three points
+/// of the same sixteen-unit square — so the two renderers draw one tick.
+const TICK_MASK: &str = "mask-image:url(\"data:image/svg+xml,\
+    %3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E\
+    %3Cpath d='M3.5 8.5 6.5 11.5 12.5 4.5' fill='none' stroke='%23000' \
+    stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E\
+    %3C/svg%3E\");mask-size:contain;mask-repeat:no-repeat;mask-position:center";
 
 impl Reset {
     fn rules(self) -> String {
@@ -849,10 +864,50 @@ impl Reset {
             out.push_str(":where(a){color:inherit;text-decoration:none}\n");
         }
         if self.field {
-            // A checkbox is a toggle's, never a field's, and it is the one
-            // input the reset must not reach.
+            // A checkbox is a toggle's, never a field's: it has a reset of its
+            // own below, because it is the one control that draws a mark.
             out.push_str(&format!(
                 ":where(input:not([type=checkbox]),textarea){{{CONTROL_RESET}}}\n"
+            ));
+        }
+        if self.field || self.toggle {
+            // The `<label>` wrapping a control and its text. A browser lays it
+            // out as an inline box, which is not a box a surrounding row can
+            // measure and not a box the headless painter has any flow for. One
+            // wrapping row says the same thing to both, and `around` beats it
+            // — every class does.
+            out.push_str(
+                ":where(label){display:flex;flex-direction:row;flex-wrap:wrap;\
+                 align-items:center}\n",
+            );
+        }
+        if self.toggle {
+            // The box the widget draws its mark in. It is a row that centres
+            // what is in it, one line square, and it does not shrink — with
+            // `appearance:none` a browser gives an unsized checkbox no size at
+            // all, and an invisible control is worse than a browser's own.
+            out.push_str(&format!(
+                ":where(input[type=checkbox]){{{CONTROL_RESET};display:flex;\
+                 flex-direction:row;align-items:center;justify-content:flex-start;\
+                 width:1rem;height:1rem;flex-shrink:0}}\n"
+            ));
+            // Where the mark sits. It is what makes a switch's thumb travel,
+            // and it is nothing to a tick, which fills the box.
+            out.push_str(
+                ":where(input[type=checkbox]:checked){justify-content:flex-end}\n",
+            );
+            // The two marks. A switch always has its thumb; a checkbox has its
+            // tick only when it is on. Both take the box's own colour, which is
+            // the one property that paints them.
+            out.push_str(
+                ":where(input[type=checkbox][role=switch])::before{content:\"\";\
+                 height:100%;aspect-ratio:1;border-radius:9999px;\
+                 background-color:currentColor}\n",
+            );
+            out.push_str(&format!(
+                ":where(input[type=checkbox]:not([role=switch]):checked)::before\
+                 {{content:\"\";width:100%;height:100%;\
+                 background-color:currentColor;{TICK_MASK}}}\n"
             ));
         }
         if self.list {
@@ -884,6 +939,7 @@ pub fn reset_in(
                 NODE_BUTTON => out.button = true,
                 NODE_LINK => out.link = true,
                 NODE_FIELD => out.field = true,
+                NODE_TOGGLE => out.toggle = true,
                 _ => {}
             }
         }

@@ -107,7 +107,7 @@ fn tree<C: Ui>(ctx: C, stated: Bool): Node<C> {
         ]),
         band("heading, button and link", [
             ui.heading(3, base(on(all)), .Const("head")),
-            ui.button(.Const("press"), base(on(all)), fn(_c, _e) => ()),
+            ui.button(.Const("press"), base(on(all)), [], fn(_c, _e) => ()),
             ui.link(.Const("/a"), base(on(all)), [ui.text(.Const("go"))]),
         ]),
         band("field and toggle, marked invalid", [
@@ -115,12 +115,15 @@ fn tree<C: Ui>(ctx: C, stated: Bool): Node<C> {
                 .Const("Email"),
                 .Email,
                 base(on(all)),
+                [],
                 signal.signal(ctx, "ada@"),
                 .Const(stated),
             ),
             ui.toggle(
                 .Const("terms"),
+                .Checkbox,
                 base(on(all)),
+                [],
                 signal.signal(ctx, false),
                 .Const(stated),
             ),

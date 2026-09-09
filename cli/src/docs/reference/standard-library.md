@@ -699,13 +699,29 @@ and each toast in the dock takes the pointer back.
 container does, and it lands on the element itself — so a hover, focus or
 disabled rule fires on the thing that is hovered, focused or disabled, and a
 heading is the size its styles say rather than the size a browser picked.
-`field` and `toggle` take one more parameter, `invalid: Prop<Bool>`, for the
-reason they take a label: a control failing validation has to be *announced*.
-It writes `aria-invalid` and it is the only way into `State::Invalid`, so
-`On(.Invalid, ...)` paints the ring on the same fact a reader is told. The
+The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.
+
+`button(label, styles, children, onPress)` holds children the way `link` does,
+and one with none shows its label. The label stays a parameter and rides in
+`aria-label`, so a button of an icon and a word is one focusable, hoverable
+element with the name the program gave it.
+
+`field(label, kind, styles, around, value, invalid)` and
+`toggle(label, kind, styles, around, value, invalid)` take two style lists,
+because a labelled control is two boxes: `styles` is the input's, `around` is
+the `<label>`'s — the box a surrounding row lays out, and the only place `Grow`,
+`Shrink`, `AlignSelf` and `Span` do anything. A toggle's `ToggleKind` picks the
+mark it draws inside itself: `Checkbox` has a tick when it is on, `Switch` has a
+thumb that travels. Both take the box's `Foreground`.
+
+`invalid` is a parameter for the reason the label is: a control failing
+validation has to be *announced*. It writes `aria-invalid` and it is the only
+way into `State::Invalid`, so `On(.Invalid, ...)` paints the ring on the same
+fact a reader is told, and a control that never fails passes `.Const(false)`
+and carries no markup it did not ask for.
 
 `Shadow` is one shadow and `Shadows` is a list of them, painted first over last,
 because every elevation is two layers and a focus ring is a third beside them.

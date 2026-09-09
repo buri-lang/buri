@@ -41,21 +41,21 @@ function __cmd_x_main_buri$main(){
   }
   const label_10='clicks';
   const count_11=[$host_HostUi_signal(ctx_0[2],0n)];
-  const count_28=[1,count_11];
-  const content_36=[2,c_29=>{
+  const count_29=[1,count_11];
+  const content_37=[2,c_30=>{
     let $t3;
-    if(count_28[0]===0){
-      $t3=count_28[1];
-    }else if(count_28[0]===1){
-      $t3=ui_signal$Signal_get$xiaice(count_28[1],c_29);
-    }else if(count_28[0]===2){
-      $t3=count_28[1](c_29);
+    if(count_29[0]===0){
+      $t3=count_29[1];
+    }else if(count_29[0]===1){
+      $t3=ui_signal$Signal_get$xiaice(count_29[1],c_30);
+    }else if(count_29[0]===2){
+      $t3=count_29[1](c_30);
     }else{
       $abort('no arm matched');
     }
     return String($t3);
   }];
-  const $t8=ui_node$column$u3rqgv($k5,[[[5,[0,label_10],[],(c_12,e_13)=>$host_HostUi_write(c_12[2],count_11[0],(n_14=>n_14+1n)($host_HostUi_read(c_12[2],count_11[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_10]]],[[1,content_36]]]]]]);
+  const $t8=ui_node$column$u3rqgv($k5,[[[5,[0,label_10],[],[],(c_12,e_13)=>$host_HostUi_write(c_12[2],count_11[0],(n_14=>n_14+1n)($host_HostUi_read(c_12[2],count_11[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_10]]],[[1,content_37]]]]]]);
   const $t7=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
   const whenTrue_17=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
   const whenFalse_18=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
