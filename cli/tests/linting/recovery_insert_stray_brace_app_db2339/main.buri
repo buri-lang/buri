@@ -1,0 +1,155 @@
+// Three bodies of the same length, and one of them is the rule's business. A
+// table is one row per member with no boundary anywhere in it, so the limit
+// counts an array literal's elements and a `match`'s arms as one line; `tally`
+// is ordinary statements at that length, and it is the only finding.
+
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn palette(): [Str] {
+    [
+        "amber",
+        "apricot",
+        "ash",
+        "azure",
+        "basalt",
+        "beige",
+        "bone",
+        "brass",
+        "bronze",
+        "cedar",
+        "chalk",
+        "charcoal",
+        "cherry",
+        "clay",
+        "cobalt",
+        "copper",
+        "coral",
+        "cream",
+        "denim",
+        "dune",
+        "ember",
+        "fern",
+        "flint",
+        "fog",
+        "forest",
+        "garnet",
+        "ginger",
+        "glacier",
+        "granite",
+        "hazel",
+        "indigo",
+        "ivory",
+        "jade",
+        "juniper",
+        "kelp",
+        "lilac",
+        "linen",
+        "maple",
+        "marble",
+        "moss",
+        "mustard",
+    ]
+}
+
+fn spell(n: I64): Str {
+    match (n) {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        4 => "four",
+        5 => "five",
+        6 => "six",
+        7 => "seven",
+        8 => "eight",
+        9 => "nine",
+        10 => "ten",
+        11 => "eleven",
+        12 => "twelve",
+        13 => "thirteen",
+        14 => "fourteen",
+        15 => "fifteen",
+        16 => "sixteen",
+        17 => "seventeen",
+        18 => "eighteen",
+        19 => "nineteen",
+        20 => "twenty",
+        21 => "twenty-one",
+        22 => "twenty-two",
+        23 => "twenty-three",
+        24 => "twenty-four",
+        25 => "twenty-five",
+        26 => "twenty-six",
+        27 => "twenty-seven",
+        28 => "twenty-eight",
+        29 => "twenty-nine",
+        30 => "thirty",
+        31 => "thirty-one",
+        32 => "thirty-two",
+        33 => "thirty-three",
+        34 => "thirty-four",
+        35 => "thirty-five",
+        36 => "thirty-six",
+        37 => "thirty-seven",
+        38 => "thirty-eight",
+        39 => "thirty-nine",
+        _ => "many",
+    }
+}
+
+fn tally(count: I64): Str {
+    let apples = count * 3;
+    let pears = apples + @ 2;
+    let plums = pears + 4;
+    let fruit = apples + pears + plums;
+    let bread = fruit + 6;
+    let butter = bread + 3;
+    let cheese = butter * 2;
+    let dairy = butter + cheese;
+    let beans = dairy + 5;
+    let rice = beans * 2;
+    let pasta = rice + 7;
+    let staples = beans + rice + pasta;
+    let tea = staples + 1;
+    let coffee = tea * 3;
+    let juice = coffee + 2;
+    let drinks = tea + coffee + juice;
+    let soap = drinks + 4;
+    let brush = soap + 2;
+    let paper = brush * 2;
+    let household = soap + brush + paper;
+    let basket = fruit + staples + drinks + household;
+    let delivery = basket / 10;
+    let packing = delivery + 2;
+    let handling = packing * 2;
+    let carriage = delivery + packing + handling;
+    let subtotal = basket + carriage;
+    let levy = subtotal / 5;
+    let duty = levy + 3;
+    let surcharge = duty * 2;
+    let charges = levy + duty + surcharge;
+    let gross = subtotal + charges;
+    let loyalty = gross / 20;
+    let voucher = loyalty + 4;
+    let coupon = voucher * 2;
+    let discounts = loyalty + voucher + coupon;
+    let net = gross - discounts;
+    let rounding = net / 100;
+    let adjusted = net + rounding;
+    let credit = adjusted / 50;
+    let owed = adjusted - credit;
+    let banked = owed / 25;
+    let due = owed - banked;
+    spell(due)
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let shade = palette().get(3).withDefault("none");
+    io.println(ctx, "${tally(7)} ${shade}").mapErr(fn(_e) => "could not write")
+}

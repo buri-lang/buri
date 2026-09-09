@@ -1,0 +1,17 @@
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_insert_stray_brace_app_db2339/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected an expression, found `@` [unexpected-token]
+   --> lib/recovery_insert_stray_brace_app_db2339/main.buri:104:26
+    |
+104 |     let pears = apples + @ 2;
+    |                          ^
+    |
+    = expected: an expression
+    = actual: `@`
+    = fix: write a value here

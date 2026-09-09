@@ -1,0 +1,36 @@
+warning: `palette` is 104 lines long [oversized-function]
+  --> lib/recovery_delete_closer_module_app_bfa864/main.buri:10:4
+   |
+10 | fn palette(): [Str] {
+   |    ^^^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_module_app_bfa864/main.buri:53:6
+   |
+53 |     ]
+   |      ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `spell` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_bfa864/main.buri:56:4
+   |
+56 | fn spell(n: I64): Str {
+   |    ^^^^^
+   |
+   = expected: `(`
+   = actual: `spell`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+   --> lib/recovery_delete_closer_module_app_bfa864/main.buri:156:1
+    |
+156 | 
+    | ^
+    |
+  --> lib/recovery_delete_closer_module_app_bfa864/main.buri:10:21
+   |
+10 | fn palette(): [Str] {
+   |                     ^ opened here
+   |
+   = fix: write `}` here

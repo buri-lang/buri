@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/bleed.buri  "siblings that lap the one before them, later over earlier"
+  the snapshot "bleed-overlap" changed: see test/__snapshots__/bleed-overlap.diff.png
+  --> lib/scenes/test/bleed.buri:36:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

@@ -1,0 +1,25 @@
+warning: `palette` is 45 lines long [oversized-function]
+  --> lib/recovery_insert_stray_bracket_app_1f3d23/main.buri:10:4
+   |
+10 | fn palette(): [Str] {
+   |    ^^^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_bracket_app_1f3d23/main.buri:52:20
+   |
+52 |         "mustard", ,
+   |                    ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_insert_stray_bracket_app_1f3d23/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own

@@ -571,14 +571,17 @@ warning: this branch is nested 5 levels deep [deep-nesting]
      well-named helpers is still the move. Keep each function shallow even when
      the algorithm as a whole is deep.
 
-warning: `spell` is 41 lines long [oversized-function]
+warning: `tally` is 45 lines long [oversized-function]
   --> lib/money/testing/fakes.buri:95:4
    |
-95 | fn spell(n: I64): Str {
+95 | fn tally(count: I64): Str {
    |    ^^^^^
    |
    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
    = fix: find the responsibility boundaries in the body and give each one a function of its own
+
+     An array literal's elements and a match's arms count as one line, because a
+     table is one row per member and has no responsibility boundary to split at.
 
      Work out the responsibilities before you touch anything. Ask yourself:
 
@@ -599,9 +602,9 @@ warning: `spell` is 41 lines long [oversized-function]
      more than one responsibility.
 
 warning: `unread` is bound and never used [unused-variable]
-   --> lib/money/testing/fakes.buri:139:9
+   --> lib/money/testing/fakes.buri:143:9
     |
-139 |     let unread = total(1, 2, 3, 4, 5, 6);
+143 |     let unread = total(1, 2, 3, 4, 5, 6);
     |         ^^^^^^
     |
     = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
@@ -622,9 +625,9 @@ warning: `unread` is bound and never used [unused-variable]
       silencing the warning.
 
 warning: this discards a `Result` [discarded-result]
-   --> lib/money/testing/fakes.buri:144:13
+   --> lib/money/testing/fakes.buri:148:13
     |
-144 |     let _ = announce(ctx, "three").ignore();
+148 |     let _ = announce(ctx, "three").ignore();
     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     |
     = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
