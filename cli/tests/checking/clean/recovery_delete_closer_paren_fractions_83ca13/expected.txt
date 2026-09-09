@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:31:80
+   |
+31 |     assert.equal(time.secondsFloat(1.0 / 0.0), Duration(number.maxValue<I64>());
+   |                                                                                ^
+   |
+  --> main.buri:31:17
+   |
+31 |     assert.equal(time.secondsFloat(1.0 / 0.0), Duration(number.maxValue<I64>());
+   |                 ^ opened here
+   |
+   = fix: write `)` here

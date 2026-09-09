@@ -1,0 +1,9 @@
+error: expected an identifier, found `,` [unexpected-token]
+  --> main.buri:30:65
+   |
+30 |     assert.equal(time.secondsFloat(0.0 - 1e30), Duration(number., minValue<I64>()));
+   |                                                                 ^
+   |
+   = expected: an identifier
+   = actual: `,`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
