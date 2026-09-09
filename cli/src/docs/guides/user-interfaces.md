@@ -118,7 +118,7 @@ at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 49 properties and five ways of composing them. Every property is
+`ui/style` is 50 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -229,6 +229,55 @@ export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<
             }),
         ],
         onPress,
+    )
+}
+```
+
+**An element casts one `box-shadow`, and it may have layers.** `Shadow(Shadow)`
+is one; `Shadows([Shadow])` is a list, painted first over last. Every elevation
+worth having is two — a wide soft layer, and a tight one that keeps the near
+edge crisp — and a focus ring is a spread shadow beside them, so a card that is
+raised *and* focused wants three. The two spellings are one conflict slot, so
+whichever is written last is the element's shadow; reach for `Shadow` when there
+is one layer.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Shadow, Style };
+
+let lift: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(4),
+    blur: .Px(6),
+    spread: .Px(-1),
+    color: .Rgba(0, 0, 0, 0.1),
+};
+
+let near: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(2),
+    blur: .Px(4),
+    spread: .Px(-2),
+    color: .Rgba(0, 0, 0, 0.1),
+};
+
+let ring: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(0),
+    blur: .Px(0),
+    spread: .Px(3),
+    color: .Rgba(59, 130, 246, 0.5),
+};
+
+export fn card<C>(label: Str): Node<C> {
+    ui.stack(
+        [
+            .Radius(.Px(8)),
+            .Shadows([lift, near]),
+            .On(.Focus, [.Shadows([ring, lift, near])]),
+        ],
+        [ui.text(.Const(label))],
     )
 }
 ```
@@ -373,6 +422,23 @@ registry, no schema language, no default.
 
 Chains resolve at mount, in one step: a library's token to the app's token to a
 colour is followed until it reaches a value.
+
+**A faded token is still that token.** `color.alpha(f)` answers the same colour
+at `f` of its opacity, and on a token it stays a token:
+`.BorderColor(Token.Ring.color().alpha(0.5))` is
+`color-mix(in srgb, var(--cardlib-ring) 50%, transparent)`, so the theme still
+decides the hue. That is what saves a design system from minting a
+`var(--cardlib-ringSoft)` beside `var(--cardlib-ring)` and hand-blending the
+pair in every theme, where the two drift apart the day one of them moves. A
+colour written out
+has nothing to defer and fades to a plain `Rgba`; `.Transparent` and `.Inherit`
+answer themselves. The fraction is `0.0` to `1.0` and anything else is refused
+([`style-alpha-out-of-range`](../reference/errors/style-alpha-out-of-range.md)),
+because a `color-mix` percentage outside 0 to 100 makes the whole declaration
+invalid and the element loses the colour rather than gaining a louder one.
+
+`Opacity` is the other instrument and a different one: it fades the whole
+element, content included, and `alpha` fades one of its colours.
 
 **On the web, a token is a namespaced custom property.** A class in the
 stylesheet reads `var(--cardlib-surface)`, where the namespace is the package,
