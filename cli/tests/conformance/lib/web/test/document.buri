@@ -135,8 +135,8 @@ test "an element that holds nothing still writes its closing tag" {
     // match. Every element that is not one of HTML's own empty ones closes.
     assert.equal(web.render(ui.region(.Main, [], [])), "<main></main>");
     assert.equal(
-        web.render(ui.button(.Const(""), [], fn(_c, _e) => ())),
-        "<button type=\"button\"></button>",
+        web.render(ui.button(.Const(""), [], [], fn(_c, _e) => ())),
+        "<button type=\"button\" aria-label=\"\"></button>",
     );
     assert.equal(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
     assert.equal(web.render(ui.spacer()), "<div class=\"grow-1\"></div>");
@@ -164,19 +164,38 @@ test "every kind of node renders" {
         "<a href=\"/there\">go</a>",
     );
     assert.equal(
-        web.render(ui.field(.Const("name"), .Text, [], typed, .Const(false))),
+        web.render(ui.field(.Const("name"), .Text, [], [], typed, .Const(false))),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     // What is typed into a `textarea` is its text rather than an attribute.
     assert.equal(
-        web.render(ui.field(.Const("story"), .Multiline, [], typed, .Const(false))),
+        web.render(ui.field(.Const("story"), .Multiline, [], [], typed, .Const(false))),
         "<label><span>story</span><textarea>ada</textarea></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
     assert.equal(
-        web.render(ui.toggle(.Const("done"), [], ticked, .Const(false))),
+        web.render(ui.toggle(.Const("done"), .Checkbox, [], [], ticked, .Const(false))),
         "<label><input type=\"checkbox\" checked /><span>done</span></label>",
+    );
+    // A switch is the same control announced differently, and the mark it draws
+    // is the sheet's rather than a child's.
+    assert.equal(
+        web.render(ui.toggle(.Const("email"), .Switch, [], [], ticked, .Const(false))),
+        "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
+    );
+    // A button holding a mark and a word is one element, and the label the
+    // markup carries is what a reader is announced rather than the glyphs.
+    assert.equal(
+        web.render(
+            ui.button(
+                .Const("Overview"),
+                [],
+                [ui.text(.Const("* Overview"))],
+                fn(_c, _e) => (),
+            ),
+        ),
+        "<button type=\"button\" aria-label=\"Overview\">* Overview</button>",
     );
     // The three that decide what to render resolve rather than register: a
     // condition is read once, a computation is run once, and a list renders the
@@ -286,6 +305,7 @@ test "a failing control crosses the worker already saying so" {
         .Const("Email"),
         .Email,
         [.On(.Invalid, [.BorderColor(.Rgb(220, 38, 38))])],
+        [],
         typed,
         .Const(true),
     );
@@ -297,7 +317,7 @@ test "a failing control crosses the worker already saying so" {
     // A control that is not failing writes no attribute, so the markup is the
     // markup every other test here asserts.
     assert.equal(
-        web.render(ui.toggle(.Const("done"), [], ticked, .Const(false))),
+        web.render(ui.toggle(.Const("done"), .Checkbox, [], [], ticked, .Const(false))),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
     );
 }

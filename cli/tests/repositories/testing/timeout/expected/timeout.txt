@@ -1,4 +1,4 @@
-error: //lib/spin's test suite ran longer than 5s [test-timeout]
+error: //lib/spin's test suite ran longer than 1s [test-timeout]
   --> lib/spin/BUILD.buri:15:10
    |
 15 |     test {

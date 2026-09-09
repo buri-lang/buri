@@ -157,7 +157,7 @@ fn banner<C>(state: State): Node<C> {
     ui.region(.Banner, [barStyle], [
         ui.heading(1, [titleStyle], .Const("Basket")),
         ui.spacer(),
-        ui.toggle(.Const("Dark mode"), [.Cursor(.Pointer)], state.dark, .Const(false)),
+        ui.toggle(.Const("Dark mode"), .Checkbox, [.Cursor(.Pointer)], [], state.dark, .Const(false)),
     ])
 }
 
@@ -173,17 +173,18 @@ fn banner<C>(state: State): Node<C> {
 /// a missing `alt`, it has no visual fallback — so it is not expressible.
 fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
     ui.form(fn(c, submitted) => add(c, state), [formStyle], [
-        ui.field(.Const("Item"), .Text, [fieldStyle], state.draftMemo, .Const(false)),
+        ui.field(.Const("Item"), .Text, [fieldStyle], [], state.draftMemo, .Const(false)),
         ui.field(
             .Const("Amount in dollars"),
             .Number,
             [fieldStyle],
+            [],
             state.draftAmount,
             .Const(false),
         ),
-        ui.button(.Const("Add"), [buttonStyle], fn(c, pressed) => add(c, state)),
+        ui.button(.Const("Add"), [buttonStyle], [], fn(c, pressed) => add(c, state)),
         ui.spacer(),
-        ui.button(.Const("Load the ledger"), [buttonStyle], fn(c, pressed) => {
+        ui.button(.Const("Load the ledger"), [buttonStyle], [], fn(c, pressed) => {
             load(c, state)
         }),
     ])
@@ -261,6 +262,7 @@ fn line<C: Allocator + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
         ui.button(
             .Const(str.format(ctx, "settle ${item.memo}")),
             [buttonStyle],
+            [],
             fn(c, pressed) => tick(c, state, item.memo),
         ),
         ui.stack([.Grow(1), .When(settled, settledStyle, [])], [

@@ -361,9 +361,20 @@ fn serving_a_page() {
 /// A property that stops being painted turns its row into a row of identical
 /// cells rather than going quiet, which is what makes a grid worth more here
 /// than a picture per value.
+///
+/// The `sweep_widgets_*` cases ask the question a property sweep cannot: what a
+/// widget *is*, rather than what a style does to it. `button_children` is what a
+/// button holds — none, one, a mark beside a word, a subtree — and one rail
+/// painted resting and hovered, because the claim is that a wash covers the mark
+/// and the word together now that they are one element. `control_wrapper` is the
+/// two boxes a labelled control is: every layout property that only works on the
+/// `<label>`, tried there and then on the control instead, where it does
+/// nothing. `toggle_marks` is the tick and the thumb the widget draws for
+/// itself, each one off and on, so a picture says which state a toggle is in
+/// rather than only what colour it is.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 43);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 46);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

@@ -1,0 +1,66 @@
+// The box a labelled control's `around` reaches, and the one `styles` cannot.
+//
+// Every band is the same property tried twice — once on `around`, once on the
+// control — because the claim is not "Grow works" but "Grow works *here*". The
+// second row of each band is what the vocabulary looked like before: the style
+// lands on an input whose parent is the `<label>`, so the row measuring the
+// label never sees it.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, snapshot };
+from "//lib/wrapper" import { crossPage, insidePage, rowPage };
+
+test "what a row can do to a labelled control" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The wrapper's line carries the caller's class beside the arrangement the
+    // reset gives it; the control's line carries its own and nothing else.
+    let scene = ui.describe(
+        ctx,
+        ui.field(.Const("Site"), .Text, [.Radius(.Px(4))], [.Grow(1)], signal(ctx, ""), .Const(false)),
+        .Hover,
+    );
+    assert.containsText(scene, "e 0 class:lay-row wrap-wrap ac-center grow-1");
+    assert.containsText(scene, "e 1 class:r-4;field:text");
+    snapshot(ctx, "wrapper-row", rowPage(ctx), .Hover, []);
+}
+
+test "where the label sits in its container" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "wrapper-cross", crossPage(ctx), .Hover, []);
+}
+
+test "the label as a box of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A caller's arrangement beats the reset's, which is the rule a `row`'s own
+    // `Layout` already follows.
+    assert.containsText(
+        ui.describe(
+            ctx,
+            ui.toggle(
+                .Const("on"),
+                .Checkbox,
+                [],
+                [.Layout(.Column)],
+                signal(ctx, true),
+                .Const(false),
+            ),
+            .Hover,
+        ),
+        "e 0 class:wrap-wrap ac-center lay-col",
+    );
+    snapshot(ctx, "wrapper-inside", insidePage(ctx), .Hover, []);
+}

@@ -602,7 +602,7 @@ export fn kindsPage<C: Ui>(ctx: C): Node<C> {
 
 /// One field of a given kind, over the base every subject carries.
 fn kind<C: Ui>(ctx: C, of: FieldKind): Node<C> {
-    ui.field(.Const("Name"), of, base([]), signal(ctx, "Ada"), .Const(false))
+    ui.field(.Const("Name"), of, base([]), [], signal(ctx, "Ada"), .Const(false))
 }
 
 /// One picture: two columns of bands, one band per property.
@@ -646,7 +646,7 @@ fn cell<C>(label: Str, inner: Node<C>): Node<C> {
 /// The subject every cell holds: a `field`, whose styles land on the input
 /// rather than on the label beside it.
 fn subject<C: Ui>(ctx: C, styles: [Style], words: Str): Node<C> {
-    ui.field(.Const("Name"), .Text, base(styles), signal(ctx, words), .Const(false))
+    ui.field(.Const("Name"), .Text, base(styles), [], signal(ctx, words), .Const(false))
 }
 
 /// What every subject carries before the cell's own styles, which come

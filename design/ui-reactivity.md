@@ -149,14 +149,16 @@ ui.heading(level: Int, styles, content: Prop<Str>): Node<C>
 
 // widgets — interactive behaviour, not roles. Accessibility-critical
 // parameters (alt, dest, label) are required, not attributes.
-// The styles land on the control itself, so a state rule fires on it.
-ui.button(label: Prop<Str>, styles, onPress: fn(C, Event) => ()): Node<C>
+// The styles land on the control itself, so a state rule fires on it;
+// `around` is the second box a labelled control has, and the one a row lays
+// out. A button with no children shows its label.
+ui.button(label: Prop<Str>, styles, children: [Node<C>], onPress: fn(C, Event) => ()): Node<C>
 ui.link(dest: Prop<Str>, styles, children: [Node<C>]): Node<C>
 ui.image(source: Prop<Str>, alt: Prop<Str>): Node<C>
-ui.field(label: Prop<Str>, kind: FieldKind, styles, value: Signal<Str>,
-         invalid: Prop<Bool>): Node<C>
-ui.toggle(label: Prop<Str>, styles, value: Signal<Bool>,
-          invalid: Prop<Bool>): Node<C>
+ui.field(label: Prop<Str>, kind: FieldKind, styles, around,
+         value: Signal<Str>, invalid: Prop<Bool>): Node<C>
+ui.toggle(label: Prop<Str>, kind: ToggleKind, styles, around,
+          value: Signal<Bool>, invalid: Prop<Bool>): Node<C>
 ui.form(onSubmit: fn(C, Event) => (), styles, children): Node<C>
 
 // reactivity in the tree
@@ -476,7 +478,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
   let count = signal(ctx, 0);
 
   ui.column([], [
-    ui.button(.Const(label), [], fn(c, e) => count.update(c, fn(n) => n + 1)),
+    ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1)),
     badge(.Const(label), .Cell(count)),
     badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
   ])
@@ -659,6 +661,9 @@ this document's first draft, with the reason.
 | `ui.field(value)` | `field(label, kind, value)` | this document's own rule — an accessibility-critical parameter is a parameter — and an unlabelled input has no visual fallback |
 | `Role::Form` | `ui.form`, a widget | submission is behaviour, not meaning |
 | A control with no styles of its own | `styles` on all four, plus a reset | a wrapper is not what a browser hovers, focuses or disables, so `On(...)` on one never fired — and the browser's own chrome sat under whatever the wrapper painted |
+| `button(label, styles, onPress)`, no children | `children` between the styles and the handler | a mark beside a word had to be a row, so the wash that marks an entry hovered or current went on the wrapper and only the focus ring stayed on the button |
+| One style list on `field` and `toggle` | `styles` on the control, `around` on the `<label>` | the label is what a row lays out and nothing on the input reaches it, so a field inside a row was stuck at the width of its own label text |
+| A `Style` naming a toggle's mark | `ToggleKind`, and the widget draws it | a mark is a shape rather than a box — there is no radius that makes a tick — and a control that can be asked for no mark at all is a control a program can leave unreadable |
 | Rule 1 as an assertion | a variance-aware predicate | three of the APIs above did not compile without it; "occurs only in argument position" is now something the compiler computes |
 | Rule 5 over `Signal<T>` | over `Prop<T>` | `Signal` is phantom in `T` and carries nothing; `Prop` stores its `T` |
 | Style literals "cached with the module" | a `Vec` on `Checked` | the machinery it named does not exist: test cases are not cached, verdicts are |

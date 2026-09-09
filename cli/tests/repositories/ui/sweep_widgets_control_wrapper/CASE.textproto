@@ -1,0 +1,89 @@
+# The two boxes a labelled control is, and which style list reaches which.
+#
+# `field` and `toggle` render an input inside a `<label>`, and the label is the
+# box a surrounding row measures. `styles` lands on the input — the thing a
+# reader focuses and a browser disables — and `around` lands on the label. So
+# every band here is the same property tried twice, once on each, because the
+# claim is not "Grow works" but "Grow works *here*": the second row of each band
+# is what the vocabulary looked like before, where the style landed on an input
+# whose parent is the label and the row never saw it.
+#
+# Three pictures. `wrapper-row` is what a row can do along its main axis —
+# `Grow`, `Width(.Full)`, `Shrink` — over the input group every form library
+# has, an addon either side of a control that should take the leftover room. Its
+# `on both` row is the recipe: `Grow` on the label takes the room, `Width(.Full)`
+# on the input fills it, and neither half does it alone. `wrapper-cross` is
+# `AlignSelf` and `Span`, the two that place the label across its container.
+# `wrapper-inside` is the label as a box in its own right: paint on it, and the
+# arrangement the sheet's reset gives it being beaten by the caller's own — the
+# rule a `row`'s `Layout` already follows.
+#
+# The reset lays that wrapper out as a wrapping row rather than leaving it a
+# browser's inline box, because a flex item is blockified: an inline `<label>`
+# given `Grow` would have stacked its text and its input. `describe` writes the
+# same arrangement in the vocabulary, so the two renderers agree property by
+# property and a class on `around` beats either.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the label a field and a toggle are wrapped in, taking every layout property that only works there against the same property on the control, as 3 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/wrapper", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/wrapper/test/__snapshots__/wrapper-row.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/wrapper/test/pictures.buri"
+  replace: "\"wrapper-cross\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/wrapper", "--force", "--filter=container"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/wrapper/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/wrapper", "--update", "--force", "--filter=container"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/wrapper/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/wrapper", "--force", "--filter=container"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: the addon keeps twenty pixels more, which moves every row
+# of the main-axis picture and nothing in the other two.
+edit {
+  file: "lib/wrapper/scenes.buri"
+  replace: ".Width(.Px(700))"
+  with: ".Width(.Px(680))"
+}
+
+run {
+  args: ["test", "//lib/wrapper", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/wrapper/test/__snapshots__/wrapper-row.diff.png"  exists: true }
+path { path: "lib/wrapper/test/__snapshots__/wrapper-inside.diff.png"  exists: false }
