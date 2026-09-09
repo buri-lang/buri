@@ -6,4 +6,15 @@ error: expected 1 arguments, found 2 [argument-count-mismatch]
   |
   = expected: 1
   = actual: 2
-  = fix: pass exactly 1
+  = fix: pass the following arguments: fn(I64) => I64
+
+    What to do
+    ──────────
+
+    Line the call up against the type the fix prints. A value's type has
+    parameters and no names for them, so where the argument types say which
+    position was left out the fix says that position, and where the call lines
+    up two ways, or more than one position has nothing to fill it, it says none
+    of them. A declaration counted the same way says more, because it has names
+    to say it with — wrong-argument-count is that page.
+

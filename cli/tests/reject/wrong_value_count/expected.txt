@@ -6,4 +6,15 @@ error: `Pair` holds 2 values, but 1 were given [wrong-value-count]
   |
   = expected: 2
   = actual: 1
-  = fix: pass exactly 2
+  = fix: pass `Pair` the following values: Pair(Int, Int)
+
+    What to do
+    ──────────
+
+    Line the call up against the shape the fix prints, which is what the
+    declaration writes between its parentheses — a variant's too, so a
+    miscounted .Some(x) gets Some(T). The values are positional, so where their
+    types say which one was left out the fix says that position, and where the
+    call lines up two ways, or more than one value is missing, it says none of
+    them.
+

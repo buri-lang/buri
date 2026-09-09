@@ -29,19 +29,39 @@ enum Static {
     TupleStruct(TyConId),
 }
 
-/// A call that passed the wrong number of arguments, and what it was measured
-/// against.
+/// A call that supplied the wrong number of things, and what it was measured
+/// against: a function's parameters, a function type's, or a constructor's
+/// values.
 ///
-/// `fill` and `types` are the parameters the arguments fill, so a method's
-/// receiver and the parameter it fills are not among them: the first as the
-/// declaration wrote them, the second as they stand at this call.
+/// `fill` and `types` are what the arguments fill, so a method's receiver and
+/// the parameter it fills are not among them: the first as the declaration
+/// wrote them, the second as they stand at this call. A slot with no name of
+/// its own — a function type's parameter, a tuple's field — carries the empty
+/// one, and the fix that reports it says the position instead.
 struct Miscounted<'x> {
-    name: &'x str,
-    signature: &'x str,
     fill: &'x [ParamInfo],
     types: &'x [Ty],
     args: &'x [ExprId],
     checked: &'x [typed::Expr],
+}
+
+/// A slot in a shape that names none: a function type's parameter, or one of a
+/// tuple constructor's values.
+fn unnamed_slot(ty: &Ty, span: Span) -> ParamInfo {
+    ParamInfo { name: String::new(), ty: ty.clone(), role: ParamRole::Normal, span }
+}
+
+/// `2` as "second". A fix names a position in prose where the thing at that
+/// position has no name to give.
+fn ordinal(n: usize) -> String {
+    const WORDS: [&str; 10] = [
+        "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+        "tenth",
+    ];
+    match WORDS.get(n.saturating_sub(1)) {
+        Some(word) => (*word).to_string(),
+        None => format!("{n}th"),
+    }
 }
 
 /// Where a method call dispatches.
@@ -797,16 +817,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             Some(Ty::Con(c, ts)) if c == con => ts,
             _ => (0..arity).map(|_| self.fresh(span)).collect(),
         };
-        if args.len() != fields.len() {
-            let n = self.c.tables.tycon(con).name.clone();
-            let have = args.len();
-            let want = fields.len();
-            self.templated("wrong-value-count", span)
-                .bind("name", n)
-                .bind("expected", want.to_string())
-                .bind("given", have.to_string())
-                .mismatch(want.to_string(), have.to_string());
-        }
         // A struct with any private field cannot be constructed from scratch
         // outside its module.
         for i in 0..fields.len() {
@@ -814,7 +824,25 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let param_types: Vec<Ty> =
             fields.iter().map(|f| substitute(&f.ty, &targs, None)).collect();
-        let checked = self.check_args(args, &param_types);
+        let checked = if args.len() == param_types.len() {
+            self.check_args(args, &param_types)
+        } else {
+            let name = self.c.tables.tycon(con).name.clone();
+            let shape = shape_of_struct(self.c, con);
+            // A tuple struct's fields are numbered, not named, so there is
+            // nothing here for a fix to quote.
+            let fill: Vec<ParamInfo> =
+                param_types.iter().map(|t| unnamed_slot(t, span)).collect();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted {
+                fill: &fill,
+                types: &param_types,
+                args,
+                checked: &checked,
+            };
+            self.report_wrong_value_count(span, &name, &shape, &call);
+            checked
+        };
         let ty = Ty::Con(con, targs.clone());
         typed::Expr::new(typed::ExprKind::StructLit { con, targs, fields: checked }, ty, span)
     }
@@ -890,15 +918,22 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let cty = self.resolve(&c.ty);
                 match cty {
                     Ty::Fn(params, ret) => {
-                        if params.len() != args.len() {
-                            let want = params.len();
-                            let got = args.len();
-                            self.templated("argument-count-mismatch", span)
-                                .bind("expected", want.to_string())
-                                .bind("found", got.to_string())
-                                .mismatch(want.to_string(), got.to_string());
-                        }
-                        let checked = self.check_args(args, &params);
+                        let checked = if params.len() == args.len() {
+                            self.check_args(args, &params)
+                        } else {
+                            let shown = self.show_ty(&Ty::Fn(params.clone(), ret.clone()));
+                            let fill: Vec<ParamInfo> =
+                                params.iter().map(|t| unnamed_slot(t, span)).collect();
+                            let checked = self.check_unpaired(args);
+                            let call = Miscounted {
+                                fill: &fill,
+                                types: &params,
+                                args,
+                                checked: &checked,
+                            };
+                            self.report_argument_count_mismatch(span, &shown, &call);
+                            checked
+                        };
                         typed::Expr::new(
                             typed::ExprKind::CallValue { callee: Box::new(c), args: checked },
                             *ret,
@@ -1013,15 +1048,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             let fill: Vec<ParamInfo> = declared.into_iter().skip(taken).collect();
             let types = param_types.to_vec();
             let checked = self.check_unpaired(args);
-            let call = Miscounted {
-                name: &name,
-                signature: &signature,
-                fill: &fill,
-                types: &types,
-                args,
-                checked: &checked,
-            };
-            self.report_wrong_argument_count(span, &call);
+            let call = Miscounted { fill: &fill, types: &types, args, checked: &checked };
+            self.report_wrong_argument_count(span, &name, &signature, &call);
             hir_args.extend(checked);
         }
         self.check_lazy_load(f, &hir_args, args, span);
@@ -1051,32 +1079,80 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     /// Reports the count, and prints what the declaration takes.
-    fn report_wrong_argument_count(&mut self, span: Span, call: &Miscounted<'_>) {
-        let (name, signature) = (call.name, call.signature);
+    fn report_wrong_argument_count(
+        &mut self,
+        span: Span,
+        name: &str,
+        signature: &str,
+        call: &Miscounted<'_>,
+    ) {
         let mut d = Diagnostic::templated("wrong-argument-count", span)
             .with_bind("function", name.to_string())
             .with_bind("expected", call.types.len().to_string())
             .with_bind("given", call.checked.len().to_string())
             .with_bind("signature", signature.to_string())
             .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
-        if let Some(missing) = self.missing_parameter(call) {
+        if let Some(at) = self.missing_slot(call) {
+            let missing = call.fill.get(at).map_or(String::new(), |p| p.name.clone());
             d = d.with_fix(format!("`{name}` requires a `{missing}` parameter: {signature}"));
         }
         self.c.diags.push(d);
     }
 
-    /// The one parameter the call left out, where the arguments say which.
+    /// The same for a call through a value, whose type has parameters and no
+    /// names for them: what is missing is named by its position.
+    fn report_argument_count_mismatch(
+        &mut self,
+        span: Span,
+        shown: &str,
+        call: &Miscounted<'_>,
+    ) {
+        let mut d = Diagnostic::templated("argument-count-mismatch", span)
+            .with_bind("expected", call.types.len().to_string())
+            .with_bind("found", call.checked.len().to_string())
+            .with_bind("type", shown.to_string())
+            .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
+        if let Some(at) = self.missing_slot(call) {
+            let which = ordinal(at.saturating_add(1));
+            d = d.with_fix(format!("the {which} argument is missing: {shown}"));
+        }
+        self.c.diags.push(d);
+    }
+
+    /// And for a constructor. Its values are positional however the
+    /// declaration writes them, so the position is what a fix can name.
+    fn report_wrong_value_count(
+        &mut self,
+        span: Span,
+        name: &str,
+        shape: &str,
+        call: &Miscounted<'_>,
+    ) {
+        let mut d = Diagnostic::templated("wrong-value-count", span)
+            .with_bind("name", name.to_string())
+            .with_bind("expected", call.types.len().to_string())
+            .with_bind("given", call.checked.len().to_string())
+            .with_bind("shape", shape.to_string())
+            .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
+        if let Some(at) = self.missing_slot(call) {
+            let which = ordinal(at.saturating_add(1));
+            d = d.with_fix(format!("`{name}` is missing its {which} value: {shape}"));
+        }
+        self.c.diags.push(d);
+    }
+
+    /// The position the call left out, where the arguments say which.
     ///
     /// Only when exactly one is missing, and only when exactly one position
     /// answers: a call whose arguments line up two ways has not said which one
     /// it forgot, and a guess would send the reader to the wrong end of the
-    /// line. Then the fix prints the signature and names nothing.
-    fn missing_parameter(&self, call: &Miscounted<'_>) -> Option<String> {
+    /// line. Then the fix prints the shape and names nothing.
+    fn missing_slot(&self, call: &Miscounted<'_>) -> Option<usize> {
         let Miscounted { fill, types, args, checked, .. } = *call;
         if checked.len().saturating_add(1) != types.len() || fill.len() != types.len() {
             return None;
         }
-        let mut found: Option<String> = None;
+        let mut found: Option<usize> = None;
         for skip in 0..types.len() {
             // One copy per reading: an alignment is a sequence of unifications,
             // and the ones a losing reading made must not be left behind.
@@ -1094,7 +1170,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if found.is_some() {
                 return None;
             }
-            found = fill.get(skip).map(|p| p.name.clone());
+            found = Some(skip);
         }
         found
     }
@@ -1555,15 +1631,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             let fill: Vec<ParamInfo> = method.params.iter().skip(1).cloned().collect();
             let types = rest.to_vec();
             let checked = self.check_unpaired(args);
-            let call = Miscounted {
-                name: &name,
-                signature: &signature,
-                fill: &fill,
-                types: &types,
-                args,
-                checked: &checked,
-            };
-            self.report_wrong_argument_count(span, &call);
+            let call = Miscounted { fill: &fill, types: &types, args, checked: &checked };
+            self.report_wrong_argument_count(span, &name, &signature, &call);
             hir_args.extend(checked);
         }
         typed::Expr::new(
@@ -2096,17 +2165,31 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         let param_types: Vec<Ty> =
             variant.fields.iter().map(|f| substitute(&f.ty, &targs, None)).collect();
-        if args.len() != param_types.len() {
-            let v = variant.name.clone();
-            let want = param_types.len();
-            let have = args.len();
-            self.templated("wrong-value-count", head_span)
-                .bind("name", v)
-                .bind("expected", want.to_string())
-                .bind("given", have.to_string())
-                .mismatch(want.to_string(), have.to_string());
-        }
-        let checked = self.check_args(args, &param_types);
+        let checked = if args.len() == param_types.len() {
+            self.check_args(args, &param_types)
+        } else {
+            let name = variant.name.clone();
+            let shape = shape_of_variant(self.c, con, index);
+            let fill: Vec<ParamInfo> = variant
+                .fields
+                .iter()
+                .map(|f| ParamInfo {
+                    name: if variant.record { f.name.clone() } else { String::new() },
+                    ty: f.ty.clone(),
+                    role: ParamRole::Normal,
+                    span: f.span,
+                })
+                .collect();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted {
+                fill: &fill,
+                types: &param_types,
+                args,
+                checked: &checked,
+            };
+            self.report_wrong_value_count(head_span, &name, &shape, &call);
+            checked
+        };
         let ty = Ty::Con(con, targs.clone());
         typed::Expr::new(
             typed::ExprKind::EnumLit { con, targs, variant: index, args: checked },
@@ -3321,6 +3404,44 @@ fn signature_of_fn(c: &Checker, id: FnId) -> String {
         }
     }
     call_signature(&c.tables, &info.name, &info.generics, &info.params)
+}
+
+/// What a tuple struct's constructor takes, as a caller has to write it.
+///
+/// The declaration's own syntax where there is some, through the printer
+/// `buri docs` and the language server's hover already use; the table where
+/// there is none.
+fn shape_of_struct(c: &Checker, con: TyConId) -> String {
+    let info = c.tables.tycon(con);
+    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
+        tree::Item::Struct(d) if d.name.span == info.span => {
+            crate::formatting::constructor(c.tree(info.module), d)
+        }
+        _ => None,
+    });
+    declared.unwrap_or_else(|| {
+        let record = matches!(info.def, TyDef::Struct { record: true, .. });
+        constructor_shape(&c.tables, &info.name, &info.generics, info.fields(), record)
+    })
+}
+
+/// The same for one variant of an enum, whose declaration is the enum's.
+fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
+    let info = c.tables.tycon(con);
+    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
+        tree::Item::Enum(d) if d.name.span == info.span => d
+            .variants
+            .get(index)
+            .map(|v| crate::formatting::variant(c.tree(info.module), v)),
+        _ => None,
+    });
+    match (declared, info.variants().get(index)) {
+        (Some(shape), _) => shape,
+        (None, Some(v)) => {
+            constructor_shape(&c.tables, &v.name, &info.generics, &v.fields, v.record)
+        }
+        (None, None) => info.name.clone(),
+    }
 }
 
 /// The same for a method reached through a bound, whose declaration is the
