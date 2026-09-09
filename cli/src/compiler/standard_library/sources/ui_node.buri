@@ -915,6 +915,9 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         .Truncate(lines) => truncateCss(ctx, lines),
         .Cursor(cursor) => [decl(ctx, "cursor", cursorName(cursor))],
         .ListMarker(marker) => [decl(ctx, "list-style-type", markerName(marker))],
+        .Bleed(edge, length) => {
+            [decl(ctx, "margin-".concat(ctx, edgeName(edge)), outwardsCss(ctx, length))]
+        },
         .Translate(x, y) => {
             let across = lengthCss(ctx, x);
             let down = lengthCss(ctx, y);
@@ -970,6 +973,22 @@ fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
         .Percent(n) => str.format(ctx, "${n}%"),
         .Auto => "auto",
         .Full => "100%",
+    }
+}
+
+/// A bleed's length, as the margin it writes.
+///
+/// A bleed is a distance outwards, so the margin is its negation. A negative
+/// distance and `.Auto` — which is no distance at all — bleed nothing: inward
+/// is the space between things, and that belongs to the container.
+fn outwardsCss<C: Allocator>(ctx: C, length: Length): Str {
+    match (length) {
+        .Px(n) => if (n > 0) { str.format(ctx, "-${n}px") } else { "0px" },
+        .Rem(n) => if (n > 0.0) { str.format(ctx, "-${n}rem") } else { "0px" },
+        .Em(n) => if (n > 0.0) { str.format(ctx, "-${n}em") } else { "0px" },
+        .Percent(n) => if (n > 0.0) { str.format(ctx, "-${n}%") } else { "0px" },
+        .Auto => "0px",
+        .Full => "-100%",
     }
 }
 

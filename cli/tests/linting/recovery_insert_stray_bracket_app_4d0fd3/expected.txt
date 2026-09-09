@@ -1,0 +1,20 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_bracket_app_4d0fd3/main.buri:13:18
+   |
+13 |         "apricot"@ ,
+   |                  ^
+   |
+  --> lib/recovery_insert_stray_bracket_app_4d0fd3/main.buri:11:5
+   |
+11 |     [
+   |     ^ opened here
+   |
+   = fix: write `]` here
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_insert_stray_bracket_app_4d0fd3/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
