@@ -33,9 +33,14 @@
 //!     on until the child's own standard output closes, so a `buri run` that
 //!     refused the invocation fails the row with its status instead of sitting
 //!     out the deadline.
-//!   * **the child is always stopped.** [`Serving`] kills it on the way out of
-//!     the row, including the way out a panic takes, so a failing assertion is
-//!     a red test rather than a `buri` left listening.
+//!   * **the child is always stopped, and stopping it is bounded too.**
+//!     [`Serving`] stops it on the way out of the row, including the way out a
+//!     panic takes, so a failing assertion is a red test rather than a `buri`
+//!     left listening. Nothing on that path waits without a bound and nothing
+//!     on it joins a reader thread: a program the wrapper orphaned holds the
+//!     writing end of these pipes, and a row that waited for that pipe to close
+//!     would turn its own failing assertion into a test binary CI has to kill
+//!     at the job timeout — a green suite's report going with it.
 use crate::harness::*;
 
 use std::io::{BufRead as _, Read as _, Write as _};
@@ -50,6 +55,16 @@ use std::time::{Duration, Instant};
 /// only there so that a server which never comes up is a failing assertion
 /// instead of a job CI has to kill.
 const DEADLINE: Duration = Duration::from_secs(180);
+
+/// How long the way out of a row waits for a process to stop before it stops
+/// waiting.
+///
+/// Shorter than [`DEADLINE`] and for the opposite reason: nothing is being
+/// asserted here, the row has already said what it found, and what this number
+/// bounds is how long a *failing* row takes to report. Long enough that an
+/// ordinary shutdown on a loaded machine finishes inside it, and short enough
+/// that ten of them are seconds rather than half an hour.
+const GRACE: Duration = Duration::from_secs(30);
 
 /// The fixture: the repository the manifest case builds, copied where this
 /// process can edit it.
@@ -69,10 +84,17 @@ fn page_repo(name: &str) -> Scratch {
 ///
 /// **`own_group` is what makes that true of a `run` that started a program of
 /// its own.** The program inherits these pipes, so a wrapper killed on its own
-/// leaves a grandchild holding the writing ends and the reader threads below
-/// never finish — a failing row would hang instead of reporting. `running` puts
-/// the command in a process group of its own and `Drop` ends that group, which
-/// reaches every process this row started and nothing else.
+/// leaves a grandchild holding the writing ends. `running` puts the command in
+/// a process group of its own so that the way out of a row can aim at it and at
+/// nothing else.
+///
+/// **The group is not where the program is, though, and that is the whole
+/// reason [`Drop`] asks before it kills.** With no terminal in front of it
+/// `buri run` gives the program a group of its *own*
+/// (`cli/src/commands/run.rs`'s `stopping`), which is what lets it forward a
+/// group signal exactly once — so a `SIGKILL` aimed at this row's group reaches
+/// the wrapper and stops there. What reaches the program is the wrapper's
+/// forwarding, which is what the `SIGTERM` below asks for.
 struct Serving {
     child: std::process::Child,
     port: u16,
@@ -84,24 +106,67 @@ struct Serving {
 
 impl Drop for Serving {
     fn drop(&mut self) {
-        if self.own_group {
-            if let Ok(pid) = i32::try_from(self.child.id()) {
-                // SAFETY: an ordinary `kill` on the process group `running`
-                // made for this row.
+        // Asked of the child that is still there, and of no other. A `Child`
+        // that has been reaped keeps the number it had, and that number is the
+        // operating system's to hand out again — so a row that already waited
+        // for its wrapper signals nothing here.
+        let alive = matches!(self.child.try_wait(), Ok(None));
+        if let (true, Ok(pid)) = (alive, i32::try_from(self.child.id())) {
+            if self.own_group {
+                // **The wrapper is asked before it is killed**, because asking
+                // is the only thing that reaches the program: a `SIGTERM` here
+                // is forwarded to a program in a group this row cannot name,
+                // and a `SIGKILL` is not forwarded at all.
+                // SAFETY: an ordinary `kill` on this row's own child.
+                unsafe { kill(pid, SIGTERM) };
+                let _ = until(GRACE, || self.child.try_wait().ok().flatten());
+                // SAFETY: the process group `running` made for this row.
                 unsafe { kill(-pid, SIGKILL) };
             }
+            let _ = self.child.kill();
+            let _ = until(GRACE, || self.child.try_wait().ok().flatten());
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
         while self.said.try_recv().is_ok() {}
         while self.complained.try_recv().is_ok() {}
-        for reader in self.readers.drain(..) {
-            let _ = reader.join();
-        }
+        // **Dropped rather than joined, and that is the difference between a
+        // failing row and a job CI has to kill.** A reader finishes when the
+        // last writer closes the pipe, and a program the wrapper orphaned still
+        // holds one; joining on that is a test binary that never ends and a
+        // suite whose report is never printed. The row's own panic is the
+        // report, and these threads are the process's to end.
+        self.readers.clear();
     }
 }
 
 impl Serving {
+    /// The first line the child writes to standard output, which is how a row
+    /// knows what it started is up.
+    ///
+    /// **Bounded three ways, and each of them a failing row rather than a
+    /// wait.** Standard output closing means the process ended with nothing to
+    /// say, which is what a refused invocation looks like from here; the
+    /// deadline is what a process that says nothing at all runs into; and the
+    /// status of a child that ended is asked for under [`GRACE`] rather than
+    /// waited on, because the process holding that pipe open may be one this
+    /// row cannot reach. Both endings are a panic, and [`Serving::drop`] is
+    /// what stops the row's processes on the way out of one.
+    fn first_line(&mut self, what: &str, expected: &str) -> String {
+        let said = until(DEADLINE, || match self.said.try_recv() {
+            Ok(line) => Some(Some(line)),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(None),
+        });
+        match said {
+            Some(Some(line)) => line,
+            Some(None) => {
+                let status = until(GRACE, || self.child.try_wait().ok().flatten())
+                    .map_or_else(|| String::from("still running"), |s| s.to_string());
+                panic!("`{what}` stopped without {expected} ({status})")
+            }
+            None => panic!("`{what}` was still running {DEADLINE:?} later without {expected}"),
+        }
+    }
+
     /// Waits for a line on the child's standard error holding `needle`.
     ///
     /// This is how a row waits for a *pass* rather than for a length of time.
@@ -180,32 +245,19 @@ fn serving(scratch: &Scratch, target: &str, extra: &[&str]) -> Serving {
     let (said, reading_out) = lines(child.stdout.take().expect("a piped stdout"));
     let (complained, reading_err) = lines(child.stderr.take().expect("a piped stderr"));
 
-    // Every line the child wrote reaches the channel before the sender is
-    // dropped, so `Disconnected` means the process closed its output with
-    // nothing left to say — which is what a refused invocation looks like from
-    // here, and there is no point waiting out the deadline for it.
-    let announced = until(DEADLINE, || match said.try_recv() {
-        Ok(line) => Some(Some(line)),
-        Err(TryRecvError::Empty) => None,
-        Err(TryRecvError::Disconnected) => Some(None),
-    });
-    let announced = match announced {
-        Some(Some(line)) => line,
-        Some(None) => {
-            let status = child.wait().map(|s| s.to_string()).unwrap_or_default();
-            panic!("`buri run {target}` stopped without announcing an address ({status})")
-        }
-        None => panic!("`buri run {target}` announced no address within {DEADLINE:?}"),
-    };
-    let port = port_in(&announced);
-    Serving {
+    // The child is handed over before it is waited on, so that the wait's own
+    // panic leaves through [`Serving::drop`] and stops what this spawned.
+    let mut serving = Serving {
         child,
-        port,
+        port: 0,
         own_group: false,
         said,
         complained,
         readers: vec![reading_out, reading_err],
-    }
+    };
+    let announced = serving.first_line(&format!("buri run {target}"), "announcing an address");
+    serving.port = port_in(&announced);
+    serving
 }
 
 /// The port out of `serving //cmd/site on http://127.0.0.1:<port>/`.
@@ -313,8 +365,9 @@ fn resolved(base: &str, reference: &str) -> String {
 /// One `GET`, read until the peer closes.
 fn get(port: u16, path: &str) -> Reply {
     let stop = Instant::now() + DEADLINE;
+    let at = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let mut socket = loop {
-        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+        match std::net::TcpStream::connect_timeout(&at, DEADLINE) {
             Ok(socket) => break socket,
             Err(e) => {
                 assert!(Instant::now() < stop, "could not reach 127.0.0.1:{port}: {e}");
@@ -707,20 +760,10 @@ fn running(scratch: &Scratch) -> (Serving, String) {
     let (said, reading_out) = lines(child.stdout.take().expect("a piped stdout"));
     let (complained, reading_err) = lines(child.stderr.take().expect("a piped stderr"));
 
-    let first = until(DEADLINE, || match said.try_recv() {
-        Ok(line) => Some(Some(line)),
-        Err(TryRecvError::Empty) => None,
-        Err(TryRecvError::Disconnected) => Some(None),
-    });
-    let first = match first {
-        Some(Some(line)) => line,
-        Some(None) => {
-            let status = child.wait().map(|s| s.to_string()).unwrap_or_default();
-            panic!("`buri run //cmd/program` stopped without starting the program ({status})")
-        }
-        None => panic!("`buri run //cmd/program` said nothing within {DEADLINE:?}"),
-    };
-    let serving = Serving {
+    // As in `serving`: the child belongs to a [`Serving`] before anything waits
+    // on it, so that a wait which gives up stops the row's processes on its way
+    // out rather than leaving them to CI.
+    let mut serving = Serving {
         child,
         port: 0,
         own_group: true,
@@ -728,6 +771,7 @@ fn running(scratch: &Scratch) -> (Serving, String) {
         complained,
         readers: vec![reading_out, reading_err],
     };
+    let first = serving.first_line("buri run //cmd/program", "starting the program");
     (serving, first)
 }
 
@@ -760,8 +804,14 @@ fn signal(server: &Serving, aim: Aim, sig: i32) {
 fn stopped(server: &mut Serving) -> std::process::ExitStatus {
     let status = until(DEADLINE, || server.child.try_wait().ok().flatten());
     status.unwrap_or_else(|| {
-        let _ = server.child.kill();
-        panic!("`buri run` was still running {DEADLINE:?} after the signal")
+        // Left alive on purpose. [`Serving::drop`] runs on the way out of this
+        // panic and asks the wrapper to stop, which is what reaches the
+        // program it started; killing it here would take that away and leave
+        // an orphan holding a port.
+        panic!(
+            "`buri run` was still running {DEADLINE:?} after the signal, so the program it \
+             started was never told to stop"
+        )
     })
 }
 
@@ -771,7 +821,8 @@ fn stopped(server: &mut Serving) -> std::process::ExitStatus {
 /// assertion: a wrapper that waits for its child before exiting cannot leave a
 /// bound port behind it.
 fn refused(port: u16) {
-    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+    let at = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    if std::net::TcpStream::connect_timeout(&at, DEADLINE).is_ok() {
         panic!(
             "127.0.0.1:{port} still answers after `buri run` exited, so the program it started \
              is still running and still holding the port"
