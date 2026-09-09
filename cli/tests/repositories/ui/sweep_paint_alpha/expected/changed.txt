@@ -1,0 +1,5 @@
+FAIL //lib/paint  test/pictures.buri  "a colour written out, faded"
+  the snapshot "alpha-written" changed: see test/__snapshots__/alpha-written.diff.png
+  --> lib/paint/test/pictures.buri:33:1
+
+0 passed, 1 failed, 4 skipped (0.0s)

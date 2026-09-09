@@ -625,7 +625,7 @@ fn cell<C>(label: Str, inner: Node<C>): Node<C> {
 /// The subject every cell holds: a `toggle`, whose styles land on the box and
 /// whose label is the run beside it.
 fn subject<C: Ui>(ctx: C, styles: [Style], words: Str): Node<C> {
-    ui.toggle(.Const(words), base(styles), signal(ctx, true))
+    ui.toggle(.Const(words), .Checkbox, base(styles), [], signal(ctx, true))
 }
 
 /// What every subject carries before the cell's own styles, which come

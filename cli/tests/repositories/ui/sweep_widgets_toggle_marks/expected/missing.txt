@@ -1,0 +1,5 @@
+FAIL //lib/marks  test/pictures.buri  "a checkbox's tick"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/marks/test/pictures.buri:17:1
+
+0 passed, 1 failed, 1 skipped (0.0s)

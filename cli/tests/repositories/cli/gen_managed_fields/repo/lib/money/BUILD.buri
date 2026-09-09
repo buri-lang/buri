@@ -11,7 +11,9 @@ library {
     visibility: ["//visibility:public"]
 
     test {
-        timeout_seconds: 30
+        # A bound, not a measurement: the runner's budget is wall time from
+        # the spawn, so ten minutes for one test is a number no load reaches.
+        timeout_seconds: 600
         platforms: [JS]
     }
 

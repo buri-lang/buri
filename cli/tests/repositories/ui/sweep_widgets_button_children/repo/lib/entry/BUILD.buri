@@ -1,0 +1,9 @@
+# One library and one test source: what a button holds, and the wash that
+# covers all of it because it is one element.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
