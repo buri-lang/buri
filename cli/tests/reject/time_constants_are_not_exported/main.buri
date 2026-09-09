@@ -1,0 +1,15 @@
+// EXPECT: "core/time" has no member `NANOSECONDS_PER_SECOND`
+// A `Duration` is the only way to name a span. `time.seconds(1)` builds one and
+// `d.nanoseconds()` reads it back, so the counts behind them are the module's
+// own business and neither `NANOSECONDS_PER_SECOND` nor `ZERO` is a member.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "${time.NANOSECONDS_PER_SECOND}").ignore();
+  let _ = io.println(ctx, "${time.ZERO.isZero()}").ignore();
+  .Ok(())
+}

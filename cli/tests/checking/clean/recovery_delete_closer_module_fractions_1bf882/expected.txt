@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:47:1
+   |
+47 | 
+   | ^
+   |
+  --> main.buri:38:58
+   |
+38 | test "secondsFloat and asSecondsFloat invert each other" {
+   |                                                          ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:21:5
+   |
+21 |     ? assert.equal(time.secondsFloat(0.0), time.nanoseconds(0));
+   |     ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
