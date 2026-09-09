@@ -1956,7 +1956,8 @@ impl<'a> Checker<'a> {
                             d.fix(fix);
                             d.notes.push(note);
                         } else if let Some(n) = near {
-                            d.fix(crate::diagnostics::candidate_fix(&n, crate::diagnostics::NAMES_IN_SCOPE));
+                            let scope = crate::diagnostics::NAMES_IN_SCOPE;
+                            d.fix(crate::diagnostics::candidate_fix(&n, scope));
                             d.notes.push(format!("did you mean `{n}`?"));
                         }
                         Ty::Error
