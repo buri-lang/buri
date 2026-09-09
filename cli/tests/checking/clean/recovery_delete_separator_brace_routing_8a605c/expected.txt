@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:80:31
+   |
+80 |     let route = web.route(ctx)
+   |                               ^
+   |
+   = fix: write `;` here

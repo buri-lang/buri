@@ -1,7 +1,0 @@
-error: a context binding ends with `,` [missing-separator]
-  --> main.buri:43:23
-   |
-43 |         Ui: headless()
-   |                       ^
-   |
-   = fix: write `,` here
