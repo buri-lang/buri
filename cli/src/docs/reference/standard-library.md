@@ -765,8 +765,8 @@ construction and carries no name. The source is written out at the call site
 and the compiler reads it: an `<svg>` and the shapes inside it, and anything
 else is `icon-not-drawable`.
 
-`button`, `field` and `toggle` take a `disabled: Prop<Bool>` as well. It is an
-attribute rather than a style: it takes the control out of the tab order,
+`button`, `field` and `toggle` take a `disabled: Prop<Bool>` as well — beside
+`invalid` on the two that have one. It is an attribute rather than a style: it takes the control out of the tab order,
 refuses the press before the handler is reached, and tells a reader the control
 is unavailable rather than absent. It is also what makes `On(.Disabled, ...)`
 fire. `On(.Checked, ...)` needs no flag — a toggle's own signal says whether it
