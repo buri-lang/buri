@@ -1,0 +1,40 @@
+// The ends of every axis the tree has, as four pictures.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/limits" import { deep, empties, siblings };
+
+test "an empty tree is a page with nothing on it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "limits-nothing", ui.nothing(), .Hover, []);
+}
+
+test "a container with nothing in it is still a box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "limits-empty", empties(), .Hover, []);
+}
+
+test "a hundred stacks deep" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "limits-deep", deep(100), .Hover, []);
+}
+
+test "a thousand siblings" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "limits-wide", siblings(ctx, 1000), .Hover, []);
+}

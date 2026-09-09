@@ -1,0 +1,97 @@
+# The derived tiers, painted either side of a write.
+#
+# `a_computation_answers_what_it_captured/` is the tree `ui.computed` builds,
+# compared between the two backends. This is the same vocabulary as *pictures*,
+# and it is six goldens over one page and four over another.
+#
+# A snapshot reads the graph once and untracked, so a picture is what the
+# derivation answers at that moment. Two pictures either side of one batch of
+# writes is therefore the whole claim: the second has to be the derived one.
+#
+#   * **`Style.Computed`** — a colour and a width out of a cell, applied
+#     inline, because a computed style never reaches the stylesheet. The box
+#     changes colour *and* gets 120 pixels wider.
+#   * **`Style.When`**, over a cell and over a computation. Both branches are
+#     in the sheet and the picture shows which class was chosen.
+#   * **`ui.computed`** — a subtree rebuilt from what it read.
+#   * **`ui.choose`** — one subtree or the other, and both goldens are here
+#     because the flag is written between them.
+#   * **`ui.text(.Computed)`** — a grouped integer and a fixed-point fraction,
+#     so the run of text is formatted rather than copied.
+#
+# And a keyed list, four times: as it starts, with a row added, with one taken
+# out, and reordered. **A row's colour comes from its key, not its position**,
+# because a key is what survives a reorder — a runtime moves a row it still has
+# rather than rebuilding it, so a row coloured by index would paint one thing
+# here and another in a browser.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a computed style, a computed condition, a computed subtree, a chosen subtree and a formatted run of text, painted either side of a write, plus a keyed list added to, taken from and reordered"
+
+run {
+  args: ["test", "//lib/reactive", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/reactive/test/__snapshots__/reactive-before.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/reactive-after.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/each-rows.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/each-added.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/each-removed.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/each-reordered.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to record
+# one rather than showing a difference against nothing.
+edit {
+  file: "lib/reactive/test/reactive.buri"
+  replace: "snapshot(ctx, \"reactive-before\", board(b), .Hover, []);"
+  with: "snapshot(ctx, \"never-recorded\", board(b), .Hover, []);"
+}
+
+run {
+  args: ["test", "//lib/reactive", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/reactive/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and the
+# run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/reactive", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/reactive/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/reactive", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one edit, and the pictures it reaches fail while the
+# pictures it does not reach stay clean.
+edit {
+  file: "lib/reactive/test/reactive.buri"
+  replace: "b.tone.set(ctx, 160);"
+  with: "b.tone.set(ctx, 60);"
+}
+
+run {
+  args: ["test", "//lib/reactive", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/reactive/test/__snapshots__/reactive-before.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/reactive-after.diff.png"  exists: true }
+path { path: "lib/reactive/test/__snapshots__/each-rows.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/each-added.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/each-removed.diff.png"  exists: false }
+path { path: "lib/reactive/test/__snapshots__/each-reordered.diff.png"  exists: false }

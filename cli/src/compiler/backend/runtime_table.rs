@@ -107,17 +107,33 @@ pub enum Extra {
     /// `[T]` argument and the result's otherwise, which covers `list.repeat`
     /// and `list.empty`, whose only mention of `T` is in the return type.
     Element,
-    /// [`Extra::Element`]'s pair with a **release** after it — the per-value
-    /// function that decrefs whatever counted pointers one value holds, or
-    /// null where it holds none.
+    /// [`Extra::Element`]'s pair with two more words after it — a **release**
+    /// and an **equality**:
     ///
-    /// One shape needs it: a store the runtime *keeps* and later writes over.
-    /// [`Extra::Element`]'s retain says how the runtime takes a reference on
-    /// what it is given; nothing in `core/list` ever gives one back, because
+    /// ```text
+    ///   stride   how wide one value of `T` is
+    ///   retain   increfs what one value holds, or null
+    ///   release  decrefs what one value holds, or null
+    ///   equal    answers whether two values are the same value, or null
+    /// ```
+    ///
+    /// One shape needs all four: a store the runtime *keeps* and later writes
+    /// over. [`Extra::Element`]'s retain says how the runtime takes a reference
+    /// on what it is given; nothing in `core/list` ever gives one back, because
     /// nothing there holds a value past the call. `ui/effect`'s graph does —
     /// a cell holds the bytes it was written until the next write — so the
     /// write that replaces them has to let the old ones go, and the only side
     /// of the boundary that knows how is the one that generated the glue.
+    ///
+    /// The fourth word is the same argument at the question a write asks
+    /// *first*. A signal's rule is that writing a value equal to the one it
+    /// holds does nothing, and `==` is structural (SPEC 7.2) — so two strings
+    /// with the same text are one value, and a cell holding a `Str` as a
+    /// pointer cannot see that by comparing its bytes. `equal` is
+    /// `middle::derives`'s generated comparison behind a C-ABI thunk the
+    /// backend emits (`cli/runtime/ui.rs`'s `Equal`), and it is null for a
+    /// type nothing generated one for — where the bytes are the fallback and,
+    /// for a scalar, the whole answer.
     Owned,
     // -- the closure trampoline --------------------------------------------
     /// The four words a **runtime-driven step** crosses on
@@ -1270,10 +1286,15 @@ pub const ENTRIES: &[Entry] = &[
     // and a backend that guessed gave the cell an `Account`'s width and an
     // `Account`'s glue.
     //
-    // `signal` and `write` carry a third word, the release, and are the only
-    // rows in this table that do. A cell keeps what it was written, so the
-    // write that replaces the bytes gives the old ones back and the exit walk
-    // gives the last ones back — see [`Extra::Owned`].
+    // `signal` and `write` carry a third and a fourth word — the release and
+    // the equality — and are the only rows in this table that do. A cell keeps
+    // what it was written, so the write that replaces the bytes gives the old
+    // ones back and the exit walk gives the last ones back; and the write only
+    // replaces them at all when the new value is not the one already there,
+    // which is `==` at the cell's type rather than a comparison of its bytes.
+    // See [`Extra::Owned`]. `signal` takes the equality and uses neither it nor
+    // the release: a fresh cell replaces nothing. One shape for both keys,
+    // because `Extra::Owned` is one emission rule.
     //
     // `Ret::Out` on both `read`s although a `T` is often a scalar. One key is
     // one C signature, and `read` at `Str` and at `Bool` is one key — so the

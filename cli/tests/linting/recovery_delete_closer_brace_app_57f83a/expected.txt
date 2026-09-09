@@ -14,7 +14,6 @@ error: expected `Str`, found `IoError` [type-mismatch]
    |
    = expected: `Str`
    = actual: `IoError`
-   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
 error: `Template` has no method `mapErr` [no-such-method]
   --> lib/recovery_delete_closer_brace_app_57f83a/main.buri:20:10
    |

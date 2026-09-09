@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/text.buri  "whether a run breaks across lines at all"
+  the snapshot "text-wrap-mode" changed: see test/__snapshots__/text-wrap-mode.diff.png
+  --> lib/scenes/test/text.buri:42:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

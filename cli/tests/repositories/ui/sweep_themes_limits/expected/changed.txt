@@ -1,0 +1,5 @@
+FAIL //lib/limits  test/limits.buri  "a container with nothing in it is still a box"
+  the snapshot "limits-empty" changed: see test/__snapshots__/limits-empty.diff.png
+  --> lib/limits/test/limits.buri:18:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

@@ -1,0 +1,81 @@
+# Text is laid out and not merely painted, and these five pictures are the
+# layout half of it.
+#
+# `text-wrapping.png` is the min-content rule: how narrow a run can be *made*
+# is not how wide it wants to be, and a word that will not fit is not split, so
+# a sentence's floor is its longest word. Two even tracks stay even under both,
+# which is what buri#68 was about.
+#
+# Three of the five hold a row that is recorded as painted and is **wrong**,
+# and stay here with the goldens they have until the issues under them close:
+#
+#   * `text-truncate.png`. The sheet writes `-webkit-line-clamp`, which the
+#     painter does not read, so all four rows are the same six lines —
+#     buri#78.
+#   * the second row of `text-wrapping.png`. The long word is broken mid-word;
+#     with no `overflow-wrap` declaration a browser keeps it whole and lets it
+#     run past the box — buri#79.
+#   * the third row of `text-wrap-mode.png`. `Balance` paints byte for byte
+#     like `Wrap` — buri#81.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "how a run of text is laid out in a box it does not fill — wrapping a sentence against wrapping one long word, alignment inside a constrained width, line height, truncation and the wrap mode"
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/scenes/test/__snapshots__/text-wrapping.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to
+# record one rather than showing a difference against nothing.
+edit {
+  file: "lib/scenes/test/text.buri"
+  replace: "\"text-wrapping\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and
+# the run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/scenes", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one label in the last picture, and the difference
+# image on disk beside the golden it did not match.
+edit {
+  file: "lib/scenes/scenes.buri"
+  replace: "TextWrap(.Balance)"
+  with: "TextWrap(.Balanced)"
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/text-wrap-mode.diff.png"  exists: true }
+path { path: "lib/scenes/test/__snapshots__/text-wrapping.diff.png"  exists: false }

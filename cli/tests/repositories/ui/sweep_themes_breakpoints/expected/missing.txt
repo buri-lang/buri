@@ -1,0 +1,5 @@
+FAIL //lib/screens  test/screens.buri  "one row per breakpoint"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/screens/test/screens.buri:16:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

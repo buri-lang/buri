@@ -14,7 +14,6 @@ error: expected `Bool`, found `(Bool)` [type-mismatch]
    |
    = expected: `Bool`
    = actual: `(Bool)`
-   = fix: produce a `Bool` here, or change what surrounds it to accept a `(Bool)`
 error: this tuple is missing its closing `)` [unclosed-delimiter]
   --> main.buri:22:22
    |

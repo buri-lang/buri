@@ -1893,9 +1893,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let Ty::Con(con, _) = &exp else {
             if !exp.is_error() {
                 let shown = self.show_ty(&exp);
-                self.templated("not-an-enum", dot_span)
-                    .bind("type", shown)
-                    .fix("the dot form names an enum variant; write the value another way");
+                self.report_dot_form_against(&shown, name, dot_span);
             }
             return self.error_expr(span);
         };

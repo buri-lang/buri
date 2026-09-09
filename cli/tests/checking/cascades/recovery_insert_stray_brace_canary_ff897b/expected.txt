@@ -21,4 +21,3 @@ error: expected `[Int]`, found `Int` [type-mismatch]
    = expected: `[Int]`
    = actual: `Int`
    = an integer literal defaults to `Int` but takes any integer type, and `[Int]` is not one
-   = fix: produce a `[Int]` here, or change what surrounds it to accept an `Int`

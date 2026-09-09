@@ -1,0 +1,105 @@
+//! Every colour slot `ui/style` has, as a design token, on every primitive
+//! that can carry one.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Color, Shadow, Style, token };
+from "ui/theme" import { Theme, themed };
+
+/// This package's closed vocabulary: one token per colour a style can name.
+export enum Token {
+    /// `Background`.
+    Surface,
+    /// `Foreground`.
+    Ink,
+    /// `BorderColor`.
+    Edge,
+    /// `Shadow`'s colour.
+    Cast,
+}
+
+impl Token {
+    /// The custom property this token is, which is what a style holds.
+    export fn color(self): Color {
+        match (self) {
+            .Surface => token("swept", "surface"),
+            .Ink => token("swept", "ink"),
+            .Edge => token("swept", "edge"),
+            .Cast => token("swept", "cast"),
+        }
+    }
+}
+
+/// This package's tokens, resolved by `mapping`.
+///
+/// One binding per token, so adding a token here stops every consumer
+/// compiling until it says what the new one is worth.
+export fn themedBy(mapping: fn(Token) => Color): Theme {
+    themed([
+        (Token.Surface.color(), mapping(.Surface)),
+        (Token.Ink.color(), mapping(.Ink)),
+        (Token.Edge.color(), mapping(.Edge)),
+        (Token.Cast.color(), mapping(.Cast)),
+    ])
+}
+
+/// Every colour a token and no colour written out, so every coloured pixel is
+/// the theme's decision.
+let painted: [Style] = [
+    .Padding(.Px(10)),
+    .Background(Token.Surface.color()),
+    .Foreground(Token.Ink.color()),
+    .BorderWidth(.Px(4)),
+    .BorderColor(Token.Edge.color()),
+    .Shadow(Shadow {
+        x: .Px(6),
+        y: .Px(6),
+        blur: .Px(0),
+        spread: .Px(0),
+        color: Token.Cast.color(),
+    }),
+];
+
+/// One labelled row: the label in a fixed track, the sample in the rest.
+fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
+    ui.stack([.Layout(.Grid([.Fixed(.Px(140)), .Fraction(1)])), .Gap(.Px(12))], [
+        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+        sample,
+    ])
+}
+
+/// A card, a heading, a button, a field and a list, each painted in the same
+/// four tokens — so one picture says what all four are worth on all five.
+export fn page<C: Ui>(ctx: C): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(14)), .FontSize(.Px(16))], [
+        labelled(
+            "card",
+            ui.stack([.Group(painted), .Width(.Px(220))], [
+                ui.text(.Const("every colour a token")),
+            ]),
+        ),
+        labelled(
+            "heading",
+            ui.heading(
+                2,
+                [.Group(painted), .FontSize(.Px(22)), .FontWeight(.Bold)],
+                .Const("Ada"),
+            ),
+        ),
+        labelled("button", ui.button(.Const("press"), painted, fn(_c, _e) => ())),
+        labelled("field", ui.field(.Const("name"), .Text, painted, signal(ctx, "Ada"))),
+        labelled(
+            "list",
+            ui.region(
+                .List,
+                [.Group(painted), .PaddingEdge(.Start, .Px(28)), .ListMarker(.Disc)],
+                [
+                    ui.region(.ListItem, [], [ui.text(.Const("one"))]),
+                    ui.region(.ListItem, [], [ui.text(.Const("two"))]),
+                ],
+            ),
+        ),
+    ])
+}

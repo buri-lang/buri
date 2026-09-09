@@ -6,7 +6,6 @@ error: expected `Str`, found `()` [type-mismatch]
    |
    = expected: `Str`
    = actual: `()`
-   = fix: produce a `Str` here, or change what surrounds it to accept a `()`
 error: an expression statement is legal only in a test source [expression-statement]
   --> main.buri:41:49
    |

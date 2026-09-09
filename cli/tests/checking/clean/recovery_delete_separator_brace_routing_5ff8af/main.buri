@@ -64,6 +64,28 @@ test "what read the route re-runs when the page navigates" {
     assert.equal(log.recorded(), ["home", "about", "nowhere"]);
 }
 
+// buri-lang/buri#73. Navigating to the address already showing writes the same
+// text into the cell the route wraps, and an equal write is not a change — so
+// what read the path does not run again. It was seen the other way round while
+// #49 was being implemented: natively the write compared the cell's bytes,
+// which for a `Str` are a pointer, and every `navigate` to the address on
+// screen re-rendered.
+test "navigating to the address already showing re-renders nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/about"),
+    };
+    let log = recorder();
+    let route = web.route(ctx);
+    let _ = watch(ctx, fn(s) => log.record(page(route.read(s))));
+    assert.equal(log.recorded(), ["about"]);
+    web.navigate(ctx, "/about");
+    assert.equal(log.recorded(), ["about"]);
+    web.replace(ctx, "/about");
+    assert.equal(log.recorded(), ["about"]);
+}
+
 test "a signal keeps its value across a navigation" {
     let ctx = context {
         Ui: headless(),

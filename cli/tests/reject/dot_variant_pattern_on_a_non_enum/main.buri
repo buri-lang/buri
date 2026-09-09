@@ -1,0 +1,11 @@
+// EXPECT: expected `[I64]`, found a variant `.Some`
+fn describe(s: [Int]): Int {
+  match (s) {
+    [] => 0,
+    .Some => 1,
+  }
+}
+
+fn go(): Int {
+  describe([1])
+}

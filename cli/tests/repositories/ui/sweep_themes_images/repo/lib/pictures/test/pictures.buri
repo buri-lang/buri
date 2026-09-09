@@ -1,0 +1,24 @@
+// A picture is a picture, a picture that is not there is a box, and neither is
+// a hole in the page.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/pictures" import { sizes, sources };
+
+test "one row per kind of source" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "images-sources", sources(), .Hover, []);
+}
+
+test "one row per size the box around a picture declares" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "images-sizes", sizes(), .Hover, []);
+}

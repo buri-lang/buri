@@ -1,0 +1,81 @@
+# The flex axis and everything measured along it: `Layout`, `Gap` and its two
+# axes, `AlignMain`, `AlignCross`, `AlignSelf`, `Wrap`, `Grow`, `Shrink` and
+# `Layout(.Layers)`. One picture per property, and every value of that property
+# is a labelled row in it.
+#
+# The page is eight hundred wide with nothing inset either side, so a boundary
+# in a picture is a number off the viewport's own edge and can be read with a
+# ruler rather than inferred.
+#
+# Two of the eight are recorded as painted and are **wrong**, and stay here
+# with the goldens they have until the issues under them close:
+#
+#   * `layout-layers.png`, and the third row of `layout-direction.png`. The
+#     sheet writes `.lay-layers>*{grid-area:1/1}` and the painter drops every
+#     rule with a combinator in it, so the children come out as a column
+#     rather than one over another — buri#77.
+#   * the last three rows of `layout-align-cross.png`. `align-items:
+#     space-between` is not a legal declaration; a browser drops it and
+#     stretches, the painter reads it as start — buri#80.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "every property that arranges a container's children — the axis, the gaps, the three alignments, wrapping, what a child does with the room left over, and stacking — one picture each, holding a labelled row per value"
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/scenes/test/__snapshots__/layout-direction.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to
+# record one rather than showing a difference against nothing.
+edit {
+  file: "lib/scenes/test/arrangement.buri"
+  replace: "\"layout-direction\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and
+# the run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/scenes", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one label in the last picture, and the difference
+# image on disk beside the golden it did not match.
+edit {
+  file: "lib/scenes/scenes.buri"
+  replace: "largest written first"
+  with: "the largest written first"
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/layout-layers.diff.png"  exists: true }
+path { path: "lib/scenes/test/__snapshots__/layout-direction.diff.png"  exists: false }

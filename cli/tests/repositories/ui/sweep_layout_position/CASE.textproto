@@ -1,0 +1,76 @@
+# `Position` and `Pin`. What a pin is measured against is the nearest ancestor
+# carrying a `Position`, or the viewport when the element itself is
+# `PinViewport`, or the page when nothing carries one — so `position-kinds.png`
+# is four pictures of the same two boxes that differ only in where the child
+# lands.
+#
+# `position-pin-compose.png` is the one that would have caught buri#46: two
+# pins naming different edges compose, and four of them stretch a box to the
+# ground inset by what they say.
+#
+# The `Sticky` row of `position-kinds.png` is recorded as painted and is
+# **wrong**: it takes the pin's inset the way `Flow` does, where an unscrolled
+# browser leaves the box at its static position — buri#82. Re-record when that
+# closes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "every `Position`, a `Pin` on each edge a box has, and two and four of them composing"
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/scenes/test/__snapshots__/position-kinds.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to
+# record one rather than showing a difference against nothing.
+edit {
+  file: "lib/scenes/test/position.buri"
+  replace: "\"position-kinds\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and
+# the run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/scenes", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one label in the last picture, and the difference
+# image on disk beside the golden it did not match.
+edit {
+  file: "lib/scenes/scenes.buri"
+  replace: "all four edges pinned at eight"
+  with: "all four edges pinned at 8"
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/position-pin-compose.diff.png"  exists: true }
+path { path: "lib/scenes/test/__snapshots__/position-kinds.diff.png"  exists: false }

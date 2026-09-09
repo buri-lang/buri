@@ -6,7 +6,6 @@ error: expected `Str`, found `IoError` [type-mismatch]
    |
    = expected: `Str`
    = actual: `IoError`
-   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
 error: `Str` has no method `mapErr` [no-such-method]
   --> lib/recovery_delete_closer_paren_expected_e6efe1/main.buri:52:10
    |

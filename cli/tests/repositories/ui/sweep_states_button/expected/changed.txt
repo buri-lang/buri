@@ -1,0 +1,5 @@
+FAIL //lib/button  test/states.buri  "hovered"
+  the snapshot "button-hover" changed: see test/__snapshots__/button-hover.diff.png
+  --> lib/button/test/states.buri:30:1
+
+5 passed, 1 failed, 0 skipped (0.0s)

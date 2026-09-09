@@ -24,9 +24,11 @@
 //! * **fix** — the concrete edit that resolves it
 //!
 //! `expected` and `actual` are omitted where the error is not a mismatch (a
-//! duplicate declaration has no "expected"), but `fix` is not: if a diagnostic
-//! cannot say what to do about it, it is not finished. The reject corpus
-//! asserts exactly that, case by case.
+//! duplicate declaration has no "expected"), and `fix` is omitted only where
+//! those two lines are already the edit — a plain `type-mismatch`, where the
+//! sentence left to write is "produce the expected type". Everywhere else a
+//! diagnostic that cannot say what to do about it is not finished, and the
+//! reject corpus asserts exactly that, case by case.
 //!
 //! [`Diagnostic::to_json`] renders the same content as one JSON object per
 //! line, for `buri <cmd> --error-format=json`.

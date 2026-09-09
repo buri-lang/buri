@@ -1,0 +1,48 @@
+// A run of text in a box it does not fill: where it breaks, where it sits, how
+// far apart the lines are, and how many of them a reader gets.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { lineHeight, textAlign, textWrap, truncate, wrapping };
+
+test "how narrow a run of text can be made" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "text-wrapping", wrapping(), .Hover, []);
+}
+
+test "where the text sits in a width it does not fill" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "text-align", textAlign(), .Hover, []);
+}
+
+test "the distance between baselines" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "text-line-height", lineHeight(), .Hover, []);
+}
+
+test "how many lines a reader is shown" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "text-truncate", truncate(), .Hover, []);
+}
+
+test "whether a run breaks across lines at all" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "text-wrap-mode", textWrap(), .Hover, []);
+}

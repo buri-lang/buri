@@ -21,12 +21,18 @@
 
 from "core/alloc" import * as alloc;
 from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc as testAlloc };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/testing" import { headless, observer, Recorder, recorder };
+
+derive Equal for Person;
+/// A record in a cell, for the equality cutoff below: a `Str` beside a scalar,
+/// so that what the cutoff compares is a field and not a word.
+struct Person(Str, Int);
 
 // --- helpers -----------------------------------------------------------------------
 
@@ -147,6 +153,60 @@ test "writing the value already there is not a change" {
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
     let _ = n.set(ctx, 3);
     assert.equal(log.noted(), [3]);
+}
+
+// buri-lang/buri#73. "Already there" is `==`, which is structural: two strings
+// with the same text are one value wherever they live, and so are two lists of
+// the same elements and two records of the same fields. The four below are the
+// same claim at the four shapes a cell's bytes can have — a scalar, a pointer,
+// a pointer to a block of them, and a record holding one.
+
+test "writing an equal Str is not a change" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = signal(ctx, "about");
+    let _ = watch(ctx, fn(s) => log.record(page.get(s)));
+    let _ = page.set(ctx, "about");
+    assert.equal(log.recorded(), ["about"]);
+}
+
+/// The list is **built** on both sides of the write rather than written twice
+/// as a literal, so neither backend can answer this by comparing addresses:
+/// `filter` allocates a block of its own every time it runs.
+test "writing an equal list is not a change" {
+    let ctx = context {
+        Ui: headless(),
+        Allocator: testAlloc(),
+    };
+    let log = recorder();
+    let xs = signal(ctx, [1, 2, 3, 4].filter(ctx, isEven));
+    let _ = watch(ctx, fn(s) => ignore(log.note(xs.get(s).length())));
+    let _ = xs.set(ctx, [1, 2, 3, 4].filter(ctx, isEven));
+    assert.equal(log.noted(), [2]);
+}
+
+test "writing an equal record is not a change" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let who = signal(ctx, Person("ada", 36));
+    let _ = watch(ctx, fn(s) => log.record(who.get(s).0));
+    let _ = who.set(ctx, Person("ada", 36));
+    assert.equal(log.recorded(), ["ada"]);
+}
+
+test "writing a record that differs in one field is a change" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let who = signal(ctx, Person("ada", 36));
+    let _ = watch(ctx, fn(s) => log.record(who.get(s).0));
+    let _ = who.set(ctx, Person("grace", 36));
+    assert.equal(log.recorded(), ["ada", "grace"]);
 }
 
 test "a watcher that read nothing never runs again" {

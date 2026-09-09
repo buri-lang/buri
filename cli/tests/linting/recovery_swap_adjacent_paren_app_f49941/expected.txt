@@ -31,7 +31,6 @@ error: expected `fn(_11, Str) => Str`, found `(<error>, <error>)` [type-mismatch
    |
    = expected: `fn(_11, Str) => Str`
    = actual: `(<error>, <error>)`
-   = fix: produce a `fn(_11, Str) => Str` here, or change what surrounds it to accept a `(<error>, <error>)`
 error: there is nothing named `c` in scope [unresolved-name]
   --> lib/recovery_swap_adjacent_paren_app_f49941/main.buri:51:40
    |
