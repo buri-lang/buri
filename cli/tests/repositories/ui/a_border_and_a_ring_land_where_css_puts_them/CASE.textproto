@@ -1,5 +1,6 @@
-# Where the painter puts a border and a shadow, in pictures a person can read.
-# Each one is a rule CSS states and the painter used to get wrong.
+# Where the painter puts a border and a shadow, in three pictures a person can
+# read. Each one is a rule CSS states and the painter used to get wrong, and
+# each was a bug of its own:
 #
 #   * **A border is inside the box** (buri#76). `edges-border-widths.png` is
 #     five boxes, one to a width, all thirty tall with their top edge at y=20.
@@ -11,6 +12,10 @@
 #     only colour it has, one told a colour of its own, and one taking the
 #     foreground it inherited. Only the middle one is red; the others are the
 #     colour their text would be. They used to be black.
+#   * **An outer shadow is outside the box** (buri#90).
+#     `edges-focus-ring.png` is the same spread-only ring on a transparent box
+#     and on a white one. Both rings are three pixels wide and the transparent
+#     box still shows the page behind it — the ring used to fill the control.
 #
 # The negative twin moves the foreground of the first box in the second
 # picture. That is the row's whole claim: a border with no colour follows the
@@ -19,7 +24,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a border of every width inside its box, and a border taking the foreground it was given"
+doc: "a border of every width inside its box, a border taking the foreground it was given, and a ring outside the box that cast it"
 
 run {
   args: ["test", "//lib/edges", "--force"]
@@ -29,6 +34,7 @@ run {
 
 path { path: "lib/edges/test/__snapshots__/edges-border-widths.diff.png"  exists: false }
 path { path: "lib/edges/test/__snapshots__/edges-current-colour.diff.png"  exists: false }
+path { path: "lib/edges/test/__snapshots__/edges-focus-ring.diff.png"  exists: false }
 
 edit {
   file: "lib/edges/edges.buri"
@@ -44,3 +50,4 @@ run {
 
 path { path: "lib/edges/test/__snapshots__/edges-current-colour.diff.png"  exists: true }
 path { path: "lib/edges/test/__snapshots__/edges-border-widths.diff.png"  exists: false }
+path { path: "lib/edges/test/__snapshots__/edges-focus-ring.diff.png"  exists: false }

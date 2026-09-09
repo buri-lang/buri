@@ -312,6 +312,14 @@ fn serving_a_page() {
 /// every derived tier painted either side of a write, what an image paints
 /// when nothing may be fetched, and the ends of every axis the tree has.
 ///
+/// `a_border_and_a_ring_land_where_css_puts_them` is three pictures and three
+/// rules a browser follows and this painter did not: a border of any width
+/// sits inside its box, a border with no colour of its own is the foreground,
+/// and an outer shadow is painted outside the box that cast it. One row per
+/// rule, because none of the three is visible in a picture of something else —
+/// a one-pixel border reads as a grey smudge, a black border reads as a
+/// choice, and a ring reads as a fill.
+///
 /// The `sweep_states_*` cases are the states sweep: every `State` against every
 /// interactive primitive, six pictures to a case — the resting one and one per
 /// state — each a labelled grid of `Background`, `Foreground`, `Border`,
@@ -322,7 +330,7 @@ fn serving_a_page() {
 /// that a state golden is not a copy of the resting one.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 26);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 27);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

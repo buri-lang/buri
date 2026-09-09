@@ -3,7 +3,7 @@
 
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
-from "ui/style" import { Length };
+from "ui/style" import { Length, Shadow };
 
 /// One box, sixty by thirty, outlined in the width it was given.
 fn bordered<C>(width: Length): Node<C> {
@@ -16,6 +16,17 @@ fn bordered<C>(width: Length): Node<C> {
         ],
         [],
     )
+}
+
+/// The ring a `Focus` style asks for: no blur, three pixels of spread.
+fn ring3(): Shadow {
+    Shadow {
+        x: .Px(0),
+        y: .Px(0),
+        blur: .Px(0),
+        spread: .Px(3),
+        color: .Rgb(150, 150, 150),
+    }
 }
 
 /// Five widths, one to a box, each box's top edge at y=20 and its bottom at
@@ -58,5 +69,31 @@ export fn currentColour<C>(): Node<C> {
         ui.stack([.Foreground(.Rgb(20, 120, 90))], [
             ui.stack([.Width(.Px(60)), .Height(.Px(30)), .BorderWidth(.Px(4))], []),
         ]),
+    ])
+}
+
+/// The same ring on a transparent box and on an opaque one. An outer shadow is
+/// painted outside the box only, so the transparent box keeps the page behind
+/// it and both rings are the same three pixels wide.
+export fn ring<C>(): Node<C> {
+    ui.row([.Gap(.Px(20)), .Padding(.Px(20)), .Background(.Rgb(232, 240, 250))], [
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Background(.Transparent),
+                .Shadow(ring3()),
+            ],
+            [],
+        ),
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Background(.Rgb(255, 255, 255)),
+                .Shadow(ring3()),
+            ],
+            [],
+        ),
     ])
 }

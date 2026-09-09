@@ -1547,10 +1547,16 @@ impl Painter<'_> {
         if let Some(shadow) = style.shadow {
             let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
             let corner = radius + shadow.spread;
+            // An outer shadow is painted outside the border box and nowhere
+            // else, so the box is knocked out of whatever clip was already in
+            // force. A ring around a transparent control is the case that
+            // needs it: without the knockout the ring fills the control.
+            let outside = outside_the_box(box_, radius, clip, canvas.width(), canvas.height());
+            let under = outside.as_ref().or(clip);
             if shadow.blur > 0.0 {
-                cast_blurred(canvas, cast, corner, shadow, style.opacity, clip);
+                cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
             } else {
-                fill(canvas, cast, corner, shadow.colour, style.opacity, clip);
+                fill(canvas, cast, corner, shadow.colour, style.opacity, under);
             }
         }
         if style.background.visible() {
@@ -2026,6 +2032,30 @@ fn cast_blurred(
     let paint =
         Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
     canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
+}
+
+/// The clip an outer shadow paints under: what the caller was already clipped
+/// to, minus the element's own border box.
+///
+/// CSS clips an outer `box-shadow` to the region outside the border box, so a
+/// shadow is never under the box that cast it. `None` means nothing could be
+/// allocated, and the caller keeps its own clip.
+fn outside_the_box(
+    box_: Box2,
+    radius: f32,
+    clip: Option<&Mask>,
+    width: u32,
+    height: u32,
+) -> Option<Mask> {
+    let mut mask = clip.cloned().or_else(|| full_mask(width, height))?;
+    let Some(path) = box_.path(radius) else { return Some(mask) };
+    let mut hole = Mask::new(width, height)?;
+    hole.fill_path(&path, FillRule::Winding, true, Transform::identity());
+    for coverage in hole.data_mut() {
+        *coverage = 255 - *coverage;
+    }
+    narrow(&mut mask, &hole);
+    Some(mask)
 }
 
 /// Multiplies `mask` by `other`, which is mask intersection on coverage.
@@ -3199,6 +3229,18 @@ mod tests {
                      e 1 width:12px;height:12px;border-style:solid;border-width:4px;\
                      color:rgb(18,18,28)\n";
         assert_eq!(at(&render_ok(scene, "", "rest"), 5, 10), [18, 18, 28, 255]);
+    }
+
+    /// An outer shadow paints outside the border box only, so a spread-only
+    /// ring around a transparent box leaves the box's own pixels alone.
+    #[test]
+    fn an_outer_shadow_paints_outside_the_box_it_was_cast_from() {
+        let scene = "buri-scene 1\nviewport 24 24\ne 0 padding:6px\n\
+                     e 1 width:12px;height:12px;box-shadow:0px 0px 0px 3px rgb(150,150,150)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 4, 12), [150, 150, 150, 255], "the ring is three pixels out");
+        assert_eq!(at(&image, 12, 12), [255, 255, 255, 255], "a ring flooded the control");
+        assert_eq!(at(&image, 6, 6), [255, 255, 255, 255], "the box's own corner");
     }
 
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the
