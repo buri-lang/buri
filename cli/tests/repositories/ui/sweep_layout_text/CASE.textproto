@@ -6,12 +6,14 @@
 # a sentence's floor is its longest word. Two even tracks stay even under both,
 # which is what buri#68 was about.
 #
-# Three of the five hold a row that is recorded as painted and is **wrong**,
-# and stay here with the goldens they have until the issues under them close:
+# `text-truncate.png` is one, two and three lines of the same six-line
+# paragraph, each ending in an ellipsis, over the unclamped run — plus the
+# negative twin, a run that already fits in two lines and keeps its own last
+# word.
 #
-#   * `text-truncate.png`. The sheet writes `-webkit-line-clamp`, which the
-#     painter does not read, so all four rows are the same six lines —
-#     buri#78.
+# Two of the five hold a row that is recorded as painted and is **wrong**, and
+# stay here with the goldens they have until the issues under them close:
+#
 #   * the second row of `text-wrapping.png`. The long word is broken mid-word;
 #     with no `overflow-wrap` declaration a browser keeps it whole and lets it
 #     run past the box — buri#79.
