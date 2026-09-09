@@ -1,0 +1,10 @@
+# One library and one test source: six pictures of an `image` in a styled box —
+# `ui.image` takes no styles of its own, and its source is one the painter
+# cannot load, so it draws the placeholder, and a snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
