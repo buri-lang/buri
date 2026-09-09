@@ -411,6 +411,144 @@ test "padding named edge by edge composes too" {
     assert.isTrue(sheet.contains(".pe-end-4{padding-inline-end:4px}"));
 }
 
+test "a bleed takes a child out past the padding its parent put it inside" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The menu separator: the menu is padded by four, and the rule runs from
+    // one edge of it to the other.
+    let separator: [Style] = [
+        .Height(.Px(1)),
+        .Bleed(.Start, .Px(4)),
+        .Bleed(.End, .Px(4)),
+    ];
+    assert.equal(
+        render(ctx, ui.region(.Separator, separator, [])).markup(),
+        "<hr class=\"h-1 bleed-start-4 bleed-end-4\" />",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bleed-start-4{margin-inline-start:-4px}"));
+    assert.isTrue(sheet.contains(".bleed-end-4{margin-inline-end:-4px}"));
+}
+
+test "bleeds naming different edges compose, and the same edge is last-wins" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let edges: [Style] = [
+        .Bleed(.Top, .Px(1)),
+        .Bleed(.Bottom, .Px(2)),
+        .Bleed(.Start, .Px(3)),
+        .Bleed(.End, .Px(4)),
+        .Bleed(.Start, .Px(8)),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(edges, [])).markup(),
+        "<div class=\"bleed-top-1 bleed-bottom-2 bleed-start-8 bleed-end-4\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bleed-top-1{margin-block-start:-1px}"));
+    assert.isTrue(sheet.contains(".bleed-bottom-2{margin-block-end:-2px}"));
+    assert.isTrue(sheet.contains(".bleed-start-8{margin-inline-start:-8px}"));
+    assert.isTrue(sheet.contains(".bleed-end-4{margin-inline-end:-4px}"));
+    // The one that lost is not in the sheet either: a class nobody reaches is
+    // not shipped.
+    assert.isFalse(sheet.contains(".bleed-start-3"));
+}
+
+test "a bleed is a distance outwards, so nothing inward and nothing automatic" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let lengths: [Style] = [
+        .Bleed(.Top, .Rem(0.5)),
+        .Bleed(.Bottom, .Percent(10.0)),
+        .Bleed(.Start, .Full),
+        .Bleed(.End, .Px(-8)),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(lengths, [])).markup(),
+        "<div class=\"bleed-top-r0_5 bleed-bottom-pc10 bleed-start-full bleed-end-n8\"></div>",
+    );
+    assert.equal(
+        render(ctx, ui.stack([.Bleed(.Top, .Auto)], [])).markup(),
+        "<div class=\"bleed-top-auto\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bleed-top-r0_5{margin-block-start:-0.5rem}"));
+    assert.isTrue(sheet.contains(".bleed-bottom-pc10{margin-block-end:-10%}"));
+    assert.isTrue(sheet.contains(".bleed-start-full{margin-inline-start:-100%}"));
+    // Inward is the margin this vocabulary does not have, and `.Auto` is not a
+    // distance at all. Both bleed nothing.
+    assert.isTrue(sheet.contains(".bleed-end-n8{margin-inline-end:0px}"));
+    assert.isTrue(sheet.contains(".bleed-top-auto{margin-block-start:0px}"));
+}
+
+test "a bleed shares an edge with a pin and a padding and fights neither" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let stated: [Style] = [
+        .Bleed(.Start, .Px(8)),
+        .PaddingEdge(.Start, .Px(2)),
+        .Pin(.Start, .Px(4)),
+        .Position(.Flow),
+        .On(.Hover, [.Bleed(.Start, .Px(16))]),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(stated, [])).markup(),
+        "<div class=\"bleed-start-8 pe-start-2 pin-out pin-start-4 pos-flow hover_bleed-start-16\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bleed-start-8{margin-inline-start:-8px}"));
+    assert.isTrue(sheet.contains(".pe-start-2{padding-inline-start:2px}"));
+    assert.isTrue(sheet.contains(".pin-start-4{inset-inline-start:4px}"));
+    // A state is a slot of its own, so the hover rule does not replace the
+    // resting one — it applies over it.
+    assert.isTrue(
+        sheet.contains(".hover_bleed-start-16:hover{margin-inline-start:-16px}"),
+    );
+}
+
+test "a bleed the compiler cannot evaluate is written out inline" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // `get` takes a context, so the folder stops here and the style degrades to
+    // the tier `Computed` lives in.
+    let out = signal(ctx, 23);
+    let tree = ui.stack([.Bleed(.Start, .Px(out.get(ctx)))], []);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div style=\"margin-inline-start: -23px\"></div>",
+    );
+    assert.isFalse(stylesheet().contains("bleed-start-23"));
+}
+
+test "the scene document writes the bleed the browser was given" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // The inline tier on both sides: the painter reads the scene, a browser
+    // reads the style attribute, and the two say the same thing.
+    let out = signal(ctx, 8);
+    let tree = ui.stack(
+        [.Bleed(.Start, .Px(out.get(ctx))), .Bleed(.Top, .Px(0 - out.get(ctx)))],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div style=\"margin-inline-start: -8px; margin-block-start: 0px\"></div>",
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 margin-inline-start:-8px;margin-block-start:0px",
+    );
+}
+
 test "a value with no bounded spelling is named by what it is" {
     let ctx = context {
         Ui: headless(),

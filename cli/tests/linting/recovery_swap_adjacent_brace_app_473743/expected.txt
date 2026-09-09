@@ -1,0 +1,35 @@
+error: this `match` does not cover `_` [match-not-exhaustive]
+  --> lib/recovery_swap_adjacent_brace_app_473743/main.buri:57:5
+   |
+57 |     match (n) {
+   |     ^^^^^^^^^^^ not covered
+   |
+   = exhaustiveness is not attempted over integer or string ranges
+   = fix: add a `_` arm
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_app_473743/main.buri:63:10
+   |
+63 |         5 "five" =>,
+   |          ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_473743/main.buri:63:18
+   |
+63 |         5 "five" =>,
+   |                  ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_473743/main.buri:57:15
+   |
+57 |     match (n) {
+   |               ^ opened here
+   |
+   = fix: write `}` here
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_swap_adjacent_brace_app_473743/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own

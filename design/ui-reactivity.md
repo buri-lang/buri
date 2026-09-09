@@ -200,10 +200,10 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 47 properties. The arithmetic, because the cut line is the design:
+  // 48 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
-  //    7  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge
+  //    8  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge, Bleed
   //    7  extent:     {Min,Max,}Width, {Min,Max,}Height, AspectRatio
   //    9  paint:      Background, Foreground, Border{Width,Color,Style},
   //       Radius, Opacity, Shadow, Shadows
@@ -216,6 +216,7 @@ export enum Style {
   Grow(Int), Shrink(Int), Span(Int),    // on a child
   Pin(Edge, Length), Position(Position),
   PaddingX(Length), Gap(Length), Width(Length), Radius(Length),
+  Bleed(Edge, Length),                  // the one way out of the container's box
   Background(Color), Foreground(Color), Truncate(Int), ...,
   Shadow(Shadow), Shadows([Shadow]),    // one slot; the last written wins
 
@@ -257,9 +258,11 @@ having is two layers and a focus ring is a third beside them, which is why the
 list exists; one layer stays the shorter spelling.
 
 Deliberately absent: floats, margin collapsing, inline-block — stacks, `Gap`,
-and `Layers` replace them, and none survive cross-platform. There are no
-margins at all: space between things belongs to the container that arranged
-them.
+and `Layers` replace them, and none survive cross-platform. Space between
+things belongs to the container that arranged them, so there is no inward
+margin. `Bleed` is the one margin there is and it only goes outwards: a child
+reaching past its parent's padding — a full-width rule in a padded menu, an
+avatar lapping the one before it — has nothing else to ask with.
 
 **Hover is a style, not an event**, and `On` is why. A pseudo-class costs
 nothing at run time, needs no listener, survives into an email's `<style>`
