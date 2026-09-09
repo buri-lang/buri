@@ -4,6 +4,4 @@ export fn f(): Int {
     1
 }
 
-"core/str"
-
-from import * as str;
+"core/str" from import * as str;

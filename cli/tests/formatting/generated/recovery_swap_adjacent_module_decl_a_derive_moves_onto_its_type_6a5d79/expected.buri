@@ -8,8 +8,6 @@ export enum Shape {
 }
 
 // why this derive
-Show
-
-derive for Shape;
+Show derive for Shape;
 
 derive Equal for SomethingElsewhere;

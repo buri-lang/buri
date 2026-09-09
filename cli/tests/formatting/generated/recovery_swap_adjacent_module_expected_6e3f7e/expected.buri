@@ -1,8 +1,6 @@
 from "//lib/z" import { Zed };
 
-fn
-
-export f(): Int {
+fn export f(): Int {
     1
 }
 

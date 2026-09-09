@@ -15,9 +15,7 @@ enum State {
     Filled(Count),
 }
 
-fn
-
-export describe(s: State): Str {
+fn export describe(s: State): Str {
     let base = "basket"; // the noun every message is built from
     let n = match (s) {
         .Empty => 0, // nothing to count
