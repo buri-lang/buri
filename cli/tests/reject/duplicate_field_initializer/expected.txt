@@ -1,0 +1,7 @@
+error: field `x` is given twice [duplicate-field-initializer]
+ --> cmd/duplicate_field_initializer/main.buri:8:17
+  |
+8 |   Point { x: 1, x: 2, y: 3 }
+  |                 ^
+  |
+  = fix: delete one of the two

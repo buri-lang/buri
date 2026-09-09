@@ -1,0 +1,8 @@
+// EXPECT: `Point` is declared twice in this module
+struct Point {
+  export x: Int,
+}
+
+struct Point {
+  export y: Int,
+}

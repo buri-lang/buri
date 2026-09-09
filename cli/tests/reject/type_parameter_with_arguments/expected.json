@@ -1,0 +1,1 @@
+{"severity":"error","message":"`T` is a type parameter and takes no type arguments","code":"type-parameter-with-arguments","location":{"file":"cmd/type_parameter_with_arguments/main.buri","line":2,"column":17,"endLine":2,"endColumn":23,"text":"fn first<T>(xs: T<Int>): Int {"},"fix":"drop the arguments; a type parameter stands for one type already","notes":[],"related":[]}

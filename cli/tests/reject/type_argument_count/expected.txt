@@ -1,0 +1,9 @@
+error: `Pair` takes 2 type arguments, but 1 were given [type-argument-count]
+ --> cmd/type_argument_count/main.buri:7:12
+  |
+7 | fn take(p: Pair<Int>): Int {
+  |            ^^^^^^^^^
+  |
+  = expected: 2
+  = actual: 1
+  = fix: supply exactly 2

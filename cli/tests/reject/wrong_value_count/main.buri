@@ -1,0 +1,6 @@
+// EXPECT: `Pair` holds 2 values, but 1 were given
+struct Pair(Int, Int);
+
+fn go(): Pair {
+  Pair(1)
+}

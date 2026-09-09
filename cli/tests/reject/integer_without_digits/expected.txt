@@ -1,0 +1,7 @@
+error: `0x` has no digits [integer-without-digits]
+ --> cmd/integer_without_digits/main.buri:8:11
+  |
+8 |   let n = 0x;
+  |           ^^
+  |
+  = fix: write at least one digit after the base prefix, as in `0x1F`

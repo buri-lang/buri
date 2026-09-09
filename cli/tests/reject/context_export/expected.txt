@@ -1,0 +1,25 @@
+error: a `context` may be exported only from a test-only module [context-export]
+ --> cmd/context_export/main.buri:6:1
+  |
+6 | export context Fixture {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a test module is anything under a `testing` directory
+  = fix: drop the `export`, or move it into a test-only module
+
+    To fix, drop the export, or move the context into a test-only module:
+
+      from "core/effect" import { Allocator, Stdout };
+      from "core/host" import * as host;
+      from "core/io" import * as io;
+
+      // define the context in a test only module instead
+      // this module is "test only" because it has a "testonly" directory
+      from "//libs/testonly" import { Fixture };
+
+      export fn main(): Result<(), Str> {
+          let ctx = Fixture();
+          let _ = io.println(ctx, "hi").ignore();
+          .Ok(())
+      }
+

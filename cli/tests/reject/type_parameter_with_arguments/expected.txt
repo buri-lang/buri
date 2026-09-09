@@ -1,0 +1,7 @@
+error: `T` is a type parameter and takes no type arguments [type-parameter-with-arguments]
+ --> cmd/type_parameter_with_arguments/main.buri:2:17
+  |
+2 | fn first<T>(xs: T<Int>): Int {
+  |                 ^^^^^^
+  |
+  = fix: drop the arguments; a type parameter stands for one type already

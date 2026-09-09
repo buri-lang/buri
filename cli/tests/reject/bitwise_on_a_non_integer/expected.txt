@@ -1,0 +1,7 @@
+error: `~` is defined on integers, not `Bool` [bitwise-on-a-non-integer]
+ --> cmd/bitwise_on_a_non_integer/main.buri:3:3
+  |
+3 |   ~b
+  |   ^^
+  |
+  = fix: use `!` for a `Bool`

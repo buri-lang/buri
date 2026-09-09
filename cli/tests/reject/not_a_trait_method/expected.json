@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Measurable` declares no method `extra`","code":"not-a-trait-method","location":{"file":"cmd/not_a_trait_method/main.buri","line":15,"column":6,"endLine":15,"endColumn":11,"text":"  fn extra(self): Int {"},"fix":"remove it, or move it into an inherent `impl` block for the type — `Measurable` supplies only what it declares","notes":[],"related":[]}

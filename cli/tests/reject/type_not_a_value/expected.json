@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Point` is a type, not a value","code":"type-not-a-value","location":{"file":"cmd/type_not_a_value/main.buri","line":8,"column":11,"endLine":8,"endColumn":16,"text":"  let p = Point;"},"fix":"construct one, as in `Point { x: 1, y: 2 }`, or name a value","notes":[],"related":[]}

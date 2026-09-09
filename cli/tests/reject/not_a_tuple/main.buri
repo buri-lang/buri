@@ -1,0 +1,4 @@
+// EXPECT: `[I64]` is not a tuple
+fn read(xs: [Int]): Int {
+  xs.0
+}

@@ -1,0 +1,8 @@
+error: `Point` already implements `Measurable` [duplicate-implementation]
+  --> cmd/duplicate_implementation/main.buri:16:1
+   |
+16 | impl Measurable for Point {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = there is exactly one candidate per (trait, type)
+   = fix: delete one of the two, or merge them

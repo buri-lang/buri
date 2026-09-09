@@ -1,0 +1,1 @@
+{"severity":"error","message":"unterminated string literal","code":"unterminated-string","location":{"file":"cmd/unterminated_string/main.buri","line":3,"column":8,"endLine":4,"endColumn":1,"text":"  \"oops"},"fix":"close it with `\"`; a string literal does not span a line break","notes":[],"related":[]}

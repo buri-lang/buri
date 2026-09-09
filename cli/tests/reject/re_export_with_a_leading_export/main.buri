@@ -1,0 +1,6 @@
+// EXPECT: write `from "..." export { ... }`, without a leading `export`
+export from "core/list" export { map };
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

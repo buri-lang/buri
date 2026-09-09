@@ -1,0 +1,7 @@
+error: `size` is declared by both `Left` and `Right` [ambiguous-trait-method]
+  --> cmd/ambiguous_trait_method/main.buri:11:5
+   |
+11 |   x.size()
+   |     ^^^^
+   |
+   = fix: call it as a function to say which: `Left.size(x, y)`

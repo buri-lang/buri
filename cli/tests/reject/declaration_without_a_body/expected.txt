@@ -1,0 +1,8 @@
+error: `total` has no body [declaration-without-a-body]
+ --> cmd/declaration_without_a_body/main.buri:2:30
+  |
+2 | fn total(a: Int, b: Int): Int;
+  |                              ^
+  |
+  = a function declaration outside a trait or effect needs a block
+  = fix: give it one: `{ ... }`. Only the bundled standard library declares a signature with no body, for an operation the runtime supplies

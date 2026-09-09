@@ -1,0 +1,1 @@
+{"severity":"error","message":"unterminated `\\u{...}` escape","code":"unterminated-unicode-escape","location":{"file":"cmd/unterminated_unicode_escape/main.buri","line":8,"column":12,"endLine":8,"endColumn":20,"text":"  let s = \"\\u{1F600\";"},"fix":"close it with `}`","notes":[],"related":[]}

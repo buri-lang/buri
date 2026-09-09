@@ -1,0 +1,7 @@
+error: field `n` has type `I64`, which is not callable [field-not-callable]
+ --> cmd/field_not_callable/main.buri:7:3
+  |
+7 |   h.n()
+  |   ^^^^^
+  |
+  = fix: this is a field access, not a method call

@@ -1,0 +1,2 @@
+// EXPECT: `total` has no body
+fn total(a: Int, b: Int): Int;

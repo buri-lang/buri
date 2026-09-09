@@ -1,0 +1,11 @@
+// EXPECT: expected `I64`, found a `Point` pattern
+struct Point {
+  export x: Int,
+}
+
+fn go(n: Int): Int {
+  match (n) {
+    Point { x } => x,
+    _ => 0,
+  }
+}

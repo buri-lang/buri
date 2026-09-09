@@ -1,0 +1,7 @@
+error: a 2-tuple has no element 5 [no-such-tuple-element]
+ --> cmd/no_such_tuple_element/main.buri:9:16
+  |
+9 |   let n = pair.5;
+  |                ^
+  |
+  = fix: the elements are `.0` through `.1`

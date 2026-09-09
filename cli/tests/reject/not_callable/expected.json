@@ -1,0 +1,1 @@
+{"severity":"error","message":"`I64` is not callable","code":"not-callable","location":{"file":"cmd/not_callable/main.buri","line":3,"column":3,"endLine":3,"endColumn":4,"text":"  n(1)"},"fix":"call a function, a lambda, or a field holding one — `(x.f)(...)` for a field","notes":[],"related":[]}

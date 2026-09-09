@@ -1,0 +1,1 @@
+{"severity":"error","message":"unknown escape `\\q`","code":"unknown-escape","location":{"file":"cmd/unknown_escape/main.buri","line":8,"column":12,"endLine":8,"endColumn":14,"text":"  let s = \"\\q\";"},"fix":"the escapes are `\\n` `\\r` `\\t` `\\0` `\\\\` `\\\"` `\\'` `\\$` and `\\u{...}`","notes":["the escapes are \\n \\r \\t \\0 \\\\ \\\" \\' \\$ and \\u{...}"],"related":[]}

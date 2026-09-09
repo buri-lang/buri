@@ -1,0 +1,4 @@
+// EXPECT: `T` is a type parameter and takes no type arguments
+fn first<T>(xs: T<Int>): Int {
+  0
+}

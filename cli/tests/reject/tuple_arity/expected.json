@@ -1,0 +1,1 @@
+{"severity":"error","message":"a tuple has arity 2 or more","code":"tuple-arity","location":{"file":"cmd/tuple_arity/main.buri","line":3,"column":11,"endLine":3,"endColumn":15,"text":"  let t = (1,);"},"fix":"drop the parentheses for one element, or write `()` for none","notes":["`(e)` is grouping and `()` is the unit value"],"related":[]}

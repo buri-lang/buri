@@ -1,0 +1,4 @@
+// EXPECT: `~` is defined on integers, not `Bool`
+fn go(b: Bool): Bool {
+  ~b
+}

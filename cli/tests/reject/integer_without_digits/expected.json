@@ -1,0 +1,1 @@
+{"severity":"error","message":"`0x` has no digits","code":"integer-without-digits","location":{"file":"cmd/integer_without_digits/main.buri","line":8,"column":11,"endLine":8,"endColumn":13,"text":"  let n = 0x;"},"fix":"write at least one digit after the base prefix, as in `0x1F`","notes":[],"related":[]}

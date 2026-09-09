@@ -1,0 +1,7 @@
+// EXPECT: `I64` is not a 2-tuple
+fn go(n: Int): Int {
+  match (n) {
+    (a, b) => a,
+    _ => 0,
+  }
+}

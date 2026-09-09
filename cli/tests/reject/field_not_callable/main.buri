@@ -1,0 +1,8 @@
+// EXPECT: field `n` has type `I64`, which is not callable
+struct Holder {
+  export n: Int,
+}
+
+fn go(h: Holder): Int {
+  h.n()
+}

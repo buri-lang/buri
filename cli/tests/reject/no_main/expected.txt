@@ -1,0 +1,2 @@
+error: //cmd/no_main exports no `main` [no-main]
+  = fix: add `export fn main(): Result<(), Str> { ... }` to its `main.buri`

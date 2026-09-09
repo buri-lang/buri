@@ -1,0 +1,10 @@
+// EXPECT: `0b12` is not a valid base-2 integer, or does not fit in 128 bits
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let n = 0b12;
+  .Ok(())
+}

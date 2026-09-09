@@ -1,0 +1,8 @@
+error: unknown escape `\q` [unknown-escape]
+ --> cmd/unknown_escape/main.buri:8:12
+  |
+8 |   let s = "\q";
+  |            ^^
+  |
+  = the escapes are \n \r \t \0 \\ \" \' \$ and \u{...}
+  = fix: the escapes are `\n` `\r` `\t` `\0` `\\` `\"` `\'` `\$` and `\u{...}`

@@ -1,0 +1,6 @@
+// EXPECT: `Wrapper` has no field 3
+struct Wrapper(Int);
+
+fn read(w: Wrapper): Int {
+  w.3
+}

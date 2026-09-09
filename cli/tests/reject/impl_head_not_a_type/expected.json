@@ -1,0 +1,1 @@
+{"severity":"error","message":"an `impl` names a declared type","code":"impl-head-not-a-type","location":{"file":"cmd/impl_head_not_a_type/main.buri","line":6,"column":21,"endLine":6,"endColumn":26,"text":"impl Measurable for [Int] {"},"fix":"name a struct or enum this module declares","notes":[],"related":[]}

@@ -1,0 +1,4 @@
+// EXPECT: //cmd/no_main exports no `main`
+export fn helper(): Int {
+  1
+}

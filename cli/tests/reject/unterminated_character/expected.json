@@ -1,0 +1,1 @@
+{"severity":"error","message":"unterminated character literal","code":"unterminated-character","location":{"file":"cmd/unterminated_character/main.buri","line":3,"column":3,"endLine":3,"endColumn":4,"text":"  '"},"fix":"close it with `'`","notes":[],"related":[]}

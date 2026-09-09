@@ -1,0 +1,8 @@
+error: `(I64, I64)` has no methods [type-has-no-methods]
+ --> cmd/type_has_no_methods/main.buri:2:6
+  |
+2 | impl (Int, Int) {
+  |      ^^^^^^^^^^
+  |
+  = tuples, function types, and `Template` have no defining module
+  = fix: write a free function instead, and call it as one

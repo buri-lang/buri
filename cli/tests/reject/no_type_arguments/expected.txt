@@ -1,0 +1,7 @@
+error: `Int` takes no type arguments [no-type-arguments]
+ --> cmd/no_type_arguments/main.buri:2:13
+  |
+2 | fn width(n: Int<Str>): Int {
+  |             ^^^^^^^^
+  |
+  = fix: drop them

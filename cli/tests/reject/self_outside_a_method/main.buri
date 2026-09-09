@@ -1,0 +1,4 @@
+// EXPECT: `self` is legal only in a method body
+fn go(): Int {
+  self
+}

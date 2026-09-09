@@ -1,0 +1,12 @@
+// EXPECT: `Circle` holds 2 values, but 1 were matched
+enum Shape {
+  Circle(Int, Int),
+  Square,
+}
+
+fn go(s: Shape): Int {
+  match (s) {
+    .Circle(a) => a,
+    .Square => 0,
+  }
+}

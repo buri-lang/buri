@@ -1,0 +1,1 @@
+{"severity":"error","message":"`~` is defined on integers, not `Bool`","code":"bitwise-on-a-non-integer","location":{"file":"cmd/bitwise_on_a_non_integer/main.buri","line":3,"column":3,"endLine":3,"endColumn":5,"text":"  ~b"},"fix":"use `!` for a `Bool`","notes":[],"related":[]}

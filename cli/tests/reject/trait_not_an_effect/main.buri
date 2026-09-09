@@ -1,0 +1,13 @@
+// EXPECT: `Measurable` is a trait, not an effect
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+trait Measurable {
+  fn size(self): Int;
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Measurable: host.stdout };
+  .Ok(())
+}
