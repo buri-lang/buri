@@ -34,7 +34,7 @@ path { path: "lib/control/test/__snapshots__/invalid-stated.diff.png"  exists: f
 # A snapshot nobody has recorded yet says how to record one.
 edit {
   file: "lib/control/test/invalid.buri"
-  replace: "\"invalid-stated\""
+  replace: "\"invalid-resting\""
   with: "\"never-recorded\""
 }
 
@@ -60,11 +60,12 @@ run {
   golden: "again.txt"
 }
 
-# One number in the failing palette, and only the failing picture moves.
+# One number in the failing palette — the ring's spread — and only the failing
+# picture moves.
 edit {
   file: "lib/control/scenes.buri"
-  replace: ".Background(.Rgb(254, 226, 226))]);"
-  with: ".Background(.Rgb(254, 226, 186))]);"
+  replace: "spread: .Px(3),"
+  with: "spread: .Px(6),"
 }
 
 run {
@@ -74,5 +75,4 @@ run {
 }
 
 path { path: "lib/control/test/__snapshots__/invalid-stated.diff.png"  exists: true }
-path { path: "lib/control/test/__snapshots__/invalid-resting.diff.png"  exists: false }
 path { path: "lib/control/test/__snapshots__/invalid-hovered.diff.png"  exists: false }

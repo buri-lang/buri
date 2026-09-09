@@ -68,7 +68,7 @@ run {
 edit {
   file: "lib/scenes/scenes.buri"
   replace: "band(\"Radius(.Px(20)) and Clip(true)\", holder([.Radius(.Px(20)), .Clip(true)])),"
-  with: "band(\"Radius(.Px(20)) and Clip(true)\", holder([.Radius(.Px(28)), .Clip(true)])),"
+  with: "band(\"Radius(.Px(20)) and Clip(true)\", holder([.Radius(.Px(6)), .Clip(true)])),"
 }
 
 run {
@@ -78,4 +78,5 @@ run {
 }
 
 path { path: "lib/scenes/test/__snapshots__/clip-corners.diff.png"  exists: true }
-path { path: "lib/scenes/test/__snapshots__/clip-overflow.diff.png"  exists: false }
+# Still being compared under its own name, and still matching.
+path { path: "lib/scenes/test/__snapshots__/clip-primitives.diff.png"  exists: false }
