@@ -43,11 +43,3 @@ error: expected `[_3]`, found a variant `.None` [type-mismatch]
    = expected: `[_3]`
    = actual: a variant `.None`
    = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_3]`
-error: this arm is unreachable [unreachable-arm]
-  --> main.buri:77:9
-   |
-77 |         .None => .None,
-   |         ^^^^^^^^^^^^^^
-   |
-   = the arms before it already cover everything it matches
-   = fix: delete it, or move it above the arm that subsumes it

@@ -21,6 +21,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         let kind = match t.pat(p) {
             P::Wild { .. } => typed::PatKind::Wild,
 
+            // A region that did not parse. `Ty::Error` unifies with anything
+            // and `PatKind::Error` covers anything, so the mistake stays the
+            // syntax error it was.
+            P::Error { .. } => typed::PatKind::Error,
+
             P::Bind { name, name_span, sub, .. } => {
                 // Each name a pattern binds is bound once. `(a, a)` is a
                 // mistake, not a shorthand for "equal".

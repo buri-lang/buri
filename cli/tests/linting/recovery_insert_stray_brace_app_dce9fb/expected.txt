@@ -31,11 +31,3 @@ error: there is nothing named `written` in scope [unresolved-name]
    |
    = did you mean `write`?
    = fix: if you meant `write`, use that; if not, a name is in scope only from this module's own declarations and its imports
-error: this arm is unreachable [unreachable-arm]
-  --> lib/recovery_insert_stray_brace_app_dce9fb/main.buri:41:9
-   |
-41 |         .Err(_error) => 0,
-   |         ^^^^^^^^^^^^^^^^^
-   |
-   = the arms before it already cover everything it matches
-   = fix: delete it, or move it above the arm that subsumes it

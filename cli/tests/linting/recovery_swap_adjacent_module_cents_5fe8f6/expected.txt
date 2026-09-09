@@ -22,13 +22,4 @@ error: expected an identifier, found `export` [unexpected-token]
    |
    = expected: an identifier
    = actual: `export`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: expected a declaration, found `describe` [unexpected-token]
-  --> lib/recovery_swap_adjacent_module_cents_5fe8f6/lib.buri:19:11
-   |
-19 | fn export describe(n: I64): I64 {
-   |           ^^^^^^^^
-   |
-   = expected: a declaration
-   = actual: `describe`
-   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+   = fix: write `export` before `fn`

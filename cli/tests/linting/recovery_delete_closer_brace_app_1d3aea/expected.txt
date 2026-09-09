@@ -1,11 +1,3 @@
-error: an expression statement is legal only in a test source [expression-statement]
-  --> lib/recovery_delete_closer_brace_app_1d3aea/main.buri:25:5
-   |
-25 |     match (write(ctx, line)) {
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = a block is `let`s followed by a result expression
-   = fix: bind it: `let _ = ...;`, or make it the block's result expression
 error: a `match` used as a statement ends with `;` [missing-terminator]
   --> lib/recovery_delete_closer_brace_app_1d3aea/main.buri:29:2
    |

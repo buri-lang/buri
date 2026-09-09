@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:52:43
+   |
+52 |         .Some(i) => out.slice(ctx, i, i + , count),
+   |                                           ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

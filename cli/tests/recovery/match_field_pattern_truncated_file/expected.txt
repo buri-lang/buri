@@ -1,10 +1,10 @@
-error [missing-arrow] 10:26-10:26
+error [missing-arrow] 9:26-9:26
 message: a match arm is `pattern => expression`
 fix: write `=>` here
-edit: 10:26-10:26 " =>"
+edit: 9:26-9:26 " =>"
 
-error [unclosed-delimiter] 11:1-11:1
+error [unclosed-delimiter] 10:1-10:1
 message: this variant field pattern is missing its closing `}`
 fix: write `}` here
-related: 10:11-10:12 opened here
+related: 9:11-9:12 opened here
 

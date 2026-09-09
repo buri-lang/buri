@@ -353,22 +353,40 @@ fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
         // Lowered when `if-without-else` stopped being reported behind a branch
         // whose own `}` was already reported missing (issue 111). Every case
-        // that row lost was a deleted closer inside an `if`, said twice. 67 of
-        // 1704 is 3.9%, read off a `BURI_RECOVERY_CAP=0` run, and four is that
-        // rounded up.
+        // that row lost was a deleted closer inside an `if`, said twice.
+        //
+        // Read again over the three recovery fixes beside it (issues 110, 117
+        // and 118). A stray token inside a statement that still ends with its
+        // `;` no longer reads as the block's `}` going missing, a `(` that
+        // never closed leaves an error node rather than a one-element tuple,
+        // and `self:` is the old form only where the parameter list goes on or
+        // ends after it — so a deleted closer that used to draw a second and a
+        // third diagnostic now draws one. The two changes together leave 56 of
+        // 1704, or 3.3%, read off a `BURI_RECOVERY_CAP=0` run, and four is
+        // that rounded up.
         ("one mistake is one diagnostic", "delete-closer") => 4,
-        ("one mistake is one diagnostic", "insert-stray") => 2,
+        // The same three, at the stray-token row: 14 of 2184 is 0.7%. And read
+        // once more over the exchanged-pair fixes merged beside them (issues
+        // 113, 114 and 115), which take the row to 8 of 2184, or 0.4%.
+        ("one mistake is one diagnostic", "insert-stray") => 1,
         // `swap-adjacent` was one and is now nothing, so it is not a row here
         // at all. Two adjacent tokens exchanged used to leave the parser
-        // reading the second of them as the start of something, and the four
-        // cases over the bound were the ones where that reading ran on. The
+        // reading the second of them as the start of something, and the cases
+        // over the bound were the ones where that reading ran on. The
         // exchanges the grammar can name — a name in front of its `let`, a
         // type inside its own brace, a keyword one token late — are now
         // reported once and read as what they say, so 0 of 2109 violate.
 
         ("the caret is on the mistake", "delete-closer") => 30,
         ("the caret is on the mistake", "delete-separator ()") => 5,
-        ("the caret is on the mistake", "delete-separator {}") => 8,
+        // Read again when the arm the parser could not read stopped being
+        // dropped (issue 110). A deleted `,` between match arms used to be
+        // swallowed by the arm before it — `=> 1` followed by `.Err(e) =>`
+        // read as a field of `1` — and the caret then landed on whatever the
+        // swallowed text ran into. `arm_pattern_follows` stops the chain where
+        // the comma belongs, so the caret is on the comma: 3 of 716, or 0.5%,
+        // and one is that rounded up.
+        ("the caret is on the mistake", "delete-separator {}") => 1,
         // Both lowered with the same change (issue 111): a token wedged between
         // a branch's `}` and its `else` now carries the caret, where the caret
         // used to land on the branch — three lines above the mistake. 5 of 2184
@@ -376,9 +394,16 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("the caret is on the mistake", "insert-stray") => 1,
         ("the caret is on the mistake", "swap-adjacent") => 2,
 
-        ("the fix names the missing token", "delete-closer") => 19,
+        // Read again over the same three (issues 110, 117 and 118): a signature
+        // whose `)` is missing is one `unclosed-delimiter` whose fix is
+        // `write \`)\` here`, where it used to be a `self-with-a-type` carrying
+        // an edit that deleted the return type. 298 of 1704 is 17.5%, and
+        // eighteen is that rounded up.
+        ("the fix names the missing token", "delete-closer") => 18,
         ("the fix names the missing token", "delete-separator ()") => 5,
-        ("the fix names the missing token", "delete-separator {}") => 7,
+        // The same three cases, at this invariant: see the note on
+        // `the caret is on the mistake` above. 3 of 716 is 0.5%.
+        ("the fix names the missing token", "delete-separator {}") => 1,
         // The list row, and its one case is a *list pattern*: `[a, b, c, ..]`
         // in `lib/semantics/shapes.buri` with the comma before the rest pattern
         // deleted. What is left binds three names and no rest, so the arm stops
@@ -444,19 +469,32 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // typechecked (issue 112). What that row was mostly counting is a
         // deleted brace that left an inner block holding the rest of the file:
         // the checker read the statements it swallowed and had an opinion about
-        // every one of them. 243 of 1704 is 14.3%, read off a
-        // `BURI_RECOVERY_CAP=0` run, and fifteen is that rounded up.
-        ("a syntax error stays a syntax error", "delete-closer") => 15,
-        // Lowered from three: 11 of 574 is 1.9%, and two is that rounded up.
-        // The same parser change the two rows below record — a `let` whose
-        // value did not read keeps its binding, so the names it declares no
-        // longer come back as errors of their own.
+        // every one of them.
+        //
+        // Read again beside it (issues 110 and 118): a `(` that never closed is
+        // an error node rather than a tuple of one, so neither its arity nor
+        // the type of its one element is reported; and a `match` that did not
+        // parse whole keeps the arm it could not read, so the exhaustiveness
+        // report is not drawn from the arms that happened to parse. The two
+        // changes together leave 220 of 1704, or 12.9%, read off a
+        // `BURI_RECOVERY_CAP=0` run, and thirteen is that rounded up. With the
+        // names a broken declaration keeps merged in beside them (issues 113,
+        // 114 and 115) it is 217 of the same 1704, or 12.7%.
+        ("a syntax error stays a syntax error", "delete-closer") => 13,
+        // Lowered from three: 11 of 574 is 1.9%, and two is that rounded up. The same parser change the two rows below record
+        // — a `let` whose value did not read keeps its binding, so the names it
+        // declares no longer come back as errors of their own.
         ("a syntax error stays a syntax error", "delete-separator ()") => 2,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,
-        // The arm before the comma swallows the next arm's pattern, so `2` gets
-        // a field: the same residue this invariant's sibling caps at 7.
-        ("a syntax error stays a syntax error", "delete-separator {}") => 7,
+        // The arm before the comma used to swallow the next arm's pattern, so
+        // `2` got a field and the checker was asked what field of `Int` that
+        // is. It does not any more — `arm_pattern_follows` reads the `.Name`
+        // and its arrow as the arm they open — and a `match` the parser could
+        // not read whole keeps the arm it could not read rather than losing
+        // it, so the exhaustiveness report is not drawn from the arms that
+        // happened to parse. 5 of 716 is 0.7%, and one is that rounded up.
+        ("a syntax error stays a syntax error", "delete-separator {}") => 1,
         // Re-read a fourth time when the F5 standard-library wave landed —
         // `crypto/entropy.buri`, `random/gen.buri`, `text/hex.buri`,
         // `calendar/duration.buri`, `checksum/checksum.buri`,
@@ -527,16 +565,20 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // is 23.1%, and twenty-four is that rounded up. Checked against the
         // source it added: with `routing.buri` taken out of the corpus the row
         // is back under twenty-three, so the file is the whole of the move.
-        // **Lowered, where all fifteen re-reads above raised it, and for the
-        // opposite reason: this one is a parser change rather than a corpus
-        // one.** A stray token in front of a name or a pattern is stepped over
-        // now, a broken binding still declares the name it can see, and a
-        // declaration is no longer abandoned at the first mistake in its head
-        // or its body (#113, #114, #115). The cascade this row measures is a
-        // name the source did declare being reported as a name nobody
-        // declared, and that is what those three take away: 337 of the same
-        // 2184 is 15.4%, and sixteen is that rounded up.
-        ("a syntax error stays a syntax error", "insert-stray") => 16,
+        // Read again over the recovery fixes of issues 110, 117 and 118, for
+        // the reason the `delete-closer` paragraph above gives: 479 of 2184 is
+        // 21.9%, and twenty-two is that rounded up.
+        //
+        // **And lowered again, where all fifteen re-reads above raised it, and
+        // for the opposite reason: this one is a parser change rather than a
+        // corpus one.** A stray token in front of a name or a pattern is
+        // stepped over now, a broken binding still declares the name it can
+        // see, and a declaration is no longer abandoned at the first mistake in
+        // its head or its body (issues 113, 114 and 115). The cascade this row
+        // measures is a name the source did declare being reported as a name
+        // nobody declared, and that is what those three take away: 318 of the
+        // same 2184 is 14.6%, and fifteen is that rounded up.
+        ("a syntax error stays a syntax error", "insert-stray") => 15,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
@@ -569,12 +611,14 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // `cli/src/parsing/`); the population grew by a hundred and twenty cases
         // dense in adjacent calls and literals. 567 of 2091 is 27.1%, and
         // twenty-eight is that rounded up.
-        // Lowered from twenty-eight by the same three changes the row above
-        // records, and by the exchanges they teach the parser to read: a name
-        // in front of its `let`, a type inside its own brace, a declaration's
-        // keyword one token late. Each of those used to lose everything the
-        // declaration bound. 358 of 2109 is 17.0%, and seventeen is that
-        // rounded up.
+        // Read again over the recovery fixes of issues 110, 117 and 118, same
+        // reason: 560 of 2109 is 26.6%, and twenty-seven is that rounded up.
+        //
+        // Lowered again by the three merged beside them, and by the exchanges
+        // they teach the parser to read: a name in front of its `let`, a type
+        // inside its own brace, a declaration's keyword one token late. Each of
+        // those used to lose everything the declaration bound. 339 of 2109 is
+        // 16.1%, and seventeen is that rounded up.
         ("a syntax error stays a syntax error", "swap-adjacent") => 17,
 
         // Every row not named above, and every row of an invariant R2 owns.
