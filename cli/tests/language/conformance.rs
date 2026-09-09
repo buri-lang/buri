@@ -2029,7 +2029,10 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     let (code, stdout, stderr) = drive("/", "/");
     assert_eq!(code, 0, "the website did not answer:\n{stdout}{stderr}");
 
-    let sent = "<main><h1>Buri</h1>visitors: 3\
+    let sent = "<main><h1>Buri</h1>\
+                <svg viewBox=\"0 0 24 24\" aria-hidden=\"true\">\
+                <path d=\"M20 6 9 17l-5-5\"></path></svg>\
+                visitors: 3\
                 <button type=\"button\">say thanks</button>\
                 <button type=\"button\">about</button>\
                 <article>home</article></main>\
