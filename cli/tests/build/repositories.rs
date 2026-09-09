@@ -294,9 +294,18 @@ fn serving_a_page() {
 /// `ui/testing` facility the native backend has no body for. Both bugs it pins
 /// reported as an abort with no message, which is a shape no lower tier can
 /// see — the binary linked, the front end was happy, and the process died.
+///
+/// The `sweep_states_*` cases are the states sweep: every `State` against every
+/// interactive primitive, six pictures to a case — the resting one and one per
+/// state — each a labelled grid of `Background`, `Foreground`, `Border`,
+/// `Opacity` and `Shadow`, then all five at once, then a control that answers to
+/// nothing. Beside every picture is a `describe` assertion naming the classes
+/// that state applied, and every case's last step moves one number in the hover
+/// palette so exactly one of its six goldens fails. That is the tier-2 record
+/// that a state golden is not a copy of the resting one.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 9);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 15);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

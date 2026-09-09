@@ -1,0 +1,5 @@
+FAIL //lib/link  test/states.buri  "hovered"
+  the snapshot "link-hover" changed: see test/__snapshots__/link-hover.diff.png
+  --> lib/link/test/states.buri:30:1
+
+5 passed, 1 failed, 0 skipped (0.0s)
