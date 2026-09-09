@@ -71,6 +71,25 @@ done
 #                                 tree-sitter's keyword extraction reads it as
 #                                 an identifier, which is what makes error
 #                                 recovery work at all.
+#   declaration_without_a_body    `fn total(a: Int): Int;` is the shape of a
+#                                 trait method's signature, and the grammar
+#                                 has one production for both; the compiler
+#                                 refuses the body-less form at the top level.
+#   float_as_a_tuple_index        `.0.1` is one float token to the lexer;
+#                                 tree-sitter lexes by context and reads two
+#                                 tuple indices.
+#   integer_too_wide,
+#   not_a_tuple_index             a bound on a literal's value (128 bits, a
+#                                 tuple's arity); a grammar has no arithmetic.
+#   module_doc_not_first          `//!` must come first; a comment is an extra
+#                                 to the grammar, so its position is nothing
+#                                 the grammar can see.
+#   not_a_scalar_value,
+#   unbraced_unicode_escape,
+#   unknown_escape,
+#   unterminated_unicode_escape   what an escape inside a string means is the
+#                                 lexer's; the grammar's string token is any
+#                                 run between the quotes.
 #
 # This is an authored list with a reason for each line, not a record of what
 # happened last time it ran. It may only shrink: a file on it that has started
@@ -80,7 +99,16 @@ DIVERGENCES="\
 cli/tests/reject/chained_comparison/main.buri
 cli/tests/reject/reserved_word_return_as_function/main.buri
 cli/tests/reject/reserved_word_test_as_function/main.buri
-cli/tests/reject/reserved_word_while_as_binding/main.buri"
+cli/tests/reject/reserved_word_while_as_binding/main.buri
+cli/tests/reject/declaration_without_a_body/main.buri
+cli/tests/reject/float_as_a_tuple_index/main.buri
+cli/tests/reject/integer_too_wide/main.buri
+cli/tests/reject/module_doc_not_first/main.buri
+cli/tests/reject/not_a_scalar_value/main.buri
+cli/tests/reject/not_a_tuple_index/main.buri
+cli/tests/reject/unbraced_unicode_escape/main.buri
+cli/tests/reject/unknown_escape/main.buri
+cli/tests/reject/unterminated_unicode_escape/main.buri"
 
 # The corpus: every file in the repository whose text is Buri rather than
 # textproto.
