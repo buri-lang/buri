@@ -4138,6 +4138,25 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_is_clipped_to_the_corner_its_radius_names() {
+        // buri#123. A `Radius` on a picture rounds the picture, the way a
+        // browser clips an `<img>`'s content to its own `border-radius` — the
+        // whole of what makes an avatar round. One corner is enough: the other
+        // three stay square.
+        let scene = "buri-scene 1\nviewport 8 8\n\
+                     e 0 width:8px;height:8px;\
+                     border-start-start-radius:8px;image:/a.png\n";
+        let picture = render_ok(scene, "", "rest");
+        // The named corner is the page behind it; the opposite one is the
+        // placeholder.
+        assert_eq!(at(&picture, 0, 0), [255, 255, 255, 255]);
+        assert_eq!(at(&picture, 7, 7), [153, 153, 153, 255]);
+        // And with no radius at all every corner is the placeholder.
+        let square = "buri-scene 1\nviewport 8 8\ne 0 width:8px;height:8px;image:/a.png\n";
+        assert_eq!(at(&render_ok(square, "", "rest"), 0, 0), [153, 153, 153, 255]);
+    }
+
+    #[test]
     fn a_checked_rule_follows_the_box_that_answers_for_itself() {
         // buri#119. Two boxes, one on and one off, and a page can hold both:
         // the answer is the box's own rather than the request's, so a request
