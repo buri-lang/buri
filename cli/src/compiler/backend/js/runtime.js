@@ -4019,9 +4019,9 @@ function $tree_declare(style, out) {
     out.set("cursor", $TREE_CURSORS[value]);
   } else if (tag === 53) {
     out.set("list-style-type", $TREE_LIST_MARKERS[value]);
-  } else if (tag === 52) {
+  } else if (tag === 54) {
     out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
-  } else if (tag === 53) {
+  } else if (tag === 55) {
     // `clip` rather than `hidden`: both stop the paint, and only `hidden` also
     // makes a scroll container a keyboard can land in.
     out.set("overflow", value ? "clip" : "visible");

@@ -1,0 +1,11 @@
+error: `Bool` has no variant `Px` [no-such-variant]
+  --> cmd/ui_style_clip_takes_a_bool/main.buri:14:33
+   |
+14 |   ui.mount(ctx, ui.stack([.Clip(.Px(12))], []), [])
+   |                                 ^^^
+   |
+   = fix: name a variant the enum declares
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+

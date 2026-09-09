@@ -688,10 +688,21 @@ parent's padding: the full-width rule inside a padded menu, and the avatar that
 laps the one before it. It is a distance outwards, so `.Auto` and a negative
 length bleed nothing.
 
+`Clip(Bool)` is what stops the child there being painted outside its parent's
+box at all, corners included, and it makes no scroll container doing it —
+`Scroll(Axis)` is the one that says the overflow can be scrolled to.
+`Passthrough(Bool)` gives the pointer to whatever is behind an element instead:
+a pinned toaster dock asks for it so the page under it still answers a press,
+and each toast in the dock takes the pointer back.
+
 `heading`, `button`, `link`, `field` and `toggle` take a `[Style]` like every
 container does, and it lands on the element itself — so a hover, focus or
 disabled rule fires on the thing that is hovered, focused or disabled, and a
-heading is the size its styles say rather than the size a browser picked. The
+heading is the size its styles say rather than the size a browser picked.
+`field` and `toggle` take one more parameter, `invalid: Prop<Bool>`, for the
+reason they take a label: a control failing validation has to be *announced*.
+It writes `aria-invalid` and it is the only way into `State::Invalid`, so
+`On(.Invalid, ...)` paints the ring on the same fact a reader is told. The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.

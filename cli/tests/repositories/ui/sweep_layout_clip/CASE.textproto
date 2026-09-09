@@ -8,14 +8,17 @@
 # `clip-overflow` is the one to read first. `Clip(true)` and `Scroll(.Both)`
 # paint the same picture, and that is the finding rather than a redundancy:
 # what the new property buys is not a different picture, it is not becoming a
-# scroll container a keyboard can land in. `Scroll(.X)` beside them is the axis
-# the vocabulary already had.
+# scroll container a keyboard can land in. Its last two rows are the green
+# child that is too *tall*, which is the other axis under the one property.
 #
 # `clip-against-scroll` is the conflict slot. `Clip` and `Scroll` are two
 # properties over one CSS declaration, so both classes land on the element and
-# the sheet's order decides; `Clip` is declared later, so every row of that
-# picture is clipped whichever order the program wrote them in. The last two
-# rows are the same property twice, where last wins on the element instead.
+# the sheet's order decides; `Clip` is declared later, so `Clip` is the answer
+# whichever order the program wrote them in. Its first two rows are
+# `Clip(false)` — the value that says *visible* — beside a `Scroll` that asked
+# to clip, and they paint the overflow, which is the finding: a scroll under a
+# clip is not a clip. The last two rows are the same property twice, where last
+# wins on the element instead.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
