@@ -21,7 +21,7 @@ error: `Str` has no method `mapErr` [no-such-method]
 19 |     io.println(ctx, banner().mapErr(fn(_e) => "could not write to standard output")
    |                              ^^^^^^
    |
-   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_app_5ff5f7/main.buri:20:1
    |

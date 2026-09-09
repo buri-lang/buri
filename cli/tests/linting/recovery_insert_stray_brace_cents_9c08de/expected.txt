@@ -14,7 +14,7 @@ error: there is no type `Ledger` [unresolved-type]
    |                                 ^^^^^^
    |
    = did you mean `Order`?
-   = fix: declare it, import it, or correct the spelling
+   = fix: if you meant `Order`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: this is not a struct or an enum variant [not-a-struct-literal-head]
   --> lib/recovery_insert_stray_brace_cents_9c08de/lib.buri:17:5
    |
