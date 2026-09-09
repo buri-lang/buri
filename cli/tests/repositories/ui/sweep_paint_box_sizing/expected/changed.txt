@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "a width is the whole box, so a padded, bordered child stays inside it"
+  the snapshot "box-sizing-width" changed: see test/__snapshots__/box-sizing-width.diff.png
+  --> lib/sweep/test/pictures.buri:17:1
+
+0 passed, 1 failed, 1 skipped (0.0s)
