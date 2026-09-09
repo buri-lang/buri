@@ -1,0 +1,3 @@
+// EXPECT: expected an expression, found end of file
+export fn twice(parsed: Result<Int, Str>): Result<Int, Str> {
+  let value =

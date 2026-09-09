@@ -1,0 +1,9 @@
+// EXPECT: expected an identifier, found `match`
+export struct match {
+  export x: Int,
+  export y: Int,
+}
+
+export fn flatten(point: match): match {
+  match { ..point, x: 0 }
+}

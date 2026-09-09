@@ -1,0 +1,4 @@
+error [unannotated-variant] 3:3-3:9
+message: `.pair0` needs a known expected type
+fix: write the qualified form, as in `Option.pair0(...)`, or annotate what this value is being used as
+

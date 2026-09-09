@@ -1,0 +1,12 @@
+error [type-mismatch] 2:61-5:2
+message: expected `Result<I64, Str>`, found `()`
+
+error [no-such-method] 4:4-4:6
+message: `I64` has no method `Ok`
+fix: check the spelling — `buri docs core/number` lists every method `I64` has
+
+error [missing-terminator] 4:17-4:17
+message: a statement ends with `;`
+fix: write `;` here
+edit: 4:17-4:17 ";"
+

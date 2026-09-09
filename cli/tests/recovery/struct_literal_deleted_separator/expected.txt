@@ -1,0 +1,5 @@
+error [missing-separator] 8:15-8:15
+message: a struct-literal field ends with `,`
+fix: write `,` here
+edit: 8:15-8:15 ","
+

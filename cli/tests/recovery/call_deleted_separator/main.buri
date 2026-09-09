@@ -1,0 +1,8 @@
+// EXPECT: a call argument ends with `,`
+fn add(left: Int, right: Int): Int {
+  left + right
+}
+
+export fn four(): Int {
+  add(2 2)
+}

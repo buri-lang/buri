@@ -1,0 +1,9 @@
+error [missing-field-value] 8:3-8:15
+message: `Point` is missing `y`
+fix: give `y` a value — only an `Option` field may be left out — or start from an existing one with `Point { ..base, field: value }`
+
+error [unclosed-delimiter] 9:1-9:1
+message: this struct literal is missing its closing `}`
+fix: write `}` here
+related: 8:9-8:10 opened here
+

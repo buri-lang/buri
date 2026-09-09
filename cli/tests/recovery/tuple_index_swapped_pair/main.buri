@@ -1,0 +1,4 @@
+// EXPECT: `.pair0` needs a known expected type
+export fn sum(pair: (Int, Int)): Int {
+  .pair0 + pair.1
+}

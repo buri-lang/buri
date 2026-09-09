@@ -1,0 +1,4 @@
+// EXPECT: this function body is missing its closing `}`
+export fn head(xs: [Int]): Option<Int> {
+  xs @[0]
+}

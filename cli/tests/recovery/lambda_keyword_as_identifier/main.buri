@@ -1,0 +1,5 @@
+// EXPECT: expected a pattern, found `match`
+export fn twice(n: Int): Int {
+  let match = fn(n: Int): Int => n * 2;
+  match(n)
+}

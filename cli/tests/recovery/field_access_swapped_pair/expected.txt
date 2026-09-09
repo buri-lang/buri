@@ -1,0 +1,4 @@
+error [unannotated-variant] 8:3-8:10
+message: `.pointx` needs a known expected type
+fix: write the qualified form, as in `Option.pointx(...)`, or annotate what this value is being used as
+

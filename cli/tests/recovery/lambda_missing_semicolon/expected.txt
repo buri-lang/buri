@@ -1,0 +1,5 @@
+error [missing-terminator] 3:40-3:40
+message: a statement ends with `;`
+fix: write `;` here
+edit: 3:40-3:40 ";"
+

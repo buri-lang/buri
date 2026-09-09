@@ -1,0 +1,3 @@
+// EXPECT: `Ok` holds 1 values, but 0 were given
+export fn wrap(n: Int): Result<Int, Str> {
+  .Ok

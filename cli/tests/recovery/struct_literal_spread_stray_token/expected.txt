@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 8:9-8:10
+message: this function body is missing its closing `}`
+fix: write `}` here
+related: 7:40-7:41 opened here
+

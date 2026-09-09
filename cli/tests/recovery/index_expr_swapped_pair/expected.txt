@@ -1,0 +1,8 @@
+error [type-mismatch] 2:40-4:2
+message: expected `Option<I64>`, found `[_0]`
+
+error [unresolved-name] 3:4-3:7
+message: there is nothing named `xs0` in scope
+fix: if you meant `xs`, use that; if not, a name is in scope only from this module's own declarations and its imports
+note: did you mean `xs`?
+

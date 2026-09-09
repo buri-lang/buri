@@ -1,0 +1,4 @@
+// EXPECT: expected an expression, found `,`
+export fn digits(): [Int] {
+  1[, 2, 3]
+}
