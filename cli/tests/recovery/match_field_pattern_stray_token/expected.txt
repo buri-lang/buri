@@ -1,8 +1,3 @@
-error [match-not-exhaustive] 9:3-12:4
-message: this `match` does not cover `.Rect { width: _, height: _ }`
-fix: add an arm for `.Rect { width: _, height: _ }`, or a `_` arm for everything left
-note: every `match` must cover its scrutinee's type
-
 error [unexpected-token] 10:7-10:8
 message: expected an identifier, found `@`
 fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

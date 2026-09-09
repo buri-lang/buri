@@ -1034,12 +1034,33 @@ impl<'a> Parser<'a> {
             &found,
             "name it: a lowerCamelCase binding, or an UpperCamelCase type",
         );
+        // A stray token in front of the name is stepped over, so what the
+        // declaration declares is still read. One error names the mistake, and
+        // the name it hid stays in scope for the rest of the file.
+        if self.stray_token() && self.kind_at(self.pos.saturating_add(1)) == TokenKind::Ident {
+            self.bump();
+            return Ok(self.bump());
+        }
         Err(Bail)
     }
 
     /// The same, as the [`Name`] a declaration holds.
     fn expect_ident(&mut self) -> PResult<Name> {
         Ok(Name::new(self.expect_name()?))
+    }
+
+    /// Whether the token under the cursor is one written in front of what the
+    /// production wants, rather than part of what it is reading.
+    ///
+    /// Two tokens, and neither means anything where a name or a pattern goes:
+    /// `@` and `?` are operators of other constructs.
+    ///
+    /// Everything else is left alone. A `:`, a `,` or a delimiter is part of
+    /// the shape the construct is read against, and a keyword that opens one is
+    /// the construct *ending* — stepping over either turns a mistake about the
+    /// shape into a mistake about the token behind it.
+    fn stray_token(&self) -> bool {
+        matches!(self.peek(), TokenKind::At | TokenKind::Question)
     }
 
     /// The token [`Parser::early`] holds, if it is the kind this production
@@ -2179,7 +2200,15 @@ impl<'a> Parser<'a> {
             let save = self.save();
             if self.is_keyword(Keyword::Let) || self.exchanged_binding() {
                 match self.let_stmt() {
-                    Ok(s) => self.scratch.stmts.push(s),
+                    Ok(s) => {
+                        // A `let` that recovered stands for a value nobody
+                        // wrote, so the block has nothing to return and its
+                        // result is that error rather than `()`.
+                        if self.tree.kind(ExprId(s.value)) == Kind::Error {
+                            broken = s.value;
+                        }
+                        self.scratch.stmts.push(s);
+                    }
                     Err(Bail) => {
                         let depth = self.open_delimiters_since(save.pos);
                         let from = self.tokens.span(self.at(save.pos));
@@ -2290,6 +2319,24 @@ impl<'a> Parser<'a> {
         let early = self.early_span();
         let keyword = self.expect_keyword(Keyword::Let)?;
         let start = early.unwrap_or(keyword);
+        // `let @ x = 1;` — a stray token in front of the binding, stepped over
+        // for the reason one in front of a name is: the binding is still
+        // declared, so one mistake stays one mistake. Only here, where what
+        // follows the pattern is the `:` or `=` of a binding — a match arm's
+        // pattern is followed by another pattern, and a token in front of one
+        // there is as likely to be the arm before it running on.
+        let next = self.kind_at(self.pos.saturating_add(1));
+        if self.stray_token() && (starts_pattern(next) || next == TokenKind::KeywordCtx) {
+            let found = self.found();
+            let span = self.span();
+            self.expected(
+                span,
+                "a pattern",
+                &found,
+                "write a pattern: a binding, a literal, `.Variant`, or `_`",
+            );
+            self.bump();
+        }
         // After `let`, one token of lookahead decides which form this is: the
         // `ctx` keyword takes no pattern and no annotation, because a context's
         // type is generated and never written.
@@ -2299,23 +2346,13 @@ impl<'a> Parser<'a> {
                 Some(span) => span,
                 None => self.bump(),
             };
-            self.expect(Punctuation::Eq)?;
-            let value = self.expr()?;
-            let end = self.expect_terminator("a statement")?;
             // The binding is spelled `ctx` at the keyword's own span, so the
             // source under the span *is* the name — as it is for every other
             // name in the flat tree.
             let at = self.tree.next_pat();
             let payload = [name_span.start, name_span.end, NONE, 0];
             let pattern = self.tree.ppush(PatternKind::Bind, payload, name_span, at);
-            return Ok(StmtData {
-                kind: StmtKind::Let,
-                is_ctx: true,
-                pattern: pattern.0,
-                ty: NONE,
-                value: value.0,
-                span: Location::of(start.to(end)),
-            });
+            return Ok(self.let_value(start, pattern.0, NONE, true));
         }
         let pattern = self.pattern()?;
         let ty = if self.eat(Punctuation::Colon) {
@@ -2323,17 +2360,46 @@ impl<'a> Parser<'a> {
         } else {
             NONE
         };
+        Ok(self.let_value(start, pattern.0, ty, false))
+    }
+
+    /// `= value;`, and what the statement is when that does not read.
+    ///
+    /// The pattern is behind us, so the names this statement binds are already
+    /// known. A mistake in the value is reported where it is and the statement
+    /// is kept, with the error node for its value — the checker gives that
+    /// `Ty::Error`, which unifies with everything, so the binding is in scope
+    /// and nothing downstream reports a name the source did bind. A `let`
+    /// thrown away whole took its names with it, and every later use of one
+    /// became a second error about the same mistake.
+    fn let_value(&mut self, start: Span, pattern: u32, ty: u32, is_ctx: bool) -> StmtData {
+        let save = self.save();
+        let (value, end) = match self.assigned_value() {
+            Ok((value, end)) => (value.0, end),
+            Err(Bail) => {
+                let from = self.tokens.span(self.at(save.pos));
+                let depth = self.open_delimiters_since(save.pos);
+                self.restore(save);
+                self.sync_stmt(depth);
+                let end = self.prev_span();
+                (self.error_expr(from.to(end)).0, end)
+            }
+        };
+        StmtData {
+            kind: StmtKind::Let,
+            is_ctx,
+            pattern,
+            ty,
+            value,
+            span: Location::of(start.to(end)),
+        }
+    }
+
+    fn assigned_value(&mut self) -> PResult<(ExprId, Span)> {
         self.expect(Punctuation::Eq)?;
         let value = self.expr()?;
         let end = self.expect_terminator("a statement")?;
-        Ok(StmtData {
-            kind: StmtKind::Let,
-            is_ctx: false,
-            pattern: pattern.0,
-            ty,
-            value: value.0,
-            span: Location::of(start.to(end)),
-        })
+        Ok((value, end))
     }
 
     // -- expressions --------------------------------------------------------

@@ -1,0 +1,9 @@
+error: expected an identifier, found `1` [unexpected-token]
+  --> main.buri:35:38
+   |
+35 |     let text = ast.print(ctxperson ,.1).text.lines(ctx);
+   |                                      ^
+   |
+   = expected: an identifier
+   = actual: `1`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
