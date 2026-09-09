@@ -19,10 +19,27 @@ fn picture<C>(styles: [Style]): Node<C> {
 }
 
 /// One cell: its name over the picture it names.
+///
+/// The picture takes the room the cell has left, which is what a picture with
+/// nothing said to it does — the painter draws the placeholder at whatever box
+/// the layout gave it.
 fn cell<C>(name: Str, styles: [Style]): Node<C> {
     ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
         ui.text(.Const(name)),
         picture(styles),
+    ])
+}
+
+/// The same, with the picture in a row that starts its children rather than
+/// stretching them — so nothing but its own styles decides how tall it is.
+///
+/// That is what an `AspectRatio` needs to be readable: a picture told to fill
+/// the room it is in has a height already, and a ratio on top of one says
+/// nothing.
+fn tight<C>(name: Str, styles: [Style]): Node<C> {
+    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
+        ui.text(.Const(name)),
+        ui.row([.AlignCross(.Start)], [picture(styles)]),
     ])
 }
 
@@ -93,11 +110,11 @@ export fn sizePage<C>(): Node<C> {
             cell("last wins", [.Width(.Px(24)), .Width(.Px(64))]),
         ]),
         band("AspectRatio", [
-            cell("1.0", [.Width(.Px(56)), .AspectRatio(1.0)]),
-            cell("1.5", [.Width(.Px(72)), .AspectRatio(1.5)]),
-            cell("0.5", [.Width(.Px(36)), .AspectRatio(0.5)]),
-            cell("2.0 by height", [.Height(.Px(36)), .AspectRatio(2.0)]),
-            cell("with both", [.Width(.Px(64)), .Height(.Px(24)), .AspectRatio(1.0)]),
+            tight("1.0", [.Width(.Px(56)), .AspectRatio(1.0)]),
+            tight("1.5", [.Width(.Px(72)), .AspectRatio(1.5)]),
+            tight("0.5", [.Width(.Px(36)), .AspectRatio(0.5)]),
+            tight("2.0 by height", [.Height(.Px(36)), .AspectRatio(2.0)]),
+            tight("with both", [.Width(.Px(64)), .Height(.Px(24)), .AspectRatio(1.0)]),
         ]),
         band("bounds", [
             cell("MinWidth 60", [.MinWidth(.Px(60))]),
@@ -115,7 +132,7 @@ export fn chromePage<C>(): Node<C> {
     page([
         title("image, shaped"),
         band("Radius", [
-            cell("Px(0)", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Px(0))]),
+            tight("Px(0)", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Px(0))]),
             cell("Px(8)", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Px(8))]),
             cell("Px(28)", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Px(28))]),
             cell("Full", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Full)]),
@@ -184,10 +201,14 @@ export fn avatarPage<C>(): Node<C> {
     page([
         title("the avatar, and the picture that could not be one"),
         band("the picture alone", [
-            cell("round", [.Width(.Px(56)), .AspectRatio(1.0), .Radius(.Full)]),
-            cell("cropped wide", [.Width(.Px(72)), .AspectRatio(2.0), .Radius(.Px(8))]),
-            cell("softened", [.Width(.Px(56)), .AspectRatio(1.0), .Radius(.Px(10))]),
-            cell("ringed", [
+            tight("round", [.Width(.Px(56)), .AspectRatio(1.0), .Radius(.Full)]),
+            tight("cropped wide", [
+                .Width(.Px(72)),
+                .AspectRatio(2.0),
+                .Radius(.Px(8)),
+            ]),
+            tight("softened", [.Width(.Px(56)), .AspectRatio(1.0), .Radius(.Px(10))]),
+            tight("ringed", [
                 .Width(.Px(56)),
                 .AspectRatio(1.0),
                 .Radius(.Full),
