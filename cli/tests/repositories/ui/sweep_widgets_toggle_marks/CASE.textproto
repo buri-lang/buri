@@ -16,13 +16,11 @@
 # the scene document, and a stroke and a disc in the painter — so a program can
 # neither ask for a mark that does not exist nor leave a toggle without one.
 #
-# **Two bands are pinned as painted rather than as right**, and it is a filed
-# bug. Re-record their goldens when it closes.
-#
-#   * #119 — `describe` reads an `On(.Checked, ...)` off the state a snapshot
-#     was asked for rather than off the toggle's own signal, so the `on` cell of
-#     each `On(.Checked)` band paints in the resting palette where a browser
-#     paints it in the checked one.
+# The `On(.Checked)` bands read right now that buri#119 has closed: the `on`
+# cell of each carries its checked palette and the `off` cell beside it does
+# not, because `describe` reads the toggle's own signal rather than the state
+# the snapshot was asked for. The same signal moves the mark, so the fill and
+# the mark cannot come apart.
 #
 # Beside every picture is a `describe` assertion naming what the scene carries,
 # which is what says a mark is in the document and not only in the pixels: a

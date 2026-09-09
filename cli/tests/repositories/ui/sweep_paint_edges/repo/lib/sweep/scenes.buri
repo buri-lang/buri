@@ -241,7 +241,16 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
         band("BorderEdge(.Bottom, .Px(3)) and RadiusCorner(.TopEnd, .Px(12))", 86, [
             cell("stack", ui.stack(chrome([]), [leaf("Ada")])),
             cell("region", ui.region(.Group, chrome([]), [leaf("Ada")])),
-            cell("button", ui.button(.Const("Ada"), chrome([]), [], fn(_c, _e) => ())),
+            cell(
+                "button",
+                ui.button(
+                    .Const("Ada"),
+                    chrome([]),
+                    [],
+                    fn(_c, _e) => (),
+                    .Const(false),
+                ),
+            ),
             cell("link", ui.link(.Const("/ada"), chrome([]), [leaf("Ada")])),
             cell("heading", ui.heading(2, chrome([]), .Const("Ada"))),
         ]),
@@ -255,6 +264,7 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                     [],
                     signal(ctx, "Ada"),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell(
@@ -266,11 +276,12 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                     [],
                     signal(ctx, true),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell(
                 "image",
-                ui.stack(chrome([]), [ui.image(.Const("logo.png"), .Const("a"))]),
+                ui.stack(chrome([]), [ui.image(.Const("logo.png"), .Const("a"), [])]),
             ),
             cell("text", ui.stack(chrome([]), [ui.text(.Const("Ada"))])),
         ]),
@@ -279,7 +290,13 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
             cell("region", ui.region(.Group, chrome(framed()), [leaf("Ada")])),
             cell(
                 "button",
-                ui.button(.Const("Ada"), chrome(framed()), [], fn(_c, _e) => ()),
+                ui.button(
+                    .Const("Ada"),
+                    chrome(framed()),
+                    [],
+                    fn(_c, _e) => (),
+                    .Const(false),
+                ),
             ),
             cell("link", ui.link(.Const("/ada"), chrome(framed()), [leaf("Ada")])),
             cell("heading", ui.heading(2, chrome(framed()), .Const("Ada"))),
@@ -294,6 +311,7 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                     [],
                     signal(ctx, "Ada"),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell(
@@ -305,11 +323,14 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                     [],
                     signal(ctx, true),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell(
                 "image",
-                ui.stack(chrome(framed()), [ui.image(.Const("logo.png"), .Const("a"))]),
+                ui.stack(chrome(framed()), [
+                    ui.image(.Const("logo.png"), .Const("a"), []),
+                ]),
             ),
             cell("text", ui.stack(chrome(framed()), [ui.text(.Const("Ada"))])),
         ]),
@@ -438,6 +459,7 @@ fn joined<C>(label: Str, first: Bool, last: Bool): Node<C> {
         ],
         [],
         fn(_c, _e) => (),
+        .Const(false),
     )
 }
 
@@ -465,6 +487,7 @@ fn stacked<C>(label: Str, first: Bool, last: Bool): Node<C> {
         ],
         [],
         fn(_c, _e) => (),
+        .Const(false),
     )
 }
 

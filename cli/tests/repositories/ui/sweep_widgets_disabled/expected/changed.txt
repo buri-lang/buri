@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "a snapshot still asks every control the question"
+  the snapshot "disabled-snapshot" changed: see test/__snapshots__/disabled-snapshot.diff.png
+  --> lib/sweep/test/pictures.buri:33:1
+
+0 passed, 1 failed, 1 skipped (0.0s)

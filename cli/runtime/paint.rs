@@ -107,6 +107,17 @@
 //! none. A picture that is not there is better shown as a box than as nothing,
 //! which is what an image with no source used to be.
 //!
+//! An `e` line may also carry what the element answers about its own state.
+//! Four of the six pseudo-classes are things a pointer or a keyboard does, and
+//! the request's `state` names one of those for the whole scene. The other two
+//! are the tree's own, and a widget writes its answer down.
+//! `checked:<true|false>` is a toggle's value: a rule scoped to `:checked`
+//! reaches that box when the value says so and never otherwise, which is what
+//! lets one page hold a toggle that is on and one that is off.
+//! `disabled:true` is a control whose flag is set, and it only ever adds — a
+//! scene with no `disabled:` on it still answers a `disabled` request the way
+//! it always did.
+//!
 //! The sheet is read as class rules, plus **one shape of descendant rule**:
 //! `.<class>>*`, which is what `Layout(.Layers)` is written as. Every child of
 //! an element carrying the class takes the rule's declarations, so
@@ -384,6 +395,13 @@ struct Node {
     /// `Some` for a box whose declarations named an `image` or an `icon`. A
     /// picture holds no children either: what is inside it is the source.
     picture: Option<Art>,
+    /// `Some` for a box that answers for its own `:checked` — a toggle, whose
+    /// value is the answer. `None` leaves the request's state to say.
+    checked: Option<bool>,
+    /// Whether the box carries the `disabled` attribute. A box that does is in
+    /// `:disabled` whatever the request asked for; one that does not is left
+    /// to the request, which may still be asking.
+    disabled: bool,
     classes: Vec<String>,
     declarations: Vec<(String, String)>,
     children: Vec<usize>,
@@ -442,6 +460,8 @@ impl Scene {
                 Node {
                     text: Some(unescape(body)),
                     picture: None,
+                    checked: None,
+                    disabled: false,
                     classes: Vec::new(),
                     declarations: Vec::new(),
                     children: Vec::new(),
@@ -454,7 +474,17 @@ impl Scene {
                 let picture = named("image")
                     .map(Art::Source)
                     .or_else(|| named("icon").map(Art::Artwork));
-                Node { text: None, picture, classes, declarations, children: Vec::new() }
+                let checked = named("checked").map(|v| v == "true");
+                let disabled = named("disabled").as_deref() == Some("true");
+                Node {
+                    text: None,
+                    picture,
+                    checked,
+                    disabled,
+                    classes,
+                    declarations,
+                    children: Vec::new(),
+                }
             };
             nodes.push(node);
 
@@ -1081,7 +1111,8 @@ fn resolve(
                 } else {
                     node.classes.contains(&rule.class)
                 };
-                if rule.min_width <= width && rule.state.is_none_or(|s| s == state) && named {
+                if rule.min_width <= width && rule.state.is_none_or(|s| holds(node, s, state)) && named
+                {
                     for (name, value) in &rule.declarations {
                         declarations.push((name, substitute(value, variables)));
                     }
@@ -1115,6 +1146,20 @@ fn resolve(
         }
     }
     styles
+}
+
+/// Whether an element is in the state a rule is scoped to.
+///
+/// Three of the five are the request's to answer, because nothing in a scene
+/// hovers or is focused. The other two the element answers where it can: a
+/// toggle's `checked:` *is* the answer, and a control's `disabled:` adds one
+/// without taking the request's away.
+fn holds(node: &Node, rule: State, requested: State) -> bool {
+    match rule {
+        State::Checked => node.checked.unwrap_or(requested == State::Checked),
+        State::Disabled => node.disabled || requested == State::Disabled,
+        other => other == requested,
+    }
 }
 
 /// One declaration, folded into the style. An unknown property is ignored.
@@ -2213,8 +2258,14 @@ impl Painter<'_> {
             return;
         }
 
+        // A picture is clipped to its own rounded box, the way a browser clips
+        // an `<img>`'s content to the corner its `border-radius` names, and it
+        // is drawn inside whatever border the element carries. That is what
+        // makes an avatar round rather than a round box with a square picture
+        // sitting in it.
+        let rounds = node.picture.is_some() && radii.iter().any(|r| *r > 0.0);
         let mut owned;
-        let inner = if style.clipped[0] || style.clipped[1] {
+        let inner = if style.clipped[0] || style.clipped[1] || rounds {
             owned = clip.cloned().or_else(|| full_mask(canvas.width(), canvas.height()));
             if let Some(mask) = owned.as_mut() {
                 intersect(mask, box_, radii);
@@ -2225,9 +2276,9 @@ impl Painter<'_> {
         };
         if let Some(art) = node.picture.as_ref() {
             // Inside its own padding and border, which is where a browser draws
-            // a picture: the box a drawing fills is the content box. Only an
-            // icon can reach this — an `image` carries no styles of its own —
-            // and without it a padded icon painted over its own frame.
+            // a picture: the box a drawing fills is the content box. Without it
+            // a padded icon painted over its own frame, and a bordered picture
+            // painted over its own border.
             let basis = layout.size.width;
             let content = box_.shrink([
                 resolve_length(style.padding[0], basis) + widths[0],
@@ -2235,7 +2286,7 @@ impl Painter<'_> {
                 resolve_length(style.padding[2], basis) + widths[2],
                 resolve_length(style.padding[3], basis) + widths[3],
             ]);
-            self.picture(canvas, index, style, content, inner, art);
+            self.picture(canvas, content, index, style, inner, art);
             return;
         }
         let mut item = 0_u32;
@@ -2266,9 +2317,9 @@ impl Painter<'_> {
     fn picture(
         &mut self,
         canvas: &mut Pixmap,
+        box_: Box2,
         index: usize,
         style: &Computed,
-        box_: Box2,
         clip: Option<&Mask>,
         art: &Art,
     ) {
@@ -4343,6 +4394,60 @@ mod tests {
                      .hov:hover{background-color:rgb(255,0,0)}\n";
         assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
         assert_eq!(at(&render_ok(scene, sheet, "hover"), 0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_picture_is_clipped_to_the_corner_its_radius_names() {
+        // buri#123. A `Radius` on a picture rounds the picture, the way a
+        // browser clips an `<img>`'s content to its own `border-radius` — the
+        // whole of what makes an avatar round. One corner is enough: the other
+        // three stay square.
+        let scene = "buri-scene 1\nviewport 8 8\n\
+                     e 0 width:8px;height:8px;\
+                     border-start-start-radius:8px;image:/a.png\n";
+        let picture = render_ok(scene, "", "rest");
+        // The named corner is the page behind it; the opposite one is the
+        // placeholder.
+        assert_eq!(at(&picture, 0, 0), [255, 255, 255, 255]);
+        assert_eq!(at(&picture, 7, 7), [153, 153, 153, 255]);
+        // And with no radius at all every corner is the placeholder.
+        let square = "buri-scene 1\nviewport 8 8\ne 0 width:8px;height:8px;image:/a.png\n";
+        assert_eq!(at(&render_ok(square, "", "rest"), 0, 0), [153, 153, 153, 255]);
+    }
+
+    #[test]
+    fn a_checked_rule_follows_the_box_that_answers_for_itself() {
+        // buri#119. Two boxes, one on and one off, and a page can hold both:
+        // the answer is the box's own rather than the request's, so a request
+        // for `checked` still leaves the one that says `false` alone.
+        let scene = "buri-scene 1\nviewport 6 6\n\
+                     e 0 class:box tick;checked:true\n\
+                     e 0 class:box tick;checked:false\n";
+        let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
+                     .tick:checked{background-color:rgb(255,0,0)}\n";
+        for state in ["rest", "hover", "checked"] {
+            let image = render_ok(scene, sheet, state);
+            assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+            assert_eq!(at(&image, 0, 2), [0, 0, 255, 255]);
+        }
+        // A box that answers for nothing is still the request's to decide.
+        let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box tick\n";
+        assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&render_ok(plain, sheet, "checked"), 0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_disabled_box_adds_the_state_and_takes_none_away() {
+        // buri#126. The flag is one direction: a control that carries it is
+        // unavailable in every request, and one that does not is still what a
+        // `disabled` request is asking about.
+        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:box off;disabled:true\n";
+        let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
+                     .off:disabled{background-color:rgb(255,0,0)}\n";
+        assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [255, 0, 0, 255]);
+        let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box off\n";
+        assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&render_ok(plain, sheet, "disabled"), 0, 0), [255, 0, 0, 255]);
     }
 
     #[test]

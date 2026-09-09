@@ -1,0 +1,39 @@
+// Two pictures of one tree, in the two states the answer could have come from.
+//
+// The switches paint the same in both, because the answer is theirs. The row
+// of plain boxes is the control: nothing but a toggle answers for `:checked`,
+// so those light under the `.Checked` snapshot and not under the hovered one.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import { mixedPage };
+
+test "one switch on and one off, in a state that names neither" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, mixedPage(ctx), .Hover);
+    // Both answers are in the one document, which is the whole complaint.
+    assert.containsText(scene, "checked:true");
+    assert.containsText(scene, "checked:false");
+    // And a checked box answers the pointer's state as well as its own.
+    assert.containsText(scene, "checked_bg-");
+    assert.containsText(scene, "hover_bc-");
+    snapshot(ctx, "checked-hover", mixedPage(ctx), .Hover, []);
+}
+
+test "the snapshot's Checked reaches what holds no answer of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, mixedPage(ctx), .Checked);
+    assert.containsText(scene, "checked:false");
+    assert.isFalse(scene.contains("hover_"));
+    snapshot(ctx, "checked-snapshot", mixedPage(ctx), .Checked, []);
+}
