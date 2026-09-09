@@ -1,0 +1,5 @@
+FAIL //lib/tokens  test/tokens.buri  "light"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/tokens/test/tokens.buri:36:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

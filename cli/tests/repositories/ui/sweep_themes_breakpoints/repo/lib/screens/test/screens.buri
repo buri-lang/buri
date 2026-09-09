@@ -1,0 +1,54 @@
+// The breakpoints, on a page whose width is not a parameter.
+//
+// `snapshot` takes no size: the viewport is 800x600 CSS pixels, always. So the
+// four breakpoints are not four pairs of pictures at two widths each — they
+// are one page, on which 800 is above 40rem and 48rem and below 64rem and
+// 80rem. Every row below says which side of the one width it is on, and the
+// two that never apply are the assertion that a media query is read rather
+// than ignored.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/screens" import { cascade, each, layout, states };
+
+test "one row per breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "breakpoints-each", each(), .Hover, []);
+}
+
+test "the largest that applies wins" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "breakpoints-cascade", cascade(), .Hover, []);
+}
+
+test "a breakpoint reaching a layout, a width and a padding" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "breakpoints-layout", layout(), .Hover, []);
+}
+
+test "a state inside a breakpoint, hovered" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "breakpoints-hovered", states(), .Hover, []);
+}
+
+test "and the same tree in another state" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "breakpoints-checked", states(), .Checked, []);
+}
