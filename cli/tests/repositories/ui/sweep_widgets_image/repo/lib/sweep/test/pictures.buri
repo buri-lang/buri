@@ -1,0 +1,35 @@
+// Three pictures of what a picture's own styles do, which is everything a
+// wrapper around one could never say.
+//
+// Resting state throughout: no style here sits inside an `On`, so the state a
+// snapshot is taken in contributes nothing.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import { avatarPage, chromePage, sizePage };
+
+test "a picture is sized by its own styles" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "image-size", sizePage(), .Hover, []);
+}
+
+test "a picture takes a corner, a frame and a wash" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "image-chrome", chromePage(), .Hover, []);
+}
+
+test "the avatar the slot was asked for" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "image-avatar", avatarPage(), .Hover, []);
+}

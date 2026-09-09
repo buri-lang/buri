@@ -1,0 +1,243 @@
+// Image, styled — buri#123.
+//
+// `image` took no `[Style]` at all until then, so a picture painted at its
+// intrinsic size wherever the flow put it and an avatar could not be built.
+// These are the styles landing on the picture itself.
+//
+// The source is one the painter cannot load, so every cell is the placeholder
+// box — which is what says how big the picture is and what shape it has.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Shadow, Style };
+
+/// The picture every cell holds. One source throughout, and nothing the
+/// painter can fetch, so what is drawn is the placeholder at the size the
+/// styles asked for.
+fn picture<C>(styles: [Style]): Node<C> {
+    ui.image(.Const("/photo.png"), .Const("a photo"), styles)
+}
+
+/// One cell: its name over the picture it names.
+fn cell<C>(name: Str, styles: [Style]): Node<C> {
+    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
+        ui.text(.Const(name)),
+        picture(styles),
+    ])
+}
+
+/// One band: a label track, then one cell per value.
+fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
+    ui.row([.Gap(.Px(8)), .AlignCross(.Start)], [
+        ui.stack([.Width(.Px(96)), .FontWeight(.Bold)], [ui.text(.Const(name))]),
+        ui.stack(
+            [
+                .Layout(
+                    .Grid([
+                        .Fraction(1),
+                        .Fraction(1),
+                        .Fraction(1),
+                        .Fraction(1),
+                        .Fraction(1),
+                    ]),
+                ),
+                .Gap(.Px(8)),
+                .Grow(1),
+            ],
+            cells,
+        ),
+    ])
+}
+
+/// The page every picture is: a title, then the bands under it.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(10)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}
+
+/// The title one page carries.
+fn title<C>(text: Str): Node<C> {
+    ui.stack([.FontWeight(.Bold)], [ui.text(.Const(text))])
+}
+
+/// How big a picture is, which is the whole of what a wrapper could not say.
+export fn sizePage<C>(): Node<C> {
+    page([
+        title("image, sized"),
+        band("Width", [
+            cell("Px(24)", [.Width(.Px(24))]),
+            cell("Px(64)", [.Width(.Px(64))]),
+            cell("Rem(3)", [.Width(.Rem(3.0))]),
+            cell("Percent(50)", [.Width(.Percent(50.0))]),
+            cell("Full", [.Width(.Full)]),
+        ]),
+        band("Height", [
+            cell("Px(16)", [.Height(.Px(16))]),
+            cell("Px(48)", [.Height(.Px(48))]),
+            cell("Rem(2)", [.Height(.Rem(2.0))]),
+            cell("Auto", [.Height(.Auto)]),
+            cell("none", []),
+        ]),
+        band("both", [
+            cell("24 by 24", [.Width(.Px(24)), .Height(.Px(24))]),
+            cell("64 by 24", [.Width(.Px(64)), .Height(.Px(24))]),
+            cell("24 by 64", [.Width(.Px(24)), .Height(.Px(64))]),
+            cell("full by 48", [.Width(.Full), .Height(.Px(48))]),
+            cell("last wins", [.Width(.Px(24)), .Width(.Px(64))]),
+        ]),
+        band("AspectRatio", [
+            cell("1.0", [.Width(.Px(56)), .AspectRatio(1.0)]),
+            cell("1.5", [.Width(.Px(72)), .AspectRatio(1.5)]),
+            cell("0.5", [.Width(.Px(36)), .AspectRatio(0.5)]),
+            cell("2.0 by height", [.Height(.Px(36)), .AspectRatio(2.0)]),
+            cell("with both", [.Width(.Px(64)), .Height(.Px(24)), .AspectRatio(1.0)]),
+        ]),
+        band("bounds", [
+            cell("MinWidth 60", [.MinWidth(.Px(60))]),
+            cell("MaxWidth 20", [.Width(.Full), .MaxWidth(.Px(20))]),
+            cell("MinHeight 60", [.MinHeight(.Px(60))]),
+            cell("MaxHeight 20", [.Height(.Px(60)), .MaxHeight(.Px(20))]),
+            cell("Grow 1", [.Grow(1), .Height(.Px(24))]),
+        ]),
+    ])
+}
+
+/// What a picture is *shaped* like: the corner, the frame and the wash a
+/// wrapper could paint around it but never on it.
+export fn chromePage<C>(): Node<C> {
+    page([
+        title("image, shaped"),
+        band("Radius", [
+            cell("Px(0)", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Px(0))]),
+            cell("Px(8)", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Px(8))]),
+            cell("Px(28)", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Px(28))]),
+            cell("Full", [.Width(.Px(56)), .Height(.Px(56)), .Radius(.Full)]),
+            cell("one corner", [
+                .Width(.Px(56)),
+                .Height(.Px(56)),
+                .RadiusCorner(.TopStart, .Px(24)),
+            ]),
+        ]),
+        band("Border", [
+            cell("Px(1)", [.Width(.Px(56)), .Height(.Px(40)), .BorderWidth(.Px(1))]),
+            cell("Px(4) red", [
+                .Width(.Px(56)),
+                .Height(.Px(40)),
+                .BorderWidth(.Px(4)),
+                .BorderColor(.Rgb(214, 44, 44)),
+            ]),
+            cell("dashed", [
+                .Width(.Px(56)),
+                .Height(.Px(40)),
+                .BorderWidth(.Px(3)),
+                .BorderStyle(.Dashed),
+            ]),
+            cell("one edge", [
+                .Width(.Px(56)),
+                .Height(.Px(40)),
+                .BorderEdge(.Bottom, .Px(6)),
+                .BorderColor(.Rgb(40, 150, 60)),
+            ]),
+            cell("round frame", [
+                .Width(.Px(56)),
+                .Height(.Px(56)),
+                .BorderWidth(.Px(3)),
+                .BorderColor(.Rgb(48, 64, 200)),
+                .Radius(.Full),
+            ]),
+        ]),
+        band("wash", [
+            cell("Opacity 1.0", [.Width(.Px(56)), .Height(.Px(40)), .Opacity(1.0)]),
+            cell("Opacity 0.5", [.Width(.Px(56)), .Height(.Px(40)), .Opacity(0.5)]),
+            cell("Opacity 0.15", [.Width(.Px(56)), .Height(.Px(40)), .Opacity(0.15)]),
+            cell("Background", [
+                .Width(.Px(56)),
+                .Height(.Px(40)),
+                .Background(.Rgb(232, 188, 36)),
+            ]),
+            cell("Shadow", [
+                .Width(.Px(48)),
+                .Height(.Px(32)),
+                .Shadow(Shadow {
+                    x: .Px(3),
+                    y: .Px(3),
+                    blur: .Px(6),
+                    spread: .Px(0),
+                    color: .Rgba(0, 0, 0, 0.5),
+                }),
+            ]),
+        ]),
+    ])
+}
+
+/// The avatar the issue was filed for, and the three things it needs: the
+/// picture fills the box, crops square, and takes the corner. The bare cell is
+/// what a program could ask for before — the picture at whatever size it came.
+export fn avatarPage<C>(): Node<C> {
+    page([
+        title("the avatar, and the picture that could not be one"),
+        band("the picture alone", [
+            cell("round", [.Width(.Px(56)), .AspectRatio(1.0), .Radius(.Full)]),
+            cell("cropped wide", [.Width(.Px(72)), .AspectRatio(2.0), .Radius(.Px(8))]),
+            cell("softened", [.Width(.Px(56)), .AspectRatio(1.0), .Radius(.Px(10))]),
+            cell("ringed", [
+                .Width(.Px(56)),
+                .AspectRatio(1.0),
+                .Radius(.Full),
+                .BorderWidth(.Px(3)),
+                .BorderColor(.Rgb(70, 90, 120)),
+            ]),
+            cell("bare", []),
+        ]),
+        band("in a box", [
+            avatarIn(32),
+            avatarIn(48),
+            avatarIn(64),
+            boxed(48),
+            unstyled(),
+        ]),
+    ])
+}
+
+/// A picture filling a round box of `size`, which is the whole avatar: the box
+/// carries the size and the picture carries the fill, the crop and the corner.
+fn avatarIn<C>(size: Int): Node<C> {
+    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
+        ui.text(.Const("filled")),
+        ui.stack([.Width(.Px(size)), .Height(.Px(size)), .Radius(.Full)], [
+            picture([.Width(.Full), .AspectRatio(1.0), .Radius(.Full)]),
+        ]),
+    ])
+}
+
+/// The same box with the picture told nothing, which is what the workaround
+/// came to: a round box with a picture of its own size sitting inside it.
+fn boxed<C>(size: Int): Node<C> {
+    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
+        ui.text(.Const("box only")),
+        ui.stack(
+            [
+                .Width(.Px(size)),
+                .Height(.Px(size)),
+                .Radius(.Full),
+                .Background(.Rgb(220, 224, 232)),
+            ],
+            [picture([])],
+        ),
+    ])
+}
+
+/// And the picture on its own, with no box at all.
+fn unstyled<C>(): Node<C> {
+    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
+        ui.text(.Const("no box")),
+        picture([]),
+    ])
+}
