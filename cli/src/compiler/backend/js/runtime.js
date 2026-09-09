@@ -3427,8 +3427,15 @@ function $dom_make(kind, name) {
 // The three constructors take the parent they are destined for, because which
 // document a node belongs to is decided by what it will hang off rather than
 // by what the platform happens to have.
-function $dom_element(parent, name) {
-  return parent.$shim ? $dom_make(0, name) : document.createElement(name);
+// `svg` puts the element in the SVG namespace, which is what an icon needs: a
+// browser decides what an element *is* by its namespace, and an `<svg>` made
+// with `createElement` is an unknown HTML element that paints nothing. The
+// substitute has one namespace, because markup is all it answers.
+const $DOM_SVG_NS = "http://www.w3.org/2000/svg";
+
+function $dom_element(parent, name, svg) {
+  if (parent.$shim) return $dom_make(0, name);
+  return svg ? document.createElementNS($DOM_SVG_NS, name) : document.createElement(name);
 }
 
 function $dom_text(parent, data) {
@@ -3511,6 +3518,14 @@ function $dom_classes(element, value) {
   // Nothing to say is nothing to write. Assigning "" to an element that has no
   // class *adds* `class=""` to it, which on a resume is markup the server did
   // not write appearing on every element the reader can see.
+  // An SVG element's `className` is a read-only `SVGAnimatedString`, so an
+  // icon's classes went nowhere at all. The attribute is the same thing on
+  // every other element and the only thing that works on this one.
+  if (element.namespaceURI === $DOM_SVG_NS) {
+    if (value === "" && element.getAttribute("class") === null) return;
+    element.setAttribute("class", value);
+    return;
+  }
   if (value === "" && element.className === "") return;
   element.className = value;
 }
@@ -3648,6 +3663,7 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
+//  14 Icon
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -3750,6 +3766,12 @@ let $ui_sheet = "";
 // style in the program can reach the tier, and emits nothing when it cannot,
 // which is the same mechanism `$ui_sheet` above uses.
 let $tree_declare_hook = null;
+
+// The artwork renderer, through the same kind of hole and for the same reason:
+// `$tree_icon` below is a parser and two allow lists, 2.5 KB of an artifact,
+// and only a tree holding an `icon` ever reaches it. The backend assigns this
+// when `Program::icons` says the program can build one.
+let $tree_icon_hook = null;
 
 // The theme installer, through the same kind of hole and for the same reason:
 // `$ui_node_mount` installs themes before it renders, so the seven functions
@@ -4175,9 +4197,9 @@ function $tree_mark(parent, anchor) {
   return marker;
 }
 
-function $tree_element(parent, name, anchor) {
+function $tree_element(parent, name, anchor, svg) {
   if ($adopt.ops !== null) return $adopt.ops.claim(parent, 0, name);
-  const element = $dom_element(parent, name);
+  const element = $dom_element(parent, name, svg);
   $dom_insert(parent, element, anchor);
   return element;
 }
@@ -4339,6 +4361,159 @@ function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
   );
 }
 
+// The artwork an `icon` holds, lowered.
+//
+// An icon is drawn *in* the tree rather than pointed at, and that is the whole
+// of what it is for: an `<svg>` in the document reads the colour of the element
+// around it, so `currentColor` is whatever `Foreground` the cascade gives it
+// and a theme switch recolours every icon for free. An `<img>` cannot — its
+// source is a document of its own.
+//
+// Only these elements are built and only these attributes are set. The compiler
+// already refused a source holding anything else (`icon-not-drawable`), so this
+// is the second half of one rule rather than a check of its own: there is no
+// path here that creates a script, an event handler, or a reference to anywhere
+// else, whatever a source says. `xmlns` is left out because the element is in
+// that namespace already, and setting it would put a second one beside the
+// namespaced attribute a parser wrote.
+const $TREE_ARTWORK = [
+  "svg",
+  "g",
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+];
+
+const $TREE_ARTWORK_ATTRIBUTES = [
+  "viewBox",
+  "width",
+  "height",
+  "fill",
+  "stroke",
+  "stroke-width",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "opacity",
+  "fill-opacity",
+  "stroke-opacity",
+  "transform",
+  "d",
+  "points",
+  "x",
+  "y",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "cx",
+  "cy",
+  "r",
+  "rx",
+  "ry",
+];
+
+// The source as tags: `[name, attribute names and values, closing, empty]`.
+// Nothing else in the document is read, because nothing else may be in one —
+// no text, no comments, no declarations, no entities.
+
+const $ARTWORK_SPACE = " \t\r\n";
+
+function $tree_artwork_space(c) {
+  return $ARTWORK_SPACE.indexOf(c) >= 0;
+}
+
+// How far a run of characters the predicate accepts reaches from `at`.
+function $tree_artwork_run(source, at, ok) {
+  let i = at;
+  while (i < source.length && ok(source[i])) i++;
+  return i;
+}
+
+function $tree_artwork_tags(source) {
+  const out = [];
+  const named = (c) => !$tree_artwork_space(c) && c !== "/" && c !== ">";
+  let at = 0;
+  for (;;) {
+    const open = source.indexOf("<", at);
+    if (open < 0) return out;
+    let i = open + 1;
+    const closing = source[i] === "/";
+    if (closing) i++;
+    const from = i;
+    i = $tree_artwork_run(source, i, named);
+    const name = source.slice(from, i);
+    const attributes = [];
+    let empty = false;
+    for (;;) {
+      i = $tree_artwork_run(source, i, $tree_artwork_space);
+      if (i >= source.length || source[i] === ">") {
+        i++;
+        break;
+      }
+      // A self-closing tag's slash, which says only that the tag holds nothing.
+      if (source[i] === "/") {
+        empty = true;
+        i++;
+        continue;
+      }
+      const nameFrom = i;
+      i = $tree_artwork_run(source, i, (c) => named(c) && c !== "=");
+      const attribute = source.slice(nameFrom, i);
+      i = $tree_artwork_run(source, i, $tree_artwork_space);
+      let value = "";
+      if (source[i] === "=") {
+        i = $tree_artwork_run(source, i + 1, $tree_artwork_space);
+        const quote = source[i];
+        const quoted = quote === '"' || quote === "'";
+        const valueFrom = quoted ? i + 1 : i;
+        const ends = quoted ? (c) => c !== quote : (c) => named(c);
+        i = $tree_artwork_run(source, valueFrom, ends);
+        value = source.slice(valueFrom, i);
+        if (quoted) i++;
+      }
+      attributes.push(attribute, value);
+    }
+    out.push([name, attributes, closing, empty]);
+    at = i;
+  }
+}
+
+function $tree_icon(parent, styles, source, anchor) {
+  const stack = [];
+  let root = null;
+  for (const tag of $tree_artwork_tags(source)) {
+    if (tag[2]) {
+      stack.pop();
+      // Everything after the root's closing tag is outside the artwork.
+      if (stack.length === 0) return;
+      continue;
+    }
+    if ($TREE_ARTWORK.indexOf(tag[0]) < 0) continue;
+    const into = stack.length === 0 ? parent : stack[stack.length - 1];
+    const element = $tree_element(into, tag[0], stack.length === 0 ? anchor : null, true);
+    const attributes = tag[1];
+    for (let i = 0; i + 1 < attributes.length; i += 2) {
+      if ($TREE_ARTWORK_ATTRIBUTES.indexOf(attributes[i]) >= 0) {
+        $dom_attribute(element, attributes[i], attributes[i + 1]);
+      }
+    }
+    if (root === null) {
+      root = element;
+      // Decorative by construction: what an icon means is said by what it is
+      // inside, and a reader told about the glyph as well hears it twice.
+      $dom_attribute(element, "aria-hidden", "true");
+      // The `<svg>` is the element, so the styles land on the artwork itself.
+      $tree_styles(element, styles);
+    }
+    if (!tag[3]) stack.push(element);
+    if (tag[3] && stack.length === 0) return;
+  }
+}
+
 // Renders one node into `parent`, before `anchor` — or at the end of `parent`
 // when there is none.
 //
@@ -4481,7 +4656,17 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_dynamic(ctx, parent, anchor, (scope) => build(scope));
     return;
   }
-  $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
+  if (tag === 13) {
+    $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
+    return;
+  }
+  if ($tree_icon_hook === null) {
+    // The compiler said no tree here holds artwork, so it left the renderer
+    // out of the artifact. Reaching this is that decision being wrong, and
+    // saying so beats a `TypeError` about `null`.
+    $abort("an icon was rendered in a program that was said to have none");
+  }
+  $tree_icon_hook(parent, node[1], node[2], anchor);
 }
 
 // `ui/node`'s one operation with a body in the runtime. Everything else in that

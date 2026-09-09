@@ -13,6 +13,7 @@ pub mod builtins;
 pub mod consteval;
 pub mod exhaustiveness;
 pub mod expressions;
+pub mod icons;
 pub mod inference;
 pub mod patterns;
 pub mod resolve;

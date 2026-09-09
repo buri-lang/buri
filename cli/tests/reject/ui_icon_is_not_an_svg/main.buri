@@ -1,0 +1,14 @@
+// EXPECT: an icon's artwork has to start with an `<svg>`
+//
+// The artwork is a drawing with a coordinate system, which is what an `<svg>`
+// is. Markup of any other kind has no frame to draw in, and is not artwork.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.icon([], "<div>a check</div>"), [])
+}

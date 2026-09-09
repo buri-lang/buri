@@ -83,8 +83,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-seventeen functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the eighteenth function, puts a tree on the
+eighteen functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the nineteenth function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** `region(.List, ...)` says
@@ -96,7 +96,32 @@ after an HTML element, and there is no tag-string escape hatch.
 `image` takes its `alt`, `link` its `dest`, and `field` and `toggle` their
 `label`. A field with no label is not something this vocabulary can express,
 which is what makes the commonest accessibility failure on the web a compile
-error.
+error. `icon` is the other side of that rule: it is decoration and carries no
+name at all, because what it means is said by the button or the link it is
+inside.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// A check, as an icon set ships one: `currentColor` where the stroke goes.
+let check: Str =
+    "<svg viewBox='0 0 24 24' stroke='currentColor'><path d='M20 6 9 17l-5-5'/></svg>";
+
+/// It paints in whatever colour the thing around it is painting in.
+export fn saved<C>(): Node<C> {
+    ui.icon([.Width(.Px(16)), .Height(.Px(16))], check)
+}
+```
+
+An `icon` puts the artwork **in** the tree, as an `<svg>`, which is what lets
+`currentColor` in it be the element's own `Foreground`: the glyph follows the
+text beside it and turns over with a theme, for nothing. An `image` cannot —
+its source is a document of its own, so a data URI paints whatever colour was
+baked into it. The artwork is written out at the call site because the compiler
+reads it: an `<svg>` and the shapes inside it, and a script or a reference to
+somewhere else is `icon-not-drawable` rather than something the renderer
+quietly drops.
 
 A component is an ordinary function and it runs **once**. Three constructors
 put reactivity in the tree, and each re-runs the smallest thing it can:
@@ -603,6 +628,10 @@ The rest is short:
   the last `--update` wins.
 - `.FontSize` and `.LineHeight` bottom out at one pixel. Zero is a size a
   program may ask for and not a picture anyone can compare.
+- **An icon's `currentColor` is the colour its element paints in**, so a golden
+  shows a glyph following the `Foreground` around it and turning over between
+  two themes. An image's is black whatever the page says, because its source is
+  a document of its own.
 - **A snapshot fetches nothing**, so an image paints from its source or not at
   all. A `data:` URI holding a PNG paints at its own pixel size, and one holding
   an SVG is drawn at whatever size the box is — shapes, paths and transforms,
