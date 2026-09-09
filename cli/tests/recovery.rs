@@ -351,8 +351,16 @@ impl Tally {
 /// hundred-case row is a sample and a sample has a spread.
 fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
-        ("one mistake is one diagnostic", "delete-closer") => 6,
-        ("one mistake is one diagnostic", "insert-stray") => 2,
+        // Read again over the three recovery fixes in F6. A stray token inside
+        // a statement that still ends with its `;` no longer reads as the
+        // block's `}` going missing, a `(` that never closed leaves an error
+        // node rather than a one-element tuple, and `self:` is the old form
+        // only where the parameter list goes on or ends after it — so a
+        // deleted closer that used to draw a second and a third diagnostic
+        // now draws one. 67 of 1704 is 3.9%, and four is that rounded up.
+        ("one mistake is one diagnostic", "delete-closer") => 4,
+        // The same three, at the stray-token row: 14 of 2184 is 0.7%.
+        ("one mistake is one diagnostic", "insert-stray") => 1,
         ("one mistake is one diagnostic", "swap-adjacent") => 1,
 
         ("the caret is on the mistake", "delete-closer") => 30,
@@ -368,7 +376,11 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("the caret is on the mistake", "insert-stray") => 2,
         ("the caret is on the mistake", "swap-adjacent") => 3,
 
-        ("the fix names the missing token", "delete-closer") => 19,
+        // Read again over the same three: a signature whose `)` is missing is
+        // one `unclosed-delimiter` whose fix is `write \`)\` here`, where it
+        // used to be a `self-with-a-type` carrying an edit that deleted the
+        // return type. 298 of 1704 is 17.5%, and eighteen is that rounded up.
+        ("the fix names the missing token", "delete-closer") => 18,
         ("the fix names the missing token", "delete-separator ()") => 5,
         // The same three cases, at this invariant: see the note on
         // `the caret is on the mistake` above. 3 of 716 is 0.5%.
@@ -434,7 +446,13 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // corpus is drawn from, and a mutation of a call that used to fit on one
         // line is now a mutation of a different program. 253 of 1686 is 15.1%,
         // one case over a ceiling of fifteen, and sixteen is that rounded up.
-        ("a syntax error stays a syntax error", "delete-closer") => 16,
+        // Read again over the F6 recovery fixes. A `(` that never closed is an
+        // error node rather than a tuple of one, so neither its arity nor the
+        // type of its one element is reported; and a `match` that did not
+        // parse whole keeps the arm it could not read, so the exhaustiveness
+        // report is not drawn from the arms that happened to parse. 237 of
+        // 1704 is 13.9%, and fourteen is that rounded up.
+        ("a syntax error stays a syntax error", "delete-closer") => 14,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,
@@ -516,7 +534,10 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // is 23.1%, and twenty-four is that rounded up. Checked against the
         // source it added: with `routing.buri` taken out of the corpus the row
         // is back under twenty-three, so the file is the whole of the move.
-        ("a syntax error stays a syntax error", "insert-stray") => 24,
+        // Read again over the F6 recovery fixes, for the reason the
+        // `delete-closer` paragraph above gives: 479 of 2184 is 21.9%, and
+        // twenty-two is that rounded up.
+        ("a syntax error stays a syntax error", "insert-stray") => 22,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
@@ -549,7 +570,9 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // `cli/src/parsing/`); the population grew by a hundred and twenty cases
         // dense in adjacent calls and literals. 567 of 2091 is 27.1%, and
         // twenty-eight is that rounded up.
-        ("a syntax error stays a syntax error", "swap-adjacent") => 28,
+        // Read again over the F6 recovery fixes, same reason: 560 of 2109 is
+        // 26.6%, and twenty-seven is that rounded up.
+        ("a syntax error stays a syntax error", "swap-adjacent") => 27,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,
