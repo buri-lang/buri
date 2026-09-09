@@ -1,0 +1,16 @@
+error: `heading` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> cmd/call_missing_an_argument_before_a_dot_form/main.buri:23:3
+   |
+23 |   heading(2, .Const("title"))
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass exactly 3
+error: `[Style]` is not an enum [not-an-enum]
+  --> cmd/call_missing_an_argument_before_a_dot_form/main.buri:23:14
+   |
+23 |   heading(2, .Const("title"))
+   |              ^^^^^^
+   |
+   = fix: the dot form names an enum variant; write the value another way

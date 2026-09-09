@@ -1,0 +1,1 @@
+{"severity":"error","message":"`resize` takes 2 arguments, but 1 were given","code":"wrong-argument-count","location":{"file":"cmd/method_call_missing_an_argument/main.buri","line":18,"column":3,"endLine":18,"endColumn":18,"text":"  frame.resize(3)"},"expected":"2","actual":"1","fix":"pass exactly 2","notes":[],"related":[]}

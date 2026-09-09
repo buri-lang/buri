@@ -1,0 +1,37 @@
+error: `describe` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> cmd/call_arguments_fit_no_parameter/main.buri:11:3
+   |
+11 |   describe(true, "ready")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass exactly 3
+error: expected `I64`, found `Bool` [type-mismatch]
+  --> cmd/call_arguments_fit_no_parameter/main.buri:11:12
+   |
+11 |   describe(true, "ready")
+   |            ^^^^ the parameter type is `I64`
+   |
+   = expected: `I64`
+   = actual: `Bool`
+   = fix: produce a `I64` here, or change what surrounds it to accept a `Bool`
+
+     What to do
+     ──────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     A bare numeric literal is reported as Int or Float, the type it takes when
+     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+     let x: U8 = 1 — and it becomes any type of the same kind.
+
+     Why
+     ───
+
+     There is no promotion of any kind, in either direction. A language that
+     widened silently would make the width of an arithmetic result depend on the
+     shape of the expression rather than on what you wrote.
+

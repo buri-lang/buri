@@ -1,0 +1,24 @@
+// EXPECT: `heading` takes 3 arguments, but 2 were given
+//
+// A dot form has no type of its own and still says which parameter it could
+// fill: `.Const` names a variant, and `[Style]` is not an enum. So the one
+// parameter nothing given can fill is the list in the middle.
+enum Prop {
+  Const(Str),
+  Blank,
+}
+
+struct Style {
+  export weight: Int,
+}
+
+fn heading(level: Int, styles: [Style], content: Prop): Str {
+  match (content) {
+    .Const(text) => text,
+    .Blank => "",
+  }
+}
+
+fn go(): Str {
+  heading(2, .Const("title"))
+}

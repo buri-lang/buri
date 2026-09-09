@@ -1,0 +1,14 @@
+// EXPECT: `render` takes 2 arguments, but 1 were given
+//
+// The commonest way to get this wrong: the context is an ordinary parameter,
+// and it was left out. Only a value that carries an effect can fill a `ctx`
+// parameter, which is what makes `ctx` the one this call is missing.
+from "core/effect" import { Allocator };
+
+fn render<C: Allocator>(ctx: C, title: Str): Str {
+  title
+}
+
+fn go<C: Allocator>(ctx: C): Str {
+  render("home")
+}

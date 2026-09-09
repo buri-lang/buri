@@ -1,0 +1,9 @@
+error: `midpoint` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> cmd/call_with_one_argument_too_many/main.buri:10:3
+   |
+10 |   midpoint(1, 2, 3)
+   |   ^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
