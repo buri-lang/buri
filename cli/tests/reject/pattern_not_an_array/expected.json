@@ -1,0 +1,1 @@
+{"severity":"error","message":"`I64` is not an array","code":"pattern-not-an-array","location":{"file":"cmd/pattern_not_an_array/main.buri","line":4,"column":5,"endLine":4,"endColumn":8,"text":"    [a] => a,"},"fix":"an array pattern matches `[T]`, not `I64`","notes":[],"related":[]}

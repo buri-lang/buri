@@ -1,0 +1,13 @@
+// EXPECT: a context declaration takes no parameters
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+context Console {
+  Stdout: host.stdout,
+}
+
+export fn main(): Result<(), Str> {
+  let _ = io.println(Console(1), "hi").ignore();
+  .Ok(())
+}

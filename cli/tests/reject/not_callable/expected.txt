@@ -1,0 +1,7 @@
+error: `I64` is not callable [not-callable]
+ --> cmd/not_callable/main.buri:3:3
+  |
+3 |   n(1)
+  |   ^
+  |
+  = fix: call a function, a lambda, or a field holding one — `(x.f)(...)` for a field

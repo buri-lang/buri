@@ -1,0 +1,6 @@
+// EXPECT: `(I64, I64)` has no methods
+impl (Int, Int) {
+  fn total(self): Int {
+    1
+  }
+}

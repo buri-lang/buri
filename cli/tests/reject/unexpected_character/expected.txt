@@ -1,0 +1,7 @@
+error: unexpected character `#` (U+0023) [unexpected-character]
+ --> cmd/unexpected_character/main.buri:6:1
+  |
+6 | #
+  | ^
+  |
+  = fix: delete it; no token in the language starts with it

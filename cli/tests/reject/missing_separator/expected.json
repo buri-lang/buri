@@ -1,0 +1,1 @@
+{"severity":"error","message":"a match arm ends with `,`","code":"missing-separator","location":{"file":"cmd/missing_separator/main.buri","line":4,"column":9,"endLine":4,"endColumn":9,"text":"  1 => 1"},"fix":"write `,` here","notes":[],"related":[]}

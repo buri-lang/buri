@@ -1,0 +1,7 @@
+error: `\u{D800}` is not a Unicode scalar value [not-a-scalar-value]
+ --> cmd/not_a_scalar_value/main.buri:8:12
+  |
+8 |   let s = "\u{D800}";
+  |            ^^^^^^^^
+  |
+  = fix: a scalar value is at most 10FFFF and outside D800-DFFF

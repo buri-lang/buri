@@ -1,0 +1,12 @@
+// EXPECT: `size` is declared by both `Left` and `Right`
+trait Left {
+  fn size(self): Int;
+}
+
+trait Right {
+  fn size(self): Int;
+}
+
+fn go<T: Left + Right>(x: T): Int {
+  x.size()
+}

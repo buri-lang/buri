@@ -1,0 +1,7 @@
+error: an `impl` names a declared type [impl-head-not-a-type]
+ --> cmd/impl_head_not_a_type/main.buri:6:21
+  |
+6 | impl Measurable for [Int] {
+  |                     ^^^^^
+  |
+  = fix: name a struct or enum this module declares

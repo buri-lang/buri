@@ -1,0 +1,8 @@
+error: a tuple has arity 2 or more [tuple-arity]
+ --> cmd/tuple_arity/main.buri:3:11
+  |
+3 |   let t = (1,);
+  |           ^^^^
+  |
+  = `(e)` is grouping and `()` is the unit value
+  = fix: drop the parentheses for one element, or write `()` for none

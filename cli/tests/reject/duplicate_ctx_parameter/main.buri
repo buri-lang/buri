@@ -1,0 +1,12 @@
+// EXPECT: a function has at most one `ctx` parameter
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn twice<C: Stdout>(ctx: C, ctx: C): () {
+  io.println(ctx, "hi").ignore()
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

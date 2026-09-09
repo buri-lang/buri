@@ -1,0 +1,4 @@
+// EXPECT: `Int` takes no type arguments
+fn width(n: Int<Str>): Int {
+  0
+}

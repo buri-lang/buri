@@ -1,0 +1,10 @@
+// EXPECT: a character literal holds exactly one Unicode scalar value
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let c = 'ab';
+  .Ok(())
+}

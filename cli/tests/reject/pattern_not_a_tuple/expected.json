@@ -1,0 +1,1 @@
+{"severity":"error","message":"`I64` is not a 2-tuple","code":"pattern-not-a-tuple","location":{"file":"cmd/pattern_not_a_tuple/main.buri","line":4,"column":5,"endLine":4,"endColumn":11,"text":"    (a, b) => a,"},"fix":"match the shape of `I64`, not a 2-tuple","notes":[],"related":[]}

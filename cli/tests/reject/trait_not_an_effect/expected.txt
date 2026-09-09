@@ -1,0 +1,8 @@
+error: `Measurable` is a trait, not an effect [trait-not-an-effect]
+  --> cmd/trait_not_an_effect/main.buri:11:46
+   |
+11 |   let ctx = context { Allocator: host.alloc, Measurable: host.stdout };
+   |                                              ^^^^^^^^^^
+   |
+   = a context binds effects; a trait is not one
+   = fix: bind an effect here; pass a plain trait's implementations as ordinary arguments

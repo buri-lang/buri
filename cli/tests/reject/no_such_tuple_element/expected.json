@@ -1,0 +1,1 @@
+{"severity":"error","message":"a 2-tuple has no element 5","code":"no-such-tuple-element","location":{"file":"cmd/no_such_tuple_element/main.buri","line":9,"column":16,"endLine":9,"endColumn":17,"text":"  let n = pair.5;"},"fix":"the elements are `.0` through `.1`","notes":[],"related":[]}

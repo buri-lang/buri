@@ -1,0 +1,8 @@
+error: `Measurable` cannot be derived [trait-not-derivable]
+  --> cmd/trait_not_derivable/main.buri:10:8
+   |
+10 | derive Measurable for Point;
+   |        ^^^^^^^^^^
+   |
+   = derivable: `Equal`, `Ordered`, `Show`, `Hash`, `ToJson`, `FromJson`, `Add`, `Subtract`, `Multiply`, `Divide`, `Remainder` and `Negate`
+   = fix: write `impl Measurable for ... { ... }` by hand

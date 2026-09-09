@@ -1,0 +1,5 @@
+// EXPECT: this is not a struct or an enum variant
+export fn main(): Result<(), Str> {
+  let v = Int { x: 1 };
+  .Ok(())
+}

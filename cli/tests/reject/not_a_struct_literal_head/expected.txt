@@ -1,0 +1,7 @@
+error: this is not a struct or an enum variant [not-a-struct-literal-head]
+ --> cmd/not_a_struct_literal_head/main.buri:3:11
+  |
+3 |   let v = Int { x: 1 };
+  |           ^^^
+  |
+  = fix: name a struct, or an enum variant that has fields

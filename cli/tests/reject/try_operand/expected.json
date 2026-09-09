@@ -1,0 +1,1 @@
+{"severity":"error","message":"`?` takes a `Result` or an `Option`, found `I64`","code":"try-operand","location":{"file":"cmd/try_operand/main.buri","line":3,"column":11,"endLine":3,"endColumn":13,"text":"  let m = n?;"},"fix":"`?` propagates a failure; this value is neither a `Result` nor an `Option`","notes":[],"related":[]}

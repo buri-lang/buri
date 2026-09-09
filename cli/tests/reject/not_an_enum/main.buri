@@ -1,0 +1,5 @@
+// EXPECT: `[I64]` is not an enum
+fn go(): [Int] {
+  let xs: [Int] = .Some;
+  xs
+}

@@ -1,0 +1,8 @@
+error: `Measurable` is a trait, not a type [trait-used-as-a-type]
+ --> cmd/trait_used_as_a_type/main.buri:6:12
+  |
+6 | fn take(m: Measurable): Int {
+  |            ^^^^^^^^^^
+  |
+  = there are no trait objects; use a bound on a type parameter
+  = fix: use it as a bound — `<T: Measurable>` — and name `T` here

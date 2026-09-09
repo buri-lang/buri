@@ -1,0 +1,8 @@
+// EXPECT: unterminated string literal
+fn label(): Str {
+  "oops
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

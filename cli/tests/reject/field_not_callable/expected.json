@@ -1,0 +1,1 @@
+{"severity":"error","message":"field `n` has type `I64`, which is not callable","code":"field-not-callable","location":{"file":"cmd/field_not_callable/main.buri","line":7,"column":3,"endLine":7,"endColumn":8,"text":"  h.n()"},"fix":"this is a field access, not a method call","notes":[],"related":[]}

@@ -1,0 +1,10 @@
+// EXPECT: `Point` is a type, not a value
+struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+fn go(): Int {
+  let p = Point;
+  1
+}

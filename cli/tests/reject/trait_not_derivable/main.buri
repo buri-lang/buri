@@ -1,0 +1,14 @@
+// EXPECT: `Measurable` cannot be derived
+struct Point {
+  export x: Int,
+}
+
+trait Measurable {
+  fn size(self): Int;
+}
+
+derive Measurable for Point;
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

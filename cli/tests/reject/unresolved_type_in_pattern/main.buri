@@ -1,0 +1,10 @@
+// EXPECT: there is no type `Shape.Circle`
+fn describe(n: Int): Int {
+  match (n) {
+  Shape.Circle => 1,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

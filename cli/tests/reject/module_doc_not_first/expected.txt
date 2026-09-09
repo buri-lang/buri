@@ -1,0 +1,21 @@
+error: `//!` documents the module, so it must come first [module-doc-not-first]
+ --> cmd/module_doc_not_first/main.buri:4:1
+  |
+4 | //! This belongs at the top of the file, above everything.
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: move it above the first declaration, or write `///` to document the declaration below it
+
+    What to do
+    ──────────
+
+    Move it above the first declaration, or write /// to document the
+    declaration below it.
+
+    Why
+    ───
+
+    /// attaches downward, to the declaration beneath it. //! attaches upward,
+    to whatever contains it — at the top of a file, the module. Lower down it
+    has nothing to attach to, so it is almost always a /// typo.
+

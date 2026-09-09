@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Pair` takes 2 type arguments, but 1 were given","code":"type-argument-count","location":{"file":"cmd/type_argument_count/main.buri","line":7,"column":12,"endLine":7,"endColumn":21,"text":"fn take(p: Pair<Int>): Int {"},"expected":"2","actual":"1","fix":"supply exactly 2","notes":[],"related":[]}

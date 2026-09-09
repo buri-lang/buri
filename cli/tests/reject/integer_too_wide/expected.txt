@@ -1,0 +1,7 @@
+error: `999999999999999999999999999999999999999999` does not fit in 128 bits [integer-too-wide]
+ --> cmd/integer_too_wide/main.buri:8:11
+  |
+8 |   let n = 999999999999999999999999999999999999999999;
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: write a smaller value; 128 bits is the widest integer type

@@ -1,0 +1,7 @@
+error: unterminated `\u{...}` escape [unterminated-unicode-escape]
+ --> cmd/unterminated_unicode_escape/main.buri:8:12
+  |
+8 |   let s = "\u{1F600";
+  |            ^^^^^^^^
+  |
+  = fix: close it with `}`

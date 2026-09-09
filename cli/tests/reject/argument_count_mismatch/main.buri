@@ -1,0 +1,5 @@
+// EXPECT: expected 1 arguments, found 2
+fn go(): Int {
+  let f = fn(a: Int): Int => a;
+  f(1, 2)
+}

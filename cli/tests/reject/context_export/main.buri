@@ -1,0 +1,15 @@
+// EXPECT: a `context` may be exported only from a test-only module
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export context Fixture {
+  Allocator: host.alloc,
+  Stdout: host.stdout,
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = Fixture();
+  let _ = io.println(ctx, "hi").ignore();
+  .Ok(())
+}
