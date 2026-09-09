@@ -1,0 +1,17 @@
+error: `render` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> cmd/call_missing_the_context/main.buri:13:3
+   |
+13 |   render("home")
+   |   ^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: `Str` does not satisfy `Allocator` [unsatisfied-bound]
+  --> cmd/call_missing_the_context/main.buri:13:3
+   |
+13 |   render("home")
+   |   ^^^^^^^^^^^^^^
+   |
+   = `Str` implements `Equal`, `Hash`, `Ordered` and `Show`, but not `Allocator`
+   = fix: add `derive Allocator for Str;` in that type's own module, or write `impl Allocator for Str { ... }` there

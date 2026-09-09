@@ -1,0 +1,19 @@
+// EXPECT: `resize` takes 2 arguments, but 1 were given
+//
+// Both parameters are `Int`, so either could be the one that was left out and
+// neither is named. The signature is printed the way the declaration writes
+// it, receiver and all.
+struct Frame {
+  export width: Int,
+  export height: Int,
+}
+
+impl Frame {
+  fn resize(self, width: Int, height: Int): Frame {
+    Frame { width: width, height: height }
+  }
+}
+
+fn go(frame: Frame): Frame {
+  frame.resize(3)
+}

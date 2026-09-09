@@ -1,0 +1,16 @@
+// EXPECT: `equal` takes 1 arguments, but 2 were given
+//
+// A derived method is written by nobody, so the signature the fix prints is
+// the trait's.
+from "core/order" import { Equal };
+
+struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+derive Equal for Point;
+
+fn go(a: Point, b: Point): Bool {
+  a.equal(b, b)
+}

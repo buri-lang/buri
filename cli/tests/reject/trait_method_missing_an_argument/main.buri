@@ -1,0 +1,11 @@
+// EXPECT: `scale` takes 2 arguments, but 1 were given
+//
+// A method reached through a bound, so the signature the fix prints is the
+// trait's own declaration.
+trait Sizeable {
+  fn scale(self, factor: Int, unit: Str): Str;
+}
+
+fn go<T: Sizeable>(x: T): Str {
+  x.scale("cm")
+}

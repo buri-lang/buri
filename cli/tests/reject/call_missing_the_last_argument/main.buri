@@ -1,0 +1,11 @@
+// EXPECT: `label` takes 3 arguments, but 2 were given
+//
+// The two given fill the first two, so the parameter with nothing left to fill
+// it is the last one.
+fn label(name: Str, count: Int, suffix: Str): Str {
+  suffix
+}
+
+fn go(): Str {
+  label("row", 2)
+}

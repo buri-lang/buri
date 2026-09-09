@@ -1,0 +1,9 @@
+error: `resize` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> cmd/method_call_missing_an_argument/main.buri:18:3
+   |
+18 |   frame.resize(3)
+   |   ^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2

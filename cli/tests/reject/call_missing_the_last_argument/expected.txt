@@ -1,0 +1,9 @@
+error: `label` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> cmd/call_missing_the_last_argument/main.buri:10:3
+   |
+10 |   label("row", 2)
+   |   ^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass exactly 3

@@ -1,0 +1,9 @@
+error: `equal` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> cmd/derived_method_with_an_extra_argument/main.buri:15:3
+   |
+15 |   a.equal(b, b)
+   |   ^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
