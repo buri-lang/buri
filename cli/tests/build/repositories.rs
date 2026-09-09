@@ -302,7 +302,7 @@ fn serving_a_page() {
 /// property has on the eight-hundred-wide page the viewport is. They are
 /// generated rather than written, so an enumeration is the whole of a
 /// `ui/style` enum by construction, and every picture was read pixel by pixel
-/// against the CSS its classes lower to. Six pictures hold a row recorded as
+/// against the CSS its classes lower to. Five pictures hold a row recorded as
 /// painted and known wrong; each case's own doc names the issue and says to
 /// re-record when it closes.
 ///

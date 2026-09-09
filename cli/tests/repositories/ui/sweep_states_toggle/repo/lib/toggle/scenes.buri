@@ -105,6 +105,26 @@ fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
     )
 }
 
+/// A box of its own size rather than the cell's — a checkbox row, which is the
+/// shape a toggle is written in everywhere. The label sits beside the box on
+/// one line, and the `<label>` the runtime wraps the pair in is what puts it
+/// there.
+fn boxed<C: Ui>(ctx: C, extra: [Style]): Node<C> {
+    ui.toggle(
+        .Const("on"),
+        [
+            .Width(.Px(16)),
+            .Height(.Px(16)),
+            .Background(.Rgb(150, 170, 200)),
+            .Foreground(.Rgb(24, 24, 24)),
+            .BorderWidth(.Px(2)),
+            .BorderColor(.Rgb(70, 90, 120)),
+            .Group(extra),
+        ],
+        signal.signal(ctx, true),
+    )
+}
+
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C: Ui>(ctx: C, extra: [Style]): Node<C> {
     ui.toggle(.Const("on"), [.Group(extra)], signal.signal(ctx, true))
@@ -193,6 +213,34 @@ fn restingRow<C: Ui>(ctx: C): Node<C> {
     ])
 }
 
+/// The checkbox row, answering in one property per column.
+fn boxedRow<C: Ui>(ctx: C): Node<C> {
+    grid([
+        label("boxed"),
+        boxed(ctx, backgroundStates()),
+        boxed(ctx, foregroundStates()),
+        boxed(ctx, borderStates()),
+        boxed(ctx, opacityStates()),
+        boxed(ctx, shadowStates()),
+        boxed(ctx, allStates()),
+        boxed(ctx, []),
+    ])
+}
+
+/// The same row with nothing to answer with.
+fn boxedRestingRow<C: Ui>(ctx: C): Node<C> {
+    grid([
+        label("boxed"),
+        boxed(ctx, []),
+        boxed(ctx, []),
+        boxed(ctx, []),
+        boxed(ctx, []),
+        boxed(ctx, []),
+        boxed(ctx, []),
+        boxed(ctx, []),
+    ])
+}
+
 /// The control with no styles under the state's.
 fn bareRow<C: Ui>(ctx: C): Node<C> {
     grid([
@@ -227,6 +275,7 @@ export fn responsive<C: Ui>(ctx: C): Node<C> {
         ui.text(.Const("toggle, in every state")),
         headings(),
         styledRow(ctx),
+        boxedRow(ctx),
         bareRow(ctx),
     ])
 }
@@ -238,6 +287,7 @@ export fn resting<C: Ui>(ctx: C): Node<C> {
         ui.text(.Const("toggle, in every state")),
         headings(),
         restingRow(ctx),
+        boxedRestingRow(ctx),
         bareRestingRow(ctx),
     ])
 }
