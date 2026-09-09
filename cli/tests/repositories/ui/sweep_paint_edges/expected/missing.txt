@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "a border named edge by edge"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/sweep/test/pictures.buri:14:1
+
+0 passed, 1 failed, 3 skipped (0.0s)
