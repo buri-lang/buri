@@ -1418,6 +1418,23 @@ test "an icon's styles compose and conflict the way every other element's do" {
     );
 }
 
+test "an icon's artwork is one scene line however it was written" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A declaration is one line, and artwork is usually written across several.
+    // The breaks flatten to spaces, which is the same whitespace either way —
+    // nothing an icon may hold reads a line break as anything else.
+    let scene = ui.describe(
+        ctx,
+        ui.icon([], "<svg viewBox='0 0 24 24'>\n  <path d='M20 6 9 17l-5-5'/>\n</svg>"),
+        .Hover,
+    );
+    assert.equal(scene.lines(ctx).length(), 3);
+    assert.containsText(scene, "icon:<svg viewBox='0 0 24 24'>   <path");
+}
+
 test "an icon's artwork is in the scene the painter reads" {
     let ctx = context {
         Allocator: alloc(),
