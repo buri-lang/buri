@@ -37,4 +37,4 @@ error: there is nothing named `Cents` in scope [unresolved-name]
   |     ^^^^^
   |
   = did you mean `fromCents`?
-  = fix: correct the spelling, or declare it
+  = fix: if you meant `fromCents`, use that; if not, a name is in scope only from this module's own declarations and its imports

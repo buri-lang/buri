@@ -14,6 +14,9 @@ error: `Fs` is not a trait or effect [not-a-trait]
     Name a declared trait or effect, or declare the one you meant. There are no
     where clauses and no structural constraints.
 
+    A trait or effect the standard library renamed is answered with what it is
+    called now: Alloc was renamed to Allocator, and the fix says to write it.
+
 error: `C` does not satisfy `Allocator` [unsatisfied-bound]
  --> lib/db/manager.buri:7:5
   |
@@ -63,6 +66,9 @@ error: `Fs` is not a declared effect [not-an-effect]
 
      Every key in a context has to be an effect. The set is core/effect's, plus
      ui/effect's where the platform grants them.
+
+     An effect the standard library renamed is answered with what it is called
+     now: Alloc was renamed to Allocator, and the fix says to write it.
 
 error: expected `Str`, found `Int` [type-mismatch]
   --> lib/db/test/residency.buri:16:23

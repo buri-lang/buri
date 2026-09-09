@@ -14,7 +14,7 @@ error: there is nothing named `f` in scope [unresolved-name]
     |                  ^
     |
     = did you mean `n`?
-    = fix: correct the spelling, or declare it
+    = fix: if you meant `n`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: `_0` is not an enum [not-an-enum]
    --> main.buri:112:24
     |
@@ -29,7 +29,7 @@ error: there is nothing named `f` in scope [unresolved-name]
     |                  ^
     |
     = did you mean `n`?
-    = fix: correct the spelling, or declare it
+    = fix: if you meant `n`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: `_1` is not an enum [not-an-enum]
    --> main.buri:113:24
     |

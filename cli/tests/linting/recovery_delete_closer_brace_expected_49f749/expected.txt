@@ -11,7 +11,7 @@ error: `Str` has no method `mapErr` [no-such-method]
 44 |     let _ = announce(ctx, label.mapErr(fn(_e) => {
    |                                 ^^^^^^
    |
-   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_brace_expected_49f749/main.buri:46:8
    |
