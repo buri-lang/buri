@@ -6,10 +6,17 @@
 # with no exit — which is what `spin` is, and what the edit at the bottom takes
 # away.
 #
-# The two halves ask opposite things of one number: the first must not finish
-# inside it and the second must. So the number is the second half's to set —
-# `repo/lib/spin/BUILD.buri` says how much room it leaves and what the room is
-# for — and the first half costs exactly that number of seconds to kill.
+# **The two halves ask opposite things of a budget, so each declares its own.**
+# The runner's clock is wall time from the spawn of the suite's process, with
+# no reading of processor time or run state to tell a starved suite from a
+# stuck one. The half that must be *exceeded* therefore runs a program that
+# never finishes: the kill is certain and the elapsed time irrelevant, which
+# leaves its number free to be small. The half that must *finish* needs the
+# reverse — a bound so far above its own work that no scheduling delay reaches
+# it, because under a wall clock that margin is the whole of what makes the
+# pass deterministic. Sharing one number cost this case a flake: the finishing
+# half spent 5.3s of a 5s budget starting a binary that then ran one
+# comparison, with three test binaries going at once.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
@@ -23,11 +30,20 @@ run {
   stream: ERR
 }
 
-# The negative twin: a base case, and the same declaration lets it through.
+# The negative twin: a base case, and a declaration that lets it through.
 edit {
   file: "lib/spin/spin.buri"
   replace: "export fn spin(n: I64): I64 {\n    spin(n + 1)\n}"
   with: "export fn spin(n: I64): I64 {\n    if (n == 0) { 0 } else { spin(n - 1) }\n}"
+}
+
+# Ten minutes for one comparison — a bound, not a measurement. Four orders of
+# magnitude above the work and above anything a machine charges to start a
+# process, so the only run that reaches it is one that stopped.
+edit {
+  file: "lib/spin/BUILD.buri"
+  replace: "timeout_seconds: 1"
+  with: "timeout_seconds: 600"
 }
 
 run {
