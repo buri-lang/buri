@@ -1,0 +1,2 @@
+// EXPECT: this generic parameter list is missing its closing `>`
+export fn same<A: Equal + Ordered

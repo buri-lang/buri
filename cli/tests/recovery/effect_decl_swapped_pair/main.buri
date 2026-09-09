@@ -1,0 +1,5 @@
+// EXPECT: expected `fn`, found `meddle`
+// ROLE: platform
+export effect Mischief {
+  meddle fn(self): ();
+}

@@ -1,0 +1,5 @@
+// EXPECT: an enum variant ends with `,`
+export enum Shape {
+  Circle
+  Square,
+}

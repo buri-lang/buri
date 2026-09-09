@@ -1,0 +1,6 @@
+// EXPECT: a `derive` declaration ends with `;`
+derive Equal, Show for Shape
+export enum Shape {
+  Circle,
+  Square,
+}

@@ -1,0 +1,5 @@
+error [missing-terminator] 2:45-2:45
+message: a `struct` declaration ends with `;`
+fix: write `;` here
+edit: 2:45-2:45 ";"
+

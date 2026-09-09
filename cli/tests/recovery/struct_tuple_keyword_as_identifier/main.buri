@@ -1,0 +1,6 @@
+// EXPECT: expected an identifier, found `match`
+export struct match(export Int, export Str);
+
+export fn zero(): match {
+  match(0, "m")
+}

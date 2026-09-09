@@ -1,0 +1,4 @@
+error [unexpected-token] 2:15-2:16
+message: expected an identifier, found `:`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+

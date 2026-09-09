@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 6:1-6:1
+message: this `struct` body is missing its closing `}`
+fix: write `}` here
+related: 2:21-2:22 opened here
+

@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 6:64-6:65
+message: this context is missing its closing `}`
+fix: write `}` here
+related: 6:21-6:22 opened here
+

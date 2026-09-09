@@ -1,0 +1,5 @@
+// EXPECT: expected an identifier, found `match`
+// ROLE: platform
+export effect Mischief {
+  fn match(self): ();
+}

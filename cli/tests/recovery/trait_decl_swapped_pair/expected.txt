@@ -1,0 +1,4 @@
+error [unexpected-token] 3:3-3:7
+message: expected `fn`, found `area`
+fix: write `fn` here
+

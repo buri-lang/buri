@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn match(): (Int, Str) {
+  (1, "one")
+}

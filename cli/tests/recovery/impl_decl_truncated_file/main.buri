@@ -1,0 +1,7 @@
+// EXPECT: expected a type, found end of file
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+impl

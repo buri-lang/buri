@@ -1,0 +1,5 @@
+error [missing-terminator] 3:21-3:21
+message: a method signature ends with `;`
+fix: write `;` here
+edit: 3:21-3:21 ";"
+

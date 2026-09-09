@@ -1,0 +1,4 @@
+error [unexpected-token] 3:1-3:1
+message: expected a type, found end of file
+fix: name a type here, as in `Int` or `[Str]`
+

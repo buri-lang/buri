@@ -1,0 +1,16 @@
+error [self-with-a-type] 4:15-4:20
+message: `self` is written without a type
+fix: delete the annotation, leaving `self`
+edit: 4:11-4:20 "self"
+note: the type is the one the `impl` head names, or the implementing type inside a `trait`
+
+error [unclosed-delimiter] 4:20-4:21
+message: this parameter list is missing its closing `)`
+fix: write `)` here
+related: 4:10-4:11 opened here
+
+error [unclosed-delimiter] 6:1-6:1
+message: this `trait` body is missing its closing `}`
+fix: write `}` here
+related: 3:19-3:20 opened here
+

@@ -1,0 +1,3 @@
+// EXPECT: this variant payload is missing its closing `)`
+export enum Shape {
+  Point(Int
