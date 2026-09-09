@@ -179,6 +179,7 @@ fn sinking<C>(label: Str): Node<C> {
             .Foreground(.Rgb(255, 255, 255)),
             .On(.Active, [.Translate(.Px(0), .Px(1))]),
         ],
+        [],
         fn(_c, _e) => (),
     )
 }

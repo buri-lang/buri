@@ -102,13 +102,14 @@ fn styled<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
             .Width(.Full),
             .Group(extra),
         ],
+        [],
         signal.signal(ctx, "typed"),
     )
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
-    ui.field(.Const(name), kind, [.Group(extra)], signal.signal(ctx, "typed"))
+    ui.field(.Const(name), kind, [.Group(extra)], [], signal.signal(ctx, "typed"))
 }
 
 /// One label cell.
