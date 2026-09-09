@@ -44,6 +44,12 @@
 //! folded and one that did not paint alike. Anything else parses and is
 //! ignored, which is what lets the vocabulary grow without breaking a scene.
 //!
+//! A border is four widths and four styles and a radius is four corners, so a
+//! rule may name one edge or one corner as well as the whole box. Four equal
+//! edges are one stroke around the box; anything else is the ring between the
+//! border box and the padding box, which [`stroke_edges`] draws and which is
+//! exact here because a border's colour is whole-box.
+//!
 //! An `e` line may also carry `field:<kind>`, which says what an input accepts:
 //! the `type` its markup carries, or `multiline` for the `textarea` that has
 //! none. Two of the six paint differently, and they are the two a browser draws
@@ -741,12 +747,21 @@ struct Computed {
 
     background: Rgba,
     colour: Rgba,
-    border_width: Len,
+    /// One width per edge, in the order the padding and the inset use:
+    /// inline-start, inline-end, block-start, block-end. `BorderWidth` sets
+    /// all four and `BorderEdge` sets one.
+    border_width: [Len; 4],
     /// `None` is CSS's initial `currentColor`: the stroke takes the element's
-    /// own `colour`, whichever order the two were written in.
+    /// own `colour`, whichever order the two were written in. Whole-box, so a
+    /// border painted two colours is not expressible.
     border_colour: Option<Rgba>,
-    border_style: Border,
-    radius: Len,
+    /// One style per edge, in the same order. An edge whose style is `None`
+    /// paints nothing, whatever its width.
+    border_style: [Border; 4],
+    /// One radius per corner: start-start, start-end, end-start, end-end —
+    /// which is top-left, top-right, bottom-left, bottom-right on a
+    /// left-to-right page.
+    radii: [Len; 4],
     opacity: f32,
     shadow: Option<Shadow>,
     marker: Marker,
@@ -800,10 +815,10 @@ impl Computed {
             clipped: [false; 2],
             background: Rgba::CLEAR,
             colour: Rgba::BLACK,
-            border_width: Len::Px(0.0),
+            border_width: [Len::Px(0.0); 4],
             border_colour: None,
-            border_style: Border::Solid,
-            radius: Len::Px(0.0),
+            border_style: [Border::Solid; 4],
+            radii: [Len::Px(0.0); 4],
             opacity: 1.0,
             shadow: None,
             marker: Marker::None,
@@ -820,6 +835,25 @@ impl Computed {
             clamp: None,
             masked: false,
         }
+    }
+
+    /// The width each edge actually paints, in device pixels.
+    ///
+    /// A style of `none` is a width of zero whatever the declaration said, and
+    /// a border-width in anything but pixels is not a width CSS accepts. Both
+    /// the layout and the painter ask this, so neither can disagree about
+    /// which edges are there.
+    fn border_widths(&self) -> [f32; 4] {
+        let mut out = [0.0; 4];
+        for (i, slot) in out.iter_mut().enumerate() {
+            let present = self.border_style.get(i).copied().unwrap_or(Border::None);
+            if present != Border::None {
+                if let Some(Len::Px(n)) = self.border_width.get(i).copied() {
+                    *slot = n.max(0.0);
+                }
+            }
+        }
+        out
     }
 
     /// A fresh style holding only what CSS inherits from `self`.
@@ -984,7 +1018,11 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
                 _ => parent.colour,
             };
         }
-        "border-width" => style.border_width = len(value).unwrap_or(style.border_width),
+        "border-width" => set_sides(&mut style.border_width, [0, 1, 2, 3], len(value)),
+        "border-inline-start-width" => set_sides(&mut style.border_width, [0], len(value)),
+        "border-inline-end-width" => set_sides(&mut style.border_width, [1], len(value)),
+        "border-block-start-width" => set_sides(&mut style.border_width, [2], len(value)),
+        "border-block-end-width" => set_sides(&mut style.border_width, [3], len(value)),
         "border-color" => {
             style.border_colour = match colour(value) {
                 Some(Spec::Value(c)) => Some(c),
@@ -995,14 +1033,16 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
                 _ => None,
             };
         }
-        "border-style" => {
-            style.border_style = match value {
-                "none" => Border::None,
-                "dashed" => Border::Dashed,
-                _ => Border::Solid,
-            };
-        }
-        "border-radius" => style.radius = len(value).unwrap_or(style.radius),
+        "border-style" => style.border_style = [border(value); 4],
+        "border-inline-start-style" => style.border_style[0] = border(value),
+        "border-inline-end-style" => style.border_style[1] = border(value),
+        "border-block-start-style" => style.border_style[2] = border(value),
+        "border-block-end-style" => style.border_style[3] = border(value),
+        "border-radius" => set_sides(&mut style.radii, [0, 1, 2, 3], len(value)),
+        "border-start-start-radius" => set_sides(&mut style.radii, [0], len(value)),
+        "border-start-end-radius" => set_sides(&mut style.radii, [1], len(value)),
+        "border-end-start-radius" => set_sides(&mut style.radii, [2], len(value)),
+        "border-end-end-radius" => set_sides(&mut style.radii, [3], len(value)),
         "opacity" => {
             if let Ok(o) = value.parse::<f32>() {
                 style.opacity = parent.opacity * o.clamp(0.0, 1.0);
@@ -1071,6 +1111,14 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         // `font-family` resolves to the bundled family whatever it names, and
         // `cursor` paints nothing. Both parse so that a scene keeps them.
         _ => {}
+    }
+}
+
+fn border(value: &str) -> Border {
+    match value {
+        "none" => Border::None,
+        "dashed" => Border::Dashed,
+        _ => Border::Solid,
     }
 }
 
@@ -1258,12 +1306,14 @@ fn taffy_style(c: &Computed) -> Style {
             top: spacing(c.padding[2]),
             bottom: spacing(c.padding[3]),
         },
-        border: match c.border_style {
-            Border::None => Rect::length(0.0),
-            _ => Rect::length(match c.border_width {
-                Len::Px(n) => n,
-                _ => 0.0,
-            }),
+        border: {
+            let w = c.border_widths();
+            Rect {
+                left: LengthPercentage::length(w[0]),
+                right: LengthPercentage::length(w[1]),
+                top: LengthPercentage::length(w[2]),
+                bottom: LengthPercentage::length(w[3]),
+            }
         },
         size: Size { width: dimension(c.size[0]), height: dimension(c.size[1]) },
         min_size: Size { width: dimension_auto(c.min[0]), height: dimension_auto(c.min[1]) },
@@ -1798,15 +1848,15 @@ impl Painter<'_> {
             return;
         }
 
-        let radius = resolve_length(style.radius, layout.size.width);
+        let radii = style.radii.map(|r| resolve_length(r, layout.size.width));
         if let Some(shadow) = style.shadow {
             let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
-            let corner = radius + shadow.spread;
+            let corner = radii.map(|r| r + shadow.spread);
             // An outer shadow is painted outside the border box and nowhere
             // else, so the box is knocked out of whatever clip was already in
             // force. A ring around a transparent control is the case that
             // needs it: without the knockout the ring fills the control.
-            let outside = outside_the_box(box_, radius, clip, canvas.width(), canvas.height());
+            let outside = outside_the_box(box_, radii, clip, canvas.width(), canvas.height());
             let under = outside.as_ref().or(clip);
             if shadow.blur > 0.0 {
                 cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
@@ -1815,21 +1865,28 @@ impl Painter<'_> {
             }
         }
         if style.background.visible() {
-            fill(canvas, box_, radius, style.background, style.opacity, clip);
+            fill(canvas, box_, radii, style.background, style.opacity, clip);
         }
-        let width = match style.border_width {
-            Len::Px(n) if style.border_style != Border::None => n,
-            _ => 0.0,
-        };
-        if width > 0.0 && style.border_colour.unwrap_or(style.colour).visible() {
-            stroke(canvas, box_, radius, width, style, clip);
+        let widths = style.border_widths();
+        if widths.iter().any(|w| *w > 0.0)
+            && style.border_colour.unwrap_or(style.colour).visible()
+        {
+            // Four edges the same is one stroke around the box, which is the
+            // border every program wrote before an edge could be named on its
+            // own. Anything else is the ring between the two boxes.
+            let uniform = widths.iter().all(|w| (*w - widths[0]).abs() < f32::EPSILON);
+            if uniform {
+                stroke(canvas, box_, radii, widths[0], style, clip);
+            } else {
+                stroke_edges(canvas, box_, radii, widths, style, clip);
+            }
         }
 
         let mut owned;
         let inner = if style.clipped[0] || style.clipped[1] {
             owned = clip.cloned().or_else(|| full_mask(canvas.width(), canvas.height()));
             if let Some(mask) = owned.as_mut() {
-                intersect(mask, box_, radius);
+                intersect(mask, box_, radii);
             }
             owned.as_ref()
         } else {
@@ -1873,8 +1930,8 @@ impl Painter<'_> {
         clip: Option<&Mask>,
     ) {
         let Some(picture) = self.pictures.get(index).and_then(Option::as_ref) else {
-            fill(canvas, box_, 0.0, PLACEHOLDER_EDGE, style.opacity, clip);
-            fill(canvas, box_.grow(-1.0), 0.0, PLACEHOLDER_FILL, style.opacity, clip);
+            fill(canvas, box_, [0.0; 4], PLACEHOLDER_EDGE, style.opacity, clip);
+            fill(canvas, box_.grow(-1.0), [0.0; 4], PLACEHOLDER_FILL, style.opacity, clip);
             return;
         };
         picture.draw(canvas, box_, style.opacity, style.colour, clip);
@@ -1916,7 +1973,7 @@ impl Painter<'_> {
                     r: px(left - gap),
                     b: px(middle + size / 2.0),
                 };
-                fill(canvas, box_, size / 2.0, style.colour, style.opacity, clip);
+                fill(canvas, box_, [size / 2.0; 4], style.colour, style.opacity, clip);
             }
             Marker::Decimal => {
                 let text = format!("{item}.");
@@ -2035,7 +2092,7 @@ impl Painter<'_> {
                 r: box_.l.saturating_add(px(to)),
                 b: top.saturating_add(px(thickness).max(1)),
             };
-            fill(canvas, bar, 0.0, style.colour, style.opacity, clip);
+            fill(canvas, bar, [0.0; 4], style.colour, style.opacity, clip);
         }
     }
 }
@@ -2069,8 +2126,8 @@ impl Box2 {
         }
     }
 
-    fn path(self, radius: f32) -> Option<tiny_skia::Path> {
-        self.inset_path(0.0, radius)
+    fn path(self, radii: [f32; 4]) -> Option<tiny_skia::Path> {
+        self.inset_path(0.0, radii)
     }
 
     /// The same path, pulled `by` device pixels in on every side, in floating
@@ -2080,33 +2137,64 @@ impl Box2 {
     /// half a pixel — a number [`px`] has no room for. Rounding it is what put
     /// a one-pixel border astride the box's edge, so the inset is applied to
     /// the edges rather than to the box.
-    fn inset_path(self, by: f32, radius: f32) -> Option<tiny_skia::Path> {
-        let (l, t) = (self.l as f32 + by, self.t as f32 + by);
-        let (r, b) = (self.r as f32 - by, self.b as f32 - by);
-        if r <= l || b <= t {
-            return None;
-        }
-        let radius = radius.max(0.0).min((r - l).min(b - t) / 2.0);
-        let mut path = PathBuilder::new();
-        if radius <= 0.0 {
-            path.push_rect(tiny_skia::Rect::from_ltrb(l, t, r, b)?);
-            return path.finish();
-        }
-        // A quarter circle as one cubic; `k` is the classic control-point
-        // fraction, and it is a constant so both platforms draw the same arc.
-        let k = radius * 0.552_285;
-        path.move_to(l + radius, t);
-        path.line_to(r - radius, t);
-        path.cubic_to(r - radius + k, t, r, t + radius - k, r, t + radius);
-        path.line_to(r, b - radius);
-        path.cubic_to(r, b - radius + k, r - radius + k, b, r - radius, b);
-        path.line_to(l + radius, b);
-        path.cubic_to(l + radius - k, b, l, b - radius + k, l, b - radius);
-        path.line_to(l, t + radius);
-        path.cubic_to(l, t + radius - k, l + radius - k, t, l + radius, t);
-        path.close();
-        path.finish()
+    fn inset_path(self, by: f32, radii: [f32; 4]) -> Option<tiny_skia::Path> {
+        rounded(self.l as f32 + by, self.t as f32 + by, self.r as f32 - by, self.b as f32 - by, radii)
     }
+}
+
+/// A rounded rectangle, in floating point, with a radius per corner.
+///
+/// The corners run start-start, start-end, end-start, end-end — top-left,
+/// top-right, bottom-left, bottom-right on a left-to-right page — which is the
+/// order `ui/style`'s `Corner` declares them in.
+fn rounded(l: f32, t: f32, r: f32, b: f32, radii: [f32; 4]) -> Option<tiny_skia::Path> {
+    if r <= l || b <= t {
+        return None;
+    }
+    let radii = clamp_radii(radii, r - l, b - t);
+    let mut path = PathBuilder::new();
+    if radii.iter().all(|v| *v <= 0.0) {
+        path.push_rect(tiny_skia::Rect::from_ltrb(l, t, r, b)?);
+        return path.finish();
+    }
+    // A quarter circle as one cubic; `K` is the classic control-point
+    // fraction, and it is a constant so both platforms draw the same arc.
+    const K: f32 = 0.552_285;
+    let [tl, tr, bl, br] = radii;
+    path.move_to(l + tl, t);
+    path.line_to(r - tr, t);
+    path.cubic_to(r - tr + tr * K, t, r, t + tr - tr * K, r, t + tr);
+    path.line_to(r, b - br);
+    path.cubic_to(r, b - br + br * K, r - br + br * K, b, r - br, b);
+    path.line_to(l + bl, b);
+    path.cubic_to(l + bl - bl * K, b, l, b - bl + bl * K, l, b - bl);
+    path.line_to(l, t + tl);
+    path.cubic_to(l, t + tl - tl * K, l + tl - tl * K, t, l + tl, t);
+    path.close();
+    path.finish()
+}
+
+/// CSS's own overlapping-radii rule: where two radii on one side add up to
+/// more than that side is long, every radius is scaled by the same factor
+/// until none of the four sides is over-subscribed.
+///
+/// Scaling all four together rather than clipping each one is what keeps a box
+/// with one big corner and one small one looking like the browser's.
+fn clamp_radii(radii: [f32; 4], width: f32, height: f32) -> [f32; 4] {
+    let mut out = radii.map(|v| if v.is_finite() { v.max(0.0) } else { 0.0 });
+    let [tl, tr, bl, br] = out;
+    let mut factor = 1.0_f32;
+    for (side, sum) in [(width, tl + tr), (width, bl + br), (height, tl + bl), (height, tr + br)] {
+        if sum > 0.0 {
+            factor = factor.min(side / sum);
+        }
+    }
+    if factor < 1.0 {
+        for v in &mut out {
+            *v *= factor;
+        }
+    }
+    out
 }
 
 fn resolve_length(len: Len, basis: f32) -> f32 {
@@ -2120,12 +2208,12 @@ fn resolve_length(len: Len, basis: f32) -> f32 {
 fn fill(
     canvas: &mut Pixmap,
     box_: Box2,
-    radius: f32,
+    radii: [f32; 4],
     colour: Rgba,
     opacity: f32,
     clip: Option<&Mask>,
 ) {
-    let Some(path) = box_.path(radius) else { return };
+    let Some(path) = box_.path(radii) else { return };
     let paint =
         Paint { anti_alias: true, shader: shade(colour, opacity), ..Paint::default() };
     canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), clip);
@@ -2134,7 +2222,7 @@ fn fill(
 fn stroke(
     canvas: &mut Pixmap,
     box_: Box2,
-    radius: f32,
+    radii: [f32; 4],
     width: f32,
     style: &Computed,
     clip: Option<&Mask>,
@@ -2142,17 +2230,104 @@ fn stroke(
     // A CSS border sits inside the box, so the centreline is half a width in —
     // a half pixel for an odd width, which is why this is not a `grow`.
     let half = width / 2.0;
-    let Some(path) = box_.inset_path(half, (radius - half).max(0.0)) else { return };
+    let inner = radii.map(|r| (r - half).max(0.0));
+    let Some(path) = box_.inset_path(half, inner) else { return };
     let paint = Paint {
         anti_alias: true,
         shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
         ..Paint::default()
     };
     let mut pen = Stroke { width, ..Stroke::default() };
-    if style.border_style == Border::Dashed {
+    if style.border_style.first() == Some(&Border::Dashed) {
         pen.dash = StrokeDash::new(vec![width * 3.0, width * 2.0], 0.0);
     }
     canvas.stroke_path(&path, &paint, &pen, Transform::identity(), clip);
+}
+
+/// A border whose edges are not all the same, painted as the region between
+/// the border box and the padding box.
+///
+/// The padding box is inset by each edge's *own* width, so an edge with no
+/// width takes nothing out of the ring and paints nothing, while the edges
+/// that are there keep their corners. That the ring is one shape rather than
+/// four bands is why this works at all: `BorderColor` is whole-box, so the
+/// mitre a browser draws between two edges is invisible and there is nothing
+/// to divide.
+///
+/// A dashed border is the one thing a fill cannot say, so each present edge is
+/// stroked along its own centreline instead, with the ring as its clip.
+fn stroke_edges(
+    canvas: &mut Pixmap,
+    box_: Box2,
+    radii: [f32; 4],
+    widths: [f32; 4],
+    style: &Computed,
+    clip: Option<&Mask>,
+) {
+    let (width, height) = (canvas.width(), canvas.height());
+    let (Some(outer), Some(mut ring)) = (box_.path(radii), Mask::new(width, height)) else {
+        return;
+    };
+    ring.fill_path(&outer, FillRule::Winding, true, Transform::identity());
+    let [l, t, r, b] = [box_.l as f32, box_.t as f32, box_.r as f32, box_.b as f32];
+    let inner_radii = [
+        (radii[0] - (widths[0] + widths[2]) / 2.0).max(0.0),
+        (radii[1] - (widths[1] + widths[2]) / 2.0).max(0.0),
+        (radii[2] - (widths[0] + widths[3]) / 2.0).max(0.0),
+        (radii[3] - (widths[1] + widths[3]) / 2.0).max(0.0),
+    ];
+    let inner = rounded(l + widths[0], t + widths[2], r - widths[1], b - widths[3], inner_radii);
+    if let (Some(inner), Some(mut hole)) = (inner, Mask::new(width, height)) {
+        hole.fill_path(&inner, FillRule::Winding, true, Transform::identity());
+        for coverage in hole.data_mut() {
+            *coverage = 255 - *coverage;
+        }
+        narrow(&mut ring, &hole);
+    }
+    if let Some(outside) = clip {
+        narrow(&mut ring, outside);
+    }
+    let paint = Paint {
+        anti_alias: true,
+        shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
+        ..Paint::default()
+    };
+    let dashed = |edge: usize| style.border_style.get(edge) == Some(&Border::Dashed);
+    if (0..4).any(dashed) {
+        for (edge, &pen_width) in widths.iter().enumerate() {
+            if pen_width <= 0.0 {
+                continue;
+            }
+            let half = pen_width / 2.0;
+            let mut line = PathBuilder::new();
+            match edge {
+                0 => {
+                    line.move_to(l + half, t);
+                    line.line_to(l + half, b);
+                }
+                1 => {
+                    line.move_to(r - half, t);
+                    line.line_to(r - half, b);
+                }
+                2 => {
+                    line.move_to(l, t + half);
+                    line.line_to(r, t + half);
+                }
+                _ => {
+                    line.move_to(l, b - half);
+                    line.line_to(r, b - half);
+                }
+            }
+            let Some(line) = line.finish() else { continue };
+            let mut pen = Stroke { width: pen_width, ..Stroke::default() };
+            if dashed(edge) {
+                pen.dash = StrokeDash::new(vec![pen_width * 3.0, pen_width * 2.0], 0.0);
+            }
+            canvas.stroke_path(&line, &paint, &pen, Transform::identity(), Some(&ring));
+        }
+        return;
+    }
+    canvas.fill_path(&outer, &paint, FillRule::Winding, Transform::identity(), Some(&ring));
 }
 
 /// The frame around a picture the painter could not read.
@@ -2195,8 +2370,8 @@ fn full_mask(width: u32, height: u32) -> Option<Mask> {
 /// Narrows `mask` to a box, **rounded corners included**: `overflow: hidden`
 /// on a box with a radius clips to the shape the box paints, so a child does
 /// not square off a corner its parent rounded.
-fn intersect(mask: &mut Mask, box_: Box2, radius: f32) {
-    if let Some(path) = box_.path(radius) {
+fn intersect(mask: &mut Mask, box_: Box2, radii: [f32; 4]) {
+    if let Some(path) = box_.path(radii) {
         mask.intersect_path(&path, FillRule::Winding, true, Transform::identity());
     } else {
         mask.clear();
@@ -2212,13 +2387,13 @@ fn intersect(mask: &mut Mask, box_: Box2, radius: f32) {
 fn cast_blurred(
     canvas: &mut Pixmap,
     cast: Box2,
-    radius: f32,
+    radii: [f32; 4],
     shadow: Shadow,
     opacity: f32,
     clip: Option<&Mask>,
 ) {
     let (width, height) = (canvas.width(), canvas.height());
-    let (Some(mut mask), Some(path)) = (Mask::new(width, height), cast.path(radius)) else {
+    let (Some(mut mask), Some(path)) = (Mask::new(width, height), cast.path(radii)) else {
         return;
     };
     mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
@@ -2232,7 +2407,7 @@ fn cast_blurred(
         r: i32::try_from(width).unwrap_or(i32::MAX),
         b: i32::try_from(height).unwrap_or(i32::MAX),
     };
-    let Some(path) = all.path(0.0) else { return };
+    let Some(path) = all.path([0.0; 4]) else { return };
     let paint =
         Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
     canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
@@ -2246,13 +2421,13 @@ fn cast_blurred(
 /// allocated, and the caller keeps its own clip.
 fn outside_the_box(
     box_: Box2,
-    radius: f32,
+    radii: [f32; 4],
     clip: Option<&Mask>,
     width: u32,
     height: u32,
 ) -> Option<Mask> {
     let mut mask = clip.cloned().or_else(|| full_mask(width, height))?;
-    let Some(path) = box_.path(radius) else { return Some(mask) };
+    let Some(path) = box_.path(radii) else { return Some(mask) };
     let mut hole = Mask::new(width, height)?;
     hole.fill_path(&path, FillRule::Winding, true, Transform::identity());
     for coverage in hole.data_mut() {
