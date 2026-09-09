@@ -1,0 +1,57 @@
+error: `println` takes 1 arguments, but 2 were given [wrong-argument-count]
+ --> cmd/effect_method_wrong_argument_count/main.buri:9:3
+  |
+9 |   ctx.println(what, what)
+  |   ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = expected: 1
+  = actual: 2
+  = fix: pass `println` the following arguments: println(self, text: Template)
+
+    What to do
+    ──────────
+
+    Line the call up against the signature the fix prints, which is the
+    declaration: the name, the generics with their bounds, and every parameter
+    with its name and type. The context is one of those parameters, so a call
+    that forgot it is short by one. Where the types of the arguments say which
+    parameter was left out, the fix names it; where the call lines up two ways,
+    or more than one parameter has nothing to fill it, it names none of them
+    rather than sending you to the wrong end of the line.
+
+error: `Stdout` is an effect, so `println` is not called on a context [effect-method-call]
+ --> cmd/effect_method_wrong_argument_count/main.buri:9:7
+  |
+9 |   ctx.println(what, what)
+  |       ^^^^^^^ called as a method
+  |
+  = the import is `from "core/io" import * as io;`
+  = fix: call it through `core/io`: `io.println(ctx, text)`
+
+    What to do
+    ──────────
+
+    Hand the context to the function that performs the operation. Every effect
+    method has one, and the diagnostic names both it and its module.
+    ctx.println("hi") becomes io.println(ctx, "hi"), and ctx.readFile(p) becomes
+    fs.readText(ctx, p).
+
+    Why
+    ───
+
+    A context is the set of things a program may do, and you write it down so a
+    reader can see what a function reaches for. The receiver is the quietest
+    part of a call, so x.f(y) hides that. Passing the context as an argument
+    puts the authority where the reader is already looking, and splits the two
+    halves — *which* effect, and *what* it does — into two names.
+
+    It also keeps the vocabulary from being one flat namespace. Method lookup
+    through a bound searches every effect the bound declares, so Ui.read and
+    Watch.read would be ambiguous for anybody binding both. A module-qualified
+    call cannot be.
+
+    Two layers below this line keep the method form: the standard library's
+    wrapper functions, and the body of an impl that *supplies* an effect. The
+    second is what keeps an attenuating wrapper writable — its readFile calls
+    self.0.readFile(path), reaching only the inner context it was handed.
+
