@@ -1,0 +1,83 @@
+//! What a painter that fetches nothing does with an image source.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// A sixteen-pixel PNG in four quadrants, written out whole: a snapshot
+/// fetches nothing, so a data URI is the only source there is.
+let icon: Str =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAEG0lEQVR4AQEQBO/7ANwoKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8A3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/wDcKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/ANwoKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8A3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/wDcKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/ANwoKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8A3Cgo/9woKP/cKCj/3Cgo/9woKP/cKCj/3Cgo/9woKP8otFD/KLRQ/yi0UP8otFD/KLRQ/yi0UP8otFD/KLRQ/wAoWtL/KFrS/yha0v8oWtL/KFrS/yha0v8oWtL/KFrS//rSKP/60ij/+tIo//rSKP/60ij/+tIo//rSKP/60ij/ACha0v8oWtL/KFrS/yha0v8oWtL/KFrS/yha0v8oWtL/+tIo//rSKP/60ij/+tIo//rSKP/60ij/+tIo//rSKP8AKFrS/yha0v8oWtL/KFrS/yha0v8oWtL/KFrS/yha0v/60ij/+tIo//rSKP/60ij/+tIo//rSKP/60ij/+tIo/wAoWtL/KFrS/yha0v8oWtL/KFrS/yha0v8oWtL/KFrS//rSKP/60ij/+tIo//rSKP/60ij/+tIo//rSKP/60ij/ACha0v8oWtL/KFrS/yha0v8oWtL/KFrS/yha0v8oWtL/+tIo//rSKP/60ij/+tIo//rSKP/60ij/+tIo//rSKP8AKFrS/yha0v8oWtL/KFrS/yha0v8oWtL/KFrS/yha0v/60ij/+tIo//rSKP/60ij/+tIo//rSKP/60ij/+tIo/wAoWtL/KFrS/yha0v8oWtL/KFrS/yha0v8oWtL/KFrS//rSKP/60ij/+tIo//rSKP/60ij/+tIo//rSKP/60ij/ACha0v8oWtL/KFrS/yha0v8oWtL/KFrS/yha0v8oWtL/+tIo//rSKP/60ij/+tIo//rSKP/60ij/+tIo//rSKP9z/2cfJXgRsgAAAABJRU5ErkJggg==";
+
+/// The vector form this vocabulary offers, and the one no bundled rasterizer
+/// reads. Its semicolons are the reason a declaration value escapes them.
+let vector: Str =
+    "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 8h12'/%3E%3C/svg%3E";
+
+/// A PNG data URI whose body is not a PNG.
+let broken: Str = "data:image/png;base64,bm90IGEgUE5H";
+
+/// One labelled row: the label in a fixed track, the sample in the rest.
+fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
+    ui.stack([.Layout(.Grid([.Fixed(.Px(230)), .Fraction(1)])), .Gap(.Px(12))], [
+        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+        sample,
+    ])
+}
+
+/// A page of labelled rows.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(10))], rows)
+}
+
+/// An outlined box with a picture in it, so where the box ends is visible.
+fn framed<C>(styles: [Style], source: Str): Node<C> {
+    ui.stack(
+        [.Group(styles), .BorderWidth(.Px(2)), .BorderColor(.Rgb(120, 120, 130))],
+        [ui.image(.Const(source), .Const("a picture"))],
+    )
+}
+
+/// One row per kind of source: the one the painter reads, and five it cannot.
+export fn sources<C>(): Node<C> {
+    let box: [Style] = [.Width(.Px(120)), .Height(.Px(60))];
+    page([
+        labelled("a PNG data URI", framed(box, icon)),
+        labelled("an SVG data URI", framed(box, vector)),
+        labelled("an address", framed(box, "https://example.com/logo.png")),
+        labelled("a path", framed(box, "assets/logo.png")),
+        labelled("no source at all", framed(box, "")),
+        labelled("a PNG URI that is not a PNG", framed(box, broken)),
+    ])
+}
+
+/// One row per size the box around a picture declares.
+export fn sizes<C>(): Node<C> {
+    page([
+        labelled(
+            "read, in a 200x100 box",
+            framed([.Width(.Px(200)), .Height(.Px(100))], icon),
+        ),
+        labelled(
+            "read, in a box exactly its size",
+            framed([.Width(.Px(20)), .Height(.Px(20))], icon),
+        ),
+        labelled(
+            "read, in a box shorter than it",
+            framed([.Width(.Px(20)), .Height(.Px(12))], icon),
+        ),
+        labelled("read, in no box at all", ui.image(.Const(icon), .Const("a picture"))),
+        labelled(
+            "a placeholder, in a 200x100 box",
+            framed([.Width(.Px(200)), .Height(.Px(100))], vector),
+        ),
+        labelled(
+            "a placeholder, in a 40x40 box",
+            framed([.Width(.Px(40)), .Height(.Px(40))], vector),
+        ),
+        labelled(
+            "a placeholder, in no box at all",
+            ui.image(.Const(vector), .Const("a picture")),
+        ),
+    ])
+}

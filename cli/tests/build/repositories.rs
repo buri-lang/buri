@@ -302,7 +302,7 @@ fn serving_a_page() {
 /// when nothing may be fetched, and the ends of every axis the tree has.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 11);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 14);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
