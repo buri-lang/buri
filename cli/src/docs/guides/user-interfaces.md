@@ -25,9 +25,13 @@ from "ui/signal" import { Signal };
 
 /// The lambda captures the handle. The authority arrives as `c`.
 export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
-    ui.button(.Const("add one"), [], [], fn(c, _event) => {
-        clicks.update(c, fn(n) => n + 1)
-    }, .Const(false))
+    ui.button(
+        .Const("add one"),
+        [],
+        [],
+        fn(c, _event) => { clicks.update(c, fn(n) => n + 1) },
+        .Const(false),
+    )
 }
 ```
 
@@ -257,7 +261,7 @@ export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<
         ],
         [],
         onPress,
-    .Const(false),
+        .Const(false),
     )
 }
 ```
@@ -404,7 +408,14 @@ from "ui/signal" import { Signal };
 export fn site<C>(value: Signal<Str>): Node<C> {
     ui.row([.Width(.Full)], [
         ui.stack([.Shrink(0)], [ui.text(.Const("https://"))]),
-        ui.field(.Const("Site"), .Text, [.Width(.Full)], [.Grow(1)], value, .Const(false)),
+        ui.field(
+            .Const("Site"),
+            .Text,
+            [.Width(.Full)],
+            [.Grow(1)],
+            value,
+            .Const(false),
+        ),
         ui.stack([.Shrink(0)], [ui.text(.Const(".com"))]),
     ])
 }
@@ -435,7 +446,7 @@ export fn notify<C>(value: Signal<Bool>): Node<C> {
         ],
         [],
         value,
-    .Const(false),
+        .Const(false),
     )
 }
 ```
