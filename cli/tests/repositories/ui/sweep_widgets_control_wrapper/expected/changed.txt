@@ -1,0 +1,5 @@
+FAIL //lib/wrapper  test/pictures.buri  "what a row can do to a labelled control"
+  the snapshot "wrapper-row" changed: see test/__snapshots__/wrapper-row.diff.png
+  --> lib/wrapper/test/pictures.buri:18:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

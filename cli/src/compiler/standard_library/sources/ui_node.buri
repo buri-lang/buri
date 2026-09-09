@@ -113,6 +113,20 @@ export enum FieldKind {
     Search,
 }
 
+/// What a toggle looks like, and which mark it draws inside itself.
+///
+/// The two are one control with two marks. A screen reader is told them apart
+/// — a switch announces "on" and "off" where a checkbox announces "ticked" —
+/// so the kind is a parameter rather than a style, and the mark is the
+/// widget's own drawing rather than a child the caller supplies.
+export enum ToggleKind {
+    /// A box with a tick in it when it is on.
+    Checkbox,
+    /// A track with a thumb in it, at the near end when it is off and at the
+    /// far end when it is on.
+    Switch,
+}
+
 /// A user interface, as a value.
 ///
 /// Opaque on purpose. The field is private, so the constructors below are the
@@ -128,11 +142,11 @@ enum NodeKind<C> {
     Heading(Int, [Style], Prop<Str>),
     Stack([Style], [Node<C>]),
     Region(Role, [Style], [Node<C>]),
-    Button(Prop<Str>, [Style], fn(C, Event) => ()),
+    Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => ()),
     Link(Prop<Str>, [Style], [Node<C>]),
     Image(Prop<Str>, Prop<Str>),
-    Field(Prop<Str>, FieldKind, [Style], Signal<Str>),
-    Toggle(Prop<Str>, [Style], Signal<Bool>),
+    Field(Prop<Str>, FieldKind, [Style], [Style], Signal<Str>),
+    Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>),
     Form(fn(C, Event) => (), [Style], [Node<C>]),
     When(Prop<Bool>, Node<C>, Node<C>),
     Computed(fn(Scope) => Node<C>),
@@ -206,15 +220,22 @@ export fn heading<C>(level: Int, styles: [Style], content: Prop<Str>): Node<C> {
     Node(.Heading(level, styles, content))
 }
 
-/// Something to press.
+/// Something to press, and what is drawn inside it.
 ///
 /// The label is a parameter because a screen reader announces a button with no
-/// accessible name as "button". `onPress` takes its context as a parameter,
-/// since a lambda may not capture one, and the runtime hands it the very context
-/// `mount` was given.
+/// accessible name as "button", and it stays the name however the children are
+/// drawn — the markup carries it as `aria-label`, so what a reader hears is
+/// never the glyphs. `onPress` takes its context as a parameter, since a lambda
+/// may not capture one, and the runtime hands it the very context `mount` was
+/// given.
 ///
 /// A press, not a click: the same handler runs for a tap, for Enter and for
 /// Space.
+///
+/// The children are what the button shows, and **a button with none shows its
+/// label**. That is what makes a mark and a word one element rather than a row
+/// of two: a wash for a hover or for the current page covers the icon and the
+/// text together, because there is one thing to wash.
 ///
 /// The styles land on the button itself, which is what makes `On(.Hover, ...)`,
 /// `On(.Focus, ...)` and `On(.Disabled, ...)` fire — a wrapper around it is
@@ -222,9 +243,10 @@ export fn heading<C>(level: Int, styles: [Style], content: Prop<Str>): Node<C> {
 export fn button<C>(
     label: Prop<Str>,
     styles: [Style],
+    children: [Node<C>],
     onPress: fn(C, Event) => (),
 ): Node<C> {
-    Node(.Button(label, styles, onPress))
+    Node(.Button(label, styles, children, onPress))
 }
 
 /// Somewhere to go.
@@ -282,23 +304,42 @@ export fn icon<C>(styles: [Style], source: Str): Node<C> {
 /// types lands in the signal, and whatever writes the signal lands in the
 /// field.
 ///
-/// The styles land on the input, not on the label around it — the input is what
-/// a reader focuses and what a browser disables.
+/// **Two style lists, because a labelled control is two boxes.** `styles` lands
+/// on the input — the thing a reader focuses and a browser disables, which is
+/// what makes `On(.Focus, ...)` and `On(.Disabled, ...)` fire. `around` lands
+/// on the label the input and its text are wrapped in, which is the box a
+/// surrounding `row` or `column` lays out: `Grow`, `Shrink`, `AlignSelf`,
+/// `Span` and `Width` belong there, because nothing the input carries can reach
+/// the box its parent is measuring.
 export fn field<C>(
     label: Prop<Str>,
     kind: FieldKind,
     styles: [Style],
+    around: [Style],
     value: Signal<Str>,
 ): Node<C> {
-    Node(.Field(label, kind, styles, value))
+    Node(.Field(label, kind, styles, around, value))
 }
 
-/// Something with two states, and what it is for.
+/// Something with two states, what it looks like, and what it is for.
 ///
 /// Binds to a `Signal<Bool>`, for the reason a field binds to a signal. The
-/// styles land on the box, so `On(.Checked, ...)` is the box being checked.
-export fn toggle<C>(label: Prop<Str>, styles: [Style], value: Signal<Bool>): Node<C> {
-    Node(.Toggle(label, styles, value))
+/// kind picks the mark the control draws inside itself — a tick for a
+/// `Checkbox`, a thumb that moves for a `Switch` — so a toggle needs no
+/// children and there is no way to leave one unmarked.
+///
+/// The two style lists are a field's, for a field's reason: `styles` lands on
+/// the box, so `On(.Checked, ...)` is the box being on, and `around` lands on
+/// the label the box and its text are wrapped in. The mark is drawn in the
+/// box's `Foreground`, so that is the one colour that paints it.
+export fn toggle<C>(
+    label: Prop<Str>,
+    kind: ToggleKind,
+    styles: [Style],
+    around: [Style],
+    value: Signal<Bool>,
+): Node<C> {
+    Node(.Toggle(label, kind, styles, around, value))
 }
 
 /// A group of controls you submit.
@@ -439,10 +480,16 @@ fn rootScope(): Scope;
 /// its own styles and nothing else — which is what the markup carries too.
 ///
 /// A field's and a toggle's `<label>` is the runtime's element rather than the
-/// program's, so its line carries the arrangement a browser gives it: the
-/// control and its text on one line, and a line of its own for a control as
-/// wide as the line is. A field's own line carries `field:<kind>`, which is the
-/// `type` its markup carries — the painter masks a password's value on it.
+/// program's, so its line carries the arrangement the sheet's reset gives it —
+/// the control and its text on one line, and a line of its own for a control as
+/// wide as the line is — and then whatever `around` said. A field's own line
+/// carries `field:<kind>`, which is the `type` its markup carries: the painter
+/// masks a password's value on it.
+///
+/// A toggle's box carries a line for its mark, which is the widget's own
+/// drawing rather than anything a program wrote: `mark:thumb` for a switch,
+/// always, and `mark:tick` for a checkbox that is on. Both are painted in the
+/// box's own foreground.
 export fn describe<C: Allocator>(ctx: C, root: Node<C>, state: State): Str {
     let head = ["buri-scene 1", "viewport 800 600"];
     head.concat(ctx, nodeLines(ctx, state, root, 0)).join(ctx, "\n")
@@ -477,11 +524,18 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 depth,
             )
         },
-        .Button(label, styles, _onPress) => {
-            [
-                styledLine(ctx, state, styles, depth),
-                textLine(ctx, depth + 1, label.read(scope)),
-            ]
+        // The children are what is drawn, and a button with none draws its
+        // label — which is the one place the accessible name and the glyphs
+        // are the same string.
+        .Button(label, styles, children, _onPress) => {
+            if (children.isEmpty()) {
+                [
+                    styledLine(ctx, state, styles, depth),
+                    textLine(ctx, depth + 1, label.read(scope)),
+                ]
+            } else {
+                container(ctx, state, styles, children, depth)
+            }
         },
         .Link(_dest, styles, children) => {
             container(ctx, state, styles, children, depth)
@@ -509,22 +563,28 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 ),
             ]
         },
-        // The styles are the input's, not the label's, so the label around it
-        // carries no class of its own and the line under it carries them all.
-        .Field(label, kind, styles, value) => {
+        // Two boxes and two style lists: `around` on the label, `styles` on the
+        // control inside it.
+        .Field(label, kind, styles, around, value) => {
             [
-                elementLine(ctx, depth, [], wrapper()),
+                styledLine(ctx, state, wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
                 fieldLine(ctx, state, kind, styles, depth + 1),
                 textLine(ctx, depth + 2, value.get(scope)),
             ]
         },
-        .Toggle(label, styles, _value) => {
+        // The box, its mark, and the text beside it. The mark is the widget's
+        // own drawing: there is no child to supply one and no property that
+        // names it.
+        .Toggle(label, kind, styles, around, value) => {
+            let on = value.get(scope);
             [
-                elementLine(ctx, depth, [], wrapper()),
-                styledLine(ctx, state, styles, depth + 1),
+                styledLine(ctx, state, wrapper(around), depth),
+                styledLine(ctx, state, boxStyles(on, styles), depth + 1),
+            ].concat(ctx, markLines(ctx, kind, on, depth + 2)).push(
+                ctx,
                 textLine(ctx, depth + 1, label.read(scope)),
-            ]
+            )
         },
         .Form(_onSubmit, styles, children) => {
             container(ctx, state, styles, children, depth)
@@ -543,17 +603,76 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
     }
 }
 
-/// The `<label>` a field and a toggle are wrapped in, as declarations.
+/// The `<label>` a field and a toggle are wrapped in: the arrangement the
+/// runtime gives it, and then the caller's own.
 ///
-/// The wrapper is the runtime's element rather than the program's, and a
-/// browser lays it out as an inline box: the control and its text sit on one
-/// line, and a control as wide as the line takes one of its own. The painter
-/// has no inline flow — an element it is told nothing about is a column of its
-/// children — so the scene says what that comes to in the vocabulary it does
-/// have. It is the same reason a table row carries a grid: what a browser's own
-/// stylesheet does has to be written down for the painter to read it.
-fn wrapper(): [Str] {
-    ["display:flex", "flex-direction:row", "flex-wrap:wrap", "align-items:center"]
+/// The wrapper is the runtime's element rather than the program's, and the
+/// sheet's reset lays it out as a wrapping row: the control and its text sit on
+/// one line, and a control as wide as the line takes one of its own. That
+/// arrangement is written here in the vocabulary rather than as declarations,
+/// so `around` overrides it the way a later entry overrides an earlier one —
+/// which is the same rule that lets a caller's `Layout` beat `row`'s.
+fn wrapper(around: [Style]): [Style] {
+    [.Layout(.Row), .Wrap(true), .AlignCross(.Center), .Group(around)]
+}
+
+/// A toggle's box: the arrangement that puts its mark where the mark goes, and
+/// then the caller's own.
+///
+/// The box is a row that centres what is in it, one line tall and one line wide
+/// until the caller says otherwise, and it does not shrink — an unstyled toggle
+/// is still a box a reader can see and hit. `AlignMain` is where the mark sits:
+/// the near end when the toggle is off and the far end when it is on, which is
+/// what makes a switch's thumb travel.
+fn boxStyles(on: Bool, styles: [Style]): [Style] {
+    let placement: [Style] = if (on) {
+        [.AlignMain(.End)]
+    } else {
+        [.AlignMain(.Start)]
+    };
+    [
+        .Layout(.Row),
+        .AlignCross(.Center),
+        .Width(.Rem(1.0)),
+        .Height(.Rem(1.0)),
+        .Shrink(0),
+        .Group(placement),
+        .Group(styles),
+    ]
+}
+
+/// The mark inside a toggle's box, as the line it contributes.
+///
+/// `mark:<shape>` is a scene-only declaration, as `field:` and `image:` are. It
+/// says *what to draw in the element's own foreground*, because neither shape
+/// is a box: a switch's thumb is a disc that travels, and a checkbox's tick is
+/// a stroke this vocabulary has no property for. A switch always has its thumb;
+/// a checkbox has its tick only when it is on.
+fn markLines<C: Allocator>(ctx: C, kind: ToggleKind, on: Bool, depth: Int): [Str] {
+    match (kind) {
+        .Switch => {
+            [
+                elementLine(ctx, depth, [], [
+                    "mark:thumb",
+                    "height:100%",
+                    "aspect-ratio:1",
+                ]),
+            ]
+        },
+        .Checkbox => {
+            if (on) {
+                [
+                    elementLine(ctx, depth, [], [
+                        "mark:tick",
+                        "width:100%",
+                        "height:100%",
+                    ]),
+                ]
+            } else {
+                []
+            }
+        },
+    }
 }
 
 /// The `e` line an input contributes: what it accepts, then its styles.

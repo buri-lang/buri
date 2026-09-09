@@ -88,8 +88,11 @@ export fn page<C: Ui>(ctx: C): Node<C> {
                 .Const("Ada"),
             ),
         ),
-        labelled("button", ui.button(.Const("press"), painted, fn(_c, _e) => ())),
-        labelled("field", ui.field(.Const("name"), .Text, painted, signal(ctx, "Ada"))),
+        labelled("button", ui.button(.Const("press"), painted, [], fn(_c, _e) => ())),
+        labelled(
+            "field",
+            ui.field(.Const("name"), .Text, painted, [], signal(ctx, "Ada")),
+        ),
         labelled(
             "list",
             ui.region(

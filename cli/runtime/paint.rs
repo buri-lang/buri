@@ -72,6 +72,16 @@
 //! between themes — which an `image` cannot, its source being a document of its
 //! own, where `currentColor` is black whatever the page says.
 //!
+//! An `e` line may also carry `mark:<shape>`, which makes the box a mark a
+//! widget draws for itself rather than a container: `thumb`, the disc a switch
+//! moves from one end of its track to the other, and `tick`, the stroke a
+//! checkbox holds when it is on. Neither is a box, which is why neither is a
+//! `ui/style` property — there is no radius that makes a tick and no background
+//! that draws one. Both take the element's own **foreground**, so the colour
+//! that paints the mark is the colour that paints the text beside it, and both
+//! are drawn inside whatever box the layout gave the line. The sheet's reset
+//! draws the same two on `input[type=checkbox]::before`.
+//!
 //! An `e` line may also carry `image:<source>`, which makes the box a picture
 //! rather than a container. **The painter loads nothing** — no network, no
 //! disk — so the only source it can read is a `data:` URI, and [`image`] is
@@ -131,7 +141,8 @@ use cosmic_text::{
 use taffy::prelude::*;
 use taffy::{Overflow, Point, TaffyTree, compute_leaf_layout};
 use tiny_skia::{
-    FillRule, Mask, Paint, PathBuilder, Pixmap, PremultipliedColorU8, Stroke, StrokeDash, Transform,
+    FillRule, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, PremultipliedColorU8, Stroke,
+    StrokeDash, Transform,
 };
 
 /// What an image source paints: the PNG reader, the SVG subset, and the rule
@@ -752,6 +763,19 @@ enum Marker {
     Decimal,
 }
 
+/// What a widget draws inside its own box — `mark:<shape>` in the scene, and
+/// the reset's `::before` in a browser. Not inherited: it belongs to the one
+/// line that named it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Mark {
+    None,
+    /// A switch's thumb: the box, fully rounded, filled.
+    Thumb,
+    /// A checkbox's tick: a stroke through three points of the box's largest
+    /// centred square.
+    Tick,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Shadow {
     x: f32,
@@ -820,6 +844,7 @@ struct Computed {
     /// painted over the ones after it.
     shadow: Vec<Shadow>,
     marker: Marker,
+    mark: Mark,
 
     font_size: f32,
     weight: u16,
@@ -878,6 +903,7 @@ impl Computed {
             opacity: 1.0,
             shadow: Vec::new(),
             marker: Marker::None,
+            mark: Mark::None,
             font_size: ROOT_FONT_SIZE,
             weight: 400,
             italic: false,
@@ -1161,6 +1187,15 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         }
         // `none` is the value `Truncate(0)` writes, and it parses to no limit.
         "-webkit-line-clamp" => style.clamp = value.parse().ok().filter(|&n| n > 0),
+        // What a widget draws for itself. Unknown shapes draw nothing, which is
+        // the rule every other property here follows.
+        "mark" => {
+            style.mark = match value {
+                "thumb" => Mark::Thumb,
+                "tick" => Mark::Tick,
+                _ => Mark::None,
+            };
+        }
         // What the input accepts. A secret is masked; an `<input>` is one line
         // and a `textarea` is the one kind that is not, so the rest is the
         // difference the sheet's own reset leaves — which is none.
@@ -2032,6 +2067,11 @@ impl Painter<'_> {
             }
         }
 
+        if style.mark != Mark::None {
+            self.mark(canvas, style, box_, clip);
+            return;
+        }
+
         let mut owned;
         let inner = if style.clipped[0] || style.clipped[1] {
             owned = clip.cloned().or_else(|| full_mask(canvas.width(), canvas.height()));
@@ -2105,6 +2145,47 @@ impl Painter<'_> {
             Art::Source(_) => Rgba::BLACK,
         };
         picture.draw(canvas, box_, style.opacity, colour, clip);
+    }
+
+    /// The mark a widget draws inside its own box, in the box's own colour.
+    ///
+    /// A thumb is the box, fully rounded. A tick is a stroke through
+    /// `(3.5, 8.5)`, `(6.5, 11.5)` and `(12.5, 4.5)` of a sixteen-unit square,
+    /// scaled to the largest square the box holds and centred in it — the same
+    /// three points, the same proportional width and the same round ends as
+    /// the mask the stylesheet's reset writes, so a browser and this painter
+    /// draw one tick.
+    fn mark(&mut self, canvas: &mut Pixmap, style: &Computed, box_: Box2, clip: Option<&Mask>) {
+        let width = (box_.r - box_.l) as f32;
+        let height = (box_.b - box_.t) as f32;
+        let side = width.min(height);
+        if side <= 0.0 {
+            return;
+        }
+        if style.mark == Mark::Thumb {
+            fill(canvas, box_, [side / 2.0; 4], style.colour, style.opacity, clip);
+            return;
+        }
+        let unit = side / 16.0;
+        let left = box_.l as f32 + (width - side) / 2.0;
+        let top = box_.t as f32 + (height - side) / 2.0;
+        let mut pen = PathBuilder::new();
+        pen.move_to(left + 3.5 * unit, top + 8.5 * unit);
+        pen.line_to(left + 6.5 * unit, top + 11.5 * unit);
+        pen.line_to(left + 12.5 * unit, top + 4.5 * unit);
+        let Some(path) = pen.finish() else { return };
+        let paint = Paint {
+            anti_alias: true,
+            shader: shade(style.colour, style.opacity),
+            ..Paint::default()
+        };
+        let stroke = Stroke {
+            width: 2.5 * unit,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            ..Stroke::default()
+        };
+        canvas.stroke_path(&path, &paint, &stroke, Transform::identity(), clip);
     }
 
     /// The mark beside one item of a list, in the item's own colour and size.

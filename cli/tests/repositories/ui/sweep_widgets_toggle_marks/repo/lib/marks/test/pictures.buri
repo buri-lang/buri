@@ -1,0 +1,57 @@
+// One picture per `ToggleKind`, each holding the same toggle off and on.
+//
+// The `describe` assertion beside each picture is what says the mark is in the
+// document and not only in the pixels: a checkbox has `mark:tick` when it is on
+// and nothing when it is off, and a switch has `mark:thumb` either way with the
+// alignment that moves it.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, snapshot };
+from "//lib/marks" import { checkboxPage, switchPage };
+
+test "a checkbox's tick" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let off = ui.describe(
+        ctx,
+        ui.toggle(.Const("x"), .Checkbox, [], [], signal(ctx, false)),
+        .Hover,
+    );
+    let on = ui.describe(
+        ctx,
+        ui.toggle(.Const("x"), .Checkbox, [], [], signal(ctx, true)),
+        .Hover,
+    );
+    assert.isFalse(off.contains("mark:"));
+    assert.containsText(on, "mark:tick");
+    snapshot(ctx, "toggle-checkbox", checkboxPage(ctx), .Hover, []);
+}
+
+test "a switch's thumb" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let off = ui.describe(
+        ctx,
+        ui.toggle(.Const("x"), .Switch, [], [], signal(ctx, false)),
+        .Hover,
+    );
+    let on = ui.describe(
+        ctx,
+        ui.toggle(.Const("x"), .Switch, [], [], signal(ctx, true)),
+        .Hover,
+    );
+    assert.containsText(off, "am-start");
+    assert.containsText(off, "mark:thumb");
+    assert.containsText(on, "am-end");
+    assert.containsText(on, "mark:thumb");
+    snapshot(ctx, "toggle-switch", switchPage(ctx), .Hover, []);
+}

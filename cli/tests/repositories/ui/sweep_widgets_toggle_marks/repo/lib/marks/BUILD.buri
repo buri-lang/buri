@@ -1,0 +1,9 @@
+# One library and one test source: the two marks a toggle draws for itself,
+# each off and on, and a snapshot per kind.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
