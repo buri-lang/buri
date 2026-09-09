@@ -1794,8 +1794,19 @@ impl Box2 {
     }
 
     fn path(self, radius: f32) -> Option<tiny_skia::Path> {
-        let (l, t) = (self.l as f32, self.t as f32);
-        let (r, b) = (self.r as f32, self.b as f32);
+        self.inset_path(0.0, radius)
+    }
+
+    /// The same path, pulled `by` device pixels in on every side, in floating
+    /// point.
+    ///
+    /// A stroke's centreline is half a width in, and half of an odd width is
+    /// half a pixel — a number [`px`] has no room for. Rounding it is what put
+    /// a one-pixel border astride the box's edge, so the inset is applied to
+    /// the edges rather than to the box.
+    fn inset_path(self, by: f32, radius: f32) -> Option<tiny_skia::Path> {
+        let (l, t) = (self.l as f32 + by, self.t as f32 + by);
+        let (r, b) = (self.r as f32 - by, self.b as f32 - by);
         if r <= l || b <= t {
             return None;
         }
@@ -1852,9 +1863,10 @@ fn stroke(
     style: &Computed,
     clip: Option<&Mask>,
 ) {
-    // A CSS border sits inside the box, so the centreline is half a width in.
-    let inset = box_.grow(-width / 2.0);
-    let Some(path) = inset.path((radius - width / 2.0).max(0.0)) else { return };
+    // A CSS border sits inside the box, so the centreline is half a width in —
+    // a half pixel for an odd width, which is why this is not a `grow`.
+    let half = width / 2.0;
+    let Some(path) = box_.inset_path(half, (radius - half).max(0.0)) else { return };
     let paint = Paint {
         anti_alias: true,
         shader: shade(style.border_colour, style.opacity),
@@ -3147,6 +3159,30 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 3, 10), [255, 255, 255, 255]);
         assert_eq!(at(&image, 5, 10), [255, 255, 255, 255]);
+    }
+
+    /// A border sits inside the box, whatever its width: a one-pixel border is
+    /// one solid row on the box's own first row, and nothing above it.
+    #[test]
+    fn an_odd_border_width_paints_solid_rows_inside_the_box() {
+        let scene = "buri-scene 1\nviewport 20 24\ne 0 padding:4px\n\
+                     e 1 width:12px;height:12px;border-style:solid;border-width:1px;\
+                     border-color:rgb(0,0,0)\n";
+        let one = render_ok(scene, "", "rest");
+        assert_eq!(at(&one, 10, 3), [255, 255, 255, 255], "a border paints outside its box");
+        assert_eq!(at(&one, 10, 4), [0, 0, 0, 255], "a one-pixel border is one solid row");
+        assert_eq!(at(&one, 10, 5), [255, 255, 255, 255]);
+        assert_eq!(at(&one, 10, 15), [0, 0, 0, 255], "the box's last row is the border's");
+
+        // Three is the same rule, three rows in: the row above the box is
+        // untouched and the three inside it are solid.
+        let scene = scene.replace("border-width:1px", "border-width:3px");
+        let three = render_ok(&scene, "", "rest");
+        assert_eq!(at(&three, 10, 3), [255, 255, 255, 255]);
+        for y in 4..7 {
+            assert_eq!(at(&three, 10, y), [0, 0, 0, 255], "row {y} of a three-pixel border");
+        }
+        assert_eq!(at(&three, 10, 7), [255, 255, 255, 255]);
     }
 
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the

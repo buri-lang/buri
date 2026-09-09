@@ -1,0 +1,21 @@
+# Where the painter puts a border and a shadow, in pictures a person can read.
+# Each one is a rule CSS states and the painter used to get wrong.
+#
+#   * **A border is inside the box** (buri#76). `edges-border-widths.png` is
+#     five boxes, one to a width, all thirty tall with their top edge at y=20.
+#     Every width is that many solid rows starting at y=20, the odd ones
+#     included — a one-pixel border used to straddle the edge and paint two
+#     half-covered rows, one of them above the box.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a border of every width, inside the box it belongs to"
+
+run {
+  args: ["test", "//lib/edges", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/edges/test/__snapshots__/edges-border-widths.diff.png"  exists: false }
