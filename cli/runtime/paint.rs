@@ -1945,10 +1945,10 @@ impl Painter<'_> {
             // and without it a padded icon painted over its own frame.
             let basis = layout.size.width;
             let content = box_.shrink([
-                resolve_length(style.padding[0], basis) + width,
-                resolve_length(style.padding[1], basis) + width,
-                resolve_length(style.padding[2], basis) + width,
-                resolve_length(style.padding[3], basis) + width,
+                resolve_length(style.padding[0], basis) + widths[0],
+                resolve_length(style.padding[1], basis) + widths[1],
+                resolve_length(style.padding[2], basis) + widths[2],
+                resolve_length(style.padding[3], basis) + widths[3],
             ]);
             self.picture(canvas, index, style, content, inner, art);
             return;
