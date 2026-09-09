@@ -16,6 +16,10 @@
 # control reset a button gets, which is why no `Focus` picture here carries a
 # browser focus ring: a ring is the `border` and `shadow` columns or nothing.
 #
+# `:checked` is the one a browser would never fire on a text input — a checkbox
+# is a toggle here, never a field — and the painter fires it anyway, because a
+# snapshot's state is the whole tree's.
+#
 # The negative twin moves one number in one cell of the hover palette. Exactly
 # one of the six goldens changes, which is what the state pictures rest on:
 # they are six documents, not six copies of one.

@@ -11,6 +11,10 @@
 # `bare` row is a link the colour of the text around it with no underline. The
 # `foreground` column is where a link's colour comes back, by being asked for.
 #
+# A browser fires `:hover`, `:focus-visible` and `:active` on an `<a href>` and
+# never `:disabled` or `:checked`; the painter fires all five, because a
+# snapshot's state is the whole tree's.
+#
 # The negative twin moves one number in one cell of the hover palette. Exactly
 # one of the six goldens changes, which is what the state pictures rest on:
 # they are six documents, not six copies of one.

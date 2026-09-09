@@ -13,6 +13,10 @@
 # DOM and never draws that chrome in the first place, so the `bare` row is a
 # button with nothing on it — and a bevel appearing there would be the bug.
 #
+# A browser fires four of the five on a `<button>`. `:checked` is the one it
+# never would; the painter fires it because a snapshot's state is the whole
+# tree's, which is what `ui/testing`'s `snapshot` documents.
+#
 # The negative twin moves one number in one cell of the hover palette. Exactly
 # one of the six goldens changes, which is what the state pictures rest on:
 # they are six documents, not six copies of one.

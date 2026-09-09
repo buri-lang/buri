@@ -8,9 +8,10 @@
 # that did not beside the ones that did.
 #
 # A `<div>` is never focused, disabled or checked in a browser, so
-# `.disabled_bg-x:disabled` on one never fires there. A snapshot's state applies
-# to every element in the tree by construction — `ui/testing`'s `snapshot` says
-# so — and the painter fires it. These six pictures are the record of that.
+# `.disabled_bg-x:disabled` on one never fires there — only `:hover` and
+# `:active` would. A snapshot's state applies to every element in the tree by
+# construction, which is what `ui/testing`'s `snapshot` documents, so the
+# painter fires all five. These six pictures are the record of that.
 #
 # The negative twin moves one number in one cell of the hover palette. Exactly
 # one of the six goldens changes, which is what the state pictures rest on:
