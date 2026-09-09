@@ -1,0 +1,8 @@
+// EXPECT: this `test` body is missing its closing `}`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/117
+// ROLE: test
+from "core/testing/assert" import * as assert;
+
+test "an expression statement stands alone in a test" {
+  assert @.equal(1, 1);
+}

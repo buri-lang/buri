@@ -1,0 +1,9 @@
+error [unexpected-token] 6:5-6:6
+message: expected an identifier, found `-`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unclosed-delimiter] 11:1-11:1
+message: this function body is missing its closing `}`
+fix: write `}` here
+related: 2:29-2:30 opened here
+

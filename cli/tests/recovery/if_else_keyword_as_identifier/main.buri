@@ -1,0 +1,8 @@
+// EXPECT: expected an identifier, found `match`
+export fn sign(match: Int): Int {
+  if (match > 0) {
+    1
+  } else {
+    0
+  }
+}

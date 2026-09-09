@@ -1,0 +1,5 @@
+// EXPECT: this tuple is missing its closing `)`
+export fn split(): Int {
+  let (left, right) = (1, 2;
+  left + right
+}

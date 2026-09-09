@@ -1,0 +1,6 @@
+// EXPECT: expected a pattern, found `@`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/114
+export fn split(): Int {
+  let @ (left, right) = (1, 2);
+  left + right
+}

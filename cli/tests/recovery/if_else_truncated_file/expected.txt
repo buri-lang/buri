@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 4:1-4:1
+message: this `if` condition is missing its closing `)`
+fix: write `)` here
+related: 3:6-3:7 opened here
+

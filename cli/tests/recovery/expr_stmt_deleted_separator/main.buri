@@ -1,0 +1,7 @@
+// EXPECT: a call argument ends with `,`
+// ROLE: test
+from "core/testing/assert" import * as assert;
+
+test "an expression statement stands alone in a test" {
+  assert.equal(1 1);
+}

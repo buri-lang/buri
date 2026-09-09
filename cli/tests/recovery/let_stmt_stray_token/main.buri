@@ -1,0 +1,5 @@
+// EXPECT: expected `I64`, found `fn() => I64`
+export fn total(): Int {
+  let @ total: Int = 1 + 2;
+  total
+}
