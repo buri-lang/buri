@@ -303,6 +303,29 @@ and we do not take it: neither binary size nor test count predicts runtime here,
 so any order worth having would be a hand-written list of domain names, and
 `ci.rs::the_suite_is_asked_for_as_a_whole` forbids one.
 
+**A corpus runs its cases at once.** A repository case is a scratch copy and a
+few `buri` invocations, and almost all of what one costs is waiting on those
+children — so `run_corpus` hands the cases to a pool (`harness/pool.rs`) rather
+than walking them. The `ui` corpus went from nine cases to thirty-five with the
+snapshot sweeps and from 35 s to 202 s with it; the pool puts it back at 31 s,
+where the floor is now its single longest case rather than the sum.
+
+Two rules keep that from changing what a run says. **The order is the
+corpus's**: each case fills a `Golden` of its own and they are absorbed in the
+order the case directories sort in, so a failing run prints exactly what a
+one-case-at-a-time run printed, and the earliest case to panic is the one
+re-raised. **The width is the test binary's**: cargo already runs a binary's
+`#[test]`s on their own threads, so every case takes a permit from one gate
+shared by the process and the number in flight is `available_parallelism`
+however many corpora are going. Nothing else is shared — a scratch tree is
+named for the process and a counter, goldens live one directory per case, and
+no case in a corpus that comes through `run_corpus` opens a socket.
+
+Cases still build their stdlib cache each from cold, and a warm `.buri` copied
+in would not be free: a recorded report carries its own cache counts
+(`1 passed, 1 failed, 0 skipped (0.0s, 1 cached)`), so seeding one would rewrite
+goldens across the corpora rather than only speed them up.
+
 **Where a failure's evidence lands.** Every suite works on a copy under
 `CARGO_TARGET_TMPDIR`. Nothing writes into a checked-in tree, so the suites hold
 no lock, run in parallel, and two `cargo test` runs in two shells do not

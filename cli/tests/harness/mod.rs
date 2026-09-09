@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod case;
 pub mod ci;
 pub mod hang;
+pub mod pool;
 pub mod sweep;
 // The far side of a `core/net/websocket` row: a hand-written server, because a
 // client needs somebody to dial and this repository may not depend on an RFC
@@ -835,6 +836,16 @@ impl Golden {
 
     pub fn fail(&mut self, msg: String) {
         self.failures.push(msg);
+    }
+
+    /// Folds one case's findings into the run's.
+    ///
+    /// A corpus gives each case a `Golden` of its own so the cases can run at
+    /// once, then absorbs them in the corpus's order — which is why a run
+    /// reports exactly what a one-case-at-a-time run reported.
+    pub fn absorb(&mut self, other: Golden) {
+        self.blessed += other.blessed;
+        self.failures.extend(other.failures);
     }
 
     /// `label` is what a reader needs in order to find the case, as in
