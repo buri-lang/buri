@@ -278,6 +278,150 @@ test "an offset reads from where it points" {
     assert.equal(assert.some(bytes.toU32LittleEndian(raw, 2)), 0x00010000);
 }
 
+// --- Varints -----------------------------------------------------------------------
+//
+// Base 128, little end first, the high bit of every byte but the last set. The
+// encoder and the two readers are halves of one claim, so the exact octets are
+// pinned beside the round trip — a pair that agreed with each other and with
+// nothing else would still be wrong.
+
+test "a varint is base 128, little end first, with a continuation bit" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(bytes.toVarint(ctx, 0), [0x00]);
+    assert.equal(bytes.toVarint(ctx, 1), [0x01]);
+    // Seven bits is one octet, and 128 is the first value that needs two.
+    assert.equal(bytes.toVarint(ctx, 127), [0x7f]);
+    assert.equal(bytes.toVarint(ctx, 128), [0x80, 0x01]);
+    assert.equal(bytes.toVarint(ctx, 300), [0xac, 0x02]);
+    assert.equal(bytes.toVarint(ctx, 16383), [0xff, 0x7f]);
+    assert.equal(bytes.toVarint(ctx, 16384), [0x80, 0x80, 0x01]);
+}
+
+test "the thirty-two bit boundary is five octets, and crossing it is still five" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(bytes.toVarint(ctx, 4294967295), [0xff, 0xff, 0xff, 0xff, 0x0f]);
+    assert.equal(bytes.toVarint(ctx, 4294967296), [0x80, 0x80, 0x80, 0x80, 0x10]);
+}
+
+// The whole reason `sint64` exists: a negative value is its two's complement at
+// sixty-four bits, which is ten octets whether it is -1 or -2^63.
+test "a negative value is ten octets, and its zigzag is two" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(bytes.toVarint(ctx, -1), [
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0x01,
+    ]);
+    assert.equal(bytes.toVarint(ctx, -2).length(), 10);
+    assert.equal(bytes.toVarint(ctx, -300).length(), 10);
+    assert.equal(bytes.toVarint(ctx, bytes.zigzag(-1)), [0x01]);
+}
+
+test "every varint reads back as the number it was written from" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let values = [
+        0,
+        1,
+        127,
+        128,
+        300,
+        16383,
+        16384,
+        4294967295,
+        4294967296,
+        -1,
+        -2,
+        -300,
+    ];
+    let back = values.mapCtx(ctx, fn(c, v) => {
+        assert.ok(bytes.readVarint(bytes.toVarint(c, v), 0)).0
+    });
+    assert.equal(back, values);
+}
+
+test "a read answers the index just past the varint, and starts where it is pointed" {
+    // 1, 300, 0 back to back: the second begins at 1 and ends at 3.
+    let raw: [U8] = [0x01, 0xac, 0x02, 0x00];
+    let (first, afterFirst) = assert.ok(bytes.readVarint(raw, 0));
+    assert.equal([first, afterFirst], [1, 1]);
+    let (second, afterSecond) = assert.ok(bytes.readVarint(raw, 1));
+    assert.equal([second, afterSecond], [300, 3]);
+    let (third, afterThird) = assert.ok(bytes.readVarint(raw, 3));
+    assert.equal([third, afterThird], [0, 4]);
+}
+
+test "a varint that runs off the end is an error at the index it began" {
+    // A continuation octet with nothing to continue it.
+    assert.equal(assert.err(bytes.readVarint([0x80], 0)), DecodeError(0));
+    assert.equal(assert.err(bytes.readVarint32([0x80], 0)), DecodeError(0));
+    // The index is where the varint began, not where the input ran out.
+    assert.equal(assert.err(bytes.readVarint([0x01, 0xac], 1)), DecodeError(1));
+    assert.equal(assert.err(bytes.readVarint32([0x01, 0xac], 1)), DecodeError(1));
+    // And an index with nothing at it at all.
+    assert.equal(assert.err(bytes.readVarint([0x01], 1)), DecodeError(1));
+    assert.equal(assert.err(bytes.readVarint32([0x01], 1)), DecodeError(1));
+}
+
+test "ten continuation octets is past the widest varint there is" {
+    // Ten octets is the width of a sixty-four bit varint: nine continuations
+    // and a last one. Ten continuations is one too many, whatever follows.
+    let tooWide: [U8] = [
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x01,
+    ];
+    assert.equal(assert.err(bytes.readVarint(tooWide, 0)), DecodeError(0));
+    assert.equal(assert.err(bytes.readVarint32(tooWide, 0)), DecodeError(0));
+}
+
+// A varint carries sixty-four bits and an `Int` is exact to fifty-three, so the
+// whole number has already rounded by the time a `% 2^32` could be taken.
+// `readVarint32` keeps the low half from the start, which is exact for every
+// input — including the two an `Int` cannot hold.
+test "readVarint32 keeps the low thirty-two bits, exactly" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Below 2^32 the two readers agree.
+    let whole = bytes.toVarint(ctx, 4294967295);
+    assert.equal(assert.ok(bytes.readVarint32(whole, 0)).0, 4294967295);
+    assert.equal(assert.ok(bytes.readVarint(whole, 0)).0, 4294967295);
+    // 2^32 itself has a low half of zero.
+    let crossed = bytes.toVarint(ctx, 4294967296);
+    assert.equal(assert.ok(bytes.readVarint32(crossed, 0)).0, 0);
+    // 2^63 - 1: nine octets, and the low half is all ones.
+    let big: [U8] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f];
+    let (low, end) = assert.ok(bytes.readVarint32(big, 0));
+    assert.equal([low, end], [4294967295, 9]);
+    // And 2^64 - 1, which a signed reading answers as -1.
+    let widest = bytes.toVarint(ctx, -1);
+    assert.equal(assert.ok(bytes.readVarint32(widest, 0)).0, 4294967295);
+    assert.equal(assert.ok(bytes.readVarint(widest, 0)).0, -1);
+}
+
 // --- The reader ------------------------------------------------------------------
 
 test "a reader starts at the first octet and knows when it is done" {
