@@ -200,13 +200,13 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 50 properties. The arithmetic, because the cut line is the design:
+  // 51 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
   //    8  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge, Bleed
   //    7  extent:     {Min,Max,}Width, {Min,Max,}Height, AspectRatio
-  //   10  paint:      Background, Foreground, Border{Width,Edge,Color,Style},
-  //       Radius, RadiusCorner, Opacity, Shadow
+  //   11  paint:      Background, Foreground, Border{Width,Edge,Color,Style},
+  //       Radius, RadiusCorner, Opacity, Shadow, Shadows
   //   11  type:       FontFamily, FontSize, FontWeight, Italic, LineHeight,
   //       LetterSpacing, TextAlign, TextCase, TextLine, TextWrap, Truncate
   //    1  Cursor
@@ -221,6 +221,7 @@ export enum Style {
   RadiusCorner(Corner, Length),         // one corner; a joined group squares a side
   Bleed(Edge, Length),                  // the one way out of the container's box
   Background(Color), Foreground(Color), Truncate(Int), ...,
+  Shadow(Shadow), Shadows([Shadow]),    // one slot; the last written wins
   Translate(Length, Length),            // after the layout; no sibling moves
 
   // and six combinators
@@ -257,8 +258,19 @@ export enum Length { Px(Int), Rem(Float), Em(Float), Percent(Float), Auto, Full 
                           // own — which is the only way tracking is right at
                           // more than one size
 export enum Color  { Rgb(Int, Int, Int), Rgba(Int, Int, Int, Float),
-                     Token(TokenReference), Transparent, Inherit }
+                     Token(TokenReference), Transparent, Inherit,
+                     Faded(TokenReference, Float) }
+                          // `Faded` is what `color.alpha(0.5)` answers for a
+                          // token, and only for a token: a colour written out
+                          // fades to an `Rgba` the compiler works out. It is
+                          // last because the order is the tag the runtime
+                          // reads
 ```
+
+`Shadow(Shadow)` and `Shadows([Shadow])` are two spellings of one `box-shadow`,
+so they share one conflict slot and the last written wins. Every elevation worth
+having is two layers and a focus ring is a third beside them, which is why the
+list exists; one layer stays the shorter spelling.
 
 Deliberately absent: floats, margin collapsing, inline-block — stacks, `Gap`,
 and `Layers` replace them, and none survive cross-platform. Space between
@@ -367,6 +379,16 @@ preference, or a media query bridged into one. Switching rewrites the block and
 **every class on every element stays exactly as it was**: nothing is
 re-extracted, no element is touched, and the browser repaints from variables it
 already had. That is the whole reason dark mode is not a second stylesheet.
+
+`Color.alpha(f)` is what keeps a translucent shade from needing a token of its
+own. On a colour written out it is arithmetic the compiler does; on a token it
+lowers to `color-mix(in srgb, var(--cardlib-ring) 50%, transparent)`, so the
+token still decides the hue and a theme that changes it changes the fade with
+it. Without it a focus ring alone costs three extra tokens — `--ring-soft`,
+`--destructive-soft` and its dark twin — hand-blended in every theme and
+drifting apart the day one of them moves. The fraction is 0 to 1 and the
+extractor refuses anything else, because a `color-mix` percentage outside 0 to
+100 makes the declaration invalid and the colour vanishes.
 
 ## Rules that make it typecheck
 

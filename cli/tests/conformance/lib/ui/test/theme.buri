@@ -212,6 +212,21 @@ test "no themes at all is no block at all" {
     assert.equal(install([]), "");
 }
 
+test "a token worth another token, faded, is the mix and keeps the chain" {
+    // The value is a `color-mix` around a `var()`, so `cardlib.accent` follows
+    // `app.fg` wherever the app takes it — which is what saves a design system
+    // from minting a second token to spell a fade.
+    let block = install([
+        appThemed(day),
+        theme.themed([(Card.Accent.color(), App.Fg.color().alpha(0.2))]),
+    ]);
+    assert.isTrue(
+        block.contains(
+            "--cardlib-accent:color-mix(in srgb,var(--app-fg) 20%,transparent)",
+        ),
+    );
+}
+
 // --- switching -----------------------------------------------------------------------
 
 test "switching a theme swaps the values and changes no class" {

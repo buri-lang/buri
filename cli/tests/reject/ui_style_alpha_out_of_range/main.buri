@@ -1,0 +1,26 @@
+// EXPECT: an alpha is a fraction from 0 to 1
+//
+// `Rgba`'s fourth value and `alpha`'s argument are the same number, so one rule
+// covers both. It matters most for a token: `alpha` on one lowers to a
+// `color-mix` percentage, and one outside 0 to 100 makes the whole declaration
+// invalid, so the element loses the colour rather than gaining a louder one.
+//
+// Two mistakes, and each is reported where it was written.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import * as style;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let card = ui.stack(
+    [
+      .Background(.Rgba(0, 0, 0, 1.5)),
+      .BorderColor(style.token("cardlib", "ring").alpha(-0.25)),
+    ],
+    [],
+  );
+  ui.mount(ctx, card, [])
+}

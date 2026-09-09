@@ -214,6 +214,15 @@ export enum Style {
     Opacity(Float),
     /// A shadow cast by this element.
     Shadow(Shadow),
+    /// Several shadows at once, the first written painted over the ones after
+    /// it. Every elevation worth having is two layers — a wide soft one, and a
+    /// tight one that keeps the near edge crisp — and a focus ring is a third
+    /// beside them.
+    ///
+    /// It shares `Shadow`'s conflict slot, so the last of the two written is
+    /// the element's shadow and the other is gone. Reach for `Shadow` when
+    /// there is one layer.
+    Shadows([Shadow]),
 
     /// Which family the text is set in.
     FontFamily(FontFamily),
@@ -352,6 +361,50 @@ export enum Color {
     Transparent,
     /// Whatever the containing element uses.
     Inherit,
+    /// A design token at a fraction of its opacity, which is what `alpha`
+    /// answers for a token.
+    ///
+    /// Nothing knows what a token is worth until a theme is installed, so the
+    /// fade cannot be done here: it lowers to `color-mix(in srgb,
+    /// var(--pkg-name) 50%, transparent)` and the token stays a token. It is
+    /// **last** in this enum because the order is the tag the runtime reads,
+    /// and the five above it were already numbered.
+    Faded(TokenReference, Float),
+}
+
+impl Color {
+    /// The same colour, at `a` of its opacity — `0.0` is invisible and `1.0`
+    /// is unchanged.
+    ///
+    /// ```buri
+    /// from "ui/style" import * as style;
+    /// from "ui/style" import { Style };
+    ///
+    /// export let halo: Style = .BorderColor(style.token("ui", "ring").alpha(0.5));
+    /// ```
+    ///
+    /// A colour written out fades to a plain `Rgba`, because its channels are
+    /// known. A token cannot be blended until a theme says what it is worth,
+    /// so it stays a token inside a `color-mix` and follows the theme the way
+    /// every other `var()` does — which is what saves a design system from
+    /// minting `--ring-soft` beside `--ring` and hand-blending the pair in
+    /// every theme.
+    ///
+    /// `Transparent` and `Inherit` answer themselves. Neither names a colour
+    /// there is anything to fade.
+    ///
+    /// The fraction is `0.0` to `1.0`, and the extractor refuses anything else
+    /// (`style-alpha-out-of-range`).
+    export fn alpha(self, a: Float): Color {
+        match (self) {
+            .Rgb(r, g, b) => .Rgba(r, g, b, a),
+            .Rgba(r, g, b, _was) => .Rgba(r, g, b, a),
+            .Token(reference) => .Faded(reference, a),
+            .Faded(reference, _was) => .Faded(reference, a),
+            .Transparent => .Transparent,
+            .Inherit => .Inherit,
+        }
+    }
 }
 
 /// An opaque name for one package's design token: the package it belongs to,
