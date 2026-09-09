@@ -1,0 +1,9 @@
+# One library and one test source: six pictures of a `button`, whose styles
+# land on the button itself, and a snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

@@ -14,4 +14,4 @@ error: there is nothing named `generated` in scope [unresolved-name]
    |                    ^^^^^^^^^
    |
    = did you mean `generatedWith`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `generatedWith`, use that; if not, a name is in scope only from this module's own declarations and its imports

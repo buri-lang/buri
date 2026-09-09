@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "the surface properties, on a stack"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/sweep/test/pictures.buri:15:1
+
+0 passed, 1 failed, 5 skipped (0.0s)

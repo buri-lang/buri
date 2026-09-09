@@ -6,7 +6,6 @@ error: expected `Str`, found `IoError` [type-mismatch]
    |
    = expected: `Str`
    = actual: `IoError`
-   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
 error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
   --> lib/recovery_delete_closer_paren_expected_151388/main.buri:51:23
    |
@@ -31,7 +30,7 @@ error: `Str` has no method `mapErr` [no-such-method]
 52 |         .mapErr(fn(_e) => "could not write to standard output")
    |          ^^^^^^
    |
-   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_expected_151388/main.buri:53:1
    |

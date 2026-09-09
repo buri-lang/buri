@@ -1,0 +1,12 @@
+// EXPECT: has no method `eq`
+// `Equal`'s method is `equal`, so `a.eq(b)` is gone.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let a = 1;
+  let _ = io.println(ctx, "${a.eq(2)}").ignore();
+  .Ok(())
+}

@@ -13,7 +13,7 @@ error: there is nothing named `a` in scope [unresolved-name]
   |   ^
   |
   = did you mean `f`?
-  = fix: correct the spelling, or declare it
+  = fix: if you meant `f`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: a statement ends with `;` [missing-terminator]
  --> main.buri:2:4
   |
