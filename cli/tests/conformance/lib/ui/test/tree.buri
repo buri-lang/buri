@@ -26,7 +26,7 @@ from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
-from "ui/node" import { Node };
+from "ui/node" import { FieldKind, Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import { Shadow, Style };
@@ -741,14 +741,43 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     let inline = "display:flex;flex-direction:row;flex-wrap:wrap;align-items:center";
     assert.equal(
         ui.describe(ctx, ui.toggle(.Const("done"), [], done), .Hover),
-        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 \nt 1 done"),
+        str.format(
+            ctx,
+            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 \nt 1 done",
+        ),
     );
     // A field is the same wrapper with the text first, which is the order the
     // markup puts them in too.
     assert.equal(
         ui.describe(ctx, ui.field(.Const("name"), .Text, [], name), .Hover),
-        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 \nt 2 ada"),
+        str.format(
+            ctx,
+            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 field:text\nt 2 ada",
+        ),
     );
+}
+
+test "a field's kind is in the scene, and a password's value is never in it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let secret = signal(ctx, "hunter2");
+    // `describe` used to drop the kind, so all six fields painted alike and a
+    // snapshot of a password field held the secret as ordinary text. The kind
+    // is the `type` the markup carries — `multiline` for the `textarea` that
+    // has none — and it is what the painter masks a value on.
+    assert.containsText(kindOf(ctx, .Text, secret), "field:text");
+    assert.containsText(kindOf(ctx, .Multiline, secret), "field:multiline");
+    assert.containsText(kindOf(ctx, .Password, secret), "field:password");
+    assert.containsText(kindOf(ctx, .Email, secret), "field:email");
+    assert.containsText(kindOf(ctx, .Number, secret), "field:number");
+    assert.containsText(kindOf(ctx, .Search, secret), "field:search");
+}
+
+/// The scene document one field of a kind writes.
+fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
+    ui.describe(ctx, ui.field(.Const("secret"), kind, [], value), .Hover)
 }
 
 test "a control takes styles of its own, and they land on the control" {

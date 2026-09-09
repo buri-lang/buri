@@ -44,6 +44,15 @@
 //! folded and one that did not paint alike. Anything else parses and is
 //! ignored, which is what lets the vocabulary grow without breaking a scene.
 //!
+//! An `e` line may also carry `field:<kind>`, which says what an input accepts:
+//! the `type` its markup carries, or `multiline` for the `textarea` that has
+//! none. Two of the six paint differently, and they are the two a browser draws
+//! differently under this stylesheet's reset. A **password's value is never
+//! painted** — one `•` per character, the way `<input type="password">` is
+//! drawn, so a golden holds the width of the secret and none of it. And only
+//! `multiline` wraps, because an `<input>` is one line whatever is typed into
+//! it.
+//!
 //! An `e` line may also carry `image:<source>`, which makes the box a picture
 //! rather than a container. **The painter loads nothing** — no network, no
 //! disk — so the only source it can read is a `data:` URI holding a PNG this
@@ -738,6 +747,9 @@ struct Computed {
     case: Case,
     decoration: Decoration,
     nowrap: bool,
+    /// A password's text: painted as bullets, never as itself. Inherited, so
+    /// that the run inside the input carries it.
+    masked: bool,
 }
 
 impl Computed {
@@ -784,6 +796,7 @@ impl Computed {
             case: Case::None,
             decoration: Decoration::None,
             nowrap: false,
+            masked: false,
         }
     }
 
@@ -800,6 +813,7 @@ impl Computed {
         child.case = self.case;
         child.decoration = self.decoration;
         child.nowrap = self.nowrap;
+        child.masked = self.masked;
         // Not inherited, but it multiplies down: a subtree under a half
         // transparent box is half transparent.
         child.opacity = self.opacity;
@@ -1010,6 +1024,13 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             };
         }
         "text-wrap" => style.nowrap = value == "nowrap",
+        // What the input accepts. A secret is masked; an `<input>` is one line
+        // and a `textarea` is the one kind that is not, so the rest is the
+        // difference the sheet's own reset leaves — which is none.
+        "field" => {
+            style.masked = value == "password";
+            style.nowrap = value != "multiline";
+        }
         // `font-family` resolves to the bundled family whatever it names, and
         // `cursor` paints nothing. Both parse so that a scene keeps them.
         _ => {}
@@ -1282,8 +1303,16 @@ thread_local! {
         std::cell::RefCell::new((font_system(), SwashCache::new()));
 }
 
-fn transformed(text: &str, case: Case) -> String {
-    match case {
+/// The characters a run is shaped from: the mask, if it is a password's, and
+/// otherwise what `text-transform` made of it.
+///
+/// One bullet per `char`, which is what a browser draws and what keeps the box
+/// the width the secret would have taken without the box holding it.
+fn transformed(text: &str, style: &Computed) -> String {
+    if style.masked {
+        return "\u{2022}".repeat(text.chars().count());
+    }
+    match style.case {
         Case::None => text.to_string(),
         Case::Upper => text.to_uppercase(),
         Case::Lower => text.to_lowercase(),
@@ -1342,7 +1371,7 @@ fn shape(
         attrs = attrs.letter_spacing(style.letter_spacing / size);
     }
     buffer.set_text(
-        &transformed(text, style.case),
+        &transformed(text, style),
         &attrs,
         Shaping::Advanced,
         Some(style.align_text),
@@ -3447,6 +3476,49 @@ mod tests {
         assert_eq!(at(&image, 25, 12), [200, 40, 40, 255]);
         // 15 tall, not 30: three boxes in one cell, never one under another.
         assert_eq!(at(&image, 0, 16), [255, 255, 255, 255]);
+    }
+
+    /// buri#89: a snapshot of a password field used to hold the secret as
+    /// ordinary text, so `buri test --update` wrote it into a file somebody
+    /// commits.
+    #[test]
+    fn a_password_field_paints_bullets_and_never_the_value() {
+        let field = |kind: &str, value: &str| {
+            format!(
+                "buri-scene 1\nviewport 80 24\n\
+                 e 0 field:{kind};font-size:12px\n\
+                 t 1 {value}\n"
+            )
+        };
+        let secret = render_ok(&field("password", "Ada"), "", "rest");
+        let bullets = render_ok(&field("text", "\u{2022}\u{2022}\u{2022}"), "", "rest");
+        let clear = render_ok(&field("text", "Ada"), "", "rest");
+        // What a browser draws for `<input type="password">`, one per character.
+        assert_eq!(secret.rgba, bullets.rgba);
+        // And not the secret: the two are different pictures, and the masked
+        // one has ink in it, so "no glyph of Ada" is not "nothing at all".
+        assert_ne!(secret.rgba, clear.rgba);
+        assert!(inked_pixels(&secret) > 0, "the mask painted nothing");
+    }
+
+    /// The other half of the kind, and the only other one this sheet leaves
+    /// visible: an `<input>` is one line whatever is typed into it, and a
+    /// `textarea` is the one kind that wraps.
+    #[test]
+    fn only_a_multiline_field_wraps_its_value() {
+        let field = |kind: &str| {
+            format!(
+                "buri-scene 1\nviewport 60 40\n\
+                 e 0 field:{kind};width:40px;font-size:12px\n\
+                 t 1 one two three four\n"
+            )
+        };
+        let one_line = render_ok(&field("text"), "", "rest");
+        let wrapped = render_ok(&field("multiline"), "", "rest");
+        assert_ne!(one_line.rgba, wrapped.rgba);
+        // The single line runs past the forty pixels the box was given; the
+        // wrapped one does not reach the bottom of the viewport on one line.
+        assert!(inked_pixels(&wrapped) > inked_pixels(&one_line));
     }
 
     #[test]
