@@ -262,8 +262,8 @@ fn the_monorepo_page_builds_as_a_web_artifact() {
     // carries the id the runtime's own installer looks for, so the rules are in
     // the page before the first paint and `mount` finds them there and does
     // nothing — no duplication and no flash of unstyled content.
-    assert!(shell.contains(r#"<link id="buri-styles" rel="stylesheet" href="basket.css">"#));
-    assert!(shell.contains(r#"<script type="module" src="./basket.mjs"></script>"#));
+    assert!(shell.contains(r#"<link id="buri-styles" rel="stylesheet" href="/basket.css">"#));
+    assert!(shell.contains(r#"<script type="module" src="/basket.mjs"></script>"#));
 
     // Two packages' tokens, each namespaced by the package that owns it, so a
     // library's `surface` and an app's could never collide.
