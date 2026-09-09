@@ -38,7 +38,7 @@ fn page<C>(rows: [Node<C>]): Node<C> {
 fn framed<C>(styles: [Style], source: Str): Node<C> {
     ui.stack(
         [.Group(styles), .BorderWidth(.Px(2)), .BorderColor(.Rgb(120, 120, 130))],
-        [ui.image(.Const(source), .Const("a picture"), [])],
+        [ui.image(.Const(source), .Const("a picture"), [], [])],
     )
 }
 
@@ -72,7 +72,7 @@ export fn sizes<C>(): Node<C> {
         ),
         labelled(
             "read, in no box at all",
-            ui.image(.Const(icon), .Const("a picture"), []),
+            ui.image(.Const(icon), .Const("a picture"), [], []),
         ),
         labelled(
             "a vector, in a 200x100 box",
@@ -80,7 +80,7 @@ export fn sizes<C>(): Node<C> {
         ),
         labelled(
             "a vector, in no box at all",
-            ui.image(.Const(vector), .Const("a picture"), []),
+            ui.image(.Const(vector), .Const("a picture"), [], []),
         ),
         labelled(
             "a placeholder, in a 200x100 box",
@@ -92,7 +92,7 @@ export fn sizes<C>(): Node<C> {
         ),
         labelled(
             "a placeholder, in no box at all",
-            ui.image(.Const(missing), .Const("a picture"), []),
+            ui.image(.Const(missing), .Const("a picture"), [], []),
         ),
     ])
 }

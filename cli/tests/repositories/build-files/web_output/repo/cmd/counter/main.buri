@@ -19,6 +19,7 @@ fn view<C: Ui>(ctx: C, count: Signal<Int>): Node<C> {
             ui.button(
                 .Const("add one"),
                 [],
+                [],
                 fn(c, e) => { count.update(c, fn(n) => n + 1) },
                 .Const(false),
             ),

@@ -135,8 +135,8 @@ test "an element that holds nothing still writes its closing tag" {
     // match. Every element that is not one of HTML's own empty ones closes.
     assert.equal(web.render(ui.region(.Main, [], [])), "<main></main>");
     assert.equal(
-        web.render(ui.button(.Const(""), [], fn(_c, _e) => (), .Const(false))),
-        "<button type=\"button\"></button>",
+        web.render(ui.button(.Const(""), [], [], fn(_c, _e) => (), .Const(false))),
+        "<button type=\"button\" aria-label=\"\"></button>",
     );
     assert.equal(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
     assert.equal(web.render(ui.spacer()), "<div class=\"grow-1\"></div>");
@@ -164,40 +164,56 @@ test "every kind of node renders" {
         "<a href=\"/there\">go</a>",
     );
     assert.equal(
-        web.render(ui.field(.Const("name"), .Text, [], typed, .Const(false))),
+        web.render(ui.field(.Const("name"), .Text, [], [], typed, .Const(false))),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     // What is typed into a `textarea` is its text rather than an attribute.
     assert.equal(
-        web.render(ui.field(.Const("story"), .Multiline, [], typed, .Const(false))),
+        web.render(ui.field(.Const("story"), .Multiline, [], [], typed, .Const(false))),
         "<label><span>story</span><textarea>ada</textarea></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
     assert.equal(
-        web.render(ui.toggle(.Const("done"), [], ticked, .Const(false))),
+        web.render(ui.toggle(.Const("done"), .Checkbox, [], [], ticked, .Const(false))),
         "<label><input type=\"checkbox\" checked /><span>done</span></label>",
     );
     // `disabled` is the other boolean attribute this vocabulary writes, and it
     // has to cross: a page that resumes on markup without it hands the reader a
     // control the server said was unavailable.
     assert.equal(
-        web.render(ui.button(.Const("save"), [], fn(_c, _e) => (), .Const(true))),
-        "<button type=\"button\" disabled>save</button>",
-    );
-    assert.equal(
-        web.render(ui.field(.Const("name"), .Text, [], typed, .Const(true))),
-        "<label><span>name</span><input type=\"text\" value=\"ada\" disabled /></label>",
-    );
-    assert.equal(
-        web.render(ui.toggle(.Const("done"), [], ticked, .Const(true))),
+        web.render(ui.toggle(.Const("done"), .Checkbox, [], [], ticked, .Const(true))),
         "<label><input type=\"checkbox\" checked disabled /><span>done</span></label>",
+    );
+    assert.equal(
+        web.render(ui.field(.Const("name"), .Text, [], [], typed, .Const(true))),
+        "<label><span>name</span><input type=\"text\" value=\"ada\" disabled /></label>",
     );
     // A picture's styles are the picture's, so they cross as a class on the
     // `<img>` itself rather than on anything around it.
     assert.equal(
         web.render(ui.image(.Const("/cat.png"), .Const("a cat"), [.Width(.Full)])),
         "<img src=\"/cat.png\" alt=\"a cat\" class=\"w-full\" />",
+    );
+    // A switch is the same control announced differently, and the mark it draws
+    // is the sheet's rather than a child's.
+    assert.equal(
+        web.render(ui.toggle(.Const("email"), .Switch, [], [], ticked, .Const(false))),
+        "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
+    );
+    // A button holding a mark and a word is one element, and the label the
+    // markup carries is what a reader is announced rather than the glyphs.
+    assert.equal(
+        web.render(
+            ui.button(
+                .Const("Overview"),
+                [],
+                [ui.text(.Const("* Overview"))],
+                fn(_c, _e) => (),
+                .Const(false),
+            ),
+        ),
+        "<button type=\"button\" aria-label=\"Overview\">* Overview</button>",
     );
     // The three that decide what to render resolve rather than register: a
     // condition is read once, a computation is run once, and a list renders the

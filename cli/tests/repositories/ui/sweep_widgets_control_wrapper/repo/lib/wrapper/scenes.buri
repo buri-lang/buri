@@ -1,0 +1,242 @@
+//! The two boxes a labelled control is, and which style list reaches which.
+//!
+//! `rowPage` and `crossPage` are the box a container lays out: every layout
+//! property that only works on the `<label>`, put on `around` and then on the
+//! control instead — where it does nothing, because the control's parent is the
+//! label and not the row.
+//!
+//! `insidePage` is the label as a box in its own right: paint on `around`, and
+//! the arrangement `around` overrides.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// What a row can do to a labelled control, and what it cannot.
+export fn rowPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("around — the box a row lays out")),
+        band("Grow(1): the field takes the room the addons leave", [
+            addons(ctx, "on around", [.Grow(1)], []),
+            addons(ctx, "on the control", [], [.Grow(1)]),
+            addons(ctx, "on both", [.Grow(1)], [.Width(.Full)]),
+        ]),
+        band("Width(.Full): a share of the row, not of the label's own text", [
+            addons(ctx, "on around", [.Width(.Full)], []),
+            addons(ctx, "on the control", [], [.Width(.Full)]),
+        ]),
+        band("Shrink(0): the control keeps its width when the row runs out", [
+            crowded(ctx, "on around", [.Shrink(0), .Width(.Px(240))], []),
+            crowded(ctx, "on the control", [], [.Shrink(0), .Width(.Px(240))]),
+        ]),
+    ])
+    // The recipe: the label takes the room, and the input fills the
+    // label. Neither half does it alone.
+}
+
+/// The two that place the label across its container rather than along it.
+export fn crossPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("around — where the label sits in its container")),
+        band("AlignSelf(.End): down a row taller than the control", [
+            tall(ctx, "on around", [.AlignSelf(.End)], []),
+            tall(ctx, "on the control", [], [.AlignSelf(.End)]),
+        ]),
+        band("Span(2): how many tracks of a grid the label covers", [
+            spanned(ctx, "on around", [.Span(2)], []),
+            spanned(ctx, "on the control", [], [.Span(2)]),
+        ]),
+    ])
+}
+
+/// The label as a box of its own: paint on it, and the arrangement it is given.
+export fn insidePage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("around — the label is a box, and its arrangement is beatable")),
+        cells("paint on the wrapper", [
+            cell("nothing", field(ctx, [], [])),
+            cell(
+                "a card",
+                field(ctx, [], [
+                    .Background(.Rgb(232, 238, 250)),
+                    .Radius(.Px(6)),
+                    .Padding(.Px(6)),
+                    .Gap(.Px(6)),
+                ]),
+            ),
+            cell(
+                "a border",
+                field(ctx, [], [
+                    .BorderWidth(.Px(2)),
+                    .BorderColor(.Rgb(70, 90, 120)),
+                    .Padding(.Px(4)),
+                ]),
+            ),
+        ]),
+        cells("the arrangement the reset gives it, and the caller beating it", [
+            cell("as given: a wrapping row", field(ctx, [.Width(.Px(90))], [])),
+            cell(
+                "Layout(.Column)",
+                field(ctx, [.Width(.Px(90))], [.Layout(.Column), .AlignCross(.Start)]),
+            ),
+            cell(
+                "AlignCross(.Start)",
+                field(ctx, [.Width(.Px(90)), .Height(.Px(34))], [.AlignCross(.Start)]),
+            ),
+            cell("Gap(12)", field(ctx, [.Width(.Px(90))], [.Gap(.Px(12))])),
+        ]),
+        cells("a toggle takes the same pair", [
+            cell("nothing", check(ctx, [])),
+            cell(
+                "a card",
+                check(ctx, [
+                    .Background(.Rgb(232, 238, 250)),
+                    .Radius(.Px(6)),
+                    .Padding(.Px(6)),
+                    .Gap(.Px(6)),
+                ]),
+            ),
+            cell(
+                "Layout(.Column)",
+                check(ctx, [.Layout(.Column), .AlignCross(.Start)]),
+            ),
+        ]),
+    ])
+}
+
+/// The input group: an addon, the field, an addon, in a row 700 wide.
+fn addons<C: Ui>(ctx: C, name: Str, around: [Style], styles: [Style]): Node<C> {
+    labelled(
+        name,
+        ui.row([.Width(.Px(700)), .Gap(.Px(4)), .AlignCross(.Center)], [
+            addon("https://"),
+            field(ctx, styles, around),
+            addon(".com"),
+        ]),
+    )
+}
+
+/// The same row, too narrow for what is in it.
+fn crowded<C: Ui>(ctx: C, name: Str, around: [Style], styles: [Style]): Node<C> {
+    labelled(
+        name,
+        ui.row([.Width(.Px(320)), .Gap(.Px(4)), .AlignCross(.Center)], [
+            addon("a rather long addon"),
+            field(ctx, styles, around),
+        ]),
+    )
+}
+
+/// A row taller than the control, so a cross-axis alignment shows.
+fn tall<C: Ui>(ctx: C, name: Str, around: [Style], styles: [Style]): Node<C> {
+    labelled(
+        name,
+        ui.row([.Width(.Px(320)), .Height(.Px(56)), .Gap(.Px(4))], [
+            addon("tall row"),
+            field(ctx, styles, around),
+        ]),
+    )
+}
+
+/// A grid of three equal tracks, so a span shows.
+fn spanned<C: Ui>(ctx: C, name: Str, around: [Style], styles: [Style]): Node<C> {
+    labelled(
+        name,
+        ui.stack(
+            [
+                .Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)])),
+                .Width(.Px(420)),
+                .Gap(.Px(4)),
+            ],
+            [field(ctx, styles, around), addon("after")],
+        ),
+    )
+}
+
+/// One row of a layout page: what was tried, and the container it was tried in.
+fn labelled<C>(name: Str, inner: Node<C>): Node<C> {
+    ui.column([.Gap(.Px(2)), .AlignCross(.Start)], [ui.text(.Const(name)), inner])
+}
+
+/// One addon: a box that keeps its own width.
+fn addon<C>(words: Str): Node<C> {
+    ui.stack(
+        [
+            .Shrink(0),
+            .PaddingX(.Px(6)),
+            .PaddingY(.Px(4)),
+            .Background(.Rgb(226, 232, 244)),
+            .Radius(.Px(4)),
+        ],
+        [ui.text(.Const(words))],
+    )
+}
+
+/// The subject: a text field, its styles on the input and `around` on the
+/// label.
+fn field<C: Ui>(ctx: C, styles: [Style], around: [Style]): Node<C> {
+    ui.field(
+        .Const("Site"),
+        .Text,
+        [
+            .PaddingX(.Px(6)),
+            .PaddingY(.Px(4)),
+            .Background(.Rgb(255, 255, 255)),
+            .BorderWidth(.Px(1)),
+            .BorderColor(.Rgb(150, 160, 180)),
+            .Radius(.Px(4)),
+            .Group(styles),
+        ],
+        around,
+        signal(ctx, "buri"),
+        .Const(false),
+    )
+}
+
+/// The same pair on a toggle.
+fn check<C: Ui>(ctx: C, around: [Style]): Node<C> {
+    ui.toggle(
+        .Const("Remember me"),
+        .Checkbox,
+        [.Background(.Rgb(226, 232, 244)), .Radius(.Px(3))],
+        around,
+        signal(ctx, true),
+        .Const(false),
+    )
+}
+
+/// One value: its name, and the control under it.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(180)), .Gap(.Px(4)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// One band whose entries stand side by side.
+fn cells<C>(name: Str, inner: [Node<C>]): Node<C> {
+    band(name, [ui.row([.Gap(.Px(8)), .AlignCross(.Start)], inner)])
+}
+
+/// One band: its name, then its rows down the page.
+fn band<C>(name: Str, rows: [Node<C>]): Node<C> {
+    ui.column([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
+        ui.text(.Const(name)),
+        ui.column([.Gap(.Px(6)), .AlignCross(.Start)], rows),
+    ])
+}
+
+/// The page: a title and the bands under it.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(6)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}

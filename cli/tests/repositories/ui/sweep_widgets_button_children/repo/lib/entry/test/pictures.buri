@@ -1,0 +1,56 @@
+// What a button holds, and the wash that covers all of it.
+//
+// The rail is painted twice, resting and hovered, because that is the claim:
+// one element, so one wash over the mark and the word together. Before this a
+// button held no children and the pair had to be a row, which put the wash on
+// the wrapper and left only the focus ring on the thing that is pressed.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/entry" import { contentPage, railPage };
+
+test "what a button holds" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The label is the name and never the glyphs, so it is not in the scene at
+    // all once there are children to draw.
+    let scene = ui.describe(
+        ctx,
+        ui.button(
+            .Const("Overview"),
+            [],
+            [ui.text(.Const("*"))],
+            fn(_c, _e) => (),
+            .Const(false),
+        ),
+        .Hover,
+    );
+    assert.containsText(scene, "t 1 *");
+    assert.isFalse(scene.contains("Overview"));
+    snapshot(ctx, "button-content", contentPage(), .Hover, []);
+}
+
+test "the wash a rail entry answers with, at rest" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "button-rail-resting", railPage(), .Disabled, []);
+}
+
+test "and hovered" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The mark and the word are inside the button, so the hovered background
+    // is behind both of them rather than behind a row around them.
+    assert.containsText(ui.describe(ctx, railPage(), .Hover), "hover_bg-");
+    snapshot(ctx, "button-rail-hover", railPage(), .Hover, []);
+}

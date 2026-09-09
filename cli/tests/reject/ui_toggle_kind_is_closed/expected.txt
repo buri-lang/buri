@@ -1,0 +1,12 @@
+error: `ToggleKind` has no variant `Tick` [no-such-variant]
+  --> cmd/ui_toggle_kind_is_closed/main.buri:16:29
+   |
+16 |   ui.toggle(.Const("done"), .Tick, [], [], value, .Const(false))
+   |                             ^^^^^
+   |
+   = its variants are `Checkbox` and `Switch`
+   = fix: name a variant the enum declares
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+

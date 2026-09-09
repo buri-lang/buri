@@ -81,8 +81,8 @@ fn page<C>(
     ui.region(.Main, [], [
         ui.heading(1, [], .Const(title)),
         ui.text(.Const(visitors)),
-        ui.button(label, [], onPress, .Const(false)),
-        ui.button(.Const("about"), [], onGo, .Const(false)),
+        ui.button(label, [], [], onPress, .Const(false)),
+        ui.button(.Const("about"), [], [], onGo, .Const(false)),
         ui.computed(fn(scope) => at(path.read(scope))),
     ])
 }
