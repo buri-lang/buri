@@ -1,0 +1,93 @@
+# What a design token is worth, in pixels — every slot, every primitive,
+# every way a theme list can answer.
+#
+# `a_card_is_painted_under_two_themes/` beside this is the smallest version of
+# the claim: two lists, two pictures. This is the *matrix*. One tree carries
+# the four colours `ui/style` can name — a background, a foreground, a border
+# and a shadow — as four tokens and nothing else, on the five primitives that
+# can carry one: a card, a heading, a button, a field and a list. Five theme
+# lists paint it five times.
+#
+#   * **Light and dark.** The same geometry, every coloured pixel swapped.
+#   * **A token no theme bound.** The list binds one of the four. The other
+#     three are the painter's answer to an unresolved `var()`, and each
+#     property answers differently: a background paints nothing, a foreground
+#     falls back to what it inherited, a border falls back to the element's own
+#     foreground, and a shadow is dropped whole. That is what CSS does with a
+#     declaration that is invalid at computed-value time, property by property,
+#     and this picture is where it is pinned.
+#   * **Two lists, the second rebinding two of the first's.** Surface and ink
+#     come from the second, edge and cast from the first — a later binding
+#     replaces an earlier one, and one that is not there does not.
+#   * **A chain.** This package's tokens are worth another package's tokens,
+#     which are worth colours. `mount` follows a chain once, and so does a
+#     snapshot.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the four colour slots a design token can fill, on five primitives, under a light theme, a dark one, a list that binds one token, two lists that disagree, and a chain"
+
+run {
+  args: ["test", "//lib/tokens", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/tokens/test/__snapshots__/tokens-light.diff.png"  exists: false }
+path { path: "lib/tokens/test/__snapshots__/tokens-dark.diff.png"  exists: false }
+path { path: "lib/tokens/test/__snapshots__/tokens-unbound.diff.png"  exists: false }
+path { path: "lib/tokens/test/__snapshots__/tokens-layered.diff.png"  exists: false }
+path { path: "lib/tokens/test/__snapshots__/tokens-chained.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to record
+# one rather than showing a difference against nothing.
+edit {
+  file: "lib/tokens/test/tokens.buri"
+  replace: "snapshot(ctx, \"tokens-light\", page(ctx), .Hover, [themedBy(light)]);"
+  with: "snapshot(ctx, \"never-recorded\", page(ctx), .Hover, [themedBy(light)]);"
+}
+
+run {
+  args: ["test", "//lib/tokens", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/tokens/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and the
+# run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/tokens", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/tokens/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/tokens", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one edit, and the pictures it reaches fail while the
+# pictures it does not reach stay clean.
+edit {
+  file: "lib/tokens/tokens.buri"
+  replace: ".BorderWidth(.Px(4)),"
+  with: ".BorderWidth(.Px(12)),"
+}
+
+run {
+  args: ["test", "//lib/tokens", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/tokens/test/__snapshots__/tokens-light.diff.png"  exists: false }
+path { path: "lib/tokens/test/__snapshots__/tokens-dark.diff.png"  exists: true }
+path { path: "lib/tokens/test/__snapshots__/tokens-unbound.diff.png"  exists: true }
+path { path: "lib/tokens/test/__snapshots__/tokens-layered.diff.png"  exists: true }
+path { path: "lib/tokens/test/__snapshots__/tokens-chained.diff.png"  exists: true }

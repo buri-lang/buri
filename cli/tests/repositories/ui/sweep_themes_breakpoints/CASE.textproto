@@ -1,0 +1,94 @@
+# Every breakpoint the vocabulary has, on the one page width there is.
+#
+# `snapshot` takes no size — the viewport is 800x600 CSS pixels, always — so a
+# breakpoint cannot be shown by painting the same tree at two widths. It is
+# shown by putting all four on one page and letting 800 fall where it falls:
+# above 40rem and 48rem, below 64rem and 80rem. **The two that never apply are
+# the assertion.** A painter that ignored `@media` would paint all four rows
+# green, and a painter that dropped the sheet would paint all four red.
+#
+# Five pictures.
+#
+#   * **One row per breakpoint.** `.Small` and `.Medium` green, `.Large` and
+#     `.ExtraLarge` red.
+#   * **The cascade.** One box with all four `At`s setting the same property,
+#     written ascending, and a second written descending. Both are the
+#     `.Medium` colour: mobile-first means the sheet writes the queries in
+#     ascending order whatever order the program wrote them in, and equal
+#     specificity resolves by position.
+#   * **A breakpoint reaching something other than a colour**: a column that
+#     becomes a row with a wider gap, a width that does not change because its
+#     breakpoint is above 800, and a padding that does.
+#   * **A state inside a breakpoint**, painted hovered and painted checked.
+#     `On` inside `At` means both, and the row whose `At` is above 800 stays
+#     red in either state — so neither half of the pair can be quietly
+#     dropped.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the four breakpoints, their mobile-first cascade, a breakpoint reaching a layout and a size, and a pseudo-class nested inside one, on the 800-wide page a snapshot paints"
+
+run {
+  args: ["test", "//lib/screens", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/screens/test/__snapshots__/breakpoints-each.diff.png"  exists: false }
+path { path: "lib/screens/test/__snapshots__/breakpoints-cascade.diff.png"  exists: false }
+path { path: "lib/screens/test/__snapshots__/breakpoints-layout.diff.png"  exists: false }
+path { path: "lib/screens/test/__snapshots__/breakpoints-hovered.diff.png"  exists: false }
+path { path: "lib/screens/test/__snapshots__/breakpoints-checked.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to record
+# one rather than showing a difference against nothing.
+edit {
+  file: "lib/screens/test/screens.buri"
+  replace: "snapshot(ctx, \"breakpoints-each\", each(), .Hover, []);"
+  with: "snapshot(ctx, \"never-recorded\", each(), .Hover, []);"
+}
+
+run {
+  args: ["test", "//lib/screens", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/screens/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and the
+# run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/screens", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/screens/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/screens", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one edit, and the pictures it reaches fail while the
+# pictures it does not reach stay clean.
+edit {
+  file: "lib/screens/screens.buri"
+  replace: "let green: Style = .Background(.Rgb(40, 160, 80));"
+  with: "let green: Style = .Background(.Rgb(40, 160, 200));"
+}
+
+run {
+  args: ["test", "//lib/screens", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/screens/test/__snapshots__/breakpoints-each.diff.png"  exists: false }
+path { path: "lib/screens/test/__snapshots__/breakpoints-cascade.diff.png"  exists: false }
+path { path: "lib/screens/test/__snapshots__/breakpoints-layout.diff.png"  exists: false }
+path { path: "lib/screens/test/__snapshots__/breakpoints-hovered.diff.png"  exists: true }
+path { path: "lib/screens/test/__snapshots__/breakpoints-checked.diff.png"  exists: true }

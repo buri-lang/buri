@@ -1,0 +1,162 @@
+//! Every derived tier of the vocabulary, over cells a test can write.
+
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+from "ui/style" import { Color, Style };
+
+/// The cells every derivation on the page reads.
+export struct Board {
+    /// How far along the ramp `Style.Computed` paints, and how wide.
+    export tone: Signal<Int>,
+    /// Which branch `When` and `choose` take.
+    export flag: Signal<Bool>,
+    /// The number `ui.text(.Computed)` formats.
+    export count: Signal<Int>,
+    /// And the fraction beside it.
+    export ratio: Signal<Float>,
+    /// The rows `ui.each` keys.
+    export rows: Signal<[Str]>,
+}
+
+/// A board at rest.
+export fn of<C: Ui>(ctx: C): Board {
+    Board {
+        tone: signal(ctx, 40),
+        flag: signal(ctx, false),
+        count: signal(ctx, 3),
+        ratio: signal(ctx, 0.125),
+        rows: signal(ctx, ["alpha", "beta", "gamma"]),
+    }
+}
+
+/// One labelled row: the label in a fixed track, the sample in the rest.
+fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
+    ui.stack([.Layout(.Grid([.Fixed(.Px(190)), .Fraction(1)])), .Gap(.Px(12))], [
+        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+        sample,
+    ])
+}
+
+/// A page of labelled rows.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(10)), .FontSize(.Px(14))], rows)
+}
+
+/// A block of colour with a word in it.
+fn block<C>(styles: [Style], words: Str): Node<C> {
+    ui.stack([.Group(styles), .Padding(.Px(8)), .Foreground(.Rgb(255, 255, 255))], [
+        ui.text(.Const(words)),
+    ])
+}
+
+/// The ramp `tone` walks. A colour out of a parameter is one the compiler
+/// cannot fold, so the style applies inline whichever tier wrote it.
+fn shade(tone: Int): Color {
+    .Rgb(tone, 200 - tone, 120)
+}
+
+/// Every derived tier on one page: a computed style, a condition over a cell
+/// and one over a computation, a computed subtree, a chosen subtree, and a run
+/// of text formatted out of two numbers.
+export fn board<C>(b: Board): Node<C> {
+    page([
+        labelled(
+            "Style.Computed",
+            block(
+                [
+                    .Computed(fn(s) => {
+                        [
+                            .Background(shade(b.tone.get(s))),
+                            .Width(.Px(120 + b.tone.get(s))),
+                        ]
+                    }),
+                ],
+                "inline, and re-serialised",
+            ),
+        ),
+        labelled(
+            "Style.When(Prop.Cell)",
+            block(
+                [
+                    .Background(.Rgb(180, 180, 190)),
+                    .When(.Cell(b.flag), [.Background(.Rgb(40, 160, 80))], [
+                        .Background(.Rgb(200, 60, 60)),
+                    ]),
+                ],
+                "one of two classes",
+            ),
+        ),
+        labelled(
+            "Style.When(Prop.Computed)",
+            block(
+                [
+                    .Background(.Rgb(180, 180, 190)),
+                    .When(
+                        .Computed(fn(s) => b.count.get(s) > 3),
+                        [.Background(.Rgb(40, 100, 200))],
+                        [.Background(.Rgb(140, 40, 160))],
+                    ),
+                ],
+                "count > 3",
+            ),
+        ),
+        labelled(
+            "ui.computed",
+            ui.computed(fn(s) => {
+                let tone = b.tone.get(s);
+                block([.Background(shade(200 - tone))], "a subtree, rebuilt")
+            }),
+        ),
+        labelled(
+            "ui.choose",
+            ui.choose(
+                .Cell(b.flag),
+                block([.Background(.Rgb(40, 160, 80))], "the `then` subtree"),
+                block([.Background(.Rgb(200, 60, 60))], "the `otherwise` subtree"),
+            ),
+        ),
+        labelled(
+            "ui.text(.Computed)",
+            ui.text(
+                .Computed(fn(s) => {
+                    let grouped = str.fromIntGrouped(s, b.count.get(s) * 1000, ",");
+                    let fixed = str.fromFloatFixed(s, b.ratio.get(s), 3);
+                    str.format(s, "${grouped} rows at ${fixed}")
+                }),
+            ),
+        ),
+    ])
+}
+
+/// A keyed list of whatever the cell holds.
+///
+/// A row's colour comes from its key rather than from its position, because a
+/// key is what survives a reorder: a runtime moves a row it still has and
+/// never rebuilds it, so a row that took its colour from its index would paint
+/// one thing here and another in a browser.
+export fn rows<C>(b: Board): Node<C> {
+    page([
+        labelled(
+            "ui.each",
+            ui.row([.Gap(.Px(8))], [
+                ui.each(.Cell(b.rows), fn(row) => row, fn(_c, row, _at) => {
+                    block([.Background(tint(row))], row)
+                }),
+            ]),
+        ),
+    ])
+}
+
+/// A colour per key, so which row moved is a picture and not a claim.
+fn tint(key: Str): Color {
+    match (key) {
+        "alpha" => .Rgb(200, 60, 60),
+        "beta" => .Rgb(40, 160, 80),
+        "gamma" => .Rgb(40, 100, 200),
+        _ => .Rgb(140, 40, 160),
+    }
+}
