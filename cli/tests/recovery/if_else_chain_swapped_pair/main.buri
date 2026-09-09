@@ -1,5 +1,4 @@
-// EXPECT: `if` requires an `else` branch
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/111
+// EXPECT: this `if` branch is missing its closing `}`
 export fn sign(n: Int): Int {
   if (n > 0) {
     1
