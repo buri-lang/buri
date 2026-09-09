@@ -5,3 +5,7 @@ error: `Bogus` is not a trait [derive-not-a-trait]
   |        ^^^^^
   |
   = fix: name a declared trait; `derive` generates a trait's methods
+
+    A trait the standard library renamed is answered with what it is called now:
+    Eq is Equal, and the fix says to write it.
+

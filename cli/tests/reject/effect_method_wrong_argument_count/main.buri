@@ -1,0 +1,10 @@
+// EXPECT: takes 1 arguments, but 2 were given
+//
+// An effect is performed through a function rather than a method, and that is
+// one diagnostic. The count is still checked underneath it, against the
+// effect's own declaration, so the fix prints what the method takes.
+from "core/effect" import { IoError, Stdout };
+
+fn announce<C: Stdout>(ctx: C, what: Str): Result<(), IoError> {
+  ctx.println(what, what)
+}

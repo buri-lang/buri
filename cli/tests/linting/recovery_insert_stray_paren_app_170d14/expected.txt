@@ -18,13 +18,15 @@ error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
    |           ^ opened here
    |
    = fix: write `)` here
-error: `[Char]` is not an enum [not-an-enum]
+error: expected `[Char]`, found a variant `.Some` [type-mismatch]
   --> lib/recovery_insert_stray_paren_app_170d14/main.buri:34:9
    |
 34 |         .Some(digit) => digit,
    |         ^^^^^^^^^^^^
    |
-   = fix: a `.Variant` pattern matches an enum; match this value another way
+   = expected: `[Char]`
+   = actual: a variant `.Some`
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[Char]`
 error: there is nothing named `digit` in scope [unresolved-name]
   --> lib/recovery_insert_stray_paren_app_170d14/main.buri:34:25
    |
@@ -32,13 +34,15 @@ error: there is nothing named `digit` in scope [unresolved-name]
    |                         ^^^^^
    |
    = fix: declare `digit`, or import it — a name is in scope only from this module's own declarations and its imports
-error: `[Char]` is not an enum [not-an-enum]
+error: expected `[Char]`, found a variant `.None` [type-mismatch]
   --> lib/recovery_insert_stray_paren_app_170d14/main.buri:35:9
    |
 35 |         .None => '0',
    |         ^^^^^
    |
-   = fix: a `.Variant` pattern matches an enum; match this value another way
+   = expected: `[Char]`
+   = actual: a variant `.None`
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[Char]`
 error: this arm is unreachable [unreachable-arm]
   --> lib/recovery_insert_stray_paren_app_170d14/main.buri:35:9
    |

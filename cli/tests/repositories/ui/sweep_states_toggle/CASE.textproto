@@ -13,6 +13,12 @@
 # `foreground` column changes nothing a browser would change either: `color` on
 # a checkbox paints nothing.
 #
+# The `boxed` row is the shape a checkbox row is written in everywhere: a box of
+# its own size, with its label beside it on one line. The two rows either side
+# of it are as wide as the cell, so the label takes a line of its own — which is
+# what a browser does with them too, and what the wrapping `<label>` is read
+# for. Both were a column until buri#92 closed.
+#
 # This is the one primitive where a browser fires all five states itself.
 #
 # The negative twin moves one number in one cell of the hover palette. Exactly

@@ -1,0 +1,9 @@
+// EXPECT: `Row` holds 3 values, but 2 were given
+//
+// A tuple constructor's values are positional, so the fix says which position
+// has nothing to fill it: a `Bool` is not the `Str` that comes second.
+struct Row(Int, Str, Bool);
+
+fn go(): Row {
+  Row(1, true)
+}

@@ -1,0 +1,15 @@
+// EXPECT: `Eq`
+// The trait is `Equal`, and a `derive` names it.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+derive Eq for Point;
+struct Point { export x: Int }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let p = Point { x: 1 };
+  let _ = io.println(ctx, "${p == p}").ignore();
+  .Ok(())
+}

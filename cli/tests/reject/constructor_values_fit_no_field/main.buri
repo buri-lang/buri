@@ -1,0 +1,10 @@
+// EXPECT: `Row` holds 3 values, but 2 were given
+//
+// A `Bool` fills none of the first two positions, so no reading of this
+// constructor leaves exactly one value out, and the fix prints the shape
+// alone.
+struct Row(Int, Str, Bool);
+
+fn go(): Row {
+  Row(true, 1)
+}

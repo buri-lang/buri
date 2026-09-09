@@ -6,7 +6,7 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
 error: `toFloat` takes 0 arguments, but 2 were given [wrong-argument-count]
   --> main.buri:36:18
    |
@@ -15,7 +15,7 @@ error: `toFloat` takes 0 arguments, but 2 were given [wrong-argument-count]
    |
    = expected: 0
    = actual: 2
-   = fix: pass exactly 0
+   = fix: pass `toFloat` the following arguments: toFloat(self)
 error: `.toInt` needs a known expected type [unannotated-variant]
   --> main.buri:36:28
    |

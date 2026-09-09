@@ -1,0 +1,12 @@
+// EXPECT: has no method `len`
+// Every collection's size accessor is `length` now.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let xs = [1, 2, 3];
+  let _ = io.println(ctx, "${xs.len()}").ignore();
+  .Ok(())
+}

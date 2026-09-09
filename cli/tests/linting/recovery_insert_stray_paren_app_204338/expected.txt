@@ -14,7 +14,7 @@ error: `nibble` takes 2 arguments, but 1 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 1
-   = fix: pass exactly 2
+   = fix: pass `nibble` the following arguments: nibble(value: Int, shift: Int)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_insert_stray_paren_app_204338/main.buri:40:56
    |

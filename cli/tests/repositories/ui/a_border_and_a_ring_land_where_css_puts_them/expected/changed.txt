@@ -1,0 +1,5 @@
+FAIL //lib/edges  test/edges.buri  "a border with no colour of its own draws in the foreground"
+  the snapshot "edges-current-colour" changed: see test/__snapshots__/edges-current-colour.diff.png
+  --> lib/edges/test/edges.buri:18:1
+
+2 passed, 1 failed, 0 skipped (0.0s)
