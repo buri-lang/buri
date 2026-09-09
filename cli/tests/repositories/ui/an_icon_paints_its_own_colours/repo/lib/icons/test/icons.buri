@@ -1,0 +1,17 @@
+// A wrong icon has to look wrong. Before this golden the painter drew every
+// image as the same grey box, so a suite full of icons asserted their geometry
+// and nothing else (buri-lang/buri#85).
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/icons" import { icons };
+
+test "a red square, two red plus signs, and one box that stays grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icons", icons(), .Checked, []);
+}

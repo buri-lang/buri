@@ -2,22 +2,25 @@
 #
 # Two pictures. `describe` used to drop an image's source entirely, so every
 # golden holding an icon was a blank page of the right geometry
-# (buri-lang/buri#61); these are the two that would go blank again.
+# (buri-lang/buri#61); these are the two that would go blank again. The painter
+# then drew every source it did keep as one grey box (#85), which these are
+# also the two that would go grey again.
 #
-# **One row per kind of source.** A `data:` URI holding a PNG this painter's
-# own reader accepts is the only source there is: it paints, in four
-# quadrants, at its own sixteen pixels. Five sources it cannot read — an SVG
-# data URI, an address, a path, no source at all, and a PNG URI whose body is
-# not a PNG — each paint the same framed grey box, because a picture that is
-# not there is better shown as a box than as nothing.
+# **One row per kind of source.** A `data:` URI is the only source there is,
+# and both kinds paint: a PNG at its own sixteen pixels in four quadrants, and
+# an SVG through the painter's own rasterizer. Four sources it cannot read — an
+# address, a path, no source at all, and a PNG URI whose body is not a PNG —
+# each paint the same framed grey box, because a picture that is not there is
+# better shown as a box than as nothing.
 #
 # **One row per size the box declares.** `ui.image` takes no styles, so what
-# sizes a picture is the box around it, and the two halves answer differently:
-# a source that was read has a size of its own and keeps it, sitting at the top
-# left of whatever box it is in; a source that was not has none, so the
-# placeholder fills the box instead of collapsing. The last row of each half is
-# the one with no box at all — sixteen pixels for the picture, the whole grid
-# cell for the placeholder.
+# sizes a picture is the box around it, and the two answers differ: a source
+# that was read has a size of its own and keeps it, sitting at the top left of
+# whatever box it is in — a PNG's pixels, or an SVG's `viewBox` where it
+# declares no `width` — while a source that was not read has none, so the
+# placeholder fills the box instead of collapsing. The last row of each third
+# is the one with no box at all: sixteen pixels for either picture, the whole
+# grid cell for the placeholder.
 #
 # The row in a box **shorter** than the picture is the painter's own documented
 # simplification made visible: an element with no `display` lays out as a flex
@@ -29,7 +32,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a data-URI PNG the painter reads, five sources it cannot, and what the box around each one does to its size"
+doc: "the two data URIs the painter reads, four sources it cannot, and what the box around each one does to its size"
 
 run {
   args: ["test", "//lib/pictures", "--force"]

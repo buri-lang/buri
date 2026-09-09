@@ -1,8 +1,9 @@
 // A picture, and an overlay pinned to the page.
 //
 // An image carries its source, so a painter that fetches nothing still draws
-// the one source it can read and a placeholder box for every source it cannot.
-// Without that the row below is a blank page.
+// the two data URIs it can read and a placeholder box for every source it
+// cannot. Without that the row below is a blank page, and before #85 it was a
+// row of identical grey boxes.
 //
 // `Position(.PinViewport)` is measured against the page, so a dock written
 // three boxes deep sits in the page's corner rather than at the top left.
@@ -19,10 +20,10 @@ from "ui/testing" import { headless, snapshot };
 let icon: Str =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAABE0lEQVR4AQEIAff+ABQooP8UKKD/FCig/xQooP8UKKD/FCig/xQooP8UKKD/ABQooP/weBT/+vr6//r6+v/6+vr/+vr6//B4FP8UKKD/ABQooP/6+vr/8HgU//r6+v/6+vr/8HgU//r6+v8UKKD/ABQooP/6+vr/+vr6//B4FP/weBT/+vr6//r6+v8UKKD/ABQooP/6+vr/+vr6//B4FP/weBT/+vr6//r6+v8UKKD/ABQooP/6+vr/8HgU//r6+v/6+vr/8HgU//r6+v8UKKD/ABQooP/weBT/+vr6//r6+v/6+vr/+vr6//B4FP8UKKD/ABQooP8UKKD/FCig/xQooP8UKKD/FCig/xQooP8UKKD/kYav8fKAVrIAAAAASUVORK5CYII=";
 
-/// The vector form this vocabulary offers, and the one no bundled rasterizer
-/// reads. Its semicolons are the reason a declaration value escapes them.
+/// The vector form this vocabulary offers, drawn by the painter's own
+/// rasterizer. Its semicolons are the reason a declaration value escapes them.
 let glyph: Str =
-    "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12h14M12 5v14'/%3E%3C/svg%3E";
+    "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e70000' stroke-width='2'%3E%3Cpath d='M5 12h14M12 5v14'/%3E%3C/svg%3E";
 
 /// One icon in a box of its own, the way a component library ships one.
 fn framed<C>(source: Str): Node<C> {
@@ -31,8 +32,8 @@ fn framed<C>(source: Str): Node<C> {
     ])
 }
 
-/// A row of icons, a picture at its own size, and a picture in a box far
-/// larger than it.
+/// A row of icons, a picture at its own size, and a glyph in a box far larger
+/// than it — which keeps its own twenty-four units and sits in the corner.
 fn pictures<C>(): Node<C> {
     ui.column([.Padding(.Px(24)), .Gap(.Px(16))], [
         ui.row([.Gap(.Px(8))], [
@@ -43,7 +44,7 @@ fn pictures<C>(): Node<C> {
         ]),
         ui.image(.Const(icon), .Const("the icon at the size it is")),
         ui.stack([.Width(.Px(220)), .Height(.Px(64))], [
-            ui.image(.Const(glyph), .Const("a picture that is not there")),
+            ui.image(.Const(glyph), .Const("a glyph in a box far larger than it")),
         ]),
     ])
 }

@@ -1,0 +1,60 @@
+# The picture in buri-lang/buri#85, as the golden that would have caught it.
+#
+# The painter used to draw every image as one grey box, so the row below —
+# a red PNG square, the same red plus sign twice, and an address — recorded as
+# four identical `#e5e5e5` rectangles. Every golden of a component with an icon
+# in it was a golden of its geometry and nothing else.
+#
+# Three sources it reads: a PNG in a colour type its own encoder does not
+# write, and one SVG glyph in both of the forms a page writes one in — base64
+# and percent-encoded. One it does not: an address, because a snapshot fetches
+# nothing, and that box is still the grey placeholder.
+#
+# **The negative twin is the point.** The last step moves the glyph's stroke
+# from red to blue in the percent-encoded copy only. A painter that still drew
+# grey boxes would pass it; this one fails, names the picture, and leaves the
+# diff beside it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a PNG icon and an SVG icon paint their own colours, and one wrong colour fails the golden"
+
+run {
+  args: ["test", "//lib/icons", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/icons/test/__snapshots__/icons.diff.png"  exists: false }
+
+# One icon's colour, and nothing else about the page.
+edit {
+  file: "lib/icons/icons.buri"
+  replace: "stroke='%23e70000' stroke-width='2'"
+  with: "stroke='%230000e7' stroke-width='2'"
+}
+
+run {
+  args: ["test", "//lib/icons", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/icons/test/__snapshots__/icons.diff.png"  exists: true }
+
+# And the way back: `--update` records the row as it is now, and the run after
+# it compares against what it just wrote.
+run {
+  args: ["test", "//lib/icons", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/icons/test/__snapshots__/icons.diff.png"  exists: false }
+
+run {
+  args: ["test", "//lib/icons", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
