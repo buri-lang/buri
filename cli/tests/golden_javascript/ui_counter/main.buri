@@ -74,7 +74,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
     ui.column([], [
-        ui.button(.Const(label), [], fn(c, e) => count.update(c, fn(n) => n + 1)),
+        ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1)),
         badge(.Const(label), .Cell(count)),
         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
     ])

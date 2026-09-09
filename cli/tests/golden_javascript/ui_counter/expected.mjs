@@ -31,8 +31,8 @@ function __cmd_x_main_buri$main(){
   }
   const label_7='clicks';
   const count_8=[$host_HostUi_signal(ctx_0[2],0n)];
-  const children_24=[[[5,[0,label_7],[],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1n)($host_HostUi_read(c_9[2],count_8[0])))]],__cmd_x_main_buri$badge$u3rqgv([0,label_7],[1,count_8]),__cmd_x_main_buri$badge$u3rqgv($k0,[2,c_12=>$ui_effect_Scope_read(c_12,count_8[0])*2n])];
-  return $ui_node_mount(ctx_0,[[3,[$k4,[0,[]]],children_24]],[]);
+  const children_25=[[[5,[0,label_7],[],[],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1n)($host_HostUi_read(c_9[2],count_8[0])))]],__cmd_x_main_buri$badge$u3rqgv([0,label_7],[1,count_8]),__cmd_x_main_buri$badge$u3rqgv($k0,[2,c_12=>$ui_effect_Scope_read(c_12,count_8[0])*2n])];
+  return $ui_node_mount(ctx_0,[[3,[$k4,[0,[]]],children_25]],[]);
 }
 function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
   const content_9=[2,c_2=>{
