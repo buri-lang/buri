@@ -1,0 +1,449 @@
+//! The pictures one sweep column is: every `ui/style` property that paints on
+//! an `icon`, at three to five values each, and then the thing an icon exists
+//! for — a stroke that follows the colour around it.
+//!
+//! The artwork is in the tree, so the styles land on the `<svg>` itself rather
+//! than on a box around it, and `currentColor` in the glyph is whatever
+//! `Foreground` the cascade gives that element.
+//!
+//! A page is two columns of bands and a band is one property, so a property's
+//! values read across and the whole family fits the 800 by 600 the painter
+//! gives a scene. A band clips, which is what keeps a value that grows from
+//! pushing the ones below it off the page.
+
+from "ui/effect" import { Event };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Shadow, Style, token };
+from "ui/theme" import { Theme, themed };
+
+/// A lucide check, as an icon set ships one: `currentColor` where the stroke
+/// goes, so the colour is the caller's.
+let glyph: Str =
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>";
+
+/// The same drawing as a `data:` URI, which is the only way to put artwork in
+/// an `image`. It reads no colour from the page it is on: an `<img>`'s source
+/// is a document of its own, where `currentColor` is back at black.
+let asAnImage: Str =
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E";
+
+/// Background, foreground, the three border properties, radius, opacity and a
+/// shadow.
+///
+/// `Foreground` is the band this whole feature is about: the glyph is stroked
+/// in `currentColor`, so each cell of it is a different colour of check.
+export fn surfacePage<C>(): Node<C> {
+    page([
+        band("Foreground", 145, [
+            cell("near black", subject([.Foreground(.Rgb(20, 20, 20))])),
+            cell("red", subject([.Foreground(.Rgb(200, 30, 30))])),
+            cell("green", subject([.Foreground(.Rgb(30, 120, 60))])),
+            cell("rgba 0.3", subject([.Foreground(.Rgba(0, 0, 0, 0.3))])),
+            cell("transparent", subject([.Foreground(.Transparent)])),
+        ]),
+        band("Background", 145, [
+            cell("transparent", subject([.Background(.Transparent)])),
+            cell("rgb", subject([.Background(.Rgb(220, 90, 40))])),
+            cell("rgba 0.35", subject([.Background(.Rgba(30, 110, 220, 0.35))])),
+            cell("inherit", subject([.Background(.Inherit)])),
+        ]),
+        band("BorderWidth", 145, [
+            cell("0px", subject([.BorderWidth(.Px(0))])),
+            cell("1px", subject([.BorderWidth(.Px(1))])),
+            cell("4px", subject([.BorderWidth(.Px(4))])),
+            cell("0.5rem", subject([.BorderWidth(.Rem(0.5))])),
+        ]),
+        band("BorderColor", 145, [
+            cell(
+                "red",
+                subject([.BorderWidth(.Px(3)), .BorderColor(.Rgb(200, 30, 30))]),
+            ),
+            cell(
+                "green",
+                subject([.BorderWidth(.Px(3)), .BorderColor(.Rgb(30, 120, 60))]),
+            ),
+            cell(
+                "rgba 0.3",
+                subject([.BorderWidth(.Px(3)), .BorderColor(.Rgba(0, 0, 0, 0.3))]),
+            ),
+            cell(
+                "transparent",
+                subject([.BorderWidth(.Px(3)), .BorderColor(.Transparent)]),
+            ),
+        ]),
+        band("BorderStyle", 145, [
+            cell("none", subject([.BorderWidth(.Px(3)), .BorderStyle(.None)])),
+            cell("solid", subject([.BorderWidth(.Px(3)), .BorderStyle(.Solid)])),
+            cell("dashed", subject([.BorderWidth(.Px(3)), .BorderStyle(.Dashed)])),
+        ]),
+        band("Radius", 145, [
+            cell("0px", subject([.Radius(.Px(0))])),
+            cell("4px", subject([.Radius(.Px(4))])),
+            cell("1rem", subject([.Radius(.Rem(1.0))])),
+            cell("50%", subject([.Radius(.Percent(50.0))])),
+            cell("full", subject([.Radius(.Full)])),
+        ]),
+        band("Opacity", 145, [
+            cell("0.0", subject([.Opacity(0.0)])),
+            cell("0.25", subject([.Opacity(0.25)])),
+            cell("0.6", subject([.Opacity(0.6)])),
+            cell("1.0", subject([.Opacity(1.0)])),
+        ]),
+        band("Shadow", 145, [
+            cell(
+                "all zero",
+                subject([
+                    .Shadow(Shadow {
+                        x: .Px(0),
+                        y: .Px(0),
+                        blur: .Px(0),
+                        spread: .Px(0),
+                        color: .Rgb(0, 0, 0),
+                    }),
+                ]),
+            ),
+            cell(
+                "blurred",
+                subject([
+                    .Shadow(Shadow {
+                        x: .Px(0),
+                        y: .Px(2),
+                        blur: .Px(6),
+                        spread: .Px(0),
+                        color: .Rgb(0, 0, 0),
+                    }),
+                ]),
+            ),
+            cell(
+                "offset red",
+                subject([
+                    .Shadow(Shadow {
+                        x: .Px(7),
+                        y: .Px(7),
+                        blur: .Px(5),
+                        spread: .Px(0),
+                        color: .Rgb(200, 30, 30),
+                    }),
+                ]),
+            ),
+        ]),
+    ])
+}
+
+/// The six sizing properties and the aspect ratio.
+///
+/// An `<svg>` with a `viewBox` and no `width` takes its frame's size when
+/// nothing sizes it, and is re-drawn at whatever size the box turns out to be —
+/// so a check in a box four times as wide is four times as sharp rather than
+/// four times as blurred.
+export fn sizePage<C>(): Node<C> {
+    page([
+        band("Width", 145, [
+            cell("12px", subject([.Width(.Px(12))])),
+            cell("24px", subject([.Width(.Px(24))])),
+            cell("48px", subject([.Width(.Px(48))])),
+            cell("50%", subject([.Width(.Percent(50.0))])),
+            cell("auto", subject([.Width(.Auto)])),
+        ]),
+        band("Height", 145, [
+            cell("12px", subject([.Height(.Px(12))])),
+            cell("24px", subject([.Height(.Px(24))])),
+            cell("3rem", subject([.Height(.Rem(3.0))])),
+            cell("auto", subject([.Height(.Auto)])),
+        ]),
+        band("MinWidth", 145, [
+            cell("0px", subject([.MinWidth(.Px(0))])),
+            cell("30px", subject([.MinWidth(.Px(30))])),
+            cell("60px", subject([.MinWidth(.Px(60))])),
+            cell("full", subject([.MinWidth(.Full)])),
+        ]),
+        band("MaxWidth", 145, [
+            cell("8px", subject([.Width(.Full), .MaxWidth(.Px(8))])),
+            cell("24px", subject([.Width(.Full), .MaxWidth(.Px(24))])),
+            cell("60px", subject([.Width(.Full), .MaxWidth(.Px(60))])),
+            cell("full", subject([.Width(.Full), .MaxWidth(.Full)])),
+        ]),
+        band("MinHeight", 145, [
+            cell("0px", subject([.MinHeight(.Px(0))])),
+            cell("20px", subject([.MinHeight(.Px(20))])),
+            cell("44px", subject([.MinHeight(.Px(44))])),
+            cell("4rem", subject([.MinHeight(.Rem(4.0))])),
+        ]),
+        band("MaxHeight", 145, [
+            cell("8px", subject([.Height(.Px(60)), .MaxHeight(.Px(8))])),
+            cell("24px", subject([.Height(.Px(60)), .MaxHeight(.Px(24))])),
+            cell("60px", subject([.Height(.Px(60)), .MaxHeight(.Px(60))])),
+            cell("4rem", subject([.Height(.Px(60)), .MaxHeight(.Rem(4.0))])),
+        ]),
+        band("AspectRatio", 145, [
+            cell("0.5", subject([.Height(.Auto), .Width(.Px(30)), .AspectRatio(0.5)])),
+            cell("1.0", subject([.Height(.Auto), .Width(.Px(30)), .AspectRatio(1.0)])),
+            cell("2.0", subject([.Height(.Auto), .Width(.Px(30)), .AspectRatio(2.0)])),
+            cell("3.0", subject([.Height(.Auto), .Width(.Px(30)), .AspectRatio(3.0)])),
+        ]),
+    ])
+    // One picture across its values, and that is the answer: a drawing has
+    // a size of its own — this one's `viewBox` — so an auto height is that
+    // height rather than the ratio's, exactly as a replaced element in a
+    // page behaves.
+}
+
+/// Every padding shorthand, and each edge of the long one. The padding is
+/// inside the box, so the drawing shrinks away from the edge it names.
+export fn boxPage<C>(): Node<C> {
+    page([
+        band("Padding", 145, [
+            cell("0px", subject([.Padding(.Px(0))])),
+            cell("2px", subject([.Padding(.Px(2))])),
+            cell("0.5rem", subject([.Padding(.Rem(0.5))])),
+            cell("12px", subject([.Padding(.Px(12))])),
+        ]),
+        band("PaddingX", 145, [
+            cell("0px", subject([.PaddingX(.Px(0))])),
+            cell("2px", subject([.PaddingX(.Px(2))])),
+            cell("0.5rem", subject([.PaddingX(.Rem(0.5))])),
+            cell("12px", subject([.PaddingX(.Px(12))])),
+        ]),
+        band("PaddingY", 145, [
+            cell("0px", subject([.PaddingY(.Px(0))])),
+            cell("2px", subject([.PaddingY(.Px(2))])),
+            cell("0.5rem", subject([.PaddingY(.Rem(0.5))])),
+            cell("12px", subject([.PaddingY(.Px(12))])),
+        ]),
+        band("PaddingEdge top", 145, [
+            cell("0px", subject([.PaddingEdge(.Top, .Px(0))])),
+            cell("4px", subject([.PaddingEdge(.Top, .Px(4))])),
+            cell("12px", subject([.PaddingEdge(.Top, .Px(12))])),
+        ]),
+        band("PaddingEdge bottom", 145, [
+            cell("0px", subject([.PaddingEdge(.Bottom, .Px(0))])),
+            cell("4px", subject([.PaddingEdge(.Bottom, .Px(4))])),
+            cell("12px", subject([.PaddingEdge(.Bottom, .Px(12))])),
+        ]),
+        band("PaddingEdge start", 145, [
+            cell("0px", subject([.PaddingEdge(.Start, .Px(0))])),
+            cell("4px", subject([.PaddingEdge(.Start, .Px(4))])),
+            cell("12px", subject([.PaddingEdge(.Start, .Px(12))])),
+        ]),
+        band("PaddingEdge end", 145, [
+            cell("0px", subject([.PaddingEdge(.End, .Px(0))])),
+            cell("4px", subject([.PaddingEdge(.End, .Px(4))])),
+            cell("12px", subject([.PaddingEdge(.End, .Px(12))])),
+        ]),
+    ])
+}
+
+/// The picture the issue asked for: where an icon's colour comes from.
+///
+/// Painted twice, resting and hovered, because one band is an `On`.
+export fn colourPage<C>(): Node<C> {
+    page([
+        band("beside its own label", 105, [
+            labelled("near black", .Rgb(20, 20, 20)),
+            labelled("red", .Rgb(200, 30, 30)),
+            labelled("green", .Rgb(30, 120, 60)),
+            labelled("white on ink", .Rgb(250, 250, 252)),
+        ]),
+        band("through a wrapper", 105, [
+            cell("inherit", nested(.Inherit)),
+            cell("its own", nested(.Rgb(30, 120, 60))),
+        ]),
+        band("against the same drawing in an image", 105, [
+            cell("icon", subject([.Foreground(.Rgb(200, 30, 30))])),
+            cell(
+                "image",
+                ui.stack(base([.Foreground(.Rgb(200, 30, 30))]), [
+                    ui.image(.Const(asAnImage), .Const(""), []),
+                ]),
+            ),
+        ]),
+        band("inside a button", 105, [
+            cell("resting", pressable([.Foreground(.Rgb(250, 250, 252))])),
+            cell(
+                "hovered",
+                pressable([
+                    .Foreground(.Rgb(250, 250, 252)),
+                    .On(.Hover, [.Foreground(.Rgb(120, 200, 255))]),
+                ]),
+            ),
+        ]),
+        band("On(.Hover)", 105, [
+            cell(
+                "resting red",
+                subject([
+                    .Foreground(.Rgb(200, 30, 30)),
+                    .On(.Hover, [.Foreground(.Rgb(30, 120, 60))]),
+                ]),
+            ),
+            cell(
+                "resting green",
+                subject([
+                    .Foreground(.Rgb(30, 120, 60)),
+                    .On(.Hover, [.Foreground(.Rgb(200, 30, 30))]),
+                ]),
+            ),
+        ]),
+    ])
+}
+
+/// One page whose every colour is a design token, so the only thing that
+/// separates its two goldens is the theme each was painted under. That is the
+/// half of the issue a data URI could not answer: the same artwork, two
+/// themes, two colours, one copy of the drawing.
+export fn themePage<C>(): Node<C> {
+    ui.column(
+        [
+            .Height(.Full),
+            .Padding(.Px(24)),
+            .Gap(.Px(12)),
+            .Background(Token.Surface.color()),
+            .Foreground(Token.Ink.color()),
+            .FontSize(.Px(16)),
+        ],
+        [
+            ui.text(.Const("saved")),
+            ui.row([.Gap(.Px(8)), .AlignCross(.Center)], [
+                ui.icon([.Width(.Px(24)), .Height(.Px(24))], glyph),
+                ui.text(.Const("saved")),
+            ]),
+        ],
+    )
+}
+
+/// This package's closed token vocabulary. What each one is worth is the app's
+/// to say, and a theme is how it says it.
+export enum Token {
+    Surface,
+    Ink,
+}
+
+impl Token {
+    /// The custom property this token is, which is what a style holds.
+    export fn color(self): Color {
+        match (self) {
+            .Surface => token("sweep", "surface"),
+            .Ink => token("sweep", "ink"),
+        }
+    }
+}
+
+/// This package's tokens, resolved by `mapping`.
+export fn themedBy(mapping: fn(Token) => Color): Theme {
+    themed([
+        (Token.Surface.color(), mapping(.Surface)),
+        (Token.Ink.color(), mapping(.Ink)),
+    ])
+}
+
+/// One picture: two columns of bands, one band per property.
+fn page<C>(bands: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Layout(.Grid([.Fraction(1), .Fraction(1)])),
+            .Gap(.Px(2)),
+            .Padding(.Px(4)),
+            .Background(.Rgb(255, 255, 255)),
+            .Foreground(.Rgb(20, 20, 20)),
+            .FontSize(.Px(11)),
+        ],
+        bands,
+    )
+}
+
+/// One property's band: its name, then a cell per value, clipped to `height`
+/// so a value that grows stays inside its own row.
+fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Height(.Px(height)),
+            .Scroll(.Both),
+            .Padding(.Px(3)),
+            .Background(.Rgb(243, 244, 247)),
+        ],
+        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
+    )
+}
+
+/// One value: its label, and the primitive carrying it.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(88)), .Gap(.Px(1)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// The subject every cell holds: the artwork itself, carrying the styles.
+fn subject<C>(styles: [Style]): Node<C> {
+    ui.icon(base(styles), glyph)
+}
+
+/// What every subject carries before the cell's own styles, which come last so
+/// the property under test wins.
+fn base(styles: [Style]): [Style] {
+    [
+        .Background(.Rgb(206, 218, 240)),
+        .Foreground(.Rgb(18, 18, 28)),
+        .Width(.Px(30)),
+        .Height(.Px(30)),
+        .Group(styles),
+    ]
+}
+
+/// A row that says one colour once: the label and the glyph beside it both take
+/// it, which is the one rule this constructor exists to make true.
+fn labelled<C>(name: Str, colour: Color): Node<C> {
+    cell(
+        name,
+        ui.row(
+            [
+                .Gap(.Px(4)),
+                .AlignCross(.Center),
+                .Padding(.Px(4)),
+                .Background(.Rgb(30, 30, 36)),
+                .Foreground(colour),
+                .FontSize(.Px(14)),
+            ],
+            [
+                ui.icon([.Width(.Px(18)), .Height(.Px(18))], glyph),
+                ui.text(.Const("done")),
+            ],
+        ),
+    )
+}
+
+/// A button with a mark and a word inside it, which is the shape an icon was
+/// wanted for: one `Foreground` on the button paints both, and one `On(.Hover)`
+/// moves both, because there is one element being hovered.
+fn pressable<C>(styles: [Style]): Node<C> {
+    ui.button(
+        .Const("save"),
+        [
+            .Layout(.Row),
+            .Gap(.Px(6)),
+            .AlignCross(.Center),
+            .PaddingX(.Px(10)),
+            .PaddingY(.Px(6)),
+            .Radius(.Px(6)),
+            .Background(.Rgb(30, 30, 36)),
+            .FontSize(.Px(14)),
+            .Group(styles),
+        ],
+        [ui.icon([.Width(.Px(16)), .Height(.Px(16))], glyph), ui.text(.Const("save"))],
+        noop,
+        .Const(false),
+    )
+}
+
+/// A press a picture cannot make.
+fn noop<C>(_c: C, _event: Event): () {}
+
+/// Two boxes deep, so the colour reaching the glyph is one the cascade carried
+/// rather than one written on the element.
+fn nested<C>(inner: Color): Node<C> {
+    ui.stack([.Padding(.Px(4)), .Foreground(.Rgb(200, 30, 30))], [
+        ui.stack([.Padding(.Px(4)), .Foreground(inner)], [
+            ui.icon([.Width(.Px(24)), .Height(.Px(24))], glyph),
+        ]),
+    ])
+}

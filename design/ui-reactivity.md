@@ -157,6 +157,9 @@ ui.heading(level: Int, styles, content: Prop<Str>): Node<C>
 ui.button(label, styles, children, onPress: fn(C, Event) => (), disabled: Prop<Bool>): Node<C>
 ui.link(dest: Prop<Str>, styles, children: [Node<C>]): Node<C>
 ui.image(source: Prop<Str>, alt: Prop<Str>, styles): Node<C>
+// artwork in the tree, so `currentColor` in it is the element's own Foreground.
+// The source is written out and the compiler reads it: `<svg>` and shapes only.
+ui.icon(styles, source: Str): Node<C>            // decorative, always
 ui.field(label, kind: FieldKind, styles, around, value: Signal<Str>, disabled: Prop<Bool>): Node<C>
 // value is also the answer to On(.Checked, ...): the box is checked, not the page
 ui.toggle(label, kind: ToggleKind, styles, around, value: Signal<Bool>, disabled: Prop<Bool>): Node<C>
@@ -584,7 +587,7 @@ repositories land, `ui/...` can migrate out wholesale.
 | `core/host` (WEB, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
-| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `choose`, `computed`, `each`, `mount` |
+| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `choose`, `computed`, `each`, `icon`, `mount` |
 | `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
 | `ui/theme` | library | `Theme`, `themed`, `switching` |
 | `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |

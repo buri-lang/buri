@@ -12,7 +12,9 @@
 //! The other rule runs through all of it: **whatever an assistive technology
 //! cannot do without is a parameter**, not an attribute somebody may remember
 //! to set. An image takes its `alt`, a link takes its `dest`, a field and a
-//! toggle take their `label`. You cannot write an unlabelled input here.
+//! toggle take their `label`. You cannot write an unlabelled input here. An
+//! `icon` is the other side of that rule: it is decorative by construction,
+//! so it carries no name and what it means is said by what it sits in.
 //!
 //! Building a tree needs no context, no allocator and no authority. Every
 //! constructor below is pure, and `C` is unbounded in all of them. A `Node<C>`
@@ -151,6 +153,7 @@ enum NodeKind<C> {
     // Three closures rather than the list itself, since the row type cannot be
     // `Node<C>`'s one type parameter. The runtime asks by index. See `each`.
     Each(fn(Scope) => Int, fn(Scope, Int) => Str, fn(C, Scope, Int) => Node<C>),
+    Icon([Style], Str),
 }
 
 /// Nothing at all.
@@ -273,6 +276,35 @@ export fn link<C>(dest: Prop<Str>, styles: [Style], children: [Node<C>]): Node<C
 /// only the picture can be told: a wrapper's own width is the wrapper's.
 export fn image<C>(source: Prop<Str>, alt: Prop<Str>, styles: [Style]): Node<C> {
     Node(.Image(source, alt, styles))
+}
+
+/// Vector artwork, in the colour of whatever it sits in.
+///
+/// The source is the drawing itself rather than an address, and it is written
+/// into the document as an `<svg>`. So `currentColor` inside it is the
+/// element's own `Foreground`: an icon follows the text beside it, and a theme
+/// switch recolours every icon in the tree for nothing. An `image` cannot do
+/// that — its source is a document of its own, which reads neither the page's
+/// colour nor a custom property, so the stroke has to be baked in.
+///
+/// The styles land on the `<svg>`, which is what makes a size, a colour and an
+/// `On(.Hover, ...)` apply to the thing that is drawn.
+///
+/// **Decorative, always.** There is no `alt` and no label, because what an icon
+/// means is said by what it is inside — a button's label, a link's destination
+/// — and a reader told about the glyph as well hears it twice. A picture that
+/// *is* the content is an `image`, which takes its `alt`.
+///
+/// The artwork is written out at the call site, because the compiler reads it:
+/// what it can draw is an `<svg>` and the shapes inside it, and a source that
+/// holds anything else — a script, a reference to somewhere else — is refused
+/// rather than quietly dropped.
+///
+/// ```text
+/// ui.icon([.Width(.Px(16))], "<svg viewBox='0 0 24 24'><path d='M20 6 9 17l-5-5'/></svg>")
+/// ```
+export fn icon<C>(styles: [Style], source: Str): Node<C> {
+    Node(.Icon(styles, source))
 }
 
 /// Somewhere to type, and what it is for.
@@ -455,6 +487,12 @@ fn rootScope(): Scope;
 /// source — an address, a path — as a placeholder box of the same size,
 /// because a snapshot fetches nothing.
 ///
+/// An icon is a box carrying `icon:<artwork>`, escaped the same way and with
+/// its line breaks flattened. The artwork is in the scene rather than behind an
+/// address, so the painter draws it with `currentColor` bound to the colour the
+/// element paints in — which is what an icon is for, and what an `image` cannot
+/// do, its source being a document of its own.
+///
 /// `state` is the pseudo-class the snapshot is taken in. An `On(s, ...)`
 /// contributes its styles when `s` is that state and nothing otherwise. An
 /// `At(...)` contributes nothing at all — a breakpoint's rules are in the
@@ -543,6 +581,14 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         .Image(source, _alt, styles) => {
             let declaration = decl(ctx, "image", escapeValue(ctx, source.read(scope)));
             [widgetLine(ctx, plain(state), [declaration], styles, depth)]
+        },
+        // Artwork, not an address: the scene carries the drawing itself, which
+        // is what lets the painter resolve `currentColor` against the colour
+        // this element paints in. The declaration comes first, so a style still
+        // wins over it.
+        .Icon(styles, source) => {
+            let artwork = decl(ctx, "icon", escapeArtwork(ctx, source));
+            [widgetLine(ctx, plain(state), [artwork], styles, depth)]
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the
         // control inside it.
@@ -884,6 +930,14 @@ fn columns<C: Allocator>(ctx: C, n: Int, acc: [Track]): [Track] {
 /// source is a data URI and a data URI is full of both.
 fn escapeValue<C: Allocator>(ctx: C, value: Str): Str {
     value.replace(ctx, "\\", "\\\\").replace(ctx, ";", "\\;")
+}
+
+/// An icon's artwork, as a declaration value: the two characters the format
+/// reserves escaped, and every line break a space. A declaration is one line,
+/// and nothing an icon may hold needs a break — whitespace between two tags
+/// and inside a path is the same whitespace either way.
+fn escapeArtwork<C: Allocator>(ctx: C, source: Str): Str {
+    escapeValue(ctx, source).replace(ctx, "\n", " ").replace(ctx, "\r", " ")
 }
 
 /// One `t` line. A backslash, a newline and a carriage return are the three
