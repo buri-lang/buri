@@ -695,6 +695,9 @@ struct Computed {
     /// `position: fixed`. Absolute as well, and measured against the viewport
     /// rather than against the box it was written in.
     fixed: bool,
+    /// `position: sticky`. In the flow, and the inset it carries is a
+    /// threshold rather than an offset — see [`taffy_style`].
+    sticky: bool,
     inset: [Len; 4],
     clipped: [bool; 2],
 
@@ -742,6 +745,7 @@ impl Computed {
             aspect: None,
             absolute: false,
             fixed: false,
+            sticky: false,
             inset: [Len::Auto; 4],
             clipped: [false; 2],
             background: Rgba::CLEAR,
@@ -890,6 +894,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "position" => {
             style.fixed = value == "fixed";
             style.absolute = style.fixed || value == "absolute";
+            style.sticky = value == "sticky";
         }
         "inset-inline-start" => set_sides(&mut style.inset, [0], len(value)),
         "inset-inline-end" => set_sides(&mut style.inset, [1], len(value)),
@@ -1168,11 +1173,20 @@ fn taffy_style(c: &Computed) -> Style {
         max_size: Size { width: dimension_auto(c.max[0]), height: dimension_auto(c.max[1]) },
         aspect_ratio: c.aspect,
         position: if c.absolute { Position::Absolute } else { Position::Relative },
-        inset: Rect {
-            left: dimension_auto(c.inset[0]),
-            right: dimension_auto(c.inset[1]),
-            top: dimension_auto(c.inset[2]),
-            bottom: dimension_auto(c.inset[3]),
+        // **A sticky box keeps its static position.** Its inset is the edge it
+        // would be held at once a scrollport crossed it, and a snapshot has no
+        // scrolling, so a browser applies none of it — while `taffy`, which
+        // has only `relative` and `absolute`, would take the same numbers as a
+        // relative offset and move the box.
+        inset: if c.sticky {
+            Rect::auto()
+        } else {
+            Rect {
+                left: dimension_auto(c.inset[0]),
+                right: dimension_auto(c.inset[1]),
+                top: dimension_auto(c.inset[2]),
+                bottom: dimension_auto(c.inset[3]),
+            }
         },
         overflow: Point { x: overflow(c.clipped[0]), y: overflow(c.clipped[1]) },
         ..Style::default()
@@ -3280,6 +3294,35 @@ mod tests {
                      t 1 Ada\n";
         let faded = darkest(&render_ok(scene, "", "rest"));
         assert!((120..=134).contains(&faded), "half of black over white is 127, not {faded}");
+    }
+
+    /// **A sticky box stays where the flow put it.** A snapshot has nothing to
+    /// scroll, so the inset a sticky element carries is a threshold it never
+    /// crosses — an unscrolled browser paints it at its static position. It
+    /// used to take the inset as a relative offset, the way `Position(.Flow)`
+    /// does.
+    #[test]
+    fn a_sticky_box_stays_where_the_flow_put_it() {
+        let scene = "buri-scene 1\nviewport 12 12\n\
+                     e 0 width:12px;height:12px\n\
+                     e 1 position:sticky;inset-block-start:4px;inset-inline-start:4px;\
+                     width:2px;height:2px;background-color:rgb(0,128,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 0, 0), [0, 128, 0, 255]);
+        assert_eq!(at(&image, 5, 5), [255, 255, 255, 255]);
+    }
+
+    /// A `relative` box beside it, which is the answer `sticky` used to give,
+    /// so the two are read together.
+    #[test]
+    fn a_relative_box_does_take_the_inset_it_carries() {
+        let scene = "buri-scene 1\nviewport 12 12\n\
+                     e 0 width:12px;height:12px\n\
+                     e 1 position:relative;inset-block-start:4px;inset-inline-start:4px;\
+                     width:2px;height:2px;background-color:rgb(0,128,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 4, 4), [0, 128, 0, 255]);
+        assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
     }
 
     /// A source the painter cannot read — an SVG data URI is the common one,
