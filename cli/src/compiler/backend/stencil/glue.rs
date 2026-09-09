@@ -13,6 +13,7 @@
 //! | [`Helper::EnvGlue`] | The one indirection that lets a closure environment carry its own drop glue: `Ty::Fn` does not record what was captured, so the block holds the release function in its first word. |
 //! | [`Helper::EnvCopy`] | The same indirection for the copy, out of the block's **second** word. `Ty::Fn` is as silent about a copy as it is about a release, and one word is what that silence costs — see [`ENV_FIELDS`]. |
 //! | [`Helper::Entry`] | The other direction through the C boundary: a `void(state, index, in, out)` the **runtime** calls to run one Buri step. A closure's `code` has a parameter list that depends on the element type, so the runtime cannot call it; this is generated where that type is known and is the only thing that does. |
+//! | [`Helper::Equal`] | The same direction and the same reason, one shape smaller: a `void(frame, a, b, out)` the reactive graph compares a write through. `==` is structural, so a cell holding a `Str` cannot answer "is this the value already there" from its bytes — and the comparison's parameter list depends on the type, so the runtime cannot make the call either. |
 //!
 //! Every one is a **local** symbol of the unit that needed it, so two units
 //! that both drop a `[Str]` get a copy each and neither collides.
@@ -113,6 +114,18 @@ pub enum Helper {
     /// `None` is a step that is not told where it is; the register still
     /// arrives and the body ignores it.
     Entry { params: Vec<Ty>, ret: Ty, index: Option<usize> },
+    /// The C-ABI **equality thunk** the reactive graph compares a write
+    /// through: `extern "C" fn(frame, a, b, out)`, which runs
+    /// `middle::derives`'s generated `Equal` for `ty` on the two values it is
+    /// handed and writes the answer through `out` as a byte.
+    ///
+    /// [`Helper::Entry`]'s smaller sibling, and `frame` is the word that makes
+    /// them siblings: the comparison is Buri code, so it needs a Buri frame,
+    /// and the runtime acquires one and passes its address exactly as an entry
+    /// thunk reads one out of the state record. There is no record here to put
+    /// it in, so it is the first C argument — and the LLVM backend, which works
+    /// on the machine stack, ignores it.
+    Equal { ty: Ty, func: u32 },
 }
 
 /// The symbol a helper is emitted under.
@@ -205,6 +218,15 @@ const E_CTXP: u32 = 40;
 const E_CLOS: u32 = 48;
 const E_ELEM: u32 = 64;
 
+/// The fixed slots an **equality thunk**'s frame opens with: the two values it
+/// was pointed at, where the answer goes, a zero to index by, and then the two
+/// values themselves copied out.
+const Q_A: u32 = 0;
+const Q_B: u32 = 8;
+const Q_OUT: u32 = 16;
+const Q_ZERO: u32 = 24;
+const Q_VALUE: u32 = 32;
+
 /// The **state record** a runtime-driven step crosses the C boundary inside.
 ///
 /// ```text
@@ -273,6 +295,7 @@ impl Jit<'_> {
             Helper::Entry { params, ret, index } => {
                 self.entry_thunk(params.clone(), ret.clone(), *index)
             }
+            Helper::Equal { ty, func } => self.equal_thunk(prog, ty.clone(), *func),
         }
         at
     }
@@ -843,6 +866,114 @@ impl Jit<'_> {
         a.str_off(2, 4, E_ARG);
         a.str_off(3, 4, E_OUT);
         a.add_imm(0, 4, 0);
+        // Two instructions stand between this one and the body.
+        a.bl_words(3);
+        a.ldr_post16(30, SP);
+        a.ret();
+        let (bytes, _) = a.finish();
+        self.region.put(&bytes);
+    }
+
+    /// `extern "C" fn(frame, a, b, out)` — whether two values of one type are
+    /// the same value.
+    ///
+    /// [`Jit::entry_thunk`]'s shape with the state record taken out of it. What
+    /// it calls is `middle::derives`'s generated `Equal` for the type, which is
+    /// an ordinary Buri function, so the body is: copy each value out of the
+    /// pointer it was handed into the callee's parameter slot, call, and store
+    /// the `Bool` through `out`.
+    ///
+    /// **The values are borrowed.** A write asks whether what it is about to
+    /// store is the value already there, and neither side of that question
+    /// changes hands — so a count is taken here only where the callee's own
+    /// ownership column says it consumes its parameter, which is
+    /// [`Jit::thunk`]'s reconciliation at a call with exactly one caller.
+    fn equal_thunk(&mut self, prog: &ir::Program, ty: Ty, func: u32) {
+        let Some(f) = prog.funcs.get(func as usize) else {
+            self.unsupported(format!(
+                "an equality over function {func}, which is not in the program"
+            ));
+            self.emit("ret", &[]);
+            return;
+        };
+        let facts = f.facts.params.clone();
+        let ret_ty = f.sig.rets.first().copied();
+        let callee = self.frame_sig_of(func as usize);
+
+        let size = self.layouts_of(ty.clone()).size;
+        let slot = round8(size).max(8);
+        let ret_size = ret_ty.map(|t| self.width_of(prog, t)).unwrap_or(0);
+        let scratch = Q_VALUE + slot * 2;
+        let frame = round16(scratch + SCRATCH_BYTES);
+        let cbase = frame;
+
+        self.equal_stub();
+        let mut st = self.glue_frame(frame, scratch);
+        let base = self.fixups_len();
+
+        self.imm_to(Q_ZERO, 0);
+        let counted = self.rc_counted(&ty);
+        for (i, (from, at)) in [(Q_A, Q_VALUE), (Q_B, Q_VALUE + slot)].into_iter().enumerate() {
+            if size > 0 {
+                self.elem_load(at, from, Q_ZERO, 8, size);
+            }
+            if counted && facts.get(i) == Some(&ir::Ownership::Own) {
+                if let Err(why) = self.walk_rc(&mut st, &ty, at, true, 0) {
+                    self.unsupported(why);
+                }
+            }
+            if let Some(to) = callee.params.get(i).copied() {
+                self.mv(cbase + to, at, slot);
+            }
+        }
+        self.emit(
+            "call",
+            &[
+                ("JIT_N", V::I(u64::from(cbase))),
+                ("JIT_P", V::I(u64::from(cbase))),
+                ("JIT_CALLEE", V::Fn(func)),
+                ("JIT_CONT0", V::Fall),
+            ],
+        );
+        if let Some(from) = callee.ret.first().copied().filter(|_| ret_size > 0) {
+            self.elem_store(cbase + from, Q_OUT, Q_ZERO, 8, ret_size);
+        }
+        self.emit("ret", &[]);
+        self.resolve_helper_blocks(base, &st);
+    }
+
+    /// The instructions in front of an equality thunk's body: its three
+    /// pointers into the frame the runtime handed over, and a call into the
+    /// frame-threaded code that follows.
+    ///
+    /// [`Jit::entry_stub`] with one register fewer to shuffle. The frame is
+    /// already the first C argument, so nothing has to be read out of a record
+    /// to find it, and — as there — no machine-stack frame is made: the Buri
+    /// frame exists, and the only thing the machine stack holds is the return
+    /// address the stencil chain below would otherwise lose.
+    fn equal_stub(&mut self) {
+        if !self.target.is_arm64() {
+            let mut a = X86::new();
+            // `rsp % 16` is 8 on entry and the `call` below wants 0; the push
+            // is the whole of the correction, exactly as in `entry_stub`.
+            a.push_rbp();
+            a.str_off(RSI, RDI, Q_A);
+            a.str_off(RDX, RDI, Q_B);
+            a.str_off(RCX, RDI, Q_OUT);
+            // `pop` and `ret` are one byte each: two bytes stand between the
+            // end of this call and the body.
+            a.call_ahead(2);
+            a.pop_rbp();
+            a.ret();
+            let (bytes, _) = a.finish();
+            self.region.put(&bytes);
+            return;
+        }
+        let mut a = Asm::new();
+        a.str_pre16(30, SP);
+        a.str_off(1, 0, Q_A);
+        a.str_off(2, 0, Q_B);
+        a.str_off(3, 0, Q_OUT);
         // Two instructions stand between this one and the body.
         a.bl_words(3);
         a.ldr_post16(30, SP);

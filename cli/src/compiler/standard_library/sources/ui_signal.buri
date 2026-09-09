@@ -28,7 +28,12 @@ impl<T> Signal<T> {
     }
 
     /// Replaces the value. Everything that read this cell is marked out of date
-    /// and re-run; writing a value identical to the current one does nothing.
+    /// and re-run; writing a value equal to the current one does nothing.
+    ///
+    /// Equal is `==`, which is structural: two strings with the same text are
+    /// one value however each was built, and so are two lists of the same
+    /// elements. A type with no `Equal` of its own is compared the same way,
+    /// field by field.
     export fn set<C: Ui>(self, ctx: C, value: T): () {
         ctx.write(self.0, value)
     }
