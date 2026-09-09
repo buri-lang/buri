@@ -66,8 +66,8 @@ fn typing<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
         base(extra),
         [],
         signal.signal(ctx, "ada"),
-        .Const(off),
         .Const(false),
+        .Const(off),
     )
 }
 
@@ -78,8 +78,8 @@ fn ticking<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
         base(extra),
         [],
         signal.signal(ctx, false),
-        .Const(off),
         .Const(false),
+        .Const(off),
     )
 }
 
