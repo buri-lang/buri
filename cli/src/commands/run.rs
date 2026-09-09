@@ -138,14 +138,19 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         c.arg(&artifact.path);
         c
     };
-    match command.args(&args.passthrough).status() {
-        Ok(st) => {
+    command.args(&args.passthrough);
+    match stopping::start(&mut command) {
+        Ok(mut child) => {
+            let Ok(st) = stopping::wait(&mut child) else {
+                eprintln!("error: cannot wait for the artifact");
+                return 2;
+            };
             // A signal spends the artifact's identity, and the next `buri run`
             // in this repository would be killed before it started.
             if crate::build::link::killed_by_signal(&st) {
                 crate::build::link::spend_identity(&artifact.path);
             }
-            st.code().unwrap_or(1)
+            stopping::status(&st)
         }
         Err(e) => {
             eprintln!("error: cannot execute the artifact: {e}");
@@ -350,6 +355,184 @@ fn choose(
         // a binary that declares one and nothing else has nothing to run.
         .or_else(|| outputs.iter().find(|o| o.platform() != Platform::CloudflareWorker))
         .cloned()
+}
+
+/// **Stopping `buri run` stops the program it started.**
+///
+/// The artifact is a child process, so a `SIGTERM` that reaches only this
+/// command leaves the program running, reparented to `init`, still holding
+/// whatever it holds — a port, a lock file, an open write-ahead log — and never
+/// told to stop (buri-lang/buri#91). So the signals a program is stopped with
+/// are caught here and sent on to the child, and this command exits on the wait
+/// for that child: the program's own drain is the bound, and there is no clock
+/// here that could cut one short.
+///
+/// **The program gets the signal once.** A terminal sends `SIGINT` and `SIGHUP`
+/// to every process in its foreground group, which is where a child that
+/// inherited this process's group already is — and a second one is the
+/// operating system's, because `cli/runtime/net.rs` restores the default
+/// disposition before it drains (design/native/DECISIONS.md). Forwarding
+/// blindly would kill, on the second delivery, the server the first was meant
+/// to drain. So the group the child runs in decides what is forwarded:
+///
+///   * with a terminal in front of the command the program keeps this process's
+///     group, which is what lets it read that terminal, and only `SIGTERM` —
+///     which no terminal generates — is sent on;
+///   * with no terminal the program gets a group of its own, so nothing aimed
+///     at this one reaches it, and all three are sent on.
+mod stopping {
+    use std::process::{Child, Command, ExitStatus};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+
+    /// `SIGHUP` — the terminal went away. `SIGINT` — a person at one.
+    /// `SIGTERM` — a supervisor, a container runtime, an `init`. One, two and
+    /// fifteen on both platforms this toolchain admits, and `cli/runtime/net.rs`
+    /// writes the second and third on the other side of the C ABI.
+    const SIGHUP: i32 = 1;
+    const SIGINT: i32 = 2;
+    const SIGTERM: i32 = 15;
+
+    /// The three, in the order they are installed.
+    const CAUGHT: [i32; 3] = [SIGHUP, SIGINT, SIGTERM];
+
+    /// `SIG_ERR`, which `signal` answers when it will not do what it was asked.
+    const SIG_ERR: usize = usize::MAX;
+
+    // The calls this module makes into the C library, declared rather than
+    // depended on — `cli/runtime/net.rs`'s `shutdown` module is the precedent,
+    // and the argument is the same one: a dependency for a declaration is a
+    // dependency.
+    //
+    // `signal` rather than `sigaction` because the two platforms lay `struct
+    // sigaction` out differently and nothing here needs a field of it, and both
+    // give `signal` BSD semantics — the handler stays installed, and the wait
+    // on the child is restarted rather than answered `EINTR`, which is what
+    // makes the drain the bound and not the signal.
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+        fn kill(pid: i32, sig: i32) -> i32;
+        fn setpgid(pid: i32, pgid: i32) -> i32;
+        fn getpgrp() -> i32;
+        fn tcgetpgrp(fd: i32) -> i32;
+    }
+
+    #[cfg(target_os = "macos")]
+    unsafe extern "C" {
+        /// The address of this thread's `errno`.
+        fn __error() -> *mut i32;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    unsafe extern "C" {
+        /// The same, spelled the way glibc and musl spell it.
+        fn __errno_location() -> *mut i32;
+    }
+
+    fn errno_slot() -> *mut i32 {
+        #[cfg(target_os = "macos")]
+        // SAFETY: a thread-local address, and nothing else.
+        unsafe {
+            __error()
+        }
+        #[cfg(not(target_os = "macos"))]
+        // SAFETY: as above.
+        unsafe {
+            __errno_location()
+        }
+    }
+
+    /// The program's process id, or `0` while there is none to signal.
+    static CHILD: AtomicI32 = AtomicI32::new(0);
+
+    /// Whether the program is in this process's group, which it is exactly when
+    /// there is a terminal to share.
+    static SHARES_THE_GROUP: AtomicBool = AtomicBool::new(false);
+
+    /// The handler. **Everything it does is on POSIX's async-signal-safe list**,
+    /// which for one `kill` is the whole of the argument the module header makes
+    /// at greater length for the runtime's.
+    extern "C" fn forward(sig: i32) {
+        let slot = errno_slot();
+        // SAFETY: `errno_slot` answers this thread's own `errno`.
+        let saved = unsafe { slot.read() };
+        let child = CHILD.load(Ordering::Relaxed);
+        // A terminal's signal has already reached a child in this group, and
+        // sending it again is what would kill the drain it started.
+        let arrived_already = SHARES_THE_GROUP.load(Ordering::Relaxed) && sig != SIGTERM;
+        if child > 0 && !arrived_already {
+            // SAFETY: an ordinary `kill` on this process's own child.
+            unsafe { kill(child, sig) };
+        }
+        // SAFETY: as above. Restored last, so nothing between the two reads a
+        // value this handler produced.
+        unsafe { slot.write(saved) };
+    }
+
+    /// Whether a terminal is in front of this command.
+    ///
+    /// `tcgetpgrp` answers the foreground process group of the terminal behind
+    /// a descriptor, so a match on any of the three standard ones means a
+    /// keystroke reaches this process group — and everything in it.
+    fn a_terminal_in_front() -> bool {
+        // SAFETY: this reads the calling process's own group and nothing else.
+        let group = unsafe { getpgrp() };
+        // SAFETY: `tcgetpgrp` reads a descriptor this process holds, and
+        // answers -1 for one that is not a terminal.
+        (0..3).any(|fd| unsafe { tcgetpgrp(fd) } == group)
+    }
+
+    /// Starts the program, and takes the signals that stop it.
+    pub fn start(command: &mut Command) -> std::io::Result<Child> {
+        use std::os::unix::process::CommandExt as _;
+
+        let shares = a_terminal_in_front();
+        if !shares {
+            // SAFETY: `setpgid` is on POSIX's async-signal-safe list, which is
+            // the whole of what a `pre_exec` closure may call.
+            unsafe {
+                command.pre_exec(|| {
+                    setpgid(0, 0);
+                    Ok(())
+                })
+            };
+        }
+        let child = command.spawn()?;
+        SHARES_THE_GROUP.store(shares, Ordering::Relaxed);
+        CHILD.store(i32::try_from(child.id()).unwrap_or(0), Ordering::Relaxed);
+        // Taken after the child is known rather than before it. A signal in the
+        // moment between the two would otherwise be one this command caught
+        // with nothing to forward and then waited out for ever; ending the way
+        // it always did is the better of the two.
+        for sig in CAUGHT {
+            // SAFETY: an ordinary `signal` call with a function this module
+            // owns. None of the three is a signal that may not be caught.
+            let previous = unsafe { signal(sig, forward as *const () as usize) };
+            debug_assert!(previous != SIG_ERR, "SIGHUP, SIGINT and SIGTERM can be caught");
+        }
+        Ok(child)
+    }
+
+    /// Waits for the program to stop, however long its own shutdown takes.
+    pub fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
+        let stopped = child.wait();
+        // A reaped pid is the operating system's to hand out again, and a
+        // signal arriving after that must not reach a stranger.
+        CHILD.store(0, Ordering::Relaxed);
+        stopped
+    }
+
+    /// What this command exits with: the program's code where it returned one,
+    /// and 128 plus the signal where one ended it.
+    ///
+    /// `ExitStatus::code` is `None` for exactly those, so passing it straight
+    /// through would report the same status for a program that was killed and
+    /// one that chose to fail.
+    pub fn status(stopped: &ExitStatus) -> i32 {
+        use std::os::unix::process::ExitStatusExt as _;
+        stopped
+            .code()
+            .unwrap_or_else(|| 128_i32.saturating_add(stopped.signal().unwrap_or(0)))
+    }
 }
 
 #[cfg(test)]
