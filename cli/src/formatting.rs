@@ -82,8 +82,8 @@
 
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
-    ArmData, BlockId, CtxBodyId, ExprId, ExprView, Kind, LambdaParamData, PartView, PatId,
-    PatView, StmtKind, Tree, TypeId, TypeView,
+    ArmData, BlockId, CtxBodyId, ExprId, ExprView, Kind, LambdaParamData, Location, PartView,
+    PatId, PatView, StmtKind, Tree, TypeId, TypeView,
 };
 use crate::parsing::lexer::{lex, Comment, TokenKind};
 use crate::parsing::tree::*;
@@ -3116,6 +3116,11 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
         PatView::Or { alts, .. } => {
             alts.iter().map(|a| pattern_str(t, *a)).collect::<Vec<_>>().join(" | ")
         }
+        // What the parser could not read comes back as it was written. The
+        // declaration around it is printed verbatim anyway — `regions` marks
+        // every declaration a syntax error lands in — so this is the answer
+        // that keeps the tokens rather than one that could be reached.
+        PatView::Error { span } => t.text(Location { start: span.start, end: span.end }).into(),
         PatView::Path { path, dotted, payload, .. } => {
             let joined = path.iter().map(|s| t.text(*s)).collect::<Vec<_>>().join(".");
             // A dotted path is `.Variant`, so the one segment and the join of

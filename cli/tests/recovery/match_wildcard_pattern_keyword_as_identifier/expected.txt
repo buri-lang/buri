@@ -1,9 +1,4 @@
-error [match-not-exhaustive] 4:3-7:4
-message: this `match` does not cover `_`
-fix: add a `_` arm
-note: exhaustiveness is not attempted over integer or string ranges
-
-error [unexpected-token] 6:5-6:10
+error [unexpected-token] 5:5-5:10
 message: expected a pattern, found `match`
 fix: write a pattern: a binding, a literal, `.Variant`, or `_`
 

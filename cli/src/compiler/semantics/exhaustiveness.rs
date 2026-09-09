@@ -880,8 +880,15 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         }
         if !alive {
             // Every alternative dead is the arm dead, which is the older and
-            // coarser report. It says the same thing about the same text.
-            reported.push(Diagnostic::templated("unreachable-arm", arm.span));
+            // coarser report. It says the same thing about the same text —
+            // and, on a `match` that did not parse whole, it says it about
+            // every arm below the broken one, because a pattern the checker
+            // could not build covers everything after it. So this is asked
+            // only of a `match` the checker understood, for the reason the
+            // finer report beside it is.
+            if !recovered {
+                reported.push(Diagnostic::templated("unreachable-arm", arm.span));
+            }
         } else if !recovered {
             for (at, rows, before) in dead {
                 let culprit = ctx.covered_by(&covering.rows, before, &rows, &types);
