@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "every elevation, layer by layer"
+  the snapshot "shadows-elevations" changed: see test/__snapshots__/shadows-elevations.diff.png
+  --> lib/sweep/test/pictures.buri:16:1
+
+1 passed, 1 failed, 2 skipped (0.0s)

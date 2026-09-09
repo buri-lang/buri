@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/clip.buri  "what a box does with a child larger than it is"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/scenes/test/clip.buri:10:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "how many layers, in what order, and the slot the two spellings share"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/sweep/test/pictures.buri:24:1
+
+0 passed, 1 failed, 3 skipped (0.0s)

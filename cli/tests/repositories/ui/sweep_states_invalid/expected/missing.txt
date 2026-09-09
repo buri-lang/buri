@@ -1,0 +1,5 @@
+FAIL //lib/control  test/invalid.buri  "before anything failed"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/control/test/invalid.buri:17:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

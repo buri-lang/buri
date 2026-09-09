@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/clip.buri  "a full-bleed child cut to the corners its parent has"
+  the snapshot "clip-corners" changed: see test/__snapshots__/clip-corners.diff.png
+  --> lib/scenes/test/clip.buri:18:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

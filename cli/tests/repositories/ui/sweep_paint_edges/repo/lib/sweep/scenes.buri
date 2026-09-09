@@ -248,9 +248,9 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
         band("...and the four whose element a browser draws itself", 104, [
             cell(
                 "field",
-                ui.field(.Const("Name"), .Text, chrome([]), signal(ctx, "Ada")),
+                ui.field(.Const("Name"), .Text, chrome([]), signal(ctx, "Ada"), .Const(false)),
             ),
-            cell("toggle", ui.toggle(.Const("on"), chrome([]), signal(ctx, true))),
+            cell("toggle", ui.toggle(.Const("on"), chrome([]), signal(ctx, true), .Const(false))),
             cell(
                 "image",
                 ui.stack(chrome([]), [ui.image(.Const("logo.png"), .Const("a"))]),
@@ -270,11 +270,11 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
         band("...and the same four", 104, [
             cell(
                 "field",
-                ui.field(.Const("Name"), .Text, chrome(framed()), signal(ctx, "Ada")),
+                ui.field(.Const("Name"), .Text, chrome(framed()), signal(ctx, "Ada"), .Const(false)),
             ),
             cell(
                 "toggle",
-                ui.toggle(.Const("on"), chrome(framed()), signal(ctx, true)),
+                ui.toggle(.Const("on"), chrome(framed()), signal(ctx, true), .Const(false)),
             ),
             cell(
                 "image",
