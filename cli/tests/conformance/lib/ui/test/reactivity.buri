@@ -655,6 +655,61 @@ test "a scope charges the bytes it was asked for" {
     assert.equal(log.noted(), [24]);
 }
 
+// --- a value read out of a cell ------------------------------------------------------
+
+// buri-lang/buri#143. `get` hands back what the cell holds, and the cell goes
+// on holding it, so the reader has the second reference to it — not the only
+// one. A list grown through the caller's reference must therefore build a new
+// list rather than write through, or `xs.set(ctx, xs.get(ctx).concat(…))` hands
+// `set` the value it is replacing and the equality cutoff drops the write.
+
+test "growing a list read out of a cell leaves the cell alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: testAlloc(),
+    };
+    // Built rather than written as a literal, so the cell is handed a list
+    // this program allocated — the case where a backend is entitled to think
+    // nobody else holds it.
+    let xs = signal(ctx, ["a"].concat(ctx, ["b"]));
+    let held = xs.get(ctx);
+    // No `set` anywhere: the only way the cell can move is by being written
+    // through the list `get` answered.
+    let grown = held.concat(ctx, ["c"]);
+    assert.equal(grown, ["a", "b", "c"]);
+    assert.equal(xs.get(ctx), ["a", "b"]);
+}
+
+test "pushing onto a list read out of a cell leaves the cell alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: testAlloc(),
+    };
+    let xs = signal(ctx, ["a"].concat(ctx, ["b"]));
+    let grown = xs.get(ctx).push(ctx, "c");
+    assert.equal(grown, ["a", "b", "c"]);
+    assert.equal(xs.get(ctx), ["a", "b"]);
+}
+
+test "a get-then-set append is a change on every write" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: testAlloc(),
+    };
+    let log = recorder();
+    let xs = signal(ctx, ["a", "b"]);
+    let _ = watch(ctx, fn(s) => ignore(log.note(xs.get(s).length())));
+    let _ = xs.set(ctx, xs.get(ctx).concat(ctx, ["c"]));
+    let _ = xs.set(ctx, xs.get(ctx).concat(ctx, ["d"]));
+    let _ = xs.set(ctx, xs.get(ctx).concat(ctx, ["e"]));
+    assert.equal(xs.get(ctx), ["a", "b", "c", "d", "e"]);
+    // The watcher's run when it was registered, and one per write.
+    assert.equal(log.noted(), [2, 3, 4, 5]);
+}
+
 // --- the design's example ------------------------------------------------------------
 
 // design/ui-reactivity.md, "Example". Everything reactive about the counter is

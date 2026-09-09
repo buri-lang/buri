@@ -1,0 +1,88 @@
+// One picture per family of `ui/style` properties over an `icon`, then the two
+// pictures the constructor exists for: where its colour comes from, and what a
+// theme does to it.
+//
+// The colour page is painted twice, resting and hovered, because one of its
+// bands is an `On` — everywhere else no style sits inside one, so the state a
+// snapshot is taken in contributes nothing.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/style" import { Color };
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import {
+    boxPage, colourPage, sizePage, surfacePage, themedBy, themePage, Token,
+};
+
+/// The app's light mapping.
+fn light(t: Token): Color {
+    match (t) {
+        .Surface => .Rgb(250, 250, 252),
+        .Ink => .Rgb(20, 20, 24),
+    }
+}
+
+/// And its dark one.
+fn dark(t: Token): Color {
+    match (t) {
+        .Surface => .Rgb(24, 24, 28),
+        .Ink => .Rgb(240, 240, 245),
+    }
+}
+
+test "the surface properties, on an icon" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon-surface", surfacePage(), .Hover, []);
+}
+
+test "the sizing properties, on an icon" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon-size", sizePage(), .Hover, []);
+}
+
+test "the paddings, on an icon" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon-box", boxPage(), .Hover, []);
+}
+
+test "where an icon's colour comes from, at rest" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon-colour", colourPage(), .Focus, []);
+}
+
+test "and hovered, where an On says so" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon-colour-hover", colourPage(), .Hover, []);
+}
+
+test "one drawing, light" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon-light", themePage(), .Focus, [themedBy(light)]);
+}
+
+test "one drawing, dark" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon-dark", themePage(), .Focus, [themedBy(dark)]);
+}

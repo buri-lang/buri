@@ -1,8 +1,8 @@
 .buri/out/web/cmd/site/main.mjs (N bytes)
 error: `location` implements `Location`, which is not allowed on the CLOUDFLARE_WORKER platform [effect-not-on-platform]
-   --> cmd/site/main.buri:111:24
+   --> cmd/site/main.buri:114:24
     |
-111 |         Location: host.location,
+114 |         Location: host.location,
     |                        ^^^^^^^^
     |
     = a platform is the set of effects its host exports; only a page has an address bar; a worker reads the path off the request it was handed
