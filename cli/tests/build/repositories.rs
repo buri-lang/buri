@@ -311,9 +311,18 @@ fn serving_a_page() {
 /// theme lists, the four breakpoints on the one page width a snapshot has,
 /// every derived tier painted either side of a write, what an image paints
 /// when nothing may be fetched, and the ends of every axis the tree has.
+///
+/// The `sweep_states_*` cases are the states sweep: every `State` against every
+/// interactive primitive, six pictures to a case — the resting one and one per
+/// state — each a labelled grid of `Background`, `Foreground`, `Border`,
+/// `Opacity` and `Shadow`, then all five at once, then a control that answers to
+/// nothing. Beside every picture is a `describe` assertion naming the classes
+/// that state applied, and every case's last step moves one number in the hover
+/// palette so exactly one of its six goldens fails. That is the tier-2 record
+/// that a state golden is not a copy of the resting one.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 20);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 26);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
