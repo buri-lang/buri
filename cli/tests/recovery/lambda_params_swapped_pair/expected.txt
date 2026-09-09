@@ -1,22 +1,5 @@
-error [expression-statement] 4:3-4:6
-message: an expression statement is legal only in a test source
-fix: bind it: `let _ = ...;`, or make it the block's result expression
-note: a block is `let`s followed by a result expression
-
-error [unresolved-name] 4:3-4:6
-message: there is nothing named `sum` in scope
-fix: declare `sum`, or import it — a name is in scope only from this module's own declarations and its imports
-
-error [missing-terminator] 4:6-4:6
-message: a statement ends with `;`
-fix: write `;` here
-edit: 4:6-4:6 ";"
-
-error [unexpected-token] 4:11-4:12
-message: expected a pattern, found `=`
-fix: write a pattern: a binding, a literal, `.Variant`, or `_`
-
-error [unresolved-name] 5:3-5:6
-message: there is nothing named `sum` in scope
-fix: declare `sum`, or import it — a name is in scope only from this module's own declarations and its imports
+error [unexpected-token] 3:3-3:6
+message: expected `let`, found `sum`
+fix: write `let` first: `let sum`
+edit: 3:3-3:10 "let sum"
 

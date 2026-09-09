@@ -1,5 +1,4 @@
-// EXPECT: an expression statement is legal only in a test source
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/113
+// EXPECT: expected `let`, found `sum`
 export fn add(x: Int, y: Int): Int {
   sum let = fn(a, b) => a + b;
   sum(x, y)

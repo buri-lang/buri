@@ -1,5 +1,5 @@
-error [unclosed-delimiter] 8:11-8:13
-message: this block is missing its closing `}`
-fix: write `}` here
-related: 8:3-8:4 opened here
+error [unexpected-token] 8:3-8:4
+message: expected a struct literal's type, found `{`
+fix: write the type before the brace: `Point {`
+edit: 8:3-8:10 "Point {"
 

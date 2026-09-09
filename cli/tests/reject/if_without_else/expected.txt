@@ -22,27 +22,3 @@ error: `if` requires an `else` branch [if-without-else]
     already reported missing, and a stray token between } and else, each get the
     error that names them instead.
 
-error: there is nothing named `label` in scope [unresolved-name]
- --> cmd/if_without_else/main.buri:8:3
-  |
-8 |   label
-  |   ^^^^^
-  |
-  = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
-
-    What to do
-    ──────────
-
-    Correct the spelling, or declare it. Where there is a near miss the fix
-    names it: "if you meant double, use that; if not, a name is in scope only
-    from this module's own declarations and its imports". A name the standard
-    library renamed is not a guess and gets the answer instead — sqrt was
-    renamed to squareRoot.
-
-    Why
-    ───
-
-    There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name, which is what makes the
-    suggestion trustworthy.
-

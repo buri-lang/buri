@@ -1,5 +1,4 @@
-// EXPECT: an expression statement is legal only in a test source
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/113
+// EXPECT: expected a struct literal's type, found `{`
 export struct Point {
   export x: Int,
   export y: Int,

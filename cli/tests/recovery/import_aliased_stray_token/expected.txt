@@ -2,12 +2,3 @@ error [unexpected-token] 2:6-2:7
 message: expected a string literal, found `@`
 fix: quote it, as in `"core/list"`
 
-error [unexpected-token] 2:48-2:49
-message: expected a declaration, found `;`
-fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-
-error [unresolved-type-in-pattern] 6:5-6:17
-message: there is no type `Ranking.Less`
-fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value
-note: a bare identifier in a pattern is always a binding; a variant is written `.Variant` or `Enum.Variant`
-

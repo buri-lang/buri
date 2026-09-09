@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:27:6
+   |
+27 |     }, ;
+   |      ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here

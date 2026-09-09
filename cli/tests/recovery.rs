@@ -365,9 +365,17 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // 1704, or 3.3%, read off a `BURI_RECOVERY_CAP=0` run, and four is
         // that rounded up.
         ("one mistake is one diagnostic", "delete-closer") => 4,
-        // The same three, at the stray-token row: 14 of 2184 is 0.7%.
+        // The same three, at the stray-token row: 14 of 2184 is 0.7%. And read
+        // once more over the exchanged-pair fixes merged beside them (issues
+        // 113, 114 and 115), which take the row to 8 of 2184, or 0.4%.
         ("one mistake is one diagnostic", "insert-stray") => 1,
-        ("one mistake is one diagnostic", "swap-adjacent") => 1,
+        // `swap-adjacent` was one and is now nothing, so it is not a row here
+        // at all. Two adjacent tokens exchanged used to leave the parser
+        // reading the second of them as the start of something, and the cases
+        // over the bound were the ones where that reading ran on. The
+        // exchanges the grammar can name — a name in front of its `let`, a
+        // type inside its own brace, a keyword one token late — are now
+        // reported once and read as what they say, so 0 of 2109 violate.
 
         ("the caret is on the mistake", "delete-closer") => 30,
         ("the caret is on the mistake", "delete-separator ()") => 5,
@@ -469,9 +477,14 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // parse whole keeps the arm it could not read, so the exhaustiveness
         // report is not drawn from the arms that happened to parse. The two
         // changes together leave 220 of 1704, or 12.9%, read off a
-        // `BURI_RECOVERY_CAP=0` run, and thirteen is that rounded up.
+        // `BURI_RECOVERY_CAP=0` run, and thirteen is that rounded up. With the
+        // names a broken declaration keeps merged in beside them (issues 113,
+        // 114 and 115) it is 217 of the same 1704, or 12.7%.
         ("a syntax error stays a syntax error", "delete-closer") => 13,
-        ("a syntax error stays a syntax error", "delete-separator ()") => 3,
+        // Lowered from three: 11 of 574 is 1.9%, and two is that rounded up. The same parser change the two rows below record
+        // — a `let` whose value did not read keeps its binding, so the names it
+        // declares no longer come back as errors of their own.
+        ("a syntax error stays a syntax error", "delete-separator ()") => 2,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,
         // The arm before the comma used to swallow the next arm's pattern, so
@@ -555,7 +568,17 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // Read again over the recovery fixes of issues 110, 117 and 118, for
         // the reason the `delete-closer` paragraph above gives: 479 of 2184 is
         // 21.9%, and twenty-two is that rounded up.
-        ("a syntax error stays a syntax error", "insert-stray") => 22,
+        //
+        // **And lowered again, where all fifteen re-reads above raised it, and
+        // for the opposite reason: this one is a parser change rather than a
+        // corpus one.** A stray token in front of a name or a pattern is
+        // stepped over now, a broken binding still declares the name it can
+        // see, and a declaration is no longer abandoned at the first mistake in
+        // its head or its body (issues 113, 114 and 115). The cascade this row
+        // measures is a name the source did declare being reported as a name
+        // nobody declared, and that is what those three take away: 318 of the
+        // same 2184 is 14.6%, and fifteen is that rounded up.
+        ("a syntax error stays a syntax error", "insert-stray") => 15,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
@@ -590,7 +613,13 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // twenty-eight is that rounded up.
         // Read again over the recovery fixes of issues 110, 117 and 118, same
         // reason: 560 of 2109 is 26.6%, and twenty-seven is that rounded up.
-        ("a syntax error stays a syntax error", "swap-adjacent") => 27,
+        //
+        // Lowered again by the three merged beside them, and by the exchanges
+        // they teach the parser to read: a name in front of its `let`, a type
+        // inside its own brace, a declaration's keyword one token late. Each of
+        // those used to lose everything the declaration bound. 339 of 2109 is
+        // 16.1%, and seventeen is that rounded up.
+        ("a syntax error stays a syntax error", "swap-adjacent") => 17,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,

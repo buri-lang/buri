@@ -1,0 +1,9 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> main.buri:5:8
+  |
+5 | struct export S {}
+  |        ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: write `export` before `struct`

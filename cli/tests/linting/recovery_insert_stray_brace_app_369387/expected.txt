@@ -20,17 +20,3 @@ error: expected `=`, found `extra` [unexpected-token]
    = expected: `=`
    = actual: `extra`
    = fix: write `=` here
-error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_369387/main.buri:19:19
-   |
-19 |     let _ = print(ctx, "half a line").mapErr(fn(_e) => {
-   |                   ^^^
-   |
-   = fix: declare `ctx` as a parameter of this function
-error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_369387/main.buri:23:18
-   |
-23 |         .println(ctx, " and the rest")
-   |                  ^^^
-   |
-   = fix: declare `ctx` as a parameter of this function

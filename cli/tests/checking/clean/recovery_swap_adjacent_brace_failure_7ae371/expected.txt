@@ -1,0 +1,9 @@
+error: expected a struct literal's type, found `{` [unexpected-token]
+  --> main.buri:46:32
+   |
+46 |     let silent = fn(_c, _r) => { Response modules: [], diagnostics: [] };
+   |                                ^
+   |
+   = expected: a struct literal's type
+   = actual: `{`
+   = fix: write the type before the brace: `Response {`

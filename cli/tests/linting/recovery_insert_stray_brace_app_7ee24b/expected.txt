@@ -7,10 +7,3 @@ error: expected an identifier, found `,` [unexpected-token]
    = expected: an identifier
    = actual: `,`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_7ee24b/main.buri:16:16
-   |
-16 |     io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
-   |                ^^^
-   |
-   = fix: declare `ctx` as a parameter of this function

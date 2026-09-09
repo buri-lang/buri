@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:73:22
+   |
+73 |         Stdin: stdin(? ).lines(["{\"inputs\":[[\"lib/wire/p.proto\"]]}"]),
+   |                      ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
