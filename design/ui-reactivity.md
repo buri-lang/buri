@@ -155,6 +155,9 @@ ui.heading(level: Int, styles, content: Prop<Str>): Node<C>
 ui.button(label: Prop<Str>, styles, children: [Node<C>], onPress: fn(C, Event) => ()): Node<C>
 ui.link(dest: Prop<Str>, styles, children: [Node<C>]): Node<C>
 ui.image(source: Prop<Str>, alt: Prop<Str>): Node<C>
+// artwork in the tree, so `currentColor` in it is the element's own Foreground.
+// The source is written out and the compiler reads it: `<svg>` and shapes only.
+ui.icon(styles, source: Str): Node<C>            // decorative, always
 ui.field(label: Prop<Str>, kind: FieldKind, styles, around, value: Signal<Str>): Node<C>
 ui.toggle(label: Prop<Str>, kind: ToggleKind, styles, around, value: Signal<Bool>): Node<C>
 ui.form(onSubmit: fn(C, Event) => (), styles, children): Node<C>
@@ -592,7 +595,7 @@ repositories land, `ui/...` can migrate out wholesale.
 | `core/host` (WEB, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
-| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `choose`, `computed`, `each`, `mount` |
+| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `choose`, `computed`, `each`, `icon`, `mount` |
 | `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
 | `ui/theme` | library | `Theme`, `themed`, `switching` |
 | `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |

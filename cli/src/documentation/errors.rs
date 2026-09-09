@@ -140,6 +140,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("generator-without-a-tool", "A generator names the program that runs it", &["build/generators"]),
     e!("generic-effect-unsupported", "A trait or an effect takes no type parameters of its own"),
     e!("host-import", "`core/host` is imported by the module that exports `main`", &["build/hermeticity"]),
+    e!(
+        "icon-not-drawable",
+        "An icon's artwork is written out, and holds only shapes",
+        &["guides/user-interfaces"]
+    ),
     e!("if-without-else", "`if` is an expression, so it needs an `else`"),
     e!("impl-body-not-a-method", "An `impl` body holds methods"),
     e!("impl-fn-without-self", "Everything in an `impl` takes `self`"),
