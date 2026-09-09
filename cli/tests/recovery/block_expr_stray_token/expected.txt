@@ -1,0 +1,8 @@
+error [unexpected-token] 4:7-4:8
+message: expected a pattern, found `@`
+fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+
+error [unresolved-name] 8:3-8:8
+message: there is nothing named `inner` in scope
+fix: declare `inner`, or import it — a name is in scope only from this module's own declarations and its imports
+

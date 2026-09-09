@@ -1,0 +1,8 @@
+// EXPECT: expected an identifier, found `1`
+export fn sign(n: Int): Int {
+  if (n > 0 {
+    1
+  } else {
+    0
+  }
+}

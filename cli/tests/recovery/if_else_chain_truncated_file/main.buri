@@ -1,0 +1,5 @@
+// EXPECT: expected an expression, found end of file
+export fn sign(n: Int): Int {
+  if (n > 0) {
+    1
+  } else if (

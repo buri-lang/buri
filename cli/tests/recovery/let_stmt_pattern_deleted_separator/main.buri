@@ -1,0 +1,5 @@
+// EXPECT: a tuple-pattern element ends with `,`
+export fn split(): Int {
+  let (left right) = (1, 2);
+  left + right
+}

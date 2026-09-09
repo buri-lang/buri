@@ -1,0 +1,7 @@
+// EXPECT: expected an identifier, found `match`
+// ROLE: test
+from "core/testing/assert" import * as assert;
+
+test "an expression statement stands alone in a test" {
+  assert.match(1, 1);
+}
