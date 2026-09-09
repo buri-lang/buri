@@ -692,6 +692,7 @@ mod tests {
             shapes: Default::default(),
             stylesheet: String::new(),
             inline_styles: false,
+            icons: false,
             themes: false,
             chunks: Vec::new(),
         }

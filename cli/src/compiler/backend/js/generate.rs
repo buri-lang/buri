@@ -365,6 +365,7 @@ pub fn generate(
     for (flag, hole, filling) in [
         (program.inline_styles, "$tree_declare_hook", "$tree_declare"),
         (program.themes, "$ui_theme_hook", "$ui_theme_install"),
+        (program.icons, "$tree_icon_hook", "$tree_icon"),
     ] {
         if flag {
             stmts.push(Stmt::Expr(Expr::Assign {

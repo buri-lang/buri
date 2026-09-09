@@ -367,7 +367,7 @@ fn serving_a_page() {
 /// hold, which HTML sanitizes into the bounds rather than refusing.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 45);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 46);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
