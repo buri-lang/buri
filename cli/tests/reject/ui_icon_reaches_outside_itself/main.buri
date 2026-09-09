@@ -1,0 +1,20 @@
+// EXPECT: an icon may carry only the attributes that draw a shape
+//
+// A reference to somewhere else is not artwork. `href` fetches, and the whole
+// point of an icon is that the drawing is *in* the tree, where the colour
+// around it reaches it — a snapshot fetches nothing, and a page should not have
+// to either.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(
+    ctx,
+    ui.icon([], "<svg viewBox='0 0 24 24'><path d='M0 0' href='/logo.svg'/></svg>"),
+    [],
+  )
+}

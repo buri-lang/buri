@@ -1,7 +1,8 @@
 //! What an image source paints: a PNG reader, an SVG subset, and the rule that
 //! sizes both.
 //!
-//! [`read`] is the whole entry: a `data:` URI in, a [`Picture`] out.
+//! [`read`] is the whole entry: a `data:` URI in, a [`Picture`] out, and
+//! [`artwork`] is the same for an icon's SVG, which the scene carries whole.
 //! `paint.rs`'s `picture` calls it and paints what comes back, and everything
 //! it answers `None` for is a placeholder box.
 //!
@@ -111,6 +112,16 @@ pub(super) fn read(source: &str) -> Option<Picture> {
         }
         _ => None,
     }
+}
+
+/// The artwork an `icon` carries, which is the SVG itself rather than a source
+/// to fetch.
+///
+/// Nothing is decoded on the way in: the scene holds the drawing whole, which
+/// is what lets `paint.rs` draw it with `currentColor` bound to the colour the
+/// element paints in.
+pub(super) fn artwork(source: &str) -> Option<Picture> {
+    Svg::parse(source).map(Picture::Vector)
 }
 
 /// `data:<type>[;charset=…][;base64],<body>`, split into the type and the

@@ -1,0 +1,21 @@
+// EXPECT: an icon may hold only an `<svg>` and the shapes inside it
+//
+// An icon's artwork is written into the document, so whatever it says lands in
+// the page. The compiler reads it for that reason, and the rule is an allow
+// list: an `<svg>` and the shapes under it, and nothing else. A `<script>` is
+// refused here rather than quietly dropped by the renderer, which builds
+// nothing but that list.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(
+    ctx,
+    ui.icon([], "<svg viewBox='0 0 24 24'><script>steal()</script></svg>"),
+    [],
+  )
+}
