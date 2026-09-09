@@ -1,27 +1,3 @@
-warning: nothing reads `Ledger.entries` [unused-field]
- --> lib/recovery_delete_closer_brace_cents_a87643/lib.buri:9:5
-  |
-9 |     entries: I64,
-  |     ^^^^^^^^^^^^
-  |
-  = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
-  = fix: delete the field, or read it
-warning: nothing constructs or matches `Tally.Open` [unused-variant]
-  --> lib/recovery_delete_closer_brace_cents_a87643/lib.buri:13:5
-   |
-13 |     Open,
-   |     ^^^^
-   |
-   = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
-   = fix: delete the variant, or construct it
-warning: nothing constructs or matches `Tally.Closed` [unused-variant]
-  --> lib/recovery_delete_closer_brace_cents_a87643/lib.buri:14:5
-   |
-14 |     Closed,
-   |     ^^^^^^
-   |
-   = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
-   = fix: delete the variant, or construct it
 error: this function body is missing its closing `}` [unclosed-delimiter]
   --> lib/recovery_delete_closer_brace_cents_a87643/lib.buri:25:1
    |

@@ -3,8 +3,6 @@ export struct Flags {
 }
 
 /// Pure, so the CLI's argument handling is testable without a process.
-fn
-
-export parseFlags(args: [Str]): Flags {
+fn export parseFlags(args: [Str]): Flags {
     Flags { verbose: args.any(fn(a) => a == "--verbose") }
 }

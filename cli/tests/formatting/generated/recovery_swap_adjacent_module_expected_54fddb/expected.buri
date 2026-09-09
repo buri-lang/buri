@@ -2,9 +2,7 @@ export fn f(): () {}
 
 export trait T {}
 
-struct
-
-export S {}
+struct export S {}
 
 export enum E {}
 

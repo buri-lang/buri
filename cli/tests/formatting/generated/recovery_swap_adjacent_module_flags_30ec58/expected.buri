@@ -4,9 +4,7 @@
 from "core/testing/assert" import * as assert;
 from "//tools/report/main.buri" import { parseFlags };
 
-"verbose is off by default"
-
-test {
+"verbose is off by default" test {
     assert.isFalse(parseFlags([]).verbose);
 }
 

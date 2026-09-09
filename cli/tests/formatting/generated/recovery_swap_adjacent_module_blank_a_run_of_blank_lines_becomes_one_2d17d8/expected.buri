@@ -4,6 +4,4 @@ export fn a(): Int {
 
 // why
 
-fn
-
-export b(): Int { 2 }
+fn export b(): Int { 2 }
