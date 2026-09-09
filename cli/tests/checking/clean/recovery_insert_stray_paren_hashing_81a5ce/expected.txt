@@ -1,8 +1,8 @@
 error: expected an expression, found `,` [unexpected-token]
-  --> main.buri:39:1
+  --> main.buri:21:33
    |
-39 | , }
-   | ^
+21 |     assert.notEqual(one.hash(), , uuid.zero().hash());
+   |                                 ^
    |
    = expected: an expression
    = actual: `,`
