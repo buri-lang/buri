@@ -1048,9 +1048,21 @@ impl<'a, 'b> Infer<'a, 'b> {
             return;
         }
         let at = args.first().map(|a| self.tree().span(*a)).unwrap_or(span);
-        let described = match &arg.ty {
+        // Named through the solver, never around it: the argument is checked
+        // before anything settles it, so rendering the bare `Ty` told a reader
+        // their `lazy.load(3)` "is _1". A literal answers with the type it
+        // defaults to, and a variable nothing constrains says so in words.
+        let resolved = self.resolve(&arg.ty);
+        let described = match &resolved {
             Ty::Fn(..) => String::from("a function value"),
-            other => crate::compiler::semantics::types::show(&self.c.tables, None, &[], other),
+            other => {
+                let spelled =
+                    show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, other);
+                match spelled {
+                    Spelling::Unconstrained => spelled.quoted(),
+                    _ => spelled.name().to_string(),
+                }
+            }
         };
         self.c.diags.push(
             Diagnostic::templated("lazy-not-a-function", at).with_bind("got", described),
