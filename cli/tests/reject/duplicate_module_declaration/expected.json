@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Point` is declared twice in this module","code":"duplicate-module-declaration","location":{"file":"cmd/duplicate_module_declaration/main.buri","line":6,"column":8,"endLine":6,"endColumn":13,"text":"struct Point {"},"fix":"rename one of them; a name has one meaning in a module","notes":[],"related":[]}

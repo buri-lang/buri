@@ -1,0 +1,7 @@
+error: a character literal holds exactly one Unicode scalar value [character-literal-length]
+ --> cmd/character_literal_length/main.buri:8:11
+  |
+8 |   let c = 'ab';
+  |           ^^
+  |
+  = fix: use a string literal for more than one

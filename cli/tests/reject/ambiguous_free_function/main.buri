@@ -1,0 +1,13 @@
+// EXPECT: `size` is ambiguous as a free function
+fn size(a: Int): Int {
+  a
+}
+
+fn size(a: Str): Int {
+  0
+}
+
+fn go(): Int {
+  let f = size;
+  1
+}

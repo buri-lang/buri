@@ -1,0 +1,1 @@
+{"severity":"error","message":"unterminated block comment","code":"unterminated-comment","location":{"file":"cmd/unterminated_comment/main.buri","line":2,"column":1,"endLine":4,"endColumn":1,"text":"/* opened and never closed"},"fix":"close it with `*/`; block comments nest, so each `/*` needs one","notes":[],"related":[]}

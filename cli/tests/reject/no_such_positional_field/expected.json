@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Wrapper` has no field 3","code":"no-such-positional-field","location":{"file":"cmd/no_such_positional_field/main.buri","line":5,"column":5,"endLine":5,"endColumn":6,"text":"  w.3"},"fix":"`Wrapper` has 1 fields","notes":[],"related":[]}

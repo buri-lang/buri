@@ -1,0 +1,9 @@
+error: `Circle` holds 2 values, but 1 were matched [wrong-matched-value-count]
+ --> cmd/wrong_matched_value_count/main.buri:9:5
+  |
+9 |     .Circle(a) => a,
+  |     ^^^^^^^^^^
+  |
+  = expected: 2
+  = actual: 1
+  = fix: match exactly 2, or end the pattern with `..`

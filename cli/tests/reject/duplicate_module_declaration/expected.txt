@@ -1,0 +1,7 @@
+error: `Point` is declared twice in this module [duplicate-module-declaration]
+ --> cmd/duplicate_module_declaration/main.buri:6:8
+  |
+6 | struct Point {
+  |        ^^^^^
+  |
+  = fix: rename one of them; a name has one meaning in a module

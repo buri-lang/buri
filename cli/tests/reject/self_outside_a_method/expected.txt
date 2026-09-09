@@ -1,0 +1,7 @@
+error: `self` is legal only in a method body [self-outside-a-method]
+ --> cmd/self_outside_a_method/main.buri:3:3
+  |
+3 |   self
+  |   ^^^^
+  |
+  = fix: name a parameter instead, or move this into an `impl` block

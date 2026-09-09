@@ -1,0 +1,12 @@
+// EXPECT: `Circle` has a payload, so the pattern needs one
+enum Shape {
+  Circle(Int),
+  Square,
+}
+
+fn go(s: Shape): Int {
+  match (s) {
+    .Circle => 1,
+    .Square => 0,
+  }
+}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`\\u` must be followed by `{`, as in `\\u{1F600}`","code":"unbraced-unicode-escape","location":{"file":"cmd/unbraced_unicode_escape/main.buri","line":8,"column":12,"endLine":8,"endColumn":14,"text":"  let s = \"\\u0041\";"},"fix":"brace the code point: `\\u{1F600}`","notes":[],"related":[]}

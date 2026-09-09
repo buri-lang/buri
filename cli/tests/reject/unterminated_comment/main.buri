@@ -1,0 +1,3 @@
+// EXPECT: unterminated block comment
+/* opened and never closed
+export fn area(side: Int): Int { side * side }

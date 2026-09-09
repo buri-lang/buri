@@ -1,0 +1,7 @@
+error: unterminated character literal [unterminated-character]
+ --> cmd/unterminated_character/main.buri:3:3
+  |
+3 |   '
+  |   ^
+  |
+  = fix: close it with `'`

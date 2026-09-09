@@ -1,0 +1,16 @@
+error: a tuple type has arity 2 or more [tuple-type-arity]
+ --> cmd/tuple_type_arity/main.buri:2:12
+  |
+2 | fn only(): (Int,) {
+  |            ^^^^^^
+  |
+  = `(T)` is a parenthesized type and `()` is unit
+  = fix: write the element type on its own for one, or `()` for none
+error: a tuple has arity 2 or more [tuple-arity]
+ --> cmd/tuple_type_arity/main.buri:3:3
+  |
+3 |   (1,)
+  |   ^^^^
+  |
+  = `(e)` is grouping and `()` is the unit value
+  = fix: drop the parentheses for one element, or write `()` for none

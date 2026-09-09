@@ -1,0 +1,7 @@
+error: `I64` is not a 2-tuple [pattern-not-a-tuple]
+ --> cmd/pattern_not_a_tuple/main.buri:4:5
+  |
+4 |     (a, b) => a,
+  |     ^^^^^^
+  |
+  = fix: match the shape of `I64`, not a 2-tuple

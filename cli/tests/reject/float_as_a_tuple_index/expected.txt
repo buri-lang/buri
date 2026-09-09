@@ -1,0 +1,7 @@
+error: `.0.1` lexes as a float, not two tuple indices [float-as-a-tuple-index]
+ --> cmd/float_as_a_tuple_index/main.buri:9:18
+  |
+9 |   let n = nested.0.1;
+  |                  ^^^
+  |
+  = fix: parenthesize the first index: `(t.0).1`

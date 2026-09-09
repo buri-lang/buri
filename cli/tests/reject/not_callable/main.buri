@@ -1,0 +1,4 @@
+// EXPECT: `I64` is not callable
+fn go(n: Int): Int {
+  n(1)
+}

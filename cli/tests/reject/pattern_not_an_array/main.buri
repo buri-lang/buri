@@ -1,0 +1,7 @@
+// EXPECT: `I64` is not an array
+fn go(n: Int): Int {
+  match (n) {
+    [a] => a,
+    _ => 0,
+  }
+}

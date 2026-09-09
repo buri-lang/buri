@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `I64`, found a `Point` pattern","code":"pattern-type-mismatch","location":{"file":"cmd/pattern_type_mismatch/main.buri","line":8,"column":5,"endLine":8,"endColumn":16,"text":"    Point { x } => x,"},"expected":"`I64`","actual":"a `Point` pattern","fix":"match the shape of `I64`","notes":[],"related":[]}

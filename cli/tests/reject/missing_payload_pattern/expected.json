@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Circle` has a payload, so the pattern needs one","code":"missing-payload-pattern","location":{"file":"cmd/missing_payload_pattern/main.buri","line":9,"column":5,"endLine":9,"endColumn":12,"text":"    .Circle => 1,"},"fix":"write `.Circle(..)`, or name each field","notes":[],"related":[]}

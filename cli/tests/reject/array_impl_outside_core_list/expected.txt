@@ -1,0 +1,7 @@
+error: the defining module of `[T]` is `core/list` [array-impl-outside-core-list]
+ --> cmd/array_impl_outside_core_list/main.buri:2:6
+  |
+2 | impl [Int] {
+  |      ^^^^^
+  |
+  = fix: write a free function over the array instead

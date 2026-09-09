@@ -1,0 +1,19 @@
+error: `size` is supplied twice [method-supplied-twice]
+  --> cmd/method_supplied_twice/main.buri:15:6
+   |
+15 |   fn size(self): Int {
+   |      ^^^^
+   |
+   = fix: delete one of the two
+error: `Point` already has a method `size` [duplicate-method]
+  --> cmd/method_supplied_twice/main.buri:15:6
+   |
+15 |   fn size(self): Int {
+   |      ^^^^
+   |
+  --> cmd/method_supplied_twice/main.buri:11:6
+   |
+11 |   fn size(self): Int {
+   |      ^^^^ first declared here
+   |
+   = fix: rename one of them

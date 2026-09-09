@@ -1,0 +1,1 @@
+{"severity":"error","message":"there is no module \"core/lists\"","code":"no-such-module","location":{"file":"cmd/no_such_module/main.buri","line":2,"column":6,"endLine":2,"endColumn":18,"text":"from \"core/lists\" import * as lists;"},"fix":"check the path; the standard library's modules are all `core/...`, `ui/...` or `std/...`","notes":[],"related":[]}

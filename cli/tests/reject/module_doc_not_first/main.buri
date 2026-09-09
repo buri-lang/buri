@@ -1,0 +1,5 @@
+// EXPECT: `//!` documents the module, so it must come first
+export fn area(side: Int): Int { side * side }
+
+//! This belongs at the top of the file, above everything.
+export fn perimeter(side: Int): Int { side * 4 }

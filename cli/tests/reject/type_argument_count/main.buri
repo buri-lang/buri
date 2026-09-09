@@ -1,0 +1,9 @@
+// EXPECT: `Pair` takes 2 type arguments, but 1 were given
+struct Pair<A, B> {
+  export a: A,
+  export b: B,
+}
+
+fn take(p: Pair<Int>): Int {
+  0
+}

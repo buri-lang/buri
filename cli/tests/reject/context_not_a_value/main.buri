@@ -1,0 +1,13 @@
+// EXPECT: `Console` is a context; construct one by calling it
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+context Console {
+  Stdout: host.stdout,
+}
+
+export fn main(): Result<(), Str> {
+  let _ = io.println(Console, "hi").ignore();
+  .Ok(())
+}

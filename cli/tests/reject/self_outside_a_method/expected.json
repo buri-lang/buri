@@ -1,0 +1,1 @@
+{"severity":"error","message":"`self` is legal only in a method body","code":"self-outside-a-method","location":{"file":"cmd/self_outside_a_method/main.buri","line":3,"column":3,"endLine":3,"endColumn":7,"text":"  self"},"fix":"name a parameter instead, or move this into an `impl` block","notes":[],"related":[]}

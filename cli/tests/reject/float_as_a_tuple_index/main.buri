@@ -1,0 +1,11 @@
+// EXPECT: `.0.1` lexes as a float, not two tuple indices
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let nested = ((1, 2), 3);
+  let n = nested.0.1;
+  .Ok(())
+}

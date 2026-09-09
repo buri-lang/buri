@@ -1,0 +1,2 @@
+// EXPECT: there is no module "core/lists"
+from "core/lists" import * as lists;

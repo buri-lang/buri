@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Point` already implements `Measurable`","code":"duplicate-implementation","location":{"file":"cmd/duplicate_implementation/main.buri","line":16,"column":1,"endLine":20,"endColumn":2,"text":"impl Measurable for Point {"},"fix":"delete one of the two, or merge them","notes":["there is exactly one candidate per (trait, type)"],"related":[]}

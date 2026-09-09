@@ -1,0 +1,7 @@
+error: `Point` is a type, not a value [type-not-a-value]
+ --> cmd/type_not_a_value/main.buri:8:11
+  |
+8 |   let p = Point;
+  |           ^^^^^
+  |
+  = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value

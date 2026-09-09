@@ -1,0 +1,1 @@
+{"severity":"error","message":"a spread takes another context, found `Int`","code":"context-spread-operand","location":{"file":"cmd/context_spread_operand/main.buri","line":7,"column":25,"endLine":7,"endColumn":26,"text":"  let ctx = context { ..5, Stdout: host.stdout };"},"fix":"spread a value built by a `context` expression or a context declaration","notes":[],"related":[]}

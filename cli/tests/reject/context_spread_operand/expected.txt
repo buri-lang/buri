@@ -1,0 +1,7 @@
+error: a spread takes another context, found `Int` [context-spread-operand]
+ --> cmd/context_spread_operand/main.buri:7:25
+  |
+7 |   let ctx = context { ..5, Stdout: host.stdout };
+  |                         ^
+  |
+  = fix: spread a value built by a `context` expression or a context declaration

@@ -1,0 +1,8 @@
+error: there is no type `Shape.Circle` [unresolved-type-in-pattern]
+ --> cmd/unresolved_type_in_pattern/main.buri:4:3
+  |
+4 |   Shape.Circle => 1,
+  |   ^^^^^^^^^^^^
+  |
+  = a bare identifier in a pattern is always a binding; a variant is written `.Variant` or `Enum.Variant`
+  = fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value

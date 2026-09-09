@@ -1,0 +1,7 @@
+error: unterminated string literal [unterminated-string]
+ --> cmd/unterminated_string/main.buri:3:8
+  |
+3 |   "oops
+  |        ^
+  |
+  = fix: close it with `"`; a string literal does not span a line break

@@ -1,0 +1,1 @@
+{"severity":"error","message":"this is not a struct or an enum variant","code":"not-a-struct-literal-head","location":{"file":"cmd/not_a_struct_literal_head/main.buri","line":3,"column":11,"endLine":3,"endColumn":14,"text":"  let v = Int { x: 1 };"},"fix":"name a struct, or an enum variant that has fields","notes":[],"related":[]}
