@@ -7,6 +7,10 @@ With no target argument it matches the whole repository, so bare `buri run`
 works in a repository that declares one binary. Where it matches several, the
 error names them and you pick.
 
+Stopping `buri run` stops the program it started: `SIGINT`, `SIGTERM` and
+`SIGHUP` reach the program, `buri run` waits for it to finish shutting down, and
+exits with the program's own status — 128 plus the signal where one ended it.
+
 A binary with several outputs runs the host's own platform where this toolchain
 can build for it, and a page or a script otherwise. It never runs a
 `CLOUDFLARE_WORKER` output: a worker is called by its platform, once per
