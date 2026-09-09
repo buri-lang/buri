@@ -1,0 +1,17 @@
+// EXPECT: `Layout` has no variant `GridReverse`
+//
+// Only the two stacks reverse. A grid places its children in tracks the
+// container named, so "backwards" is a question about a track and not about the
+// container, and there is nothing for a reversed grid to mean that
+// `Layout(.Grid(...))` with the tracks written the other way round does not
+// already say.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([.Layout(.GridReverse)], []), [])
+}

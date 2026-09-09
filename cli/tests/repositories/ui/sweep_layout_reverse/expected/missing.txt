@@ -1,0 +1,5 @@
+FAIL //lib/reverse  test/reverse.buri  "four children, four layouts"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/reverse/test/reverse.buri:11:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

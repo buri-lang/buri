@@ -1,0 +1,5 @@
+FAIL //lib/translate  test/translate.buri  "every unit a translate takes"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/translate/test/translate.buri:11:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

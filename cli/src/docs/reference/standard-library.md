@@ -696,6 +696,10 @@ stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.
 
+A container has a state of its own: `On(.FocusWithin, ...)` fires while
+something inside it has the keyboard, which is how an input group carries one
+hairline and one ring around a prefix, a bare field and a suffix.
+
 `button(label, styles, children, onPress)` holds children the way `link` does,
 and one with none shows its label. The label stays a parameter and rides in
 `aria-label`, so a button of an icon and a word is one focusable, hoverable
