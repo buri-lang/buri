@@ -1,0 +1,9 @@
+error: expected `;`, found `@` [unexpected-token]
+ --> main.buri:2:12
+  |
+2 |   let a = 1@ ;
+  |            ^
+  |
+  = expected: `;`
+  = actual: `@`
+  = fix: write `;` here

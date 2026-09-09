@@ -1,0 +1,9 @@
+error: expected `=`, found `[` [unexpected-token]
+  --> main.buri:16:17
+   |
+16 |     let doubled [ =1, 2, 3].fold(fn(acc, x) => acc + x, 0);
+   |                 ^
+   |
+   = expected: `=`
+   = actual: `[`
+   = fix: write `=` here
