@@ -1678,6 +1678,43 @@ test "a list has no marker until one is asked for" {
     assert.isTrue(reset < marker);
 }
 
+test "a toggle's own styles paint, because the reset takes the native control away" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let on = signal(ctx, true);
+    // Basecoat's switch, as close as `toggle` gets. While the reset exempted a
+    // checkbox from `appearance:none` a browser painted its own 16x16 square
+    // over all of this: the radius was discarded outright and the background
+    // was computed and never painted.
+    let styles: [Style] = [
+        .Width(.Px(32)),
+        .Height(.Px(18)),
+        .Radius(.Px(9999)),
+        .Background(.Rgb(220, 220, 220)),
+        .On(.Checked, [.Background(.Rgb(20, 20, 20))]),
+    ];
+    assert.equal(
+        render(ctx, ui.toggle(.Const("Email me"), .Switch, styles, [], on)).markup(),
+        "<label><input type=\"checkbox\" role=\"switch\" class=\"w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414\" checked /><span>Email me</span></label>",
+    );
+
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".r-9999{border-radius:9999px}"));
+    assert.isTrue(sheet.contains(".checked_bg-141414:checked{background-color:rgb(20,20,20)}"));
+    // The reset reaches the control, so nothing the program asked for is
+    // painted over.
+    assert.isTrue(sheet.contains(":where(input[type=checkbox]){appearance:none;"));
+
+    // And the same styles are on the control's line of the scene document, one
+    // level under the label that wraps it.
+    assert.containsText(
+        ui.describe(ctx, ui.toggle(.Const("Email me"), .Switch, styles, [], on), .Checked),
+        "am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414",
+    );
+}
+
 test "a container with no layout is the column the default promises" {
     let ctx = context {
         Ui: headless(),
