@@ -1,0 +1,108 @@
+//! The ends of the tree: nothing at all, containers with nothing in them, a
+//! hundred boxes deep and a thousand boxes wide.
+
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Style };
+
+/// One labelled row: the label in a fixed track, the sample in the rest.
+fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
+    ui.stack([.Layout(.Grid([.Fixed(.Px(210)), .Fraction(1)])), .Gap(.Px(12))], [
+        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+        sample,
+    ])
+}
+
+/// A page of labelled rows.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(10))], rows)
+}
+
+/// A visible box, so a container with nothing in it still has an edge.
+let plate: [Style] = [
+    .Background(.Rgb(215, 225, 235)),
+    .BorderWidth(.Px(1)),
+    .BorderColor(.Rgb(90, 100, 120)),
+    .MinHeight(.Px(18)),
+];
+
+/// A block of colour with a word in it.
+fn block<C>(shade: Color, words: Str): Node<C> {
+    ui.stack([.Background(shade), .Padding(.Px(6)), .Foreground(.Rgb(255, 255, 255))], [
+        ui.text(.Const(words)),
+    ])
+}
+
+/// Every container with nothing in it, and `nothing` among siblings that have
+/// something.
+export fn empties<C>(): Node<C> {
+    page([
+        labelled("an empty stack", ui.stack(plate, [])),
+        labelled("an empty row", ui.row(plate, [])),
+        labelled("an empty column", ui.column(plate, [])),
+        labelled("an empty list", ui.region(.List, plate, [])),
+        labelled("an empty table", ui.region(.Table, plate, [])),
+        labelled("a stack of one `nothing`", ui.stack(plate, [ui.nothing()])),
+        labelled(
+            "`nothing` between two blocks",
+            ui.row([.Gap(.Px(8))], [
+                block(.Rgb(200, 60, 60), "before"),
+                ui.nothing(),
+                block(.Rgb(40, 100, 200), "after"),
+            ]),
+        ),
+    ])
+}
+
+/// `levels` stacks inside one another, two pixels of padding each, in two
+/// colours — so a hundred levels is a hundred rings and not one box.
+export fn deep<C>(levels: Int): Node<C> {
+    if (levels <= 0) {
+        ui.stack([.Background(.Rgb(255, 255, 255)), .Padding(.Px(4))], [
+            ui.text(.Const("floor")),
+        ])
+    } else {
+        let shade: Color = if (levels % 2 == 0) {
+            .Rgb(40, 90, 160)
+        } else {
+            .Rgb(210, 225, 240)
+        };
+        ui.stack([.Padding(.Px(2)), .Background(shade)], [deep(levels - 1)])
+    }
+}
+
+/// `n` boxes in one wrapping row, four colours round, built through `each` —
+/// the one constructor whose children the walk asks for rather than being
+/// handed.
+export fn siblings<C: Allocator>(ctx: C, n: Int): Node<C> {
+    ui.row([.Wrap(true), .Gap(.Px(2)), .Padding(.Px(8))], [
+        ui.each(
+            .Const(labels(ctx, n, 0, [])),
+            fn(label) => label,
+            fn(_c, _label, at) => {
+                ui.stack([.Width(.Px(20)), .Height(.Px(10)), .Background(tint(at))], [])
+            },
+        ),
+    ])
+}
+
+/// `n` labels, "0" to "n - 1".
+fn labels<C: Allocator>(ctx: C, n: Int, at: Int, acc: [Str]): [Str] {
+    if (at >= n) {
+        acc
+    } else {
+        labels(ctx, n, at + 1, acc.push(ctx, str.fromInt(ctx, at)))
+    }
+}
+
+/// A colour per position, so a thousand boxes count as a thousand.
+fn tint(at: Int): Color {
+    match (at % 4) {
+        0 => .Rgb(200, 60, 60),
+        1 => .Rgb(40, 160, 80),
+        2 => .Rgb(40, 100, 200),
+        _ => .Rgb(140, 40, 160),
+    }
+}
