@@ -6,22 +6,6 @@ warning: `size` is 41 lines long [oversized-function]
   |
   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
   = fix: find the responsibility boundaries in the body and give each one a function of its own
-error: an expression statement is legal only in a test source [expression-statement]
-  --> lib/recovery_delete_closer_module_app_22327a/main.buri:10:5
-   |
-10 |     if (n > 0) {
-   |     ^^^^^^^^^^^^
-   |
-   = a block is `let`s followed by a result expression
-   = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: this statement has type `Str`, not `()` [statement-not-unit]
-  --> lib/recovery_delete_closer_module_app_22327a/main.buri:10:5
-   |
-10 |     if (n > 0) {
-   |     ^^^^^^^^^^^^
-   |
-   = only an expression whose type is `()` may stand alone; bind anything else
-   = fix: bind it with `let _ = ...;`
 warning: this branch is nested 5 levels deep [deep-nesting]
   --> lib/recovery_delete_closer_module_app_22327a/main.buri:14:21
    |

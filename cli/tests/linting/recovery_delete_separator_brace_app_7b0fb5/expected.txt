@@ -14,30 +14,10 @@ warning: this is `order.bool`, written out [hand-rolled-comparator]
    |
    = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
    = fix: call `order.bool` with the two operands, and delete the chain
-error: this `match` does not cover `.Equal` [match-not-exhaustive]
-  --> lib/recovery_delete_separator_brace_app_7b0fb5/main.buri:51:5
+error: a match arm ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_app_7b0fb5/main.buri:52:24
    |
-51 |     match (ordered) {
-   |     ^^^^^^^^^^^^^^^^^ not covered
+52 |         .Less => "less"
+   |                        ^
    |
-   = every `match` must cover its scrutinee's type
-   = fix: add an arm for `.Equal`, or a `_` arm for everything left
-error: `Str` has no field `Equal` [no-such-field]
-  --> lib/recovery_delete_separator_brace_app_7b0fb5/main.buri:53:10
-   |
-53 |         .Equal => "equal",
-   |          ^^^^^
-   |
-   = fix: check the spelling, or name a field the type declares
-error: this `match` is missing its closing `}` [unclosed-delimiter]
-  --> lib/recovery_delete_separator_brace_app_7b0fb5/main.buri:53:16
-   |
-53 |         .Equal => "equal",
-   |                ^^
-   |
-  --> lib/recovery_delete_separator_brace_app_7b0fb5/main.buri:51:21
-   |
-51 |     match (ordered) {
-   |                     ^ opened here
-   |
-   = fix: write `}` here
+   = fix: write `,` here
