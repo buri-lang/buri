@@ -22,12 +22,10 @@
 # are about, because painting six 800 by 600 pages five times over is four
 # fifths of what this case would cost the bar.
 #
-# **One of these pictures is pinned as painted rather than as right**, and it is
-# a filed bug. Re-record its golden when it closes.
-#
-#   * #86 — a `Width` or a `Height` is a border box, so the padding sits inside
-#     it. Visible wherever the `size` picture puts a length against the base's
-#     two pixels of padding.
+# A `Width` or a `Height` is the whole box, so a padding and a border sit inside
+# it — visible wherever the `size` picture puts a length against the base's two
+# pixels of padding. The sheet's `box-sizing: border-box` says the same thing to
+# a browser, so these goldens are painted as right rather than as painted.
 #
 # Three bands are the same picture across their values on purpose, and each says
 # something. `FontFamily`: every family resolves to the one bundled face, which

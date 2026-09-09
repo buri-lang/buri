@@ -162,8 +162,9 @@ impl Rendered {
 /// program builds.
 export fn stylesheet(): Str;
 
-/// Installs `themes` exactly as `mount` does, and answers the custom-property
-/// block they resolve to.
+/// Installs `themes` exactly as `mount` does, and answers the `:root` block
+/// they resolve to — the custom properties, and the `color-scheme` a
+/// `theme.scheme` writes.
 ///
 /// This is how a test asserts what a token is *worth*: the stylesheet says only
 /// that a class reads `var(--cardlib-surface)`. A chain resolves here once, the
