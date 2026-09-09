@@ -2,11 +2,3 @@ error [unexpected-token] 2:6-2:7
 message: expected a string literal, found `@`
 fix: quote it, as in `"core/list"`
 
-error [unexpected-token] 2:28-2:29
-message: expected a declaration, found `{`
-fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-
-error [unexpected-token] 2:44-2:45
-message: expected a declaration, found `;`
-fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-

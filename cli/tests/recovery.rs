@@ -353,7 +353,13 @@ fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
         ("one mistake is one diagnostic", "delete-closer") => 6,
         ("one mistake is one diagnostic", "insert-stray") => 2,
-        ("one mistake is one diagnostic", "swap-adjacent") => 1,
+        // `swap-adjacent` was one and is now nothing, so it is not a row here
+        // at all. Two adjacent tokens exchanged used to leave the parser
+        // reading the second of them as the start of something, and the four
+        // cases over the bound were the ones where that reading ran on. The
+        // exchanges the grammar can name — a name in front of its `let`, a
+        // type inside its own brace, a keyword one token late — are now
+        // reported once and read as what they say, so 0 of 2109 violate.
 
         ("the caret is on the mistake", "delete-closer") => 30,
         ("the caret is on the mistake", "delete-separator ()") => 5,
@@ -426,7 +432,11 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // line is now a mutation of a different program. 253 of 1686 is 15.1%,
         // one case over a ceiling of fifteen, and sixteen is that rounded up.
         ("a syntax error stays a syntax error", "delete-closer") => 16,
-        ("a syntax error stays a syntax error", "delete-separator ()") => 3,
+        // Lowered from three: 11 of 574 is 1.9%, and two is that rounded up.
+        // The same parser change the two rows below record — a `let` whose
+        // value did not read keeps its binding, so the names it declares no
+        // longer come back as errors of their own.
+        ("a syntax error stays a syntax error", "delete-separator ()") => 2,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,
         // The arm before the comma swallows the next arm's pattern, so `2` gets
@@ -502,7 +512,16 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // is 23.1%, and twenty-four is that rounded up. Checked against the
         // source it added: with `routing.buri` taken out of the corpus the row
         // is back under twenty-three, so the file is the whole of the move.
-        ("a syntax error stays a syntax error", "insert-stray") => 24,
+        // **Lowered, where all fifteen re-reads above raised it, and for the
+        // opposite reason: this one is a parser change rather than a corpus
+        // one.** A stray token in front of a name or a pattern is stepped over
+        // now, a broken binding still declares the name it can see, and a
+        // declaration is no longer abandoned at the first mistake in its head
+        // or its body (#113, #114, #115). The cascade this row measures is a
+        // name the source did declare being reported as a name nobody
+        // declared, and that is what those three take away: 337 of the same
+        // 2184 is 15.4%, and sixteen is that rounded up.
+        ("a syntax error stays a syntax error", "insert-stray") => 16,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
@@ -535,7 +554,13 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // `cli/src/parsing/`); the population grew by a hundred and twenty cases
         // dense in adjacent calls and literals. 567 of 2091 is 27.1%, and
         // twenty-eight is that rounded up.
-        ("a syntax error stays a syntax error", "swap-adjacent") => 28,
+        // Lowered from twenty-eight by the same three changes the row above
+        // records, and by the exchanges they teach the parser to read: a name
+        // in front of its `let`, a type inside its own brace, a declaration's
+        // keyword one token late. Each of those used to lose everything the
+        // declaration bound. 358 of 2109 is 17.0%, and seventeen is that
+        // rounded up.
+        ("a syntax error stays a syntax error", "swap-adjacent") => 17,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,

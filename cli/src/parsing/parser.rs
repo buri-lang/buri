@@ -327,6 +327,33 @@ fn starts_declaration(t: TokenKind) -> bool {
     )
 }
 
+/// What a declaration's keyword is followed by, where that is one token of one
+/// kind: a path, a name, or nothing this can say.
+///
+/// The whole of what [`Parser::exchanged_head`] needs to know. `export` is not
+/// here because it is a modifier rather than an opener — what follows it is
+/// another keyword — and `let` is not because the binding keyword and its name
+/// have a repair of their own.
+fn head_takes(keyword: TokenKind, token: TokenKind) -> bool {
+    match keyword {
+        // `from "core/list" import …`, `test "it works" { … }`.
+        TokenKind::KeywordFrom | TokenKind::KeywordTest => token == TokenKind::Str,
+        // A keyword and a name: the type an `impl` is about, the first trait a
+        // `derive` names, and the name every other declaration declares.
+        TokenKind::KeywordImpl
+        | TokenKind::KeywordDerive
+        | TokenKind::KeywordStruct
+        | TokenKind::KeywordEnum
+        | TokenKind::KeywordType
+        | TokenKind::KeywordTrait
+        | TokenKind::KeywordEffect
+        | TokenKind::KeywordContext
+        | TokenKind::KeywordConst
+        | TokenKind::KeywordFn => token == TokenKind::Ident,
+        _ => false,
+    }
+}
+
 /// Whether a token can begin a tuple-struct field: a type, or its `export`.
 fn starts_tuple_field(t: TokenKind) -> bool {
     starts_type(t) || matches!(t, TokenKind::KeywordExport)
@@ -1052,27 +1079,40 @@ impl<'a> Parser<'a> {
     /// Whether the token under the cursor is one written in front of what the
     /// production wants, rather than part of what it is reading.
     ///
-    /// Two tokens, and neither means anything where a name or a pattern goes:
-    /// `@` and `?` are operators of other constructs.
+    /// Three tokens, and every one of them means nothing where a name or a
+    /// pattern goes. `@` and `?` are operators of other constructs; `export`
+    /// modifies a declaration, and every list that admits one eats it before
+    /// asking for the name — so an `export` that reaches here is misplaced.
     ///
     /// Everything else is left alone. A `:`, a `,` or a delimiter is part of
     /// the shape the construct is read against, and a keyword that opens one is
     /// the construct *ending* — stepping over either turns a mistake about the
     /// shape into a mistake about the token behind it.
     fn stray_token(&self) -> bool {
-        matches!(self.peek(), TokenKind::At | TokenKind::Question)
+        matches!(self.peek(), TokenKind::At | TokenKind::Question | TokenKind::KeywordExport)
     }
 
     /// The token [`Parser::early`] holds, if it is the kind this production
     /// wants. Reading it consumes it: a token written one place too early is
     /// used once, where it belongs.
     fn take_early(&mut self, kind: TokenKind) -> Option<Span> {
+        let i = self.take_early_at(kind)?;
+        Some(self.tokens.span(i))
+    }
+
+    /// The same, as the token's index — what a literal's text is read from.
+    fn take_early_at(&mut self, kind: TokenKind) -> Option<usize> {
         let i = self.early?;
         if self.tokens.kind(i) != kind {
             return None;
         }
         self.early = None;
-        Some(self.tokens.span(i))
+        Some(i)
+    }
+
+    /// Whether the token held is of the kind asked for, without consuming it.
+    fn early_is(&self, kind: TokenKind) -> bool {
+        self.early.is_some_and(|i| self.tokens.kind(i) == kind)
     }
 
     /// Where that token was written, without consuming it.
@@ -1156,9 +1196,25 @@ impl<'a> Parser<'a> {
             let span = self.bump();
             return Ok((s, span));
         }
+        if let Some(i) = self.take_early_at(TokenKind::Str) {
+            let text = if self.trial > 0 {
+                self.tokens.str_at(i).to_string()
+            } else {
+                self.tokens.take_str(i)
+            };
+            return Ok((text, self.tokens.span(i)));
+        }
         let found = self.found();
         let span = self.span();
         self.expected(span, "a string literal", &found, "quote it, as in `\"core/list\"`");
+        // A stray token in front of the path, stepped over: the import still
+        // names what it imports, so the names it binds stay in scope.
+        if self.stray_token() && self.kind_at(self.pos.saturating_add(1)) == TokenKind::Str {
+            self.bump();
+            let s = self.take_text();
+            let span = self.bump();
+            return Ok((s, span));
+        }
         Err(Bail)
     }
 
@@ -1335,6 +1391,7 @@ impl<'a> Parser<'a> {
     fn item(&mut self) -> PResult<Option<Item>> {
         let docs = self.docs();
         let start = self.span();
+        self.exchanged_head();
 
         if self.is_keyword(Keyword::From) {
             return Ok(Some(self.import_or_reexport()?));
@@ -1349,7 +1406,7 @@ impl<'a> Parser<'a> {
             return Ok(Some(Item::Test(Box::new(self.test_decl(docs)?))));
         }
 
-        let exported = self.eat_keyword(Keyword::Export);
+        let exported = self.eat_keyword(Keyword::Export) || self.export_after_the_keyword();
         // `SEED let: Int = 7;` — the binding keyword and its name, exchanged.
         // The declaration is read as what it says, so it declares `SEED`.
         if self.exchanged_binding() {
@@ -1405,8 +1462,86 @@ impl<'a> Parser<'a> {
         Ok(Some(item))
     }
 
+    /// `fn export one()`: a declaration's keyword and the `export` it carries,
+    /// exchanged.
+    ///
+    /// `export` modifies the declaration it is written on, so a keyword with an
+    /// `export` and a name behind it is that pair the wrong way round. It is
+    /// reported once, at the `export`, with the edit that swaps them; the
+    /// declaration is then read as an exported one, and [`Parser::expect_name`]
+    /// steps over the `export` when it asks for the name.
+    /// `"core/list" from import * as list;`: the keyword that opens a
+    /// declaration, written one token late.
+    ///
+    /// A declaration begins with its keyword, so a token that cannot start one
+    /// with a keyword that can right behind it is that pair exchanged. The
+    /// exchange is reported once, with the edit that undoes it, and the token
+    /// is held for the declaration to ask for — an import's path, a `test`'s
+    /// name, an `impl`'s type, a `derive`'s first trait. What the declaration
+    /// binds is then read from what was written, rather than lost with it.
+    ///
+    /// `let` is not in this list: the binding keyword and its name have a
+    /// repair of their own, which names the keyword the fix asks for.
+    ///
+    /// Three things keep this off an ordinary stray token. The token has to be
+    /// the one that keyword's head opens with, that head has to be *missing*
+    /// it — `extra fn g()` is a stray word in front of a `fn` whose name is
+    /// right where it belongs — and the two have to be written side by side. A
+    /// `@` on a line of its own with a `fn` under it is a stray token between
+    /// declarations, and calling it an exchange would repair something nobody
+    /// wrote.
+    fn exchanged_head(&mut self) -> bool {
+        let keyword = self.kind_at(self.pos.saturating_add(1));
+        if self.trial > 0
+            || !head_takes(keyword, self.peek())
+            || head_takes(keyword, self.kind_at(self.pos.saturating_add(2)))
+        {
+            return false;
+        }
+        let early = self.span();
+        let at = self.tokens.span(self.at(self.pos.saturating_add(1)));
+        if self.src.get(early.end as usize..at.start as usize).is_none_or(|gap| gap.contains('\n'))
+        {
+            return false;
+        }
+        let written = self.slice(at);
+        let found = self.found();
+        let want = format!("`{written}`");
+        let fix = format!("write {want} first: `{written} {}`", self.slice(early));
+        let repaired = format!("{written} {}", self.slice(early));
+        if let Some(d) = self.expected(early, &want, &found, fix) {
+            d.edit(early.to(at), &repaired);
+        }
+        self.early = Some(self.at(self.pos));
+        self.bump();
+        true
+    }
+
+    fn export_after_the_keyword(&mut self) -> bool {
+        if self.trial > 0
+            || self.peek().as_keyword().is_none()
+            || self.kind_at(self.pos.saturating_add(1)) != TokenKind::KeywordExport
+            || self.kind_at(self.pos.saturating_add(2)) != TokenKind::Ident
+        {
+            return false;
+        }
+        let keyword = self.span();
+        let export = self.tokens.span(self.at(self.pos.saturating_add(1)));
+        let written = self.slice(keyword);
+        let found = self.tokens.describe(self.at(self.pos.saturating_add(1)));
+        let fix = format!("write `export` before `{written}`");
+        let repaired = format!("export {written}");
+        if let Some(d) = self.expected(export, "an identifier", &found, fix) {
+            d.edit(keyword.to(export), &repaired);
+        }
+        true
+    }
+
     fn import_or_reexport(&mut self) -> PResult<Item> {
-        let start = self.expect_keyword(Keyword::From)?;
+        // The token written before the keyword is where this declaration
+        // starts: an item's span has to cover the mistake reported inside it.
+        let early = self.early_span();
+        let start = early.unwrap_or(self.expect_keyword(Keyword::From)?);
         let (path, path_span) = self.expect_string()?;
 
         if self.eat_keyword(Keyword::Export) {
@@ -1672,42 +1807,26 @@ impl<'a> Parser<'a> {
         let open = self.expect(Punctuation::LBrace)?;
         let mut variants = Vec::new();
         while !self.list_ended(Punctuation::RBrace) {
-            let vdocs = self.docs();
-            let vstart = self.span();
-            let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
-            let name_start = self.span();
-            let vname = self.expect_ident()?;
-            if let Some(keyword) = keyword {
-                self.variant_export(keyword, name_start);
-            }
-            let payload = if self.is(Punctuation::LParen) {
-                let open = self.bump();
-                let base = self.scratch.tys.len();
-                while !self.list_ended(Punctuation::RParen) {
-                    let t = self.ty()?;
-                    self.scratch.tys.push(t);
-                    if !self.more_elements(Punctuation::RParen, "a variant payload field", starts_type) {
-                        break;
-                    }
+            let before = self.pos;
+            let save = self.save();
+            match self.variant() {
+                Ok(v) => variants.push(v),
+                // A variant that did not read is skipped to the next one, and
+                // the `enum` still declares its name and the variants around
+                // it. Abandoning the declaration at its first mistake lost the
+                // type for the whole file, so one mistake in one variant
+                // became an error at every use of the type.
+                Err(Bail) => {
+                    let depth = self.open_delimiters_since(save.pos);
+                    self.restore(save);
+                    // The same walk an arm makes: to the `,` before the next
+                    // element, or to the closer, consuming neither.
+                    self.sync_match_arm(depth);
                 }
-                self.expect_close(Punctuation::RParen, "variant payload", open)?;
-                let tys = self.tree.push_tkids(since(&self.scratch.tys, base));
-                self.scratch.tys.truncate(base);
-                VariantPayload::Tuple(tys)
-            } else if self.is(Punctuation::LBrace) {
-                let open = self.bump();
-                let fields = self.field_decls(Punctuation::RBrace, false)?;
-                self.expect_close(Punctuation::RBrace, "variant field list", open)?;
-                VariantPayload::Record(fields)
-            } else {
-                VariantPayload::None
-            };
-            variants.push(Variant {
-                name: vname,
-                payload,
-                span: vstart.to(self.prev_span()),
-                docs: vdocs,
-            });
+            }
+            if self.pos == before {
+                self.bump();
+            }
             if !self.more_elements(Punctuation::RBrace, "an enum variant", starts_field) {
                 break;
             }
@@ -1715,6 +1834,41 @@ impl<'a> Parser<'a> {
         self.expect_close(Punctuation::RBrace, "`enum`", open)?;
         let span = start.to(self.prev_span());
         Ok(EnumDecl { name, generics, variants, exported, span, docs })
+    }
+
+    /// One variant: its name, and the payload it carries.
+    fn variant(&mut self) -> PResult<Variant> {
+        let vdocs = self.docs();
+        let vstart = self.span();
+        let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
+        let name_start = self.span();
+        let vname = self.expect_ident()?;
+        if let Some(keyword) = keyword {
+            self.variant_export(keyword, name_start);
+        }
+        let payload = if self.is(Punctuation::LParen) {
+            let open = self.bump();
+            let base = self.scratch.tys.len();
+            while !self.list_ended(Punctuation::RParen) {
+                let t = self.ty()?;
+                self.scratch.tys.push(t);
+                if !self.more_elements(Punctuation::RParen, "a variant payload field", starts_type) {
+                    break;
+                }
+            }
+            self.expect_close(Punctuation::RParen, "variant payload", open)?;
+            let tys = self.tree.push_tkids(since(&self.scratch.tys, base));
+            self.scratch.tys.truncate(base);
+            VariantPayload::Tuple(tys)
+        } else if self.is(Punctuation::LBrace) {
+            let open = self.bump();
+            let fields = self.field_decls(Punctuation::RBrace, false)?;
+            self.expect_close(Punctuation::RBrace, "variant field list", open)?;
+            VariantPayload::Record(fields)
+        } else {
+            VariantPayload::None
+        };
+        Ok(Variant { name: vname, payload, span: vstart.to(self.prev_span()), docs: vdocs })
     }
 
     fn type_alias(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<TypeAliasDecl> {
@@ -1778,7 +1932,10 @@ impl<'a> Parser<'a> {
     }
 
     fn impl_decl(&mut self, docs: Vec<String>) -> PResult<ImplDecl> {
-        let start = self.expect_keyword(Keyword::Impl)?;
+        // The token written before the keyword is where this declaration
+        // starts: an item's span has to cover the mistake reported inside it.
+        let early = self.early_span();
+        let start = early.unwrap_or(self.expect_keyword(Keyword::Impl)?);
         let generics = self.generic_params()?;
         // A full type either side: `[T]` has methods of its own, so the self
         // position is not restricted to a named type. The trait position is,
@@ -1851,7 +2008,10 @@ impl<'a> Parser<'a> {
     }
 
     fn derive_decl(&mut self) -> PResult<DeriveDecl> {
-        let start = self.expect_keyword(Keyword::Derive)?;
+        // The token written before the keyword is where this declaration
+        // starts: an item's span has to cover the mistake reported inside it.
+        let early = self.early_span();
+        let start = early.unwrap_or(self.expect_keyword(Keyword::Derive)?);
         // `derive for Meters;` reaches the type-name parser at `for`, which
         // reports "expected an identifier" and offers to name a binding. The
         // grammar is not what is confusing here: the clause is empty, and a
@@ -1926,7 +2086,10 @@ impl<'a> Parser<'a> {
     }
 
     fn test_decl(&mut self, docs: Vec<String>) -> PResult<TestDecl> {
-        let start = self.expect_keyword(Keyword::Test)?;
+        // The token written before the keyword is where this declaration
+        // starts: an item's span has to cover the mistake reported inside it.
+        let early = self.early_span();
+        let start = early.unwrap_or(self.expect_keyword(Keyword::Test)?);
         let (name, name_span) = self.expect_string()?;
         let body = self.block("`test` body")?;
         Ok(TestDecl { name, name_span, body, span: start.to(self.prev_span()), docs })
@@ -2166,6 +2329,9 @@ impl<'a> Parser<'a> {
 
         match self.peek() {
             TokenKind::Ident => self.named_type(),
+            // The name written before the keyword that opened this
+            // declaration: `Point impl { ... }` names the type `Point`.
+            _ if self.early_is(TokenKind::Ident) => self.named_type(),
             _ => {
                 let found = self.found();
                 let span = self.span();

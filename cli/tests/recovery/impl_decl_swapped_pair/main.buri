@@ -1,5 +1,4 @@
-// EXPECT: expected a declaration, found `Point`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
+// EXPECT: expected `impl`, found `Point`
 export struct Point {
   export x: Int,
   export y: Int,

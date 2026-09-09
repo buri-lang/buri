@@ -1,4 +1,5 @@
 error [unexpected-token] 5:1-5:8
-message: expected a declaration, found `Console`
-fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+message: expected `context`, found `Console`
+fix: write `context` first: `context Console`
+edit: 5:1-5:16 "context Console"
 

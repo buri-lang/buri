@@ -7,3 +7,15 @@ error: expected an identifier, found `impl` [unexpected-token]
    = expected: an identifier
    = actual: `impl`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this `enum` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:65:1
+   |
+65 | 
+   | ^
+   |
+  --> main.buri:20:19
+   |
+20 | export enum Token {
+   |                   ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected `from`, found a string literal [unexpected-token]
+  --> main.buri:14:1
+   |
+14 | "core/uuid" from import { Uuid };
+   | ^^^^^^^^^^^
+   |
+   = expected: `from`
+   = actual: a string literal
+   = fix: write `from` first: `from "core/uuid"`

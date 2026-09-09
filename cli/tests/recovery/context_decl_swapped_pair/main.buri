@@ -1,4 +1,4 @@
-// EXPECT: expected a declaration, found `Console`
+// EXPECT: expected `context`, found `Console`
 from "core/effect" import { Stdout };
 from "core/host" import * as host;
 
