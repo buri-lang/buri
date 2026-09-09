@@ -139,7 +139,7 @@ export fn chromePage<C>(): Node<C> {
             cell("one corner", [
                 .Width(.Px(56)),
                 .Height(.Px(56)),
-                .RadiusCorner(.TopStart, .Px(24)),
+                .RadiusCorner(.TopStart, .Px(40)),
             ]),
         ]),
         band("Border", [
