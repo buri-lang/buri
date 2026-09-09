@@ -1,27 +1,31 @@
-warning: `spell` is 41 lines long [oversized-function]
- --> cmd/app/main.buri:9:4
-  |
-9 | fn spell(n: I64): Str {
-  |    ^^^^^
-  |
-  = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
-  = fix: find the responsibility boundaries in the body and give each one a function of its own
+warning: `tally` is 45 lines long [oversized-function]
+   --> cmd/app/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
 
-    Work out the responsibilities before you touch anything. Ask yourself:
+      An array literal's elements and a match's arms count as one line, because
+      a table is one row per member and has no responsibility boundary to split
+      at.
 
-    - Are these separate responsibilities that belong in functions of their own?
-    - Should this become a type with several methods?
-    - Can you group cohesive data into a value of its own and cut the local
-    variables down?
+      Work out the responsibilities before you touch anything. Ask yourself:
 
-    Do not extract mechanically. Pulling out a helperA and a helperB just to
-    clear the threshold hides the smell behind worse names.
+      - Are these separate responsibilities that belong in functions of their own?
+      - Should this become a type with several methods?
+      - Can you group cohesive data into a value of its own and cut the local
+      variables down?
 
-    If the responsibilities are tangled, *inline* the helpers first so you can
-    see the whole picture before you redistribute it.
+      Do not extract mechanically. Pulling out a helperA and a helperB just to
+      clear the threshold hides the smell behind worse names.
 
-    One concrete technique: write what the function does in one short sentence,
-    then refactor until the code reads as close to that sentence as you can get
-    it. If you cannot say what it does in one sentence, it almost certainly has
-    more than one responsibility.
+      If the responsibilities are tangled, *inline* the helpers first so you can
+      see the whole picture before you redistribute it.
+
+      One concrete technique: write what the function does in one short
+      sentence, then refactor until the code reads as close to that sentence as
+      you can get it. If you cannot say what it does in one sentence, it almost
+      certainly has more than one responsibility.
 

@@ -6,6 +6,9 @@ note: a body past {limit} lines is almost always carrying more than one responsi
 fix: find the responsibility boundaries in the body and give each one a function of its own
 adapted-from: habit-hooks (https://github.com/habit-hooks/habit-hooks) guides/oversized-function.md, © 2026 Ivett Ördög, used under the MIT license
 ---
+An array literal's elements and a `match`'s arms count as one line, because a
+table is one row per member and has no responsibility boundary to split at.
+
 Work out the responsibilities before you touch anything. Ask yourself:
 
 - Are these separate responsibilities that belong in functions of their own?

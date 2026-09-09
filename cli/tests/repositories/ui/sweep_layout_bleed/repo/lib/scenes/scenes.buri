@@ -1,0 +1,691 @@
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+
+/// The page every picture is drawn on: eight hundred wide with nothing inset
+/// either side, so a boundary in a picture is a number off the viewport's own
+/// edge.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))], rows)
+}
+
+/// The same page, two hundred wide and three hundred in from the edge. A
+/// percentage margin is read against the containing block rather than against
+/// the box that carries it, so a narrow one is what makes `.Percent` and
+/// `.Full` land on the page at all.
+fn narrow<C>(rows: [Node<C>]): Node<C> {
+    ui.row([.PaddingY(.Px(6))], [
+        ui.stack([.Width(.Px(300))], []),
+        ui.column([.Width(.Px(200)), .Gap(.Px(8)), .FontSize(.Px(13))], rows),
+    ])
+}
+
+/// One row of a picture: the value it shows, and the boxes that show it.
+fn band<C>(label: Str, demo: Node<C>): Node<C> {
+    ui.column([.Gap(.Px(2))], [
+        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
+            ui.text(.Const(label)),
+        ]),
+        demo,
+    ])
+}
+
+/// Every edge a bleed can name, out of a box padded by sixteen on all four.
+///
+/// The blue box carries the bleed and the grey one follows it, so a bleed at
+/// the bottom is read on what comes after rather than on the box itself.
+export fn bleedEdges<C>(): Node<C> {
+    page([
+        band(
+            "Bleed(.Top, .Px(16))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Top, .Px(16)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                ],
+            ),
+        ),
+        band(
+            "Bleed(.Bottom, .Px(16))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Bottom, .Px(16)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                ],
+            ),
+        ),
+        band(
+            "Bleed(.Start, .Px(16))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(16)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                ],
+            ),
+        ),
+        band(
+            "Bleed(.End, .Px(16))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.End, .Px(16)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                ],
+            ),
+        ),
+    ])
+}
+
+/// Every `Length` a bleed takes, on a ground two hundred wide three hundred in
+/// from the page's edge — so a percentage and `.Full`, which are read against
+/// the ground's own containing block, land somewhere a reader can see them.
+///
+/// The last two are the ones that bleed nothing: `.Auto` is no distance at all,
+/// and inward is the margin this vocabulary leaves to the container.
+export fn bleedLengths<C>(): Node<C> {
+    narrow([
+        band(
+            ".Px(16)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(16)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            ".Rem(1.0)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Rem(1.0)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            ".Percent(10.0)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Percent(10.0)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            ".Full",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Full),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            ".Auto",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Auto),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            ".Px(-16)",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(0 - 16)),
+                        ],
+                        [ui.text(.Const("bleed"))],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}
+
+/// The menu separator. The menu is padded by four, so a rule inside it stops
+/// four short at each end until it bleeds back out over the padding.
+export fn bleedDivider<C>(): Node<C> {
+    page([
+        band(
+            "no bleed — the rule stops four short at each end",
+            ui.stack(
+                [
+                    .Width(.Px(220)),
+                    .Padding(.Px(4)),
+                    .Gap(.Px(2)),
+                    .Background(.Rgb(255, 255, 255)),
+                    .BorderWidth(.Px(1)),
+                    .BorderColor(.Rgb(190, 190, 200)),
+                    .Radius(.Px(6)),
+                ],
+                [
+                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
+                        ui.text(.Const("Open")),
+                    ]),
+                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
+                        ui.text(.Const("Save")),
+                    ]),
+                    ui.stack([.Height(.Px(1)), .Background(.Rgb(190, 190, 200))], []),
+                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
+                        ui.text(.Const("Delete")),
+                    ]),
+                ],
+            ),
+        ),
+        band(
+            "Bleed(.Start, .Px(4)) and Bleed(.End, .Px(4)) — edge to edge",
+            ui.stack(
+                [
+                    .Width(.Px(220)),
+                    .Padding(.Px(4)),
+                    .Gap(.Px(2)),
+                    .Background(.Rgb(255, 255, 255)),
+                    .BorderWidth(.Px(1)),
+                    .BorderColor(.Rgb(190, 190, 200)),
+                    .Radius(.Px(6)),
+                ],
+                [
+                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
+                        ui.text(.Const("Open")),
+                    ]),
+                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
+                        ui.text(.Const("Save")),
+                    ]),
+                    ui.stack(
+                        [
+                            .Height(.Px(1)),
+                            .Background(.Rgb(190, 190, 200)),
+                            .Bleed(.Start, .Px(4)),
+                            .Bleed(.End, .Px(4)),
+                        ],
+                        [],
+                    ),
+                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
+                        ui.text(.Const("Delete")),
+                    ]),
+                ],
+            ),
+        ),
+    ])
+}
+
+/// The avatar group. Each avatar laps the one before it and a ring in the page
+/// colour keeps the two apart.
+///
+/// **The later avatar is over the earlier one**, which is what a document does
+/// and what the last row says twice: moving the *earlier* avatar's end edge
+/// pulls the next one back, and the next one still paints on top.
+export fn bleedOverlap<C>(): Node<C> {
+    page([
+        band(
+            "no bleed — they stand in a line",
+            ui.row([.AlignCross(.Center)], [
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(219, 68, 55)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                    ],
+                    [ui.text(.Const("A"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(15, 157, 88)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                    ],
+                    [ui.text(.Const("B"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(66, 133, 244)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                    ],
+                    [ui.text(.Const("C"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(244, 180, 0)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                    ],
+                    [ui.text(.Const("D"))],
+                ),
+            ]),
+        ),
+        band(
+            "Bleed(.Start, .Px(8)) on every avatar but the first",
+            ui.row([.AlignCross(.Center)], [
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(219, 68, 55)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                    ],
+                    [ui.text(.Const("A"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(15, 157, 88)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.Start, .Px(8)),
+                    ],
+                    [ui.text(.Const("B"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(66, 133, 244)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.Start, .Px(8)),
+                    ],
+                    [ui.text(.Const("C"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(244, 180, 0)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.Start, .Px(8)),
+                    ],
+                    [ui.text(.Const("D"))],
+                ),
+            ]),
+        ),
+        band(
+            "Bleed(.Start, .Px(16)) — half of each one covered",
+            ui.row([.AlignCross(.Center)], [
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(219, 68, 55)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                    ],
+                    [ui.text(.Const("A"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(15, 157, 88)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.Start, .Px(16)),
+                    ],
+                    [ui.text(.Const("B"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(66, 133, 244)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.Start, .Px(16)),
+                    ],
+                    [ui.text(.Const("C"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(244, 180, 0)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.Start, .Px(16)),
+                    ],
+                    [ui.text(.Const("D"))],
+                ),
+            ]),
+        ),
+        band(
+            "Bleed(.End, .Px(8)) on every avatar but the last",
+            ui.row([.AlignCross(.Center)], [
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(219, 68, 55)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.End, .Px(8)),
+                    ],
+                    [ui.text(.Const("A"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(15, 157, 88)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.End, .Px(8)),
+                    ],
+                    [ui.text(.Const("B"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(66, 133, 244)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                        .Bleed(.End, .Px(8)),
+                    ],
+                    [ui.text(.Const("C"))],
+                ),
+                ui.stack(
+                    [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Radius(.Percent(50.0)),
+                        .Background(.Rgb(244, 180, 0)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .AlignMain(.Center),
+                        .AlignCross(.Center),
+                        .BorderWidth(.Px(2)),
+                        .BorderColor(.Rgb(255, 255, 255)),
+                    ],
+                    [ui.text(.Const("D"))],
+                ),
+            ]),
+        ),
+    ])
+}
+
+/// The same bleed on every primitive that takes a `[Style]`, out of a ground
+/// padded by twelve.
+///
+/// A field's and a toggle's styles are the input's, so what leaves the padding
+/// there is the control and not the label around it. An image takes no styles
+/// of its own, so its bleed goes where a style for one goes anyway: on the box
+/// around it.
+export fn bleedPrimitives<C: Ui>(ctx: C): Node<C> {
+    let typed = signal(ctx, "ada");
+    let ticked = signal(ctx, true);
+    page([
+        band(
+            "stack",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                    ],
+                    [ui.text(.Const("stack"))],
+                ),
+            ]),
+        ),
+        band(
+            "heading",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.heading(
+                    2,
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                    ],
+                    .Const("heading"),
+                ),
+            ]),
+        ),
+        band(
+            "button",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.button(
+                    .Const("button"),
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                    ],
+                    fn(_c, _e) => (),
+                ),
+            ]),
+        ),
+        band(
+            "link",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.link(
+                    .Const("/there"),
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                    ],
+                    [ui.text(.Const("link"))],
+                ),
+            ]),
+        ),
+        band(
+            "region",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.region(
+                    .ListItem,
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                    ],
+                    [ui.text(.Const("region"))],
+                ),
+            ]),
+        ),
+        band(
+            "image",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.stack(
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                        .Height(.Px(24)),
+                    ],
+                    [ui.image(.Const("/absent.png"), .Const("absent"))],
+                ),
+            ]),
+        ),
+        band(
+            "field",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.field(
+                    .Const("field"),
+                    .Text,
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                    ],
+                    typed,
+                ),
+            ]),
+        ),
+        band(
+            "toggle",
+            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
+                ui.toggle(
+                    .Const("toggle"),
+                    [
+                        .Background(.Rgb(40, 40, 200)),
+                        .Foreground(.Rgb(255, 255, 255)),
+                        .Padding(.Px(4)),
+                        .Bleed(.Start, .Px(12)),
+                    ],
+                    ticked,
+                ),
+            ]),
+        ),
+    ])
+}

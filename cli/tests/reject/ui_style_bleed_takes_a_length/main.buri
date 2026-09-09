@@ -1,0 +1,16 @@
+// EXPECT: expected `Length`
+//
+// A bleed is a distance outwards, and a distance is a `Length` — `.Px(8)`,
+// `.Rem(0.5)`, `.Percent(10.0)`. A bare number is the count `Grow` and `Span`
+// take, and the two are not interchangeable: one is pixels and the other is a
+// share of what is left over.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([.Bleed(.Start, 8)], []), [])
+}

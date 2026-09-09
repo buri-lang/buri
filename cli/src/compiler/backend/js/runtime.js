@@ -4000,9 +4000,24 @@ function $tree_declare(style, out) {
     out.set("cursor", $TREE_CURSORS[value]);
   } else if (tag === 51) {
     out.set("list-style-type", $TREE_LIST_MARKERS[value]);
+  } else if (tag === 52) {
+    out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
   } else {
     out.set("transform", "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")");
   }
+}
+
+// A bleed's length, as the margin it writes: a distance outwards, so the margin
+// is its negation. A negative distance and `Auto` — which is no distance at all
+// — bleed nothing, because inward is the space between things and that belongs
+// to the container.
+function $tree_outwards(length) {
+  const tag = length[0];
+  if (tag === 5) return "-100%";
+  if (tag === 4 || !(length[1] > 0)) return "0px";
+  if (tag === 0) return "-" + length[1] + "px";
+  if (tag === 1) return "-" + length[1] + "rem";
+  return "-" + length[1] + (tag === 2 ? "em" : "%");
 }
 
 // A `Prop<T>` is `[tag, payload]`: 0 Const, 1 Cell, 2 Computed.

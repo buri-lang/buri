@@ -79,46 +79,50 @@ fn depth(n: I64): Str {
     }
 }
 
-fn spell(n: I64): Str {
-    match (n) {
-        0 => "zero",
-        1 => "one",
-        2 => "two",
-        3 => "three",
-        4 => "four",
-        5 => "five",
-        6 => "six",
-        7 => "seven",
-        8 => "eight",
-        9 => "nine",
-        10 => "ten",
-        11 => "eleven",
-        12 => "twelve",
-        13 => "thirteen",
-        14 => "fourteen",
-        15 => "fifteen",
-        16 => "sixteen",
-        17 => "seventeen",
-        18 => "eighteen",
-        19 => "nineteen",
-        20 => "twenty",
-        21 => "twenty-one",
-        22 => "twenty-two",
-        23 => "twenty-three",
-        24 => "twenty-four",
-        25 => "twenty-five",
-        26 => "twenty-six",
-        27 => "twenty-seven",
-        28 => "twenty-eight",
-        29 => "twenty-nine",
-        30 => "thirty",
-        31 => "thirty-one",
-        32 => "thirty-two",
-        33 => "thirty-three",
-        34 => "thirty-four",
-        35 => "thirty-five",
-        _ => "many",
-    }
+fn tally(count: I64): Str {
+    let apples = count * 3;
+    let pears = apples + 2;
+    let plums = pears + 4;
+    let fruit = apples + pears + plums;
+    let bread = fruit + 6;
+    let butter = bread + 3;
+    let cheese = butter * 2;
+    let dairy = butter + cheese;
+    let beans = dairy + 5;
+    let rice = beans * 2;
+    let pasta = rice + 7;
+    let staples = beans + rice + pasta;
+    let tea = staples + 1;
+    let coffee = tea * 3;
+    let juice = coffee + 2;
+    let drinks = tea + coffee + juice;
+    let soap = drinks + 4;
+    let brush = soap + 2;
+    let paper = brush * 2;
+    let household = soap + brush + paper;
+    let basket = fruit + staples + drinks + household;
+    let delivery = basket / 10;
+    let packing = delivery + 2;
+    let handling = packing * 2;
+    let carriage = delivery + packing + handling;
+    let subtotal = basket + carriage;
+    let levy = subtotal / 5;
+    let duty = levy + 3;
+    let surcharge = duty * 2;
+    let charges = levy + duty + surcharge;
+    let gross = subtotal + charges;
+    let loyalty = gross / 20;
+    let voucher = loyalty + 4;
+    let coupon = voucher * 2;
+    let discounts = loyalty + voucher + coupon;
+    let net = gross - discounts;
+    let rounding = net / 100;
+    let adjusted = net + rounding;
+    let credit = adjusted / 50;
+    let owed = adjusted - credit;
+    let banked = owed / 25;
+    let due = owed - banked;
+    if (due > 0) { "owing" } else { "settled" }
 }
 
 test "the suite is held to every rule the library is" {
@@ -136,7 +140,7 @@ test "the suite is held to every rule the library is" {
     assert.equal(compareInts(1, 2), .Less);
     assert.equal(width(ctx, "abc"), 3);
     assert.equal(depth(5), "small");
-    assert.equal(spell(7), "seven");
+    assert.equal(tally(7), "owing");
     assert.equal(HEX_DIGITS.length(), 16);
     assert.equal(NANOSECONDS_PER_MILLISECOND, 1_000_000);
     assert.equal(fromCents(1), Cents(1));
@@ -146,9 +150,9 @@ test "the suite is held to every rule the library is" {
 }
 
 test "a title that\nwraps" {
-    assert.equal(spell(2), "two");
+    assert.equal(tally(2), "owing");
 }
 
 test "a test that asserts nothing is still a test" {
-    let _ = spell(1);
+    let _ = tally(1);
 }

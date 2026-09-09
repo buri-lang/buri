@@ -240,11 +240,32 @@ export enum Style {
     /// list `PaddingEdge(.Start, ...)` and the marks sit in it.
     ListMarker(ListMarker),
 
+    /// How far past one of its parent's edges a child reaches.
+    ///
+    /// The container still owns the space between its children — this is the
+    /// way *out* of the box one put a child in, and the only one. A hairline
+    /// that runs from edge to edge of a padded menu asks for `.Bleed(.Start,
+    /// space)` and `.Bleed(.End, space)`; an avatar laid over the one before it
+    /// asks for `.Bleed(.Start, ...)` on every avatar but the first.
+    ///
+    /// The length is a distance outwards, so `.Bleed(.Start, .Px(8))` starts
+    /// eight pixels before its parent's content does and overlaps whatever is
+    /// there. Two `Bleed`s naming different edges compose. `.Auto` and a
+    /// negative length bleed nothing: inward is a margin, and a margin is what
+    /// this vocabulary leaves to the container.
+    ///
+    /// Declared down here because it is the only property that writes a margin,
+    /// so there is nothing for its position in the sheet to resolve against.
+    Bleed(Edge, Length),
+
     /// Shifts this element after it has been laid out: along the text
     /// direction first, then down the page. Nothing around it moves, which is
     /// what a press wants — `On(.Active, [.Translate(.Px(0), .Px(1))])` is the
     /// pixel every button in a design system sinks by, and a padding would
     /// reflow the row instead. A percentage is of the element's own size.
+    ///
+    /// Down here for `Bleed`'s reason: it is the only property that writes a
+    /// transform, so its position in the sheet resolves nothing either.
     Translate(Length, Length),
 }
 
