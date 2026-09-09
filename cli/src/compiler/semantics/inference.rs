@@ -401,11 +401,23 @@ pub struct Infer<'a, 'b> {
     /// Names bound by the pattern currently being checked, so a duplicate
     /// within one pattern is caught (design/static-rules.md rule 6).
     pub(crate) pattern_names: Vec<String>,
+    /// The regions covered by blocks in this body whose closing `}` was never
+    /// written.
+    ///
+    /// Where such a block ends is the parser's guess, so everything it
+    /// swallowed past the mistake is text the missing brace moved rather than
+    /// a program somebody wrote. [`Infer::finish`] takes back what was
+    /// reported from inside one, leaving the syntax error standing alone.
+    pub(crate) broken: Vec<Span>,
+    /// How many diagnostics had been reported before this body was looked at.
+    /// The parser's own sit below it, so retracting counts from here.
+    mark: usize,
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
     fn new(c: &'a mut Checker<'b>, module: ModuleId, generics: Vec<GenericInfo>, ret: Ty) -> Self {
         let role = c.module(module).role;
+        let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
         Infer {
             c,
@@ -430,6 +442,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             in_main: false,
             or_scope: None,
             pattern_names: Vec::new(),
+            broken: Vec::new(),
+            mark,
         }
     }
 
@@ -470,6 +484,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.check_literal_ranges();
         self.check_template_holes();
         self.check_erased_calls();
+        self.retract_from_broken_blocks();
         // After the checks above, never before: they read an unbound variable
         // as "not yet known" and would report a type the body never wrote.
         self.subst.default_unconstrained();
@@ -480,6 +495,24 @@ impl<'a, 'b> Infer<'a, 'b> {
             .map(|l| typed::Local { name: l.name.clone(), ty: self.subst.resolve(&l.ty), span: l.span })
             .collect();
         typed::Body { locals, params: self.params, expr }
+    }
+
+    /// Takes back everything this body reported from inside a block whose `}`
+    /// was never written, so the reader is told the one mistake they made.
+    ///
+    /// The bindings stay on the body — that is what an editor reads. Runs
+    /// after the deferred checks, because a literal's range and a template
+    /// hole are reported long after the block they sit in returned.
+    fn retract_from_broken_blocks(&mut self) {
+        if self.broken.is_empty() {
+            return;
+        }
+        let broken = std::mem::take(&mut self.broken);
+        self.c.diags.retract_from(self.mark, |d| {
+            broken
+                .iter()
+                .any(|r| d.span.file == r.file && d.span.start >= r.start && d.span.end <= r.end)
+        });
     }
 
     /// A callee is pre-monomorphization here, so only its type arguments need
