@@ -3131,11 +3131,23 @@ const $ui = {
 // a policy, it is the difference between a diagnosis and a hung tab.
 const $UI_STEPS = 100000;
 
+// **What a node holds, it holds against everyone else.** A cell keeps its value
+// until the next write and a memo keeps the one it computed, so every value
+// stored below goes through `$share` on the way in — this backend's currency
+// for the debt the native runtime pays with the retain glue a cell's entry
+// carries (`cli/runtime/ui.rs`, "the retain glue, and what a cell owes the
+// value in it").
+//
+// Without it, `get` answers a list this runtime believes only the caller holds,
+// `concat` on it writes through, and `xs.set(ctx, xs.get(ctx).concat(…))` hands
+// `set` the value it is replacing — where the equality cutoff drops the write,
+// and nothing that read the cell re-runs. buri-lang/buri#143.
+
 function $ui_cell(kind, value, compute) {
   const owner = $ui.current;
   $ui.nodes.push({
     kind,
-    value,
+    value: $share(value),
     compute,
     deps: [],
     subs: [],
@@ -3212,7 +3224,7 @@ function $ui_run(id) {
     // The `Scope` a Buri closure receives: a one-field struct naming the
     // computation it belongs to.
     const v = n.compute([id]);
-    if (n.kind === 1) n.value = v;
+    if (n.kind === 1) n.value = $share(v);
   } finally {
     $ui.current = outerCurrent;
     $ui.tracking = outerTracking;
@@ -3292,7 +3304,7 @@ function $ui_write(cell, v) {
   // held. The native backends compare with the type's own generated `Equal`
   // (`cli/runtime/ui.rs`), which is the same answer at every type.
   if ($eq(n.value, v)) return 0;
-  n.value = v;
+  n.value = $share(v);
   $ui_notify(n);
   if ($ui.depth === 0) $ui_drain();
   return 0;

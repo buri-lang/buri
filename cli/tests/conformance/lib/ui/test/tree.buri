@@ -2006,7 +2006,7 @@ fn appendRow<C: Allocator + Ui + Watch>(ctx: C, xs: Signal<[Str]>): () {
 
 fn growable<C>(xs: Signal<[Str]>, add: fn(C, Event) => ()): Node<C> {
     ui.column([], [
-        ui.button(.Const("go"), [], add),
+        ui.button(.Const("go"), [], [], add),
         ui.region(.List, [], [ui.each(.Cell(xs), itself, labelRow)]),
     ])
 }
