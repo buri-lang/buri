@@ -2056,8 +2056,14 @@ impl Painter<'_> {
             }
         }
 
+        // A picture is clipped to its own rounded box, the way a browser clips
+        // an `<img>`'s content to the corner its `border-radius` names, and it
+        // is drawn inside whatever border the element carries. That is what
+        // makes an avatar round rather than a round box with a square picture
+        // sitting in it.
+        let rounds = node.image.is_some() && radii.iter().any(|r| *r > 0.0);
         let mut owned;
-        let inner = if style.clipped[0] || style.clipped[1] {
+        let inner = if style.clipped[0] || style.clipped[1] || rounds {
             owned = clip.cloned().or_else(|| full_mask(canvas.width(), canvas.height()));
             if let Some(mask) = owned.as_mut() {
                 intersect(mask, box_, radii);
@@ -2067,7 +2073,7 @@ impl Painter<'_> {
             clip
         };
         if node.image.is_some() {
-            self.picture(canvas, index, style, box_, inner);
+            self.picture(canvas, box_.inset(widths), index, style, inner);
             return;
         }
         let mut item = 0_u32;
@@ -2098,9 +2104,9 @@ impl Painter<'_> {
     fn picture(
         &mut self,
         canvas: &mut Pixmap,
+        box_: Box2,
         index: usize,
         style: &Computed,
-        box_: Box2,
         clip: Option<&Mask>,
     ) {
         let Some(picture) = self.pictures.get(index).and_then(Option::as_ref) else {
@@ -2287,6 +2293,17 @@ impl Box2 {
             t: self.t.saturating_add(px(y)),
             r: self.r.saturating_add(px(x)),
             b: self.b.saturating_add(px(y)),
+        }
+    }
+
+    /// The same box pulled in by one width per side, in `[start, end, top,
+    /// bottom]` order — the content box inside a border.
+    fn inset(self, widths: [f32; 4]) -> Self {
+        Self {
+            l: self.l.saturating_add(px(widths[0])),
+            r: self.r.saturating_sub(px(widths[1])),
+            t: self.t.saturating_add(px(widths[2])),
+            b: self.b.saturating_sub(px(widths[3])),
         }
     }
 

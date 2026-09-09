@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "a picture is sized by its own styles"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/sweep/test/pictures.buri:13:1
+
+0 passed, 1 failed, 2 skipped (0.0s)
