@@ -3409,6 +3409,7 @@ function $dom_make(kind, name) {
     data: "",
     value: "",
     checked: false,
+    disabled: false,
   };
 }
 
@@ -3572,6 +3573,7 @@ function $dom_markup(node) {
   if (node.name === "textarea") return out + ">" + $dom_escape(node.value, false) + "</textarea>";
   if (node.value !== "") out += ' value="' + $dom_escape(node.value, true) + '"';
   if (node.checked) out += " checked";
+  if (node.disabled) out += " disabled";
   const styles = Object.keys(node.styles);
   if (styles.length > 0) {
     const parts = [];
@@ -3623,7 +3625,11 @@ function $dom_first(node, names) {
   return null;
 }
 
+// A disabled control is not dispatched to at all, which is what a browser does
+// with one: the press, the keystroke and the flip never reach it, so a handler
+// behind one cannot run.
 function $dom_fire(node, type) {
+  if (node.disabled) return;
   const handler = node.listeners[type];
   if (handler !== undefined) handler({ preventDefault() {}, target: node });
 }
@@ -4035,6 +4041,18 @@ function $tree_bind(prop, apply) {
   );
 }
 
+// Whether a control refuses what a reader does to it. An attribute rather than
+// a style: it is what takes the control out of the tab order, what refuses the
+// press before a handler is reached, and what tells a reader the control is
+// unavailable rather than absent. `element.disabled` is the property in both
+// documents — a real element reflects it into the attribute, and the substitute
+// holds it in the field `$dom_markup` writes out.
+function $tree_disabled(element, prop) {
+  $tree_bind(prop, (off) => {
+    element.disabled = off;
+  });
+}
+
 // --- Resuming what a server rendered ------------------------------------------
 //
 // `ops` while a resume runs, and null the rest of the time. Everything under it
@@ -4346,6 +4364,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $dom_attribute(element, "type", "button");
     $tree_styles(element, node[2]);
     $tree_text(node[1], element, null);
+    $tree_disabled(element, node[4]);
     const onPress = node[3];
     $dom_listen(element, "click", () =>
       // One transaction, so that a handler which writes three signals causes
@@ -4364,6 +4383,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const element = $tree_element(parent, "img", anchor);
     $tree_bind(node[1], (source) => $dom_attribute(element, "src", source));
     $tree_bind(node[2], (alt) => $dom_attribute(element, "alt", alt));
+    // The styles are the picture's rather than a box's around it: sizing a
+    // picture, cropping it and rounding it are things only the picture can be
+    // told.
+    $tree_styles(element, node[3]);
     return;
   }
   if (tag === 8) {
@@ -4379,6 +4402,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // The styles are the input's rather than the label's: the input is what a
     // reader focuses and what a browser disables.
     $tree_styles(element, node[3]);
+    $tree_disabled(element, node[5]);
     const cell = node[4][0];
     $tree_bind([1, node[4]], (value) => {
       // Writing what is already there moves the caret in a real browser.
@@ -4392,6 +4416,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const element = $tree_element(wrapper, "input", null);
     $dom_attribute(element, "type", "checkbox");
     $tree_styles(element, node[2]);
+    $tree_disabled(element, node[4]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     const cell = node[3][0];
     $tree_bind([1, node[3]], (value) => {
@@ -4730,6 +4755,9 @@ function $ui_testing_Rendered_press(self, label) {
 function $ui_testing_Rendered_fill(self, label, value) {
   const field = $dom_first($tree_labelled(self, "label", label), ["input", "textarea"]);
   if (field === null) $abort('the label "' + label + '" is not a field');
+  // Nothing is typed into a disabled field, so nothing is written and nothing
+  // is dispatched.
+  if (field.disabled) return 0;
   field.value = value;
   $dom_fire(field, "input");
   return 0;
@@ -4738,6 +4766,7 @@ function $ui_testing_Rendered_fill(self, label, value) {
 function $ui_testing_Rendered_flip(self, label) {
   const box = $dom_first($tree_labelled(self, "label", label), ["input"]);
   if (box === null) $abort('the label "' + label + '" is not a toggle');
+  if (box.disabled) return 0;
   box.checked = !box.checked;
   $dom_fire(box, "change");
   return 0;

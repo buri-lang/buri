@@ -2707,7 +2707,7 @@ fn page<C>(
             ui.text(.Const("one")),
             ui.text(.Const("two")),
             ui.text(.Const(state.gap)),
-            ui.image(.Const(state.picture), .Const("a cat")),
+            ui.image(.Const(state.picture), .Const("a cat"), []),
             ui.region(
                 .Complementary,
                 [],
@@ -2725,7 +2725,7 @@ fn page<C>(
                             ),
                         ],
                     ),
-                    ui.button(label, [], onPress),
+                    ui.button(label, [], onPress, .Const(false)),
                 ],
             ),
             ui.computed(fn(scope) => at(path.read(scope))),
@@ -2977,7 +2977,7 @@ fn page<C: Allocator + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<S
                 ()
             });
             ()
-        }),
+        }, .Const(false)),
         ui.text(.Cell(status)),
     ])
 }

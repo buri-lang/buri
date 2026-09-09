@@ -100,12 +100,13 @@ fn styled<C>(extra: [Style]): Node<C> {
             .Group(extra),
         ],
         fn(_c, _e) => (),
+        .Const(false),
     )
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C>(extra: [Style]): Node<C> {
-    ui.button(.Const("press"), [.Group(extra)], fn(_c, _e) => ())
+    ui.button(.Const("press"), [.Group(extra)], fn(_c, _e) => (), .Const(false))
 }
 
 /// One label cell.

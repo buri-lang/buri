@@ -135,7 +135,7 @@ test "an element that holds nothing still writes its closing tag" {
     // match. Every element that is not one of HTML's own empty ones closes.
     assert.equal(web.render(ui.region(.Main, [], [])), "<main></main>");
     assert.equal(
-        web.render(ui.button(.Const(""), [], fn(_c, _e) => ())),
+        web.render(ui.button(.Const(""), [], fn(_c, _e) => (), .Const(false))),
         "<button type=\"button\"></button>",
     );
     assert.equal(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
@@ -144,7 +144,7 @@ test "an element that holds nothing still writes its closing tag" {
     // tag for one of those is markup a browser refuses to nest.
     assert.equal(web.render(ui.region(.Separator, [], [])), "<hr />");
     assert.equal(
-        web.render(ui.image(.Const("/cat.png"), .Const(""))),
+        web.render(ui.image(.Const("/cat.png"), .Const(""), [])),
         "<img src=\"/cat.png\" alt=\"\" />",
     );
 }
@@ -164,19 +164,40 @@ test "every kind of node renders" {
         "<a href=\"/there\">go</a>",
     );
     assert.equal(
-        web.render(ui.field(.Const("name"), .Text, [], typed)),
+        web.render(ui.field(.Const("name"), .Text, [], typed, .Const(false))),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     // What is typed into a `textarea` is its text rather than an attribute.
     assert.equal(
-        web.render(ui.field(.Const("story"), .Multiline, [], typed)),
+        web.render(ui.field(.Const("story"), .Multiline, [], typed, .Const(false))),
         "<label><span>story</span><textarea>ada</textarea></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
     assert.equal(
-        web.render(ui.toggle(.Const("done"), [], ticked)),
+        web.render(ui.toggle(.Const("done"), [], ticked, .Const(false))),
         "<label><input type=\"checkbox\" checked /><span>done</span></label>",
+    );
+    // `disabled` is the other boolean attribute this vocabulary writes, and it
+    // has to cross: a page that resumes on markup without it hands the reader a
+    // control the server said was unavailable.
+    assert.equal(
+        web.render(ui.button(.Const("save"), [], fn(_c, _e) => (), .Const(true))),
+        "<button type=\"button\" disabled>save</button>",
+    );
+    assert.equal(
+        web.render(ui.field(.Const("name"), .Text, [], typed, .Const(true))),
+        "<label><span>name</span><input type=\"text\" value=\"ada\" disabled /></label>",
+    );
+    assert.equal(
+        web.render(ui.toggle(.Const("done"), [], ticked, .Const(true))),
+        "<label><input type=\"checkbox\" checked disabled /><span>done</span></label>",
+    );
+    // A picture's styles are the picture's, so they cross as a class on the
+    // `<img>` itself rather than on anything around it.
+    assert.equal(
+        web.render(ui.image(.Const("/cat.png"), .Const("a cat"), [.Width(.Full)])),
+        "<img src=\"/cat.png\" alt=\"a cat\" class=\"w-full\" />",
     );
     // The three that decide what to render resolve rather than register: a
     // condition is read once, a computation is run once, and a list renders the
@@ -273,7 +294,7 @@ test "text is escaped, so a title cannot write markup" {
 
 test "an attribute is escaped too, quotes included" {
     assert.equal(
-        web.render(ui.image(.Const("/a&b.png"), .Const("\"q\" <x>"))),
+        web.render(ui.image(.Const("/a&b.png"), .Const("\"q\" <x>"), [])),
         "<img src=\"/a&amp;b.png\" alt=\"&quot;q&quot; &lt;x&gt;\" />",
     );
     assert.equal(

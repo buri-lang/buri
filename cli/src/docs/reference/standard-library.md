@@ -681,13 +681,21 @@ parent's padding: the full-width rule inside a padded menu, and the avatar that
 laps the one before it. It is a distance outwards, so `.Auto` and a negative
 length bleed nothing.
 
-`heading`, `button`, `link`, `field` and `toggle` take a `[Style]` like every
-container does, and it lands on the element itself — so a hover, focus or
-disabled rule fires on the thing that is hovered, focused or disabled, and a
+`heading`, `button`, `link`, `image`, `field` and `toggle` take a `[Style]` like
+every container does, and it lands on the element itself — so a hover, focus or
+disabled rule fires on the thing that is hovered, focused or disabled, a picture
+is sized, shaped and rounded rather than the box around it, and a
 heading is the size its styles say rather than the size a browser picked. The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.
+
+`button`, `field` and `toggle` take a `disabled: Prop<Bool>` as well. It is an
+attribute rather than a style: it takes the control out of the tab order,
+refuses the press before the handler is reached, and tells a reader the control
+is unavailable rather than absent. It is also what makes `On(.Disabled, ...)`
+fire. `On(.Checked, ...)` needs no flag — a toggle's own signal says whether it
+is checked, so one page holds one toggle that is on and one that is off.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
