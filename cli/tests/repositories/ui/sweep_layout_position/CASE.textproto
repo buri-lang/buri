@@ -8,10 +8,10 @@
 # pins naming different edges compose, and four of them stretch a box to the
 # ground inset by what they say.
 #
-# The `Sticky` row of `position-kinds.png` is recorded as painted and is
-# **wrong**: it takes the pin's inset the way `Flow` does, where an unscrolled
-# browser leaves the box at its static position — buri#82. Re-record when that
-# closes.
+# `position-kinds.png` holds two `Sticky` rows. The first is the pin every
+# other row carries, which a sticky box ignores; the second puts a sibling
+# above it, so "where the flow put it" is a different place from "the ground's
+# own corner" and the picture says which one the painter chose.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
