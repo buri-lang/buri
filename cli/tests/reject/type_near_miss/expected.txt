@@ -5,13 +5,15 @@ error: there is no type `Poimt` [unresolved-type]
    |             ^^^^^
    |
    = did you mean `Point`?
-   = fix: declare it, import it, or correct the spelling
+   = fix: if you meant `Point`, use that; if not, a name is in scope only from this module's own declarations and its imports
 
      What to do
      ──────────
 
      Correct the spelling, or bring the type into scope — a module declares it
-     or an import names it, and there is no third way.
+     or an import names it, and there is no third way. Where there is a near
+     miss the fix names it, and a type the standard library renamed gets the
+     answer instead: OrdMap was renamed to OrderedMap.
 
      Why
      ───

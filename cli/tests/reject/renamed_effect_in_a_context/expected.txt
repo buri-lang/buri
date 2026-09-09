@@ -4,11 +4,15 @@ error: `Alloc` is not a declared effect [not-an-effect]
 8 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   |                       ^^^^^
   |
-  = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Alloc` is not one
+  = `Alloc` was renamed to `Allocator`
+  = fix: write `Allocator`
 
     What to do
     ──────────
 
     Every key in a context has to be an effect. The set is core/effect's, plus
     ui/effect's where the platform grants them.
+
+    An effect the standard library renamed is answered with what it is called
+    now: Alloc was renamed to Allocator, and the fix says to write it.
 

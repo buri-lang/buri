@@ -4,16 +4,17 @@ error: "core/effect" does not export `Alloc` [no-such-export]
 4 | from "core/effect" import { Alloc, Stdout };
   |                             ^^^^^
   |
-  = did you mean `Allocator`?
-  = fix: check the spelling, or add `export` to `Alloc`'s declaration in "core/effect"
+  = `Alloc` was renamed to `Allocator`
+  = fix: write `Allocator`
 
     What to do
     ──────────
 
     If the module declares the name but holds it back, add export to the
     declaration there. If it declares no such name, the spelling is the mistake.
-    The diagnostic says which of the two it is, and offers the nearest exported
-    name.
+    The diagnostic says which of the two it is, and where there is a near miss
+    the fix names it. A name the standard library renamed is answered outright:
+    Alloc was renamed to Allocator.
 
     Why
     ───
@@ -27,12 +28,15 @@ error: `Alloc` is not a trait or effect [not-a-trait]
 7 | export fn greet<C: Alloc + Stdout>(ctx: C): () {
   |                    ^^^^^
   |
-  = a bound names a declared trait; there are no where clauses
-  = fix: name a declared trait or effect, or declare `Alloc` as one
+  = `Alloc` was renamed to `Allocator`
+  = fix: write `Allocator`
 
     What to do
     ──────────
 
     Name a declared trait or effect, or declare the one you meant. There are no
     where clauses and no structural constraints.
+
+    A trait or effect the standard library renamed is answered with what it is
+    called now: Alloc was renamed to Allocator, and the fix says to write it.
 

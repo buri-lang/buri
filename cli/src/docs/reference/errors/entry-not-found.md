@@ -42,7 +42,8 @@ written in the build file and the function is written in `main.buri`, so the two
 can disagree. This is where they are compared.
 
 The page lists what `main.buri` does export, because the mistake is almost
-always a spelling.
+always a spelling — and where one of them is a near miss the fix names it:
+"if you meant `fetch`, use that; if not, export `fetsh` from its `main.buri`".
 
 An output that names no `entry` enters through `main`, and a binary with no
 `main` gets `no-main` instead. Those are different mistakes: one binary has not

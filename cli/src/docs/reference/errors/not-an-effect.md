@@ -14,6 +14,9 @@ error: `Region` is not a declared effect [not-an-effect]
 Every key in a context has to be an effect. The set is `core/effect`'s, plus
 `ui/effect`'s where the platform grants them.
 
+An effect the standard library renamed is answered with what it is called now:
+`Alloc` was renamed to `Allocator`, and the fix says to write it.
+
 ## A program that provokes it
 
 ```buri fail code=not-an-effect

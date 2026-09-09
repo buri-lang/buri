@@ -5,4 +5,8 @@ error: `Colour` has no variant `Grene` [no-such-variant]
    |                   ^^^^^^
    |
    = did you mean `.Green`?
-   = fix: name a variant the enum declares
+   = fix: if you meant `.Green`, use that; if not, `Colour`'s declaration lists its variants
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+
