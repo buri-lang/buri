@@ -1,0 +1,5 @@
+error [missing-terminator] 2:46-2:46
+message: an import declaration ends with `;`
+fix: write `;` here
+edit: 2:46-2:46 ";"
+

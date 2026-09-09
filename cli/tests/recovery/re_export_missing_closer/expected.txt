@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 2:41-2:42
+message: this re-export list is missing its closing `}`
+fix: write `}` here
+related: 2:26-2:27 opened here
+

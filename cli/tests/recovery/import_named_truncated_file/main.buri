@@ -1,0 +1,2 @@
+// EXPECT: an import declaration ends with `;`
+from "core/order" import {

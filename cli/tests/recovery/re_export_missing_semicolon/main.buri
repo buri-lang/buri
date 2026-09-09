@@ -1,0 +1,6 @@
+// EXPECT: a re-export declaration ends with `;`
+from "core/order" export { Order, Equal }
+
+export fn kind(): Str {
+  "re-export"
+}

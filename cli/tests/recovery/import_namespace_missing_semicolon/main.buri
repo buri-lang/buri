@@ -1,0 +1,6 @@
+// EXPECT: an import declaration ends with `;`
+from "core/list" import * as list
+
+export fn none(): [Int] {
+  list.empty()
+}

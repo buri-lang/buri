@@ -1,0 +1,8 @@
+error [unterminated-string] 3:42-4:1
+message: unterminated string literal
+fix: close it with `"`; a string literal does not span a line break
+
+error [unexpected-token] 5:8-5:10
+message: expected `{`, found `fn`
+fix: write `{` here
+

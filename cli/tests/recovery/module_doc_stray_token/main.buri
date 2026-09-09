@@ -1,0 +1,7 @@
+// EXPECT: expected a declaration, found `@`
+@
+//! One construct per module, and this is the doc that says so.
+
+export fn one(): Int {
+  1
+}
