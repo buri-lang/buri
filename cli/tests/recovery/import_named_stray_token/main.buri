@@ -1,0 +1,6 @@
+// EXPECT: expected a string literal, found `@`
+from @ "core/order" import { Order, Equal };
+
+export fn kind(): Str {
+  "named"
+}

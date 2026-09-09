@@ -1,0 +1,2 @@
+// EXPECT: a re-export declaration ends with `;`
+from "core/order" export {

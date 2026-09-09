@@ -1,0 +1,6 @@
+// EXPECT: this import list is missing its closing `}`
+from "core/order" import { Order, Equal ;
+
+export fn kind(): Str {
+  "named"
+}

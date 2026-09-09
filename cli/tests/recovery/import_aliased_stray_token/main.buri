@@ -1,0 +1,9 @@
+// EXPECT: expected a string literal, found `@`
+from @ "core/order" import { Order as Ranking };
+
+export fn least(a: Int, b: Int): Int {
+  match (a.compare(b)) {
+    Ranking.Less => a,
+    _ => b,
+  }
+}
