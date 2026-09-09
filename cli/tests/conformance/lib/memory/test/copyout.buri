@@ -372,3 +372,71 @@ test "the copy out of a scope charges the caller nothing" {
     assert.equal(out, ["zzz", "yy"]);
     assert.equal(gp.stats().allocations, 0);
 }
+
+// -----------------------------------------------------------------------------
+// The primitive under the scope
+// -----------------------------------------------------------------------------
+//
+// `copyOut` is the copy without the leave — the deep walk every case above
+// rides on, called directly. Two things are its promise: what it answers is
+// equal at every depth and leaves the original alone, and what it charges is
+// nothing, because the walk allocates through the platform's `buri_rt_alloc`
+// rather than through the context. That is `core/alloc`'s "every
+// `allocate(ctx, n)`, and nothing else" read from the other side.
+
+test "copyOut answers a value equal at every depth" {
+    let ctx = context {
+        Allocator: testing.alloc(),
+    };
+    let nested = [[built(ctx, "a", 1), built(ctx, "b", 2)], [built(ctx, "c", 3)], []];
+    assert.equal(alloc.copyOut(nested), [["a", "bb"], ["ccc"], []]);
+    let record = Labelled {
+        label: built(ctx, "k", 2),
+        parts: [built(ctx, "p", 1)],
+        count: 2,
+    };
+    assert.equal(alloc.copyOut(record), Labelled {
+        label: "kk",
+        parts: ["p"],
+        count: 2,
+    });
+    let tagged = Answer.Both { head: built(ctx, "h", 3), rest: [built(ctx, "r", 2)] };
+    assert.equal(alloc.copyOut(tagged), Answer.Both { head: "hhh", rest: ["rr"] });
+    let boxed = Chain.Link(
+        built(ctx, "a", 2),
+        Chain.Link(built(ctx, "b", 1), Chain.End),
+    );
+    assert.equal(alloc.copyOut(boxed), Chain.Link("aa", Chain.Link("b", Chain.End)));
+}
+
+// A copy, not a second reference: the counts of the original's blocks do not
+// move, so the original still says what it said.
+test "the value copied out of is unchanged by the copy" {
+    let ctx = context {
+        Allocator: testing.alloc(),
+    };
+    let original = [built(ctx, "keep", 2), built(ctx, "me", 3)];
+    let copy = alloc.copyOut(original);
+    assert.equal(copy, original);
+    assert.equal(original, ["keepkeep", "mememe"]);
+}
+
+test "copyOut of a closure answers one that still reads its captures" {
+    let ctx = context {
+        Allocator: testing.alloc(),
+    };
+    let greeting = built(ctx, "ab", 4);
+    let f = alloc.copyOut(fn() => greeting);
+    assert.equal(f(), "abababab");
+}
+
+test "copyOut charges the allocator nothing" {
+    let gp = alloc.generalPurpose();
+    let ctx = context {
+        Allocator: gp,
+    };
+    let value = [built(ctx, "z", 3), built(ctx, "y", 2)];
+    let before = gp.stats().allocations;
+    assert.equal(alloc.copyOut(value), ["zzz", "yy"]);
+    assert.equal(gp.stats().allocations, before);
+}
