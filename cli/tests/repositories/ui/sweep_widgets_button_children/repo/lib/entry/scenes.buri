@@ -1,0 +1,200 @@
+//! What a button holds, and why holding it matters.
+//!
+//! `contentPage` is the shapes: no children, one, several, and a subtree. A
+//! button with none shows its label, which is the only place the accessible
+//! name and the glyphs are the same string.
+//!
+//! `railPage` is the reason. It is a navigation rail whose entries are a mark
+//! and a word, with the wash that says hovered and the wash that says current
+//! page on the button itself. Painted twice — resting and hovered — so the two
+//! pictures say the wash covers the mark and the text together.
+
+from "ui/effect" import { Event };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Style };
+
+/// The shapes a button's children take.
+export fn contentPage<C>(): Node<C> {
+    page([
+        ui.text(.Const("what a button holds")),
+        band("no children — the label is what it shows", [
+            cell("label only", ui.button(.Const("Save"), chip([]), [], press())),
+        ]),
+        band("one child", [
+            cell(
+                "a word",
+                ui.button(.Const("Save"), chip([]), [ui.text(.Const("Save"))], press()),
+            ),
+            cell(
+                "a mark",
+                ui.button(.Const("Close"), chip([]), [mark(.Rgb(24, 24, 40))], press()),
+            ),
+        ]),
+        band("several children, laid out by the button's own styles", [
+            cell(
+                "mark, word",
+                ui.button(
+                    .Const("Overview"),
+                    chip([]),
+                    [mark(.Rgb(24, 24, 40)), ui.text(.Const("Overview"))],
+                    press(),
+                ),
+            ),
+            cell(
+                "word, chevron",
+                ui.button(
+                    .Const("Details"),
+                    chip([]),
+                    [ui.text(.Const("Details")), mark(.Rgb(120, 120, 140))],
+                    press(),
+                ),
+            ),
+            cell(
+                "mark, word, chevron",
+                ui.button(
+                    .Const("Reports"),
+                    chip([]),
+                    [
+                        mark(.Rgb(24, 24, 40)),
+                        ui.text(.Const("Reports")),
+                        mark(.Rgb(120, 120, 140)),
+                    ],
+                    press(),
+                ),
+            ),
+        ]),
+        band("a subtree, and a spacer that pushes inside the button", [
+            cell(
+                "two lines",
+                ui.button(
+                    .Const("Ada Byron"),
+                    chip([.Width(.Px(140)), .AlignCross(.Start)]),
+                    [
+                        ui.column([.AlignCross(.Start)], [
+                            ui.text(.Const("Ada Byron")),
+                            ui.text(.Const("countess")),
+                        ]),
+                    ],
+                    press(),
+                ),
+            ),
+            cell(
+                "pushed apart",
+                ui.button(
+                    .Const("Ada Byron"),
+                    chip([.Width(.Px(140))]),
+                    [ui.text(.Const("Ada")), ui.spacer(), mark(.Rgb(120, 120, 140))],
+                    press(),
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// A navigation rail: a mark and a word to an entry, and the washes on the
+/// button rather than on a row around it.
+export fn railPage<C>(): Node<C> {
+    page([
+        ui.text(.Const("a rail — the wash covers the mark and the word")),
+        ui.region(.Navigation, [.Width(.Px(220)), .Padding(.Px(6))], [
+            ui.region(.List, [.Gap(.Px(2)), .Layout(.Column)], [
+                item("Overview", false),
+                item("Reports", true),
+                item("Settings", false),
+            ]),
+        ]),
+    ])
+}
+
+/// One rail entry. The current one carries the wash a page marks itself with;
+/// the rest carry the one a pointer draws.
+fn item<C>(name: Str, current: Bool): Node<C> {
+    let wash: [Style] = if (current) {
+        [.Background(.Rgb(224, 232, 250)), .Foreground(.Rgb(24, 48, 140))]
+    } else {
+        []
+    };
+    ui.region(.ListItem, [], [
+        ui.button(
+            .Const(name),
+            [
+                .Layout(.Row),
+                .AlignCross(.Center),
+                .Gap(.Px(8)),
+                .Width(.Full),
+                .PaddingX(.Px(8)),
+                .PaddingY(.Px(6)),
+                .Radius(.Px(6)),
+                .Group(wash),
+                .On(.Hover, [.Background(.Rgb(238, 240, 246))]),
+            ],
+            [mark(.Rgb(90, 100, 130)), ui.text(.Const(name))],
+            press(),
+        ),
+    ])
+}
+
+/// A mark: a small square standing in for an icon, since every image paints as
+/// a placeholder here.
+fn mark<C>(colour: Color): Node<C> {
+    ui.stack(
+        [
+            .Width(.Px(10)),
+            .Height(.Px(10)),
+            .Shrink(0),
+            .Background(colour),
+            .Radius(.Px(2)),
+        ],
+        [],
+    )
+}
+
+/// What every button carries before the cell's own styles.
+fn chip(styles: [Style]): [Style] {
+    [
+        .Layout(.Row),
+        .AlignCross(.Center),
+        .Gap(.Px(6)),
+        .PaddingX(.Px(10)),
+        .PaddingY(.Px(6)),
+        .Radius(.Px(6)),
+        .Background(.Rgb(226, 232, 244)),
+        .Foreground(.Rgb(18, 18, 28)),
+        .Group(styles),
+    ]
+}
+
+/// A handler that does nothing: a picture is never pressed.
+fn press<C>(): fn(C, Event) => () {
+    fn(_c, _e) => ()
+}
+
+/// One value: its name, and the button under it.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(180)), .Gap(.Px(4)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// One band: its name, then a cell per shape.
+fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
+    ui.column([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
+        ui.text(.Const(name)),
+        ui.row([.Gap(.Px(8)), .AlignCross(.Start)], cells),
+    ])
+}
+
+/// The page: a title and the bands under it.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(8)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}

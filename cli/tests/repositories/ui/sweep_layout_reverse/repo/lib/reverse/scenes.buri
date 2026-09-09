@@ -166,8 +166,8 @@ export fn shapes<C>(): Node<C> {
                     .Background(.Rgb(238, 238, 244)),
                 ],
                 [
-                    ui.button(.Const("Cancel"), action(), fn(_c, _e) => ()),
-                    ui.button(.Const("Save"), action(), fn(_c, _e) => ()),
+                    ui.button(.Const("Cancel"), action(), [], fn(_c, _e) => ()),
+                    ui.button(.Const("Save"), action(), [], fn(_c, _e) => ()),
                 ],
             ),
         ),

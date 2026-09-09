@@ -241,16 +241,19 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
         band("BorderEdge(.Bottom, .Px(3)) and RadiusCorner(.TopEnd, .Px(12))", 86, [
             cell("stack", ui.stack(chrome([]), [leaf("Ada")])),
             cell("region", ui.region(.Group, chrome([]), [leaf("Ada")])),
-            cell("button", ui.button(.Const("Ada"), chrome([]), fn(_c, _e) => ())),
+            cell("button", ui.button(.Const("Ada"), chrome([]), [], fn(_c, _e) => ())),
             cell("link", ui.link(.Const("/ada"), chrome([]), [leaf("Ada")])),
             cell("heading", ui.heading(2, chrome([]), .Const("Ada"))),
         ]),
         band("...and the four whose element a browser draws itself", 104, [
             cell(
                 "field",
-                ui.field(.Const("Name"), .Text, chrome([]), signal(ctx, "Ada")),
+                ui.field(.Const("Name"), .Text, chrome([]), [], signal(ctx, "Ada")),
             ),
-            cell("toggle", ui.toggle(.Const("on"), chrome([]), signal(ctx, true))),
+            cell(
+                "toggle",
+                ui.toggle(.Const("on"), .Checkbox, chrome([]), [], signal(ctx, true)),
+            ),
             cell(
                 "image",
                 ui.stack(chrome([]), [ui.image(.Const("logo.png"), .Const("a"))]),
@@ -262,7 +265,7 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
             cell("region", ui.region(.Group, chrome(framed()), [leaf("Ada")])),
             cell(
                 "button",
-                ui.button(.Const("Ada"), chrome(framed()), fn(_c, _e) => ()),
+                ui.button(.Const("Ada"), chrome(framed()), [], fn(_c, _e) => ()),
             ),
             cell("link", ui.link(.Const("/ada"), chrome(framed()), [leaf("Ada")])),
             cell("heading", ui.heading(2, chrome(framed()), .Const("Ada"))),
@@ -270,11 +273,23 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
         band("...and the same four", 104, [
             cell(
                 "field",
-                ui.field(.Const("Name"), .Text, chrome(framed()), signal(ctx, "Ada")),
+                ui.field(
+                    .Const("Name"),
+                    .Text,
+                    chrome(framed()),
+                    [],
+                    signal(ctx, "Ada"),
+                ),
             ),
             cell(
                 "toggle",
-                ui.toggle(.Const("on"), chrome(framed()), signal(ctx, true)),
+                ui.toggle(
+                    .Const("on"),
+                    .Checkbox,
+                    chrome(framed()),
+                    [],
+                    signal(ctx, true),
+                ),
             ),
             cell(
                 "image",
@@ -405,6 +420,7 @@ fn joined<C>(label: Str, first: Bool, last: Bool): Node<C> {
                 [.RadiusCorner(.TopEnd, .Px(0)), .RadiusCorner(.BottomEnd, .Px(0))]
             }),
         ],
+        [],
         fn(_c, _e) => (),
     )
 }
@@ -431,6 +447,7 @@ fn stacked<C>(label: Str, first: Bool, last: Bool): Node<C> {
                 [.RadiusCorner(.BottomStart, .Px(0)), .RadiusCorner(.BottomEnd, .Px(0))]
             }),
         ],
+        [],
         fn(_c, _e) => (),
     )
 }

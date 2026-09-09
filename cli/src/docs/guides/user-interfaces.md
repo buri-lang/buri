@@ -25,7 +25,9 @@ from "ui/signal" import { Signal };
 
 /// The lambda captures the handle. The authority arrives as `c`.
 export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
-    ui.button(.Const("add one"), [], fn(c, _event) => clicks.update(c, fn(n) => n + 1))
+    ui.button(.Const("add one"), [], [], fn(c, _event) => {
+        clicks.update(c, fn(n) => n + 1)
+    })
 }
 ```
 
@@ -244,6 +246,7 @@ export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<
                 ]
             }),
         ],
+        [],
         onPress,
     )
 }
@@ -321,6 +324,7 @@ export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
             .On(.Hover, [.Opacity(0.9)]),
             .On(.Disabled, [.Opacity(0.5)]),
         ],
+        [],
         onPress,
     )
 }
@@ -330,6 +334,76 @@ export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
 nothing around it shifts. That is what a press is:
 `On(.Active, [.Translate(.Px(0), .Px(1))])` sinks a button by a pixel and leaves
 the row it is in alone, where a padding would reflow the row.
+
+**A button holds children, and one with none shows its label.** So a mark and a
+word are one element: the wash that says hovered, or says current page, covers
+both, because there is one thing to wash. The label stays a parameter and the
+markup carries it as `aria-label`, so what a reader hears is never the glyphs.
+
+```buri
+from "ui/effect" import { Event };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+export fn entry<C>(mark: Node<C>, onPress: fn(C, Event) => ()): Node<C> {
+    ui.button(
+        .Const("Overview"),
+        [.Gap(.Px(8)), .AlignCross(.Center), .On(.Hover, [.Opacity(0.9)])],
+        [mark, ui.text(.Const("Overview"))],
+        onPress,
+    )
+}
+```
+
+**A labelled control takes two style lists.** `field` and `toggle` render an
+input inside a `<label>`, and the label is the box a surrounding `row` lays out.
+`styles` lands on the input, `around` lands on the label — so `Grow`, `Shrink`,
+`AlignSelf`, `Span` and `Width` belong in `around`, and everything the input is
+belongs in `styles`.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+/// The addons keep their width and the field takes the rest.
+export fn site<C>(value: Signal<Str>): Node<C> {
+    ui.row([.Width(.Full)], [
+        ui.stack([.Shrink(0)], [ui.text(.Const("https://"))]),
+        ui.field(.Const("Site"), .Text, [.Width(.Full)], [.Grow(1)], value),
+        ui.stack([.Shrink(0)], [ui.text(.Const(".com"))]),
+    ])
+}
+```
+
+**A toggle draws its own mark**, and `ToggleKind` picks which: a `Checkbox` has
+a tick when it is on, a `Switch` has a thumb that sits at the near end of its
+track when off and at the far end when on. Both are painted in the box's
+`Foreground`, so that is the colour that marks it.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn notify<C>(value: Signal<Bool>): Node<C> {
+    ui.toggle(
+        .Const("Email me every week"),
+        .Switch,
+        [
+            .Width(.Px(32)),
+            .Height(.Px(18)),
+            .Radius(.Full),
+            .Padding(.Px(2)),
+            .Background(.Rgb(200, 205, 215)),
+            .Foreground(.Rgb(255, 255, 255)),
+            .On(.Checked, [.Background(.Rgb(40, 120, 220))]),
+        ],
+        [],
+        value,
+    )
+}
+```
 
 `heading` takes one too. Its level is the document's outline, so the size and
 the weight are the styles' — an unstyled heading reads at the size of the text
@@ -348,9 +422,9 @@ The sheet opens by dropping what a browser paints on one of these by itself —
 the bevel on a button, the blue underline on a link, the border and the inner
 shadow on a field, the size, the weight and the margins on a heading — so your
 styles are all there is. Those rules are `:where(...)`, which weighs nothing in
-the cascade, and only the elements the program actually builds get one. A
-checkbox is left alone: `appearance: none` erases the tick, and this vocabulary
-has nothing to draw a new one with.
+the cascade, and only the elements the program actually builds get one. The same
+rules lay a labelled control's `<label>` out as a wrapping row and give a
+checkbox its box and its mark, and a class on either beats them.
 
 **A list region is reset the same way.** `region(.List, ...)` is a `ul`, and a
 browser marks and indents one by itself, so the sheet drops the disc, the
