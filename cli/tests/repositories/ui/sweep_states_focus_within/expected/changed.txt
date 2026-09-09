@@ -1,0 +1,5 @@
+FAIL //lib/group  test/group.buri  "with the keyboard on the element itself"
+  the snapshot "group-focus" changed: see test/__snapshots__/group-focus.diff.png
+  --> lib/group/test/group.buri:43:1
+
+3 passed, 1 failed, 0 skipped (0.0s)
