@@ -43,4 +43,3 @@ error: expected `(a context, Str)`, found `fn(_18, _16) => Str` [type-mismatch]
    |
    = expected: `(a context, Str)`
    = actual: `fn(_18, _16) => Str`
-   = fix: produce a `(a context, Str)` here, or change what surrounds it to accept a `fn(_18, _16) => Str`

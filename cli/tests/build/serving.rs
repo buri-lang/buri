@@ -249,6 +249,37 @@ impl Reply {
     }
 }
 
+/// The value of the first `name="..."` in a document: the address the browser
+/// reads off the markup before it asks for anything.
+fn attribute(html: &str, name: &str) -> String {
+    let needle = format!("{name}=\"");
+    let after = html
+        .split_once(needle.as_str())
+        .unwrap_or_else(|| panic!("no {name} in the shell:\n{}", indent(html)))
+        .1;
+    after
+        .split_once('"')
+        .unwrap_or_else(|| panic!("an unterminated {name} in the shell:\n{}", indent(html)))
+        .0
+        .to_string()
+}
+
+/// The address a browser asks for, having read `reference` in a document it
+/// loaded from `base`.
+///
+/// The whole of the rule: a reference starting with `/` stands as it is, and
+/// every other one hangs off the *directory* of the address the document came
+/// from — not off the root. So a shell answered at `/a/b` that names
+/// `./main.mjs` sends the browser to `/a/main.mjs`.
+fn resolved(base: &str, reference: &str) -> String {
+    if reference.starts_with('/') {
+        return reference.to_string();
+    }
+    let relative = reference.strip_prefix("./").unwrap_or(reference);
+    let directory = base.rsplit_once('/').map_or("/", |(head, _last)| head);
+    format!("{directory}/{relative}")
+}
+
 /// One `GET`, read until the peer closes.
 fn get(port: u16, path: &str) -> Reply {
     let stop = Instant::now() + DEADLINE;
@@ -332,6 +363,33 @@ fn a_page_is_served_with_the_shell_for_every_route() {
     get(server.port, "/../../../etc/passwd").missing();
 }
 
+/// **The shell a deep link answers asks for files that are there.**
+///
+/// A reader following a shared link arrives at `/components/button/states`,
+/// and the browser resolves every address in the document it got against
+/// *that* path rather than against the root. A shell naming `./main.mjs` sends
+/// it to `/components/button/main.mjs`, which nothing wrote — so the module
+/// never arrives, nothing mounts, and the page is blank with no error anywhere
+/// a reader can see it. Deep links are the case the shell-for-every-path rule
+/// exists for, so the shell has to name its two companions from the root.
+///
+/// The addresses are read off the markup rather than written out here, so this
+/// asks the question a browser asks: whatever the shell says, is it there?
+#[test]
+fn a_deep_links_shell_asks_for_the_files_beside_it() {
+    let scratch = page_repo("serving-deep");
+    let server = serving(&scratch, "//cmd/site", &[]);
+
+    let at = "/components/button/states";
+    let shell = get(server.port, at).ok().body.clone();
+
+    let module = resolved(at, &attribute(&shell, "src"));
+    get(server.port, &module).ok().holds("the front page");
+
+    let styles = resolved(at, &attribute(&shell, "href"));
+    get(server.port, &styles).ok().holds("padding:1rem");
+}
+
 /// `--watch` rebuilds on an edit to a declared input, and the next request is
 /// answered from what the rebuild wrote.
 ///
@@ -370,7 +428,7 @@ fn a_watching_run_serves_what_the_rebuild_wrote() {
     // The same server: a route with no file behind it is still the shell.
     get(server.port, "/components/button")
         .ok()
-        .holds("<script type=\"module\" src=\"./main.mjs\"></script>");
+        .holds("<script type=\"module\" src=\"/main.mjs\"></script>");
 }
 
 /// A rebuild that fails leaves the page that was working where it was, and the
