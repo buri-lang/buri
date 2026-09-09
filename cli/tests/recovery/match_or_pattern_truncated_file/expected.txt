@@ -1,8 +1,3 @@
-error [match-not-exhaustive] 4:3-5:12
-message: this `match` does not cover `_`
-fix: add a `_` arm
-note: exhaustiveness is not attempted over integer or string ranges
-
 error [unexpected-token] 6:1-6:1
 message: expected a pattern, found end of file
 fix: write a pattern: a binding, a literal, `.Variant`, or `_`

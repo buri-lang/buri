@@ -80,6 +80,14 @@ impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn check_block(&mut self, b: BlockId, expected: Option<&Ty>) -> typed::Expr {
         let t = self.tree();
         let block = t.block(b);
+        // A block whose `}` was never written is a region that did not parse:
+        // the parser read on past where it ended, so its statements are text
+        // the missing brace moved rather than a body. `Ty::Error` unifies with
+        // everything, so the syntax error stays the whole of what is reported.
+        if block.broken {
+            let span = t.span_of(block.span);
+            return typed::Expr::new(typed::ExprKind::Error, Ty::Error, span);
+        }
         self.push_scope();
         let mut stmts = Vec::new();
         for s in t.stmts_at(block.stmts_start, block.stmts_len) {

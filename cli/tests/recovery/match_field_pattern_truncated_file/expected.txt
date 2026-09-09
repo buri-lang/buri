@@ -1,8 +1,3 @@
-error [match-not-exhaustive] 9:3-10:26
-message: this `match` does not cover `.Rect { width: _, height: _ }`
-fix: add an arm for `.Rect { width: _, height: _ }`, or a `_` arm for everything left
-note: every `match` must cover its scrutinee's type
-
 error [missing-arrow] 10:26-10:26
 message: a match arm is `pattern => expression`
 fix: write `=>` here
