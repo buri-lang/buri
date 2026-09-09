@@ -385,10 +385,13 @@ fn serving_a_page() {
 /// `<label>`, tried there and then on the control instead, where it does
 /// nothing. `toggle_marks` is the tick and the thumb the widget draws for
 /// itself, each one off and on, so a picture says which state a toggle is in
-/// rather than only what colour it is.
+/// rather than only what colour it is. `range` is the third widget that draws
+/// itself: the bar and the thumb a slider is, at every value, at every size,
+/// and under everything that paints them — including the values a range cannot
+/// hold, which HTML sanitizes into the bounds rather than refusing.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 50);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 51);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

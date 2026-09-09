@@ -64,12 +64,22 @@
 //!
 //! An `e` line may also carry `field:<kind>`, which says what an input accepts:
 //! the `type` its markup carries, or `multiline` for the `textarea` that has
-//! none. Two of the six paint differently, and they are the two a browser draws
-//! differently under this stylesheet's reset. A **password's value is never
-//! painted** — one `•` per character, the way `<input type="password">` is
-//! drawn, so a golden holds the width of the secret and none of it. And only
+//! none. Three of the seven paint differently, and they are the three a browser
+//! draws differently under this stylesheet's reset. A **password's value is
+//! never painted** — one `•` per character, the way `<input type="password">`
+//! is drawn, so a golden holds the width of the secret and none of it. And only
 //! `multiline` wraps, because an `<input>` is one line whatever is typed into
 //! it.
+//!
+//! The third is `range`, which carries `range:<min> <max> <value>` beside its
+//! kind and no run of text under it: a browser draws a slider and never the
+//! number behind one. It paints a bar a quarter of the box's height across the
+//! middle, and a round thumb one line across whose centre runs between half a
+//! thumb inside either end — the same two shapes, at the same sizes, that the
+//! sheet's reset paints with a gradient and a `::-webkit-slider-thumb`. Both
+//! take the element's own colour. The value is sanitized the way HTML says a
+//! `value` attribute is: clamped into the bounds, and the middle when it is not
+//! a number at all.
 //!
 //! An `e` line may also carry `icon:<artwork>`, which makes the box a drawing
 //! written into the scene itself. Its `currentColor` is the colour the element
@@ -186,6 +196,10 @@ const NORMAL_LINE_HEIGHT: f32 = 1.2;
 /// both as a multiple of the item's font size. What a browser draws.
 const MARKER_GAP: f32 = 0.4;
 const MARKER_DISC: f32 = 0.35;
+
+/// A slider's bar, as a fraction of the control's height. The sheet paints the
+/// same one with `background-size: 100% 25%`.
+const TRACK_HEIGHT: f32 = 0.25;
 
 /// The largest viewport the painter will allocate a canvas for.
 const MAX_VIEWPORT: u32 = 8192;
@@ -775,6 +789,45 @@ enum Marker {
     Decimal,
 }
 
+/// A slider, as the scene's `range:<min> <max> <value>` gives it: the bounds
+/// the program wrote, and where the thumb sits between them.
+///
+/// The value is sanitized here rather than by whoever wrote the scene, because
+/// HTML's own rule is the one a browser applies to the `value` attribute: a
+/// number outside the bounds is clamped into them, and text that is not a
+/// number at all is the middle.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Slider {
+    min: f32,
+    max: f32,
+    value: f32,
+}
+
+impl Slider {
+    /// The scene's three words, or nothing when the first two are not numbers.
+    fn read(value: &str) -> Option<Self> {
+        let mut parts = value.splitn(3, ' ');
+        let min: f32 = parts.next()?.trim().parse().ok()?;
+        let max: f32 = parts.next()?.trim().parse().ok()?;
+        if !min.is_finite() || !max.is_finite() || max < min {
+            return None;
+        }
+        let middle = min + (max - min) / 2.0;
+        let value = parts
+            .next()
+            .and_then(|v| v.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+            .map_or(middle, |v| v.clamp(min, max));
+        Some(Self { min, max, value })
+    }
+
+    /// How far along the track the thumb sits, from nought to one. A range with
+    /// no width to it is at the start, which is where a browser puts it.
+    fn fraction(self) -> f32 {
+        if self.max <= self.min { 0.0 } else { (self.value - self.min) / (self.max - self.min) }
+    }
+}
+
 /// What a widget draws inside its own box — `mark:<shape>` in the scene, and
 /// the reset's `::before` in a browser. Not inherited: it belongs to the one
 /// line that named it.
@@ -863,6 +916,9 @@ struct Computed {
     translate: Option<(Len, Len)>,
     marker: Marker,
     mark: Mark,
+    /// A slider, and where its thumb sits. Not inherited: it belongs to the
+    /// one line that named it, the way a mark does.
+    range: Option<Slider>,
 
     font_size: f32,
     weight: u16,
@@ -924,6 +980,7 @@ impl Computed {
             translate: None,
             marker: Marker::None,
             mark: Mark::None,
+            range: None,
             font_size: ROOT_FONT_SIZE,
             weight: 400,
             italic: false,
@@ -1247,6 +1304,10 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.masked = value == "password";
             style.nowrap = value != "multiline";
         }
+        // A slider's bounds and where its thumb sits. Bounds that are not two
+        // numbers leave the box a box, which is the rule an unreadable image
+        // source and an unknown mark both follow.
+        "range" => style.range = Slider::read(value),
         // `font-family` resolves to the bundled family whatever it names, and
         // `cursor` paints nothing. Both parse so that a scene keeps them.
         _ => {}
@@ -2131,6 +2192,11 @@ impl Painter<'_> {
             }
         }
 
+        if let Some(slider) = style.range {
+            self.slider(canvas, style, box_, slider, clip);
+            return;
+        }
+
         if style.mark != Mark::None {
             self.mark(canvas, style, box_, clip);
             return;
@@ -2209,6 +2275,66 @@ impl Painter<'_> {
             Art::Source(_) => Rgba::BLACK,
         };
         picture.draw(canvas, box_, style.opacity, colour, clip);
+    }
+
+    /// A slider: a bar across the middle of its box, and a round thumb on it
+    /// at the value.
+    ///
+    /// Both are the box's own colour, which is the sheet's `currentColor` — so
+    /// `Foreground` is the one property that paints a slider, and a
+    /// `Background` on it is the box behind the bar. The bar is a quarter of
+    /// the box's height and has no corners, because a browser paints it with a
+    /// gradient and a gradient has none. The thumb is one line across, and its
+    /// **centre** runs from half a thumb inside the near end to half a thumb
+    /// inside the far one, which is where a browser stops it so that a slider
+    /// at either end is still whole.
+    ///
+    /// A box smaller than a line shrinks the thumb to fit it, which is the one
+    /// place this and a browser differ: a browser's thumb is one line whatever
+    /// the box is and hangs out of it. A thumb that fits is the better picture
+    /// and one that overflows is the better copy, and below a line there is no
+    /// size that is both.
+    fn slider(
+        &mut self,
+        canvas: &mut Pixmap,
+        style: &Computed,
+        box_: Box2,
+        slider: Slider,
+        clip: Option<&Mask>,
+    ) {
+        let left = box_.l as f32;
+        let top = box_.t as f32;
+        let width = box_.r as f32 - left;
+        let height = box_.b as f32 - top;
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+        let bar = height * TRACK_HEIGHT;
+        let middle = top + height / 2.0;
+        fill(
+            canvas,
+            Box2 { l: box_.l, t: px(middle - bar / 2.0), r: box_.r, b: px(middle + bar / 2.0) },
+            [0.0; 4],
+            style.colour,
+            style.opacity,
+            clip,
+        );
+        let size = ROOT_FONT_SIZE.min(height).min(width);
+        let travel = (width - size).max(0.0);
+        let centre = left + size / 2.0 + travel * slider.fraction().clamp(0.0, 1.0);
+        fill(
+            canvas,
+            Box2 {
+                l: px(centre - size / 2.0),
+                t: px(middle - size / 2.0),
+                r: px(centre + size / 2.0),
+                b: px(middle + size / 2.0),
+            },
+            [size / 2.0; 4],
+            style.colour,
+            style.opacity,
+            clip,
+        );
     }
 
     /// The mark a widget draws inside its own box, in the box's own colour.
@@ -4253,6 +4379,76 @@ mod tests {
         // The single line runs past the forty pixels the box was given; the
         // wrapped one does not reach the bottom of the viewport on one line.
         assert!(inked_pixels(&wrapped) > inked_pixels(&one_line));
+    }
+
+    /// One slider, at a width and height a browser's own reset gives it.
+    fn slider(bounds: &str) -> String {
+        format!(
+            "buri-scene 1\nviewport 200 40\n\
+             e 0 field:range;range:{bounds};width:192px;height:16px;color:rgb(0,0,0)\n"
+        )
+    }
+
+    /// Whether a pixel has anything but the page under it.
+    fn inked(image: &Image, x: u32, y: u32) -> bool {
+        at(image, x, y) != [255, 255, 255, 255]
+    }
+
+    /// buri#139: a range is a slider, and a slider is a track with a thumb on
+    /// it at the value. Both are what the sheet's own reset paints in a
+    /// browser, so the picture and the page agree.
+    #[test]
+    fn a_range_paints_a_track_and_a_thumb_where_the_value_is() {
+        let low = render_ok(&slider("0.0 100.0 0"), "", "rest");
+        let middle = render_ok(&slider("0.0 100.0 50"), "", "rest");
+        let high = render_ok(&slider("0.0 100.0 100"), "", "rest");
+        // The thumb travels, and never off either end: at the extremes its
+        // centre is half a thumb inside the track, which is where a browser
+        // stops it so a slider at nought is still a whole disc. Row two is
+        // above the bar, so only the thumb can reach it.
+        for (image, near, at_all) in
+            [(&low, 8, 96), (&middle, 96, 184), (&high, 184, 8)]
+        {
+            assert!(inked(image, near, 2), "the thumb is not where the value is");
+            assert!(!inked(image, at_all, 2), "the thumb is where the value is not");
+        }
+        // The track is there whatever the value: the middle row is inked end to
+        // end in all three, and the bar is a quarter of the sixteen pixels, so
+        // one either side of the middle is ink and four is not. Column forty is
+        // clear of the thumb in every one of them.
+        for image in [&low, &middle, &high] {
+            assert!(inked(image, 0, 8) && inked(image, 191, 8));
+            assert!(inked(image, 40, 6) && inked(image, 40, 9));
+            assert!(!inked(image, 40, 5) && !inked(image, 40, 10));
+        }
+    }
+
+    /// HTML's own sanitization of a `value` attribute, which is what a browser
+    /// applies to the same markup: a number outside the bounds is clamped into
+    /// them, and text that is not a number is the middle.
+    #[test]
+    fn a_range_clamps_what_it_is_given_and_centres_what_it_cannot_read() {
+        let under = render_ok(&slider("0.0 100.0 -40"), "", "rest");
+        let over = render_ok(&slider("0.0 100.0 400"), "", "rest");
+        let words = render_ok(&slider("0.0 100.0 loud"), "", "rest");
+        assert_eq!(under.rgba, render_ok(&slider("0.0 100.0 0"), "", "rest").rgba);
+        assert_eq!(over.rgba, render_ok(&slider("0.0 100.0 100"), "", "rest").rgba);
+        assert_eq!(words.rgba, render_ok(&slider("0.0 100.0 50"), "", "rest").rgba);
+        // The bounds are the program's, so the same fraction of a different
+        // range is the same picture.
+        let shifted = render_ok(&slider("-50.0 50.0 0"), "", "rest");
+        assert_eq!(shifted.rgba, render_ok(&slider("0.0 100.0 50"), "", "rest").rgba);
+    }
+
+    /// Bounds the painter cannot read leave the box a box, which is the rule an
+    /// unreadable image source and an unknown mark both follow.
+    #[test]
+    fn a_range_whose_bounds_are_not_numbers_paints_nothing_of_its_own() {
+        let plain = "buri-scene 1\nviewport 200 40\n\
+                     e 0 field:range;width:192px;height:16px;color:rgb(0,0,0)\n";
+        let broken = render_ok(&slider("loud louder 3"), "", "rest");
+        assert_eq!(broken.rgba, render_ok(plain, "", "rest").rgba);
+        assert_eq!(inked_pixels(&broken), 0);
     }
 
     #[test]
