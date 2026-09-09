@@ -688,12 +688,19 @@ parent's padding: the full-width rule inside a padded menu, and the avatar that
 laps the one before it. It is a distance outwards, so `.Auto` and a negative
 length bleed nothing.
 
+`Clip(Bool)` is what stops the child there being painted outside its parent's
+box at all, corners included, and it makes no scroll container doing it —
+`Scroll(Axis)` is the one that says the overflow can be scrolled to.
+`Passthrough(Bool)` gives the pointer to whatever is behind an element instead:
+a pinned toaster dock asks for it so the page under it still answers a press,
+and each toast in the dock takes the pointer back.
+
 `heading`, `button`, `link`, `image`, `field`, `toggle` and `icon` take a
 `[Style]` like every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or
 disabled, a picture is sized, shaped and rounded rather than the box around it,
-and a
-heading is the size its styles say rather than the size a browser picked. The
+and a heading is the size its styles say rather than the size a browser picked.
+The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list, the inset border on a separator and
 the baseline a picture or an icon sits on — so what is left is what the styles
@@ -720,13 +727,19 @@ and one with none shows its label. The label stays a parameter and rides in
 `aria-label`, so a button of an icon and a word is one focusable, hoverable
 element with the name the program gave it.
 
-`field(label, kind, styles, around, value)` and
-`toggle(label, kind, styles, around, value)` take two style lists, because a
-labelled control is two boxes: `styles` is the input's, `around` is the
-`<label>`'s — the box a surrounding row lays out, and the only place `Grow`,
+`field(label, kind, styles, around, value, invalid)` and
+`toggle(label, kind, styles, around, value, invalid)` take two style lists,
+because a labelled control is two boxes: `styles` is the input's, `around` is
+the `<label>`'s — the box a surrounding row lays out, and the only place `Grow`,
 `Shrink`, `AlignSelf` and `Span` do anything. A toggle's `ToggleKind` picks the
 mark it draws inside itself: `Checkbox` has a tick when it is on, `Switch` has a
 thumb that travels. Both take the box's `Foreground`.
+
+`invalid` is a parameter for the reason the label is: a control failing
+validation has to be *announced*. It writes `aria-invalid` and it is the only
+way into `State::Invalid`, so `On(.Invalid, ...)` paints the ring on the same
+fact a reader is told, and a control that never fails passes `.Const(false)`
+and carries no markup it did not ask for.
 
 A field's `FieldKind.Range(min, max, step)` is a slider, and it carries the
 three numbers on the kind because a reader is told what one runs between. It

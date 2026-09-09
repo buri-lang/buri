@@ -632,6 +632,7 @@ fn subject<C: Ui>(ctx: C, styles: [Style], words: Str): Node<C> {
         [],
         signal(ctx, true),
         .Const(false),
+        .Const(false),
     )
 }
 

@@ -149,7 +149,7 @@ at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 51 properties and five ways of composing them. Every property is
+`ui/style` is 53 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -199,6 +199,41 @@ export fn lapped<C>(letter: Str): Node<C> {
 }
 ```
 
+`Clip(Bool)` cuts what runs past the box, corners included, and makes no scroll
+container while it does — that is the whole of what separates it from
+`Scroll(Axis)`. `Passthrough(Bool)` says the pointer goes to whatever is behind
+this element instead. Both inherit the way the platform does, so a subtree opts
+out and a child opts back in.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// A card whose banner runs edge to edge. Without the clip the picture squares
+/// the corner the radius rounded.
+export fn card<C>(banner: Node<C>, body: Node<C>): Node<C> {
+    ui.column([.Radius(.Px(12)), .Clip(true)], [banner, body])
+}
+
+/// A toaster dock pinned across the viewport. It must not intercept a press
+/// meant for the page under it; each toast in it takes the pointer back.
+export fn dock<C>(toasts: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Position(.PinViewport),
+            .Pin(.Bottom, .Px(0)),
+            .Width(.Full),
+            .Passthrough(true),
+        ],
+        toasts,
+    )
+}
+
+export fn toast<C>(text: Node<C>): Node<C> {
+    ui.stack([.Passthrough(false), .Padding(.Px(12))], [text])
+}
+```
+
 **Static — everything except `Computed`.** The compiler evaluates it, turns each
 distinct property value into one atomic class, and writes the classes into a
 stylesheet that ships with the artifact. `.Padding(.Px(8))` is `.p-8` wherever it
@@ -207,12 +242,16 @@ get one class and one rule. Nothing is generated at run time.
 
 Two constructors exist only in this tier, because neither has an inline form:
 
-- `On(State, [Style])` is a pseudo-class — hover, focus, focus-within,
-  pressed, disabled, checked. **This is why hover is not an event.** It costs
+- `On(State, [Style])` is a state — hover, focus, focus-within, pressed,
+  disabled, checked, invalid. **This is why hover is not an event.** It costs
   nothing, needs no signal write on a mouse move, and maps to a native pressed
   or focused trait. `Focus` is the element's own keyboard attention and
   `FocusWithin` is a container's: the wrapper of an input group owns the
-  hairline and the ring, and the control inside it stays bare.
+  hairline and the ring, and the control inside it stays bare. Six of the seven
+  are the platform's own; `Invalid` is the one a program enters, by passing a
+  `field` or a `toggle` an `invalid` — which writes the `aria-invalid` a reader
+  is told about and the rule hangs off, so the ring and the announcement are
+  one fact.
 - `At(Screen, [Style])` is a breakpoint, from one of four widths upwards.
   Mobile-first: the media queries are written in ascending order, so a larger
   tier overrides a smaller one by position, and there is never a maximum-width
@@ -436,6 +475,7 @@ export fn site<C>(value: Signal<Str>): Node<C> {
             [.Grow(1)],
             value,
             .Const(false),
+            .Const(false),
         ),
         ui.stack([.Shrink(0)], [ui.text(.Const(".com"))]),
     ])
@@ -468,6 +508,7 @@ export fn notify<C>(value: Signal<Bool>): Node<C> {
         [],
         value,
         .Const(false),
+        .Const(false),
     )
 }
 ```
@@ -492,6 +533,7 @@ export fn volume<C>(value: Signal<Str>): Node<C> {
         [.Width(.Px(180)), .Foreground(.Rgb(40, 50, 90))],
         [],
         value,
+        .Const(false),
         .Const(false),
     )
 }

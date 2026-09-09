@@ -1,0 +1,78 @@
+# `State::Invalid`, on every primitive a state can land on: three pictures of
+# one tree on the eight-hundred-wide page the viewport is.
+#
+# The columns are `Background`, `Foreground`, `Border`, `Opacity` and `Shadow`
+# one at a time, then all five at once, then the cell that answers to nothing —
+# so a picture says which element responded and how, with the one that did not
+# beside the ones that did.
+#
+# The third picture is the one that says a state is a state. `invalid-hovered`
+# paints the *failing* tree hovered, and it comes out the resting picture:
+# `On(.Invalid, ...)` contributes to the invalid document and to no other, the
+# same way the other five behave. A picture that started matching
+# `invalid-stated` would mean a state stopped being read back off the conflict
+# slot.
+#
+# The two controls in the last row are the only ones that can enter the state
+# from a program: `field` and `toggle` take an `invalid`, and it is what writes
+# the `aria-invalid` the rule hangs off. The stack, the heading, the button and
+# the link carry the rule and never the attribute, which is the same trade the
+# other five states make — the painter's state is the whole tree's.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the failure treatment on every primitive a state reaches, resting and failing, with the same tree in another state coming out resting"
+
+run {
+  args: ["test", "//lib/control", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/control/test/__snapshots__/invalid-stated.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/control/test/invalid.buri"
+  replace: "\"invalid-resting\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/control", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/control/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/control", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/control/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/control", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# One number in the failing palette — the ring's spread — and only the failing
+# picture moves.
+edit {
+  file: "lib/control/scenes.buri"
+  replace: "spread: .Px(3),"
+  with: "spread: .Px(6),"
+}
+
+run {
+  args: ["test", "//lib/control", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/control/test/__snapshots__/invalid-stated.diff.png"  exists: true }
+path { path: "lib/control/test/__snapshots__/invalid-hovered.diff.png"  exists: false }

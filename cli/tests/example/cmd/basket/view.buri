@@ -164,6 +164,7 @@ fn banner<C>(state: State): Node<C> {
             [],
             state.dark,
             .Const(false),
+            .Const(false),
         ),
     ])
 }
@@ -187,6 +188,7 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
             [],
             state.draftMemo,
             .Const(false),
+            .Const(false),
         ),
         ui.field(
             .Const("Amount in dollars"),
@@ -194,6 +196,7 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
             [fieldStyle],
             [],
             state.draftAmount,
+            .Const(false),
             .Const(false),
         ),
         ui.button(

@@ -1,0 +1,15 @@
+// EXPECT: `Bool` has no variant `Px`
+//
+// A clip is on or off. There is no distance to it and no axis: `Scroll` is the
+// property that names an axis, and a length here would be asking how far out
+// of the box a thing is painted, which is not a question this property has.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([.Clip(.Px(12))], []), [])
+}

@@ -122,9 +122,11 @@ impl Rendered {
     /// Addressed by label rather than by position, the way a reader addresses
     /// it. Aborts when no button carries that label.
     ///
-    /// A disabled button does nothing at all, which is what a browser does with
-    /// one: it is not dispatched to, so the handler behind it cannot run. That
-    /// is a control this found and refused, not a control it could not find.
+    /// A press is the pointer's, so a button under a `Passthrough(true)` does
+    /// nothing at all — which is what a browser does with a click on one, and
+    /// what the pass-through is for. A disabled button does nothing either: it
+    /// is not dispatched to, so the handler behind it cannot run. Both are a
+    /// control this found and refused, not a control it could not find.
     export fn press(self, label: Str): ();
 
     /// Types `value` into the field labelled `label`, the way a reader replacing
@@ -239,6 +241,7 @@ fn stateName(state: State): Str {
         .Active => "active",
         .Disabled => "disabled",
         .Checked => "checked",
+        .Invalid => "invalid",
     }
 }
 

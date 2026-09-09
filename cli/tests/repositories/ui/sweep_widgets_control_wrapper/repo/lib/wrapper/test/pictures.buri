@@ -31,6 +31,7 @@ test "what a row can do to a labelled control" {
             [.Grow(1)],
             signal(ctx, ""),
             .Const(false),
+            .Const(false),
         ),
         .Hover,
     );
@@ -63,6 +64,7 @@ test "the label as a box of its own" {
                 [],
                 [.Layout(.Column)],
                 signal(ctx, true),
+                .Const(false),
                 .Const(false),
             ),
             .Hover,

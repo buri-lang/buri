@@ -3508,6 +3508,20 @@ function $dom_attribute(element, name, value) {
   element.setAttribute(name, value);
 }
 
+// An attribute that is there or is not, rather than one that says `true` or
+// `false`. `aria-invalid="false"` on every control in a page is markup nobody
+// asked for, and the rule the sheet writes for `On(.Invalid, …)` asks whether
+// the attribute is there and says `true`.
+function $dom_flag(element, name, on) {
+  if (element.$shim) {
+    if (on) element.attributes[name] = "true";
+    else delete element.attributes[name];
+    return;
+  }
+  if (on) element.setAttribute(name, "true");
+  else element.removeAttribute(name);
+}
+
 // The classes an element has, all of them at once. Replacing rather than
 // adding is what makes re-applying a style list idempotent: a `When` that
 // switched back has to lose the class it gained.
@@ -3776,7 +3790,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all fifty-one properties
+// `$tree_declare` below is the run-time lowering of all fifty-three properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -4079,8 +4093,14 @@ function $tree_declare(style, out) {
     out.set("list-style-type", $TREE_LIST_MARKERS[value]);
   } else if (tag === 55) {
     out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
-  } else {
+  } else if (tag === 56) {
     out.set("transform", "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")");
+  } else if (tag === 57) {
+    // `clip` rather than `hidden`: both stop the paint, and only `hidden` also
+    // makes a scroll container a keyboard can land in.
+    out.set("overflow", value ? "clip" : "visible");
+  } else {
+    out.set("pointer-events", value ? "none" : "auto");
   }
 }
 
@@ -4652,10 +4672,13 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       $dom_attribute(element, "max", $f64(node[2][2]));
       $dom_attribute(element, "step", $f64(node[2][3]));
     }
+    // Failing validation is announced as well as painted, and the attribute is
+    // both: a reader hears it, and `On(.Invalid, …)` is a rule about it.
+    $tree_bind(node[6], (invalid) => $dom_flag(element, "aria-invalid", invalid));
     // The styles are the input's rather than the label's: the input is what a
     // reader focuses and what a browser disables.
     $tree_styles(element, node[3]);
-    $tree_disabled(element, node[6]);
+    $tree_disabled(element, node[7]);
     const cell = node[5][0];
     $tree_bind([1, node[5]], (value) => {
       // Writing what is already there moves the caret in a real browser.
@@ -4674,8 +4697,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // the sheet's, drawn on the box by the reset, because an `<input>` holds
     // no children.
     if (node[2] === 1) $dom_attribute(element, "role", "switch");
+    $tree_bind(node[6], (invalid) => $dom_flag(element, "aria-invalid", invalid));
     $tree_styles(element, node[3]);
-    $tree_disabled(element, node[6]);
+    $tree_disabled(element, node[7]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     const cell = node[5][0];
     $tree_bind([1, node[5]], (value) => {
@@ -5030,9 +5054,48 @@ function $tree_labelled(self, name, label) {
   return null;
 }
 
+// A press is the pointer's, so an element the pointer passes through does not
+// get one — the same nothing a browser does with a click on it. Silent rather
+// than an abort, because the tree *has* the button and what a test is asking is
+// whether pressing it does anything; a test that says nothing happened is the
+// assertion, and one that meant otherwise fails on the state it expected.
 function $ui_testing_Rendered_press(self, label) {
-  $dom_fire($tree_labelled(self, "button", label), "click");
+  const button = $tree_labelled(self, "button", label);
+  if ($dom_reachable(button)) $dom_fire(button, "click");
   return 0;
+}
+
+// Whether the pointer reaches this element rather than passing through it.
+//
+// `pointer-events` inherits, so the answer is the nearest ancestor — this
+// element included — that declares one, and a child that declares `auto` takes
+// the pointer back. The declaration reaches an element either as a class or
+// inline, so both tiers are read: the sheet is where a static style went, and
+// only an unconditional rule counts, since a headless document is in no state.
+function $dom_reachable(node) {
+  for (let at = node; at !== null && at !== undefined; at = at.parent) {
+    const declared = at.styles["pointer-events"] ?? $ui_sheet_value(at.classes, "pointer-events");
+    if (declared !== undefined) return declared !== "none";
+  }
+  return true;
+}
+
+// What the extracted stylesheet says one of these classes declares for a
+// property, or undefined where none of them names it. `.<class>{` matches an
+// unconditional rule and nothing else: a stated one is written `.<class>:hover{`
+// or `.<class>[aria-invalid=true]{`, and a class name holds no `.`.
+function $ui_sheet_value(classes, property) {
+  for (const name of classes.split(" ")) {
+    const opening = "." + name + "{";
+    const at = $ui_sheet.indexOf(opening);
+    if (at < 0) continue;
+    const body = $ui_sheet.slice(at + opening.length, $ui_sheet.indexOf("}", at));
+    for (const declaration of body.split(";")) {
+      const colon = declaration.indexOf(":");
+      if (declaration.slice(0, colon) === property) return declaration.slice(colon + 1);
+    }
+  }
+  return undefined;
 }
 
 function $ui_testing_Rendered_fill(self, label, value) {
