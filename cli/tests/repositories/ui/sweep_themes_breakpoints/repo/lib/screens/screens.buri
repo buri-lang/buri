@@ -1,0 +1,134 @@
+//! The four breakpoints, on the 800-pixel page a snapshot always paints.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// Red is what the smallest screen gets; green is a breakpoint that applied.
+let red: Style = .Background(.Rgb(200, 60, 60));
+
+let green: Style = .Background(.Rgb(40, 160, 80));
+
+/// One labelled row: the label in a fixed track, the sample in the rest.
+fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
+    ui.stack([.Layout(.Grid([.Fixed(.Px(220)), .Fraction(1)])), .Gap(.Px(12))], [
+        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+        sample,
+    ])
+}
+
+/// A block of colour with a word in it.
+fn block<C>(styles: [Style], words: Str): Node<C> {
+    ui.stack(
+        [
+            .Group(styles),
+            .Padding(.Px(8)),
+            .Foreground(.Rgb(255, 255, 255)),
+            .FontSize(.Px(13)),
+        ],
+        [ui.text(.Const(words))],
+    )
+}
+
+/// A page of labelled rows.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(10))], rows)
+}
+
+/// One row per breakpoint: red below it, green from it upwards.
+export fn each<C>(): Node<C> {
+    page([
+        labelled(
+            ".At(.Small) — 40rem, 640px",
+            block([red, .At(.Small, [green])], "green"),
+        ),
+        labelled(
+            ".At(.Medium) — 48rem, 768px",
+            block([red, .At(.Medium, [green])], "green"),
+        ),
+        labelled(
+            ".At(.Large) — 64rem, 1024px",
+            block([red, .At(.Large, [green])], "red"),
+        ),
+        labelled(
+            ".At(.ExtraLarge) — 80rem, 1280px",
+            block([red, .At(.ExtraLarge, [green])], "red"),
+        ),
+    ])
+}
+
+/// Mobile-first: the largest breakpoint that applies wins, whichever order the
+/// `At`s were written in.
+export fn cascade<C>(): Node<C> {
+    let ascending: [Style] = [
+        .Background(.Rgb(220, 220, 220)),
+        .At(.Small, [.Background(.Rgb(40, 100, 200))]),
+        .At(.Medium, [.Background(.Rgb(40, 160, 80))]),
+        .At(.Large, [.Background(.Rgb(200, 60, 60))]),
+        .At(.ExtraLarge, [.Background(.Rgb(140, 40, 160))]),
+    ];
+    let descending: [Style] = [
+        .Background(.Rgb(220, 220, 220)),
+        .At(.ExtraLarge, [.Background(.Rgb(140, 40, 160))]),
+        .At(.Large, [.Background(.Rgb(200, 60, 60))]),
+        .At(.Medium, [.Background(.Rgb(40, 160, 80))]),
+        .At(.Small, [.Background(.Rgb(40, 100, 200))]),
+    ];
+    page([
+        labelled("written ascending", block(ascending, "medium's green")),
+        labelled("written descending", block(descending, "medium's green")),
+    ])
+}
+
+/// A breakpoint reaching something other than a colour.
+export fn layout<C>(): Node<C> {
+    let cells: [Node<C>] = [
+        block([.Background(.Rgb(40, 100, 200))], "one"),
+        block([.Background(.Rgb(40, 160, 80))], "two"),
+        block([.Background(.Rgb(200, 60, 60))], "three"),
+    ];
+    page([
+        labelled(
+            "a column, and a row from .Medium",
+            ui.stack(
+                [
+                    .Layout(.Column),
+                    .Gap(.Px(4)),
+                    .At(.Medium, [.Layout(.Row), .Gap(.Px(24))]),
+                ],
+                cells,
+            ),
+        ),
+        labelled(
+            "160 wide, and 400 from .Large",
+            block([red, .Width(.Px(160)), .At(.Large, [.Width(.Px(400))])], "160"),
+        ),
+        labelled(
+            "8 of padding, and 32 from .Small",
+            block([red, .Padding(.Px(8)), .At(.Small, [.Padding(.Px(32))])], "32"),
+        ),
+    ])
+}
+
+/// `On` inside `At` — the nesting that means both, and the one this vocabulary
+/// has.
+export fn states<C>(): Node<C> {
+    page([
+        labelled(
+            ".On(.Hover) alone",
+            block([red, .On(.Hover, [green])], "green while hovered"),
+        ),
+        labelled(
+            ".At(.Small, [.On(.Hover)])",
+            block([red, .At(.Small, [.On(.Hover, [green])])], "green while hovered"),
+        ),
+        labelled(
+            ".At(.Large, [.On(.Hover)])",
+            block([red, .At(.Large, [.On(.Hover, [green])])], "red in every state"),
+        ),
+        labelled(
+            ".At(.Small, [.On(.Checked)])",
+            block([red, .At(.Small, [.On(.Checked, [green])])], "green while checked"),
+        ),
+    ])
+}

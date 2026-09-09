@@ -1,0 +1,17 @@
+FAIL //lib/tokens  test/tokens.buri  "light"
+  the snapshot "never-recorded" changed: see test/__snapshots__/never-recorded.diff.png
+  --> lib/tokens/test/tokens.buri:36:1
+FAIL //lib/tokens  test/tokens.buri  "dark"
+  the snapshot "tokens-dark" changed: see test/__snapshots__/tokens-dark.diff.png
+  --> lib/tokens/test/tokens.buri:44:1
+FAIL //lib/tokens  test/tokens.buri  "a token no theme bound"
+  the snapshot "tokens-unbound" changed: see test/__snapshots__/tokens-unbound.diff.png
+  --> lib/tokens/test/tokens.buri:52:1
+FAIL //lib/tokens  test/tokens.buri  "the second list rebinds two of the first's"
+  the snapshot "tokens-layered" changed: see test/__snapshots__/tokens-layered.diff.png
+  --> lib/tokens/test/tokens.buri:64:1
+FAIL //lib/tokens  test/tokens.buri  "a token worth another package's token"
+  the snapshot "tokens-chained" changed: see test/__snapshots__/tokens-chained.diff.png
+  --> lib/tokens/test/tokens.buri:78:1
+
+0 passed, 5 failed, 0 skipped (0.0s)

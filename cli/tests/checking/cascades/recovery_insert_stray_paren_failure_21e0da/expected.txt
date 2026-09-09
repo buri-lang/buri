@@ -1,0 +1,21 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:17:5
+   |
+17 |     assert.equal(
+   |     ^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:18:45
+   |
+18 |         assert.err(codegen.run(ctx, silent))@ ,
+   |                                             ^
+   |
+  --> main.buri:17:17
+   |
+17 |     assert.equal(
+   |                 ^ opened here
+   |
+   = fix: write `)` here

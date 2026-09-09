@@ -71,6 +71,7 @@
 use std::fmt::{self, Write as _};
 
 use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
+use crate::hash::Map as HashMap;
 use crate::diagnostics::{Invariant as _, Span};
 
 // ---------------------------------------------------------------------------
@@ -834,6 +835,22 @@ pub struct Program {
     /// program it was before track G — the *safe* answer either way, because
     /// the runtime's fan-out is gated on the same latch.
     pub crosses_tasks: bool,
+    /// The generated `Equal` for each type a reactive **cell** holds, where
+    /// `middle::derives` generated one.
+    ///
+    /// `ui/signal`'s rule is that writing a value equal to the one a cell holds
+    /// re-runs nothing, and `==` is structural (SPEC 7.2) — so the runtime,
+    /// which holds a cell as bytes, cannot decide it: two equal strings are two
+    /// pointers. What the graph is handed instead is a comparison **at the
+    /// type**, and this is where a backend finds the function to wrap in one
+    /// (`cli/runtime/ui.rs`'s `Equal`, `runtime_table.rs`'s `Extra::Owned`).
+    ///
+    /// Keyed by the source type rather than by the call site, because the two
+    /// keys that carry it — `signal` and `write` — name that type in a bare
+    /// argument and there is one comparison per type however many cells hold
+    /// one. Empty for every program with no signals, and for every program the
+    /// JavaScript backend compiles: `middle::run` does not run `derives`.
+    pub cell_equal: HashMap<Ty, FuncIdx>,
 }
 
 impl Program {
@@ -1473,6 +1490,7 @@ mod tests {
             units: vec!["m".into()],
             types: Vec::new(),
             crosses_tasks: false,
+            cell_equal: HashMap::default(),
         }
     }
 

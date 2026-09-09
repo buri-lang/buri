@@ -232,6 +232,26 @@ pub fn indent(s: &str) -> String {
     s.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n")
 }
 
+/// The codes whose `expected` and `actual` lines *are* the edit, so a `fix`
+/// beside them would only repeat what a reader has already read.
+///
+/// `type-mismatch` is the one: "produce a `Str` here, or change what surrounds
+/// it to accept an `Int`" says nothing the two lines above it have not already
+/// said. Its numeric branch still carries a fix, because naming `.toI64()` is
+/// a fact neither line holds.
+const THE_MISMATCH_IS_THE_FIX: &[&str] = &["type-mismatch"];
+
+/// Whether a `--error-format=json` line is a diagnostic that owes a `fix` and
+/// does not carry one. A diagnostic that cannot say what to do about it is not
+/// finished, which is what the reject corpus and the repository corpus both
+/// enforce with this.
+pub fn is_a_diagnostic_with_no_fix(line: &str) -> bool {
+    if !line.starts_with('{') || line.contains("\"fix\":") {
+        return false;
+    }
+    !THE_MISMATCH_IS_THE_FIX.iter().any(|code| line.contains(&format!("\"code\":\"{code}\"")))
+}
+
 pub struct Run {
     pub code: i32,
     pub stdout: String,

@@ -235,15 +235,6 @@ impl NumClass {
         }
     }
 
-    /// The default name as a noun phrase, for a sentence that wants an article
-    /// in front of it.
-    pub fn default_noun_phrase(self) -> &'static str {
-        match self {
-            NumClass::Int => "an `Int`",
-            NumClass::Float => "a `Float`",
-        }
-    }
-
     /// How a note names the literal itself, where the sentence is about the
     /// syntax rather than the type it stands for.
     pub fn literal_phrase(self) -> &'static str {
@@ -1602,15 +1593,6 @@ impl Spelling {
         }
     }
 
-    /// The same as a noun phrase, for a sentence that supplies the article.
-    pub fn noun_phrase(&self) -> String {
-        match self {
-            Spelling::Code(name) => format!("a `{name}`"),
-            Spelling::Literal(class) => class.default_noun_phrase().to_string(),
-            Spelling::Unconstrained => self.quoted(),
-        }
-    }
-
     /// The bare name, for a sentence that punctuates it itself. An unpinned
     /// literal answers with the type it would default to.
     pub fn name(&self) -> &str {
@@ -1755,8 +1737,6 @@ mod tests {
         let float = s.fresh_num(NumClass::Float, Span::NONE);
         assert_eq!(show_in_diagnostic(&t, &s, &[], &int).quoted(), "`Int`");
         assert_eq!(show_in_diagnostic(&t, &s, &[], &float).quoted(), "`Float`");
-        assert_eq!(show_in_diagnostic(&t, &s, &[], &int).noun_phrase(), "an `Int`");
-        assert_eq!(show_in_diagnostic(&t, &s, &[], &float).noun_phrase(), "a `Float`");
         // Nested inside a larger type it is the same name, so one literal is
         // never given two spellings.
         assert_eq!(show(&t, Some(&s), &[], &Ty::Array(Box::new(int))), "[Int]");

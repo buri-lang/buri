@@ -1,0 +1,31 @@
+// Where a box sits when it leaves the flow, and what it is measured against.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { pinCompose, pinEdges, positions };
+
+test "what a position does to a child that carries two pins" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "position-kinds", positions(), .Hover, []);
+}
+
+test "one pin at a time, on every edge a box has" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "position-pin-edges", pinEdges(), .Hover, []);
+}
+
+test "two pins naming different edges compose" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "position-pin-compose", pinCompose(), .Hover, []);
+}

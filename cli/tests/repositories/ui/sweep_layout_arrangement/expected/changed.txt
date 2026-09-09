@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/arrangement.buri  "the order children are written in is the order they stack in"
+  the snapshot "layout-layers" changed: see test/__snapshots__/layout-layers.diff.png
+  --> lib/scenes/test/arrangement.buri:70:1
+
+7 passed, 1 failed, 0 skipped (0.0s)

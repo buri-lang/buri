@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/box.buri  "what a container does with a child larger than it is"
+  the snapshot "box-overflow" changed: see test/__snapshots__/box-overflow.diff.png
+  --> lib/scenes/test/box.buri:60:1
+
+6 passed, 1 failed, 0 skipped (0.0s)

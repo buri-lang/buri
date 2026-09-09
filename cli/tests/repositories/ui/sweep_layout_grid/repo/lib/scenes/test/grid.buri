@@ -1,0 +1,50 @@
+// Grids: every kind of track, three of a kind and mixed, a span, and a gap.
+//
+// The pictures are solid blocks of colour rather than sentences, so a track
+// boundary is an edge in the picture and not a claim about a number.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { fractions, gridGaps, mixedTracks, span, tracks };
+
+test "every kind of grid track, three of a kind at a time" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid-tracks", tracks(), .Hover, []);
+}
+
+test "what a share of the leftover room is worth" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid-fractions", fractions(), .Hover, []);
+}
+
+test "the three kinds of track in one grid" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid-mixed-tracks", mixedTracks(), .Hover, []);
+}
+
+test "a child over more than one track" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid-span", span(), .Hover, []);
+}
+
+test "what a gap takes out of the shares" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid-gaps", gridGaps(), .Hover, []);
+}

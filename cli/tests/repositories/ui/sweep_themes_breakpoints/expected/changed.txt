@@ -1,0 +1,11 @@
+FAIL //lib/screens  test/screens.buri  "one row per breakpoint"
+  the snapshot "never-recorded" changed: see test/__snapshots__/never-recorded.diff.png
+  --> lib/screens/test/screens.buri:16:1
+FAIL //lib/screens  test/screens.buri  "a state inside a breakpoint, hovered"
+  the snapshot "breakpoints-hovered" changed: see test/__snapshots__/breakpoints-hovered.diff.png
+  --> lib/screens/test/screens.buri:40:1
+FAIL //lib/screens  test/screens.buri  "and the same tree in another state"
+  the snapshot "breakpoints-checked" changed: see test/__snapshots__/breakpoints-checked.diff.png
+  --> lib/screens/test/screens.buri:48:1
+
+2 passed, 3 failed, 0 skipped (0.0s)

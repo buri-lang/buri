@@ -1,0 +1,5 @@
+// EXPECT: expected `[I64]`, found a variant `.Some`
+fn go(): [Int] {
+  let xs: [Int] = .Some;
+  xs
+}

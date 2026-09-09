@@ -154,7 +154,7 @@
 )]
 
 use crate::compiler::middle::monomorphize::{
-    short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
+    self, short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
 };
 use crate::compiler::semantics::typed::{
     self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
@@ -282,9 +282,40 @@ pub fn run(program: &mut Program) -> Derives {
     g.drain();
     let built = g.finish();
     program.funcs.extend(built.funcs);
+    route_cells(program, &built.routed);
     let mut out = built.out;
     rewrite(program, &built.routed, &built.hash_ty, &mut out);
     out
+}
+
+/// Records, per reactive cell type, the generated `Equal` a backend hands the
+/// graph.
+///
+/// The intrinsic carries the *descriptor* (`monomorphize::build_fn`) and the
+/// backend has a *type*, so this is the one place the two are both in hand:
+/// `desc_index` read backwards is what turns one into the other, and the route
+/// is what generation produced for it. A cell whose type declined generation —
+/// an opaque, or a shape with no structure to walk — simply has no row, and the
+/// runtime falls back to comparing the bytes.
+fn route_cells(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>) {
+    let wanted: Vec<usize> = program
+        .funcs
+        .iter()
+        .filter(|f| {
+            f.intrinsic_key().is_some_and(|k| monomorphize::CELL_VALUE_KEYS.contains(&k))
+        })
+        .filter_map(|f| f.desc)
+        .collect();
+    let mut rows: Vec<(Ty, FuncIdx)> = Vec::new();
+    for desc in wanted {
+        let Some(func) = routed.get(&(Op::Eq, desc)).copied() else { continue };
+        if let Some((ty, _)) = program.desc_index.iter().find(|(_, i)| **i == desc) {
+            rows.push((ty.clone(), func));
+        }
+    }
+    for (ty, func) in rows {
+        program.cell_equal.insert(ty, func);
+    }
 }
 
 /// What generation produced, before it is spliced into the program.
@@ -318,6 +349,12 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
                 if !out.from_json.contains(&d) {
                     out.from_json.push(d);
                 }
+            } else if monomorphize::CELL_VALUE_KEYS.contains(&key) {
+                // A reactive cell's value type: what the graph compares a write
+                // against, so that writing a value equal to the one already
+                // there re-runs nothing. `monomorphize::build_fn` put the
+                // descriptor here for exactly this.
+                push(Op::Eq, d, &mut seen);
             } else {
                 push(Op::Show, d, &mut seen);
             }
@@ -487,6 +524,16 @@ impl Env {
                     .entry(*p)
                     .or_insert_with(|| Ty::Con(TyConId(i as u32), Vec::new()));
             }
+        }
+        // `Equal` answers a `Bool`, and a program can hold a signal without
+        // ever writing a comparison of its own — nothing in
+        // `web.navigate(ctx, path)` is an `==`. The cutoff's comparison is
+        // generated for such a program all the same, so where no call site
+        // named the result type it comes off the primitive. Last, after the
+        // loop above, because that loop is what answers `Bool` in a program
+        // with no `Bool` literal in it.
+        if let Some(b) = prim_of.get(&Prim::Bool).cloned() {
+            result.entry(Op::Eq).or_insert(b);
         }
         Env { ty_of, prim_of, result, json_variants }
     }

@@ -203,6 +203,19 @@ pub struct Program {
     /// structural operation *at* a type instead of calling a runtime walker
     /// that rediscovers the shape on every element.
     pub desc_index: HashMap<Ty, usize>,
+    /// The generated `Equal` for each type a reactive **cell** holds.
+    ///
+    /// Filled by `middle::derives` and read by both native backends, which wrap
+    /// each function in the C-ABI thunk the graph compares through
+    /// (`cli/runtime/ui.rs`'s `Equal`). Empty on the JavaScript path, which
+    /// does not run that pass — `runtime.js` compares with `$eq` and needs no
+    /// generated function.
+    ///
+    /// [`Monomorphizer::build_fn`] is what puts a descriptor in
+    /// [`Program::desc_index`] for these types in the first place: a cell's `T`
+    /// reaches no `derive` call site of its own, so without a descriptor there
+    /// would be nothing for the pass to generate from.
+    pub cell_equal: HashMap<Ty, FuncIdx>,
     /// Number of effect slots each context type carries, in binding order.
     pub ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
     /// What every declared type is made of. See [`Shapes`].
@@ -572,6 +585,7 @@ pub fn run(
         descriptors: m.descriptors,
         desc_modules: m.desc_modules,
         desc_index: m.desc_index,
+        cell_equal: HashMap::default(),
         ctx_layouts: m.ctx_layouts,
         shapes,
         // Merged here rather than by each caller, so that `buri build` and
@@ -1023,6 +1037,21 @@ impl Monomorphizer<'_> {
             f.ret = ret;
             if key == "testing_assert.report" || key == "testing_assert.failExpected" {
                 if let Some(t) = param_types.get(2).or_else(|| param_types.get(1)).cloned() {
+                    let desc = self.descriptor(&t);
+                    self.func_mut(slot).desc = Some(desc);
+                }
+            }
+            // A reactive **cell**'s value type. `ui/signal`'s rule is that
+            // writing a value equal to the one a cell holds re-runs nothing,
+            // and `==` is structural (SPEC 7.2) — so a runtime holding the cell
+            // as bytes cannot decide it, and what it is handed instead is a
+            // comparison at the type. `middle::derives` generates that from a
+            // descriptor, and a cell's `T` reaches no `derive` call site of its
+            // own, so this is where the descriptor comes from. The value is the
+            // last parameter at both keys: `signal(self, initial: T)` and
+            // `write(self, id: Int, value: T)`.
+            if CELL_VALUE_KEYS.contains(&key.as_str()) {
+                if let Some(t) = param_types.last().cloned() {
                     let desc = self.descriptor(&t);
                     self.func_mut(slot).desc = Some(desc);
                 }
@@ -2245,6 +2274,18 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// visible. `number.<Prim>.show` and `number.<Prim>.toJson` are **not** here: they
 /// are one fact about every primitive rather than twenty-six, and
 /// [`prim_show_or_to_json`] states it once.
+/// The intrinsic keys that hand a **reactive cell** its value, and so the ones
+/// whose `T` needs a comparison generated for it.
+///
+/// A list rather than a prefix test, for [`GENERIC_INTRINSICS`]'s reason: which
+/// keys the graph keeps a value for is a fact about `cli/runtime/ui.rs`, and a
+/// key that matched a pattern and had no row there would be a descriptor built
+/// for nothing. `read` is not here — it stores nothing — and neither is `memo`,
+/// whose answer has no cutoff at all (`ui/reactivity.buri`: a memo that
+/// recomputed to the answer it had still runs what reads it).
+pub const CELL_VALUE_KEYS: &[&str] =
+    &["ui_testing.Headless.signal", "ui_testing.Headless.write"];
+
 const GENERIC_INTRINSICS: &[&str] = &[
     // `core/actor`'s nine, and between them they are a **fifth** carrier
     // rather than a use of the four above: *the block itself*.

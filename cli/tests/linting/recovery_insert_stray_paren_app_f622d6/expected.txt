@@ -14,7 +14,6 @@ error: expected `Template`, found `fn() => Str` [type-mismatch]
    |
    = expected: `Template`
    = actual: `fn() => Str`
-   = fix: produce a `Template` here, or change what surrounds it to accept a `fn() => Str`
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_insert_stray_paren_app_f622d6/main.buri:19:27
    |
