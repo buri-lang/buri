@@ -1,0 +1,4 @@
+// EXPECT: a type argument ends with `,`
+export fn wrap(n: Int): Result<Option<Int> Str> {
+  .Ok(.Some(n))
+}

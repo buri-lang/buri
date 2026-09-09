@@ -1,0 +1,24 @@
+error [expression-statement] 4:3-4:7
+message: an expression statement is legal only in a test source
+fix: bind it: `let _ = ...;`, or make it the block's result expression
+note: a block is `let`s followed by a result expression
+
+error [unresolved-name] 4:3-4:7
+message: there is nothing named `flag` in scope
+fix: if you meant `flip`, use that; if not, a name is in scope only from this module's own declarations and its imports
+note: did you mean `flip`?
+
+error [missing-terminator] 4:7-4:7
+message: a statement ends with `;`
+fix: write `;` here
+edit: 4:7-4:7 ";"
+
+error [unexpected-token] 4:12-4:13
+message: expected a pattern, found `=`
+fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+
+error [unresolved-name] 5:8-5:12
+message: there is nothing named `flag` in scope
+fix: if you meant `flip`, use that; if not, a name is in scope only from this module's own declarations and its imports
+note: did you mean `flip`?
+

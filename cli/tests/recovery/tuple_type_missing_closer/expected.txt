@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 2:44-2:45
+message: this tuple type is missing its closing `)`
+fix: write `)` here
+related: 2:26-2:27 opened here
+

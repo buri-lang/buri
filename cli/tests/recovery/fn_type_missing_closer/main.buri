@@ -1,0 +1,4 @@
+// EXPECT: this parameter list is missing its closing `)`
+export fn apply(f: fn(Int, Int) => Int, n: Int: Int {
+  f(n, n)
+}

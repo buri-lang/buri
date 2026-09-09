@@ -1,0 +1,3 @@
+// EXPECT: expected an expression, found end of file
+export fn any(a: Bool, b: Bool, c: Bool): Bool {
+  a &&

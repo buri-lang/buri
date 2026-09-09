@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn match(f: fn(Int, Int) => Int, n: Int): Int {
+  f(n, n)
+}
