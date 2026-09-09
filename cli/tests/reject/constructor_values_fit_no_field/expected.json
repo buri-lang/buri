@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Row` holds 3 values, but 2 were given","code":"wrong-value-count","location":{"file":"cmd/constructor_values_fit_no_field/main.buri","line":9,"column":3,"endLine":9,"endColumn":15,"text":"  Row(true, 1)"},"expected":"3","actual":"2","fix":"pass `Row` the following values: Row(Int, Str, Bool)","notes":[],"related":[]}

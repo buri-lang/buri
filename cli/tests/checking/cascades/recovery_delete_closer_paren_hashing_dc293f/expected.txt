@@ -6,7 +6,6 @@ error: expected `U64`, found `BigInt` [type-mismatch]
    |
    = expected: `U64`
    = actual: `BigInt`
-   = fix: produce a `U64` here, or change what surrounds it to accept a `BigInt`
 error: expected `BigInt`, found `U64` [type-mismatch]
   --> main.buri:22:67
    |
@@ -15,7 +14,6 @@ error: expected `BigInt`, found `U64` [type-mismatch]
    |
    = expected: `BigInt`
    = actual: `U64`
-   = fix: produce a `BigInt` here, or change what surrounds it to accept a `U64`
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:22:87
    |

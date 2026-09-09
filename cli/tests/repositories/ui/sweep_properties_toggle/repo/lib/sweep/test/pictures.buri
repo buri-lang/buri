@@ -1,0 +1,61 @@
+// One picture per family of `ui/style` properties, over a `toggle`, whose
+// styles land on the box and whose label is the run beside it.
+//
+// Resting state throughout: no style here is inside an `On`, so the
+// state a snapshot is taken in contributes nothing to any of them.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import {
+    gapPage, paddingPage, runsPage, sizePage, surfacePage, typePage,
+};
+
+test "the surface properties, on a toggle" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "toggle-surface", surfacePage(ctx), .Hover, []);
+}
+
+test "the type properties, on a toggle" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "toggle-type", typePage(ctx), .Hover, []);
+}
+
+test "how a run of text is set, on a toggle" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "toggle-runs", runsPage(ctx), .Hover, []);
+}
+
+test "the paddings, on a toggle" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "toggle-padding", paddingPage(ctx), .Hover, []);
+}
+
+test "the gaps, and the mark beside a child, on a toggle" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "toggle-gap", gapPage(ctx), .Hover, []);
+}
+
+test "the sizing properties, on a toggle" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "toggle-size", sizePage(ctx), .Hover, []);
+}

@@ -1,0 +1,32 @@
+// EXPECT: `snapshot` takes 5 arguments, but 4 were given
+//
+// Which parameter was left out is read off the types that were given: a `Node`
+// is not the `Str` that comes second, and everything after it lines up one
+// place along. So the fix names `name`, and prints what `snapshot` takes.
+from "core/effect" import { Allocator, Clock };
+
+struct Node {
+  export tag: Str,
+}
+
+struct State {
+  export count: Int,
+}
+
+struct Theme {
+  export name: Str,
+}
+
+fn snapshot<C: Allocator + Clock>(
+  ctx: C,
+  name: Str,
+  root: Node,
+  state: State,
+  themes: [Theme],
+): Str {
+  name
+}
+
+fn go<C: Allocator + Clock>(ctx: C, root: Node, state: State, themes: [Theme]): Str {
+  snapshot(ctx, root, state, themes)
+}

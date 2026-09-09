@@ -1,0 +1,11 @@
+// EXPECT: `midpoint` takes 2 arguments, but 3 were given
+//
+// Nothing is missing, so nothing is named: an argument too many gets the
+// signature and no guess about which one to drop.
+fn midpoint(low: Int, high: Int): Int {
+  (low + high) / 2
+}
+
+fn go(): Int {
+  midpoint(1, 2, 3)
+}

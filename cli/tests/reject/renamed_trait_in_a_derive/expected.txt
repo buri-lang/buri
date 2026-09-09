@@ -1,0 +1,34 @@
+error: `Eq` is not a trait [derive-not-a-trait]
+ --> cmd/renamed_trait_in_a_derive/main.buri:7:8
+  |
+7 | derive Eq for Point;
+  |        ^^
+  |
+  = `Eq` was renamed to `Equal`
+  = fix: write `Equal`
+
+    A trait the standard library renamed is answered with what it is called now:
+    Eq is Equal, and the fix says to write it.
+
+error: `Point` does not implement `Equal` [missing-conformance]
+  --> cmd/renamed_trait_in_a_derive/main.buri:13:30
+   |
+13 |   let _ = io.println(ctx, "${p == p}").ignore();
+   |                              ^^^^^^
+   |
+   = conformance is nominal: a type satisfies a trait only where a declaration says so
+   = fix: add `derive Equal for Point;` in that type's own module, or write `impl Equal for Point { ... }` there
+
+     What to do
+     ──────────
+
+     Bind a value whose type has impl Allocator for ....
+
+     Why
+     ───
+
+     You declare conformance; the compiler never infers it. A type with all the
+     right methods still does not satisfy an effect until an impl says so —
+     which is why a test double is a struct with those methods and an impl
+     block.
+

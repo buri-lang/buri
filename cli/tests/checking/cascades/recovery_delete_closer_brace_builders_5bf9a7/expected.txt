@@ -13,7 +13,7 @@ error: `ty` takes 1 arguments, but 2 were given [wrong-argument-count]
    |
    = expected: 1
    = actual: 2
-   = fix: pass exactly 1
+   = fix: pass `ty` the following arguments: ty(text: Str)
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:91:18
    |

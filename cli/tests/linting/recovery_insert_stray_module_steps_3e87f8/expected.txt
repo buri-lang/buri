@@ -14,7 +14,7 @@ error: there is no type `Step` [unresolved-type]
    |                    ^^^^
    |
    = did you mean `Str`?
-   = fix: declare it, import it, or correct the spelling
+   = fix: if you meant `Str`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: there is no type `Step` [unresolved-type]
   --> lib/recovery_insert_stray_module_steps_3e87f8/lib.buri:24:17
    |
@@ -22,4 +22,4 @@ error: there is no type `Step` [unresolved-type]
    |                 ^^^^
    |
    = did you mean `Str`?
-   = fix: declare it, import it, or correct the spelling
+   = fix: if you meant `Str`, use that; if not, a name is in scope only from this module's own declarations and its imports

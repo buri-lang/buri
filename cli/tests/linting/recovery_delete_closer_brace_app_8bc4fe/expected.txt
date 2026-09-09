@@ -14,7 +14,7 @@ error: `Ok` holds 1 values, but 2 were given [wrong-value-count]
    |
    = expected: 1
    = actual: 2
-   = fix: pass exactly 1
+   = fix: pass `Ok` the following values: Ok(T)
 error: `.Err` needs a known expected type [unannotated-variant]
   --> lib/recovery_delete_closer_brace_app_8bc4fe/main.buri:20:9
    |

@@ -23,4 +23,4 @@ error: there is no type `S` [unresolved-type]
   |      ^
   |
   = did you mean `E`?
-  = fix: declare it, import it, or correct the spelling
+  = fix: if you meant `E`, use that; if not, a name is in scope only from this module's own declarations and its imports

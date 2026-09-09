@@ -14,7 +14,7 @@ error: `total` takes 6 arguments, but 7 were given [wrong-argument-count]
    |
    = expected: 6
    = actual: 7
-   = fix: pass exactly 6
+   = fix: pass `total` the following arguments: total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64)
 error: there is nothing named `extra` in scope [unresolved-name]
   --> lib/recovery_insert_stray_paren_app_1c5b56/main.buri:19:44
    |

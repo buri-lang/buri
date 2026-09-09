@@ -14,3 +14,6 @@ fn go(): Colour {
     .Blue
 }
 ```
+
+Where the name is a near miss the fix names it; otherwise the enum's own
+declaration is the list, and the diagnostic prints it.

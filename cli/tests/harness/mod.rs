@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod case;
 pub mod ci;
 pub mod hang;
+pub mod pool;
 pub mod sweep;
 // The far side of a `core/net/websocket` row: a hand-written server, because a
 // client needs somebody to dial and this repository may not depend on an RFC
@@ -230,6 +231,26 @@ pub fn strip_ansi(s: &str) -> String {
 
 pub fn indent(s: &str) -> String {
     s.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n")
+}
+
+/// The codes whose `expected` and `actual` lines *are* the edit, so a `fix`
+/// beside them would only repeat what a reader has already read.
+///
+/// `type-mismatch` is the one: "produce a `Str` here, or change what surrounds
+/// it to accept an `Int`" says nothing the two lines above it have not already
+/// said. Its numeric branch still carries a fix, because naming `.toI64()` is
+/// a fact neither line holds.
+const THE_MISMATCH_IS_THE_FIX: &[&str] = &["type-mismatch"];
+
+/// Whether a `--error-format=json` line is a diagnostic that owes a `fix` and
+/// does not carry one. A diagnostic that cannot say what to do about it is not
+/// finished, which is what the reject corpus and the repository corpus both
+/// enforce with this.
+pub fn is_a_diagnostic_with_no_fix(line: &str) -> bool {
+    if !line.starts_with('{') || line.contains("\"fix\":") {
+        return false;
+    }
+    !THE_MISMATCH_IS_THE_FIX.iter().any(|code| line.contains(&format!("\"code\":\"{code}\"")))
 }
 
 pub struct Run {
@@ -815,6 +836,16 @@ impl Golden {
 
     pub fn fail(&mut self, msg: String) {
         self.failures.push(msg);
+    }
+
+    /// Folds one case's findings into the run's.
+    ///
+    /// A corpus gives each case a `Golden` of its own so the cases can run at
+    /// once, then absorbs them in the corpus's order — which is why a run
+    /// reports exactly what a one-case-at-a-time run reported.
+    pub fn absorb(&mut self, other: Golden) {
+        self.blessed += other.blessed;
+        self.failures.extend(other.failures);
     }
 
     /// `label` is what a reader needs in order to find the case, as in

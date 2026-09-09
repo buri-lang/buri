@@ -1,0 +1,20 @@
+error: `Row` holds 3 values, but 2 were given [wrong-value-count]
+ --> cmd/constructor_missing_a_middle_value/main.buri:8:3
+  |
+8 |   Row(1, true)
+  |   ^^^^^^^^^^^^
+  |
+  = expected: 3
+  = actual: 2
+  = fix: `Row` is missing its second value: Row(Int, Str, Bool)
+
+    What to do
+    ──────────
+
+    Line the call up against the shape the fix prints, which is what the
+    declaration writes between its parentheses — a variant's too, so a
+    miscounted .Some(x) gets Some(T). The values are positional, so where their
+    types say which one was left out the fix says that position, and where the
+    call lines up two ways, or more than one value is missing, it says none of
+    them.
+

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Str` has no method `len`","code":"no-such-method","location":{"file":"cmd/renamed_str_method/main.buri","line":10,"column":39,"endLine":10,"endColumn":42,"text":"  let _ = io.println(ctx, \"${greeting.len()}\").ignore();"},"fix":"write `length`","notes":["`len` was renamed to `length`"],"related":[]}

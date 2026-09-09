@@ -14,7 +14,7 @@ error: there is nothing named `rest` in scope [unresolved-name]
    |                       ^^^^
    |
    = did you mean `Result`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `Result`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: there is nothing named `rest` in scope [unresolved-name]
   --> main.buri:42:45
    |
@@ -22,4 +22,4 @@ error: there is nothing named `rest` in scope [unresolved-name]
    |                                             ^^^^
    |
    = did you mean `Result`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `Result`, use that; if not, a name is in scope only from this module's own declarations and its imports
