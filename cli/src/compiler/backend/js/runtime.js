@@ -4737,18 +4737,22 @@ function $ui_theme_name(reference) {
   return reference[0] + "-" + reference[1];
 }
 
-// Which `Values` themes currently apply, in the order they were passed: a
-// switch is followed to whichever branch its condition picks, and what comes
-// back is a list of binding lists. Deciding this in one place is what keeps the
-// map used for resolution and the blocks that are written from ever disagreeing
-// about which side of a switch the page is on.
+// `ui/theme`'s `Scheme`, lowered. What the platform paints its own things in:
+// a native control, the document scrollbar, a date picker, the form autofill.
+const $UI_THEME_SCHEMES = ["light", "dark"];
+
+// Which themes currently apply, in the order they were passed: a switch is
+// followed to whichever branch its condition picks, and what comes back is a
+// list of `Values` and `Scheme` kinds. Deciding this in one place is what keeps
+// the map used for resolution and the blocks that are written from ever
+// disagreeing about which side of a switch the page is on.
 function $ui_theme_applied(themes, scope, out) {
   for (const wrapper of themes) {
     const theme = wrapper[0];
-    if (theme[0] === 0) {
-      out.push(theme[1]);
-    } else {
+    if (theme[0] === 1) {
       $ui_theme_applied($tree_value(theme[1], scope) ? theme[2] : theme[3], scope, out);
+    } else {
+      out.push(theme);
     }
   }
 }
@@ -4777,8 +4781,9 @@ function $ui_theme_render(themes, scope) {
   // Every binding, in declaration order, a later one for the same token
   // replacing an earlier one. This is what a chain is followed through.
   const bindings = new Map();
-  for (const values of applied) {
-    for (const binding of values) {
+  for (const theme of applied) {
+    if (theme[0] !== 0) continue;
+    for (const binding of theme[1]) {
       if (binding[0][0] === $UI_COLOR_TOKEN) {
         bindings.set($ui_theme_name(binding[0][1]), binding[1]);
       }
@@ -4786,9 +4791,15 @@ function $ui_theme_render(themes, scope) {
   }
 
   let out = "";
-  for (const values of applied) {
+  for (const theme of applied) {
+    // A scheme is a theme that binds no token: one declaration, in a block of
+    // its own, so a later one wins the way a later value does.
+    if (theme[0] === 2) {
+      out += ":root{color-scheme:" + $UI_THEME_SCHEMES[theme[1]] + "}\n";
+      continue;
+    }
     const body = [];
-    for (const binding of values) {
+    for (const binding of theme[1]) {
       if (binding[0][0] !== $UI_COLOR_TOKEN) continue;
       const value = $ui_theme_resolve(bindings, binding[1]);
       if (value !== null) body.push("--" + $ui_theme_name(binding[0][1]) + ":" + value);
@@ -4802,7 +4813,7 @@ function $ui_theme_render(themes, scope) {
 // in a theme list that can change.
 function $ui_theme_static(themes) {
   for (const wrapper of themes) {
-    if (wrapper[0][0] !== 0) return false;
+    if (wrapper[0][0] === 1) return false;
   }
   return true;
 }
