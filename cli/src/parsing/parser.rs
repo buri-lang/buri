@@ -2759,16 +2759,28 @@ impl<'a> Parser<'a> {
                         // a known wart; write `(t.0).1`.
                         TokenKind::Int => {
                             let value = self.int_value();
-                            if value > u32::MAX as u128 {
+                            let index_span = self.span();
+                            // A node holds the index in a `u32`; truncating a
+                            // wider literal let the checker refuse an element
+                            // nobody wrote. This refusal is the whole answer,
+                            // so what stands here after it did not parse.
+                            let Ok(index) = u32::try_from(value) else {
                                 let raw = self.raw();
-                                let span = self.span();
-                                self.templated("not-a-tuple-index", span)
+                                self.templated("not-a-tuple-index", index_span)
                                     .map(|d| d.bind("literal", raw));
-                            }
-                            let index_span = self.bump();
+                                self.bump();
+                                base = self.tree.push(
+                                    Kind::Error,
+                                    [0; 4],
+                                    start.to(index_span),
+                                    at,
+                                );
+                                continue;
+                            };
+                            self.bump();
                             base = self.tree.push(
                                 Kind::TupleIndex,
-                                [base.0, value as u32, index_span.start, index_span.end],
+                                [base.0, index, index_span.start, index_span.end],
                                 start.to(index_span),
                                 at,
                             );
