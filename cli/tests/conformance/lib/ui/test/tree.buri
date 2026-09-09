@@ -1678,6 +1678,59 @@ test "a list has no marker until one is asked for" {
     assert.isTrue(reset < marker);
 }
 
+test "a designed focus ring replaces the platform's rather than joining it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A browser paints its own `outline` over whatever a program put on the
+    // focused element, and `ui/style` has no `Outline` to turn one off with —
+    // so without this the button below wears a grey band with Chrome's blue
+    // rectangle around it.
+    let ringed = ui.button(
+        .Const("focus me"),
+        [.On(.Focus, [.BorderWidth(.Px(3))])],
+        [],
+        fn(_c, _e) => (),
+    );
+    assert.equal(
+        render(ctx, ringed).markup(),
+        "<button type=\"button\" aria-label=\"focus me\" class=\"focus_bw-3\">focus me</button>",
+    );
+
+    // A fade is not a ring: it is drawn *beside* the platform's, so the
+    // platform's stays. So does a ring that only applies from a breakpoint
+    // upwards, because there is a width at which it paints nothing.
+    let faded = ui.button(
+        .Const("dim"),
+        [.On(.Focus, [.Opacity(0.7)])],
+        [],
+        fn(_c, _e) => (),
+    );
+    let wide = ui.button(
+        .Const("wide"),
+        [.At(.Small, [.On(.Focus, [.BorderWidth(.Px(2))])])],
+        [],
+        fn(_c, _e) => (),
+    );
+    assert.equal(
+        render(ctx, faded).markup(),
+        "<button type=\"button\" aria-label=\"dim\" class=\"focus_op-0_7\">dim</button>",
+    );
+    assert.equal(
+        render(ctx, wide).markup(),
+        "<button type=\"button\" aria-label=\"wide\" class=\"sm_focus_bw-2\">wide</button>",
+    );
+
+    // The suppression opens the sheet, so a class named in it is read before
+    // the rule that draws it and a class left out of it is read after.
+    let sheet = stylesheet();
+    let outline = assert.some(sheet.indexOf("{outline:none}"));
+    assert.isTrue(assert.some(sheet.indexOf(".focus_bw-3")) < outline);
+    assert.isTrue(assert.some(sheet.indexOf(".focus_op-0_7")) > outline);
+    assert.isTrue(assert.some(sheet.indexOf(".sm_focus_bw-2")) > outline);
+    assert.isTrue(sheet.contains(":focus-visible{outline:none}"));
+}
+
 test "a separator is a rule the caller paints, and a picture is its own block" {
     let ctx = context {
         Ui: headless(),
