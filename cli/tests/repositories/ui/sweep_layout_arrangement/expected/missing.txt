@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/arrangement.buri  "every way a container arranges its children"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/scenes/test/arrangement.buri:14:1
+
+7 passed, 1 failed, 0 skipped (0.0s)
