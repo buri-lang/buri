@@ -4,7 +4,12 @@ error: `Eq` is not a trait [derive-not-a-trait]
 7 | derive Eq for Point;
   |        ^^
   |
-  = fix: name a declared trait; `derive` generates a trait's methods
+  = `Eq` was renamed to `Equal`
+  = fix: write `Equal`
+
+    A trait the standard library renamed is answered with what it is called now:
+    Eq is Equal, and the fix says to write it.
+
 error: `Point` does not implement `Equal` [missing-conformance]
   --> cmd/renamed_trait_in_a_derive/main.buri:13:30
    |

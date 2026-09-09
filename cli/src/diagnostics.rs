@@ -1254,6 +1254,23 @@ pub fn json_str(s: &str) -> String {
     out
 }
 
+/// Where a bare name can have come from, for the second half of a candidate
+/// fix on one. There is no prelude beyond `core/order`'s, so this is the whole
+/// of it.
+pub const NAMES_IN_SCOPE: &str =
+    "a name is in scope only from this module's own declarations and its imports";
+
+/// The fix for a diagnostic that has a near miss to offer.
+///
+/// A candidate in a note and a fix line that says "check the spelling" wastes
+/// the one thing the diagnostic worked out. The fix names the candidate and
+/// then says where to look when it is not the one — `otherwise` is that
+/// second half, a phrase like ``buri docs core/json` lists every method `Json`
+/// has` or ``Colour`'s declaration lists its variants`.
+pub fn candidate_fix(candidate: &str, otherwise: &str) -> String {
+    format!("if you meant `{candidate}`, use that; if not, {otherwise}")
+}
+
 /// Joins names for a message, each in backticks: ``a``, ``b`` and ``c``. Every
 /// other identifier in a diagnostic is quoted, and a list of them should not be
 /// the exception.

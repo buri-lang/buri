@@ -7,7 +7,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
-  time.sleepMs(ctx, 5);
+  let _ = time.sleepMs(ctx, 5);
   let _ = io.println(ctx, "done").ignore();
   .Ok(())
 }
