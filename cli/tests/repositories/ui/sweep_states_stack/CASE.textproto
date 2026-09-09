@@ -1,0 +1,74 @@
+# Stack, in every state: six pictures of one tree — the resting one, and one
+# per `State`.
+#
+# The rows are the five states `snapshot` accepts, plus the rest that has no
+# variant to name it. The columns are `Background`, `Foreground`, `Border`,
+# `Opacity` and `Shadow`, then all five at once, then the control that answers
+# to nothing — so a picture says which element responded and how, with the cell
+# that did not beside the ones that did.
+#
+# A `<div>` is never focused, disabled or checked in a browser, so
+# `.disabled_bg-x:disabled` on one never fires there. A snapshot's state applies
+# to every element in the tree by construction — `ui/testing`'s `snapshot` says
+# so — and the painter fires it. These six pictures are the record of that.
+#
+# The negative twin moves one number in one cell of the hover palette. Exactly
+# one of the six goldens changes, which is what the state pictures rest on:
+# they are six documents, not six copies of one.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a stack with an `On` style answering to every state, five properties to a column, painted and compared against six goldens with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/stack", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/stack/test/__snapshots__/stack-resting.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/stack/test/states.buri"
+  replace: "snapshot(ctx, \"stack-resting\""
+  with: "snapshot(ctx, \"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/stack", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/stack/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/stack", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/stack/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/stack", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# One number in the hover palette, and only the hover picture moves.
+edit {
+  file: "lib/stack/scenes.buri"
+  replace: ".Background(.Rgb(214, 44, 44))"
+  with: ".Background(.Rgb(214, 44, 84))"
+}
+
+run {
+  args: ["test", "//lib/stack", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/stack/test/__snapshots__/stack-hover.diff.png"  exists: true }
+path { path: "lib/stack/test/__snapshots__/stack-focus.diff.png"  exists: false }

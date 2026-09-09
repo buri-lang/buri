@@ -1,0 +1,75 @@
+# Toggle, in every state: six pictures of one tree — the resting one, and one
+# per `State`.
+#
+# The rows are the five states `snapshot` accepts, plus the rest that has no
+# variant to name it. The columns are `Background`, `Foreground`, `Border`,
+# `Opacity` and `Shadow`, then all five at once, then the control that answers
+# to nothing — so a picture says which element responded and how, with the cell
+# that did not beside the ones that did.
+#
+# A toggle's box is the one control the reset leaves alone — `appearance:none`
+# on a checkbox erases the tick and this vocabulary has nothing to draw a new
+# one with. The label is the box's sibling rather than its child, so the
+# `foreground` column changes nothing a browser would change either: `color` on
+# a checkbox paints nothing.
+#
+# The negative twin moves one number in one cell of the hover palette. Exactly
+# one of the six goldens changes, which is what the state pictures rest on:
+# they are six documents, not six copies of one.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a toggle answering to every state, five properties to a column, and the one box the reset leaves alone, painted and compared against six goldens with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/toggle", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/toggle/test/__snapshots__/toggle-resting.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/toggle/test/states.buri"
+  replace: "snapshot(ctx, \"toggle-resting\""
+  with: "snapshot(ctx, \"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/toggle", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/toggle/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/toggle", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/toggle/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/toggle", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# One number in the hover palette, and only the hover picture moves.
+edit {
+  file: "lib/toggle/scenes.buri"
+  replace: ".Background(.Rgb(214, 44, 44))"
+  with: ".Background(.Rgb(214, 44, 84))"
+}
+
+run {
+  args: ["test", "//lib/toggle", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/toggle/test/__snapshots__/toggle-hover.diff.png"  exists: true }
+path { path: "lib/toggle/test/__snapshots__/toggle-focus.diff.png"  exists: false }

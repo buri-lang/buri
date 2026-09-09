@@ -1,0 +1,73 @@
+# Link, in every state: six pictures of one tree — the resting one, and one
+# per `State`.
+#
+# The rows are the five states `snapshot` accepts, plus the rest that has no
+# variant to name it. The columns are `Background`, `Foreground`, `Border`,
+# `Opacity` and `Shadow`, then all five at once, then the control that answers
+# to nothing — so a picture says which element responded and how, with the cell
+# that did not beside the ones that did.
+#
+# The sheet resets `:where(a){color:inherit;text-decoration:none}`, so the
+# `bare` row is a link the colour of the text around it with no underline. The
+# `foreground` column is where a link's colour comes back, by being asked for.
+#
+# The negative twin moves one number in one cell of the hover palette. Exactly
+# one of the six goldens changes, which is what the state pictures rest on:
+# they are six documents, not six copies of one.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a link answering to every state, five properties to a column, with the colour and the underline the sheet resets, painted and compared against six goldens with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/link", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/link/test/__snapshots__/link-resting.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/link/test/states.buri"
+  replace: "snapshot(ctx, \"link-resting\""
+  with: "snapshot(ctx, \"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/link", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/link/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/link", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/link/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/link", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# One number in the hover palette, and only the hover picture moves.
+edit {
+  file: "lib/link/scenes.buri"
+  replace: ".Background(.Rgb(214, 44, 44))"
+  with: ".Background(.Rgb(214, 44, 84))"
+}
+
+run {
+  args: ["test", "//lib/link", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/link/test/__snapshots__/link-hover.diff.png"  exists: true }
+path { path: "lib/link/test/__snapshots__/link-focus.diff.png"  exists: false }
