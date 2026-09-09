@@ -726,6 +726,31 @@ test "a toggle is two states and a label" {
     assert.isFalse(done.get(ctx));
 }
 
+test "the label a field and a toggle are wrapped in flows on one line" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let name = signal(ctx, "ada");
+    let done = signal(ctx, false);
+    // The wrapper is the runtime's element rather than the program's, and a
+    // browser lays it out as an inline box: the control and its text sit on one
+    // line, and a control as wide as the line takes one of its own. The painter
+    // has no inline flow, so the scene says what that comes to in the
+    // vocabulary it does have — and the two renderers agree only while it does.
+    let inline = "display:flex;flex-direction:row;flex-wrap:wrap;align-items:center";
+    assert.equal(
+        ui.describe(ctx, ui.toggle(.Const("done"), [], done), .Hover),
+        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 \nt 1 done"),
+    );
+    // A field is the same wrapper with the text first, which is the order the
+    // markup puts them in too.
+    assert.equal(
+        ui.describe(ctx, ui.field(.Const("name"), .Text, [], name), .Hover),
+        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 \nt 2 ada"),
+    );
+}
+
 test "a control takes styles of its own, and they land on the control" {
     let ctx = context {
         Ui: headless(),
