@@ -294,9 +294,15 @@ fn serving_a_page() {
 /// `ui/testing` facility the native backend has no body for. Both bugs it pins
 /// reported as an abort with no message, which is a shape no lower tier can
 /// see — the binary linked, the front end was happy, and the process died.
+///
+/// The `sweep_themes_*` cases are the theme, breakpoint and reactive sweep:
+/// the four colour slots a design token can fill on five primitives under five
+/// theme lists, the four breakpoints on the one page width a snapshot has,
+/// every derived tier painted either side of a write, what an image paints
+/// when nothing may be fetched, and the ends of every axis the tree has.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 9);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 11);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
