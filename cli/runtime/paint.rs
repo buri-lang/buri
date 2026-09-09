@@ -38,11 +38,18 @@
 //! # What it paints, and what it does not
 //!
 //! The properties [`apply`] names, and no others: flexbox and grid, padding,
-//! sizing, background, border, radius, shadow, opacity, and the text
-//! properties. They are the same CSS `semantics::styles::declaration` writes
-//! into the stylesheet and `$tree_declare` writes inline, so a style that
-//! folded and one that did not paint alike. Anything else parses and is
-//! ignored, which is what lets the vocabulary grow without breaking a scene.
+//! the outward margin a `Bleed` writes, sizing, background, border, radius,
+//! shadow, opacity, and the text properties. They are the same CSS
+//! `semantics::styles::declaration` writes into the stylesheet and
+//! `$tree_declare` writes inline, so a style that folded and one that did not
+//! paint alike. Anything else parses and is ignored, which is what lets the
+//! vocabulary grow without breaking a scene.
+//!
+//! A margin is negative wherever the vocabulary wrote one, so boxes overlap:
+//! the child reaches back over its parent's padding, or a sibling over the one
+//! before it. [`Painter::draw`] walks children in document order, so the later
+//! one is painted over the earlier one — which is what the page does with the
+//! same markup.
 //!
 //! An `e` line may also carry `field:<kind>`, which says what an input accepts:
 //! the `type` its markup carries, or `multiline` for the `textarea` that has
@@ -746,6 +753,10 @@ struct Computed {
     gap_column: Len,
     gap_row: Len,
     padding: [Len; 4],
+    /// `margin-*`, which the vocabulary writes only as a `Bleed`: how far past
+    /// its parent's edge the child reaches, so every one of these is negative
+    /// or nothing. Zero everywhere else, the way the reset leaves a page.
+    margin: [Len; 4],
     size: [Len; 2],
     min: [Len; 2],
     max: [Len; 2],
@@ -810,6 +821,7 @@ impl Computed {
             gap_column: Len::Px(0.0),
             gap_row: Len::Px(0.0),
             padding: [Len::Px(0.0); 4],
+            margin: [Len::Px(0.0); 4],
             size: [Len::Auto; 2],
             min: [Len::Auto; 2],
             max: [Len::Auto; 2],
@@ -971,6 +983,10 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "padding-inline-end" => set_sides(&mut style.padding, [1], len(value)),
         "padding-block-start" => set_sides(&mut style.padding, [2], len(value)),
         "padding-block-end" => set_sides(&mut style.padding, [3], len(value)),
+        "margin-inline-start" => set_sides(&mut style.margin, [0], len(value)),
+        "margin-inline-end" => set_sides(&mut style.margin, [1], len(value)),
+        "margin-block-start" => set_sides(&mut style.margin, [2], len(value)),
+        "margin-block-end" => set_sides(&mut style.margin, [3], len(value)),
         "width" => set_sides(&mut style.size, [0], len(value)),
         "height" => set_sides(&mut style.size, [1], len(value)),
         "min-width" => set_sides(&mut style.min, [0], len(value)),
@@ -1278,6 +1294,15 @@ fn taffy_style(c: &Computed) -> Style {
             right: spacing(c.padding[1]),
             top: spacing(c.padding[2]),
             bottom: spacing(c.padding[3]),
+        },
+        // A margin the vocabulary writes is a `Bleed`, so it is negative:
+        // the child reaches past its parent's edge and overlaps whatever it
+        // finds there.
+        margin: Rect {
+            left: dimension_auto(c.margin[0]),
+            right: dimension_auto(c.margin[1]),
+            top: dimension_auto(c.margin[2]),
+            bottom: dimension_auto(c.margin[3]),
         },
         border: match c.border_style {
             Border::None => Rect::length(0.0),
@@ -3029,6 +3054,40 @@ mod tests {
         // Then four of it, then three of gap, then the second.
         assert_eq!(at(&image, 2, 8), [255, 255, 255, 255]);
         assert_eq!(at(&image, 2, 9), [0, 255, 0, 255]);
+    }
+
+    /// A bleed is a negative margin, so the child starts outside the padding
+    /// its parent put it inside.
+    #[test]
+    fn a_negative_margin_takes_a_child_out_past_the_padding() {
+        let scene = "buri-scene 1\nviewport 20 20\n\
+                     e 0 padding:4px;width:20px;height:20px\n\
+                     e 1 width:4px;height:4px;margin-inline-start:-4px;\
+                     background-color:rgb(255,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        // Four of padding, taken back by four: the child starts at the edge.
+        assert_eq!(at(&image, 0, 4), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 3, 4), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 4, 4), [255, 255, 255, 255]);
+    }
+
+    /// Two siblings that overlap paint the way the document orders them: the
+    /// later one covers the earlier one.
+    #[test]
+    fn a_later_sibling_is_painted_over_the_one_it_laps() {
+        let scene = "buri-scene 1\nviewport 20 20\n\
+                     e 0 flex-direction:row;width:20px;height:20px\n\
+                     e 1 width:8px;height:8px;background-color:rgb(255,0,0)\n\
+                     e 1 width:8px;height:8px;margin-inline-start:-4px;\
+                     background-color:rgb(0,255,0)\n";
+        let image = render_ok(scene, "", "rest");
+        // The first four columns are the first box, and the four it lost are
+        // the second one over it.
+        assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 3, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 4, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 11, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 12, 0), [255, 255, 255, 255]);
     }
 
     #[test]
