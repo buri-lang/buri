@@ -1,7 +1,7 @@
 error: expected `F64`, found `Int` [type-mismatch]
   --> cmd/ui_field_range_takes_floats/main.buri:18:51
    |
-18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), [], [], volume), [])
+18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), [], [], volume, .Const(false)), [])
    |                                                   ^ the parameter type is `F64`
    |
    = expected: `F64`
@@ -39,7 +39,7 @@ error: expected `F64`, found `Int` [type-mismatch]
 error: expected `F64`, found `Int` [type-mismatch]
   --> cmd/ui_field_range_takes_floats/main.buri:18:54
    |
-18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), [], [], volume), [])
+18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), [], [], volume, .Const(false)), [])
    |                                                      ^^^ the parameter type is `F64`
    |
    = expected: `F64`
@@ -49,7 +49,7 @@ error: expected `F64`, found `Int` [type-mismatch]
 error: expected `F64`, found `Int` [type-mismatch]
   --> cmd/ui_field_range_takes_floats/main.buri:18:59
    |
-18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), [], [], volume), [])
+18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), [], [], volume, .Const(false)), [])
    |                                                           ^ the parameter type is `F64`
    |
    = expected: `F64`
