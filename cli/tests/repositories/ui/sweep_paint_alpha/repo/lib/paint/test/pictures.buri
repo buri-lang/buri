@@ -1,0 +1,87 @@
+// Five pictures of one fade: the grid written out once, and the same grid as a
+// token under four theme lists.
+//
+// Resting throughout: no style here sits inside an `On`, so the state a
+// snapshot is taken in contributes nothing to any of them.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/style" import { Color, token };
+from "ui/testing" import { headless, snapshot };
+from "ui/theme" import { themed };
+from "//lib/paint" import { literalPage, themedBy, Token, tokenPage };
+
+/// The theme the token page's first golden is painted under: the same colour
+/// the literal page writes out.
+fn same(t: Token): Color {
+    match (t) {
+        .Ring => .Rgb(200, 40, 40),
+    }
+}
+
+/// And a second one, so a fade follows a theme rather than being baked into a
+/// class.
+fn other(t: Token): Color {
+    match (t) {
+        .Ring => .Rgb(20, 90, 200),
+    }
+}
+
+test "a colour written out, faded" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The channels are known, so the compiler did the fade and the class is
+    // the ordinary `Rgba` one.
+    let scene = ui.describe(ctx, literalPage(), .Hover);
+    assert.isFalse(scene.contains("color-mix"));
+    snapshot(ctx, "alpha-written", literalPage(), .Hover, []);
+}
+
+test "a token, faded, bound to the same colour" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The same picture as the one above, reached the other way: nothing is
+    // blended until the theme is installed.
+    snapshot(ctx, "alpha-token-same", tokenPage(), .Hover, [themedBy(same)]);
+}
+
+test "and bound to another colour, which changes no class" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let before = ui.describe(ctx, tokenPage(), .Hover);
+    let _ = snapshot(ctx, "alpha-token-other", tokenPage(), .Hover, [themedBy(other)]);
+    assert.equal(ui.describe(ctx, tokenPage(), .Hover), before);
+}
+
+test "a token no theme bound" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A mix around a `var()` nothing defined is a colour that is not there,
+    // and each property answers that its own way — the same answers the
+    // one-step token gets.
+    snapshot(ctx, "alpha-token-unbound", tokenPage(), .Hover, []);
+}
+
+test "a token worth another package's token, faded" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The chain runs through the mix: `swept.ring` is `app.accent` at a fifth,
+    // and `app.accent` is a colour. Every cell fades again on top of that.
+    snapshot(ctx, "alpha-token-chained", tokenPage(), .Hover, [
+        themed([(Token.Ring.color(), token("app", "accent").alpha(0.2))]),
+        themed([(token("app", "accent"), .Rgb(20, 90, 200))]),
+    ]);
+}

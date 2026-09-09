@@ -29,7 +29,8 @@ from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
-from "ui/style" import { Shadow, Style };
+from "ui/style" import * as style;
+from "ui/style" import { Color, Shadow, Style };
 from "ui/testing" import { headless, observer, recorder, render, stylesheet };
 from "ui/theme" import { Theme };
 
@@ -231,6 +232,55 @@ fn boxed<C>(extra: [Style], label: Str): Node<C> {
     ])
 }
 
+/// The three shadows a design system ships: a tight one under a resting card,
+/// the wide half of an elevation, and the ring a focus style is.
+///
+/// Module-level, because a style is extracted where it is written and a local
+/// is a value only the run time has.
+let tight: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(1),
+    blur: .Px(2),
+    spread: .Px(0),
+    color: .Rgba(0, 0, 0, 0.05),
+};
+
+let lift: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(2),
+    blur: .Px(4),
+    spread: .Px(0),
+    color: .Rgba(0, 0, 0, 0.2),
+};
+
+let ring: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(0),
+    blur: .Px(0),
+    spread: .Px(3),
+    color: .Rgba(59, 130, 246, 0.5),
+};
+
+/// A component with a shadow of its own that a caller may replace.
+///
+/// `Shadow` and `Shadows` are one conflict slot, so a caller's two-layer
+/// elevation replaces this one rather than landing beside it.
+fn shadowed<C>(extra: [Style], label: Str): Node<C> {
+    ui.stack([.Shadow(tight), .Group(extra)], [ui.text(.Const(label))])
+}
+
+/// A component whose shadow and whose background are whatever its caller asks
+/// for. Both styles are built out of a parameter, so the compiler cannot
+/// evaluate either and both degrade to the inline tier — which is where the
+/// other half of each lowering is.
+fn cast<C>(layers: [Shadow]): Node<C> {
+    ui.stack([.Shadows(layers)], [])
+}
+
+fn painted<C>(paint: Color): Node<C> {
+    ui.stack([.Background(paint)], [])
+}
+
 test "every property lowers to the one declaration it names" {
     let ctx = context {
         Ui: headless(),
@@ -406,6 +456,268 @@ test "the last value of a property is the one that survives" {
     // carries one class rather than two that fight in the cascade.
     let tree = ui.stack([.Background(.Rgb(0, 0, 0)), .Background(.Inherit)], []);
     assert.equal(render(ctx, tree).markup(), "<div class=\"bg-inherit\"></div>");
+}
+
+// --- shadows, in layers ---------------------------------------------------------------
+
+test "several shadows are one declaration, in the order they were written" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The elevation every design system ships: a wide soft layer, and a tight
+    // one under the near edge that keeps it crisp.
+    let tree = ui.stack(
+        [
+            .Shadows([
+                Shadow {
+                    x: .Px(0),
+                    y: .Px(4),
+                    blur: .Px(6),
+                    spread: .Px(-1),
+                    color: .Rgba(0, 0, 0, 0.1),
+                },
+                Shadow {
+                    x: .Px(0),
+                    y: .Px(2),
+                    blur: .Px(4),
+                    spread: .Px(-2),
+                    color: .Rgba(0, 0, 0, 0.1),
+                },
+            ]),
+        ],
+        [],
+    );
+    let _ = render(ctx, tree).markup();
+    assert.isTrue(
+        stylesheet().contains(
+            "{box-shadow:0px 4px 6px -1px rgba(0,0,0,0.1),0px 2px 4px -2px rgba(0,0,0,0.1)}",
+        ),
+    );
+}
+
+test "one shadow written as a list is the one-layer spelling's own class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The declaration decides the class, so a list of one and the single
+    // spelling of the same shadow are one rule rather than two.
+    let tree = ui.stack([], [
+        ui.stack([.Shadow(tight)], []),
+        ui.stack([.Shadows([tight])], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"sh-f3a4517c\"></div><div class=\"sh-f3a4517c\"></div></div>",
+    );
+    assert.isTrue(
+        stylesheet().contains(
+            ".sh-f3a4517c{box-shadow:0px 1px 2px 0px rgba(0,0,0,0.05)}",
+        ),
+    );
+}
+
+test "`Shadow` and `Shadows` share one slot, so the last written wins" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Both sides are literals, so the compiler settled this: one class each,
+    // and it is the one written last.
+    let tree = ui.stack([], [
+        ui.stack([.Shadow(ring), .Shadows([lift, ring])], []),
+        ui.stack([.Shadows([lift, ring]), .Shadow(ring)], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"sh-a990b199\"></div><div class=\"sh-a64dfa66\"></div></div>",
+    );
+}
+
+test "a shadow under a state is its own slot, beside the resting one" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A pseudo-class and the resting value are different slots, so a card that
+    // is raised keeps its elevation and gains the ring on focus.
+    let tree = ui.stack([.Shadow(lift), .On(.Focus, [.Shadows([ring, lift])])], []);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"sh-174de1bf focus_sh-10967775\"></div>",
+    );
+    assert.isTrue(
+        stylesheet().contains(
+            ".focus_sh-10967775:focus-visible{box-shadow:0px 0px 0px 3px rgba(59,130,246,0.5),0px 2px 4px 0px rgba(0,0,0,0.2)}",
+        ),
+    );
+}
+
+test "shadows that arrive as a parameter resolve last-wins over the one emitted" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The merge is the runtime scan, and one slot for the two spellings is
+    // what makes a caller's elevation replace the component's own shadow
+    // rather than land beside it.
+    let tree = ui.stack([], [
+        shadowed([], "plain"),
+        shadowed([.Shadows([lift, ring])], "raised"),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"sh-f3a4517c\">plain</div><div class=\"sh-a990b199\">raised</div></div>",
+    );
+}
+
+test "a shadow list is in the scene document the painter reads" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The layers are a parameter, so this is the inline tier — and what it
+    // writes out is the same declaration the stylesheet would have held. The
+    // headless painter reads the scene and a browser reads the markup, and
+    // they agree only while the two carry the same text.
+    let tree = cast([lift, ring]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div style=\"box-shadow: 0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)\"></div>",
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 box-shadow:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
+    );
+}
+
+// --- a colour, faded ------------------------------------------------------------------
+
+test "a colour written out fades to a plain rgba" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Nothing is deferred: the channels are known, so the fade is arithmetic
+    // the compiler does and the class is the ordinary `Rgba` one.
+    let tree = ui.stack([], [
+        ui.stack([.Background(Color.Rgb(30, 110, 220).alpha(0.5))], []),
+        ui.stack([.Foreground(Color.Rgba(0, 0, 0, 1.0).alpha(0.25))], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"bg-1e6edca0_5\"></div><div class=\"fg-000000a0_25\"></div></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(".bg-1e6edca0_5{background-color:rgba(30,110,220,0.5)}"),
+    );
+    assert.isTrue(sheet.contains(".fg-000000a0_25{color:rgba(0,0,0,0.25)}"));
+}
+
+test "a token fades into a mix that still names the token" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The token is still what decides the hue, so a theme that changes it
+    // changes this too — and no second token has to be minted to spell a fade.
+    let tree = ui.stack(
+        [
+            .BorderWidth(.Px(3)),
+            .BorderColor(style.token("cardlib", "ring").alpha(0.5)),
+            .Background(style.token("cardlib", "ring").alpha(0.2)),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"bw-3 bc-t_cardlib_ringa0_5 bg-t_cardlib_ringa0_2\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ".bc-t_cardlib_ringa0_5{border-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(
+            ".bg-t_cardlib_ringa0_2{background-color:color-mix(in srgb,var(--cardlib-ring) 20%,transparent)}",
+        ),
+    );
+}
+
+test "fading a colour is the same property, so the last one wins" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A fade is not a property of its own. It is the colour, so it lands in
+    // the colour's slot and the two never sit side by side.
+    let tree = ui.stack(
+        [
+            .Background(style.token("cardlib", "ring")),
+            .Background(style.token("cardlib", "ring").alpha(0.5)),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"bg-t_cardlib_ringa0_5\"></div>",
+    );
+}
+
+test "nothing and whatever-was-inherited have no colour to fade" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Neither names a colour, so `alpha` answers each of them unchanged rather
+    // than inventing one to fade.
+    let tree = ui.stack([], [
+        ui.stack([.Background(Color.Transparent.alpha(0.5))], []),
+        ui.stack([.Foreground(Color.Inherit.alpha(0.5))], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"bg-none\"></div><div class=\"fg-inherit\"></div></div>",
+    );
+}
+
+test "a faded token is the same mix inline, and in the scene document" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The colour is a parameter, so it degrades to the inline tier — and what
+    // is written out is the same text the stylesheet would have held.
+    let tree = painted(style.token("cardlib", "ring").alpha(0.5));
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div style=\"background-color: color-mix(in srgb,var(--cardlib-ring) 50%,transparent)\"></div>",
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 background-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
+    );
+}
+
+test "a faded token inside a shadow is the ring every focus style is" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [
+            .On(.Focus, [
+                .Shadow(Shadow {
+                    x: .Px(0),
+                    y: .Px(0),
+                    blur: .Px(0),
+                    spread: .Px(3),
+                    color: style.token("cardlib", "ring").alpha(0.5),
+                }),
+            ]),
+        ],
+        [],
+    );
+    let _ = render(ctx, tree).markup();
+    assert.isTrue(
+        stylesheet().contains(
+            ":focus-visible{box-shadow:0px 0px 0px 3px color-mix(in srgb,var(--cardlib-ring) 50%,transparent)}",
+        ),
+    );
 }
 
 test "the remaining alignments and weights and cursors each have a name" {
