@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Colour` has no variant `Grene`","code":"no-such-variant","location":{"file":"cmd/variant_near_miss/main.buri","line":12,"column":19,"endLine":12,"endColumn":25,"text":"  let c: Colour = .Grene;"},"fix":"name a variant the enum declares","notes":["did you mean `.Green`?"],"related":[]}
