@@ -20,7 +20,7 @@ error: `()` has no method `Ok` [no-such-method]
 28 |     .Ok(())
    |      ^^
    |
-   = fix: check the spelling, or declare it in `impl () { ... }` in that type's own module — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl () { ... }` in that type's own module
 error: a statement ends with `;` [missing-terminator]
   --> lib/recovery_delete_separator_brace_app_2f4181/main.buri:28:12
    |

@@ -6,6 +6,10 @@ error: `Colour` has no variant `Purple` [no-such-variant]
    |
    = its variants are `Red` and `Green`
    = fix: name a variant the enum declares
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+
 error: `Colour` has no variant `Purple` [no-such-variant]
   --> cmd/no_such_variant_in_a_pattern_and_an_expression/main.buri:19:24
    |
