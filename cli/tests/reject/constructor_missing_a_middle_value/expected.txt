@@ -6,40 +6,15 @@ error: `Row` holds 3 values, but 2 were given [wrong-value-count]
   |
   = expected: 3
   = actual: 2
-  = fix: pass exactly 3
-error: expected `Str`, found `Bool` [type-mismatch]
- --> cmd/constructor_missing_a_middle_value/main.buri:8:10
-  |
-8 |   Row(1, true)
-  |          ^^^^ the parameter type is `Str`
-  |
-  = expected: `Str`
-  = actual: `Bool`
+  = fix: `Row` is missing its second value: Row(Int, Str, Bool)
 
-    Those two lines are the whole story: what the position wanted, and what is
-    there. Only a conversion with a name earns a fix line beside them.
+    What to do
+    ──────────
 
-    Numbers do not convert on their own
-    ───────────────────────────────────
-
-    Convert explicitly. The diagnostic names the conversion: .toI64() is exact
-    for every I32, while a narrowing one returns a Result because not every
-    value fits.
-
-    A bare numeric literal is reported as Int or Float, the type it takes when
-    nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
-    let x: U8 = 1 — and it becomes any type of the same kind.
-
-    There is no promotion of any kind, in either direction. A language that
-    widened silently would make the width of an arithmetic result depend on the
-    shape of the expression rather than on what you wrote.
-
-    A .Variant is a variant
-    ───────────────────────
-
-    A leading dot takes its enum from the position it is written in, so a
-    position that is not an enum has nothing to give it, and expected is the
-    type to write instead. What is reported as found is a variant rather than a
-    type, because .Const on its own is not one — and guessing an enum from the
-    payload would put a type in front of you that nothing in your program says.
+    Line the call up against the shape the fix prints, which is what the
+    declaration writes between its parentheses — a variant's too, so a
+    miscounted .Some(x) gets Some(T). The values are positional, so where their
+    types say which one was left out the fix says that position, and where the
+    call lines up two ways, or more than one value is missing, it says none of
+    them.
 

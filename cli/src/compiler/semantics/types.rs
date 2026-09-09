@@ -1569,6 +1569,38 @@ pub fn call_signature(
     out
 }
 
+/// A constructor as a caller has to write it: the name and the values it holds,
+/// by position for a tuple and by field name for a record.
+///
+/// [`crate::formatting::constructor`] and [`crate::formatting::variant`] are
+/// the same rendering of syntax somebody wrote, and are what a diagnostic
+/// prints wherever there is some.
+pub fn constructor_shape(
+    tables: &Tables,
+    name: &str,
+    generics: &[GenericInfo],
+    fields: &[FieldInfo],
+    record: bool,
+) -> String {
+    let inner = fields
+        .iter()
+        .map(|f| {
+            let ty = show(tables, None, generics, &f.ty);
+            if record {
+                format!("{}: {ty}", f.name)
+            } else {
+                ty
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    if record {
+        format!("{name} {{ {inner} }}")
+    } else {
+        format!("{name}({inner})")
+    }
+}
+
 /// How a diagnostic names a type. A literal is named by the type it defaults
 /// to (SPEC 5.1.1), so `Code` and `Literal` both render a spelling the program
 /// could have written; the class rides along only so the advice can tell a
