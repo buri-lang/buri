@@ -1232,14 +1232,52 @@ test "a button carries its label, and a press runs its handler" {
         Watch: observer(),
     };
     let count = signal(ctx, 0);
-    let tree = ui.button(.Const("add"), [], fn(c, e) => {
+    let tree = ui.button(.Const("add"), [], [], fn(c, e) => {
         count.update(c, fn(n) => n + 1)
     });
     let page = render(ctx, tree);
-    assert.equal(page.markup(), "<button type=\"button\">add</button>");
+    // The label is the accessible name, so it is an attribute; a button with no
+    // children shows it, which is the one place the name and the glyphs agree.
+    assert.equal(
+        page.markup(),
+        "<button type=\"button\" aria-label=\"add\">add</button>",
+    );
     let _ = page.press("add");
     let _ = page.press("add");
     assert.equal(count.get(ctx), 2);
+}
+
+test "a button holds children, and its label stays its name" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let count = signal(ctx, 0);
+    // A rail entry: a mark and a word, one element. Before this the two had to
+    // be a row, and a wash for hovered or for the current page went on the row
+    // rather than on the thing that is pressed.
+    let tree = ui.button(
+        .Const("Overview"),
+        [.Padding(.Px(4))],
+        [ui.text(.Const("*")), ui.text(.Const("Overview"))],
+        fn(c, e) => count.update(c, fn(n) => n + 1),
+    );
+    let page = render(ctx, tree);
+    assert.equal(
+        page.markup(),
+        "<button type=\"button\" aria-label=\"Overview\" class=\"p-4\">*Overview</button>",
+    );
+    // Pressed by the name a reader hears, which is the label and never the
+    // glyphs.
+    let _ = page.press("Overview");
+    assert.equal(count.get(ctx), 1);
+    // And the children are inside the button in the scene too, so what paints
+    // the button paints them.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:p-4\nt 1 *\nt 1 Overview",
+    );
 }
 
 test "a handler is handed the context the tree was rendered with" {
@@ -1253,7 +1291,7 @@ test "a handler is handed the context the tree was rendered with" {
     // `lambda-captures-effect`, which is `cli/tests/reject/`'s business.
     let page = render(
         ctx,
-        ui.button(.Const("go"), [], fn(c, e) => seen.set(c, "pressed")),
+        ui.button(.Const("go"), [], [], fn(c, e) => seen.set(c, "pressed")),
     );
     let _ = page.press("go");
     assert.equal(seen.get(ctx), "pressed");
@@ -1300,7 +1338,7 @@ test "a field is labelled, and what is typed into it is in its signal" {
         Watch: observer(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
+    let page = render(ctx, ui.field(.Const("name"), .Text, [], [], name));
     assert.equal(
         page.markup(),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
@@ -1314,7 +1352,7 @@ test "a field follows its signal when something else writes it" {
         Ui: headless(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
+    let page = render(ctx, ui.field(.Const("name"), .Text, [], [], name));
     let _ = name.set(ctx, "grace");
     assert.equal(
         page.markup(),
@@ -1328,11 +1366,11 @@ test "a field kind is what the field accepts" {
     };
     let value = signal(ctx, "");
     let tree = ui.stack([], [
-        ui.field(.Const("story"), .Multiline, [], value),
-        ui.field(.Const("secret"), .Password, [], value),
-        ui.field(.Const("address"), .Email, [], value),
-        ui.field(.Const("how many"), .Number, [], value),
-        ui.field(.Const("query"), .Search, [], value),
+        ui.field(.Const("story"), .Multiline, [], [], value),
+        ui.field(.Const("secret"), .Password, [], [], value),
+        ui.field(.Const("address"), .Email, [], [], value),
+        ui.field(.Const("how many"), .Number, [], [], value),
+        ui.field(.Const("query"), .Search, [], [], value),
     ]);
     assert.equal(
         render(ctx, tree).markup(),
@@ -1346,7 +1384,7 @@ test "a toggle is two states and a label" {
         Watch: observer(),
     };
     let done = signal(ctx, false);
-    let page = render(ctx, ui.toggle(.Const("done"), [], done));
+    let page = render(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], done));
     assert.equal(
         page.markup(),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
@@ -1368,27 +1406,117 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     };
     let name = signal(ctx, "ada");
     let done = signal(ctx, false);
-    // The wrapper is the runtime's element rather than the program's, and a
-    // browser lays it out as an inline box: the control and its text sit on one
-    // line, and a control as wide as the line takes one of its own. The painter
-    // has no inline flow, so the scene says what that comes to in the
+    // The wrapper is the runtime's element rather than the program's, and the
+    // sheet's reset lays it out as a wrapping row: the control and its text sit
+    // on one line, and a control as wide as the line takes one of its own. The
+    // painter has no inline flow, so the scene says what that comes to in the
     // vocabulary it does have — and the two renderers agree only while it does.
-    let inline = "display:flex;flex-direction:row;flex-wrap:wrap;align-items:center";
+    let inline = "class:lay-row wrap-wrap ac-center";
+    let box = "class:lay-row ac-center w-r1 h-r1 shrink-0 am-start";
     assert.equal(
-        ui.describe(ctx, ui.toggle(.Const("done"), [], done), .Hover),
+        ui.describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], done), .Hover),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 \nt 1 done",
+            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 ${box}\nt 1 done",
         ),
     );
     // A field is the same wrapper with the text first, which is the order the
     // markup puts them in too.
     assert.equal(
-        ui.describe(ctx, ui.field(.Const("name"), .Text, [], name), .Hover),
+        ui.describe(ctx, ui.field(.Const("name"), .Text, [], [], name), .Hover),
         str.format(
             ctx,
             "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 field:text\nt 2 ada",
         ),
+    );
+    // And that arrangement is in the sheet as well, weightless, so a class on
+    // the wrapper beats it.
+    assert.isTrue(
+        stylesheet().contains(
+            ":where(label){display:flex;flex-direction:row;flex-wrap:wrap;align-items:center}",
+        ),
+    );
+}
+
+test "a labelled control takes styles for the box around it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let site = signal(ctx, "");
+    // The input group every form library has: an addon either side of a control
+    // that takes the room they leave. `Grow` has to land on the `<label>`,
+    // because the label is what the row lays out and nothing on the input can
+    // reach it.
+    let tree = ui.field(.Const("Site"), .Text, [.Width(.Full)], [.Grow(1)], site);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<label class=\"grow-1\"><span>Site</span><input type=\"text\" class=\"w-full\" /></label>",
+    );
+    // The scene says the same: the wrapper carries the caller's class beside
+    // the arrangement it is given, and the input carries its own.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
+    );
+    // A style the caller puts on the wrapper beats the arrangement the runtime
+    // gave it, which is the rule a `row`'s own `Layout` follows.
+    assert.containsText(
+        ui.describe(
+            ctx,
+            ui.field(.Const("Site"), .Text, [], [.Layout(.Column)], site),
+            .Hover,
+        ),
+        "e 0 class:wrap-wrap ac-center lay-col",
+    );
+}
+
+test "a toggle draws its own mark" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let off = signal(ctx, false);
+    let on = signal(ctx, true);
+    // A switch always has its thumb, and where it sits is the whole of what
+    // tells off from on: at the near end of the track, then at the far end.
+    assert.containsText(
+        ui.describe(ctx, ui.toggle(.Const("email"), .Switch, [], [], off), .Hover),
+        "am-start\ne 2 mark:thumb;height:100%;aspect-ratio:1",
+    );
+    assert.containsText(
+        ui.describe(ctx, ui.toggle(.Const("email"), .Switch, [], [], on), .Hover),
+        "am-end\ne 2 mark:thumb;height:100%;aspect-ratio:1",
+    );
+    // A checkbox has its tick only when it is on. Before this a ticked checkbox
+    // was a filled square with no check in it.
+    assert.isFalse(
+        ui
+            .describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], off), .Hover)
+            .contains("mark:"),
+    );
+    assert.containsText(
+        ui.describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], on), .Hover),
+        "e 2 mark:tick;width:100%;height:100%",
+    );
+    // In a browser the mark is the reset's, on the box the runtime built —
+    // because an `<input>` holds no children — and a switch says which it is.
+    assert.equal(
+        render(ctx, ui.toggle(.Const("email"), .Switch, [], [], on)).markup(),
+        "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
+    );
+    let sheet = stylesheet();
+    assert.containsText(
+        sheet,
+        ":where(input[type=checkbox][role=switch])::before{content:\"\";height:100%;aspect-ratio:1;border-radius:9999px;background-color:currentColor}",
+    );
+    assert.containsText(
+        sheet,
+        ":where(input[type=checkbox]:checked){justify-content:flex-end}",
+    );
+    assert.containsText(
+        sheet,
+        ":where(input[type=checkbox]:not([role=switch]):checked)::before{",
     );
 }
 
@@ -1412,7 +1540,7 @@ test "a field's kind is in the scene, and a password's value is never in it" {
 
 /// The scene document one field of a kind writes.
 fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
-    ui.describe(ctx, ui.field(.Const("secret"), kind, [], value), .Hover)
+    ui.describe(ctx, ui.field(.Const("secret"), kind, [], [], value), .Hover)
 }
 
 test "a control takes styles of its own, and they land on the control" {
@@ -1426,18 +1554,19 @@ test "a control takes styles of its own, and they land on the control" {
         ui.button(
             .Const("go"),
             [.Padding(.Px(12)), .On(.Hover, [.Opacity(0.9)])],
+            [],
             fn(_c, _e) => (),
         ),
         ui.link(.Const("/prices"), [.Foreground(.Rgb(9, 9, 9))], []),
-        ui.field(.Const("name"), .Text, [.Radius(.Px(4))], name),
-        ui.toggle(.Const("done"), [.Width(.Px(20))], done),
+        ui.field(.Const("name"), .Text, [.Radius(.Px(4))], [], name),
+        ui.toggle(.Const("done"), .Checkbox, [.Width(.Px(20))], [], done),
     ]);
     // The classes are on the button, the anchor and the two inputs, never on a
     // wrapper. That is what makes a state work: a wrapper is not the thing that
     // is hovered, focused or disabled.
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><button type=\"button\" class=\"p-12 hover_op-0_9\">go</button><a href=\"/prices\" class=\"fg-090909\"></a><label><span>name</span><input type=\"text\" class=\"r-4\" value=\"ada\" /></label><label><input type=\"checkbox\" class=\"w-20\" /><span>done</span></label></div>",
+        "<div><button type=\"button\" aria-label=\"go\" class=\"p-12 hover_op-0_9\">go</button><a href=\"/prices\" class=\"fg-090909\"></a><label><span>name</span><input type=\"text\" class=\"r-4\" value=\"ada\" /></label><label><input type=\"checkbox\" class=\"w-20\" /><span>done</span></label></div>",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
 }
@@ -1462,11 +1591,17 @@ test "the sheet drops the chrome a browser draws by itself" {
         ),
     );
     assert.isTrue(sheet.contains(":where(a){color:inherit;text-decoration:none}"));
-    // A checkbox is left out: `appearance: none` erases the tick, and this
-    // vocabulary has nothing to draw a new one with.
+    // A checkbox has a reset of its own, because it is the one control that
+    // draws a mark: `appearance:none` erases a browser's tick, and the rules
+    // beside it put back one this vocabulary can paint.
     assert.isTrue(
         sheet.contains(
             ":where(input:not([type=checkbox]),textarea){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(
+            ":where(input[type=checkbox]){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;width:1rem;height:1rem;flex-shrink:0}",
         ),
     );
     // It opens the sheet, ahead of every class in it.
@@ -1521,7 +1656,7 @@ test "a form is submitted, which is behaviour and so not a role" {
     let page = render(
         ctx,
         ui.form(fn(c, e) => added.set(c, draft.get(c)), [], [
-            ui.field(.Const("what"), .Text, [], draft),
+            ui.field(.Const("what"), .Text, [], [], draft),
         ]),
     );
     let _ = page.fill("what", "milk");
@@ -1873,7 +2008,7 @@ test "one press is one update, however many signals it writes" {
 
     let page = render(
         ctx,
-        ui.button(.Const("both"), [], fn(c, e) => writeBoth(c, first, second)),
+        ui.button(.Const("both"), [], [], fn(c, e) => writeBoth(c, first, second)),
     );
     let _ = page.press("both");
 
@@ -1913,7 +2048,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
     ui.column([], [
-        ui.button(.Const(label), [], fn(c, e) => count.update(c, fn(n) => n + 1)),
+        ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1)),
         badge(.Const(label), .Cell(count)),
         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
     ])
