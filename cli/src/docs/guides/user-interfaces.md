@@ -395,9 +395,11 @@ The rest is short:
 - `.FontSize` and `.LineHeight` bottom out at one pixel. Zero is a size a
   program may ask for and not a picture anyone can compare.
 - **A snapshot fetches nothing**, so an image paints from its source or not at
-  all. A `data:` URI holding a PNG paints at its own pixel size; every other
-  source — an SVG data URI, an address, a path — paints a framed grey
-  placeholder at the size the box around it declared.
+  all. A `data:` URI holding a PNG paints at its own pixel size, and one holding
+  an SVG is drawn at whatever size the box is — shapes, paths and transforms,
+  but no text, gradients or CSS. Every other source — an address, a path, an
+  interlaced PNG — paints a framed grey placeholder at the size the box around
+  it declared.
 - `.Position(.PinViewport)` is measured against the page, so a dock pinned to
   the bottom right lands in the bottom right however deep it was written, and it
   paints over everything else.

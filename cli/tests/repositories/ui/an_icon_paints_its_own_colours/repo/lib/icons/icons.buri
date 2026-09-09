@@ -1,0 +1,41 @@
+//! Four sources side by side: three the painter reads, one it cannot.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// An eight-pixel red square. Colour type 2 at eight bits, which is *not* the
+/// RGBA form this painter's own encoder writes, so reading it means reading
+/// PNG rather than reading a golden back.
+let square: Str =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC";
+
+/// A red plus sign, stroked, in the base64 form — a lucide glyph, as
+/// `//libs/ui/icons` ships thirty-five of them.
+let plus: Str =
+    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0JyBmaWxsPSdub25lJyBzdHJva2U9JyNlNzAwMDAnIHN0cm9rZS13aWR0aD0nMic+PHBhdGggZD0nTTUgMTJoMTQnLz48cGF0aCBkPSdNMTIgNXYxNCcvPjwvc3ZnPg==";
+
+/// The same glyph percent-encoded, which is the other form a page writes an
+/// SVG in. Its semicolons are the reason a declaration value escapes them.
+let plusAgain: Str =
+    "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23e70000' stroke-width='2'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E";
+
+/// An address. A snapshot fetches nothing, so this one stays a grey box.
+let remote: Str = "https://example.com/logo.png";
+
+/// One icon in a box of its own, the way a component library ships one.
+fn framed<C>(source: Str): Node<C> {
+    ui.stack([.Width(.Px(24)), .Height(.Px(24))], [
+        ui.image(.Const(source), .Const("")),
+    ])
+}
+
+/// The row from the issue, with the percent-encoded glyph and an address
+/// beside it.
+export fn icons<C>(): Node<C> {
+    ui.row([.Gap(.Px(12)), .Padding(.Px(16))], [
+        framed(square),
+        framed(plus),
+        framed(plusAgain),
+        framed(remote),
+    ])
+}

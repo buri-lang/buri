@@ -387,8 +387,8 @@ fn rootScope(): Scope;
 /// is a child of the nearest line above it at depth `d - 1`.
 ///
 /// An image is a box carrying `image:<source>`, its `;` and `\` escaped. The
-/// painter reads a `data:` URI holding a PNG and paints every other source —
-/// an SVG data URI, an address, a path — as a placeholder box of the same size,
+/// painter reads a `data:` URI holding a PNG or an SVG and paints every other
+/// source — an address, a path — as a placeholder box of the same size,
 /// because a snapshot fetches nothing.
 ///
 /// `state` is the pseudo-class the snapshot is taken in. An `On(s, ...)`
