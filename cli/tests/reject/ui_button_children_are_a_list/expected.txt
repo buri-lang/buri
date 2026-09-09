@@ -1,7 +1,7 @@
 error: expected `[Node<C>]`, found `Node<_1>` [type-mismatch]
   --> cmd/ui_button_children_are_a_list/main.buri:16:37
    |
-16 |   ui.button(.Const("Overview"), [], ui.text(.Const("Overview")), fn(_c, _e) => ())
+16 |   ui.button(.Const("Overview"), [], ui.text(.Const("Overview")), fn(_c, _e) => (), .Const(false))
    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `[Node<C>]`
    |
    = expected: `[Node<C>]`

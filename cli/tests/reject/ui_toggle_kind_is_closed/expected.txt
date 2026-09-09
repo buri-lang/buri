@@ -1,7 +1,7 @@
 error: `ToggleKind` has no variant `Tick` [no-such-variant]
   --> cmd/ui_toggle_kind_is_closed/main.buri:16:29
    |
-16 |   ui.toggle(.Const("done"), .Tick, [], [], value, .Const(false))
+16 |   ui.toggle(.Const("done"), .Tick, [], [], value, .Const(false), .Const(false))
    |                             ^^^^^
    |
    = its variants are `Checkbox` and `Switch`

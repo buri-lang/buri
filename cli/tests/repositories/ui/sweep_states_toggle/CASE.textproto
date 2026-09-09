@@ -19,7 +19,10 @@
 # what a browser does with them too, and what the wrapping `<label>` is read
 # for. Both were a column until buri#92 closed.
 #
-# This is the one primitive where a browser fires all five states itself.
+# This is the one primitive where a browser fires all five states itself — but
+# only four of them are the snapshot's to name. A toggle is checked because its
+# signal says so (buri#119), so the checked picture is the same tree with every
+# box on, and the other five are taken of a tree with every box off.
 #
 # The negative twin moves one number in one cell of the hover palette. Exactly
 # one of the six goldens changes, which is what the state pictures rest on:

@@ -1,0 +1,9 @@
+# One library and one test source: two pictures of a control that refuses
+# input, and a snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

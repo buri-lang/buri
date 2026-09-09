@@ -25,9 +25,13 @@ from "ui/signal" import { Signal };
 
 /// The lambda captures the handle. The authority arrives as `c`.
 export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
-    ui.button(.Const("add one"), [], [], fn(c, _event) => {
-        clicks.update(c, fn(n) => n + 1)
-    })
+    ui.button(
+        .Const("add one"),
+        [],
+        [],
+        fn(c, _event) => { clicks.update(c, fn(n) => n + 1) },
+        .Const(false),
+    )
 }
 ```
 
@@ -243,11 +247,13 @@ Two constructors exist only in this tier, because neither has an inline form:
   nothing, needs no signal write on a mouse move, and maps to a native pressed
   or focused trait. `Focus` is the element's own keyboard attention and
   `FocusWithin` is a container's: the wrapper of an input group owns the
-  hairline and the ring, and the control inside it stays bare. Six of the seven
-  are the platform's own; `Invalid` is the one a program enters, by passing a
-  `field` or a `toggle` an `invalid` — which writes the `aria-invalid` a reader
-  is told about and the rule hangs off, so the ring and the announcement are
-  one fact.
+  hairline and the ring, and the control inside it stays bare. Four of the
+  seven are the platform's own. `Invalid` and `Disabled` are the two a program
+  enters, by passing a control an `invalid` or a `disabled` — which write the
+  `aria-invalid` and the `disabled` a reader is told about and the rules hang
+  off, so the ring and the announcement are one fact. `Checked` is neither: a
+  toggle's own signal is the answer, so a page holds one that is on and one
+  that is off and each paints its own.
 - `At(Screen, [Style])` is a breakpoint, from one of four widths upwards.
   Mobile-first: the media queries are written in ascending order, so a larger
   tier overrides a smaller one by position, and there is never a maximum-width
@@ -312,6 +318,7 @@ export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<
         ],
         [],
         onPress,
+        .Const(false),
     )
 }
 ```
@@ -365,18 +372,25 @@ export fn card<C>(label: Str): Node<C> {
 }
 ```
 
-**A control carries its own styles.** `button`, `link`, `field` and `toggle`
-take a `[Style]`, and it lands on the element itself — so `On(.Hover, ...)`,
-`On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper around a button is
-none of those things. A field's and a toggle's styles go on the input rather
-than on the label around it, for the same reason.
+**A control carries its own styles.** `button`, `link`, `image`, `field` and
+`toggle` take a `[Style]`, and it lands on the element itself — so
+`On(.Hover, ...)`, `On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper
+around a button is none of those things. A field's and a toggle's styles go on
+the input rather than on the label around it, for the same reason, and a
+picture's go on the picture: only the picture can be told to fill its box, to
+crop square, or to take a corner.
 
 ```buri
 from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/prop" import { Prop };
 
-export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
+export fn primary<C>(
+    label: Str,
+    onPress: fn(C, Event) => (),
+    busy: Prop<Bool>,
+): Node<C> {
     ui.button(
         .Const(label),
         [
@@ -390,7 +404,18 @@ export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
         ],
         [],
         onPress,
+        busy,
     )
+}
+
+export fn avatar<C>(source: Str): Node<C> {
+    ui.stack([.Width(.Px(32)), .Height(.Px(32)), .Radius(.Full)], [
+        ui.image(.Const(source), .Const(""), [
+            .Width(.Full),
+            .AspectRatio(1.0),
+            .Radius(.Full),
+        ]),
+    ])
 }
 ```
 
@@ -398,6 +423,16 @@ export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
 nothing around it shifts. That is what a press is:
 `On(.Active, [.Translate(.Px(0), .Px(1))])` sinks a button by a pixel and leaves
 the row it is in alone, where a padding would reflow the row.
+
+**A state a widget holds is the widget's answer, not the snapshot's.**
+`button`, `field` and `toggle` take a `disabled: Prop<Bool>`, and it is an
+attribute rather than a style: it takes the control out of the tab order,
+refuses the press before the handler runs, and tells a reader the control is
+unavailable rather than absent. Dimming it is `On(.Disabled, ...)`, which the
+flag is what fires. `On(.Checked, ...)` needs no flag at all — a toggle's own
+signal says whether it is checked, the same signal its mark is drawn from, so a
+page holds one toggle that is on and one that is off and each paints its own
+answer.
 
 **A button holds children, and one with none shows its label.** So a mark and a
 word are one element: the wash that says hovered, or says current page, covers
@@ -415,6 +450,7 @@ export fn entry<C>(mark: Node<C>, onPress: fn(C, Event) => ()): Node<C> {
         [.Gap(.Px(8)), .AlignCross(.Center), .On(.Hover, [.Opacity(0.9)])],
         [mark, ui.text(.Const("Overview"))],
         onPress,
+        .Const(false),
     )
 }
 ```
@@ -440,6 +476,7 @@ export fn site<C>(value: Signal<Str>): Node<C> {
             [.Width(.Full)],
             [.Grow(1)],
             value,
+            .Const(false),
             .Const(false),
         ),
         ui.stack([.Shrink(0)], [ui.text(.Const(".com"))]),
@@ -473,6 +510,7 @@ export fn notify<C>(value: Signal<Bool>): Node<C> {
         [],
         value,
         .Const(false),
+        .Const(false),
     )
 }
 ```
@@ -497,6 +535,7 @@ export fn volume<C>(value: Signal<Str>): Node<C> {
         [.Width(.Px(180)), .Foreground(.Rgb(40, 50, 90))],
         [],
         value,
+        .Const(false),
         .Const(false),
     )
 }

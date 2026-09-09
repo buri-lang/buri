@@ -154,8 +154,24 @@ fn track(width: Length, height: Length, styles: [Style]): [Style] {
 fn pair<C: Ui>(ctx: C, name: Str, kind: ToggleKind, styles: [Style]): Node<C> {
     ui.column([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)], [
         ui.text(.Const(name)),
-        ui.toggle(.Const("off"), kind, styles, [], signal(ctx, false), .Const(false)),
-        ui.toggle(.Const("on"), kind, styles, [], signal(ctx, true), .Const(false)),
+        ui.toggle(
+            .Const("off"),
+            kind,
+            styles,
+            [],
+            signal(ctx, false),
+            .Const(false),
+            .Const(false),
+        ),
+        ui.toggle(
+            .Const("on"),
+            kind,
+            styles,
+            [],
+            signal(ctx, true),
+            .Const(false),
+            .Const(false),
+        ),
     ])
 }
 

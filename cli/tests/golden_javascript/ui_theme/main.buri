@@ -129,7 +129,13 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
     ui.column([.Background(App.Bg.color()), .Foreground(App.Fg.color())], [
-        ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1)),
+        ui.button(
+            .Const(label),
+            [],
+            [],
+            fn(c, e) => count.update(c, fn(n) => n + 1),
+            .Const(false),
+        ),
         badge(.Const(label), .Cell(count)),
     ])
 }

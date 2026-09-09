@@ -1,0 +1,171 @@
+// A control that refuses input — buri#126.
+//
+// Nothing could put an element into `State::Disabled` before, so every
+// `On(.Disabled, ...)` ever written was dead code. The flag is the control's
+// own, and these are the pictures of what it does:
+//
+//   * `flag` — the same three controls with the flag clear and set, and the
+//     `On(.Disabled, ...)` styles firing on the set ones only. Resting state,
+//     so nothing but the flag can be lighting them.
+//   * `snapshot` — the same tree under a `.Disabled` snapshot. The flag only
+//     ever adds, so a control that does not carry one is still what the
+//     snapshot is asking about, and every cell lights.
+//
+// The label beside a field and a toggle is the runtime's `<label>` and carries
+// no styles of its own, which is why the dimming here is the control's box and
+// never its text.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import * as signal;
+from "ui/style" import { Style };
+
+/// What a control says it looks like when it refuses input. One property per
+/// column, so a picture says which of them reached the element.
+fn dim(): [Style] {
+    [.On(.Disabled, [.Background(.Rgb(132, 132, 132)), .Opacity(0.45)])]
+}
+
+fn framed(): [Style] {
+    [.On(.Disabled, [.BorderWidth(.Px(4)), .BorderColor(.Rgb(214, 44, 44))])]
+}
+
+fn faded(): [Style] {
+    [.On(.Disabled, [.Foreground(.Rgb(150, 150, 150)), .Opacity(0.25)])]
+}
+
+fn all(): [Style] {
+    [.Group(dim()), .Group(framed()), .Group(faded())]
+}
+
+/// The base every control carries, so a cell that answers to nothing still
+/// paints something to compare against.
+fn base(extra: [Style]): [Style] {
+    [
+        .Padding(.Px(6)),
+        .Width(.Full),
+        .Background(.Rgb(150, 170, 200)),
+        .Foreground(.Rgb(24, 24, 24)),
+        .BorderWidth(.Px(2)),
+        .BorderColor(.Rgb(70, 90, 120)),
+        .Radius(.Px(4)),
+        .Group(extra),
+    ]
+}
+
+fn pressable<C>(off: Bool, extra: [Style]): Node<C> {
+    ui.button(.Const("save"), base(extra), [], fn(_c, _e) => (), .Const(off))
+}
+
+fn typing<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
+    ui.field(
+        .Const("name"),
+        .Text,
+        base(extra),
+        [],
+        signal.signal(ctx, "ada"),
+        .Const(false),
+        .Const(off),
+    )
+}
+
+fn ticking<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
+    ui.toggle(
+        .Const("on"),
+        .Checkbox,
+        base(extra),
+        [],
+        signal.signal(ctx, false),
+        .Const(false),
+        .Const(off),
+    )
+}
+
+/// One label cell.
+fn label<C>(text: Str): Node<C> {
+    ui.stack([], [ui.text(.Const(text))])
+}
+
+/// One row: a label track, then one cell per column.
+fn row<C>(cells: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Layout(
+                .Grid([
+                    .Fixed(.Px(96)),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                    .Fraction(1),
+                ]),
+            ),
+            .Gap(.Px(8)),
+            .AlignCross(.Start),
+        ],
+        cells,
+    )
+}
+
+fn headings<C>(): Node<C> {
+    row([label(""), label("dim"), label("framed"), label("faded"), label("all three")])
+}
+
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(8)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}
+
+fn buttonRow<C>(name: Str, off: Bool): Node<C> {
+    row([
+        label(name),
+        pressable(off, dim()),
+        pressable(off, framed()),
+        pressable(off, faded()),
+        pressable(off, all()),
+    ])
+}
+
+fn fieldRow<C: Ui>(ctx: C, name: Str, off: Bool): Node<C> {
+    row([
+        label(name),
+        typing(ctx, off, dim()),
+        typing(ctx, off, framed()),
+        typing(ctx, off, faded()),
+        typing(ctx, off, all()),
+    ])
+}
+
+fn toggleRow<C: Ui>(ctx: C, name: Str, off: Bool): Node<C> {
+    row([
+        label(name),
+        ticking(ctx, off, dim()),
+        ticking(ctx, off, framed()),
+        ticking(ctx, off, faded()),
+        ticking(ctx, off, all()),
+    ])
+}
+
+/// Six rows: each control with the flag clear, then the same control with it
+/// set. Every `On(.Disabled, ...)` in the page fires on the second of each
+/// pair and on nothing else.
+export fn flagPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("disabled, from the control's own flag")),
+        headings(),
+        buttonRow("button", false),
+        buttonRow("button off", true),
+        fieldRow(ctx, "field", false),
+        fieldRow(ctx, "field off", true),
+        toggleRow(ctx, "toggle", false),
+        toggleRow(ctx, "toggle off", true),
+    ])
+}
