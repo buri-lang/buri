@@ -709,6 +709,13 @@ labelled control is two boxes: `styles` is the input's, `around` is the
 mark it draws inside itself: `Checkbox` has a tick when it is on, `Switch` has a
 thumb that travels. Both take the box's `Foreground`.
 
+`Shadow` is one shadow and `Shadows` is a list of them, painted first over last,
+because every elevation is two layers and a focus ring is a third beside them.
+They are one conflict slot, so the last written is the element's shadow.
+`Color.alpha(f)` is the same colour at `f` of its opacity — arithmetic for a
+colour written out, and a `color-mix` around the `var()` for a design token, so
+a translucent shade needs no token of its own.
+
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it
