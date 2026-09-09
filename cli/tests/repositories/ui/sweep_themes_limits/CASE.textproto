@@ -1,0 +1,94 @@
+# The ends of every axis the tree has, as pictures a person can read.
+#
+# `every_shape_and_state_is_painted/` has the same three shapes as bare
+# geometry. These four are the same shapes made legible, so what changed is
+# visible rather than merely different:
+#
+#   * **Nothing at all.** `ui.nothing()` is an empty page — no element, no box,
+#     no room taken.
+#   * **Containers with nothing in them**: a stack, a row, a column, a list, a
+#     table, and a stack holding one `nothing`. Each is outlined and given a
+#     minimum height, so an empty container is a box on the page rather than an
+#     absence. The last row puts a `nothing` between two blocks of colour,
+#     which is where it says it takes no room: the two blocks sit one gap
+#     apart, not two.
+#   * **A hundred deep.** Two pixels of padding a level, in two alternating
+#     colours, so a hundred nested stacks are a hundred concentric rings.
+#   * **A thousand wide.** A thousand twenty-by-ten boxes in one wrapping row,
+#     four colours round, through `each`. Two hundred and fifty of each colour
+#     and fifty thousand pixels of each is the count, so a row that stopped
+#     being built shows up as a colour going short.
+#
+# **Known wrong, and kept as painted: buri-lang/buri#76.** The outlines in
+# `limits-empty.png` ask for `.BorderWidth(.Px(1))`, and an odd border width
+# straddles the box's edge instead of sitting inside it — so each of those
+# outlines is two rows at half coverage, one of them outside the box, where CSS
+# says one solid row inside it. Re-record this case's goldens when that issue
+# closes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an empty tree, six containers with nothing in them, a hundred stacks deep and a thousand siblings wide"
+
+run {
+  args: ["test", "//lib/limits", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/limits/test/__snapshots__/limits-nothing.diff.png"  exists: false }
+path { path: "lib/limits/test/__snapshots__/limits-empty.diff.png"  exists: false }
+path { path: "lib/limits/test/__snapshots__/limits-deep.diff.png"  exists: false }
+path { path: "lib/limits/test/__snapshots__/limits-wide.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to record
+# one rather than showing a difference against nothing.
+edit {
+  file: "lib/limits/test/limits.buri"
+  replace: "snapshot(ctx, \"limits-nothing\", ui.nothing(), .Hover, []);"
+  with: "snapshot(ctx, \"never-recorded\", ui.nothing(), .Hover, []);"
+}
+
+run {
+  args: ["test", "//lib/limits", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/limits/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and the
+# run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/limits", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/limits/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/limits", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one edit, and the pictures it reaches fail while the
+# pictures it does not reach stay clean.
+edit {
+  file: "lib/limits/limits.buri"
+  replace: ".Background(.Rgb(215, 225, 235)),"
+  with: ".Background(.Rgb(235, 225, 215)),"
+}
+
+run {
+  args: ["test", "//lib/limits", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/limits/test/__snapshots__/limits-nothing.diff.png"  exists: false }
+path { path: "lib/limits/test/__snapshots__/limits-empty.diff.png"  exists: true }
+path { path: "lib/limits/test/__snapshots__/limits-deep.diff.png"  exists: false }
+path { path: "lib/limits/test/__snapshots__/limits-wide.diff.png"  exists: false }

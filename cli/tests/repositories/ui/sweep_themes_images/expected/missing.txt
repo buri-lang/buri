@@ -1,0 +1,5 @@
+FAIL //lib/pictures  test/pictures.buri  "one row per kind of source"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/pictures/test/pictures.buri:10:1
+
+1 passed, 1 failed, 0 skipped (0.0s)
