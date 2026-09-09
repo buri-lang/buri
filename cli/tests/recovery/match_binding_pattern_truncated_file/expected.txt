@@ -1,8 +1,3 @@
-error [match-not-exhaustive] 4:3-5:14
-message: this `match` does not cover `_`
-fix: add a `_` arm
-note: exhaustiveness is not attempted over integer or string ranges
-
 error [missing-arrow] 5:14-5:14
 message: a match arm is `pattern => expression`
 fix: write `=>` here

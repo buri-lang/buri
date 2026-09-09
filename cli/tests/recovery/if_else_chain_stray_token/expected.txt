@@ -1,5 +1,4 @@
-error [if-without-else] 4:14-6:4
-message: `if` requires an `else` branch
-fix: add `else { ... }`; an `if` is an expression, so it has a value either way
-note: `if` is an expression, so both branches must produce a value of the same type
+error [unexpected-token] 5:5-5:6
+message: expected `else`, found `@`
+fix: delete it — the `else` branch follows
 

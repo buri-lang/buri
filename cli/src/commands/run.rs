@@ -380,6 +380,14 @@ fn choose(
 ///     which no terminal generates — is sent on;
 ///   * with no terminal the program gets a group of its own, so nothing aimed
 ///     at this one reaches it, and all three are sent on.
+///
+/// **And it gets it however early it arrives.** The dispositions are taken
+/// before the program is spawned rather than after, because `spawn` answers at
+/// the fork and the program can be up and announcing itself before this thread
+/// runs again; a signal in that window would otherwise find the default
+/// disposition and kill this command, which is the orphan again. A signal that
+/// beats the child is kept in [`stopping::STATE`] and sent on the moment there
+/// is a child to send it to.
 mod stopping {
     use std::process::{Child, Command, ExitStatus};
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -397,6 +405,10 @@ mod stopping {
 
     /// `SIG_ERR`, which `signal` answers when it will not do what it was asked.
     const SIG_ERR: usize = usize::MAX;
+
+    /// `SIG_DFL`, which is the null handler pointer on both platforms — what
+    /// the program is given back before it execs.
+    const SIG_DFL: usize = 0;
 
     // The calls this module makes into the C library, declared rather than
     // depended on — `cli/runtime/net.rs`'s `shutdown` module is the precedent,
@@ -441,12 +453,64 @@ mod stopping {
         }
     }
 
-    /// The program's process id, or `0` while there is none to signal.
-    static CHILD: AtomicI32 = AtomicI32::new(0);
+    /// The program's process id once there is one, the signal that arrived
+    /// before there was — negated — while there is not, and `0` when there is
+    /// neither.
+    ///
+    /// **One word rather than two, because the handoff is a race and a race
+    /// with three outcomes loses signals.** The dispositions are taken *before*
+    /// the child is spawned ([`start`] says why), so the handler and the spawn
+    /// can run at the same time on different threads and each has to see the
+    /// other: a handler that finds a pid signals it, and a spawn that finds a
+    /// signal sends it on. Two atomics have a third outcome — each reads the
+    /// other's old value, and the program is never told to stop at all — and
+    /// one word with a compare-exchange on it does not.
+    static STATE: AtomicI32 = AtomicI32::new(0);
 
     /// Whether the program is in this process's group, which it is exactly when
     /// there is a terminal to share.
     static SHARES_THE_GROUP: AtomicBool = AtomicBool::new(false);
+
+    /// What the handler owes `sig`: the pid to send it to, or nothing —
+    /// because a child in this group has had it already, or because there is no
+    /// child yet and [`published`] will send it on.
+    ///
+    /// **Async-signal-safe**, which is the whole of what a handler may be: a
+    /// compare-exchange on an `i32` is lock-free on both platforms this
+    /// toolchain admits — `AtomicI32::is_lock_free` is a compile-time `true` on
+    /// AArch64 and x86-64 — so nothing here can be interrupted holding a lock
+    /// the interrupted thread was already inside.
+    fn remember(sig: i32) -> Option<i32> {
+        let mut seen = STATE.load(Ordering::Relaxed);
+        loop {
+            if seen > 0 {
+                // A terminal's signal has already reached a child in this
+                // group, and sending it again is what would kill the drain it
+                // started.
+                let arrived_already = SHARES_THE_GROUP.load(Ordering::Relaxed) && sig != SIGTERM;
+                return if arrived_already { None } else { Some(seen) };
+            }
+            let asked = sig.saturating_neg();
+            match STATE.compare_exchange_weak(seen, asked, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => return None,
+                Err(now) => seen = now,
+            }
+        }
+    }
+
+    /// The child exists: publish its pid, and answer the signal that arrived
+    /// while it was being started, if one did.
+    ///
+    /// A signal recorded here reached a process that did not yet exist, so
+    /// sending it on is the program's *first* delivery and not a second one —
+    /// including under a terminal, where the group signal the handler saw was
+    /// one the child was not there to receive.
+    fn published(pid: i32) -> Option<i32> {
+        match STATE.swap(pid, Ordering::Relaxed) {
+            asked if asked < 0 => Some(asked.saturating_neg()),
+            _ => None,
+        }
+    }
 
     /// The handler. **Everything it does is on POSIX's async-signal-safe list**,
     /// which for one `kill` is the whole of the argument the module header makes
@@ -455,11 +519,7 @@ mod stopping {
         let slot = errno_slot();
         // SAFETY: `errno_slot` answers this thread's own `errno`.
         let saved = unsafe { slot.read() };
-        let child = CHILD.load(Ordering::Relaxed);
-        // A terminal's signal has already reached a child in this group, and
-        // sending it again is what would kill the drain it started.
-        let arrived_already = SHARES_THE_GROUP.load(Ordering::Relaxed) && sig != SIGTERM;
-        if child > 0 && !arrived_already {
+        if let Some(child) = remember(sig) {
             // SAFETY: an ordinary `kill` on this process's own child.
             unsafe { kill(child, sig) };
         }
@@ -486,28 +546,64 @@ mod stopping {
         use std::os::unix::process::CommandExt as _;
 
         let shares = a_terminal_in_front();
-        if !shares {
-            // SAFETY: `setpgid` is on POSIX's async-signal-safe list, which is
-            // the whole of what a `pre_exec` closure may call.
-            unsafe {
-                command.pre_exec(|| {
+        // **What the program is between the fork and the exec.** The exec is
+        // what resets a caught disposition, so until it happens the program is
+        // a copy of this process running [`forward`] — and a signal delivered
+        // to it there would be *handled*, by a handler holding a copy of
+        // [`STATE`] with no child in it, and so swallowed. The three are given
+        // back to the operating system first, which is what a program that has
+        // not started yet should be stopped by.
+        //
+        // SAFETY: `signal` and `setpgid` are both on POSIX's
+        // async-signal-safe list, which is the whole of what a `pre_exec`
+        // closure may call.
+        unsafe {
+            command.pre_exec(move || {
+                for sig in CAUGHT {
+                    signal(sig, SIG_DFL);
+                }
+                if !shares {
                     setpgid(0, 0);
-                    Ok(())
-                })
-            };
-        }
-        let child = command.spawn()?;
+                }
+                Ok(())
+            })
+        };
         SHARES_THE_GROUP.store(shares, Ordering::Relaxed);
-        CHILD.store(i32::try_from(child.id()).unwrap_or(0), Ordering::Relaxed);
-        // Taken after the child is known rather than before it. A signal in the
-        // moment between the two would otherwise be one this command caught
-        // with nothing to forward and then waited out for ever; ending the way
-        // it always did is the better of the two.
+        // **Taken before the child is spawned, and that order is #91 itself.**
+        //
+        // `spawn` answers as soon as the fork has happened, and the program is
+        // then running on its own: it can exec, start its runtime, take its
+        // port and announce it before this thread is scheduled again. Taking
+        // the dispositions afterwards therefore leaves a window with no upper
+        // bound — on a machine with more processes than cores it is however
+        // long this thread waits for one — and it is the window a supervisor
+        // aims at, because what a supervisor waits for before it stops
+        // something is exactly that announcement. A `SIGTERM` landing in it
+        // kills `buri run` outright and leaves the program running, reparented
+        // to `init` and still holding its port, which is the orphan this whole
+        // module exists to prevent.
+        //
+        // What that order used to buy was a handler that could not find a
+        // child to forward to. [`remember`] and [`published`] are the answer to
+        // that: the signal is kept in [`STATE`] until there is one, and sent on
+        // the moment there is.
         for sig in CAUGHT {
             // SAFETY: an ordinary `signal` call with a function this module
             // owns. None of the three is a signal that may not be caught.
             let previous = unsafe { signal(sig, forward as *const () as usize) };
             debug_assert!(previous != SIG_ERR, "SIGHUP, SIGINT and SIGTERM can be caught");
+        }
+        let child = command.spawn()?;
+        // Zero is not a pid this can publish: `kill(0, …)` is every process in
+        // this group, which is the one thing a command that forwards a signal
+        // to one child must never do.
+        let pid = i32::try_from(child.id()).unwrap_or(0);
+        if pid > 0 {
+            if let Some(sig) = published(pid) {
+                // SAFETY: an ordinary `kill` on the child spawned a line above,
+                // with the signal that arrived while it was being spawned.
+                unsafe { kill(pid, sig) };
+            }
         }
         Ok(child)
     }
@@ -517,7 +613,7 @@ mod stopping {
         let stopped = child.wait();
         // A reaped pid is the operating system's to hand out again, and a
         // signal arriving after that must not reach a stranger.
-        CHILD.store(0, Ordering::Relaxed);
+        STATE.store(0, Ordering::Relaxed);
         stopped
     }
 
@@ -532,6 +628,63 @@ mod stopping {
         stopped
             .code()
             .unwrap_or_else(|| 128_i32.saturating_add(stopped.signal().unwrap_or(0)))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{
+            SHARES_THE_GROUP, SIGINT, SIGTERM, STATE, Ordering, published, remember,
+        };
+
+        /// **The program is told to stop exactly once, whichever of the two
+        /// wins the race.**
+        ///
+        /// One test and not three, because [`STATE`] is one word for the whole
+        /// process and separate tests would be separate threads sharing it.
+        /// The pid is a number and nothing is signalled here: what is being
+        /// asserted is which of the two sends it, and that exactly one does.
+        #[test]
+        fn a_signal_reaches_the_program_however_early_it_arrives() {
+            const PROGRAM: i32 = 4242;
+
+            // The handler first: `spawn` has not answered yet, so there is
+            // nothing to signal and the signal is kept.
+            STATE.store(0, Ordering::Relaxed);
+            SHARES_THE_GROUP.store(false, Ordering::Relaxed);
+            assert_eq!(remember(SIGTERM), None, "there is no child to signal yet");
+            assert_eq!(
+                published(PROGRAM),
+                Some(SIGTERM),
+                "the program is told what arrived while it was starting"
+            );
+
+            // The spawn first: the handler finds the pid and sends it itself,
+            // and starting has nothing left to send.
+            STATE.store(0, Ordering::Relaxed);
+            assert_eq!(published(PROGRAM), None, "nothing arrived before the child");
+            assert_eq!(remember(SIGTERM), Some(PROGRAM), "the handler signals the program");
+
+            // With a terminal in front of the command a group signal has
+            // already reached a running program, and forwarding it would be
+            // the second delivery that kills the drain the first started —
+            // but one that beat the child is still that child's first.
+            STATE.store(0, Ordering::Relaxed);
+            SHARES_THE_GROUP.store(true, Ordering::Relaxed);
+            assert_eq!(published(PROGRAM), None);
+            assert_eq!(remember(SIGINT), None, "the terminal's signal arrived already");
+            assert_eq!(remember(SIGTERM), Some(PROGRAM), "no terminal generates a SIGTERM");
+
+            STATE.store(0, Ordering::Relaxed);
+            assert_eq!(remember(SIGINT), None, "there is no child to signal yet");
+            assert_eq!(
+                published(PROGRAM),
+                Some(SIGINT),
+                "a program that did not exist has not been signalled"
+            );
+
+            STATE.store(0, Ordering::Relaxed);
+            SHARES_THE_GROUP.store(false, Ordering::Relaxed);
+        }
     }
 }
 

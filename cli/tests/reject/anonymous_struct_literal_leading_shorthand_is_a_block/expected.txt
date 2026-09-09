@@ -27,3 +27,6 @@ error: this block is missing its closing `}` [unclosed-delimiter]
      about the miscount rather than about the program. Naming the opener stops
      that.
 
+     A block whose } never turned up is where the parser guessed it ended, so
+     nothing in it gets typechecked. Close it and the types come back.
+

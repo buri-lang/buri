@@ -583,6 +583,25 @@ pub struct Tokens<'a> {
     /// only owned text the buffer holds, and the only reason it is not `Copy`
     /// throughout.
     strs: Vec<String>,
+    /// The string tokens whose closing `"` was never written, ascending.
+    ///
+    /// Such a token holds whatever was left on the line rather than what
+    /// somebody wrote, so the parser refuses to read a construct out of it —
+    /// see [`Tokens::is_unterminated`]. A file has none of these or one, so
+    /// this is a list that is searched rather than a set.
+    unterminated: Vec<u32>,
+}
+
+/// How a run of string body ended — see [`Lexer::scan_str_body`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StrEnd {
+    /// The closing `"`.
+    Quote,
+    /// An unescaped `${`, so a template hole follows.
+    Hole,
+    /// A line break, or the end of the file, with `unterminated-string`
+    /// reported. The token holds the rest of the line rather than a literal.
+    Unterminated,
 }
 
 /// What one token costs in the three columns.
@@ -614,6 +633,7 @@ impl<'a> Tokens<'a> {
             ints: Vec::new(),
             floats: Vec::new(),
             strs: Vec::new(),
+            unterminated: Vec::new(),
         }
     }
 
@@ -640,6 +660,17 @@ impl<'a> Tokens<'a> {
     /// unreachable and this is the one place that has to know it.
     pub fn kind(&self, i: usize) -> TokenKind {
         self.kinds.get(i).copied().unwrap_or(TokenKind::Eof)
+    }
+
+    /// Whether the token at `i` is a string whose closing `"` is missing.
+    ///
+    /// The lexer ends such a string at the line break so that the parser
+    /// carries on from the next line, which means the token has swallowed
+    /// whatever was written after the quote. Nothing read out of it is what
+    /// somebody wrote, so the construct around it is abandoned rather than
+    /// diagnosed a second time.
+    pub fn is_unterminated(&self, i: usize) -> bool {
+        u32::try_from(i).is_ok_and(|i| self.unterminated.binary_search(&i).is_ok())
     }
 
     pub fn loc(&self, i: usize) -> Location {
@@ -1166,8 +1197,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Scans string body text, stopping at `"` or at an unescaped `${`.
-    /// Returns (contents, ended_with_hole).
     /// The four bytes that end a run of ordinary string content. None of them
     /// can appear inside a multi-byte UTF-8 sequence, which is what lets the
     /// run be found by scanning bytes and copied without decoding.
@@ -1175,7 +1204,9 @@ impl<'a> Lexer<'a> {
         !matches!(c, b'"' | b'\\' | b'$' | b'\n')
     }
 
-    fn scan_str_body(&mut self) -> (String, bool) {
+    /// Scans string body text, stopping at `"`, at an unescaped `${`, or at the
+    /// line break that means the closing quote was never written.
+    fn scan_str_body(&mut self) -> (String, StrEnd) {
         // `chunk` is the start of the run of source that belongs in the result
         // verbatim. A string with no escape is one such run, so the common
         // literal is copied once rather than a character at a time through a
@@ -1187,26 +1218,26 @@ impl<'a> Lexer<'a> {
                 out.push_str(self.slice(chunk, self.pos));
                 let span = Span::new(self.file, self.pos, self.pos);
                 self.templated("unterminated-string", span);
-                return (out, false);
+                return (out, StrEnd::Unterminated);
             }
             match self.peek() {
                 b'"' => {
                     let text = self.slice(chunk, self.pos);
                     self.pos = self.pos.saturating_add(1);
                     if out.is_empty() {
-                        return (text.to_string(), false);
+                        return (text.to_string(), StrEnd::Quote);
                     }
                     out.push_str(text);
-                    return (out, false);
+                    return (out, StrEnd::Quote);
                 }
                 b'$' if self.peek_at(1) == b'{' => {
                     let text = self.slice(chunk, self.pos);
                     self.pos = self.pos.saturating_add(2);
                     if out.is_empty() {
-                        return (text.to_string(), true);
+                        return (text.to_string(), StrEnd::Hole);
                     }
                     out.push_str(text);
-                    return (out, true);
+                    return (out, StrEnd::Hole);
                 }
                 b'\\' => {
                     out.push_str(self.slice(chunk, self.pos));
@@ -1221,7 +1252,7 @@ impl<'a> Lexer<'a> {
                     out.push_str(self.slice(chunk, self.pos));
                     let span = Span::new(self.file, self.pos, self.pos.saturating_add(1));
                     self.templated("unterminated-string", span);
-                    return (out, false);
+                    return (out, StrEnd::Unterminated);
                 }
                 _ => {
                     // A `$` with no `{` after it is content, so the first step
@@ -1292,24 +1323,39 @@ impl<'a> Lexer<'a> {
 
     fn string_or_template(&mut self, start: usize) {
         self.pos = self.pos.saturating_add(1); // the opening quote
-        let (body, hole) = self.scan_str_body();
-        if hole {
+        let (body, end) = self.scan_str_body();
+        if end == StrEnd::Hole {
             self.push_text(TokenKind::TemplateHead, body, start);
             self.modes.push(LexMode::Interpolation);
         } else {
             self.push_text(TokenKind::Str, body, start);
+            self.mark(end);
         }
     }
 
     /// Resumes template text after the `}` that closes a hole.
     fn resume_template(&mut self, start: usize) {
-        let (body, hole) = self.scan_str_body();
-        if hole {
+        let (body, end) = self.scan_str_body();
+        if end == StrEnd::Hole {
             self.push_text(TokenKind::TemplateSpan, body, start);
         } else {
             self.push_text(TokenKind::TemplateTail, body, start);
+            self.mark(end);
             debug_assert_eq!(self.modes.last(), Some(&LexMode::Interpolation));
             self.modes.pop();
+        }
+    }
+
+    /// Records the token just pushed as one the parser must not read a
+    /// construct out of. Ascending by construction: tokens are pushed in
+    /// source order, so [`Tokens::is_unterminated`] can binary-search.
+    fn mark(&mut self, end: StrEnd) {
+        if end != StrEnd::Unterminated {
+            return;
+        }
+        let at = self.tokens.len().saturating_sub(1);
+        if let Ok(at) = u32::try_from(at) {
+            self.tokens.unterminated.push(at);
         }
     }
 

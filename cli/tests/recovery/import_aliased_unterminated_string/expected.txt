@@ -1,17 +1,13 @@
-error [unterminated-string] 3:46-4:1
+error [unterminated-string] 2:46-3:1
 message: unterminated string literal
 fix: close it with `"`; a string literal does not span a line break
 
-error [unexpected-token] 5:8-5:10
-message: expected `{`, found `fn`
-fix: write `{` here
-
-error [unresolved-type-in-pattern] 7:5-7:17
+error [unresolved-type-in-pattern] 6:5-6:17
 message: there is no type `Ranking.Less`
 fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value
 note: a bare identifier in a pattern is always a binding; a variant is written `.Variant` or `Enum.Variant`
 
-error [unreachable-arm] 8:5-8:11
+error [unreachable-arm] 7:5-7:11
 message: this arm is unreachable
 fix: delete it, or move it above the arm that subsumes it
 note: the arms before it already cover everything it matches
