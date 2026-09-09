@@ -101,8 +101,10 @@
 //!
 //! `box-shadow`'s blur is three integer box passes over a coverage mask, which
 //! is what the SVG filter specification writes down for a Gaussian and what a
-//! browser does for a shadow; `overflow: hidden` clips to the box's own
-//! rounded shape. Both are stated at [`blur`] and [`intersect`].
+//! browser does for a shadow; any `overflow` but `visible` — the `clip` a
+//! `Clip` writes and the `auto` a `Scroll` writes alike — clips to the box's
+//! own rounded shape, which is what lets a card cut a full-bleed child to its
+//! corners. Both are stated at [`blur`] and [`intersect`].
 //!
 //! # Errors
 //!
@@ -169,7 +171,8 @@ const MAX_VIEWPORT: u32 = 8192;
 pub struct Request<'a> {
     pub scene: &'a str,
     pub stylesheet: &'a str,
-    /// "rest", "hover", "focus", "active", "disabled" or "checked".
+    /// "rest", "hover", "focus", "active", "disabled", "checked" or
+    /// "invalid".
     pub state: &'a str,
     /// The custom-property block the snapshot's themes resolved to — one or
     /// more `:root{--name:value;…}` blocks, exactly what `mount` installs.
@@ -513,7 +516,7 @@ fn parse_declarations(body: &str) -> Result<Declarations, String> {
 // The stylesheet
 // ---------------------------------------------------------------------------
 
-/// The snapshot's pseudo-class, as `styles.rs` spells it.
+/// The snapshot's state, as `styles.rs` spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum State {
     Rest,
@@ -522,6 +525,7 @@ enum State {
     Active,
     Disabled,
     Checked,
+    Invalid,
 }
 
 impl State {
@@ -533,17 +537,23 @@ impl State {
             "active" => Ok(Self::Active),
             "disabled" => Ok(Self::Disabled),
             "checked" => Ok(Self::Checked),
+            "invalid" => Ok(Self::Invalid),
             _ => Err(format!("`{name}` is not a snapshot state")),
         }
     }
 
-    fn pseudo(pseudo: &str) -> Option<Self> {
-        match pseudo {
-            "hover" => Some(Self::Hover),
-            "focus-visible" => Some(Self::Focus),
-            "active" => Some(Self::Active),
-            "disabled" => Some(Self::Disabled),
-            "checked" => Some(Self::Checked),
+    /// What a rule's selector carries after the class: a pseudo-class, or the
+    /// one attribute selector the sheet writes. A program marks a control
+    /// invalid rather than a browser judging it, so `Invalid` hangs off
+    /// `aria-invalid` and every other state is a pseudo-class.
+    fn suffix(suffix: &str) -> Option<Self> {
+        match suffix {
+            ":hover" => Some(Self::Hover),
+            ":focus-visible" => Some(Self::Focus),
+            ":active" => Some(Self::Active),
+            ":disabled" => Some(Self::Disabled),
+            ":checked" => Some(Self::Checked),
+            "[aria-invalid=true]" => Some(Self::Invalid),
             _ => None,
         }
     }
@@ -590,11 +600,13 @@ fn parse_stylesheet(source: &str) -> Vec<Rule> {
     rules
 }
 
-/// `.<class><pseudo?>`, or the same followed by `>*`, which is the one rule
+/// `.<class><state?>`, or the same followed by `>*`, which is the one rule
 /// about descendants the sheet writes: `Layout(.Layers)` is a `display:grid` on
 /// the container and a `grid-area:1/1` on each of its children, and the pair is
-/// the only way that value is expressed. Anything else after the pseudo-class —
-/// a descendant combinator, a second pseudo-class, a named child — is `None`.
+/// the only way that value is expressed. The state is a pseudo-class or the
+/// `[aria-invalid=true]` an `Invalid` writes, and it is read whole: anything
+/// else after the class — a descendant combinator, a second pseudo-class, a
+/// named child — is `None`, because [`State::suffix`] does not name it.
 ///
 /// The third answer is whether the rule is the children's.
 fn parse_selector(selector: &str) -> Option<(String, Option<State>, bool)> {
@@ -607,16 +619,16 @@ fn parse_selector(selector: &str) -> Option<(String, Option<State>, bool)> {
         return None;
     }
     let mut class = String::new();
-    let mut pseudo = String::new();
-    let mut in_pseudo = false;
+    let mut suffix = String::new();
     while let Some(c) = chars.next() {
+        if !suffix.is_empty() {
+            suffix.push(c);
+            continue;
+        }
         match c {
             // A class name that holds a `:` writes it `\:`.
             '\\' => class.push(chars.next()?),
-            ':' if !in_pseudo => in_pseudo = true,
-            _ if in_pseudo && (c.is_ascii_alphanumeric() || c == '-') => pseudo.push(c),
-            // A descendant combinator, a second pseudo-class, anything else.
-            _ if in_pseudo => return None,
+            ':' | '[' => suffix.push(c),
             _ if c.is_whitespace() || c == '>' || c == '*' => return None,
             _ => class.push(c),
         }
@@ -624,10 +636,10 @@ fn parse_selector(selector: &str) -> Option<(String, Option<State>, bool)> {
     if class.is_empty() {
         return None;
     }
-    if !in_pseudo {
+    if suffix.is_empty() {
         return Some((class, None, child));
     }
-    State::pseudo(&pseudo).map(|state| (class, Some(state), child))
+    State::suffix(&suffix).map(|state| (class, Some(state), child))
 }
 
 // ---------------------------------------------------------------------------

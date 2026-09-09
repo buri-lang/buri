@@ -129,8 +129,8 @@ enum NodeKind<C> {
     Button(Prop<Str>, [Style], fn(C, Event) => ()),
     Link(Prop<Str>, [Style], [Node<C>]),
     Image(Prop<Str>, Prop<Str>),
-    Field(Prop<Str>, FieldKind, [Style], Signal<Str>),
-    Toggle(Prop<Str>, [Style], Signal<Bool>),
+    Field(Prop<Str>, FieldKind, [Style], Signal<Str>, Prop<Bool>),
+    Toggle(Prop<Str>, [Style], Signal<Bool>, Prop<Bool>),
     Form(fn(C, Event) => (), [Style], [Node<C>]),
     When(Prop<Bool>, Node<C>, Node<C>),
     Computed(fn(Scope) => Node<C>),
@@ -252,21 +252,36 @@ export fn image<C>(source: Prop<Str>, alt: Prop<Str>): Node<C> {
 ///
 /// The styles land on the input, not on the label around it — the input is what
 /// a reader focuses and what a browser disables.
+///
+/// `invalid` is the field failing validation, and it is a parameter for the
+/// reason the label is one: a reader has to be *told*. It carries
+/// `aria-invalid` and it is what puts the input in `State::Invalid`, so the
+/// ring a design system paints and the word a screen reader says are one fact.
+/// A field that never fails passes `.Const(false)` and carries nothing.
 export fn field<C>(
     label: Prop<Str>,
     kind: FieldKind,
     styles: [Style],
     value: Signal<Str>,
+    invalid: Prop<Bool>,
 ): Node<C> {
-    Node(.Field(label, kind, styles, value))
+    Node(.Field(label, kind, styles, value, invalid))
 }
 
 /// Something with two states, and what it is for.
 ///
 /// Binds to a `Signal<Bool>`, for the reason a field binds to a signal. The
 /// styles land on the box, so `On(.Checked, ...)` is the box being checked.
-export fn toggle<C>(label: Prop<Str>, styles: [Style], value: Signal<Bool>): Node<C> {
-    Node(.Toggle(label, styles, value))
+///
+/// `invalid` is a field's, and means the same thing: the terms nobody agreed
+/// to, announced as well as painted.
+export fn toggle<C>(
+    label: Prop<Str>,
+    styles: [Style],
+    value: Signal<Bool>,
+    invalid: Prop<Bool>,
+): Node<C> {
+    Node(.Toggle(label, styles, value, invalid))
 }
 
 /// A group of controls you submit.
@@ -458,7 +473,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // The styles are the input's, not the label's, so the label around it
         // carries no class of its own and the line under it carries them all.
-        .Field(label, kind, styles, value) => {
+        .Field(label, kind, styles, value, _invalid) => {
             [
                 elementLine(ctx, depth, [], wrapper()),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -466,7 +481,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 textLine(ctx, depth + 2, value.get(scope)),
             ]
         },
-        .Toggle(label, styles, _value) => {
+        .Toggle(label, styles, _value, _invalid) => {
             [
                 elementLine(ctx, depth, [], wrapper()),
                 styledLine(ctx, state, styles, depth + 1),
@@ -731,7 +746,7 @@ fn slotsIn<C: Allocator>(
 /// `On(s, ...)` into the classes it emits, so the group itself is gone by the
 /// time this walk sees one; what is left is the conflict slot, which carries
 /// the condition the class was scoped to. A slot's low digits are that
-/// condition — thirty of them per property, five breakpoints to a state, and
+/// condition — thirty-five of them per property, five breakpoints to a state, and
 /// zero for "in every state" — so a hover class can be told from a plain one
 /// and left out of every document but the hovered one.
 fn statePairs<C: Allocator>(
@@ -759,8 +774,12 @@ fn statePairs<C: Allocator>(
 /// The state a conflict slot is scoped to, as a `State`'s rank, and `-1` for a
 /// slot that applies whatever the state is. A breakpoint is the other half of
 /// the condition and is not a state, so it answers `-1` too.
+///
+/// Thirty-five is `semantics::styles`'s `CONDITIONS`, and the two move
+/// together: seven states counting "none", by five breakpoints counting
+/// "none".
 fn slotState(slot: Int): Int {
-    slot % 30 / 5 - 1
+    slot % 35 / 5 - 1
 }
 
 /// The class of each slot's last pair.
@@ -917,6 +936,16 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         .ListMarker(marker) => [decl(ctx, "list-style-type", markerName(marker))],
         .Bleed(edge, length) => {
             [decl(ctx, "margin-".concat(ctx, edgeName(edge)), outwardsCss(ctx, length))]
+        },
+        // `clip` rather than `hidden`: both stop the paint, and only `hidden`
+        // also makes a scroll container a keyboard can land in.
+        .Clip(on) => {
+            let css = if (on) { "clip" } else { "visible" };
+            [decl(ctx, "overflow", css)]
+        },
+        .Passthrough(on) => {
+            let css = if (on) { "none" } else { "auto" };
+            [decl(ctx, "pointer-events", css)]
         },
         _ => [],
     }
@@ -1133,5 +1162,6 @@ fn stateRank(state: State): Int {
         .Active => 2,
         .Disabled => 3,
         .Checked => 4,
+        .Invalid => 5,
     }
 }
