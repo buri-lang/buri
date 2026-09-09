@@ -1,0 +1,89 @@
+# What `Color.alpha` is worth in pixels: every colour slot `ui/style` has, at
+# five fractions, written out and as a design token.
+#
+# Five pictures of the same grid — the four slots that take a colour down the
+# page, the fractions across it — on the eight-hundred-wide page a snapshot
+# gets:
+#
+#   * **A colour written out.** Its channels are known, so the compiler did the
+#     fade and every cell is an ordinary `rgba` class. The `describe`
+#     assertion beside it says so: no `color-mix` anywhere in the document.
+#   * **The same grid as a token, bound to the same colour.** The same picture,
+#     reached the other way — nothing is blended until a theme is installed.
+#   * **And bound to another colour**, which changes every pixel and no class:
+#     the scene document either side of the two goldens is byte for byte the
+#     same text.
+#   * **A token no theme bound.** A mix around a `var()` nothing defined is a
+#     colour that is not there, and each property answers that its own way — a
+#     background paints nothing, a foreground keeps what it inherited, a border
+#     falls back to the element's own foreground, and a shadow is dropped
+#     whole. Those are the answers `sweep_themes_tokens` pins for a plain
+#     token, and this is where the mix around one is held to them.
+#   * **A token worth another package's token, faded.** The chain runs *through*
+#     the mix: `swept.ring` is `app.accent` at a fifth, and every cell fades
+#     again on top of that, so even the 1.0 column is pale.
+#
+# The lifecycle is `sweep_properties_stack`'s: every golden compares, a renamed
+# snapshot is reported as missing rather than as a difference, `--update`
+# records it, the run after that compares against what it wrote, and an edit
+# that moves one fraction fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the four colour slots a fade can reach, at five fractions, written out and as a design token under four theme lists — including the chain a faded token binds to"
+
+run {
+  args: ["test", "//lib/paint", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/paint/test/__snapshots__/alpha-written.diff.png"  exists: false }
+path { path: "lib/paint/test/__snapshots__/alpha-token-chained.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/paint/test/pictures.buri"
+  replace: "\"alpha-token-chained\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/paint", "--force", "--filter=package"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/paint/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/paint", "--update", "--force", "--filter=package"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/paint/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/paint", "--force", "--filter=package"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one fraction, in the one place it is written. It reaches
+# both pages, because both are built out of the same five numbers.
+edit {
+  file: "lib/paint/alpha.buri"
+  replace: "subject([.Background(written(0.5))]),"
+  with: "subject([.Background(written(0.6))]),"
+}
+
+run {
+  args: ["test", "//lib/paint", "--force", "--filter=written"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/paint/test/__snapshots__/alpha-written.diff.png"  exists: true }
