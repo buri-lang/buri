@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `Bool`, found `Str`","code":"type-mismatch","location":{"file":"cmd/ui_style_passthrough_takes_a_bool/main.buri","line":14,"column":40,"endLine":14,"endColumn":46,"text":"  ui.mount(ctx, ui.stack([.Passthrough(\"none\")], []), [])","label":"the parameter type is `Bool`"},"expected":"`Bool`","actual":"`Str`","notes":[],"related":[]}

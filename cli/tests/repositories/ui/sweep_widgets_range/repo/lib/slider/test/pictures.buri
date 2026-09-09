@@ -22,7 +22,14 @@ test "where the thumb sits" {
     };
     let scene = ui.describe(
         ctx,
-        ui.field(.Const("Volume"), .Range(0.0, 100.0, 1.0), [], [], signal(ctx, "40")),
+        ui.field(
+            .Const("Volume"),
+            .Range(0.0, 100.0, 1.0),
+            [],
+            [],
+            signal(ctx, "40"),
+            .Const(false),
+        ),
         .Hover,
     );
     assert.containsText(scene, "field:range;range:0.0 100.0 40");
@@ -41,7 +48,14 @@ test "how big the track is" {
     // in a browser, and a `Width` beats it in both.
     let bare = ui.describe(
         ctx,
-        ui.field(.Const("Gain"), .Range(0.0, 10.0, 0.5), [], [], signal(ctx, "5")),
+        ui.field(
+            .Const("Gain"),
+            .Range(0.0, 10.0, 0.5),
+            [],
+            [],
+            signal(ctx, "5"),
+            .Const(false),
+        ),
         .Hover,
     );
     assert.containsText(bare, "class:w-r12 h-r1 shrink-0;field:range");
@@ -63,6 +77,7 @@ test "what paints a slider" {
             [.Foreground(.Rgb(200, 30, 30))],
             [],
             signal(ctx, "5"),
+            .Const(false),
         ),
         .Hover,
     );
