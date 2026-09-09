@@ -1,0 +1,19 @@
+// EXPECT: `Corner` has no variant `Top`
+//
+// The other half of the pair: a radius rounds one corner, so `.Top` is not a
+// place to put one. A side-shaped radius would have to settle what happens
+// where two sides that each name a radius meet, and two `RadiusCorner`s naming
+// different corners have nothing to settle.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+
+let rounded: Style = .RadiusCorner(.Top, .Px(4));
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([rounded], []), [])
+}

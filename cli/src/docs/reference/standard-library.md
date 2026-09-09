@@ -675,6 +675,12 @@ A reactive closure is handed a `Scope`, which implements `Watch` and
 `.Computed(fn(s) => xs.get(s).filter(s, isEven))` is a `Prop<[Int]>` — and it
 still cannot write, because `Ui` is the effect that writes.
 
+Four properties name one edge or one corner, and two of them naming different
+ones compose: `Pin`, `PaddingEdge`, `BorderEdge` and `RadiusCorner`. A border's
+colour and style stay whole-box, so a row's rule is `BorderEdge(.Bottom, ...)`
+and a joined button group squares the side each child meets its neighbour on
+with two `RadiusCorner`s and a `BorderEdge` of zero.
+
 `heading`, `button`, `link`, `field` and `toggle` take a `[Style]` like every
 container does, and it lands on the element itself — so a hover, focus or
 disabled rule fires on the thing that is hovered, focused or disabled, and a
