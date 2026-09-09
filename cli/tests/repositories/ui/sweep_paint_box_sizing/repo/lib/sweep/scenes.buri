@@ -1,0 +1,142 @@
+//! What `box-sizing: border-box` is worth in pixels: a `Width` or a `Height` is
+//! the whole box, so a padding and a border are inside it and a child stays
+//! inside the parent that sized it.
+//!
+//! Every cell is a blue box inside a grey frame of a known width. The frame has
+//! no horizontal padding, so the two edges coincide when the child measures the
+//! whole box and the blue hangs out to the right when it does not. That is the
+//! only thing any of these pictures says, and it is the one CSS's initial
+//! `content-box` got wrong by exactly the padding and the border.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// How wide every frame is, and what `.Full` is a hundred per cent of.
+let FRAME: Int = 168;
+
+/// A child sized against its parent, and one sized in pixels. Both are the
+/// whole box.
+export fn widthPage<C>(): Node<C> {
+    page([
+        band("a full-width child", [
+            cell("plain", framed([.Width(.Full)])),
+            cell("padding", framed([.Width(.Full), .Padding(.Px(16))])),
+            cell("border", framed([.Width(.Full), .BorderWidth(.Px(6))])),
+            cell(
+                "both",
+                framed([.Width(.Full), .Padding(.Px(16)), .BorderWidth(.Px(6))]),
+            ),
+        ]),
+        band("a fixed width", [
+            cell("plain", framed([.Width(.Px(120))])),
+            cell("padding", framed([.Width(.Px(120)), .Padding(.Px(16))])),
+            cell("padding-x", framed([.Width(.Px(120)), .PaddingX(.Px(16))])),
+            cell(
+                "both",
+                framed([.Width(.Px(120)), .Padding(.Px(16)), .BorderWidth(.Px(6))]),
+            ),
+        ]),
+        band("a bound is the whole box too", [
+            cell(
+                "max",
+                framed([.MaxWidth(.Px(120)), .Width(.Full), .Padding(.Px(16))]),
+            ),
+            cell("min", framed([.MinWidth(.Px(120)), .Padding(.Px(16))])),
+        ]),
+    ])
+}
+
+/// The same claim down the page. A height is the whole box, so a padded box is
+/// as tall as it was asked to be and its text sits inside the padding.
+export fn heightPage<C>(): Node<C> {
+    page([
+        band("a fixed height", [
+            cell("plain", framed([.Width(.Full), .Height(.Px(56))])),
+            cell(
+                "padding",
+                framed([.Width(.Full), .Height(.Px(56)), .Padding(.Px(14))]),
+            ),
+            cell(
+                "border",
+                framed([.Width(.Full), .Height(.Px(56)), .BorderWidth(.Px(6))]),
+            ),
+            cell(
+                "both",
+                framed([
+                    .Width(.Full),
+                    .Height(.Px(56)),
+                    .Padding(.Px(14)),
+                    .BorderWidth(.Px(6)),
+                ]),
+            ),
+        ]),
+        band("a padding larger than the box asked for", [
+            cell(
+                "14 in 56",
+                framed([.Width(.Full), .Height(.Px(56)), .Padding(.Px(14))]),
+            ),
+            cell(
+                "28 in 56",
+                framed([.Width(.Full), .Height(.Px(56)), .Padding(.Px(28))]),
+            ),
+            cell(
+                "40 in 56",
+                framed([.Width(.Full), .Height(.Px(56)), .Padding(.Px(40))]),
+            ),
+        ]),
+    ])
+}
+
+/// One picture: a column of bands on a pale ground.
+fn page<C>(bands: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Gap(.Px(8)),
+            .Padding(.Px(12)),
+            .Background(.Rgb(238, 238, 242)),
+            .Foreground(.Rgb(20, 20, 20)),
+            .FontSize(.Px(11)),
+        ],
+        bands,
+    )
+}
+
+/// One question's band: its name, then a cell per answer.
+fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
+    ui.stack([.Padding(.Px(4))], [
+        ui.text(.Const(name)),
+        ui.row([.Gap(.Px(14)), .AlignCross(.Start), .PaddingY(.Px(6))], cells),
+    ])
+}
+
+/// One answer: its label, and the frame carrying it.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(184)), .Gap(.Px(4)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// The subject: a grey frame of a known width with one blue box inside it.
+///
+/// The frame pads down the page and not along it, so the grey shows above and
+/// below the blue and the two left edges are the same pixel. Any pixel of blue
+/// to the right of the grey is a box that measured its content rather than
+/// itself.
+fn framed<C>(styles: [Style]): Node<C> {
+    ui.stack(
+        [.Width(.Px(FRAME)), .PaddingY(.Px(8)), .Background(.Rgb(150, 152, 158))],
+        [
+            ui.stack(
+                [
+                    .Background(.Rgb(40, 90, 200)),
+                    .Foreground(.Rgb(255, 255, 255)),
+                    .BorderColor(.Rgb(250, 200, 40)),
+                    .Group(styles),
+                ],
+                [ui.text(.Const("Ada"))],
+            ),
+        ],
+    )
+}
