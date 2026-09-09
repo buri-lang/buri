@@ -23,7 +23,7 @@ error: `F64` has no method `toInt` [no-such-method]
    |                                                  ^^^^^
    |
    = did you mean `toI16`?
-   = fix: check the spelling — `buri docs core/number` lists every method `F64` has, and one may not be added to it from outside `core/number`
+   = fix: if you meant `toI16`, use that; if not, `buri docs core/number` lists every method `F64` has
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:20:83
    |

@@ -12,7 +12,7 @@ error: `Str` has no method `mapErr` [no-such-method]
 16 |     io.println(ctx, "done".mapErr(fn(_e) => "could not write to standard output")
    |                            ^^^^^^
    |
-   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_brace_app_ae2903/main.buri:17:1
    |

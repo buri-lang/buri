@@ -6,10 +6,15 @@
 # **A page is three artifacts.** BUILD-FILES.md and CLI.md say a WEB output
 # writes an `.mjs`, a `.css` and an `.html`, and that the `.html` is loadable in
 # a browser as it stands. The `file { contains }` steps below are the whole of
-# what "loadable" means mechanically: a module script that names the module
-# beside it, and a stylesheet link carrying `id="buri-styles"` — the id the
+# what "loadable" means mechanically: a module script naming the module from
+# the root, and a stylesheet link carrying `id="buri-styles"` — the id the
 # runtime's own injection looks for, so the rules are in the page before the
 # first paint and the module has nothing left to do about them.
+#
+# Both addresses are recorded with their leading `/` because this one document
+# answers every route: `buri run` hands it to `/components/button` as readily
+# as to `/`, and a browser resolves a relative address against the path it
+# asked for. `build::serving` is the same claim over a socket.
 #
 # **A platform is the set of effects its host exports.** `Ui: host.ui` resolves
 # under WEB and under nothing else; `FileSystemRead: host.fs` resolves everywhere else and

@@ -1,0 +1,12 @@
+error: `Colour` has no variant `Grene` [no-such-variant]
+  --> cmd/variant_near_miss/main.buri:12:19
+   |
+12 |   let c: Colour = .Grene;
+   |                   ^^^^^^
+   |
+   = did you mean `.Green`?
+   = fix: if you meant `.Green`, use that; if not, `Colour`'s declaration lists its variants
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+

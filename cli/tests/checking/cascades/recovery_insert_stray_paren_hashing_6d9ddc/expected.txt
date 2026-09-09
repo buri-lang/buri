@@ -27,4 +27,4 @@ error: `_1` has no method `hash` [no-such-method]
 19 |     assert.equal(one.hash(), other.hash());
    |                                    ^^^^
    |
-   = fix: check the spelling, or declare it in `impl _1 { ... }` in that type's own module — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl _1 { ... }` in that type's own module

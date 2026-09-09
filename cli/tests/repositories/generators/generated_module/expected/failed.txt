@@ -11,8 +11,9 @@ error: "//lib/wire" does not export `height` [no-such-export]
 
     If the module declares the name but holds it back, add export to the
     declaration there. If it declares no such name, the spelling is the mistake.
-    The diagnostic says which of the two it is, and offers the nearest exported
-    name.
+    The diagnostic says which of the two it is, and where there is a near miss
+    the fix names it. A name the standard library renamed is answered outright:
+    Alloc was renamed to Allocator.
 
     Why
     ───
@@ -38,8 +39,11 @@ error: there is nothing named `width` in scope [unresolved-name]
      What to do
      ──────────
 
-     Correct the spelling, or declare it. The diagnostic offers the nearest name
-     in scope.
+     Correct the spelling, or declare it. Where there is a near miss the fix
+     names it: "if you meant double, use that; if not, a name is in scope only
+     from this module's own declarations and its imports". A name the standard
+     library renamed is not a guess and gets the answer instead — sqrt was
+     renamed to squareRoot.
 
      Why
      ───
