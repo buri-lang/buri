@@ -1,8 +1,5 @@
-error [unexpected-token] 3:4-3:10
+error [unexpected-token] 2:4-2:10
 message: expected an identifier, found `export`
-fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-
-error [unexpected-token] 3:11-3:16
-message: expected a declaration, found `first`
-fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+fix: write `export` before `fn`
+edit: 2:1-2:10 "export fn"
 

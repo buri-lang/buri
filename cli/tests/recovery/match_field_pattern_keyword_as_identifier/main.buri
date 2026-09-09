@@ -1,5 +1,4 @@
 // EXPECT: expected an identifier, found `match`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
 export enum Shape {
   match { width: Int, height: Int },
   Empty,

@@ -7,3 +7,10 @@ error: expected an identifier, found `,` [unexpected-token]
    = expected: an identifier
    = actual: `,`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: an enum variant ends with `,` [missing-separator]
+  --> main.buri:13:13
+   |
+13 |     World, ,
+   |             ^
+   |
+   = fix: write `,` here

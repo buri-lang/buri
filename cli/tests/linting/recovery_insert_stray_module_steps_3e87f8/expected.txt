@@ -1,3 +1,19 @@
+warning: nothing constructs or matches `Step.Decrement` [unused-variant]
+  --> lib/recovery_insert_stray_module_steps_3e87f8/lib.buri:13:5
+   |
+13 |     Decrement,
+   |     ^^^^^^^^^
+   |
+   = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
+   = fix: delete the variant, or construct it
+warning: nothing constructs or matches `Step.Reset` [unused-variant]
+  --> lib/recovery_insert_stray_module_steps_3e87f8/lib.buri:14:5
+   |
+14 |     Reset,
+   |     ^^^^^
+   |
+   = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
+   = fix: delete the variant, or construct it
 error: expected an identifier, found `?` [unexpected-token]
   --> lib/recovery_insert_stray_module_steps_3e87f8/lib.buri:15:1
    |
@@ -7,19 +23,3 @@ error: expected an identifier, found `?` [unexpected-token]
    = expected: an identifier
    = actual: `?`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is no type `Step` [unresolved-type]
-  --> lib/recovery_insert_stray_module_steps_3e87f8/lib.buri:17:20
-   |
-17 | export fn apply(s: Step, n: I64): I64 {
-   |                    ^^^^
-   |
-   = did you mean `Str`?
-   = fix: if you meant `Str`, use that; if not, a name is in scope only from this module's own declarations and its imports
-error: there is no type `Step` [unresolved-type]
-  --> lib/recovery_insert_stray_module_steps_3e87f8/lib.buri:24:17
-   |
-24 | export fn up(): Step {
-   |                 ^^^^
-   |
-   = did you mean `Str`?
-   = fix: if you meant `Str`, use that; if not, a name is in scope only from this module's own declarations and its imports

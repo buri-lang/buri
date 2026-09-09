@@ -1,0 +1,9 @@
+error: expected `let`, found `v` [unexpected-token]
+  --> main.buri:35:5
+   |
+35 |     v let = simd.i32x4(1, -2, 300, 0);
+   |     ^
+   |
+   = expected: `let`
+   = actual: `v`
+   = fix: write `let` first: `let v`

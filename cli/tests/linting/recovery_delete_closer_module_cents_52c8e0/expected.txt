@@ -1,3 +1,19 @@
+warning: nothing reads `Ledger.entries` [unused-field]
+ --> lib/recovery_delete_closer_module_cents_52c8e0/lib.buri:9:5
+  |
+9 |     entries: I64,
+  |     ^^^^^^^^^^^^
+  |
+  = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+  = fix: delete the field, or read it
+warning: nothing uses `Tally` [unused-type]
+  --> lib/recovery_delete_closer_module_cents_52c8e0/lib.buri:12:6
+   |
+12 | enum Tally {
+   |      ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
 error: expected an identifier, found `type` [unexpected-token]
   --> lib/recovery_delete_closer_module_cents_52c8e0/lib.buri:17:1
    |
