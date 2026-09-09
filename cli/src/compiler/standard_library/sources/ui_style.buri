@@ -276,9 +276,19 @@ export enum Style {
     /// negative length bleed nothing: inward is a margin, and a margin is what
     /// this vocabulary leaves to the container.
     ///
-    /// It is the only property that writes a margin, so wherever it is declared
-    /// there is nothing for its position in the sheet to resolve against.
+    /// Declared down here because it is the only property that writes a margin,
+    /// so there is nothing for its position in the sheet to resolve against.
     Bleed(Edge, Length),
+
+    /// Shifts this element after it has been laid out: along the text
+    /// direction first, then down the page. Nothing around it moves, which is
+    /// what a press wants — `On(.Active, [.Translate(.Px(0), .Px(1))])` is the
+    /// pixel every button in a design system sinks by, and a padding would
+    /// reflow the row instead. A percentage is of the element's own size.
+    ///
+    /// Down here for `Bleed`'s reason: it is the only property that writes a
+    /// transform, so its position in the sheet resolves nothing either.
+    Translate(Length, Length),
 
     /// Whether content outside this element's box is painted.
     ///
@@ -318,6 +328,12 @@ export enum Layout {
     Column,
     /// Children run along it.
     Row,
+    /// Children run down the page, painted last to first. The order stays the
+    /// caller's — it is what a screen reader and the tab ring read — and only
+    /// the paint reverses.
+    ColumnReverse,
+    /// Children run along the page, painted last to first, on the same terms.
+    RowReverse,
     /// Children fill named columns, left to right, wrapping into rows.
     Grid([Track]),
     /// Children share one space, later ones over earlier ones. There is no
@@ -343,6 +359,11 @@ export enum Length {
     /// Multiples of the root text size, so it follows a reader who has made
     /// text larger.
     Rem(Float),
+    /// Multiples of *this element's* text size, so it follows whatever the
+    /// element is set at rather than the root. Tracking is the reason it
+    /// exists: tracking that does not scale with the text is the wrong
+    /// tracking at every other size.
+    Em(Float),
     /// A fraction of the containing space, as a percentage.
     Percent(Float),
     /// Whatever the content needs.
@@ -539,6 +560,11 @@ export enum State {
     /// It has the keyboard's attention, and the platform judged that showing so
     /// is useful — `:focus-visible`, so a mouse press draws no focus ring.
     Focus,
+    /// Something inside it has the keyboard. What an input group is: the
+    /// wrapper owns the hairline and the ring, and the control inside it is
+    /// bare. A container is never itself focus-visible, so `Focus` is no
+    /// substitute.
+    FocusWithin,
     /// It is being pressed right now.
     Active,
     /// It refuses input.

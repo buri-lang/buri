@@ -922,9 +922,9 @@ fn slotsIn<C: Allocator>(
 /// `On(s, ...)` into the classes it emits, so the group itself is gone by the
 /// time this walk sees one; what is left is the conflict slot, which carries
 /// the condition the class was scoped to. A slot's low digits are that
-/// condition — thirty-five of them per property, five breakpoints to a state, and
-/// zero for "in every state" — so a hover class can be told from a plain one
-/// and left out of every document but the hovered one.
+/// condition — forty of them per property, five breakpoints to a state,
+/// and zero for "in every state" — so a hover class can be told from a plain
+/// one and left out of every document but the hovered one.
 fn statePairs<C: Allocator>(
     ctx: C,
     state: State,
@@ -951,11 +951,10 @@ fn statePairs<C: Allocator>(
 /// slot that applies whatever the state is. A breakpoint is the other half of
 /// the condition and is not a state, so it answers `-1` too.
 ///
-/// Thirty-five is `semantics::styles`'s `CONDITIONS`, and the two move
-/// together: seven states counting "none", by five breakpoints counting
-/// "none".
+/// Forty is `semantics::styles`'s `CONDITIONS`, and the two move together:
+/// eight states counting "none", by five breakpoints counting "none".
 fn slotState(slot: Int): Int {
-    slot % 35 / 5 - 1
+    slot % 40 / 5 - 1
 }
 
 /// The class of each slot's last pair.
@@ -1129,6 +1128,11 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         .Bleed(edge, length) => {
             [decl(ctx, "margin-".concat(ctx, edgeName(edge)), outwardsCss(ctx, length))]
         },
+        .Translate(x, y) => {
+            let across = lengthCss(ctx, x);
+            let down = lengthCss(ctx, y);
+            [decl(ctx, "transform", str.format(ctx, "translate(${across},${down})"))]
+        },
         // `clip` rather than `hidden`: both stop the paint, and only `hidden`
         // also makes a scroll container a keyboard can land in.
         .Clip(on) => {
@@ -1152,6 +1156,8 @@ fn layoutCss<C: Allocator>(ctx: C, layout: Layout): [Str] {
     match (layout) {
         .Column => ["display:flex", "flex-direction:column"],
         .Row => ["display:flex", "flex-direction:row"],
+        .ColumnReverse => ["display:flex", "flex-direction:column-reverse"],
+        .RowReverse => ["display:flex", "flex-direction:row-reverse"],
         .Grid(tracks) => {
             let columns = trackList(ctx, tracks, 0, []).join(ctx, " ");
             ["display:grid", decl(ctx, "grid-template-columns", columns)]
@@ -1183,6 +1189,7 @@ fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
     match (length) {
         .Px(n) => str.format(ctx, "${n}px"),
         .Rem(n) => str.format(ctx, "${n}rem"),
+        .Em(n) => str.format(ctx, "${n}em"),
         .Percent(n) => str.format(ctx, "${n}%"),
         .Auto => "auto",
         .Full => "100%",
@@ -1198,6 +1205,7 @@ fn outwardsCss<C: Allocator>(ctx: C, length: Length): Str {
     match (length) {
         .Px(n) => if (n > 0) { str.format(ctx, "-${n}px") } else { "0px" },
         .Rem(n) => if (n > 0.0) { str.format(ctx, "-${n}rem") } else { "0px" },
+        .Em(n) => if (n > 0.0) { str.format(ctx, "-${n}em") } else { "0px" },
         .Percent(n) => if (n > 0.0) { str.format(ctx, "-${n}%") } else { "0px" },
         .Auto => "0px",
         .Full => "-100%",
@@ -1397,9 +1405,10 @@ fn stateRank(state: State): Int {
     match (state) {
         .Hover => 0,
         .Focus => 1,
-        .Active => 2,
-        .Disabled => 3,
-        .Checked => 4,
-        .Invalid => 5,
+        .FocusWithin => 2,
+        .Active => 3,
+        .Disabled => 4,
+        .Checked => 5,
+        .Invalid => 6,
     }
 }

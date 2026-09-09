@@ -303,21 +303,35 @@ fn serving_a_page() {
 ///
 /// Beside them are the **sweeps**, which ask a different question: not whether
 /// the machinery works, but whether each property in the vocabulary paints
-/// what the stylesheet promises. `sweep_layout_*` is eight cases and
-/// forty-one pictures, one per layout property, each a labelled grid of
-/// every value that property has on the eight-hundred-wide page the viewport
-/// is. `sweep_layout_bleed` is the one that reads as two components rather than
-/// as a grid, because that is what its property is for: the full-width rule
+/// what the stylesheet promises. `sweep_layout_*` is nine cases and forty-four
+/// pictures, one per layout property, each a labelled grid of every value that
+/// property has on the eight-hundred-wide page the viewport is.
+/// `sweep_layout_bleed` is the one that reads as two components rather than as
+/// a grid, because that is what its property is for: the full-width rule
 /// inside a padded menu, and the avatar group whose children lap the one
-/// before them. `sweep_layout_clip` is the one whose finding is two pictures
-/// that *agree*: `Clip(true)` and `Scroll(.Both)` paint the same box, and what
-/// the newer property buys is not a different picture but not becoming a
-/// scroll container a keyboard can land in. They are
+/// before them. `sweep_layout_reverse` is the two reversed stacks against the
+/// two plain ones — the same four children in every box, so what moves down a
+/// picture is only the paint, and the alignments run the other way with them.
+/// `sweep_layout_clip` is the one whose finding is two pictures that *agree*:
+/// `Clip(true)` and `Scroll(.Both)` paint the same box, and what the newer
+/// property buys is not a different picture but not becoming a scroll
+/// container a keyboard can land in. They are
 /// generated rather than written, so an enumeration is the whole of a
 /// `ui/style` enum by construction, and every picture was read pixel by pixel
 /// against the CSS its classes lower to. Two pictures hold a row recorded as
 /// painted and known wrong; each case's own doc names the issue and says to
 /// re-record when it closes.
+///
+/// `sweep_length_em` and `sweep_paint_translate` are the two that sweep a
+/// value rather than a property. The em pictures are each an em row over a rem
+/// row — half an em of padding at four text sizes, five tracking values, a
+/// `FontSize` in em nested four deep, and the six other properties a length
+/// reaches — because a unit that follows the element's own type is only visible
+/// beside one that does not. The translate pictures draw every box inside the
+/// dashed outline of the slot the layout gave it, which is the only way a shift
+/// that moves nothing else can be read: every unit, the three neighbours that
+/// stay where they were against the same row padded instead, and the button
+/// that sinks a pixel, at rest and held.
 ///
 /// The `sweep_themes_*` cases are the theme, breakpoint and reactive sweep:
 /// the four colour slots a design token can fill on five primitives under five
@@ -341,6 +355,10 @@ fn serving_a_page() {
 /// that state applied, and every case's last step moves one number in the hover
 /// palette so exactly one of its six goldens fails. That is the tier-2 record
 /// that a state golden is not a copy of the resting one.
+/// `sweep_states_focus_within` is the sixth state and the odd one, because it
+/// is the container's rather than the element's: an input group, the same
+/// wrapper ringed on `Focus` instead, and a card, in four pictures — so the row
+/// that answers in one picture is the row that stays quiet in the next.
 ///
 /// `sweep_states_invalid` is the same grid for the state a *program* enters
 /// rather than the platform: `field` and `toggle` take an `invalid`, and it
@@ -374,7 +392,7 @@ fn serving_a_page() {
 /// rather than only what colour it is.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 47);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 51);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

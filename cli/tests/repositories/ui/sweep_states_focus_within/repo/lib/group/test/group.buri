@@ -1,0 +1,66 @@
+// `FocusWithin` against the five states it joined: four pictures of one tree,
+// and the classes behind each.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, snapshot };
+from "//lib/group" import { resting, rows };
+
+test "at rest" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let site = signal(ctx, "buri");
+    let scene = ui.describe(ctx, resting(site), .FocusWithin);
+    assert.isFalse(scene.contains("focuswithin_"));
+    assert.isFalse(scene.contains("focus_"));
+    snapshot(ctx, "group-resting", resting(site), .FocusWithin, []);
+}
+
+test "with the keyboard inside it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let site = signal(ctx, "buri");
+    let scene = ui.describe(ctx, rows(site), .FocusWithin);
+    assert.containsText(scene, "focuswithin_bc-");
+    assert.containsText(scene, "focuswithin_bg-");
+    assert.containsText(scene, "focuswithin_sh-");
+    // `Focus` is a different condition and a different slot, so the row that
+    // rings on it stays quiet.
+    assert.isFalse(scene.contains("focus_bc-"));
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("active_"));
+    snapshot(ctx, "group-focuswithin", rows(site), .FocusWithin, []);
+}
+
+test "with the keyboard on the element itself" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let site = signal(ctx, "buri");
+    let scene = ui.describe(ctx, rows(site), .Focus);
+    assert.containsText(scene, "focus_bc-");
+    assert.isFalse(scene.contains("focuswithin_"));
+    snapshot(ctx, "group-focus", rows(site), .Focus, []);
+}
+
+test "and hovered, where neither fires" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let site = signal(ctx, "buri");
+    let scene = ui.describe(ctx, rows(site), .Hover);
+    assert.containsText(scene, "hover_bg-");
+    assert.isFalse(scene.contains("focuswithin_"));
+    assert.isFalse(scene.contains("focus_"));
+    snapshot(ctx, "group-hover", rows(site), .Hover, []);
+}
