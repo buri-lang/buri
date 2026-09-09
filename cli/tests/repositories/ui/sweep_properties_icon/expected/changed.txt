@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "where an icon's colour comes from, at rest"
+  the snapshot "icon-colour" changed: see test/__snapshots__/icon-colour.diff.png
+  --> lib/sweep/test/pictures.buri:58:1
+
+0 passed, 1 failed, 6 skipped (0.0s)
