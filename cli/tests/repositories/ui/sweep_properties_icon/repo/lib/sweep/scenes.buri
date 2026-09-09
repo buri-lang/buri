@@ -11,6 +11,7 @@
 //! gives a scene. A band clips, which is what keeps a value that grows from
 //! pushing the ones below it off the page.
 
+from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/style" import { Color, Shadow, Style, token };
@@ -257,6 +258,16 @@ export fn colourPage<C>(): Node<C> {
                 ]),
             ),
         ]),
+        band("inside a button", 105, [
+            cell("resting", pressable([.Foreground(.Rgb(250, 250, 252))])),
+            cell(
+                "hovered",
+                pressable([
+                    .Foreground(.Rgb(250, 250, 252)),
+                    .On(.Hover, [.Foreground(.Rgb(120, 200, 255))]),
+                ]),
+            ),
+        ]),
         band("On(.Hover)", 105, [
             cell(
                 "resting red",
@@ -400,6 +411,31 @@ fn labelled<C>(name: Str, colour: Color): Node<C> {
         ),
     )
 }
+
+/// A button with a mark and a word inside it, which is the shape an icon was
+/// wanted for: one `Foreground` on the button paints both, and one `On(.Hover)`
+/// moves both, because there is one element being hovered.
+fn pressable<C>(styles: [Style]): Node<C> {
+    ui.button(
+        .Const("save"),
+        [
+            .Layout(.Row),
+            .Gap(.Px(6)),
+            .AlignCross(.Center),
+            .PaddingX(.Px(10)),
+            .PaddingY(.Px(6)),
+            .Radius(.Px(6)),
+            .Background(.Rgb(30, 30, 36)),
+            .FontSize(.Px(14)),
+            .Group(styles),
+        ],
+        [ui.icon([.Width(.Px(16)), .Height(.Px(16))], glyph), ui.text(.Const("save"))],
+        noop,
+    )
+}
+
+/// A press a picture cannot make.
+fn noop<C>(_c: C, _event: Event): () {}
 
 /// Two boxes deep, so the colour reaching the glyph is one the cascade carried
 /// rather than one written on the element.

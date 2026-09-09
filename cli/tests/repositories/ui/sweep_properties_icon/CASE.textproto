@@ -9,10 +9,12 @@
 #
 # **The colour pictures are the issue** (buri-lang/buri#98). `Foreground` on the
 # row paints the label and the glyph together; a wrapper's colour reaches
-# through `Inherit`; an `On(.Hover)` moves it; and beside each icon is the same
-# drawing as a `data:` URI in an `image`, which stays black — an `<img>`'s source
-# is a document of its own, and no rule on the page reaches inside it. That
-# contrast is the whole reason there are two constructors.
+# through `Inherit`; an `On(.Hover)` moves it; a button with a mark and a word
+# in it washes both at once, because there is one element being hovered; and
+# beside each icon is the same drawing as a `data:` URI in an `image`, which
+# stays black — an `<img>`'s source is a document of its own, and no rule on the
+# page reaches inside it. That contrast is the whole reason there are two
+# constructors.
 #
 # The lifecycle is `sweep_properties_image`'s: every golden compares, a renamed
 # snapshot is reported as missing rather than as a difference, `--update`
