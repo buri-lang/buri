@@ -1,9 +1,4 @@
-error [match-not-exhaustive] 9:3-11:4
-message: this `match` does not cover `Point { x: _, y: _ }`
-fix: add an arm for `Point { x: _, y: _ }`, or a `_` arm for everything left
-note: every `match` must cover its scrutinee's type
-
-error [unexpected-token] 10:5-10:6
+error [unexpected-token] 9:5-9:6
 message: expected a pattern, found `{`
 fix: write a pattern: a binding, a literal, `.Variant`, or `_`
 

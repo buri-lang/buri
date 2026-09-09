@@ -1,5 +1,4 @@
-// EXPECT: this `match` does not cover `[]`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/110
+// EXPECT: expected an expression, found end of file
 export fn head(xs: [Int]): Int {
   match (xs) {
     [first, ..rest] =>

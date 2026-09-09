@@ -1,9 +1,9 @@
-error [unexpected-token] 5:44-5:45
+error [unexpected-token] 4:44-4:45
 message: expected an expression, found `,`
 fix: write a value here
 
-error [unclosed-delimiter] 9:1-9:1
+error [unclosed-delimiter] 8:1-8:1
 message: this function body is missing its closing `}`
 fix: write `}` here
-related: 3:32-3:33 opened here
+related: 2:32-2:33 opened here
 

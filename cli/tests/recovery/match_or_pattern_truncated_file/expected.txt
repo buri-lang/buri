@@ -1,4 +1,4 @@
-error [unexpected-token] 6:1-6:1
+error [unexpected-token] 5:1-5:1
 message: expected a pattern, found end of file
 fix: write a pattern: a binding, a literal, `.Variant`, or `_`
 

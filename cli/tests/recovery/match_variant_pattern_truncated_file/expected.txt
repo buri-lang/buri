@@ -1,10 +1,10 @@
-error [missing-arrow] 10:12-10:12
+error [missing-arrow] 9:12-9:12
 message: a match arm is `pattern => expression`
 fix: write `=>` here
-edit: 10:12-10:12 " =>"
+edit: 9:12-9:12 " =>"
 
-error [unclosed-delimiter] 11:1-11:1
+error [unclosed-delimiter] 10:1-10:1
 message: this `match` is missing its closing `}`
 fix: write `}` here
-related: 9:17-9:18 opened here
+related: 8:17-8:18 opened here
 
