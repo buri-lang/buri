@@ -999,10 +999,12 @@ const MAXIMUM_NESTING: usize = 4;
 ///
 /// A `test` block is not a function for either rule. A suite is a list of
 /// assertions, and its length is the number of cases rather than the number of
-/// things it does.
+/// things it does. A table inside a body is not its length either, for the same
+/// reason one step down: see [`tables_of`].
 fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
     use crate::parsing::tree::{Item, ParamKind};
     let file = session.map.get(m.file);
+    let tables = tables_of(m, file);
     let mut check = |d: &crate::parsing::tree::FnDecl| {
         let name = m.ast.tree.name(d.name);
         // `self` is the receiver and `ctx` is the effect budget. Neither is
@@ -1018,7 +1020,13 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
         }
         let Some(body) = d.body else { return };
         let span = m.ast.tree.block_span(body);
-        let lines = file.line_col(span.end).0 - file.line_col(span.start).0 + 1;
+        let whole = file.line_col(span.end).0 - file.line_col(span.start).0 + 1;
+        let counted: usize = tables
+            .iter()
+            .filter(|(at, _)| at.start >= span.start && at.end <= span.end)
+            .map(|(_, rows)| rows)
+            .sum();
+        let lines = whole - counted;
         if lines > MAXIMUM_FUNCTION_LINES {
             diagnostics.push(
                 Diagnostic::templated("oversized-function", d.name.span)
@@ -1036,6 +1044,40 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
             _ => {}
         }
     }
+}
+
+/// Every table in the module, with the lines it costs beyond the one it counts
+/// as — which is what [`check_function_shapes`] takes off a body's length.
+///
+/// A table is an array literal or a `match`, and its length is the set's rather
+/// than the function's: one row per member, no responsibility boundary anywhere
+/// in it, and — over a closed enum — no legal way to split it either.
+///
+/// The outermost one wins. A table written inside another is already inside the
+/// one line that one counts as, so it is not taken off twice.
+///
+/// Once per module rather than once per function: a module's nodes are one flat
+/// array, so a walk per body would read the whole file for every declaration in
+/// it, and the language server lints on every keystroke.
+fn tables_of(m: &ModuleData, file: &crate::diagnostics::SourceFile) -> Vec<(Span, usize)> {
+    use crate::parsing::flat::{ExprId, ExprView};
+    let tree = &m.ast.tree;
+    let mut spans: Vec<Span> = (0..tree.nodes().len())
+        .map(|i| ExprId(i as u32))
+        .filter(|id| matches!(tree.expr(*id), ExprView::Array { .. } | ExprView::Match { .. }))
+        .map(|id| tree.span(id))
+        .collect();
+    spans.sort_by_key(|at| (at.start, std::cmp::Reverse(at.end)));
+    let mut out: Vec<(Span, usize)> = Vec::new();
+    let mut inside = 0;
+    for at in spans {
+        if at.start < inside {
+            continue;
+        }
+        inside = at.end;
+        out.push((at, file.line_col(at.end).0 - file.line_col(at.start).0));
+    }
+    out
 }
 
 /// `duplicate-import`. Two statements naming one module are a pair that drifts:
