@@ -320,9 +320,22 @@ fn serving_a_page() {
 /// that state applied, and every case's last step moves one number in the hover
 /// palette so exactly one of its six goldens fails. That is the tier-2 record
 /// that a state golden is not a copy of the resting one.
+///
+/// **The `sweep_properties_*` cases are the matrix under those nine**: every
+/// `ui/style` property that paints something, at three to five values each,
+/// against every node primitive — a case per primitive, six pictures in it,
+/// one per family of properties, and a seventh under `field` for the six kinds
+/// a field can be. A picture is a labelled grid, so a property is a row and its
+/// values read across it, and each case ends with the edit that has to fail.
+/// `text` and `image` take no styles of their own, so their column styles the
+/// container, which is where a property on either of them goes anyway.
+///
+/// A property that stops being painted turns its row into a row of identical
+/// cells rather than going quiet, which is what makes a grid worth more here
+/// than a picture per value.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 26);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 35);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

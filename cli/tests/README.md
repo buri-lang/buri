@@ -482,7 +482,10 @@ BURI_BLESS=1 cargo test -p buri --test language conformance::rejected_programs
 ```
 
 The JSON file also enforces the four-part contract: **every diagnostic must
-carry a `fix`**, and the harness fails the case if one does not.
+carry a `fix`**, and the harness fails the case if one does not. The one
+exception is a diagnostic whose `expected` and `actual` lines already are the
+edit — `type-mismatch` — and `harness::is_a_diagnostic_with_no_fix` names it,
+so the exemption is a list somebody reads rather than a hole.
 
 **The formatting corpus** is a directory per decision the formatter makes,
 holding an `input.buri` somebody might have typed and the one `expected.buri` it

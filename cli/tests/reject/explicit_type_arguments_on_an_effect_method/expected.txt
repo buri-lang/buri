@@ -6,10 +6,12 @@ error: expected `I64`, found `Str` [type-mismatch]
    |
    = expected: `I64`
    = actual: `Str`
-   = fix: produce a `I64` here, or change what surrounds it to accept a `Str`
 
-     What to do
-     ──────────
+     Those two lines are the whole story: what the position wanted, and what is
+     there. Only a conversion with a name earns a fix line beside them.
+
+     Numbers do not convert on their own
+     ───────────────────────────────────
 
      Convert explicitly. The diagnostic names the conversion: .toI64() is exact
      for every I32, while a narrowing one returns a Result because not every
@@ -19,12 +21,18 @@ error: expected `I64`, found `Str` [type-mismatch]
      nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
      let x: U8 = 1 — and it becomes any type of the same kind.
 
-     Why
-     ───
-
      There is no promotion of any kind, in either direction. A language that
      widened silently would make the width of an arithmetic result depend on the
      shape of the expression rather than on what you wrote.
+
+     A .Variant is a variant
+     ───────────────────────
+
+     A leading dot takes its enum from the position it is written in, so a
+     position that is not an enum has nothing to give it, and expected is the
+     type to write instead. What is reported as found is a variant rather than a
+     type, because .Const on its own is not one — and guessing an enum from the
+     payload would put a type in front of you that nothing in your program says.
 
 error: `Watch` is an effect, so `read` is not called on a context [effect-method-call]
   --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:18:7
