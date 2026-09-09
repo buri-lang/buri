@@ -1,0 +1,85 @@
+# What `box-sizing: border-box` is worth in pixels: a `Width` or a `Height` is
+# the whole box, so a padding and a border are inside it and a child stays
+# inside the parent that sized it.
+#
+# Two pictures, each a labelled grid on the eight-hundred-wide page a snapshot
+# gets. Every cell is a blue box inside a grey frame of a known width, and the
+# frame pads down the page and not along it — so the two left edges are one
+# pixel, the two right edges are one pixel, and any blue to the right of the
+# grey is a box that measured its content rather than itself.
+#
+#   * **A width.** A child sized against its parent (`.Full`) and one sized in
+#     pixels, each plain, padded, bordered and both. Under CSS's initial
+#     `content-box` the `.Full` cells would hang 32, 12 and 44 pixels out of the
+#     frame, and the 120-pixel cells would read 152, 152 and 164 wide beside a
+#     120-wide `plain`. A `MaxWidth` and a `MinWidth` are the same box.
+#   * **A height.** The same claim down the page: a 56-pixel box stays 56 tall
+#     however much padding and border are inside it, and the last band is the
+#     one place the arithmetic stops — 40 pixels of padding either side of a
+#     56-pixel box is 80, which is the floor the padding alone puts under it.
+#
+# The lifecycle is `sweep_paint_shadows`'s: every golden compares, a renamed
+# snapshot is reported as missing rather than as a difference, `--update`
+# records it, the run after that compares against what it wrote, and an edit
+# that moves one box fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a `Width` and a `Height` are the whole box, so a padded, bordered child stays inside the parent that sized it — the picture buri#132 and buri#86 are about"
+
+run {
+  args: ["test", "//lib/sweep", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/box-sizing-width.diff.png"  exists: false }
+path { path: "lib/sweep/test/__snapshots__/box-sizing-height.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sweep/test/pictures.buri"
+  replace: "\"box-sizing-height\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=down the page"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sweep", "--update", "--force", "--filter=down the page"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=down the page"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: put the padding outside the width the way `content-box`
+# would, and the picture that is about the width has to fail.
+edit {
+  file: "lib/sweep/scenes.buri"
+  replace: "cell(\"padding\", framed([.Width(.Px(120)), .Padding(.Px(16))])),"
+  with: "cell(\"padding\", framed([.Width(.Px(152)), .Padding(.Px(16))])),"
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=stays inside"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/box-sizing-width.diff.png"  exists: true }
+path { path: "lib/sweep/test/__snapshots__/never-recorded.diff.png"  exists: false }
