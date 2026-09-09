@@ -42,9 +42,13 @@
 # `Scroll`'s three axes are one picture because CSS computes `visible` to `auto`
 # on the other axis, so any of them clips both ways.
 #
-# A seventh picture here, and a seventh bug with it: #89 — the six
-# `FieldKind`s paint identically, because `describe` drops the kind, so
-# `field-kinds.png` shows a password's value in clear text.
+# A seventh picture here, `field-kinds.png`, and it is the one that says the
+# scene carries the kind: the password cell's value is one bullet per character
+# and never the word, which is what a browser draws for `<input
+# type="password">`. The other five cells are alike, and so are a browser's once
+# the reset has taken the chrome it would tell them apart by. Until buri#89
+# closed, `describe` dropped the kind, all six were byte-identical, and this
+# golden held the secret in clear text.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
