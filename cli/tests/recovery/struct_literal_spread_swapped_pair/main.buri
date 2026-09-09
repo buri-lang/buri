@@ -1,4 +1,4 @@
-// EXPECT: this block is missing its closing `}`
+// EXPECT: expected a struct literal's type, found `{`
 export struct Point {
   export x: Int,
   export y: Int,
