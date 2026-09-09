@@ -12,7 +12,7 @@ const $k10=[$k9];
 const $k11=[$k10];
 const $k12=[5,$k11];
 const $k13=[0,255n,255n,255n];
-$ui_sheet='.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.bg-t_both_bg{background-color:var(--both-bg)}\n';
+$ui_sheet='*,*::before,*::after{box-sizing:border-box}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.bg-t_both_bg{background-color:var(--both-bg)}\n';
 $tree_declare_hook=$tree_declare;
 $ui_theme_hook=$ui_theme_install;
 function __cmd_x_main_buri$main(){
