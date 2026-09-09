@@ -1,0 +1,1 @@
+from "//lib/slider/scenes.buri" export { paintPage, sizesPage, valuesPage };

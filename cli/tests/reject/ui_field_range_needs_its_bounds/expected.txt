@@ -1,0 +1,20 @@
+error: `Range` holds 3 values, but 2 were given [wrong-value-count]
+  --> cmd/ui_field_range_needs_its_bounds/main.buri:17:44
+   |
+17 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0.0, 100.0), [], [], volume), [])
+   |                                            ^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass `Range` the following values: Range(Float, Float, Float)
+
+     What to do
+     ──────────
+
+     Line the call up against the shape the fix prints, which is what the
+     declaration writes between its parentheses — a variant's too, so a
+     miscounted .Some(x) gets Some(T). The values are positional, so where their
+     types say which one was left out the fix says that position, and where the
+     call lines up two ways, or more than one value is missing, it says none of
+     them.
+
