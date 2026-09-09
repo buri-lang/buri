@@ -801,6 +801,9 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 /// `:where()` holds the selectors, which makes the reset weigh nothing in the
 /// cascade — every class beats it, whatever order they land in.
 ///
+/// One rule is about the box model rather than about any element: a `Width` is
+/// the whole box, which is the box the headless painter measures.
+///
 /// What comes out is also what the headless painter already draws: no padding
 /// nobody asked for, the surrounding font, no margin the scene document has
 /// no counterpart for, and no marker beside a list item. A toggle's box is
@@ -808,6 +811,9 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 /// and this vocabulary has nothing to draw a new one with.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Reset {
+    /// The artifact builds a tree at all. The box model belongs to the
+    /// vocabulary rather than to any one element, so it is asked once.
+    pub tree: bool,
     pub heading: bool,
     pub button: bool,
     pub link: bool,
@@ -824,6 +830,14 @@ const CONTROL_RESET: &str =
 impl Reset {
     fn rules(self) -> String {
         let mut out = String::new();
+        if self.tree {
+            // A `Width` is the whole box, padding and border inside it — which
+            // is what the headless painter lays out and what every design
+            // system this vocabulary is aimed at is written against. CSS's own
+            // initial `content-box` would hang a padded, bordered child out of
+            // its parent by exactly its padding.
+            out.push_str("*,*::before,*::after{box-sizing:border-box}\n");
+        }
         if self.heading {
             // A level is an outline position, not a size, so the size and the
             // weight belong to the styles and the margin to nobody: this
@@ -870,6 +884,7 @@ pub fn reset_in(
 ) {
     if let ExprKind::EnumLit { con, variant, .. } = &e.kind {
         if *con == node_con {
+            out.tree = true;
             match *variant {
                 NODE_HEADING => out.heading = true,
                 NODE_BUTTON => out.button = true,

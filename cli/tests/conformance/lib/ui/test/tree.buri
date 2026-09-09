@@ -1475,6 +1475,38 @@ test "the sheet drops the chrome a browser draws by itself" {
     assert.isTrue(reset < padding);
 }
 
+test "a size is the whole box, so padding and a border sit inside it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // `.Width(.Full)` of a 200-pixel parent, with the padding and the border
+    // inside the 200. CSS's own initial `content-box` would make this 234 and
+    // hang 34 pixels of it out of the parent; the headless painter has always
+    // measured the border box, and this is the declaration that makes the two
+    // agree.
+    let tree = ui.stack([.Width(.Px(200))], [
+        ui.stack(
+            [.Width(.Full), .Padding(.Px(16)), .BorderWidth(.Px(1))],
+            [ui.text(.Const("inside"))],
+        ),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"w-200\"><div class=\"w-full p-16 bw-1\">inside</div></div>",
+    );
+
+    let sheet = stylesheet();
+    assert.startsWith(sheet, "*,*::before,*::after{box-sizing:border-box}\n");
+    // Ahead of the element resets as well as of every class, because it is the
+    // box model the rest of the sheet is written against.
+    let box = assert.some(sheet.indexOf("box-sizing"));
+    let chrome = assert.some(sheet.indexOf(":where("));
+    assert.isTrue(box < chrome);
+    assert.isTrue(sheet.contains(".w-full{width:100%}"));
+    assert.isTrue(sheet.contains(".p-16{padding:16px}"));
+}
+
 test "a list has no marker until one is asked for" {
     let ctx = context {
         Ui: headless(),
