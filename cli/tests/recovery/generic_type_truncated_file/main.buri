@@ -1,0 +1,2 @@
+// EXPECT: expected a type, found end of file
+export fn wrap(n: Int):

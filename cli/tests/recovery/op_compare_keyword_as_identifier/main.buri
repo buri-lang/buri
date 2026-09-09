@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn ordered(match: Int, b: Int, c: Bool, d: Bool): Bool {
+  (match < b) == (c >= d)
+}

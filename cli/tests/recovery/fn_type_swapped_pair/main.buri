@@ -1,0 +1,5 @@
+// EXPECT: expected an identifier, found `export`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
+fn export apply(f: fn(Int, Int) => Int, n: Int): Int {
+  f(n, n)
+}

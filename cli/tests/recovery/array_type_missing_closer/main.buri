@@ -1,0 +1,4 @@
+// EXPECT: this array type is missing its closing `]`
+export fn wrap(n: Int): [[Int] {
+  [[n]]
+}

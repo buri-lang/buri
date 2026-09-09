@@ -1,0 +1,5 @@
+// EXPECT: a tuple has arity 2 or more
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/118
+export fn ordered(a: Int, b: Int, c: Bool, d: Bool): Bool {
+  (a < b) == (c >= d
+}

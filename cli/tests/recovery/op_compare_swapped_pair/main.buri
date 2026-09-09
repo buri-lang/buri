@@ -1,0 +1,4 @@
+// EXPECT: expected an expression, found `<`
+export fn ordered(a: Int, b: Int, c: Bool, d: Bool): Bool {
+  a( < b) == (c >= d)
+}

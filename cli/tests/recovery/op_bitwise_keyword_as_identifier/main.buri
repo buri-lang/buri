@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn mask(match: Int, b: Int, c: Int, d: Int): Int {
+  match | b ^ c & d
+}

@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn any(match: Bool, b: Bool, c: Bool): Bool {
+  match && b || c
+}

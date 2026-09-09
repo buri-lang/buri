@@ -1,0 +1,4 @@
+// EXPECT: this function body is missing its closing `}`
+export fn mix(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int): Int {
+  a @ + b * c - d / e % f
+}

@@ -1,0 +1,28 @@
+error [type-mismatch] 3:46-6:2
+message: expected `I64`, found `()`
+
+error [expression-statement] 4:35-4:38
+message: an expression statement is legal only in a test source
+fix: bind it: `let _ = ...;`, or make it the block's result expression
+note: a block is `let`s followed by a result expression
+
+error [statement-not-unit] 4:35-4:38
+message: this statement has type `Int`, not `()`
+fix: bind it with `let _ = ...;`
+note: only an expression whose type is `()` may stand alone; bind anything else
+
+error [unresolved-name] 5:8-5:12
+message: there is nothing named `flag` in scope
+fix: if you meant `flip`, use that; if not, a name is in scope only from this module's own declarations and its imports
+note: did you mean `flip`?
+
+error [missing-terminator] 6:2-6:2
+message: a statement ends with `;`
+fix: write `;` here
+edit: 6:2-6:2 ";"
+
+error [unclosed-delimiter] 7:1-7:1
+message: this function body is missing its closing `}`
+fix: write `}` here
+related: 3:46-3:47 opened here
+
