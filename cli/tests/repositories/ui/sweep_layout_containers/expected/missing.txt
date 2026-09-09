@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/containers.buri  "every role a region can take, holding one row of two blocks"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/scenes/test/containers.buri:10:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

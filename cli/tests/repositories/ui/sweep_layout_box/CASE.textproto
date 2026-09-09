@@ -1,0 +1,71 @@
+# One box, and every property that decides how big it is and what it does with
+# what does not fit: `Padding` and its shorthands, `PaddingEdge` on each edge
+# and composing, `Width` and `Height` in every `Length` the vocabulary has,
+# `MinWidth`/`MaxWidth`/`MinHeight`/`MaxHeight`, `AspectRatio` and `Scroll`.
+#
+# `ui/style` has no margin: space between boxes is the container's `Gap` and
+# space inside one is `Padding`. There are no viewport units either — `Length`
+# is `Px`, `Rem`, `Percent`, `Auto` and `Full`, and all five are in
+# `box-width.png`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "padding and each of its edges, width and height in every length there is, the floors and the ceilings, the aspect ratio, and what runs past a box's edge"
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/scenes/test/__snapshots__/box-padding.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to
+# record one rather than showing a difference against nothing.
+edit {
+  file: "lib/scenes/test/box.buri"
+  replace: "\"box-padding\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and
+# the run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/scenes", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one label in the last picture, and the difference
+# image on disk beside the golden it did not match.
+edit {
+  file: "lib/scenes/scenes.buri"
+  replace: "no Scroll at all"
+  with: "no Scroll on it at all"
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/box-overflow.diff.png"  exists: true }
+path { path: "lib/scenes/test/__snapshots__/box-padding.diff.png"  exists: false }
