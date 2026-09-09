@@ -344,6 +344,12 @@ fn serving_a_page() {
 /// a one-pixel border reads as a grey smudge, a black border reads as a
 /// choice, and a ring reads as a fill.
 ///
+/// `sweep_paint_box_sizing` is the box model, in two pictures: a blue box
+/// inside a grey frame of a known width, plain, padded, bordered and both, so
+/// any blue to the right of the grey is a box that measured its content rather
+/// than itself. It is what closes the gap between the painter's border box and
+/// CSS's initial `content-box`.
+///
 /// The `sweep_states_*` cases are the states sweep: every `State` against every
 /// interactive primitive, six pictures to a case — the resting one and one per
 /// state — each a labelled grid of `Background`, `Foreground`, `Border`,
@@ -382,7 +388,7 @@ fn serving_a_page() {
 /// rather than only what colour it is.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 49);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 50);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

@@ -1973,6 +1973,37 @@ test "the sheet drops the chrome a browser draws by itself" {
     assert.isTrue(reset < padding);
 }
 
+test "a size is the whole box, so padding and a border sit inside it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // `.Width(.Full)` of a 200-pixel parent, with the padding and the border
+    // inside the 200. CSS's own initial `content-box` would make this 234 and
+    // hang 34 pixels of it out of the parent; the headless painter has always
+    // measured the border box, and this is the declaration that makes the two
+    // agree.
+    let tree = ui.stack([.Width(.Px(200))], [
+        ui.stack([.Width(.Full), .Padding(.Px(16)), .BorderWidth(.Px(1))], [
+            ui.text(.Const("inside")),
+        ]),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"w-200\"><div class=\"w-full p-16 bw-1\">inside</div></div>",
+    );
+
+    let sheet = stylesheet();
+    assert.startsWith(sheet, "*,*::before,*::after{box-sizing:border-box}\n");
+    // Ahead of the element resets as well as of every class, because it is the
+    // box model the rest of the sheet is written against.
+    let box = assert.some(sheet.indexOf("box-sizing"));
+    let chrome = assert.some(sheet.indexOf(":where("));
+    assert.isTrue(box < chrome);
+    assert.isTrue(sheet.contains(".w-full{width:100%}"));
+    assert.isTrue(sheet.contains(".p-16{padding:16px}"));
+}
+
 test "a list has no marker until one is asked for" {
     let ctx = context {
         Ui: headless(),
@@ -2007,6 +2038,167 @@ test "a list has no marker until one is asked for" {
     let reset = assert.some(sheet.indexOf(":where(ul,ol)"));
     let marker = assert.some(sheet.indexOf(".lm-decimal{"));
     assert.isTrue(reset < marker);
+}
+
+test "a toggle's own styles paint, because the reset takes the native control away" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let on = signal(ctx, true);
+    // Basecoat's switch, as close as `toggle` gets. While the reset exempted a
+    // checkbox from `appearance:none` a browser painted its own 16x16 square
+    // over all of this: the radius was discarded outright and the background
+    // was computed and never painted.
+    let styles: [Style] = [
+        .Width(.Px(32)),
+        .Height(.Px(18)),
+        .Radius(.Px(9999)),
+        .Background(.Rgb(220, 220, 220)),
+        .On(.Checked, [.Background(.Rgb(20, 20, 20))]),
+    ];
+    assert.equal(
+        render(ctx, ui.toggle(.Const("Email me"), .Switch, styles, [], on)).markup(),
+        "<label><input type=\"checkbox\" role=\"switch\" class=\"w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414\" checked /><span>Email me</span></label>",
+    );
+
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".r-9999{border-radius:9999px}"));
+    assert.isTrue(
+        sheet.contains(".checked_bg-141414:checked{background-color:rgb(20,20,20)}"),
+    );
+    // The reset reaches the control, so nothing the program asked for is
+    // painted over.
+    assert.isTrue(sheet.contains(":where(input[type=checkbox]){appearance:none;"));
+
+    // And the same styles are on the control's line of the scene document, one
+    // level under the label that wraps it.
+    assert.containsText(
+        ui.describe(
+            ctx,
+            ui.toggle(.Const("Email me"), .Switch, styles, [], on),
+            .Checked,
+        ),
+        "am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414",
+    );
+}
+
+test "a container with no layout is the column the default promises" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // `Layout`'s doc says a container with no `Layout` stacks its children
+    // downwards, and the headless painter has laid one out that way all along.
+    // As CSS's `display:block` the alignments below would be computed and do
+    // nothing, and the text would sit in the top-left corner of the box.
+    let tree = ui.stack(
+        [.Width(.Px(40)), .Height(.Px(40)), .AlignMain(.Center), .AlignCross(.Center)],
+        [ui.text(.Const("ok"))],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"w-40 h-40 am-center ac-center\">ok</div>",
+    );
+
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ":where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}",
+        ),
+    );
+    // The four table elements are left out. A browser lays a table out itself,
+    // and that is what the scene document mirrors for them.
+    assert.isFalse(sheet.contains(",table,"));
+    assert.isFalse(sheet.contains(",td)"));
+    // It weighs nothing, so `row` still runs along the axis.
+    let flow = assert.some(sheet.indexOf("flex-direction:column}\n"));
+    let row = assert.some(sheet.indexOf(".lay-row{"));
+    assert.isTrue(flow < row);
+}
+
+test "a designed focus ring replaces the platform's rather than joining it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A browser paints its own `outline` over whatever a program put on the
+    // focused element, and `ui/style` has no `Outline` to turn one off with —
+    // so without this the button below wears a grey band with Chrome's blue
+    // rectangle around it.
+    let ringed = ui.button(
+        .Const("focus me"),
+        [.On(.Focus, [.BorderWidth(.Px(3))])],
+        [],
+        fn(_c, _e) => (),
+    );
+    assert.equal(
+        render(ctx, ringed).markup(),
+        "<button type=\"button\" aria-label=\"focus me\" class=\"focus_bw-3\">focus me</button>",
+    );
+
+    // A fade is not a ring: it is drawn *beside* the platform's, so the
+    // platform's stays. So does a ring that only applies from a breakpoint
+    // upwards, because there is a width at which it paints nothing.
+    let faded = ui.button(
+        .Const("dim"),
+        [.On(.Focus, [.Opacity(0.7)])],
+        [],
+        fn(_c, _e) => (),
+    );
+    let wide = ui.button(
+        .Const("wide"),
+        [.At(.Small, [.On(.Focus, [.BorderWidth(.Px(2))])])],
+        [],
+        fn(_c, _e) => (),
+    );
+    assert.equal(
+        render(ctx, faded).markup(),
+        "<button type=\"button\" aria-label=\"dim\" class=\"focus_op-0_7\">dim</button>",
+    );
+    assert.equal(
+        render(ctx, wide).markup(),
+        "<button type=\"button\" aria-label=\"wide\" class=\"sm_focus_bw-2\">wide</button>",
+    );
+
+    // The suppression opens the sheet, so a class named in it is read before
+    // the rule that draws it and a class left out of it is read after.
+    let sheet = stylesheet();
+    let outline = assert.some(sheet.indexOf("{outline:none}"));
+    assert.isTrue(assert.some(sheet.indexOf(".focus_bw-3")) < outline);
+    assert.isTrue(assert.some(sheet.indexOf(".focus_op-0_7")) > outline);
+    assert.isTrue(assert.some(sheet.indexOf(".sm_focus_bw-2")) > outline);
+    assert.isTrue(sheet.contains(":focus-visible{outline:none}"));
+}
+
+test "a separator is a rule the caller paints, and a picture is its own block" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A browser's `<hr>` is a 1px `inset` border on all four edges, so a
+    // hairline asked for one pixel paints three in two tones, and its automatic
+    // inline margin shrinks it inside a column. A picture and an inlined
+    // `<svg>` are the two leaves a browser leaves inline, so each hangs on the
+    // text baseline beside whatever was written before it.
+    let tree = ui.stack([], [
+        ui.region(.Separator, [.Height(.Px(1)), .Background(.Rgb(229, 229, 229))], []),
+        ui.image(.Const("/logo.png"), .Const("")),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><hr class=\"h-1 bg-e5e5e5\" /><img src=\"/logo.png\" alt=\"\" /></div>",
+    );
+
+    // An icon is artwork inlined as an `<svg>`, which a browser leaves inline
+    // for the same reason, so the one rule names both elements.
+    assert.containsText(render(ctx, ui.stack([], [check([])])).markup(), drawn);
+
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(":where(hr){border:0;margin:0}"));
+    assert.isTrue(sheet.contains(":where(img,svg){display:block}"));
+    // Both weigh nothing, so the caller's own hairline is the whole of what is
+    // painted.
+    let reset = assert.some(sheet.indexOf(":where(hr)"));
+    let height = assert.some(sheet.indexOf(".h-1{"));
+    assert.isTrue(reset < height);
 }
 
 test "a form is submitted, which is behaviour and so not a role" {

@@ -597,7 +597,7 @@ repositories land, `ui/...` can migrate out wholesale.
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
 | `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `choose`, `computed`, `each`, `icon`, `mount` |
 | `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
-| `ui/theme` | library | `Theme`, `themed`, `switching` |
+| `ui/theme` | library | `Theme`, `Scheme`, `themed`, `switching`, `scheme` |
 | `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |
 
 There is **no `ui` umbrella module**: re-exporting from seven modules buys one
