@@ -276,7 +276,7 @@ export enum Style {
     /// negative length bleed nothing: inward is a margin, and a margin is what
     /// this vocabulary leaves to the container.
     ///
-    /// Declared last because it is the only property that writes a margin, so
+    /// It is the only property that writes a margin, so wherever it is declared
     /// there is nothing for its position in the sheet to resolve against.
     Bleed(Edge, Length),
 
@@ -288,9 +288,9 @@ export enum Style {
     /// property that says content can be reached by scrolling to it, and this
     /// one says it is not painted at all.
     ///
-    /// Declared after `Scroll`, so an element that asks for both is clipped —
-    /// a container that scrolls *and* refuses to paint what it scrolls to is
-    /// not a thing to resolve, and the later declaration is the answer.
+    /// Declared after `Scroll`, which writes the same declaration, so an
+    /// element carrying both gets this one's answer — `.Clip(false)` included,
+    /// which paints the overflow a `Scroll` beside it asked to cut.
     Clip(Bool),
 
     /// Whether the pointer passes through this element to whatever is behind
@@ -299,9 +299,9 @@ export enum Style {
     /// It follows the platform's own inheritance: a subtree opts out and a
     /// child opts back in. A toaster dock pinned across the viewport asks for
     /// `.Passthrough(true)` so the page under it still answers a press, and
-    /// each toast in it asks for `.Passthrough(false)`. The mark drawn over a
-    /// switch asks for `.Passthrough(true)` so it does not swallow the press
-    /// that flips the control under it.
+    /// each toast in it asks for `.Passthrough(false)`. An icon inside a button
+    /// asks for `.Passthrough(true)` so the press lands on the button rather
+    /// than on the glyph.
     ///
     /// What the pointer *looks* like is `Cursor`, which is a different
     /// question: an element can refuse the pointer and still name a cursor,

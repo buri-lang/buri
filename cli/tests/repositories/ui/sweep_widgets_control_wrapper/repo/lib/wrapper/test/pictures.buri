@@ -24,7 +24,14 @@ test "what a row can do to a labelled control" {
     // reset gives it; the control's line carries its own and nothing else.
     let scene = ui.describe(
         ctx,
-        ui.field(.Const("Site"), .Text, [.Radius(.Px(4))], [.Grow(1)], signal(ctx, ""), .Const(false)),
+        ui.field(
+            .Const("Site"),
+            .Text,
+            [.Radius(.Px(4))],
+            [.Grow(1)],
+            signal(ctx, ""),
+            .Const(false),
+        ),
         .Hover,
     );
     assert.containsText(scene, "e 0 class:lay-row wrap-wrap ac-center grow-1");

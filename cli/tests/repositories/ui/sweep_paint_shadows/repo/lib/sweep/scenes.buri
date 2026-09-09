@@ -138,7 +138,14 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
         band("field", [
             cell(
                 "raised",
-                ui.field(.Const("name"), .Text, base(raised), [], signal(ctx, "Ada"), .Const(false)),
+                ui.field(
+                    .Const("name"),
+                    .Text,
+                    base(raised),
+                    [],
+                    signal(ctx, "Ada"),
+                    .Const(false),
+                ),
             ),
         ]),
     ])

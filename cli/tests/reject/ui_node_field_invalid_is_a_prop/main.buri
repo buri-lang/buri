@@ -13,5 +13,5 @@ from "ui/signal" import { signal };
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let typed = signal(ctx, "");
-  ui.mount(ctx, ui.field(.Const("Email"), .Email, [], typed, true), [])
+  ui.mount(ctx, ui.field(.Const("Email"), .Email, [], [], typed, true), [])
 }

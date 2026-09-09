@@ -952,14 +952,20 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
         Watch: observer(),
     };
     let agreed = signal(ctx, false);
-    let page = render(ctx, ui.toggle(.Const("terms"), .Checkbox, [], [], agreed, .Const(true)));
+    let page = render(
+        ctx,
+        ui.toggle(.Const("terms"), .Checkbox, [], [], agreed, .Const(true)),
+    );
     assert.equal(
         page.markup(),
         "<label><input type=\"checkbox\" aria-invalid=\"true\" /><span>terms</span></label>",
     );
     // A control that is not failing carries nothing at all, which is what
     // every field and toggle in this suite already says.
-    let quiet = render(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], agreed, .Const(false)));
+    let quiet = render(
+        ctx,
+        ui.toggle(.Const("done"), .Checkbox, [], [], agreed, .Const(false)),
+    );
     assert.equal(
         quiet.markup(),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
@@ -1597,7 +1603,10 @@ test "a field is labelled, and what is typed into it is in its signal" {
         Watch: observer(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, [], [], name, .Const(false)));
+    let page = render(
+        ctx,
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+    );
     assert.equal(
         page.markup(),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
@@ -1611,7 +1620,10 @@ test "a field follows its signal when something else writes it" {
         Ui: headless(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, [], [], name, .Const(false)));
+    let page = render(
+        ctx,
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+    );
     let _ = name.set(ctx, "grace");
     assert.equal(
         page.markup(),
@@ -1643,7 +1655,10 @@ test "a toggle is two states and a label" {
         Watch: observer(),
     };
     let done = signal(ctx, false);
-    let page = render(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)));
+    let page = render(
+        ctx,
+        ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)),
+    );
     assert.equal(
         page.markup(),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
@@ -1673,7 +1688,11 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     let inline = "class:lay-row wrap-wrap ac-center";
     let box = "class:lay-row ac-center w-r1 h-r1 shrink-0 am-start";
     assert.equal(
-        ui.describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)), .Hover),
+        ui.describe(
+            ctx,
+            ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)),
+            .Hover,
+        ),
         str.format(
             ctx,
             "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 ${box}\nt 1 done",
@@ -1682,7 +1701,11 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     // A field is the same wrapper with the text first, which is the order the
     // markup puts them in too.
     assert.equal(
-        ui.describe(ctx, ui.field(.Const("name"), .Text, [], [], name, .Const(false)), .Hover),
+        ui.describe(
+            ctx,
+            ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+            .Hover,
+        ),
         str.format(
             ctx,
             "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 field:text\nt 2 ada",
@@ -1707,7 +1730,14 @@ test "a labelled control takes styles for the box around it" {
     // that takes the room they leave. `Grow` has to land on the `<label>`,
     // because the label is what the row lays out and nothing on the input can
     // reach it.
-    let tree = ui.field(.Const("Site"), .Text, [.Width(.Full)], [.Grow(1)], site, .Const(false));
+    let tree = ui.field(
+        .Const("Site"),
+        .Text,
+        [.Width(.Full)],
+        [.Grow(1)],
+        site,
+        .Const(false),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "<label class=\"grow-1\"><span>Site</span><input type=\"text\" class=\"w-full\" /></label>",
@@ -1723,7 +1753,14 @@ test "a labelled control takes styles for the box around it" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.field(.Const("Site"), .Text, [], [.Layout(.Column)], site, .Const(false)),
+            ui.field(
+                .Const("Site"),
+                .Text,
+                [],
+                [.Layout(.Column)],
+                site,
+                .Const(false),
+            ),
             .Hover,
         ),
         "e 0 class:wrap-wrap ac-center lay-col",
@@ -1740,28 +1777,47 @@ test "a toggle draws its own mark" {
     // A switch always has its thumb, and where it sits is the whole of what
     // tells off from on: at the near end of the track, then at the far end.
     assert.containsText(
-        ui.describe(ctx, ui.toggle(.Const("email"), .Switch, [], [], off, .Const(false)), .Hover),
+        ui.describe(
+            ctx,
+            ui.toggle(.Const("email"), .Switch, [], [], off, .Const(false)),
+            .Hover,
+        ),
         "am-start\ne 2 mark:thumb;height:100%;aspect-ratio:1",
     );
     assert.containsText(
-        ui.describe(ctx, ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false)), .Hover),
+        ui.describe(
+            ctx,
+            ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false)),
+            .Hover,
+        ),
         "am-end\ne 2 mark:thumb;height:100%;aspect-ratio:1",
     );
     // A checkbox has its tick only when it is on. Before this a ticked checkbox
     // was a filled square with no check in it.
     assert.isFalse(
         ui
-            .describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], off, .Const(false)), .Hover)
+            .describe(
+                ctx,
+                ui.toggle(.Const("done"), .Checkbox, [], [], off, .Const(false)),
+                .Hover,
+            )
             .contains("mark:"),
     );
     assert.containsText(
-        ui.describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], on, .Const(false)), .Hover),
+        ui.describe(
+            ctx,
+            ui.toggle(.Const("done"), .Checkbox, [], [], on, .Const(false)),
+            .Hover,
+        ),
         "e 2 mark:tick;width:100%;height:100%",
     );
     // In a browser the mark is the reset's, on the box the runtime built —
     // because an `<input>` holds no children — and a switch says which it is.
     assert.equal(
-        render(ctx, ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false))).markup(),
+        render(
+            ctx,
+            ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false)),
+        ).markup(),
         "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
     );
     let sheet = stylesheet();
@@ -1799,7 +1855,11 @@ test "a field's kind is in the scene, and a password's value is never in it" {
 
 /// The scene document one field of a kind writes.
 fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
-    ui.describe(ctx, ui.field(.Const("secret"), kind, [], [], value, .Const(false)), .Hover)
+    ui.describe(
+        ctx,
+        ui.field(.Const("secret"), kind, [], [], value, .Const(false)),
+        .Hover,
+    )
 }
 
 test "a control takes styles of its own, and they land on the control" {
@@ -1818,7 +1878,14 @@ test "a control takes styles of its own, and they land on the control" {
         ),
         ui.link(.Const("/prices"), [.Foreground(.Rgb(9, 9, 9))], []),
         ui.field(.Const("name"), .Text, [.Radius(.Px(4))], [], name, .Const(false)),
-        ui.toggle(.Const("done"), .Checkbox, [.Width(.Px(20))], [], done, .Const(false)),
+        ui.toggle(
+            .Const("done"),
+            .Checkbox,
+            [.Width(.Px(20))],
+            [],
+            done,
+            .Const(false),
+        ),
     ]);
     // The classes are on the button, the anchor and the two inputs, never on a
     // wrapper. That is what makes a state work: a wrapper is not the thing that

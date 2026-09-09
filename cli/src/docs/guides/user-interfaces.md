@@ -177,7 +177,12 @@ export fn card<C>(banner: Node<C>, body: Node<C>): Node<C> {
 /// meant for the page under it; each toast in it takes the pointer back.
 export fn dock<C>(toasts: [Node<C>]): Node<C> {
     ui.column(
-        [.Position(.PinViewport), .Pin(.Bottom, .Px(0)), .Width(.Full), .Passthrough(true)],
+        [
+            .Position(.PinViewport),
+            .Pin(.Bottom, .Px(0)),
+            .Width(.Full),
+            .Passthrough(true),
+        ],
         toasts,
     )
 }
@@ -383,7 +388,14 @@ from "ui/signal" import { Signal };
 export fn site<C>(value: Signal<Str>): Node<C> {
     ui.row([.Width(.Full)], [
         ui.stack([.Shrink(0)], [ui.text(.Const("https://"))]),
-        ui.field(.Const("Site"), .Text, [.Width(.Full)], [.Grow(1)], value),
+        ui.field(
+            .Const("Site"),
+            .Text,
+            [.Width(.Full)],
+            [.Grow(1)],
+            value,
+            .Const(false),
+        ),
         ui.stack([.Shrink(0)], [ui.text(.Const(".com"))]),
     ])
 }
@@ -414,6 +426,7 @@ export fn notify<C>(value: Signal<Bool>): Node<C> {
         ],
         [],
         value,
+        .Const(false),
     )
 }
 ```
