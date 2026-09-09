@@ -1,0 +1,533 @@
+//! The pictures the per-edge border and the per-corner radius are: every value
+//! `BorderEdge` and `RadiusCorner` take, on their own, composed, against the
+//! whole-box property each of them narrows, and on every primitive that paints
+//! chrome.
+//!
+//! A page is a column of bands and a band is one claim, so a value reads across
+//! and the whole claim fits the 800 by 600 the painter gives a scene. Every
+//! subject is one blue box with a red border colour, because a colour is
+//! whole-box and what varies is where the line is and which corner is round.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// `BorderEdge`: every edge, every length, composed, and against the two
+/// whole-box properties it sits between.
+export fn borderPage<C>(): Node<C> {
+    page([
+        band("BorderEdge, one edge at a time, 4px", 86, [
+            cell(".Top", subject([.BorderEdge(.Top, .Px(4))])),
+            cell(".Bottom", subject([.BorderEdge(.Bottom, .Px(4))])),
+            cell(".Start", subject([.BorderEdge(.Start, .Px(4))])),
+            cell(".End", subject([.BorderEdge(.End, .Px(4))])),
+        ]),
+        band("BorderEdge(.Bottom, ...), every Length there is", 86, [
+            cell("0px", subject([.BorderEdge(.Bottom, .Px(0))])),
+            cell("1px", subject([.BorderEdge(.Bottom, .Px(1))])),
+            cell("4px", subject([.BorderEdge(.Bottom, .Px(4))])),
+            cell("0.5rem", subject([.BorderEdge(.Bottom, .Rem(0.5))])),
+            cell("10%", subject([.BorderEdge(.Bottom, .Percent(10.0))])),
+            cell("Auto", subject([.BorderEdge(.Bottom, .Auto)])),
+            cell("Full", subject([.BorderEdge(.Bottom, .Full)])),
+        ]),
+        band("two edges compose, and so do four", 86, [
+            cell(
+                "Top + Bottom",
+                subject([.BorderEdge(.Top, .Px(4)), .BorderEdge(.Bottom, .Px(4))]),
+            ),
+            cell(
+                "Start + End",
+                subject([.BorderEdge(.Start, .Px(4)), .BorderEdge(.End, .Px(4))]),
+            ),
+            cell(
+                "Top + Start",
+                subject([.BorderEdge(.Top, .Px(4)), .BorderEdge(.Start, .Px(4))]),
+            ),
+            cell(
+                "all four, 4px",
+                subject([
+                    .BorderEdge(.Top, .Px(4)),
+                    .BorderEdge(.Bottom, .Px(4)),
+                    .BorderEdge(.Start, .Px(4)),
+                    .BorderEdge(.End, .Px(4)),
+                ]),
+            ),
+            cell(
+                "four, 1/2/4/8",
+                subject([
+                    .BorderEdge(.Top, .Px(1)),
+                    .BorderEdge(.Bottom, .Px(2)),
+                    .BorderEdge(.Start, .Px(4)),
+                    .BorderEdge(.End, .Px(8)),
+                ]),
+            ),
+            cell(
+                "Bottom 1 then 6",
+                subject([.BorderEdge(.Bottom, .Px(1)), .BorderEdge(.Bottom, .Px(6))]),
+            ),
+        ]),
+        band("beside BorderWidth, which it narrows and so overrides", 86, [
+            cell("BorderWidth 2px", subject([.BorderWidth(.Px(2))])),
+            cell(
+                "width then edge",
+                subject([.BorderWidth(.Px(2)), .BorderEdge(.Start, .Px(8))]),
+            ),
+            cell(
+                "edge then width",
+                subject([.BorderEdge(.Start, .Px(8)), .BorderWidth(.Px(2))]),
+            ),
+            cell(
+                "width, edge 0",
+                subject([.BorderWidth(.Px(3)), .BorderEdge(.Start, .Px(0))]),
+            ),
+        ]),
+        band("beside BorderStyle and BorderColor, both whole-box", 86, [
+            cell("edge alone", subject([.BorderEdge(.Bottom, .Px(4))])),
+            cell(
+                "dashed",
+                subject([.BorderEdge(.Bottom, .Px(4)), .BorderStyle(.Dashed)]),
+            ),
+            cell("none", subject([.BorderEdge(.Bottom, .Px(4)), .BorderStyle(.None)])),
+            cell(
+                "three dashed",
+                subject([
+                    .BorderEdge(.Top, .Px(3)),
+                    .BorderEdge(.Start, .Px(3)),
+                    .BorderEdge(.End, .Px(3)),
+                    .BorderStyle(.Dashed),
+                ]),
+            ),
+            cell(
+                "transparent",
+                subject([.BorderEdge(.Bottom, .Px(4)), .BorderColor(.Transparent)]),
+            ),
+            cell(
+                "green",
+                subject([
+                    .BorderEdge(.Bottom, .Px(4)),
+                    .BorderColor(.Rgb(30, 120, 60)),
+                ]),
+            ),
+        ]),
+    ])
+}
+
+/// `RadiusCorner`: every corner, every length, composed, against the
+/// shorthand it narrows, and with a border following it round.
+export fn radiusPage<C>(): Node<C> {
+    page([
+        band("RadiusCorner, one corner at a time, 12px", 86, [
+            cell(".TopStart", subject([.RadiusCorner(.TopStart, .Px(12))])),
+            cell(".TopEnd", subject([.RadiusCorner(.TopEnd, .Px(12))])),
+            cell(".BottomStart", subject([.RadiusCorner(.BottomStart, .Px(12))])),
+            cell(".BottomEnd", subject([.RadiusCorner(.BottomEnd, .Px(12))])),
+        ]),
+        band("RadiusCorner(.TopStart, ...), every Length there is", 86, [
+            cell("0px", subject([.RadiusCorner(.TopStart, .Px(0))])),
+            cell("4px", subject([.RadiusCorner(.TopStart, .Px(4))])),
+            cell("12px", subject([.RadiusCorner(.TopStart, .Px(12))])),
+            cell("1rem", subject([.RadiusCorner(.TopStart, .Rem(1.0))])),
+            cell("50%", subject([.RadiusCorner(.TopStart, .Percent(50.0))])),
+            cell("Auto", subject([.RadiusCorner(.TopStart, .Auto)])),
+            cell("Full", subject([.RadiusCorner(.TopStart, .Full)])),
+        ]),
+        band("two corners compose, and so do four", 86, [
+            cell(
+                "TopStart+BotEnd",
+                subject([
+                    .RadiusCorner(.TopStart, .Px(12)),
+                    .RadiusCorner(.BottomEnd, .Px(12)),
+                ]),
+            ),
+            cell(
+                "TopStart+TopEnd",
+                subject([
+                    .RadiusCorner(.TopStart, .Px(12)),
+                    .RadiusCorner(.TopEnd, .Px(12)),
+                ]),
+            ),
+            cell(
+                "four, 12px",
+                subject([
+                    .RadiusCorner(.TopStart, .Px(12)),
+                    .RadiusCorner(.TopEnd, .Px(12)),
+                    .RadiusCorner(.BottomStart, .Px(12)),
+                    .RadiusCorner(.BottomEnd, .Px(12)),
+                ]),
+            ),
+            cell(
+                "four, 2/6/10/16",
+                subject([
+                    .RadiusCorner(.TopStart, .Px(2)),
+                    .RadiusCorner(.TopEnd, .Px(6)),
+                    .RadiusCorner(.BottomStart, .Px(10)),
+                    .RadiusCorner(.BottomEnd, .Px(16)),
+                ]),
+            ),
+            cell(
+                "TopStart 2 to 16",
+                subject([
+                    .RadiusCorner(.TopStart, .Px(2)),
+                    .RadiusCorner(.TopStart, .Px(16)),
+                ]),
+            ),
+            cell(
+                "40px on both",
+                subject([
+                    .RadiusCorner(.TopStart, .Px(40)),
+                    .RadiusCorner(.TopEnd, .Px(40)),
+                ]),
+            ),
+        ]),
+        band("beside Radius, which it narrows and so overrides", 86, [
+            cell("Radius 12px", subject([.Radius(.Px(12))])),
+            cell(
+                "radius, corner",
+                subject([.Radius(.Px(12)), .RadiusCorner(.TopStart, .Px(0))]),
+            ),
+            cell(
+                "corner, radius",
+                subject([.RadiusCorner(.TopStart, .Px(0)), .Radius(.Px(12))]),
+            ),
+            cell(
+                "one side squared",
+                subject([
+                    .Radius(.Px(12)),
+                    .RadiusCorner(.TopStart, .Px(0)),
+                    .RadiusCorner(.BottomStart, .Px(0)),
+                ]),
+            ),
+        ]),
+        band("a border follows the corner it goes round", 86, [
+            cell("whole border", subject([.Radius(.Px(12)), .BorderWidth(.Px(3))])),
+            cell(
+                "1 edge, 1 round",
+                subject([
+                    .RadiusCorner(.TopEnd, .Px(12)),
+                    .BorderEdge(.Top, .Px(3)),
+                    .BorderEdge(.End, .Px(3)),
+                ]),
+            ),
+            cell(
+                "3 edges, 2 round",
+                subject([
+                    .RadiusCorner(.TopStart, .Px(12)),
+                    .RadiusCorner(.TopEnd, .Px(12)),
+                    .BorderEdge(.Top, .Px(3)),
+                    .BorderEdge(.Start, .Px(3)),
+                    .BorderEdge(.End, .Px(3)),
+                ]),
+            ),
+            cell(
+                "dashed, rounded",
+                subject([
+                    .Radius(.Px(10)),
+                    .BorderEdge(.Bottom, .Px(3)),
+                    .BorderStyle(.Dashed),
+                ]),
+            ),
+        ]),
+    ])
+}
+
+/// The same edge and the same corner on every primitive that paints chrome. A
+/// `text` and an `image` take no styles of their own, so their cell styles the
+/// container, which is where a property on either of them goes anyway.
+export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("BorderEdge(.Bottom, .Px(3)) and RadiusCorner(.TopEnd, .Px(12))", 86, [
+            cell("stack", ui.stack(chrome([]), [leaf("Ada")])),
+            cell("region", ui.region(.Group, chrome([]), [leaf("Ada")])),
+            cell("button", ui.button(.Const("Ada"), chrome([]), fn(_c, _e) => ())),
+            cell("link", ui.link(.Const("/ada"), chrome([]), [leaf("Ada")])),
+            cell("heading", ui.heading(2, chrome([]), .Const("Ada"))),
+        ]),
+        band("...and the four whose element a browser draws itself", 104, [
+            cell(
+                "field",
+                ui.field(.Const("Name"), .Text, chrome([]), signal(ctx, "Ada")),
+            ),
+            cell("toggle", ui.toggle(.Const("on"), chrome([]), signal(ctx, true))),
+            cell(
+                "image",
+                ui.stack(chrome([]), [ui.image(.Const("logo.png"), .Const("a"))]),
+            ),
+            cell("text", ui.stack(chrome([]), [ui.text(.Const("Ada"))])),
+        ]),
+        band("all four edges and all four corners named, each a different number", 86, [
+            cell("stack", ui.stack(chrome(framed()), [leaf("Ada")])),
+            cell("region", ui.region(.Group, chrome(framed()), [leaf("Ada")])),
+            cell(
+                "button",
+                ui.button(.Const("Ada"), chrome(framed()), fn(_c, _e) => ()),
+            ),
+            cell("link", ui.link(.Const("/ada"), chrome(framed()), [leaf("Ada")])),
+            cell("heading", ui.heading(2, chrome(framed()), .Const("Ada"))),
+        ]),
+        band("...and the same four", 104, [
+            cell(
+                "field",
+                ui.field(.Const("Name"), .Text, chrome(framed()), signal(ctx, "Ada")),
+            ),
+            cell(
+                "toggle",
+                ui.toggle(.Const("on"), chrome(framed()), signal(ctx, true)),
+            ),
+            cell(
+                "image",
+                ui.stack(chrome(framed()), [ui.image(.Const("logo.png"), .Const("a"))]),
+            ),
+            cell("text", ui.stack(chrome(framed()), [ui.text(.Const("Ada"))])),
+        ]),
+    ])
+}
+
+/// The styles every primitive in that picture carries.
+fn chrome(styles: [Style]): [Style] {
+    [
+        .Width(.Px(72)),
+        .Height(.Px(40)),
+        .Background(.Rgb(206, 218, 240)),
+        .Foreground(.Rgb(18, 18, 28)),
+        .BorderColor(.Rgb(190, 40, 40)),
+        .BorderEdge(.Bottom, .Px(3)),
+        .RadiusCorner(.TopEnd, .Px(12)),
+        .Group(styles),
+    ]
+}
+
+/// All four edges and all four corners, each a different number, so a
+/// primitive that drops one shows it.
+fn framed(): [Style] {
+    [
+        .BorderEdge(.Top, .Px(1)),
+        .BorderEdge(.Bottom, .Px(2)),
+        .BorderEdge(.Start, .Px(4)),
+        .BorderEdge(.End, .Px(6)),
+        .RadiusCorner(.TopStart, .Px(2)),
+        .RadiusCorner(.TopEnd, .Px(6)),
+        .RadiusCorner(.BottomStart, .Px(10)),
+        .RadiusCorner(.BottomEnd, .Px(16)),
+    ]
+}
+
+/// What the two properties were asked for: one control made of several buttons
+/// welded together, and a divider that is one edge of a box rather than a box
+/// of its own.
+///
+/// The children are square where they meet and round at the ends, and the
+/// shared hairline is one border because every child but the first drops its
+/// start edge. No selector and no per-child rule: the caller maps over its own
+/// children and so knows where each one sits.
+export fn groupPage<C>(): Node<C> {
+    page([
+        band("a joined button group, along the text direction", 86, [
+            wide(
+                "three welded",
+                ui.row([.AlignCross(.Stretch)], [
+                    joined("Day", true, false),
+                    joined("Week", false, false),
+                    joined("Month", false, true),
+                ]),
+            ),
+            wide(
+                "two welded",
+                ui.row([.AlignCross(.Stretch)], [
+                    joined("On", true, false),
+                    joined("Off", false, true),
+                ]),
+            ),
+            wide(
+                "one, both round",
+                ui.row([.AlignCross(.Stretch)], [joined("Only", true, true)]),
+            ),
+            wide(
+                "a gap instead",
+                ui.row([.AlignCross(.Stretch), .Gap(.Px(6))], [
+                    joined("Day", true, true),
+                    joined("Week", true, true),
+                ]),
+            ),
+        ]),
+        band("the same group down the page", 122, [
+            wide(
+                "three welded",
+                ui.column([.AlignCross(.Stretch)], [
+                    stacked("Day", true, false),
+                    stacked("Week", false, false),
+                    stacked("Month", false, true),
+                ]),
+            ),
+            wide(
+                "two welded",
+                ui.column([.AlignCross(.Stretch)], [
+                    stacked("On", true, false),
+                    stacked("Off", false, true),
+                ]),
+            ),
+        ]),
+        band("a rule under every row but the last", 122, [
+            wide(
+                "three rows",
+                ui.column([.Width(.Px(140))], [
+                    ruled("Ada", true),
+                    ruled("Bee", true),
+                    ruled("Cy", false),
+                ]),
+            ),
+        ]),
+    ])
+}
+
+/// One button of a group laid along the text direction. A child that is not
+/// first squares its start corners and drops its start edge, so it and its
+/// neighbour share one hairline.
+fn joined<C>(label: Str, first: Bool, last: Bool): Node<C> {
+    ui.button(
+        .Const(label),
+        [
+            .Group(welded()),
+            .Group(if (first) {
+                []
+            } else {
+                [
+                    .RadiusCorner(.TopStart, .Px(0)),
+                    .RadiusCorner(.BottomStart, .Px(0)),
+                    .BorderEdge(.Start, .Px(0)),
+                ]
+            }),
+            .Group(if (last) {
+                []
+            } else {
+                [.RadiusCorner(.TopEnd, .Px(0)), .RadiusCorner(.BottomEnd, .Px(0))]
+            }),
+        ],
+        fn(_c, _e) => (),
+    )
+}
+
+/// The same control down the page: what meets a neighbour is the top edge and
+/// the two corners on it.
+fn stacked<C>(label: Str, first: Bool, last: Bool): Node<C> {
+    ui.button(
+        .Const(label),
+        [
+            .Group(welded()),
+            .Group(if (first) {
+                []
+            } else {
+                [
+                    .RadiusCorner(.TopStart, .Px(0)),
+                    .RadiusCorner(.TopEnd, .Px(0)),
+                    .BorderEdge(.Top, .Px(0)),
+                ]
+            }),
+            .Group(if (last) {
+                []
+            } else {
+                [.RadiusCorner(.BottomStart, .Px(0)), .RadiusCorner(.BottomEnd, .Px(0))]
+            }),
+        ],
+        fn(_c, _e) => (),
+    )
+}
+
+/// What every button in a group carries before it says where it sits.
+fn welded(): [Style] {
+    [
+        .PaddingX(.Px(8)),
+        .PaddingY(.Px(4)),
+        .Background(.Rgb(244, 244, 248)),
+        .Foreground(.Rgb(24, 24, 27)),
+        .BorderWidth(.Px(1)),
+        .BorderColor(.Rgb(190, 40, 40)),
+        .Radius(.Px(6)),
+    ]
+}
+
+/// One row of a table, with the rule under it that a box of its own could not
+/// draw: a row may hold only cells, so a divider has to be one edge of the row.
+fn ruled<C>(name: Str, rule: Bool): Node<C> {
+    ui.row(
+        [
+            .PaddingY(.Px(4)),
+            .BorderColor(.Rgb(190, 40, 40)),
+            .Group(if (rule) { [.BorderEdge(.Bottom, .Px(1))] } else { [] }),
+        ],
+        [ui.text(.Const(name))],
+    )
+}
+
+/// The page every picture is drawn on: eight hundred wide, white, small type.
+fn page<C>(bands: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(6)),
+            .Gap(.Px(4)),
+            .Background(.Rgb(255, 255, 255)),
+            .Foreground(.Rgb(20, 20, 20)),
+            .FontSize(.Px(11)),
+        ],
+        bands,
+    )
+}
+
+/// One claim's band: what it says, then a cell per value. Its height is fixed
+/// and it clips, so a cell that grows stays inside its own row instead of
+/// squashing the bands under it.
+fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Height(.Px(height)),
+            .Shrink(0),
+            .Scroll(.Both),
+            .Gap(.Px(2)),
+            .Padding(.Px(3)),
+            .Background(.Rgb(243, 244, 247)),
+        ],
+        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
+    )
+}
+
+/// A cell wide enough for a control made of several boxes.
+fn wide<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(190)), .Shrink(0), .Gap(.Px(1)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// One value: its label, and the box carrying it.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(100)), .Shrink(0), .Gap(.Px(1)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// The box every cell holds. Wide enough that a 12px corner and a 4px edge are
+/// both a shape rather than a smudge.
+fn subject<C>(styles: [Style]): Node<C> {
+    ui.stack(base(styles), [])
+}
+
+/// What every subject carries before the cell's own styles, which come last so
+/// the property under test wins.
+fn base(styles: [Style]): [Style] {
+    [
+        .Width(.Px(72)),
+        .Height(.Px(40)),
+        .Background(.Rgb(206, 218, 240)),
+        .Foreground(.Rgb(18, 18, 28)),
+        .BorderColor(.Rgb(190, 40, 40)),
+        .Group(styles),
+    ]
+}
+
+/// One child of a primitive that takes children.
+fn leaf<C>(words: Str): Node<C> {
+    ui.stack([], [ui.text(.Const(words))])
+}
