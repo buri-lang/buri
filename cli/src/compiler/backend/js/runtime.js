@@ -3668,8 +3668,17 @@ const $TREE_ROLES = [
 ];
 
 // `FieldKind`, lowered. `Multiline` is a `textarea` and has no type; the entry
-// keeps the arrays the same shape.
-const $TREE_FIELD_KINDS = ["text", "text", "password", "email", "number", "search"];
+// keeps the arrays the same shape. `Range` carries min, max and step, so the
+// whole enum is `[tag, ...payload]` and a kind is read one unwrap in.
+const $TREE_FIELD_KINDS = [
+  "text",
+  "text",
+  "password",
+  "email",
+  "number",
+  "search",
+  "range",
+];
 
 const $TREE_WEIGHTS = ["400", "500", "600", "700"];
 
@@ -4412,9 +4421,18 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // lays out and nothing on the input can reach it.
     $tree_styles(wrapper, node[4]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
-    const kind = node[2];
+    const kind = node[2][0];
     const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
     if (kind !== 1) $dom_attribute(element, "type", $TREE_FIELD_KINDS[kind]);
+    // A range says what it runs between and in what steps, and the browser
+    // gives back the thumb, the drag, the arrow and Home/End keys, and the
+    // `role="slider"` announcement with its three `aria-value*`. There is
+    // nothing here to draw, listen to or announce for itself.
+    if (kind === 6) {
+      $dom_attribute(element, "min", $f64(node[2][1]));
+      $dom_attribute(element, "max", $f64(node[2][2]));
+      $dom_attribute(element, "step", $f64(node[2][3]));
+    }
     // The styles are the input's rather than the label's: the input is what a
     // reader focuses and what a browser disables.
     $tree_styles(element, node[3]);

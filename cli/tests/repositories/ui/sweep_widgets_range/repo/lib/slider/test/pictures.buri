@@ -1,0 +1,71 @@
+// One picture per axis of a slider: where the thumb sits, how big the track is,
+// and what paints the two.
+//
+// The `describe` assertion beside each picture is what says the slider is in
+// the document and not only in the pixels: the kind, the bounds and the value
+// the painter puts the thumb at, and no run of text under the input — a browser
+// draws a slider and never the number behind one.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, snapshot };
+from "//lib/slider" import { paintPage, sizesPage, valuesPage };
+
+test "where the thumb sits" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(
+        ctx,
+        ui.field(.Const("Volume"), .Range(0.0, 100.0, 1.0), [], [], signal(ctx, "40")),
+        .Hover,
+    );
+    assert.containsText(scene, "field:range;range:0.0 100.0 40");
+    // The value is the thumb's position and never a run of text, so nothing in
+    // the scene shows the number.
+    assert.isFalse(scene.contains("t 2 40"));
+    snapshot(ctx, "range-values", valuesPage(ctx), .Hover, []);
+}
+
+test "how big the track is" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // Twelve lines by one, which is what the sheet's own reset gives a slider
+    // in a browser, and a `Width` beats it in both.
+    let bare = ui.describe(
+        ctx,
+        ui.field(.Const("Gain"), .Range(0.0, 10.0, 0.5), [], [], signal(ctx, "5")),
+        .Hover,
+    );
+    assert.containsText(bare, "class:w-r12 h-r1 shrink-0;field:range");
+    snapshot(ctx, "range-sizes", sizesPage(ctx), .Hover, []);
+}
+
+test "what paints a slider" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // One colour paints both shapes, so a slider is styled with `Foreground`
+    // and the box behind it with `Background`.
+    let painted = ui.describe(
+        ctx,
+        ui.field(
+            .Const("Gain"),
+            .Range(0.0, 10.0, 0.5),
+            [.Foreground(.Rgb(200, 30, 30))],
+            [],
+            signal(ctx, "5"),
+        ),
+        .Hover,
+    );
+    assert.containsText(painted, "fg-c81e1e");
+    snapshot(ctx, "range-paint", paintPage(ctx), .Hover, []);
+}

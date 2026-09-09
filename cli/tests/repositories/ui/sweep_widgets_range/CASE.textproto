@@ -1,0 +1,95 @@
+# The slider a `FieldKind.Range` is, painted: a bar across the middle of a
+# track, and a round thumb on it at the value.
+#
+# Three pictures, one per axis. **Where the thumb sits** — every value from one
+# end to the other, the same fraction of four different ranges, and every value
+# a range cannot hold, which HTML sanitizes rather than refuses: outside the
+# bounds is clamped into them, and text that is not a number at all is the
+# middle. **How big the track is** — the twelve lines by one a browser gives an
+# unsized slider, four widths, four heights, and the narrow tracks that say a
+# thumb never leaves its own box. **What paints it** — one `Foreground` for both
+# shapes, a `Background` behind rather than instead of the bar, and the border,
+# radius and opacity of the box around them.
+#
+# The slider is drawn by the widget in all three renderers, which is the whole
+# reason this case exists: the sheet's `:where(input[type=range])` gradient and
+# `::-webkit-slider-thumb` on a page, `range:<min> <max> <value>` in the scene
+# document, and a rectangle and a disc in the painter. A program can neither ask
+# for a thumb that is not there nor build a range without saying what it runs
+# between.
+#
+# Three things a reader should expect to see and not mistake for a fault. A
+# slider narrower than its own thumb paints a disc as wide as the track and
+# nothing travels, which is what a browser does with one. An `Opacity` of nought
+# is a cell with a label and no control under it, because the bar and the thumb
+# fade with everything else. And **a track shorter or narrower than one line is
+# the one place the two renderers differ**: the painter shrinks the thumb to fit
+# the box, where a browser's own is one line whatever the box is and overflows
+# it. A thumb that fits is the better picture and a thumb that overflows is the
+# better copy of a browser; below one line there is no size that is both, and
+# the `6px` and `8px` cells are where that shows.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the bar and the thumb a range draws for itself, across every value, every size and everything that paints them, as 3 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/slider", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/slider/test/__snapshots__/range-values.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/slider/test/pictures.buri"
+  replace: "\"range-values\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/slider", "--force", "--filter=thumb sits"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/slider/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/slider", "--update", "--force", "--filter=thumb sits"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/slider/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/slider", "--force", "--filter=thumb sits"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: two more pixels of height on one cell of the sizes
+# picture, which is the smallest edit that has to fail — the bar is a quarter of
+# the height, so two pixels move it as well as the box.
+edit {
+  file: "lib/slider/scenes.buri"
+  replace: ".Width(.Px(130)), .Height(.Px(24))"
+  with: ".Width(.Px(130)), .Height(.Px(26))"
+}
+
+run {
+  args: ["test", "//lib/slider", "--force", "--filter=big"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/slider/test/__snapshots__/range-sizes.diff.png"  exists: true }
+path { path: "lib/slider/test/__snapshots__/range-paint.diff.png"  exists: false }

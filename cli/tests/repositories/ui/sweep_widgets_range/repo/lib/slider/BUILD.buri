@@ -1,0 +1,9 @@
+# One library and one test source: the slider a `FieldKind.Range` is, and a
+# snapshot per axis of it.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
