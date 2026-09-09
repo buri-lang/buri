@@ -11,14 +11,15 @@
 # negative twin, a run that already fits in two lines and keeps its own last
 # word.
 #
-# Two of the five hold a row that is recorded as painted and is **wrong**, and
-# stay here with the goldens they have until the issues under them close:
+# `text-wrap-mode.png` is the same sentence under all three modes at the same
+# width, so the `Wrap` row and the `Balance` row below it are the comparison:
+# the same number of lines, evened out.
 #
-#   * the second row of `text-wrapping.png`. The long word is broken mid-word;
-#     with no `overflow-wrap` declaration a browser keeps it whole and lets it
-#     run past the box — buri#79.
-#   * the third row of `text-wrap-mode.png`. `Balance` paints byte for byte
-#     like `Wrap` — buri#81.
+# One of the five holds a row that is recorded as painted and is **wrong**, and
+# stays here with the golden it has until the issue under it closes: the second
+# row of `text-wrapping.png`, where the long word is broken mid-word. With no
+# `overflow-wrap` declaration a browser keeps it whole and lets it run past the
+# box — buri#79.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
