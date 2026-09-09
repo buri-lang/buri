@@ -96,7 +96,9 @@ the scope is closed
 
 **A timer is a task that sleeps.** There is no `Timer` type and no
 `setTimeout` — `sleep` already waits, and a task is already the thing that
-waits without holding up the code around it.
+waits without holding up the code around it. How long it waits is always a
+`Duration` built by `time.milliseconds`, `time.seconds` or a sibling, never a
+bare count of milliseconds.
 
 **`Scope` is inert.** It holds no context, so a lambda may capture one, and an
 interface can hand a scope to a handler that spawns into it later. That is what

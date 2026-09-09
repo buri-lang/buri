@@ -491,9 +491,12 @@ to the same type.
 
 A `Duration` counts **nanoseconds**. An `Instant` counts milliseconds, which is
 what the clock reports. `time.seconds(30)`, `milliseconds`, `microseconds`, `nanoseconds`,
-`minutes`, `hours` and `secondsFloat` build one, `ZERO` is the empty one, and
-`add`, `subtract`, `multiply`, `divide`, `negate` and `abs` combine them. `ratio` and
-`asSecondsFloat` answer a `Float`, because a length over a length is a number.
+`minutes`, `hours` and `secondsFloat` build one, `time.nanoseconds(0)` is the empty
+one, and `add`, `subtract`, `multiply`, `divide`, `negate` and `abs` combine them.
+`ratio` and `asSecondsFloat` answer a `Float`, because a length over a length is a
+number. **A `Duration` is the only way to name a span**: the nanosecond counts
+behind the constructors are private, so nothing outside `core/time` multiplies by
+a factor.
 **Every one of those saturates**, because overflow is undefined behaviour and a
 deadline is where a program can least afford it.
 `instant.hasPassed(deadline)` is that whole check. Its `Show` prints `1.5s`,
