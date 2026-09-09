@@ -254,6 +254,26 @@ test "a heading the worker sent carries the classes its styles chose" {
     );
 }
 
+test "a bleed crosses the worker as the class the compiler wrote" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The full-bleed separator inside a padded menu, rendered on the server and
+    // in the browser. One renderer, so one answer.
+    let menu = ui.stack([.Padding(.Px(4))], [
+        ui.region(
+            .Separator,
+            [.Height(.Px(1)), .Bleed(.Start, .Px(4)), .Bleed(.End, .Px(4))],
+            [],
+        ),
+    ]);
+    assert.equal(
+        web.render(menu),
+        "<div class=\"p-4\"><hr class=\"h-1 bleed-start-4 bleed-end-4\" /></div>",
+    );
+    assert.equal(web.render(menu), render(ctx, menu).markup());
+}
+
 test "text is escaped, so a title cannot write markup" {
     assert.equal(
         web.render(ui.text(.Const("<b>& later</b>"))),

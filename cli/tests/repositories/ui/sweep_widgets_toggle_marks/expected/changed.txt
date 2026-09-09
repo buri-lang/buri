@@ -1,5 +1,5 @@
 FAIL //lib/marks  test/pictures.buri  "a switch's thumb"
   the snapshot "toggle-switch" changed: see test/__snapshots__/toggle-switch.diff.png
-  --> lib/marks/test/pictures.buri:29:1
+  --> lib/marks/test/pictures.buri:37:1
 
 1 passed, 1 failed, 0 skipped (0.0s)

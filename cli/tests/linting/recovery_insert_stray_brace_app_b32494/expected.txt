@@ -1,0 +1,30 @@
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_insert_stray_brace_app_b32494/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: an expression statement is legal only in a test source [expression-statement]
+   --> lib/recovery_insert_stray_brace_app_b32494/main.buri:130:5
+    |
+130 |     extra let duty = levy + 3;
+    |     ^^^^^
+    |
+    = a block is `let`s followed by a result expression
+    = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `extra` in scope [unresolved-name]
+   --> lib/recovery_insert_stray_brace_app_b32494/main.buri:130:5
+    |
+130 |     extra let duty = levy + 3;
+    |     ^^^^^
+    |
+    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+   --> lib/recovery_insert_stray_brace_app_b32494/main.buri:130:10
+    |
+130 |     extra let duty = levy + 3;
+    |          ^
+    |
+    = fix: write `;` here

@@ -1,0 +1,22 @@
+error: a match arm ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_app_46612f/main.buri:63:20
+   |
+63 |         5 => "five"extra ,
+   |                    ^
+   |
+   = fix: write `,` here
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_insert_stray_brace_app_46612f/main.buri:63:25
+   |
+63 |         5 => "five"extra ,
+   |                         ^
+   |
+   = fix: write `=>` here
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_insert_stray_brace_app_46612f/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
