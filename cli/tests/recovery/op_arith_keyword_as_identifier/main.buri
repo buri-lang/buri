@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn mix(match: Int, b: Int, c: Int, d: Int, e: Int, f: Int): Int {
+  match + b * c - d / e % f
+}

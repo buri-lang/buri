@@ -1,0 +1,2 @@
+// EXPECT: this parameter list is missing its closing `)`
+export fn wrap(n: Int

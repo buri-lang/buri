@@ -1,0 +1,7 @@
+// EXPECT: expected an identifier, found `match`
+export fn size(match: Int): Str {
+  match (match) {
+    match if match > 10 => "large",
+    _ => "small",
+  }
+}

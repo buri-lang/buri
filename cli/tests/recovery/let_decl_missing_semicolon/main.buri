@@ -1,0 +1,6 @@
+// EXPECT: a `let` declaration ends with `;`
+let SEED: Int = 7
+
+export fn seed(): Int {
+  SEED
+}

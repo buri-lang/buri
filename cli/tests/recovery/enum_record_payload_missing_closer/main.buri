@@ -1,0 +1,5 @@
+// EXPECT: expected `:`, found `,`
+export enum Shape {
+  Rect { width: Int, height: Int ,
+  Empty,
+}

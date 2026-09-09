@@ -1,0 +1,12 @@
+error [unexpected-token] 3:6-3:12
+message: expected an identifier, found `export`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unexpected-token] 3:13-3:19
+message: expected a declaration, found `Meters`
+fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+
+error [unresolved-type] 5:19-5:25
+message: there is no type `Meters`
+fix: declare it, import it, or correct the spelling
+

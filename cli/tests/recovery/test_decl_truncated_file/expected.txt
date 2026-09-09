@@ -1,0 +1,4 @@
+error [unexpected-token] 6:1-6:1
+message: expected a string literal, found end of file
+fix: quote it, as in `"core/list"`
+

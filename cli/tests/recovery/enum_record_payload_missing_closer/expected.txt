@@ -1,0 +1,4 @@
+error [unexpected-token] 4:8-4:9
+message: expected `:`, found `,`
+fix: write `:` here
+

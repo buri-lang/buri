@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 6:20-6:21
+message: this call is missing its closing `)`
+fix: write `)` here
+related: 6:15-6:16 opened here
+

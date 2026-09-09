@@ -1,0 +1,4 @@
+// EXPECT: expected a declaration, found `@`
+export @ fn same<A: Equal + Ordered>(value: A): Bool {
+  value.equal(value)
+}

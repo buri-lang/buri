@@ -1,0 +1,7 @@
+// EXPECT: this call is missing its closing `)`
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+
+export fn line<C: Allocator>(ctx: C, name: Str, place: Str): Str {
+  str.format(ctx, "${name} of ${place}"
+}

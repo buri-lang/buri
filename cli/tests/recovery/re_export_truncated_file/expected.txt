@@ -1,0 +1,10 @@
+error [missing-terminator] 2:27-2:27
+message: a re-export declaration ends with `;`
+fix: write `;` here
+edit: 2:27-2:27 ";"
+
+error [unclosed-delimiter] 3:1-3:1
+message: this re-export list is missing its closing `}`
+fix: write `}` here
+related: 2:26-2:27 opened here
+

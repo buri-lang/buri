@@ -1,0 +1,4 @@
+// EXPECT: a function-type parameter ends with `,`
+export fn apply(f: fn(Int Int) => Int, n: Int): Int {
+  f(n, n)
+}

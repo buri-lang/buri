@@ -1,0 +1,5 @@
+// EXPECT: expected a pattern, found `match`
+export fn twice(parsed: Result<Int, Str>): Result<Int, Str> {
+  let match = parsed?;
+  .Ok(match * 2)
+}

@@ -1,0 +1,19 @@
+error [expression-statement] 9:5-9:10
+message: an expression statement is legal only in a test source
+fix: bind it: `let _ = ...;`, or make it the block's result expression
+note: a block is `let`s followed by a result expression
+
+error [type-not-a-value] 9:5-9:10
+message: `Point` is a type, not a value
+fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+
+error [missing-terminator] 9:10-9:10
+message: a statement ends with `;`
+fix: write `;` here
+edit: 9:10-9:10 ";"
+
+error [unclosed-delimiter] 9:12-9:13
+message: this block is missing its closing `}`
+fix: write `}` here
+related: 9:3-9:4 opened here
+

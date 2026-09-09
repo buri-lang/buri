@@ -1,0 +1,5 @@
+// EXPECT: expected a pattern, found `match`
+export fn split(): Int {
+  let (match, right) = (1, 2);
+  match + right
+}

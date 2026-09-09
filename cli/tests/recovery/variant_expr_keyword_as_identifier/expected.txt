@@ -1,0 +1,4 @@
+error [unexpected-token] 3:4-3:9
+message: expected an identifier, found `match`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+

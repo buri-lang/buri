@@ -1,0 +1,4 @@
+// EXPECT: this tuple type is missing its closing `)`
+export fn split(n: Int): (Int, (Str, Bool) {
+  (n, ("n", true))
+}

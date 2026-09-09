@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `=>`
+export fn name(n: Int): Str {
+  match (n) {
+    => 1 "one",
+    _ => "many",
+  }
+}

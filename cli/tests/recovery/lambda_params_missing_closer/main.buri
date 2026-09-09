@@ -1,0 +1,5 @@
+// EXPECT: this lambda parameter list is missing its closing `)`
+export fn add(x: Int, y: Int): Int {
+  let sum = fn(a, b => a + b;
+  sum(x, y)
+}

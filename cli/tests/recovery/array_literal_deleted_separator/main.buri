@@ -1,0 +1,4 @@
+// EXPECT: an array element ends with `,`
+export fn digits(): [Int] {
+  [1 2, 3]
+}

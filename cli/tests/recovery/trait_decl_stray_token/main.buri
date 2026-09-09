@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `@`
+export trait Area {
+  fn @ area(self): Int;
+}

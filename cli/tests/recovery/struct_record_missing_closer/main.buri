@@ -1,0 +1,5 @@
+// EXPECT: this `struct` body is missing its closing `}`
+export struct Point {
+  export x: Int,
+  export y: Int,
+

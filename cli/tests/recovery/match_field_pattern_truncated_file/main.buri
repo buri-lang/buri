@@ -1,0 +1,10 @@
+// EXPECT: this `match` does not cover `.Rect { width: _, height: _ }`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/110
+export enum Shape {
+  Rect { width: Int, height: Int },
+  Empty,
+}
+
+export fn area(shape: Shape): Int {
+  match (shape) {
+    .Rect { width, height

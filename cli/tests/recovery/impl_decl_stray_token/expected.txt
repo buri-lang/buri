@@ -1,0 +1,4 @@
+error [unexpected-token] 7:6-7:7
+message: expected a type, found `@`
+fix: name a type here, as in `Int` or `[Str]`
+

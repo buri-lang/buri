@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 3:21-3:23
+message: this lambda parameter list is missing its closing `)`
+fix: write `)` here
+related: 3:15-3:16 opened here
+

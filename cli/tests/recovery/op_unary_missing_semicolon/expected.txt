@@ -1,0 +1,13 @@
+error [type-mismatch] 2:46-5:2
+message: expected `I64`, found `()`
+
+error [unresolved-name] 4:8-4:12
+message: there is nothing named `flag` in scope
+fix: if you meant `flip`, use that; if not, a name is in scope only from this module's own declarations and its imports
+note: did you mean `flip`?
+
+error [missing-terminator] 4:17-4:17
+message: a statement ends with `;`
+fix: write `;` here
+edit: 4:17-4:17 ";"
+

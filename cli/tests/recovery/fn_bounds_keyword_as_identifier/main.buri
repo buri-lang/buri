@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn match<A: Equal + Ordered>(value: A): Bool {
+  value.equal(value)
+}

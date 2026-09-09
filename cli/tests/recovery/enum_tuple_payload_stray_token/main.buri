@@ -1,0 +1,5 @@
+// EXPECT: this `enum` is missing its closing `}`
+export enum Shape {
+  Point @(Int, Int),
+  Empty,
+}

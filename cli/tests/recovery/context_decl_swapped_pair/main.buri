@@ -1,0 +1,11 @@
+// EXPECT: expected a declaration, found `Console`
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+
+Console context {
+  Stdout: host.stdout,
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

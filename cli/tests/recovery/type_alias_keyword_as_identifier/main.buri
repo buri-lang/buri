@@ -1,0 +1,6 @@
+// EXPECT: expected an identifier, found `match`
+export type match = Float;
+
+export fn zero(): match {
+  0.0
+}

@@ -1,0 +1,9 @@
+error [wrong-argument-count] 6:3-6:16
+message: `equal` takes 2 arguments, but 0 were given
+fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
+
+error [unclosed-delimiter] 7:1-7:1
+message: this call is missing its closing `)`
+fix: write `)` here
+related: 6:15-6:16 opened here
+

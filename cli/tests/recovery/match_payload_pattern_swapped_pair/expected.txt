@@ -1,0 +1,9 @@
+error [match-not-exhaustive] 9:3-12:4
+message: this `match` does not cover `.Point(_, _)`
+fix: add an arm for `.Point(_, _)`, or a `_` arm for everything left
+note: every `match` must cover its scrutinee's type
+
+error [unexpected-token] 10:11-10:12
+message: expected an identifier, found `(`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+

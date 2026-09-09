@@ -1,0 +1,6 @@
+// EXPECT: this tuple-struct field list is missing its closing `)`
+export struct Meters(export Int, export Str;
+
+export fn zero(): Meters {
+  Meters(0, "m")
+}

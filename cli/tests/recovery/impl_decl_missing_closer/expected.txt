@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 12:1-12:1
+message: this `impl` body is missing its closing `}`
+fix: write `}` here
+related: 7:12-7:13 opened here
+

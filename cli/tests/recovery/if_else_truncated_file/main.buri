@@ -1,0 +1,3 @@
+// EXPECT: this `if` condition is missing its closing `)`
+export fn sign(n: Int): Int {
+  if (n

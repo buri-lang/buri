@@ -1,0 +1,4 @@
+error [unexpected-token] 4:9-4:11
+message: expected a pattern, found `if`
+fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+

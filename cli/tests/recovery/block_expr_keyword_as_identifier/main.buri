@@ -1,0 +1,8 @@
+// EXPECT: expected a pattern, found `match`
+export fn nested(): Int {
+  let match = {
+    let n = 1;
+    n + 1
+  };
+  match
+}

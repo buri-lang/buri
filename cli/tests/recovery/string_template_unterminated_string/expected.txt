@@ -1,0 +1,9 @@
+error [unterminated-string] 7:40-8:1
+message: unterminated string literal
+fix: close it with `"`; a string literal does not span a line break
+
+error [unclosed-delimiter] 8:1-8:2
+message: this call is missing its closing `)`
+fix: write `)` here
+related: 7:13-7:14 opened here
+

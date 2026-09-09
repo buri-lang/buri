@@ -1,0 +1,8 @@
+// EXPECT: expected an identifier, found `match`
+fn match(left: Int, right: Int): Int {
+  left + right
+}
+
+export fn four(): Int {
+  match(2, 2)
+}

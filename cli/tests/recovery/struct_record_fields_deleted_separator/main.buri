@@ -1,0 +1,5 @@
+// EXPECT: a record field ends with `,`
+export struct Point {
+  export x: Int
+  export y: Int,
+}

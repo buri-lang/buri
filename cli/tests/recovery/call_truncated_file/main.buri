@@ -1,0 +1,7 @@
+// EXPECT: `add` takes 2 arguments, but 1 were given
+fn add(left: Int, right: Int): Int {
+  left + right
+}
+
+export fn four(): Int {
+  add(2

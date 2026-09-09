@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn width(match: Str): Int {
+  match.trim().trimStart().length()
+}

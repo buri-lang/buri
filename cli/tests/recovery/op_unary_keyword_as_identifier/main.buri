@@ -1,0 +1,5 @@
+// EXPECT: expected a pattern, found `match`
+export fn flip(a: Int, b: Bool, c: Int): Int {
+  let match = if (!b) { 1 } else { 0 };
+  -a + match + ~c
+}

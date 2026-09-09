@@ -1,0 +1,5 @@
+// EXPECT: a method signature ends with `;`
+// ROLE: platform
+export effect Mischief {
+  fn meddle(self): ()
+}

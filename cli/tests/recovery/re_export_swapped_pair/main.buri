@@ -1,0 +1,7 @@
+// EXPECT: expected a declaration, found a string literal
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
+"core/order" from export { Order, Equal };
+
+export fn kind(): Str {
+  "re-export"
+}

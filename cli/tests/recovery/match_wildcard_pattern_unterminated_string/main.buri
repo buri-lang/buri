@@ -1,0 +1,7 @@
+// EXPECT: unterminated string literal
+export fn name(n: Int): Str {
+  match (n) {
+    1 => "one",
+    _ => "anything,
+  }
+}

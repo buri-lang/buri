@@ -1,0 +1,15 @@
+error [match-not-exhaustive] 4:3-5:14
+message: this `match` does not cover `_`
+fix: add a `_` arm
+note: exhaustiveness is not attempted over integer or string ranges
+
+error [missing-arrow] 5:14-5:14
+message: a match arm is `pattern => expression`
+fix: write `=>` here
+edit: 5:14-5:14 " =>"
+
+error [unclosed-delimiter] 6:1-6:1
+message: this `match` is missing its closing `}`
+fix: write `}` here
+related: 4:13-4:14 opened here
+

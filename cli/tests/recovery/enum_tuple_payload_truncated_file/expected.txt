@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 4:1-4:1
+message: this variant payload is missing its closing `)`
+fix: write `)` here
+related: 3:8-3:9 opened here
+

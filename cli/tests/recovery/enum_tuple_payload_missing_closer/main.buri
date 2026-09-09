@@ -1,0 +1,5 @@
+// EXPECT: there is no type `Empty`
+export enum Shape {
+  Point(Int, Int,
+  Empty,
+}

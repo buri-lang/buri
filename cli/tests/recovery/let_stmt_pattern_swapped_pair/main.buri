@@ -1,0 +1,5 @@
+// EXPECT: there is no assignment; a binding is given its value once, where it is declared
+export fn split(): Int {
+  ( letleft, right) = (1, 2);
+  left + right
+}

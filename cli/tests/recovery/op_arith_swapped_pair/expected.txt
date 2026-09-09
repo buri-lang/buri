@@ -1,0 +1,4 @@
+error [unexpected-token] 3:3-3:4
+message: expected an expression, found `+`
+fix: write a value here
+

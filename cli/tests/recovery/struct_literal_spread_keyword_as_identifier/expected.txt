@@ -1,0 +1,8 @@
+error [unexpected-token] 2:15-2:20
+message: expected an identifier, found `match`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unexpected-token] 7:26-7:31
+message: expected a type, found `match`
+fix: name a type here, as in `Int` or `[Str]`
+

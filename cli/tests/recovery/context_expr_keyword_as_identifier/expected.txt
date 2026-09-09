@@ -1,0 +1,8 @@
+error [unexpected-token] 7:39-7:44
+message: expected an identifier, found `match`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unresolved-name] 8:11-8:14
+message: there is nothing named `ctx` in scope
+fix: declare `ctx` as a parameter of this function
+

@@ -1,0 +1,13 @@
+error [unexpected-token] 2:4-2:9
+message: expected an identifier, found `match`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unclosed-delimiter] 7:10-7:11
+message: this `match` scrutinee is missing its closing `)`
+fix: write `)` here
+related: 7:8-7:9 opened here
+
+error [unexpected-token] 8:1-8:2
+message: expected `{`, found `}`
+fix: write `{` here
+

@@ -1,0 +1,20 @@
+error [match-not-exhaustive] 9:3-12:2
+message: this `match` does not cover `Point { x: _, y: _ }`
+fix: add an arm for `Point { x: _, y: _ }`, or a `_` arm for everything left
+note: every `match` must cover its scrutinee's type
+
+error [unclosed-delimiter] 10:19-10:21
+message: this variant field pattern is missing its closing `}`
+fix: write `}` here
+related: 10:11-10:12 opened here
+
+error [missing-arrow] 11:4-11:4
+message: a match arm is `pattern => expression`
+fix: write `=>` here
+edit: 11:4-11:4 " =>"
+
+error [unclosed-delimiter] 13:1-13:1
+message: this function body is missing its closing `}`
+fix: write `}` here
+related: 8:34-8:35 opened here
+

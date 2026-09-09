@@ -1,0 +1,8 @@
+// EXPECT: unterminated string literal
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/116
+export fn name(n: Int): Str {
+  match (n) {
+    1 => "one,
+    _ => "many",
+  }
+}

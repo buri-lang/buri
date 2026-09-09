@@ -1,0 +1,3 @@
+// EXPECT: expected `=`, found end of file
+export fn split(): Int {
+  let (left, right)
