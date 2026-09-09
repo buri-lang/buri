@@ -1,0 +1,10 @@
+# One library and one test source: six pictures of a run of `text`, styled by
+# the stack around it — `ui.text` takes no styles of its own, so the container
+# is where a property goes, and a snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

@@ -24,9 +24,11 @@
 //! * **fix** — the concrete edit that resolves it
 //!
 //! `expected` and `actual` are omitted where the error is not a mismatch (a
-//! duplicate declaration has no "expected"), but `fix` is not: if a diagnostic
-//! cannot say what to do about it, it is not finished. The reject corpus
-//! asserts exactly that, case by case.
+//! duplicate declaration has no "expected"), and `fix` is omitted only where
+//! those two lines are already the edit — a plain `type-mismatch`, where the
+//! sentence left to write is "produce the expected type". Everywhere else a
+//! diagnostic that cannot say what to do about it is not finished, and the
+//! reject corpus asserts exactly that, case by case.
 //!
 //! [`Diagnostic::to_json`] renders the same content as one JSON object per
 //! line, for `buri <cmd> --error-format=json`.
@@ -1252,6 +1254,23 @@ pub fn json_str(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// Where a bare name can have come from, for the second half of a candidate
+/// fix on one. There is no prelude beyond `core/order`'s, so this is the whole
+/// of it.
+pub const NAMES_IN_SCOPE: &str =
+    "a name is in scope only from this module's own declarations and its imports";
+
+/// The fix for a diagnostic that has a near miss to offer.
+///
+/// A candidate in a note and a fix line that says "check the spelling" wastes
+/// the one thing the diagnostic worked out. The fix names the candidate and
+/// then says where to look when it is not the one — `otherwise` is that
+/// second half, a phrase like ``buri docs core/json` lists every method `Json`
+/// has` or ``Colour`'s declaration lists its variants`.
+pub fn candidate_fix(candidate: &str, otherwise: &str) -> String {
+    format!("if you meant `{candidate}`, use that; if not, {otherwise}")
 }
 
 /// Joins names for a message, each in backticks: ``a``, ``b`` and ``c``. Every

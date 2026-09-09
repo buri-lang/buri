@@ -21,7 +21,6 @@ error: expected `I64`, found `Ledger` [type-mismatch]
    |
    = expected: `I64`
    = actual: `Ledger`
-   = fix: produce a `I64` here, or change what surrounds it to accept a `Ledger`
 error: this `match` is missing its closing `}` [unclosed-delimiter]
   --> lib/recovery_swap_adjacent_brace_cents_047018/lib.buri:21:17
    |

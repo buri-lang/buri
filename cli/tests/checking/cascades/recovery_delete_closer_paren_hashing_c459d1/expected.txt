@@ -6,7 +6,6 @@ error: expected `U64`, found `BigInt` [type-mismatch]
    |
    = expected: `U64`
    = actual: `BigInt`
-   = fix: produce a `U64` here, or change what surrounds it to accept a `BigInt`
 error: expected `I64`, found `U64` [type-mismatch]
   --> main.buri:38:52
    |

@@ -884,14 +884,22 @@ impl<'a> Checker<'a> {
                         let module_path = imp.path.clone();
                         let name = t.name(spec.name).to_string();
                         let mut note = None;
-                        // A name that exists but is not exported is a
-                        // different mistake from a name that does not exist.
-                        if self.scope(from).own.contains_key(&name) {
+                        let mut near = None;
+                        // A name this library used to have is answered with
+                        // what it is called now; a name that exists but is not
+                        // exported is a different mistake from a name that does
+                        // not exist.
+                        let renamed =
+                            standard_library::renamed::in_module(&module_path, &name);
+                        if let Some((said, _)) = &renamed {
+                            note = Some(said.clone());
+                        } else if self.scope(from).own.contains_key(&name) {
                             note = Some(format!(
                                 "`{name}` is declared in \"{module_path}\" but not exported"
                             ));
-                        } else if let Some(near) = self.nearest_export(from, &name) {
-                            note = Some(format!("did you mean `{near}`?"));
+                        } else if let Some(n) = self.nearest_export(from, &name) {
+                            note = Some(format!("did you mean `{n}`?"));
+                            near = Some(n);
                         }
                         // A package path resolves to its `lib.buri`, whose
                         // surface is what it re-exports — the declaration
@@ -908,7 +916,14 @@ impl<'a> Checker<'a> {
                             .templated("no-such-export", spec.name.span)
                             .bind("path", module_path.clone())
                             .bind("name", name.clone());
-                        if is_surface {
+                        if let Some((_, fix)) = renamed {
+                            d.fix(fix);
+                        } else if let Some(n) = &near {
+                            d.fix(crate::diagnostics::candidate_fix(
+                                n,
+                                &Self::where_the_surface_is(&module_path),
+                            ));
+                        } else if is_surface {
                             d.fix(format!(
                                 "check the spelling, or re-export `{name}` from \
                                  \"{module_path}\"'s `lib.buri`"
@@ -954,14 +969,22 @@ impl<'a> Checker<'a> {
                 // A name held back is a different mistake from a name that is
                 // not there, and only the first is answered by `export`.
                 let note;
-                let fix = if self.scope(from).own.contains_key(&name) {
+                let fix = if let Some((said, write)) =
+                    standard_library::renamed::in_module(&path, &name)
+                {
+                    note = Some(said);
+                    write
+                } else if self.scope(from).own.contains_key(&name) {
                     note = Some(format!("`{name}` is declared in \"{path}\" but not exported"));
                     format!(
                         "add `export` to `{name}`'s declaration in \"{path}\", or drop it from \
                          this list"
                     )
+                } else if let Some(n) = self.nearest_export(from, &name) {
+                    note = Some(format!("did you mean `{n}`?"));
+                    crate::diagnostics::candidate_fix(&n, &Self::where_the_surface_is(&path))
                 } else {
-                    note = self.nearest_export(from, &name).map(|n| format!("did you mean `{n}`?"));
+                    note = None;
                     format!("check the spelling, or drop `{name}` from this list")
                 };
                 let d = self
@@ -1015,6 +1038,17 @@ impl<'a> Checker<'a> {
         found
     }
 
+    /// Where a reader finds a module's whole surface, for the second half of a
+    /// fix that has a candidate to offer. The toolchain's own modules have a
+    /// page; a repository's module has its `export` declarations and nothing
+    /// else, and `buri docs` does not read them.
+    fn where_the_surface_is(path: &str) -> String {
+        match standard_library::is_std_path(path) {
+            true => format!("`buri docs {path}` lists what the module exports"),
+            false => format!("the `export` declarations in \"{path}\" are its whole surface"),
+        }
+    }
+
     pub(crate) fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {
         let names: Vec<&str> =
             self.scope(module).exports.keys().map(|s| s.as_str()).collect();
@@ -1042,14 +1076,29 @@ impl<'a> Checker<'a> {
             1..=12 => crate::diagnostics::names(&exports),
             n => format!("{n} names"),
         };
-        let near = self.nearest_export(ns, name);
+        let renamed = standard_library::renamed::in_module(&path, name);
+        let near = match renamed {
+            Some(_) => None,
+            None => self.nearest_export(ns, name),
+        };
         let d = self
             .templated("no-such-member", span)
-            .bind("path", path)
+            .bind("path", path.clone())
             .bind("name", name)
             .bind("exports", listed);
-        if let Some(n) = near {
+        // After the binds: every `bind` re-renders the page's own fix over it.
+        if let Some((note, fix)) = renamed {
+            // In place of the page's standing note. How many names the module
+            // exports is what a reader needs when the name is a guess, and this
+            // one is not a guess.
+            match d.notes.first_mut() {
+                Some(first) => *first = note,
+                None => d.notes.push(note),
+            }
+            d.fix(fix);
+        } else if let Some(n) = near {
             d.notes.push(format!("did you mean `{n}`?"));
+            d.fix(crate::diagnostics::candidate_fix(&n, &Self::where_the_surface_is(&path)));
         }
     }
 
@@ -1455,6 +1504,11 @@ impl<'a> Checker<'a> {
                 .bind("package", label.clone());
             if let Some(near) = near {
                 d.notes.push(format!("did you mean `{near}`?"));
+                let entry = &entry.name;
+                d.fix(crate::diagnostics::candidate_fix(
+                    &near,
+                    &format!("export `{entry}` from its `main.buri`"),
+                ));
             }
             match exported.is_empty() {
                 true => d.notes.push("`main.buri` exports no function at all".into()),
@@ -1716,16 +1770,23 @@ impl<'a> Checker<'a> {
                         }
                         let shown = t.type_head(*b).unwrap_or("?").to_string();
                         let at = t.type_span(*b);
-                        self.templated("not-a-trait", at)
-                            .bind("name", shown.clone())
-                            .fix(format!(
-                                "name a declared trait or effect, or declare `{shown}` as one"
-                            ))
-                            .notes
-                            .push(
-                                "a bound names a declared trait; there are no where clauses"
-                                    .into(),
-                            );
+                        let renamed = standard_library::renamed::anywhere(&shown);
+                        let d = self.templated("not-a-trait", at).bind("name", shown.clone());
+                        match renamed {
+                            Some((note, fix)) => {
+                                d.fix(fix);
+                                d.notes.push(note);
+                            }
+                            None => {
+                                d.fix(format!(
+                                    "name a declared trait or effect, or declare `{shown}` as one"
+                                ));
+                                d.notes.push(
+                                    "a bound names a declared trait; there are no where clauses"
+                                        .into(),
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -1885,13 +1946,19 @@ impl<'a> Checker<'a> {
                             return Ty::Error;
                         }
                         let shown = t.path_text(path);
-                        let mut note = None;
-                        if let Some(near) = self.nearest_type_name(module, name) {
-                            note = Some(format!("did you mean `{near}`?"));
-                        }
+                        let renamed = standard_library::renamed::anywhere(&shown);
+                        let near = match renamed {
+                            Some(_) => None,
+                            None => self.nearest_type_name(module, name),
+                        };
                         let d = self.templated("unresolved-type", span).bind("name", shown);
-                        if let Some(n) = note {
-                            d.notes.push(n);
+                        if let Some((note, fix)) = renamed {
+                            d.fix(fix);
+                            d.notes.push(note);
+                        } else if let Some(n) = near {
+                            let scope = crate::diagnostics::NAMES_IN_SCOPE;
+                            d.fix(crate::diagnostics::candidate_fix(&n, scope));
+                            d.notes.push(format!("did you mean `{n}`?"));
                         }
                         Ty::Error
                     }
@@ -2668,7 +2735,12 @@ impl<'a> Checker<'a> {
             let at = self.tree(module).type_span(*ty);
             let Some(trait_id) = self.resolve_trait(module, *ty) else {
                 let shown = self.tree(module).type_head(*ty).unwrap_or("?").to_string();
-                self.templated("derive-not-a-trait", at).bind("name", shown);
+                let renamed = standard_library::renamed::anywhere(&shown);
+                let d = self.templated("derive-not-a-trait", at).bind("name", shown);
+                if let Some((note, fix)) = renamed {
+                    d.fix(fix);
+                    d.notes.push(note);
+                }
                 continue;
             };
             let name = self.tables.trait_(trait_id).name.clone();

@@ -312,6 +312,14 @@ fn serving_a_page() {
 /// every derived tier painted either side of a write, what an image paints
 /// when nothing may be fetched, and the ends of every axis the tree has.
 ///
+/// `a_border_and_a_ring_land_where_css_puts_them` is three pictures and three
+/// rules a browser follows and this painter did not: a border of any width
+/// sits inside its box, a border with no colour of its own is the foreground,
+/// and an outer shadow is painted outside the box that cast it. One row per
+/// rule, because none of the three is visible in a picture of something else —
+/// a one-pixel border reads as a grey smudge, a black border reads as a
+/// choice, and a ring reads as a fill.
+///
 /// The `sweep_states_*` cases are the states sweep: every `State` against every
 /// interactive primitive, six pictures to a case — the resting one and one per
 /// state — each a labelled grid of `Background`, `Foreground`, `Border`,
@@ -320,9 +328,22 @@ fn serving_a_page() {
 /// that state applied, and every case's last step moves one number in the hover
 /// palette so exactly one of its six goldens fails. That is the tier-2 record
 /// that a state golden is not a copy of the resting one.
+///
+/// **The `sweep_properties_*` cases are the matrix under those nine**: every
+/// `ui/style` property that paints something, at three to five values each,
+/// against every node primitive — a case per primitive, six pictures in it,
+/// one per family of properties, and a seventh under `field` for the six kinds
+/// a field can be. A picture is a labelled grid, so a property is a row and its
+/// values read across it, and each case ends with the edit that has to fail.
+/// `text` and `image` take no styles of their own, so their column styles the
+/// container, which is where a property on either of them goes anyway.
+///
+/// A property that stops being painted turns its row into a row of identical
+/// cells rather than going quiet, which is what makes a grid worth more here
+/// than a picture per value.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 26);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 36);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
