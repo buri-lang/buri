@@ -1,0 +1,19 @@
+// EXPECT: expected `Length`
+//
+// Every distance in `ui/style` is a `Length`, so a bare number is not one: a
+// border a pixel thick is `.Px(1)`, and the same width in `.Rem` follows a
+// reader who made the text larger. `Grow`, `Shrink` and `Span` are the counts,
+// and they take an `Int` for the same reason this does not.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+
+let hairline: Style = .BorderEdge(.Bottom, 1);
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([hairline], []), [])
+}

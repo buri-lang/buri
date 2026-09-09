@@ -143,11 +143,12 @@ at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 47 properties and five ways of composing them. Every property is
+`ui/style` is 49 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
-right by construction. What matters is where a style *goes*.
+right by construction, and a corner is the two edges that meet at it
+(`.TopStart`). What matters is where a style *goes*.
 
 `Bleed(Edge, Length)` is the one way *out* of the box a container put a child
 in, and it is a distance outwards rather than a margin: `.Auto` and a negative
@@ -218,6 +219,44 @@ assigned, which can only choose between classes already in the sheet. Between
 two *different* properties that touch the same declaration, say `Padding` and
 `PaddingX`, the order the variants are declared in decides, and the narrower
 property is always declared later.
+
+**Four properties name one edge or one corner**, and two of them naming
+different ones compose rather than fighting: `Pin`, `PaddingEdge`,
+`BorderEdge(Edge, Length)` and `RadiusCorner(Corner, Length)`. A border's colour
+and style stay whole-box, so `BorderEdge` is the row rule under a table row and
+the guide line down a submenu, and nothing has to invent a one-pixel element to
+draw one. `RadiusCorner` is how a caller that already knows where a child sits
+squares the side that meets its neighbour — a joined button group maps over its
+own children, so the parent decides and the child carries plain styles.
+
+```buri
+from "ui/effect" import { Event };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// One button of a group welded to the one beside it.
+export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<C> {
+    ui.button(
+        .Const(label),
+        [
+            .PaddingX(.Px(12)),
+            .PaddingY(.Px(6)),
+            .Radius(.Px(6)),
+            .BorderWidth(.Px(1)),
+            .Group(if (first) {
+                []
+            } else {
+                [
+                    .RadiusCorner(.TopStart, .Px(0)),
+                    .RadiusCorner(.BottomStart, .Px(0)),
+                    .BorderEdge(.Start, .Px(0)),
+                ]
+            }),
+        ],
+        onPress,
+    )
+}
+```
 
 **A control carries its own styles.** `button`, `link`, `field` and `toggle`
 take a `[Style]`, and it lands on the element itself — so `On(.Hover, ...)`,

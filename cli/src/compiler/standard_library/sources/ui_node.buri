@@ -37,8 +37,8 @@ from "ui/effect" import { Event, Scope, Ui };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal };
 from "ui/style" import {
-    Align, BorderStyle, Color, Cursor, Edge, FontFamily, Layout, Length, ListMarker,
-    Shadow, State, Style, TextCase, TextLine, TextWrap, Track, Weight,
+    Align, BorderStyle, Color, Corner, Cursor, Edge, FontFamily, Layout, Length,
+    ListMarker, Shadow, State, Style, TextCase, TextLine, TextWrap, Track, Weight,
 };
 from "ui/theme" import { Theme };
 
@@ -955,9 +955,22 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
                 decl(ctx, "border-width", lengthCss(ctx, length)),
             ]
         },
+        // One edge, drawing the same solid a whole-box width implies.
+        // `BorderColor` stays whole-box.
+        .BorderEdge(edge, length) => {
+            let side = "border-".concat(ctx, edgeName(edge));
+            [
+                decl(ctx, side.concat(ctx, "-style"), "solid"),
+                decl(ctx, side.concat(ctx, "-width"), lengthCss(ctx, length)),
+            ]
+        },
         .BorderColor(color) => [decl(ctx, "border-color", colorCss(ctx, color))],
         .BorderStyle(border) => [decl(ctx, "border-style", borderStyleName(border))],
         .Radius(length) => [decl(ctx, "border-radius", lengthCss(ctx, length))],
+        .RadiusCorner(corner, length) => {
+            let name = str.format(ctx, "border-${cornerName(corner)}-radius");
+            [decl(ctx, name, lengthCss(ctx, length))]
+        },
         .Opacity(amount) => [decl(ctx, "opacity", str.fromFloat(ctx, amount))],
         .Shadow(shadow) => [decl(ctx, "box-shadow", shadowCss(ctx, shadow))],
         .FontFamily(family) => [decl(ctx, "font-family", fontStack(ctx, family))],
@@ -1123,6 +1136,17 @@ fn edgeName(edge: Edge): Str {
         .Bottom => "block-end",
         .Start => "inline-start",
         .End => "inline-end",
+    }
+}
+
+/// CSS names a corner by the two logical edges that meet at it, block first,
+/// which is the order `Corner` declares them in.
+fn cornerName(corner: Corner): Str {
+    match (corner) {
+        .TopStart => "start-start",
+        .TopEnd => "start-end",
+        .BottomStart => "end-start",
+        .BottomEnd => "end-end",
     }
 }
 
