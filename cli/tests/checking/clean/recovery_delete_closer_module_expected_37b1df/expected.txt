@@ -7,3 +7,15 @@ error: expected an identifier, found `struct` [unexpected-token]
   = expected: an identifier
   = actual: `struct`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this `enum` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:14:1
+   |
+14 | 
+   | ^
+   |
+ --> main.buri:1:19
+  |
+1 | export enum Shape {
+  |                   ^ opened here
+  |
+  = fix: write `}` here

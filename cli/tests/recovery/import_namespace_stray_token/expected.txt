@@ -1,8 +1,4 @@
-error [unexpected-token] 3:6-3:7
+error [unexpected-token] 2:6-2:7
 message: expected a string literal, found `@`
 fix: quote it, as in `"core/list"`
-
-error [unresolved-name] 6:3-6:7
-message: there is nothing named `list` in scope
-fix: declare `list`, or import it — a name is in scope only from this module's own declarations and its imports
 
