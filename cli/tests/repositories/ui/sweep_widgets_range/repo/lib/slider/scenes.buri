@@ -1,0 +1,172 @@
+//! The slider a `FieldKind.Range` is: a bar across the middle of a track, and a
+//! round thumb on it at the value.
+//!
+//! A page is a band per thing that moves the thumb or changes the track, and a
+//! band is a labelled slider per value. The label is the field's own, so what a
+//! cell says is what a reader is announced.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// Where the thumb sits: every value, every shape of bounds, and every value a
+/// range cannot hold.
+export fn valuesPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("range — the thumb sits where the value is")),
+        band("0 to 100", [
+            narrow(ctx, "0", 0.0, 100.0, "0"),
+            narrow(ctx, "25", 0.0, 100.0, "25"),
+            narrow(ctx, "50", 0.0, 100.0, "50"),
+            narrow(ctx, "100", 0.0, 100.0, "100"),
+        ]),
+        band("the bounds are the program's — one fraction, four ranges", [
+            narrow(ctx, "0..100 at 25", 0.0, 100.0, "25"),
+            narrow(ctx, "-50..50 at -25", -50.0, 50.0, "-25"),
+            narrow(ctx, "0..1 at 0.25", 0.0, 1.0, "0.25"),
+            narrow(ctx, "100..200 at 125", 100.0, 200.0, "125"),
+        ]),
+        band("what a range cannot hold — HTML's own sanitizing", [
+            narrow(ctx, "under, reads 0", 0.0, 100.0, "-40"),
+            narrow(ctx, "over, reads 100", 0.0, 100.0, "400"),
+            narrow(ctx, "words, reads 50", 0.0, 100.0, "loud"),
+            narrow(ctx, "nothing, reads 50", 0.0, 100.0, ""),
+        ]),
+    ])
+}
+
+/// The size of the track, and what the bar and the thumb make of it.
+export fn sizesPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(
+            .Const(
+                "range — the track a browser gives one, and the sizes a program asks for",
+            ),
+        ),
+        band("width", [
+            cell(ctx, "40px", 0.0, 100.0, "40", [.Width(.Px(40))]),
+            cell(ctx, "80px", 0.0, 100.0, "40", [.Width(.Px(80))]),
+            cell(ctx, "130px", 0.0, 100.0, "40", [.Width(.Px(130))]),
+            cell(ctx, "unsized — 12rem", 0.0, 100.0, "40", []),
+        ]),
+        band("height — the bar is a quarter of it, the thumb one line", [
+            cell(ctx, "6px", 0.0, 100.0, "40", [.Width(.Px(130)), .Height(.Px(6))]),
+            cell(ctx, "unsized — 1rem", 0.0, 100.0, "40", [.Width(.Px(130))]),
+            cell(ctx, "24px", 0.0, 100.0, "40", [.Width(.Px(130)), .Height(.Px(24))]),
+            cell(ctx, "40px", 0.0, 100.0, "40", [.Width(.Px(130)), .Height(.Px(40))]),
+        ]),
+        band("the ends — a thumb never leaves its track", [
+            cell(ctx, "40px at 0", 0.0, 100.0, "0", [.Width(.Px(40))]),
+            cell(ctx, "40px at 100", 0.0, 100.0, "100", [.Width(.Px(40))]),
+            cell(ctx, "16px at 50", 0.0, 100.0, "50", [.Width(.Px(16))]),
+            cell(ctx, "8px at 50", 0.0, 100.0, "50", [.Width(.Px(8))]),
+        ]),
+    ])
+}
+
+/// What paints a slider: one colour for both shapes, and the box behind them.
+export fn paintPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(
+            .Const(
+                "range — Foreground paints the bar and the thumb, Background the box",
+            ),
+        ),
+        band("Foreground", [
+            cell(ctx, "near black", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .Foreground(.Rgb(20, 20, 20)),
+            ]),
+            cell(ctx, "red", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .Foreground(.Rgb(200, 30, 30)),
+            ]),
+            cell(ctx, "rgba 0.35", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .Foreground(.Rgba(0, 0, 0, 0.35)),
+            ]),
+            cell(ctx, "transparent", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .Foreground(.Transparent),
+            ]),
+        ]),
+        band("Background is behind the bar, never instead of it", [
+            cell(ctx, "sand", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .Background(.Rgb(232, 214, 170)),
+            ]),
+            cell(ctx, "ink on sand", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .Background(.Rgb(232, 214, 170)),
+                .Foreground(.Rgb(40, 30, 10)),
+            ]),
+            cell(ctx, "radius full", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .Background(.Rgb(206, 218, 240)),
+                .Radius(.Full),
+            ]),
+            cell(ctx, "border 2px", 0.0, 100.0, "40", [
+                .Width(.Px(130)),
+                .BorderWidth(.Px(2)),
+                .BorderColor(.Rgb(70, 90, 120)),
+            ]),
+        ]),
+        band("Opacity fades the whole control", [
+            cell(ctx, "1.0", 0.0, 100.0, "40", [.Width(.Px(130)), .Opacity(1.0)]),
+            cell(ctx, "0.6", 0.0, 100.0, "40", [.Width(.Px(130)), .Opacity(0.6)]),
+            cell(ctx, "0.25", 0.0, 100.0, "40", [.Width(.Px(130)), .Opacity(0.25)]),
+            cell(ctx, "0.0", 0.0, 100.0, "40", [.Width(.Px(130)), .Opacity(0.0)]),
+        ]),
+    ])
+}
+
+/// One value at the width every cell that is not about width holds.
+fn narrow<C: Ui>(ctx: C, name: Str, min: Float, max: Float, value: Str): Node<C> {
+    cell(ctx, name, min, max, value, [.Width(.Px(130))])
+}
+
+/// One value: a labelled slider in a column of its own.
+///
+/// `around` is the label's, so the name sits above the track rather than
+/// beside it; `styles` are the track's, which is where every property under
+/// test goes.
+fn cell<C: Ui>(
+    ctx: C,
+    name: Str,
+    min: Float,
+    max: Float,
+    value: Str,
+    styles: [Style],
+): Node<C> {
+    ui.field(
+        .Const(name),
+        .Range(min, max, 1.0),
+        [.Foreground(.Rgb(40, 50, 90)), .Group(styles)],
+        [.Layout(.Column), .AlignCross(.Start), .Gap(.Px(3)), .Width(.Px(180))],
+        signal(ctx, value),
+        .Const(false),
+    )
+}
+
+/// One band: its name, then a cell per value.
+fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
+    ui.column([.Gap(.Px(6)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
+        ui.text(.Const(name)),
+        ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells),
+    ])
+}
+
+/// The page: a title and the bands under it.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(8)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}

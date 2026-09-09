@@ -111,6 +111,23 @@ export enum FieldKind {
     Number,
     /// A query.
     Search,
+    /// A number picked off a track, between a smallest and a largest, in steps
+    /// of a size: minimum, maximum, step.
+    ///
+    /// The three are the kind's own payload because a slider cannot be built
+    /// without them — a reader is told the range it is dragging inside, so by
+    /// this module's own rule they are parameters rather than attributes
+    /// somebody may remember to set. They are what the markup spells as `min`,
+    /// `max` and `step`, and what the browser turns into the thumb, the drag,
+    /// the arrow and Home/End stepping, and the `role="slider"` announcement
+    /// with its `aria-valuenow`, `aria-valuemin` and `aria-valuemax`.
+    ///
+    /// The value is a `Str` like every other kind's, because it is what the
+    /// control holds rather than what it means. A browser answers a range's
+    /// `value` as the text of a number and clamps it into the bounds; so does
+    /// the painter, and a value that is not a number at all sits in the middle,
+    /// which is what HTML says an unreadable one is worth.
+    Range(Float, Float, Float),
 }
 
 /// What a toggle looks like, and which mark it draws inside itself.
@@ -497,6 +514,10 @@ fn rootScope(): Scope;
 /// carries `field:<kind>`, which is the `type` its markup carries: the painter
 /// masks a password's value on it.
 ///
+/// A range carries `range:<min> <max> <value>` beside its kind and no run of
+/// text under it, because a browser draws a slider and never the number behind
+/// one. The painter reads the three and puts the thumb where the value is.
+///
 /// A toggle's box carries a line for its mark, which is the widget's own
 /// drawing rather than anything a program wrote: `mark:thumb` for a switch,
 /// always, and `mark:tick` for a checkbox that is on. Both are painted in the
@@ -580,9 +601,10 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
             [
                 styledLine(ctx, state, wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
-                fieldLine(ctx, state, kind, styles, depth + 1),
-                textLine(ctx, depth + 2, value.get(scope)),
-            ]
+            ].concat(
+                ctx,
+                fieldLines(ctx, state, kind, styles, value.get(scope), depth + 1),
+            )
         },
         // The box, its mark, and the text beside it. The mark is the widget's
         // own drawing: there is no child to supply one and no property that
@@ -686,6 +708,27 @@ fn markLines<C: Allocator>(ctx: C, kind: ToggleKind, on: Bool, depth: Int): [Str
     }
 }
 
+/// The lines an input contributes: its own, and the run of text it holds.
+///
+/// Every kind but a range shows what is in it, so the value is a `t` line under
+/// the input. A range shows a thumb on a track instead — a browser draws no
+/// number for one — so its value rides on the input's own line, where the
+/// painter reads it as a position rather than as something to set.
+fn fieldLines<C: Allocator>(
+    ctx: C,
+    state: State,
+    kind: FieldKind,
+    styles: [Style],
+    value: Str,
+    depth: Int,
+): [Str] {
+    let line = fieldLine(ctx, state, kind, styles, value, depth);
+    match (kind) {
+        .Range(_min, _max, _step) => [line],
+        _ => [line, textLine(ctx, depth + 1, value)],
+    }
+}
+
 /// The `e` line an input contributes: what it accepts, then its styles.
 ///
 /// `field:<kind>` is a scene-only declaration, as `image:` is. It is what the
@@ -694,20 +737,67 @@ fn markLines<C: Allocator>(ctx: C, kind: ToggleKind, on: Bool, depth: Int): [Str
 /// masked rather than shown, and only a `textarea` wraps. It comes first, so a
 /// style still wins over it the way a later declaration wins over an earlier
 /// one.
+///
+/// A range carries one more, `range:<min> <max> <value>`, and takes the size a
+/// browser gives a slider ahead of the caller's styles. Both are the bargain
+/// the `<label>` wrapper already makes: the sheet says it to a browser as a
+/// `:where(input[type=range])` rule, and this says it to the painter in the
+/// vocabulary, so the two renderers draw one control. The **step is not there**
+/// — what an arrow key moves by is never drawn, which is the rule that keeps an
+/// image's `alt` out of a scene too.
 fn fieldLine<C: Allocator>(
     ctx: C,
     state: State,
     kind: FieldKind,
     styles: [Style],
+    value: Str,
     depth: Int,
 ): Str {
     let accepts = decl(ctx, "field", kindName(kind));
+    let own = trackStyles(kind, styles);
     elementLine(
         ctx,
         depth,
-        classNames(ctx, state, styles),
-        [accepts].concat(ctx, inlineIn(ctx, state, styles, 0, [])),
+        classNames(ctx, state, own),
+        [accepts]
+            .concat(ctx, bounds(ctx, kind, value))
+            .concat(ctx, inlineIn(ctx, state, own, 0, [])),
     )
+}
+
+/// The `range:` declaration a slider carries, and nothing for any other kind.
+///
+/// The value is whatever the signal holds, escaped the way a declaration and a
+/// line both need — a semicolon or a newline in it would otherwise end the
+/// declaration or the line. What comes out the other side is a number or it is
+/// not, and the painter has an answer either way.
+fn bounds<C: Allocator>(ctx: C, kind: FieldKind, value: Str): [Str] {
+    match (kind) {
+        .Range(min, max, _step) => {
+            let lo = str.fromFloat(ctx, min);
+            let hi = str.fromFloat(ctx, max);
+            let at = escapeValue(ctx, value)
+                .replace(ctx, "\n", "\\n")
+                .replace(ctx, "\r", "\\r");
+            [decl(ctx, "range", str.format(ctx, "${lo} ${hi} ${at}"))]
+        },
+        _ => [],
+    }
+}
+
+/// A slider's track: the size a browser gives one, and then the caller's own.
+///
+/// Twelve lines wide, one line tall, and it does not shrink — the sheet's reset
+/// says the same three to a browser, because with the chrome cleared an unsized
+/// range is a control nobody can see or hit. Every other kind takes its styles
+/// as they were written.
+fn trackStyles(kind: FieldKind, styles: [Style]): [Style] {
+    match (kind) {
+        .Range(_min, _max, _step) => {
+            [.Width(.Rem(12.0)), .Height(.Rem(1.0)), .Shrink(0), .Group(styles)]
+        },
+        _ => styles,
+    }
 }
 
 /// What a `FieldKind` is called in a scene: the `type` the markup carries, and
@@ -720,6 +810,7 @@ fn kindName(kind: FieldKind): Str {
         .Email => "email",
         .Number => "number",
         .Search => "search",
+        .Range(_min, _max, _step) => "range",
     }
 }
 

@@ -2214,6 +2214,7 @@ test "a field's kind is in the scene, and a password's value is never in it" {
     assert.containsText(kindOf(ctx, .Email, secret), "field:email");
     assert.containsText(kindOf(ctx, .Number, secret), "field:number");
     assert.containsText(kindOf(ctx, .Search, secret), "field:search");
+    assert.containsText(kindOf(ctx, .Range(0.0, 100.0, 1.0), secret), "field:range");
 }
 
 /// The scene document one field of a kind writes.
@@ -2223,6 +2224,158 @@ fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
         ui.field(.Const("secret"), kind, [], [], value, .Const(false)),
         .Hover,
     )
+}
+
+test "a range field is a slider, and the browser drives it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let volume = signal(ctx, "40");
+    // The bounds are the kind's payload, so a slider cannot be built without
+    // saying what it runs between — a reader is told that, and there is
+    // nowhere else on `field` to put it. The one attribute buys the thumb, the
+    // drag, the arrow and Home/End stepping, `role="slider"` and
+    // `aria-valuenow`, `aria-valuemin` and `aria-valuemax`, none of which this
+    // vocabulary could draw for itself.
+    let page = render(
+        ctx,
+        ui.field(
+            .Const("Volume"),
+            .Range(0.0, 100.0, 1.0),
+            [],
+            [],
+            volume,
+            .Const(false),
+        ),
+    );
+    assert.equal(
+        page.markup(),
+        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"1.0\" value=\"40\" /></label>",
+    );
+    // `fill` is what a test does to any field, and a range is no different:
+    // where the reader dragged to lands in the signal, and the signal lands
+    // back on the input.
+    let _ = page.fill("Volume", "75");
+    assert.equal(volume.get(ctx), "75");
+    assert.containsText(page.markup(), "value=\"75\"");
+}
+
+test "a range's bounds are in the scene, and its value is not a run of text" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let volume = signal(ctx, "40");
+    let inline = "class:lay-row wrap-wrap ac-center";
+    let track = "class:w-r12 h-r1 shrink-0";
+    // The painter places the thumb, so it is told the bounds and the value the
+    // thumb sits at. It is not told the step: what an arrow key moves by is
+    // never drawn, which is the rule that keeps `alt` out of a scene too. And
+    // the value is a declaration rather than a `t` line, because a browser
+    // draws a slider and never the number behind one.
+    //
+    // The size is in the scene for the reason the wrapper's arrangement is: the
+    // sheet says it to a browser as a `:where(input[type=range])` rule, and the
+    // painter reads only classes, so the vocabulary has to say it again.
+    assert.equal(
+        ui.describe(
+            ctx,
+            ui.field(
+                .Const("Volume"),
+                .Range(0.0, 100.0, 1.0),
+                [],
+                [],
+                volume,
+                .Const(false),
+            ),
+            .Hover,
+        ),
+        str.format(
+            ctx,
+            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 Volume\ne 1 ${track};field:range;range:0.0 100.0 40",
+        ),
+    );
+    // The bounds are the ones the program wrote, whatever they are, and a
+    // value outside them is carried as written — clamping is the painter's and
+    // the browser's, not the scene's.
+    assert.containsText(
+        ui.describe(
+            ctx,
+            ui.field(
+                .Const("Fine"),
+                .Range(-1.5, 1.5, 0.25),
+                [],
+                [],
+                signal(ctx, "9"),
+                .Const(false),
+            ),
+            .Hover,
+        ),
+        "field:range;range:-1.5 1.5 9",
+    );
+    // A signal holds whatever it holds, and a semicolon ends a declaration, so
+    // the value is escaped the way an image's source is. What comes out is not
+    // a number, and the painter has an answer for that.
+    assert.containsText(
+        ui.describe(
+            ctx,
+            ui.field(
+                .Const("Odd"),
+                .Range(0.0, 1.0, 0.1),
+                [],
+                [],
+                signal(ctx, "a;b"),
+                .Const(false),
+            ),
+            .Hover,
+        ),
+        "range:0.0 1.0 a\\;b",
+    );
+    // And the sheet carries the same size, weightless, so a `Width` class beats
+    // it in a browser exactly as it beats it in the scene.
+    assert.isTrue(
+        stylesheet().contains(":where(input[type=range]){width:12rem;height:1rem;"),
+    );
+}
+
+test "a range field's styles land on the input, and compose the way a control's do" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let volume = signal(ctx, "40");
+    // Two edges naming different sides compose, the same edge is last-wins,
+    // and a state and a position sit beside them — all on the input, which is
+    // the thing a reader focuses and a browser disables.
+    let styles: [Style] = [
+        .PaddingEdge(.Start, .Px(8)),
+        .PaddingEdge(.End, .Px(4)),
+        .Width(.Px(120)),
+        .Width(.Px(160)),
+        .On(.Hover, [.Opacity(0.9)]),
+        .Position(.Sticky),
+    ];
+    let tree = ui.field(
+        .Const("Volume"),
+        .Range(0.0, 10.0, 0.5),
+        styles,
+        [],
+        volume,
+        .Const(false),
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"10.0\" step=\"0.5\" class=\"pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky\" value=\"40\" /></label>",
+    );
+    assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
+    // The caller's `Width` is last in the scene too, so the track's own twelve
+    // lines lose to it the way the sheet's rule loses to the class — and the
+    // height and the shrink it did not name are still the track's.
+    assert.containsText(
+        ui.describe(ctx, tree, .Hover),
+        "class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 40",
+    );
 }
 
 test "a control takes styles of its own, and they land on the control" {
@@ -2291,6 +2444,29 @@ test "the sheet drops the chrome a browser draws by itself" {
     assert.isTrue(
         sheet.contains(
             ":where(input[type=checkbox]){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;width:1rem;height:1rem;flex-shrink:0}",
+        ),
+    );
+    // A range is the other control that draws itself. The line above already
+    // took a browser's slider away, so these put back one this vocabulary can
+    // paint: a bar across the middle of the track, and a round thumb the
+    // browser slides along it. Both are `currentColor`, so `Foreground` is the
+    // one property that paints a slider.
+    assert.isTrue(
+        sheet.contains(
+            ":where(input[type=range]){width:12rem;height:1rem;flex-shrink:0;background-image:linear-gradient(currentColor,currentColor);background-size:100% 25%;background-repeat:no-repeat;background-position:center}",
+        ),
+    );
+    // Two rules and not one selector list: an unknown pseudo-element throws
+    // the whole selector away, so a browser that knows only one has to meet it
+    // on its own.
+    assert.isTrue(
+        sheet.contains(
+            ":where(input[type=range])::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:1rem;height:1rem;border-radius:9999px;background-color:currentColor}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(
+            ":where(input[type=range])::-moz-range-thumb{border:0;appearance:none;-webkit-appearance:none;width:1rem;height:1rem;border-radius:9999px;background-color:currentColor}",
         ),
     );
     // It opens the sheet, ahead of every class in it.
