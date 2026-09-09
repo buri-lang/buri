@@ -1,0 +1,4 @@
+// EXPECT: expected `fn`, found `area`
+export trait Area {
+  area fn(self): Int;
+}

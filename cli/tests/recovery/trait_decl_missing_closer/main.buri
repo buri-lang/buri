@@ -1,0 +1,5 @@
+// EXPECT: `self` is written without a type
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/118
+export trait Area {
+  fn area(self: Int;
+}

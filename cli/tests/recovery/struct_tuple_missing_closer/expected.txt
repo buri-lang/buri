@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 2:44-2:45
+message: this tuple-struct field list is missing its closing `)`
+fix: write `)` here
+related: 2:21-2:22 opened here
+

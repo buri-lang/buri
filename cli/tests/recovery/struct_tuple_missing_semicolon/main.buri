@@ -1,0 +1,6 @@
+// EXPECT: a `struct` declaration ends with `;`
+export struct Meters(export Int, export Str)
+
+export fn zero(): Meters {
+  Meters(0, "m")
+}

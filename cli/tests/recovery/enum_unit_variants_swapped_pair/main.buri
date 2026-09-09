@@ -1,0 +1,5 @@
+// EXPECT: expected an identifier, found `,`
+export enum Shape {
+  ,Circle
+  Square,
+}

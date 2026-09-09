@@ -1,0 +1,2 @@
+// EXPECT: expected an identifier, found end of file
+derive Equal,

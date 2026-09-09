@@ -1,0 +1,4 @@
+error [unexpected-token] 5:49-5:50
+message: expected a type, found `{`
+fix: name a type here, as in `Int` or `[Str]`
+

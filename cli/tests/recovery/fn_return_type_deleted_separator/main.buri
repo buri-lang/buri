@@ -1,0 +1,4 @@
+// EXPECT: a tuple type element ends with `,`
+export fn pair(): (Int Str) {
+  (1, "one")
+}

@@ -1,0 +1,4 @@
+error [unexpected-token] 3:5-3:11
+message: expected `:`, found `export`
+fix: write `:` here
+

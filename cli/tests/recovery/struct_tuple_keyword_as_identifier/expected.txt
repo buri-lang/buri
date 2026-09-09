@@ -1,0 +1,16 @@
+error [unexpected-token] 2:15-2:20
+message: expected an identifier, found `match`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unexpected-token] 2:28-2:31
+message: expected a declaration, found `Int`
+fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+
+error [unexpected-token] 2:40-2:43
+message: expected a declaration, found `Str`
+fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+
+error [unexpected-token] 4:19-4:24
+message: expected a type, found `match`
+fix: name a type here, as in `Int` or `[Str]`
+

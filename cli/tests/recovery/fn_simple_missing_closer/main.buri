@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `:`
+export fn one(: Int {
+  1
+}

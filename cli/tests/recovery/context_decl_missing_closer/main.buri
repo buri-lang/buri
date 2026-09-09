@@ -1,0 +1,11 @@
+// EXPECT: expected an identifier, found `export`
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+
+context Console {
+  Stdout: host.stdout,
+
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

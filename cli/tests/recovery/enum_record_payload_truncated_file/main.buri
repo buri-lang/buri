@@ -1,0 +1,3 @@
+// EXPECT: this variant field list is missing its closing `}`
+export enum Shape {
+  Rect { width: Int

@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 4:1-4:1
+message: this parameter list is missing its closing `)`
+fix: write `)` here
+related: 3:10-3:11 opened here
+

@@ -1,0 +1,8 @@
+error [unexpected-token] 3:5-3:6
+message: expected an identifier, found `@`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unresolved-name] 6:3-6:7
+message: there is nothing named `SEED` in scope
+fix: declare `SEED`, or import it — a name is in scope only from this module's own declarations and its imports
+

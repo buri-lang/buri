@@ -1,0 +1,6 @@
+// EXPECT: expected an identifier, found `match`
+derive Equal, Show for match;
+export enum match {
+  Circle,
+  Square,
+}

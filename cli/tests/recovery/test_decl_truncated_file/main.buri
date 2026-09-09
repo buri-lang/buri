@@ -1,0 +1,5 @@
+// EXPECT: expected a string literal, found end of file
+// ROLE: test
+from "core/testing/assert" import * as assert;
+
+test

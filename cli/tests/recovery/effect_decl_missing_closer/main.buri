@@ -1,0 +1,5 @@
+// EXPECT: expected a type, found `;`
+// ROLE: platform
+export effect Mischief {
+  fn meddle(self): (;
+}

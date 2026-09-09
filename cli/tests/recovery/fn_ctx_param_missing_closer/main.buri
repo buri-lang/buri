@@ -1,0 +1,7 @@
+// EXPECT: expected a type, found `{`
+from "core/effect" import { Stdout };
+from "core/io" import * as io;
+
+export fn note<C: Stdout>(ctx: C, line: Str): ( {
+  io.println(ctx, line).ignore()
+}
