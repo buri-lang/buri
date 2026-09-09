@@ -7,16 +7,16 @@
 # in a picture is a number off the viewport's own edge and can be read with a
 # ruler rather than inferred.
 #
-# Two of the eight are recorded as painted and are **wrong**, and stay here
-# with the goldens they have until the issues under them close:
+# One of the eight is recorded as painted and is **wrong**, and stays here with
+# the golden it has until the issue under it closes: the last three rows of
+# `layout-align-cross.png`. `align-items: space-between` is not a legal
+# declaration; a browser drops it and stretches, the painter reads it as start
+# — buri#80.
 #
-#   * `layout-layers.png`, and the third row of `layout-direction.png`. The
-#     sheet writes `.lay-layers>*{grid-area:1/1}` and the painter drops every
-#     rule with a combinator in it, so the children come out as a column
-#     rather than one over another — buri#77.
-#   * the last three rows of `layout-align-cross.png`. `align-items:
-#     space-between` is not a legal declaration; a browser drops it and
-#     stretches, the painter reads it as start — buri#80.
+# `layout-layers.png` and the third row of `layout-direction.png` used to be
+# two more. The painter dropped every rule with a combinator in it, so
+# `.lay-layers>*{grid-area:1/1}` never reached the children and they came out
+# as a column; both were re-recorded when buri#77 closed.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 

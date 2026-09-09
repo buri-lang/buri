@@ -54,6 +54,12 @@
 //! declared none. A picture that is not there is better shown as a box than as
 //! nothing, which is what an image with no source used to be.
 //!
+//! The sheet is read as class rules, plus **one shape of descendant rule**:
+//! `.<class>>*`, which is what `Layout(.Layers)` is written as. Every child of
+//! an element carrying the class takes the rule's declarations, so
+//! `.lay-layers>*{grid-area:1/1}` puts all of a layer stack's children in the
+//! same grid cell rather than in a column of their own rows.
+//!
 //! Two deliberate simplifications, each visible in a snapshot:
 //!
 //! * An element with no `display` lays out as a column of its children, which
@@ -523,6 +529,9 @@ impl State {
 struct Rule {
     class: String,
     state: Option<State>,
+    /// `.<class>>*` rather than `.<class>`: the declarations land on every
+    /// child of an element carrying the class, and on the element itself never.
+    child: bool,
     /// The `@media (min-width:)` floor in pixels; `0` outside a query.
     min_width: f32,
     declarations: Vec<(String, String)>,
@@ -550,16 +559,25 @@ fn parse_stylesheet(source: &str) -> Vec<Rule> {
         }
         let Some((selector, body)) = line.split_once('{') else { continue };
         let Some(body) = body.strip_suffix('}') else { continue };
-        let Some((class, state)) = parse_selector(selector) else { continue };
+        let Some((class, state, child)) = parse_selector(selector) else { continue };
         let Ok((_, declarations)) = parse_declarations(body) else { continue };
-        rules.push(Rule { class, state, min_width, declarations });
+        rules.push(Rule { class, state, child, min_width, declarations });
     }
     rules
 }
 
-/// `.<class><pseudo?>` — and `None` for a selector carrying anything after the
-/// pseudo-class, because a descendant rule is out of scope for version one.
-fn parse_selector(selector: &str) -> Option<(String, Option<State>)> {
+/// `.<class><pseudo?>`, or the same followed by `>*`, which is the one rule
+/// about descendants the sheet writes: `Layout(.Layers)` is a `display:grid` on
+/// the container and a `grid-area:1/1` on each of its children, and the pair is
+/// the only way that value is expressed. Anything else after the pseudo-class —
+/// a descendant combinator, a second pseudo-class, a named child — is `None`.
+///
+/// The third answer is whether the rule is the children's.
+fn parse_selector(selector: &str) -> Option<(String, Option<State>, bool)> {
+    let (selector, child) = match selector.trim_end().strip_suffix('*') {
+        Some(head) => (head.trim_end().strip_suffix('>')?.trim_end(), true),
+        None => (selector, false),
+    };
     let mut chars = selector.chars();
     if chars.next()? != '.' {
         return None;
@@ -583,9 +601,9 @@ fn parse_selector(selector: &str) -> Option<(String, Option<State>)> {
         return None;
     }
     if !in_pseudo {
-        return Some((class, None));
+        return Some((class, None, child));
     }
-    State::pseudo(&pseudo).map(|state| (class, Some(state)))
+    State::pseudo(&pseudo).map(|state| (class, Some(state), child))
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +702,9 @@ struct Computed {
     shrink: f32,
     tracks: Vec<Len>,
     span: Option<u16>,
+    /// `grid-area: <row>/<column>`, as the two lines the box starts at. The
+    /// sheet writes one of these — `1/1`, for a layer stack's children.
+    area: Option<(i16, i16)>,
     gap_column: Len,
     gap_row: Len,
     padding: [Len; 4],
@@ -733,6 +754,7 @@ impl Computed {
             shrink: 1.0,
             tracks: Vec::new(),
             span: None,
+            area: None,
             gap_column: Len::Px(0.0),
             gap_row: Len::Px(0.0),
             padding: [Len::Px(0.0); 4],
@@ -795,19 +817,24 @@ fn resolve(
 ) -> Vec<Computed> {
     let root = Computed::root();
     let mut styles = vec![root.clone(); scene.nodes.len()];
-    let mut stack: Vec<(usize, Computed)> =
-        scene.roots.iter().rev().map(|&i| (i, root.clone())).collect();
+    let mut stack: Vec<(usize, Option<usize>, Computed)> =
+        scene.roots.iter().rev().map(|&i| (i, None, root.clone())).collect();
 
-    while let Some((index, parent)) = stack.pop() {
+    while let Some((index, holder, parent)) = stack.pop() {
         let Some(node) = scene.node(index) else { continue };
         let mut style = parent.inherit();
         if node.text.is_none() {
             let width = scene.width as f32;
+            // A `.<class>>*` rule is the enclosing box's class rather than this
+            // one's, so a child rule is matched against the node above.
+            let holder = holder.and_then(|i| scene.node(i));
             for rule in sheet {
-                if rule.min_width <= width
-                    && rule.state.is_none_or(|s| s == state)
-                    && node.classes.contains(&rule.class)
-                {
+                let named = if rule.child {
+                    holder.is_some_and(|h| h.classes.contains(&rule.class))
+                } else {
+                    node.classes.contains(&rule.class)
+                };
+                if rule.min_width <= width && rule.state.is_none_or(|s| s == state) && named {
                     for (name, value) in &rule.declarations {
                         apply(&mut style, name, &substitute(value, variables), &parent);
                     }
@@ -818,7 +845,7 @@ fn resolve(
             }
         }
         for &child in node.children.iter().rev() {
-            stack.push((child, style.clone()));
+            stack.push((child, Some(index), style.clone()));
         }
         if let Some(slot) = styles.get_mut(index) {
             *slot = style;
@@ -865,6 +892,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "grid-column" => {
             style.span = value.strip_prefix("span ").and_then(|n| n.trim().parse().ok());
         }
+        "grid-area" => style.area = grid_area(value).or(style.area),
         "gap" => {
             if let Some(l) = len(value) {
                 style.gap_column = l;
@@ -1023,6 +1051,15 @@ fn track(value: &str, font_size: f32) -> Len {
     length(value, font_size).unwrap_or(Len::Auto)
 }
 
+/// `grid-area: <row>/<column>`, the one shorthand the sheet writes. Both halves
+/// are line numbers, so `1/1` is the first cell — and the end of each span is
+/// left to the row and column the box starts in, which is what CSS does with a
+/// two-value `grid-area` too.
+fn grid_area(value: &str) -> Option<(i16, i16)> {
+    let (row, column) = value.split_once('/')?;
+    Some((row.trim().parse().ok()?, column.trim().parse().ok()?))
+}
+
 fn alignment(value: &str) -> Option<AlignContent> {
     match value {
         "flex-start" => Some(AlignContent::FLEX_START),
@@ -1148,7 +1185,14 @@ fn taffy_style(c: &Computed) -> Style {
         // zero, which is what a box holding one text run wants.
         flex_basis: Dimension::auto(),
         grid_template_columns: c.tracks.iter().map(|t| grid_track(*t)).collect(),
-        grid_column: c.span.map_or(Line::from_span(1), Line::from_span),
+        grid_row: match c.area {
+            Some((row, _)) => Line::from_line_index(row),
+            None => Line::from_span(1),
+        },
+        grid_column: match c.area {
+            Some((_, column)) => Line::from_line_index(column),
+            None => c.span.map_or(Line::from_span(1), Line::from_span),
+        },
         gap: Size { width: spacing(c.gap_column), height: spacing(c.gap_row) },
         padding: Rect {
             left: spacing(c.padding[0]),
@@ -3365,11 +3409,44 @@ mod tests {
     }
 
     #[test]
-    fn a_descendant_rule_is_skipped() {
-        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:lay\n";
+    fn a_child_rule_lands_on_the_children_and_not_on_the_box_that_names_it() {
+        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:lay\ne 1 width:2px;height:2px\n";
         let sheet = ".lay{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
                      .lay>*{background-color:rgb(255,0,0)}\n";
-        assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
+        let image = render_ok(scene, sheet, "rest");
+        // The child took the rule; the box that carries the class did not.
+        assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 3, 0), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn a_descendant_rule_that_is_not_the_child_one_is_still_skipped() {
+        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:lay\ne 1 width:4px;height:2px\n";
+        let sheet = ".lay p{background-color:rgb(255,0,0)}\n\
+                     .lay *{background-color:rgb(0,255,0)}\n\
+                     .lay>p{background-color:rgb(0,0,255)}\n";
+        assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [255, 255, 255, 255]);
+    }
+
+    /// buri#77: `.lay-layers{display:grid}` with `.lay-layers>*{grid-area:1/1}`
+    /// beside it is how `Layout(.Layers)` is written, and the pair has to put
+    /// every child in the same cell rather than in a column of its own rows.
+    #[test]
+    fn layered_children_share_one_cell() {
+        let scene = "buri-scene 1\nviewport 40 20\n\
+                     e 0 class:lay-layers;width:40px;height:20px\n\
+                     e 1 width:30px;height:15px;background-color:rgb(200,40,40)\n\
+                     e 1 width:20px;height:10px;background-color:rgb(40,150,40)\n\
+                     e 1 width:10px;height:5px;background-color:rgb(40,40,200)\n";
+        let sheet = ".lay-layers{display:grid}\n.lay-layers>*{grid-area:1/1}\n";
+        let image = render_ok(scene, sheet, "rest");
+        // One origin, and the order they were written in is the order they
+        // stack in: the smallest is whole, the largest is only what shows.
+        assert_eq!(at(&image, 0, 0), [40, 40, 200, 255]);
+        assert_eq!(at(&image, 15, 7), [40, 150, 40, 255]);
+        assert_eq!(at(&image, 25, 12), [200, 40, 40, 255]);
+        // 15 tall, not 30: three boxes in one cell, never one under another.
+        assert_eq!(at(&image, 0, 16), [255, 255, 255, 255]);
     }
 
     #[test]
@@ -3649,11 +3726,24 @@ mod tests {
 
     #[test]
     fn a_selector_with_a_suffix_or_an_unknown_pseudo_is_not_a_rule() {
-        assert_eq!(parse_selector(".p-8"), Some(("p-8".to_string(), None)));
-        assert_eq!(parse_selector(".p-8:hover"), Some(("p-8".to_string(), Some(State::Hover))));
-        let escaped = Some(("hover:bg".to_string(), Some(State::Hover)));
+        assert_eq!(parse_selector(".p-8"), Some(("p-8".to_string(), None, false)));
+        assert_eq!(
+            parse_selector(".p-8:hover"),
+            Some(("p-8".to_string(), Some(State::Hover), false))
+        );
+        let escaped = Some(("hover:bg".to_string(), Some(State::Hover), false));
         assert_eq!(parse_selector(r".hover\:bg:hover"), escaped);
-        assert_eq!(parse_selector(".lay > *"), None);
+        // The one rule about descendants the sheet writes, with and without
+        // the spaces CSS allows around the combinator.
+        assert_eq!(parse_selector(".lay>*"), Some(("lay".to_string(), None, true)));
+        assert_eq!(parse_selector(".lay > *"), Some(("lay".to_string(), None, true)));
+        assert_eq!(
+            parse_selector(".lay:hover>*"),
+            Some(("lay".to_string(), Some(State::Hover), true))
+        );
+        // A descendant, and a named child, are neither.
+        assert_eq!(parse_selector(".lay *"), None);
+        assert_eq!(parse_selector(".lay>p"), None);
         assert_eq!(parse_selector(".p-8:first-child"), None);
         assert_eq!(parse_selector("p-8"), None);
     }
