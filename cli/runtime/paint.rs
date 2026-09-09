@@ -1667,6 +1667,14 @@ impl Painter<'_> {
     }
 
     /// Draws one text run at the box the layout gave it.
+    ///
+    /// **The ink's alpha is applied here, not by the shaper.** `cosmic_text`
+    /// rasterizes a glyph to a coverage mask and hands the callback that
+    /// coverage with the ink's red, green and blue only — the alpha it was
+    /// given never reaches the pixel, so a translucent foreground used to
+    /// paint at full strength beside a background that had faded correctly.
+    /// `colour[3]` is the colour's alpha times the element's opacity already,
+    /// and the coverage is multiplied by it.
     fn text(
         &mut self,
         canvas: &mut Pixmap,
@@ -1681,6 +1689,7 @@ impl Painter<'_> {
         if colour[3] == 0 {
             return;
         }
+        let alpha = colour[3];
         let ink = cosmic_text::Color::rgba(colour[0], colour[1], colour[2], colour[3]);
         let (ox, oy) = (box_.l, box_.t);
         let (cw, ch) = (canvas.width(), canvas.height());
@@ -1703,7 +1712,7 @@ impl Painter<'_> {
                     if coverage == 0 {
                         continue;
                     }
-                    let a = mul255(pixel.a(), coverage);
+                    let a = mul255(mul255(pixel.a(), alpha), coverage);
                     let src = [
                         mul255(pixel.r(), a),
                         mul255(pixel.g(), a),
@@ -3080,6 +3089,22 @@ mod tests {
             .count()
     }
 
+    /// The darkest pixel in a picture, as its red channel. Everything here is
+    /// ink over a lighter ground, so a smaller number is more of it.
+    fn darkest(image: &Image) -> u8 {
+        darkest_pixel(image)[0]
+    }
+
+    /// The whole of that pixel, for a test that reads a composited colour
+    /// rather than an amount of ink.
+    fn darkest_pixel(image: &Image) -> [u8; 4] {
+        (0..image.height)
+            .flat_map(|y| (0..image.width).map(move |x| (x, y)))
+            .map(|(x, y)| at(image, x, y))
+            .min_by_key(|p| p[0])
+            .unwrap_or([255; 4])
+    }
+
     #[test]
     fn centring_a_run_moves_it_off_the_left_edge() {
         let one = "buri-scene 1\nviewport 200 40\ne 0 font-size:20px;width:200px\nt 1 Ada\n";
@@ -3203,6 +3228,58 @@ mod tests {
         let scene = "buri-scene 1\nviewport 60 40\ne 0 font-size:0px\nt 1 Ada\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!((image.width, image.height), (60, 40));
+    }
+
+    /// **The alpha a colour carries reaches the glyphs, not only the boxes.**
+    /// The shaper hands the painter a glyph's own coverage and drops the ink
+    /// colour's alpha, so a half transparent foreground used to paint hard
+    /// black text on a card whose background had faded correctly.
+    ///
+    /// Three tenths of black over `rgb(206,218,240)` is `rgb(144,153,168)`,
+    /// and this is the ground and the answer the issue read off a browser. The
+    /// tolerance is one byte because the compositing here is integer
+    /// arithmetic: the same alpha on a *border* in the same picture reads
+    /// `rgb(144,152,167)`, and the glyphs may not be held to a stricter rule
+    /// than the fill beside them.
+    #[test]
+    fn a_translucent_colour_fades_the_text_written_in_it() {
+        let ground = "background-color:rgb(206,218,240);width:60px;height:30px";
+        let opaque = format!(
+            "buri-scene 1\nviewport 60 30\ne 0 {ground};font-size:24px;color:rgb(0,0,0)\n\
+             t 1 Ada\n"
+        );
+        let faded = format!(
+            "buri-scene 1\nviewport 60 30\ne 0 {ground};font-size:24px;color:rgba(0,0,0,0.3)\n\
+             t 1 Ada\n"
+        );
+        assert!(darkest(&render_ok(&opaque, "", "rest")) <= 2);
+        let ink = darkest_pixel(&render_ok(&faded, "", "rest"));
+        for (was, want) in ink.iter().zip([144_u8, 153, 168]) {
+            assert!(
+                was.abs_diff(want) <= 1,
+                "three tenths of black over rgb(206,218,240) is rgb(144,153,168), not {ink:?}"
+            );
+        }
+    }
+
+    /// And so does the `opacity` multiplied into it, which is what the header
+    /// says an opacity is: a factor on every colour the subtree paints.
+    #[test]
+    fn a_fractional_opacity_fades_the_text_under_it() {
+        let scene = "buri-scene 1\nviewport 60 30\ne 0 font-size:24px;opacity:0.5\nt 1 Ada\n";
+        let faded = darkest(&render_ok(scene, "", "rest"));
+        assert!((120..=134).contains(&faded), "half opacity over white is 127, not {faded}");
+    }
+
+    /// The underline takes the same alpha, since it is drawn from the same
+    /// colour by a different path.
+    #[test]
+    fn a_translucent_colour_fades_the_underline_too() {
+        let scene = "buri-scene 1\nviewport 60 30\n\
+                     e 0 font-size:24px;color:rgba(0,0,0,0.5);text-decoration-line:underline\n\
+                     t 1 Ada\n";
+        let faded = darkest(&render_ok(scene, "", "rest"));
+        assert!((120..=134).contains(&faded), "half of black over white is 127, not {faded}");
     }
 
     /// A source the painter cannot read — an SVG data URI is the common one,
