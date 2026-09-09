@@ -101,6 +101,7 @@ export fn page<C: Ui>(ctx: C): Node<C> {
                 [],
                 signal(ctx, "Ada"),
                 .Const(false),
+                .Const(false),
             ),
         ),
         labelled(

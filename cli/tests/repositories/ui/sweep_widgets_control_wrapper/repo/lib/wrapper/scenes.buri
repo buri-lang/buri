@@ -192,6 +192,7 @@ fn field<C: Ui>(ctx: C, styles: [Style], around: [Style]): Node<C> {
         around,
         signal(ctx, "buri"),
         .Const(false),
+        .Const(false),
     )
 }
 
@@ -203,6 +204,7 @@ fn check<C: Ui>(ctx: C, around: [Style]): Node<C> {
         [.Background(.Rgb(226, 232, 244)), .Radius(.Px(3))],
         around,
         signal(ctx, true),
+        .Const(false),
         .Const(false),
     )
 }

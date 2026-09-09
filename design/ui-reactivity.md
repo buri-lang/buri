@@ -160,9 +160,11 @@ ui.image(source: Prop<Str>, alt: Prop<Str>, styles): Node<C>
 // artwork in the tree, so `currentColor` in it is the element's own Foreground.
 // The source is written out and the compiler reads it: `<svg>` and shapes only.
 ui.icon(styles, source: Str): Node<C>            // decorative, always
-ui.field(label, kind: FieldKind, styles, around, value: Signal<Str>, disabled: Prop<Bool>): Node<C>
+ui.field(label, kind: FieldKind, styles, around,
+         value: Signal<Str>, invalid: Prop<Bool>, disabled: Prop<Bool>): Node<C>
 // value is also the answer to On(.Checked, ...): the box is checked, not the page
-ui.toggle(label, kind: ToggleKind, styles, around, value: Signal<Bool>, disabled: Prop<Bool>): Node<C>
+ui.toggle(label, kind: ToggleKind, styles, around,
+          value: Signal<Bool>, invalid: Prop<Bool>, disabled: Prop<Bool>): Node<C>
 ui.form(onSubmit: fn(C, Event) => (), styles, children): Node<C>
 
 // reactivity in the tree
@@ -208,7 +210,7 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 51 properties. The arithmetic, because the cut line is the design:
+  // 53 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
   //    8  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge, Bleed
@@ -217,9 +219,10 @@ export enum Style {
   //       Radius, RadiusCorner, Opacity, Shadow, Shadows
   //   11  type:       FontFamily, FontSize, FontWeight, Italic, LineHeight,
   //       LetterSpacing, TextAlign, TextCase, TextLine, TextWrap, Truncate
-  //    1  Cursor
+  //    2  interaction: Cursor, Passthrough
   //    1  ListMarker
   //    1  Translate — the one transform, applied after the layout
+  //    1  Clip
   Layout(Layout),                       // on the container
   AlignMain(Align), AlignCross(Align),  // main/cross axis: survives direction flips
   Grow(Int), Shrink(Int), Span(Int),    // on a child
@@ -231,6 +234,8 @@ export enum Style {
   Background(Color), Foreground(Color), Truncate(Int), ...,
   Shadow(Shadow), Shadows([Shadow]),    // one slot; the last written wins
   Translate(Length, Length),            // after the layout; no sibling moves
+  Clip(Bool),                           // cut to the box, without a scroll container
+  Passthrough(Bool),                    // the pointer goes to whatever is behind
 
   // and six combinators
   Group([Style]),                       // composition; array literal, no Allocator
@@ -253,9 +258,13 @@ export enum Layout {
 
 export enum Edge   { Top, Bottom, Start, End }
 export enum Corner { TopStart, TopEnd, BottomStart, BottomEnd }
-export enum State { Hover, Focus, FocusWithin, Active, Disabled, Checked }
+export enum State { Hover, Focus, FocusWithin, Active, Disabled, Checked,
+                    Invalid }
                           // Focus is :focus-visible on the element; FocusWithin
-                          // is the container's — an input group rings as one
+                          // is the container's — an input group rings as one.
+                          // Six the platform tracks, and one a program enters:
+                          // `field` and `toggle` take an `invalid`, which writes
+                          // the `aria-invalid` the rule hangs off
 export enum Screen { Small, Medium, Large, ExtraLarge }
                           // closed names, so libraries compose; the widths are
                           // 40 / 48 / 64 / 80 rem, which follow the reader's
@@ -286,6 +295,12 @@ things belongs to the container that arranged them, so there is no inward
 margin. `Bleed` is the one margin there is and it only goes outwards: a child
 reaching past its parent's padding — a full-width rule in a padded menu, an
 avatar lapping the one before it — has nothing else to ask with.
+
+`Clip` and `Scroll` are the pair over one declaration: `Scroll` says content
+outside the box can be reached by scrolling to it, `Clip` says it is not
+painted at all. A card cutting a full-bleed picture to its corners wants the
+second and would pay for the first in scrollbars and a region a keyboard lands
+in.
 
 **Hover is a style, not an event**, and `On` is why. A pseudo-class costs
 nothing at run time, needs no listener, survives into an email's `<style>`
@@ -661,7 +676,7 @@ this document's first draft, with the reason.
 | `ui.when` | `ui.choose` | `when` is a reserved word, held for a language feature not yet taken |
 | `memo` in `ui/signal` | `memo` in `ui/prop` | it returns a `Prop`, and a module may not import the module that imports it |
 | `ui.each(ctx, items, row)` | `each(items, key, row)` | a list is a description, so it needs no context; and keying by position corrupts a reordered list silently |
-| `ui.field(value)` | `field(label, kind, styles, around, value, disabled)` | this document's own rule — an accessibility-critical parameter is a parameter — and an unlabelled input has no visual fallback |
+| `ui.field(value, .Const(false))` | `field(label, kind, styles, around, value, disabled)` | this document's own rule — an accessibility-critical parameter is a parameter — and an unlabelled input has no visual fallback |
 | `Role::Form` | `ui.form`, a widget | submission is behaviour, not meaning |
 | A control with no styles of its own | `styles` on all five, plus a reset | a wrapper is not what a browser hovers, focuses or disables, so `On(...)` on one never fired — and the browser's own chrome sat under whatever the wrapper painted |
 | `button(label, styles, onPress)`, no children | `children` between the styles and the handler | a mark beside a word had to be a row, so the wash that marks an entry hovered or current went on the wrapper and only the focus ring stayed on the button |

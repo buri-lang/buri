@@ -162,8 +162,8 @@ enum NodeKind<C> {
     Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>),
     Link(Prop<Str>, [Style], [Node<C>]),
     Image(Prop<Str>, Prop<Str>, [Style]),
-    Field(Prop<Str>, FieldKind, [Style], [Style], Signal<Str>, Prop<Bool>),
-    Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>),
+    Field(Prop<Str>, FieldKind, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>),
+    Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>, Prop<Bool>),
     Form(fn(C, Event) => (), [Style], [Node<C>]),
     When(Prop<Bool>, Node<C>, Node<C>),
     Computed(fn(Scope) => Node<C>),
@@ -341,17 +341,25 @@ export fn icon<C>(styles: [Style], source: Str): Node<C> {
 /// `Span` and `Width` belong there, because nothing the input carries can reach
 /// the box its parent is measuring.
 ///
-/// `disabled` is the input's, for the reason a button's is: it is what refuses
-/// what a reader types rather than what dims it.
+/// `invalid` is the field failing validation, and it is a parameter for the
+/// reason the label is one: a reader has to be *told*. It carries
+/// `aria-invalid` and it is what puts the input in `State::Invalid`, so the
+/// ring a design system paints and the word a screen reader says are one fact.
+/// A field that never fails passes `.Const(false)` and carries nothing.
+///
+/// `disabled` is beside it and is the other half of the same idea: it is what
+/// refuses what a reader types rather than what dims it, and it is what puts
+/// the input in `State::Disabled`.
 export fn field<C>(
     label: Prop<Str>,
     kind: FieldKind,
     styles: [Style],
     around: [Style],
     value: Signal<Str>,
+    invalid: Prop<Bool>,
     disabled: Prop<Bool>,
 ): Node<C> {
-    Node(.Field(label, kind, styles, around, value, disabled))
+    Node(.Field(label, kind, styles, around, value, invalid, disabled))
 }
 
 /// Something with two states, what it looks like, and what it is for.
@@ -370,16 +378,18 @@ export fn field<C>(
 /// whether it is — the same thing the mark is drawn from. A page holding one
 /// toggle that is on and one that is off paints two answers, not one.
 ///
-/// `disabled` is the box's, for the reason a button's is.
+/// `invalid` is a field's, and means the same thing: the terms nobody agreed
+/// to, announced as well as painted. `disabled` is a field's too.
 export fn toggle<C>(
     label: Prop<Str>,
     kind: ToggleKind,
     styles: [Style],
     around: [Style],
     value: Signal<Bool>,
+    invalid: Prop<Bool>,
     disabled: Prop<Bool>,
 ): Node<C> {
-    Node(.Toggle(label, kind, styles, around, value, disabled))
+    Node(.Toggle(label, kind, styles, around, value, invalid, disabled))
 }
 
 /// A group of controls you submit.
@@ -613,7 +623,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the
         // control inside it.
-        .Field(label, kind, styles, around, value, disabled) => {
+        .Field(label, kind, styles, around, value, _invalid, disabled) => {
             [
                 styledLine(ctx, plain(state), wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -635,7 +645,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The box answers for its own `:checked`, and the signal is the
         // answer — the same signal the mark is drawn from, so what a reader
         // sees and what the styles say cannot come apart.
-        .Toggle(label, kind, styles, around, value, disabled) => {
+        .Toggle(label, kind, styles, around, value, _invalid, disabled) => {
             let on = value.get(scope);
             let painted = Painted {
                 state: state,
@@ -1145,7 +1155,7 @@ fn slotsIn<C: Allocator>(
 /// `On(s, ...)` into the classes it emits, so the group itself is gone by the
 /// time this walk sees one; what is left is the conflict slot, which carries
 /// the condition the class was scoped to. A slot's low digits are that
-/// condition — thirty-five of them per property, five breakpoints to a state,
+/// condition — forty of them per property, five breakpoints to a state,
 /// and zero for "in every state" — so a hover class can be told from a plain
 /// one and left out of every document but the hovered one.
 fn statePairs<C: Allocator>(
@@ -1172,8 +1182,11 @@ fn statePairs<C: Allocator>(
 /// The state a conflict slot is scoped to, as a `State`'s rank, and `-1` for a
 /// slot that applies whatever the state is. A breakpoint is the other half of
 /// the condition and is not a state, so it answers `-1` too.
+///
+/// Forty is `semantics::styles`'s `CONDITIONS`, and the two move together:
+/// eight states counting "none", by five breakpoints counting "none".
 fn slotState(slot: Int): Int {
-    slot % 35 / 5 - 1
+    slot % 40 / 5 - 1
 }
 
 /// The class of each slot's last pair.
@@ -1351,6 +1364,16 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
             let across = lengthCss(ctx, x);
             let down = lengthCss(ctx, y);
             [decl(ctx, "transform", str.format(ctx, "translate(${across},${down})"))]
+        },
+        // `clip` rather than `hidden`: both stop the paint, and only `hidden`
+        // also makes a scroll container a keyboard can land in.
+        .Clip(on) => {
+            let css = if (on) { "clip" } else { "visible" };
+            [decl(ctx, "overflow", css)]
+        },
+        .Passthrough(on) => {
+            let css = if (on) { "none" } else { "auto" };
+            [decl(ctx, "pointer-events", css)]
         },
         _ => [],
     }
@@ -1618,5 +1641,6 @@ fn stateRank(state: State): Int {
         .Active => 3,
         .Disabled => 4,
         .Checked => 5,
+        .Invalid => 6,
     }
 }

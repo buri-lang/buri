@@ -734,6 +734,307 @@ test "the scene document writes the bleed the browser was given" {
     );
 }
 
+test "a clip cuts a child to its parent's box, and asks for no scrollbar" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The card with a full-bleed banner: the radius rounds the card, and the
+    // clip is what stops the picture squaring the corner off again.
+    let card: [Style] = [.Radius(.Px(12)), .Clip(true)];
+    assert.equal(
+        render(ctx, ui.stack(card, [])).markup(),
+        "<div class=\"r-12 clip-clip\"></div>",
+    );
+    assert.equal(
+        render(ctx, ui.stack([.Clip(false)], [])).markup(),
+        "<div class=\"clip-visible\"></div>",
+    );
+    let sheet = stylesheet();
+    // `clip` rather than `hidden`: content outside the box is not painted, and
+    // nothing here becomes a scroll container a keyboard can land in.
+    assert.isTrue(sheet.contains(".clip-clip{overflow:clip}"));
+    assert.isTrue(sheet.contains(".clip-visible{overflow:visible}"));
+}
+
+test "a clip and a scroll are two slots, and the clip is the later rule" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Same property, last wins.
+    assert.equal(
+        render(ctx, ui.stack([.Clip(false), .Clip(true)], [])).markup(),
+        "<div class=\"clip-clip\"></div>",
+    );
+    // Different properties over one declaration, so both classes land and the
+    // sheet decides. `Clip` is declared after `Scroll`, so an element that asks
+    // for both is clipped.
+    assert.equal(
+        render(ctx, ui.stack([.Clip(true), .Scroll(.Y)], [])).markup(),
+        "<div class=\"clip-clip scroll-y\"></div>",
+    );
+    let sheet = stylesheet();
+    let scroll = assert.some(sheet.indexOf(".scroll-y{overflow-y:auto}"));
+    let clip = assert.some(sheet.indexOf(".clip-clip{overflow:clip}"));
+    assert.isTrue(scroll < clip);
+}
+
+test "a clip takes a state and a breakpoint, and degrades to an inline style" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let stated: [Style] = [
+        .Clip(true),
+        .Position(.Flow),
+        .On(.Hover, [.Clip(false)]),
+        .At(.Medium, [.Clip(false)]),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(stated, [])).markup(),
+        "<div class=\"clip-clip pos-flow hover_clip-visible md_clip-visible\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".hover_clip-visible:hover{overflow:visible}"));
+    assert.isTrue(sheet.contains(".md_clip-visible{overflow:visible}"));
+    // `get` takes a context, so the folder stops there and the style lands in
+    // the tier `Computed` lives in.
+    let cut = signal(ctx, 1);
+    assert.equal(
+        render(ctx, ui.stack([.Clip(cut.get(ctx) > 0)], [])).markup(),
+        "<div style=\"overflow: clip\"></div>",
+    );
+}
+
+test "the scene document writes the clip the browser was given" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let cut = signal(ctx, 0);
+    let tree = ui.stack([.Radius(.Px(4)), .Clip(cut.get(ctx) == 0)], []);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"r-4\" style=\"overflow: clip\"></div>",
+    );
+    // The radius folded and the clip did not, so the element carries one of
+    // each tier — and the scene says both, in the order the browser was given
+    // them.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:r-4;overflow:clip",
+    );
+}
+
+test "a dock passes the pointer through, and each toast in it takes it back" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The toaster dock: a full-width band pinned across the viewport that must
+    // not intercept the page under it, and a toast in it that must.
+    let dock: [Style] = [.Position(.PinViewport), .Width(.Full), .Passthrough(true)];
+    let tree = ui.stack(dock, [ui.stack([.Passthrough(false)], [])]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"pos-viewport w-full pass-none\"><div class=\"pass-auto\"></div></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".pass-none{pointer-events:none}"));
+    assert.isTrue(sheet.contains(".pass-auto{pointer-events:auto}"));
+}
+
+test "a press does not reach an element the pointer passes through" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let presses = signal(ctx, 0);
+    // The switch thumb, drawn over the control: the mark passes the pointer
+    // through, so the press still lands on the control under it.
+    let page = render(
+        ctx,
+        ui.stack([.Layout(.Layers)], [
+            ui.button(
+                .Const("flip"),
+                [],
+                [],
+                fn(c, _e) => { presses.set(c, presses.get(c) + 1) },
+                .Const(false),
+            ),
+            ui.stack([.Passthrough(true)], []),
+        ]),
+    );
+    let _ = page.press("flip");
+    assert.equal(presses.get(ctx), 1);
+
+    // And the other way round: a button under a subtree that passes the
+    // pointer through never receives one, which is what a browser does.
+    let ignored = signal(ctx, 0);
+    let dock = render(
+        ctx,
+        ui.stack([.Passthrough(true)], [
+            ui.button(
+                .Const("dead"),
+                [],
+                [],
+                fn(c, _e) => { ignored.set(c, ignored.get(c) + 1) },
+                .Const(false),
+            ),
+            ui.stack([.Passthrough(false)], [
+                ui.button(
+                    .Const("live"),
+                    [],
+                    [],
+                    fn(c, _e) => { ignored.set(c, ignored.get(c) + 10) },
+                    .Const(false),
+                ),
+            ]),
+        ]),
+    );
+    let _ = dock.press("dead");
+    assert.equal(ignored.get(ctx), 0);
+    // A child that opts back in is pressed, the way a toast inside a
+    // pass-through dock is.
+    let _ = dock.press("live");
+    assert.equal(ignored.get(ctx), 10);
+}
+
+test "a pass-through takes a state and degrades to an inline style" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let stated: [Style] = [
+        .Passthrough(true),
+        .Cursor(.NotAllowed),
+        .On(.Disabled, [.Passthrough(true)]),
+        .At(.Large, [.Passthrough(false)]),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(stated, [])).markup(),
+        "<div class=\"pass-none cur-notallowed disabled_pass-none lg_pass-auto\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".disabled_pass-none:disabled{pointer-events:none}"));
+    assert.isTrue(sheet.contains(".lg_pass-auto{pointer-events:auto}"));
+    let through = signal(ctx, 1);
+    assert.equal(
+        render(ctx, ui.stack([.Passthrough(through.get(ctx) > 0)], [])).markup(),
+        "<div style=\"pointer-events: none\"></div>",
+    );
+}
+
+test "a failing control announces so, and the ring hangs off the attribute" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let email = signal(ctx, "ada");
+    let failing = signal(ctx, true);
+    let ring: [Style] = [.On(.Invalid, [.BorderColor(.Rgb(220, 38, 38))])];
+    let page = render(
+        ctx,
+        ui.field(
+            .Const("Email"),
+            .Email,
+            ring,
+            [],
+            email,
+            .Cell(failing),
+            .Const(false),
+        ),
+    );
+    assert.equal(
+        page.markup(),
+        "<label><span>Email</span><input type=\"email\" aria-invalid=\"true\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
+    );
+    let sheet = stylesheet();
+    // The attribute is the source of truth, so the rule asks about the
+    // attribute — `:invalid` is a browser's own verdict and no program can
+    // reach it.
+    assert.isTrue(
+        sheet.contains(
+            ".invalid_bc-dc2626[aria-invalid=true]{border-color:rgb(220,38,38)}",
+        ),
+    );
+    // Valid again, and the attribute goes rather than saying `false`: an
+    // attribute that is there is what the selector asks about.
+    let _ = failing.set(ctx, false);
+    assert.equal(
+        page.markup(),
+        "<label><span>Email</span><input type=\"email\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
+    );
+}
+
+test "a toggle says it is failing the same way, and a valid one says nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let agreed = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.toggle(
+            .Const("terms"),
+            .Checkbox,
+            [],
+            [],
+            agreed,
+            .Const(true),
+            .Const(false),
+        ),
+    );
+    assert.equal(
+        page.markup(),
+        "<label><input type=\"checkbox\" aria-invalid=\"true\" /><span>terms</span></label>",
+    );
+    // A control that is not failing carries nothing at all, which is what
+    // every field and toggle in this suite already says.
+    let quiet = render(
+        ctx,
+        ui.toggle(
+            .Const("done"),
+            .Checkbox,
+            [],
+            [],
+            agreed,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    assert.equal(
+        quiet.markup(),
+        "<label><input type=\"checkbox\" /><span>done</span></label>",
+    );
+}
+
+test "the invalid state is a state like the other five" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let stated: [Style] = [
+        .On(.Invalid, [.Background(.Rgb(254, 226, 226))]),
+        .At(.Small, [.On(.Invalid, [.Opacity(0.5)])]),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(stated, [])).markup(),
+        "<div class=\"invalid_bg-fee2e2 sm_invalid_op-0_5\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ".invalid_bg-fee2e2[aria-invalid=true]{background-color:rgb(254,226,226)}",
+        ),
+    );
+    assert.isTrue(sheet.contains(".sm_invalid_op-0_5[aria-invalid=true]{opacity:0.5}"));
+    // A scene taken in one state carries that state's classes and no other's,
+    // which is the whole of how a snapshot tells six documents apart.
+    let scene = ui.describe(ctx, ui.stack(stated, []), .Invalid);
+    assert.containsText(scene, "invalid_bg-fee2e2");
+    assert.isFalse(ui.describe(ctx, ui.stack(stated, []), .Hover).contains("invalid_"));
+}
+
 test "a value with no bounded spelling is named by what it is" {
     let ctx = context {
         Ui: headless(),
@@ -1715,7 +2016,7 @@ test "a field is labelled, and what is typed into it is in its signal" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
     );
     assert.equal(
         page.markup(),
@@ -1732,7 +2033,7 @@ test "a field follows its signal when something else writes it" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
     );
     let _ = name.set(ctx, "grace");
     assert.equal(
@@ -1747,11 +2048,43 @@ test "a field kind is what the field accepts" {
     };
     let value = signal(ctx, "");
     let tree = ui.stack([], [
-        ui.field(.Const("story"), .Multiline, [], [], value, .Const(false)),
-        ui.field(.Const("secret"), .Password, [], [], value, .Const(false)),
-        ui.field(.Const("address"), .Email, [], [], value, .Const(false)),
-        ui.field(.Const("how many"), .Number, [], [], value, .Const(false)),
-        ui.field(.Const("query"), .Search, [], [], value, .Const(false)),
+        ui.field(
+            .Const("story"),
+            .Multiline,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("secret"),
+            .Password,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("address"),
+            .Email,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("how many"),
+            .Number,
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(.Const("query"), .Search, [], [], value, .Const(false), .Const(false)),
     ]);
     assert.equal(
         render(ctx, tree).markup(),
@@ -1767,7 +2100,15 @@ test "a toggle is two states and a label" {
     let done = signal(ctx, false);
     let page = render(
         ctx,
-        ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)),
+        ui.toggle(
+            .Const("done"),
+            .Checkbox,
+            [],
+            [],
+            done,
+            .Const(false),
+            .Const(false),
+        ),
     );
     assert.equal(
         page.markup(),
@@ -1800,7 +2141,15 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false)),
+            ui.toggle(
+                .Const("done"),
+                .Checkbox,
+                [],
+                [],
+                done,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
         str.format(
@@ -1813,7 +2162,7 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.field(.Const("name"), .Text, [], [], name, .Const(false)),
+            ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
             .Hover,
         ),
         str.format(
@@ -1847,6 +2196,7 @@ test "a labelled control takes styles for the box around it" {
         [.Grow(1)],
         site,
         .Const(false),
+        .Const(false),
     );
     assert.equal(
         render(ctx, tree).markup(),
@@ -1870,6 +2220,7 @@ test "a labelled control takes styles for the box around it" {
                 [.Layout(.Column)],
                 site,
                 .Const(false),
+                .Const(false),
             ),
             .Hover,
         ),
@@ -1889,7 +2240,15 @@ test "a toggle draws its own mark" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("email"), .Switch, [], [], off, .Const(false)),
+            ui.toggle(
+                .Const("email"),
+                .Switch,
+                [],
+                [],
+                off,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
         "am-start;checked:false\ne 2 mark:thumb;height:100%;aspect-ratio:1",
@@ -1897,7 +2256,15 @@ test "a toggle draws its own mark" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false)),
+            ui.toggle(
+                .Const("email"),
+                .Switch,
+                [],
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
         "am-end;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1",
@@ -1908,7 +2275,15 @@ test "a toggle draws its own mark" {
         ui
             .describe(
                 ctx,
-                ui.toggle(.Const("done"), .Checkbox, [], [], off, .Const(false)),
+                ui.toggle(
+                    .Const("done"),
+                    .Checkbox,
+                    [],
+                    [],
+                    off,
+                    .Const(false),
+                    .Const(false),
+                ),
                 .Hover,
             )
             .contains("mark:"),
@@ -1916,7 +2291,15 @@ test "a toggle draws its own mark" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("done"), .Checkbox, [], [], on, .Const(false)),
+            ui.toggle(
+                .Const("done"),
+                .Checkbox,
+                [],
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
         "e 2 mark:tick;width:100%;height:100%",
@@ -1926,7 +2309,15 @@ test "a toggle draws its own mark" {
     assert.equal(
         render(
             ctx,
-            ui.toggle(.Const("email"), .Switch, [], [], on, .Const(false)),
+            ui.toggle(
+                .Const("email"),
+                .Switch,
+                [],
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
         ).markup(),
         "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
     );
@@ -2015,8 +2406,8 @@ test "a disabled control says so in its markup" {
     let done = signal(ctx, false);
     let tree = ui.stack([], [
         ui.button(.Const("save"), [], [], fn(_c, _e) => (), .Const(true)),
-        ui.field(.Const("name"), .Text, [], [], name, .Const(true)),
-        ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(true)),
+        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(true)),
+        ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false), .Const(true)),
     ]);
     assert.containsText(
         render(ctx, tree).markup(),
@@ -2054,8 +2445,16 @@ test "a disabled control refuses a press, a fill and a flip" {
                 fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
                 .Const(true),
             ),
-            ui.field(.Const("name"), .Text, [], [], name, .Const(true)),
-            ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(true)),
+            ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(true)),
+            ui.toggle(
+                .Const("done"),
+                .Checkbox,
+                [],
+                [],
+                done,
+                .Const(false),
+                .Const(true),
+            ),
         ]),
     );
     let _ = page.press("save");
@@ -2132,8 +2531,8 @@ test "a toggle's own value decides its checked styles" {
     let off = signal(ctx, false);
     let lit = signal(ctx, true);
     let tree = ui.column([], [
-        ui.toggle(.Const("off"), .Switch, on, [], off, .Const(false)),
-        ui.toggle(.Const("on"), .Switch, on, [], lit, .Const(false)),
+        ui.toggle(.Const("off"), .Switch, on, [], off, .Const(false), .Const(false)),
+        ui.toggle(.Const("on"), .Switch, on, [], lit, .Const(false), .Const(false)),
     ]);
     let hovered = ui.describe(ctx, tree, .Hover);
     assert.containsText(hovered, "checked:false");
@@ -2174,7 +2573,7 @@ test "a checked toggle answers the pointer's states as well as its own" {
     let lit = signal(ctx, true);
     let scene = ui.describe(
         ctx,
-        ui.toggle(.Const("on"), .Switch, both, [], lit, .Const(true)),
+        ui.toggle(.Const("on"), .Switch, both, [], lit, .Const(false), .Const(true)),
         .Hover,
     );
     assert.containsText(scene, "hover_op-0_5");
@@ -2206,7 +2605,7 @@ test "a field's kind is in the scene, and a password's value is never in it" {
 fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
     ui.describe(
         ctx,
-        ui.field(.Const("secret"), kind, [], [], value, .Const(false)),
+        ui.field(.Const("secret"), kind, [], [], value, .Const(false), .Const(false)),
         .Hover,
     )
 }
@@ -2231,6 +2630,7 @@ test "a range field is a slider, and the browser drives it" {
             [],
             [],
             volume,
+            .Const(false),
             .Const(false),
         ),
     );
@@ -2273,6 +2673,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
                 [],
                 volume,
                 .Const(false),
+                .Const(false),
             ),
             .Hover,
         ),
@@ -2294,6 +2695,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
                 [],
                 signal(ctx, "9"),
                 .Const(false),
+                .Const(false),
             ),
             .Hover,
         ),
@@ -2311,6 +2713,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
                 [],
                 [],
                 signal(ctx, "a;b"),
+                .Const(false),
                 .Const(false),
             ),
             .Hover,
@@ -2348,6 +2751,7 @@ test "a range field's styles land on the input, and compose the way a control's 
         [],
         volume,
         .Const(false),
+        .Const(false),
     );
     assert.equal(
         render(ctx, tree).markup(),
@@ -2379,13 +2783,22 @@ test "a control takes styles of its own, and they land on the control" {
             .Const(false),
         ),
         ui.link(.Const("/prices"), [.Foreground(.Rgb(9, 9, 9))], []),
-        ui.field(.Const("name"), .Text, [.Radius(.Px(4))], [], name, .Const(false)),
+        ui.field(
+            .Const("name"),
+            .Text,
+            [.Radius(.Px(4))],
+            [],
+            name,
+            .Const(false),
+            .Const(false),
+        ),
         ui.toggle(
             .Const("done"),
             .Checkbox,
             [.Width(.Px(20))],
             [],
             done,
+            .Const(false),
             .Const(false),
         ),
     ]);
@@ -2548,7 +2961,15 @@ test "a toggle's own styles paint, because the reset takes the native control aw
     assert.equal(
         render(
             ctx,
-            ui.toggle(.Const("Email me"), .Switch, styles, [], on, .Const(false)),
+            ui.toggle(
+                .Const("Email me"),
+                .Switch,
+                styles,
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
         ).markup(),
         "<label><input type=\"checkbox\" role=\"switch\" class=\"w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414\" checked /><span>Email me</span></label>",
     );
@@ -2567,7 +2988,15 @@ test "a toggle's own styles paint, because the reset takes the native control aw
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle(.Const("Email me"), .Switch, styles, [], on, .Const(false)),
+            ui.toggle(
+                .Const("Email me"),
+                .Switch,
+                styles,
+                [],
+                on,
+                .Const(false),
+                .Const(false),
+            ),
             .Checked,
         ),
         "am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414",
@@ -2705,7 +3134,15 @@ test "a form is submitted, which is behaviour and so not a role" {
     let page = render(
         ctx,
         ui.form(fn(c, e) => added.set(c, draft.get(c)), [], [
-            ui.field(.Const("what"), .Text, [], [], draft, .Const(false)),
+            ui.field(
+                .Const("what"),
+                .Text,
+                [],
+                [],
+                draft,
+                .Const(false),
+                .Const(false),
+            ),
         ]),
     );
     let _ = page.fill("what", "milk");

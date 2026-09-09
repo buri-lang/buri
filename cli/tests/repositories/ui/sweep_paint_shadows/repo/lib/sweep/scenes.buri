@@ -151,6 +151,7 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
                     [],
                     signal(ctx, "Ada"),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
         ]),

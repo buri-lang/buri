@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Bool` has no variant `Px`","code":"no-such-variant","location":{"file":"cmd/ui_style_clip_takes_a_bool/main.buri","line":14,"column":33,"endLine":14,"endColumn":36,"text":"  ui.mount(ctx, ui.stack([.Clip(.Px(12))], []), [])"},"fix":"name a variant the enum declares","notes":[],"related":[]}

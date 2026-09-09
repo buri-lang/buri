@@ -110,6 +110,7 @@ fn styled<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
         [],
         signal.signal(ctx, on),
         .Const(false),
+        .Const(false),
     )
 }
 
@@ -133,6 +134,7 @@ fn boxed<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
         [],
         signal.signal(ctx, on),
         .Const(false),
+        .Const(false),
     )
 }
 
@@ -144,6 +146,7 @@ fn bare<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
         [.Group(extra)],
         [],
         signal.signal(ctx, on),
+        .Const(false),
         .Const(false),
     )
 }
