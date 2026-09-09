@@ -1,0 +1,30 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:30:5
+   |
+30 |     assert.equal(time.secondsFloat(0.0 - 1e30, Duration(number.minValue<I64>()));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `secondsFloat` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:30:18
+   |
+30 |     assert.equal(time.secondsFloat(0.0 - 1e30, Duration(number.minValue<I64>()));
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:30:81
+   |
+30 |     assert.equal(time.secondsFloat(0.0 - 1e30, Duration(number.minValue<I64>()));
+   |                                                                                 ^
+   |
+  --> main.buri:30:17
+   |
+30 |     assert.equal(time.secondsFloat(0.0 - 1e30, Duration(number.minValue<I64>()));
+   |                 ^ opened here
+   |
+   = fix: write `)` here

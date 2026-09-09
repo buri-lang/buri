@@ -13,7 +13,7 @@
 from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
-from "core/time" import { Duration }
+from "core/time" import { Duration };
 
 test "secondsFloat takes a fraction of a second" {
     assert.equal(time.secondsFloat(0.25), time.milliseconds(250));
@@ -43,4 +43,4 @@ test "secondsFloat and asSecondsFloat invert each other" {
         0.0 - 1.5,
         1e-9,
     );
-}
+

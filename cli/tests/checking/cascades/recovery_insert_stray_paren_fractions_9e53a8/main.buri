@@ -13,13 +13,13 @@
 from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
-from "core/time" import { Duration }
+from "core/time" import { Duration };
 
 test "secondsFloat takes a fraction of a second" {
     assert.equal(time.secondsFloat(0.25), time.milliseconds(250));
     assert.equal(time.secondsFloat(1.5), time.milliseconds(1500));
     assert.equal(time.secondsFloat(0.0), time.nanoseconds(0));
-    assert.equal(time.secondsFloat(0.0 - 0.25), time.milliseconds(0 - 250));
+    assert.equal(time.secondsFloat(0.0 - 0.25extra ), time.milliseconds(0 - 250));
     assert.equal(time.secondsFloat(1e-9), time.nanoseconds(1));
     // Finer than a nanosecond truncates toward zero.
     assert.equal(time.secondsFloat(1e-10), time.nanoseconds(0));
