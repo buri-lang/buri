@@ -25,7 +25,7 @@ use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder};
 use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{ConstId, FnId, Tables};
+use crate::compiler::semantics::types::{ConstId, FnId, Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Map as HashMap;
 
@@ -67,6 +67,28 @@ const DRAWING: [&str; 26] = [
     "rx",
     "ry",
 ];
+
+/// `NodeKind::Icon`, whose variant order is load-bearing and whose module says
+/// so. Only `icon` writes one.
+const NODE_ICON: usize = 14;
+
+/// Whether this program can build an icon.
+///
+/// Asked the way `styles::builds_a_theme` is, and for the same reason: the
+/// renderer reaches `$tree_icon` through a hole rather than by name, so the
+/// parser and the two allow lists — 2.5 KB of them — ship only in an artifact
+/// that has artwork in it. `NodeKind` is `ui/node`'s private enum, so a literal
+/// of it was written inside that module's own constructors and nowhere else.
+pub fn builds_an_icon(e: &mut typed::Expr, node_con: TyConId) -> bool {
+    if matches!(&e.kind, ExprKind::EnumLit { con, variant, .. }
+        if *con == node_con && *variant == NODE_ICON)
+    {
+        return true;
+    }
+    let mut found = false;
+    typed::children_mut(e, &mut |child| found = found || builds_an_icon(child, node_con));
+    found
+}
 
 /// Reads every `icon` in the compilation, and refuses one it cannot.
 ///
