@@ -1,0 +1,50 @@
+// How far past its parent's edge a child reaches, and what it laps when it
+// gets there.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import {
+    bleedDivider, bleedEdges, bleedLengths, bleedOverlap, bleedPrimitives,
+};
+
+test "a bleed on every edge a box has" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bleed-edges", bleedEdges(), .Hover, []);
+}
+
+test "every length a bleed takes, and the two that bleed nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bleed-lengths", bleedLengths(), .Hover, []);
+}
+
+test "a rule that runs from one edge of a padded menu to the other" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bleed-divider", bleedDivider(), .Hover, []);
+}
+
+test "siblings that lap the one before them, later over earlier" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bleed-overlap", bleedOverlap(), .Hover, []);
+}
+
+test "the same bleed on every primitive that takes a style" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bleed-primitives", bleedPrimitives(ctx), .Hover, []);
+}

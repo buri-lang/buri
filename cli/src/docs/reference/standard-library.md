@@ -675,11 +675,18 @@ A reactive closure is handed a `Scope`, which implements `Watch` and
 `.Computed(fn(s) => xs.get(s).filter(s, isEven))` is a `Prop<[Int]>` — and it
 still cannot write, because `Ui` is the effect that writes.
 
-Four properties name one edge or one corner, and two of them naming different
-ones compose: `Pin`, `PaddingEdge`, `BorderEdge` and `RadiusCorner`. A border's
-colour and style stay whole-box, so a row's rule is `BorderEdge(.Bottom, ...)`
-and a joined button group squares the side each child meets its neighbour on
-with two `RadiusCorner`s and a `BorderEdge` of zero.
+Five properties name one edge or one corner, and two of them naming different
+ones compose: `Pin`, `PaddingEdge`, `BorderEdge`, `RadiusCorner` and `Bleed`. A
+border's colour and style stay whole-box, so a row's rule is
+`BorderEdge(.Bottom, ...)`, and a joined button group squares the side each
+child meets its neighbour on with two `RadiusCorner`s and a `BorderEdge` of
+zero.
+
+Spacing belongs to the container — `Gap` and `Padding`, never a margin — with
+one exception. `Bleed(Edge, Length)` is how a child reaches back *out* past its
+parent's padding: the full-width rule inside a padded menu, and the avatar that
+laps the one before it. It is a distance outwards, so `.Auto` and a negative
+length bleed nothing.
 
 `heading`, `button`, `link`, `field` and `toggle` take a `[Style]` like every
 container does, and it lands on the element itself — so a hover, focus or

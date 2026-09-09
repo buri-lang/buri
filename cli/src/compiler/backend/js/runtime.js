@@ -3729,7 +3729,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all forty-six properties
+// `$tree_declare` below is the run-time lowering of all forty-nine properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -4003,9 +4003,23 @@ function $tree_declare(style, out) {
     }
   } else if (tag === 52) {
     out.set("cursor", $TREE_CURSORS[value]);
-  } else {
+  } else if (tag === 53) {
     out.set("list-style-type", $TREE_LIST_MARKERS[value]);
+  } else {
+    out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
   }
+}
+
+// A bleed's length, as the margin it writes: a distance outwards, so the margin
+// is its negation. A negative distance and `Auto` — which is no distance at all
+// — bleed nothing, because inward is the space between things and that belongs
+// to the container.
+function $tree_outwards(length) {
+  const tag = length[0];
+  if (tag === 4) return "-100%";
+  if (tag === 3 || !(length[1] > 0)) return "0px";
+  if (tag === 0) return "-" + length[1] + "px";
+  return "-" + length[1] + (tag === 1 ? "rem" : "%");
 }
 
 // A `Prop<T>` is `[tag, payload]`: 0 Const, 1 Cell, 2 Computed.
