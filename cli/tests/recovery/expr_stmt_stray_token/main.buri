@@ -1,5 +1,4 @@
-// EXPECT: this `test` body is missing its closing `}`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/117
+// EXPECT: expected `;`, found `@`
 // ROLE: test
 from "core/testing/assert" import * as assert;
 
