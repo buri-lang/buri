@@ -64,7 +64,7 @@ fn affix<C>(text: Str): Node<C> {
 fn group<C>(site: Signal<Str>): Node<C> {
     ui.stack(wrapper(), [
         affix("https://"),
-        ui.field(.Const("Site"), .Text, [], [.Grow(1)], site),
+        ui.field(.Const("Site"), .Text, [], [.Grow(1)], site, .Const(false)),
         affix(".com"),
     ])
 }
@@ -90,7 +90,7 @@ fn onFocus<C>(site: Signal<Str>): Node<C> {
         ],
         [
             affix("https://"),
-            ui.field(.Const("Site"), .Text, [], [.Grow(1)], site),
+            ui.field(.Const("Site"), .Text, [], [.Grow(1)], site, .Const(false)),
             affix(".com"),
         ],
     )
@@ -111,7 +111,7 @@ fn card<C>(site: Signal<Str>): Node<C> {
         ],
         [
             ui.stack([], [ui.text(.Const("Where does it live?"))]),
-            ui.field(.Const("Site"), .Text, [], [], site),
+            ui.field(.Const("Site"), .Text, [], [], site, .Const(false)),
         ],
     )
 }
@@ -155,7 +155,7 @@ fn bare<C>(site: Signal<Str>): Node<C> {
         ],
         [
             affix("https://"),
-            ui.field(.Const("Site"), .Text, [], [.Grow(1)], site),
+            ui.field(.Const("Site"), .Text, [], [.Grow(1)], site, .Const(false)),
             affix(".com"),
         ],
     )
@@ -173,7 +173,7 @@ fn bareCard<C>(site: Signal<Str>): Node<C> {
         ],
         [
             ui.stack([], [ui.text(.Const("Where does it live?"))]),
-            ui.field(.Const("Site"), .Text, [], [], site),
+            ui.field(.Const("Site"), .Text, [], [], site, .Const(false)),
         ],
     )
 }
