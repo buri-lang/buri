@@ -1,0 +1,5 @@
+FAIL //lib/translate  test/translate.buri  "the boxes beside a shifted one do not move"
+  the snapshot "translate-neighbours" changed: see test/__snapshots__/translate-neighbours.diff.png
+  --> lib/translate/test/translate.buri:32:1
+
+3 passed, 1 failed, 0 skipped (0.0s)
