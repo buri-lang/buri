@@ -1579,6 +1579,26 @@ impl<'a> Parser<'a> {
         if !self.is(Punctuation::Colon) {
             return keyword;
         }
+        // Read on trial first. `fn area(self: Int;` is a signature whose `)`
+        // is missing, and its `: Int` is the *return* type — so committing to
+        // the old form there would report a mistake nobody made and offer an
+        // edit that deletes an annotation that is right. The form is the old
+        // one only where the parameter list goes on or ends after it.
+        let pos = self.pos;
+        let depth = self.depth;
+        let save = self.save();
+        self.trial = self.trial.saturating_add(1);
+        self.bump();
+        let parsed = self.ty();
+        self.trial = self.trial.saturating_sub(1);
+        self.depth = depth;
+        let annotated = parsed.is_ok()
+            && (self.is(Punctuation::Comma) || self.is(Punctuation::RParen));
+        self.restore(save);
+        self.pos = pos;
+        if !annotated {
+            return keyword;
+        }
         let colon = self.bump();
         let Ok(ty) = self.ty() else { return self.prev_span() };
         let end = self.tree.type_span(ty);
@@ -2848,7 +2868,17 @@ impl<'a> Parser<'a> {
                     let e = self.expr()?;
                     self.scratch.exprs.push(e);
                 }
+                let closed = self.is(Punctuation::RParen);
                 let end = self.expect_close(Punctuation::RParen, "tuple", start)?;
+                if !closed {
+                    // What is inside a group that never closed is whatever the
+                    // recovery stopped at, not what was written — so it is an
+                    // error node, and neither the arity of the tuple it is not
+                    // nor the type of the one element it happens to hold is a
+                    // thing to report.
+                    self.scratch.exprs.truncate(base);
+                    return Ok(self.error_expr(start.to(end)));
+                }
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
                     self.templated("tuple-arity", start.to(end));
                 }
