@@ -124,6 +124,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         allow_bodyless,
         depth: 0,
         trial: 0,
+        early: None,
         chain: 0,
     };
     let mut module = p.module();
@@ -478,6 +479,17 @@ struct Parser<'a> {
     /// reported: the tokens it walked will be walked again, by whichever
     /// reading wins, and that reading is the one entitled to complain.
     trial: u32,
+    /// A token the source wrote one place too early, held until the
+    /// production that wants it asks.
+    ///
+    /// `total let = 1;` is `let total = 1;` with two adjacent tokens
+    /// exchanged, and the name is what the `let` should have been followed by.
+    /// Recovery reports the exchange once and hands the name on rather than
+    /// throwing the binding away, so the name is still declared and nothing
+    /// downstream reports a name nobody misspelled. It is cleared at every
+    /// declaration and statement boundary, so a token nothing asked for cannot
+    /// reach a production that had no mistake in it.
+    early: Option<usize>,
     /// Links in the chain currently being built. Only the constructs that
     /// recurse to build one — `else if` is the one left — keep a count here;
     /// a loop passes its own count to [`Parser::link`] instead, so there is
@@ -1011,6 +1023,9 @@ impl<'a> Parser<'a> {
         if self.peek() == TokenKind::Ident {
             return Ok(self.bump());
         }
+        if let Some(span) = self.take_early(TokenKind::Ident) {
+            return Ok(span);
+        }
         let found = self.found();
         let span = self.span();
         self.expected(
@@ -1025,6 +1040,59 @@ impl<'a> Parser<'a> {
     /// The same, as the [`Name`] a declaration holds.
     fn expect_ident(&mut self) -> PResult<Name> {
         Ok(Name::new(self.expect_name()?))
+    }
+
+    /// The token [`Parser::early`] holds, if it is the kind this production
+    /// wants. Reading it consumes it: a token written one place too early is
+    /// used once, where it belongs.
+    fn take_early(&mut self, kind: TokenKind) -> Option<Span> {
+        let i = self.early?;
+        if self.tokens.kind(i) != kind {
+            return None;
+        }
+        self.early = None;
+        Some(self.tokens.span(i))
+    }
+
+    /// Where that token was written, without consuming it.
+    ///
+    /// What a construct repaired this way starts at: an item's span has to
+    /// cover the mistake reported inside it, because that is how the formatter
+    /// decides which region to reproduce byte for byte.
+    fn early_span(&self) -> Option<Span> {
+        self.early.map(|i| self.tokens.span(i))
+    }
+
+    /// `total let = 1;`: the binding keyword and the name it binds, exchanged.
+    ///
+    /// The token after the `let` is what tells the two readings apart. A `let`
+    /// that begins a statement of its own is followed by a pattern; this one is
+    /// followed by the `:` or the `=` of the binding whose name was written in
+    /// front of it, and a pattern is exactly what that is missing. So the
+    /// exchange is reported once, with the edit that undoes it, and the name is
+    /// held for the binding to ask for — which is what keeps it in scope for
+    /// the rest of the file instead of turning every later use of it into a
+    /// name nobody misspelled.
+    fn exchanged_binding(&mut self) -> bool {
+        if self.trial > 0
+            || !matches!(self.peek(), TokenKind::Ident | TokenKind::KeywordCtx)
+            || self.kind_at(self.pos.saturating_add(1)) != TokenKind::of_keyword(Keyword::Let)
+            || !matches!(self.kind_at(self.pos.saturating_add(2)), TokenKind::Colon | TokenKind::Eq)
+        {
+            return false;
+        }
+        let name = self.span();
+        let keyword = self.tokens.span(self.at(self.pos.saturating_add(1)));
+        let written = self.slice(name);
+        let found = self.found();
+        let fix = format!("write `let` first: `let {written}`");
+        let repaired = format!("let {written}");
+        if let Some(d) = self.expected(name, "`let`", &found, fix) {
+            d.edit(name.to(keyword), &repaired);
+        }
+        self.early = Some(self.at(self.pos));
+        self.bump();
+        true
     }
 
     /// Every arena length and scratch depth, for a rollback.
@@ -1236,6 +1304,9 @@ impl<'a> Parser<'a> {
             if self.pos == before {
                 self.bump();
             }
+            // A token held for a production that never asked for it belongs to
+            // the declaration it was written in and to nothing after it.
+            self.early = None;
         }
         Module { items, docs: Vec::new(), tree: std::mem::take(&mut self.tree) }
     }
@@ -1258,6 +1329,11 @@ impl<'a> Parser<'a> {
         }
 
         let exported = self.eat_keyword(Keyword::Export);
+        // `SEED let: Int = 7;` — the binding keyword and its name, exchanged.
+        // The declaration is read as what it says, so it declares `SEED`.
+        if self.exchanged_binding() {
+            return Ok(Some(Item::Let(Box::new(self.let_decl(exported, docs, start)?))));
+        }
         let keyword = self.peek().as_keyword();
         let item = match keyword {
             Some(Keyword::Fn) => Item::Fn(Box::new(self.fn_decl(exported, docs, start)?)),
@@ -2101,7 +2177,7 @@ impl<'a> Parser<'a> {
             }
             let before = self.pos;
             let save = self.save();
-            if self.is_keyword(Keyword::Let) {
+            if self.is_keyword(Keyword::Let) || self.exchanged_binding() {
                 match self.let_stmt() {
                     Ok(s) => self.scratch.stmts.push(s),
                     Err(Bail) => {
@@ -2187,6 +2263,7 @@ impl<'a> Parser<'a> {
             if self.pos == before {
                 self.bump();
             }
+            self.early = None;
         }
 
         let end = self.expect_close(Punctuation::RBrace, construct, start)?;
@@ -2207,12 +2284,21 @@ impl<'a> Parser<'a> {
     }
 
     fn let_stmt(&mut self) -> PResult<StmtData> {
-        let start = self.expect_keyword(Keyword::Let)?;
+        // A name the source wrote in front of the `let` is where the statement
+        // starts: the span has to cover the mistake reported at it, because
+        // that is what the formatter reproduces byte for byte.
+        let early = self.early_span();
+        let keyword = self.expect_keyword(Keyword::Let)?;
+        let start = early.unwrap_or(keyword);
         // After `let`, one token of lookahead decides which form this is: the
         // `ctx` keyword takes no pattern and no annotation, because a context's
         // type is generated and never written.
-        if self.is_keyword(Keyword::Ctx) {
-            let name_span = self.bump();
+        let early_ctx = self.take_early(TokenKind::KeywordCtx);
+        if early_ctx.is_some() || self.is_keyword(Keyword::Ctx) {
+            let name_span = match early_ctx {
+                Some(span) => span,
+                None => self.bump(),
+            };
             self.expect(Punctuation::Eq)?;
             let value = self.expr()?;
             let end = self.expect_terminator("a statement")?;
@@ -2437,6 +2523,24 @@ impl<'a> Parser<'a> {
         if self.is(Punctuation::LBrace) {
             if self.at_anonymous_struct_lit() {
                 return self.struct_lit_body(NONE, self.span(), at);
+            }
+            // The type name written inside the brace it belongs in front of.
+            // Reported once, with the edit that undoes the exchange, and then
+            // read as the literal it says it is — so the fields are checked
+            // against the type that was named rather than against a block.
+            if self.at_exchanged_struct_lit() {
+                let brace = self.span();
+                let written = self.slice(self.tokens.span(self.at(self.pos.saturating_add(1))));
+                let found = self.found();
+                let fix = format!("write the type before the brace: `{written} {{`");
+                let repaired = format!("{written} {{");
+                let open = self.bump();
+                let name = self.bump();
+                if let Some(d) = self.expected(brace, "a struct literal's type", &found, fix) {
+                    d.edit(brace.to(name), &repaired);
+                }
+                let head = self.tree.push(Kind::Ident, [0; 4], name, at);
+                return self.struct_lit_fields(head.0, open, at, open);
             }
             let b = self.block("block")?;
             let span = self.tree.span_of(self.tree.block(b).span);
@@ -2897,6 +3001,18 @@ impl<'a> Parser<'a> {
     /// where there is a head and the `{` where there is not.
     fn struct_lit_body(&mut self, head: u32, start: Span, at: u32) -> PResult<ExprId> {
         let open = self.expect(Punctuation::LBrace)?;
+        self.struct_lit_fields(head, start, at, open)
+    }
+
+    /// The same, from inside the brace — what the repair below needs, because
+    /// the token it puts back was written after the `{`.
+    fn struct_lit_fields(
+        &mut self,
+        head: u32,
+        start: Span,
+        at: u32,
+        open: Span,
+    ) -> PResult<ExprId> {
         let spread = if self.is(Punctuation::DotDot) {
             self.bump();
             let e = self.expr()?;
@@ -2939,16 +3055,31 @@ impl<'a> Parser<'a> {
     /// rule declines is a literal whose first field is shorthand, which is what
     /// keeps `{ name }` and `{ name, }` from being two different things.
     fn at_anonymous_struct_lit(&self) -> bool {
+        self.opens_fields(self.pos)
+    }
+
+    /// Whether what follows the token at `i` is a field list by that rule.
+    fn opens_fields(&self, i: usize) -> bool {
         // `at` clamps to the last token, so reading past the end reads the
         // `Eof` that is always there. Saturating rather than `+`, because the
         // repository denies arithmetic that could wrap.
-        match self.kind_at(self.pos.saturating_add(1)) {
+        match self.kind_at(i.saturating_add(1)) {
             TokenKind::DotDot => true,
-            TokenKind::Ident => {
-                self.kind_at(self.pos.saturating_add(2)) == TokenKind::Colon
-            }
+            TokenKind::Ident => self.kind_at(i.saturating_add(2)) == TokenKind::Colon,
             _ => false,
         }
+    }
+
+    /// `{ Point x: 1 }`: a struct literal's type name and the brace it belongs
+    /// in front of, exchanged.
+    ///
+    /// One token past the rule above, and no more ambiguous than it: a block
+    /// cannot begin with a name followed by a field, so a `{` whose first token
+    /// is a name and whose *second* opens a field list is a literal whose type
+    /// was written inside it. Nothing else in the grammar reads that way.
+    fn at_exchanged_struct_lit(&self) -> bool {
+        self.kind_at(self.pos.saturating_add(1)) == TokenKind::Ident
+            && self.opens_fields(self.pos.saturating_add(1))
     }
 
     // -- patterns -----------------------------------------------------------
@@ -3142,6 +3273,16 @@ impl<'a> Parser<'a> {
                 Ok(self.tree.ppush(PatternKind::Bind, [first.start, first.end, sub, 0], span, at))
             }
             _ => {
+                // The name written in front of the `let` that binds it. A bare
+                // identifier is always a binding, wherever it was written.
+                if let Some(span) = self.take_early(TokenKind::Ident) {
+                    return Ok(self.tree.ppush(
+                        PatternKind::Bind,
+                        [span.start, span.end, NONE, 0],
+                        span,
+                        at,
+                    ));
+                }
                 let found = self.found();
                 let span = self.span();
                 self.expected(
