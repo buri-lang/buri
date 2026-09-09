@@ -696,6 +696,26 @@ stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.
 
+`button(label, styles, children, onPress)` holds children the way `link` does,
+and one with none shows its label. The label stays a parameter and rides in
+`aria-label`, so a button of an icon and a word is one focusable, hoverable
+element with the name the program gave it.
+
+`field(label, kind, styles, around, value)` and
+`toggle(label, kind, styles, around, value)` take two style lists, because a
+labelled control is two boxes: `styles` is the input's, `around` is the
+`<label>`'s — the box a surrounding row lays out, and the only place `Grow`,
+`Shrink`, `AlignSelf` and `Span` do anything. A toggle's `ToggleKind` picks the
+mark it draws inside itself: `Checkbox` has a tick when it is on, `Switch` has a
+thumb that travels. Both take the box's `Foreground`.
+
+`Shadow` is one shadow and `Shadows` is a list of them, painted first over last,
+because every elevation is two layers and a focus ring is a third beside them.
+They are one conflict slot, so the last written is the element's shadow.
+`Color.alpha(f)` is the same colour at `f` of its opacity — arithmetic for a
+colour written out, and a `color-mix` around the `var()` for a design token, so
+a translucent shade needs no token of its own.
+
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it

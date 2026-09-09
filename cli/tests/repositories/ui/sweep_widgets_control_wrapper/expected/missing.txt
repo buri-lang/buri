@@ -1,0 +1,5 @@
+FAIL //lib/wrapper  test/pictures.buri  "where the label sits in its container"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/wrapper/test/pictures.buri:35:1
+
+0 passed, 1 failed, 2 skipped (0.0s)
