@@ -701,7 +701,9 @@ struct Computed {
     background: Rgba,
     colour: Rgba,
     border_width: Len,
-    border_colour: Rgba,
+    /// `None` is CSS's initial `currentColor`: the stroke takes the element's
+    /// own `colour`, whichever order the two were written in.
+    border_colour: Option<Rgba>,
     border_style: Border,
     radius: Len,
     opacity: f32,
@@ -747,7 +749,7 @@ impl Computed {
             background: Rgba::CLEAR,
             colour: Rgba::BLACK,
             border_width: Len::Px(0.0),
-            border_colour: Rgba::BLACK,
+            border_colour: None,
             border_style: Border::Solid,
             radius: Len::Px(0.0),
             opacity: 1.0,
@@ -916,9 +918,12 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "border-width" => style.border_width = len(value).unwrap_or(style.border_width),
         "border-color" => {
             style.border_colour = match colour(value) {
-                Some(Spec::Value(c)) => c,
-                Some(Spec::Transparent) => Rgba::CLEAR,
-                _ => style.colour,
+                Some(Spec::Value(c)) => Some(c),
+                Some(Spec::Transparent) => Some(Rgba::CLEAR),
+                // `inherit`, and a `var()` nothing defined: back to the
+                // element's own colour, which is where a border with no
+                // declaration starts.
+                _ => None,
             };
         }
         "border-style" => {
@@ -1542,10 +1547,16 @@ impl Painter<'_> {
         if let Some(shadow) = style.shadow {
             let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
             let corner = radius + shadow.spread;
+            // An outer shadow is painted outside the border box and nowhere
+            // else, so the box is knocked out of whatever clip was already in
+            // force. A ring around a transparent control is the case that
+            // needs it: without the knockout the ring fills the control.
+            let outside = outside_the_box(box_, radius, clip, canvas.width(), canvas.height());
+            let under = outside.as_ref().or(clip);
             if shadow.blur > 0.0 {
-                cast_blurred(canvas, cast, corner, shadow, style.opacity, clip);
+                cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
             } else {
-                fill(canvas, cast, corner, shadow.colour, style.opacity, clip);
+                fill(canvas, cast, corner, shadow.colour, style.opacity, under);
             }
         }
         if style.background.visible() {
@@ -1555,7 +1566,7 @@ impl Painter<'_> {
             Len::Px(n) if style.border_style != Border::None => n,
             _ => 0.0,
         };
-        if width > 0.0 && style.border_colour.visible() {
+        if width > 0.0 && style.border_colour.unwrap_or(style.colour).visible() {
             stroke(canvas, box_, radius, width, style, clip);
         }
 
@@ -1794,8 +1805,19 @@ impl Box2 {
     }
 
     fn path(self, radius: f32) -> Option<tiny_skia::Path> {
-        let (l, t) = (self.l as f32, self.t as f32);
-        let (r, b) = (self.r as f32, self.b as f32);
+        self.inset_path(0.0, radius)
+    }
+
+    /// The same path, pulled `by` device pixels in on every side, in floating
+    /// point.
+    ///
+    /// A stroke's centreline is half a width in, and half of an odd width is
+    /// half a pixel — a number [`px`] has no room for. Rounding it is what put
+    /// a one-pixel border astride the box's edge, so the inset is applied to
+    /// the edges rather than to the box.
+    fn inset_path(self, by: f32, radius: f32) -> Option<tiny_skia::Path> {
+        let (l, t) = (self.l as f32 + by, self.t as f32 + by);
+        let (r, b) = (self.r as f32 - by, self.b as f32 - by);
         if r <= l || b <= t {
             return None;
         }
@@ -1852,12 +1874,13 @@ fn stroke(
     style: &Computed,
     clip: Option<&Mask>,
 ) {
-    // A CSS border sits inside the box, so the centreline is half a width in.
-    let inset = box_.grow(-width / 2.0);
-    let Some(path) = inset.path((radius - width / 2.0).max(0.0)) else { return };
+    // A CSS border sits inside the box, so the centreline is half a width in —
+    // a half pixel for an odd width, which is why this is not a `grow`.
+    let half = width / 2.0;
+    let Some(path) = box_.inset_path(half, (radius - half).max(0.0)) else { return };
     let paint = Paint {
         anti_alias: true,
-        shader: shade(style.border_colour, style.opacity),
+        shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
         ..Paint::default()
     };
     let mut pen = Stroke { width, ..Stroke::default() };
@@ -2009,6 +2032,30 @@ fn cast_blurred(
     let paint =
         Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
     canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
+}
+
+/// The clip an outer shadow paints under: what the caller was already clipped
+/// to, minus the element's own border box.
+///
+/// CSS clips an outer `box-shadow` to the region outside the border box, so a
+/// shadow is never under the box that cast it. `None` means nothing could be
+/// allocated, and the caller keeps its own clip.
+fn outside_the_box(
+    box_: Box2,
+    radius: f32,
+    clip: Option<&Mask>,
+    width: u32,
+    height: u32,
+) -> Option<Mask> {
+    let mut mask = clip.cloned().or_else(|| full_mask(width, height))?;
+    let Some(path) = box_.path(radius) else { return Some(mask) };
+    let mut hole = Mask::new(width, height)?;
+    hole.fill_path(&path, FillRule::Winding, true, Transform::identity());
+    for coverage in hole.data_mut() {
+        *coverage = 255 - *coverage;
+    }
+    narrow(&mut mask, &hole);
+    Some(mask)
 }
 
 /// Multiplies `mask` by `other`, which is mask intersection on coverage.
@@ -3147,6 +3194,53 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 3, 10), [255, 255, 255, 255]);
         assert_eq!(at(&image, 5, 10), [255, 255, 255, 255]);
+    }
+
+    /// A border sits inside the box, whatever its width: a one-pixel border is
+    /// one solid row on the box's own first row, and nothing above it.
+    #[test]
+    fn an_odd_border_width_paints_solid_rows_inside_the_box() {
+        let scene = "buri-scene 1\nviewport 20 24\ne 0 padding:4px\n\
+                     e 1 width:12px;height:12px;border-style:solid;border-width:1px;\
+                     border-color:rgb(0,0,0)\n";
+        let one = render_ok(scene, "", "rest");
+        assert_eq!(at(&one, 10, 3), [255, 255, 255, 255], "a border paints outside its box");
+        assert_eq!(at(&one, 10, 4), [0, 0, 0, 255], "a one-pixel border is one solid row");
+        assert_eq!(at(&one, 10, 5), [255, 255, 255, 255]);
+        assert_eq!(at(&one, 10, 15), [0, 0, 0, 255], "the box's last row is the border's");
+
+        // Three is the same rule, three rows in: the row above the box is
+        // untouched and the three inside it are solid.
+        let scene = scene.replace("border-width:1px", "border-width:3px");
+        let three = render_ok(&scene, "", "rest");
+        assert_eq!(at(&three, 10, 3), [255, 255, 255, 255]);
+        for y in 4..7 {
+            assert_eq!(at(&three, 10, y), [0, 0, 0, 255], "row {y} of a three-pixel border");
+        }
+        assert_eq!(at(&three, 10, 7), [255, 255, 255, 255]);
+    }
+
+    /// A border with no colour of its own draws in the element's foreground,
+    /// which is CSS's `currentColor` — and the `color` beside it may be
+    /// written after the border.
+    #[test]
+    fn a_border_with_no_colour_draws_in_the_foreground() {
+        let scene = "buri-scene 1\nviewport 20 20\ne 0 padding:4px\n\
+                     e 1 width:12px;height:12px;border-style:solid;border-width:4px;\
+                     color:rgb(18,18,28)\n";
+        assert_eq!(at(&render_ok(scene, "", "rest"), 5, 10), [18, 18, 28, 255]);
+    }
+
+    /// An outer shadow paints outside the border box only, so a spread-only
+    /// ring around a transparent box leaves the box's own pixels alone.
+    #[test]
+    fn an_outer_shadow_paints_outside_the_box_it_was_cast_from() {
+        let scene = "buri-scene 1\nviewport 24 24\ne 0 padding:6px\n\
+                     e 1 width:12px;height:12px;box-shadow:0px 0px 0px 3px rgb(150,150,150)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 4, 12), [150, 150, 150, 255], "the ring is three pixels out");
+        assert_eq!(at(&image, 12, 12), [255, 255, 255, 255], "a ring flooded the control");
+        assert_eq!(at(&image, 6, 6), [255, 255, 255, 255], "the box's own corner");
     }
 
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the

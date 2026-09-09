@@ -21,7 +21,7 @@
 # are about, because painting six 800 by 600 pages five times over is four
 # fifths of what this case would cost the bar.
 #
-# **Six of these pictures are pinned as painted rather than as right**, and each
+# **Four of these pictures are pinned as painted rather than as right**, and each
 # is a filed bug. Re-record the goldens as each closes.
 #
 #   * #86 — a `Width` or a `Height` is a border box, so the padding sits inside
@@ -30,10 +30,6 @@
 #   * #87 — a translucent `Foreground`, and any fractional `Opacity`, paint the
 #     glyphs fully opaque. The `surface` picture's third `Foreground` cell and
 #     its `Opacity` band.
-#   * #88 — a `BorderWidth` with no `BorderColor` strokes black rather than the
-#     element's own colour. The `surface` picture's `BorderWidth` band.
-#   * #76 — an odd border width straddles the box edge, so the `1px` cell paints
-#     two half-covered rows.
 #   * #78 — `Truncate` paints every line, so all four cells of the `runs`
 #     picture's last band are one picture.
 #   * #81 — `TextWrap(.Balance)` paints exactly as `.Wrap` does.

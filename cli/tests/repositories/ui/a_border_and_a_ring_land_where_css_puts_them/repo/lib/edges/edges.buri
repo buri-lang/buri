@@ -1,0 +1,99 @@
+// Where a border and a shadow land, which is the one thing about them a
+// picture is the only way to say.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Length, Shadow };
+
+/// One box, sixty by thirty, outlined in the width it was given.
+fn bordered<C>(width: Length): Node<C> {
+    ui.stack(
+        [
+            .Width(.Px(60)),
+            .Height(.Px(30)),
+            .BorderWidth(width),
+            .BorderColor(.Rgb(0, 0, 0)),
+        ],
+        [],
+    )
+}
+
+/// The ring a `Focus` style asks for: no blur, three pixels of spread.
+fn ring3(): Shadow {
+    Shadow {
+        x: .Px(0),
+        y: .Px(0),
+        blur: .Px(0),
+        spread: .Px(3),
+        color: .Rgb(150, 150, 150),
+    }
+}
+
+/// Five widths, one to a box, each box's top edge at y=20 and its bottom at
+/// y=49. A border sits inside the box it belongs to, so every width is that
+/// many solid rows starting at y=20 — an odd one included.
+export fn widths<C>(): Node<C> {
+    ui.row([.Gap(.Px(20)), .Padding(.Px(20))], [
+        bordered(.Px(1)),
+        bordered(.Px(2)),
+        bordered(.Px(3)),
+        bordered(.Px(4)),
+        bordered(.Px(5)),
+    ])
+}
+
+/// A border with no colour of its own draws in the foreground: the first box
+/// takes its own, the second is told a colour and uses that, and the third
+/// takes the foreground it inherited from the box around it.
+export fn currentColour<C>(): Node<C> {
+    ui.row([.Gap(.Px(20)), .Padding(.Px(20))], [
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Foreground(.Rgb(18, 18, 28)),
+                .BorderWidth(.Px(4)),
+            ],
+            [],
+        ),
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Foreground(.Rgb(18, 18, 28)),
+                .BorderWidth(.Px(4)),
+                .BorderColor(.Rgb(214, 44, 44)),
+            ],
+            [],
+        ),
+        ui.stack([.Foreground(.Rgb(20, 120, 90))], [
+            ui.stack([.Width(.Px(60)), .Height(.Px(30)), .BorderWidth(.Px(4))], []),
+        ]),
+    ])
+}
+
+/// The same ring on a transparent box and on an opaque one. An outer shadow is
+/// painted outside the box only, so the transparent box keeps the page behind
+/// it and both rings are the same three pixels wide.
+export fn ring<C>(): Node<C> {
+    ui.row([.Gap(.Px(20)), .Padding(.Px(20)), .Background(.Rgb(232, 240, 250))], [
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Background(.Transparent),
+                .Shadow(ring3()),
+            ],
+            [],
+        ),
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Background(.Rgb(255, 255, 255)),
+                .Shadow(ring3()),
+            ],
+            [],
+        ),
+    ])
+}
