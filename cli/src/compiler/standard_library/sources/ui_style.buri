@@ -289,6 +289,34 @@ export enum Style {
     /// Down here for `Bleed`'s reason: it is the only property that writes a
     /// transform, so its position in the sheet resolves nothing either.
     Translate(Length, Length),
+
+    /// Whether content outside this element's box is painted.
+    ///
+    /// `.Clip(true)` cuts a child to its parent's box, corners included, which
+    /// is how a card holds a full-bleed picture without the picture squaring
+    /// the card's radius off. Nothing here becomes scrollable: `Scroll` is the
+    /// property that says content can be reached by scrolling to it, and this
+    /// one says it is not painted at all.
+    ///
+    /// Declared after `Scroll`, which writes the same declaration, so an
+    /// element carrying both gets this one's answer — `.Clip(false)` included,
+    /// which paints the overflow a `Scroll` beside it asked to cut.
+    Clip(Bool),
+
+    /// Whether the pointer passes through this element to whatever is behind
+    /// it.
+    ///
+    /// It follows the platform's own inheritance: a subtree opts out and a
+    /// child opts back in. A toaster dock pinned across the viewport asks for
+    /// `.Passthrough(true)` so the page under it still answers a press, and
+    /// each toast in it asks for `.Passthrough(false)`. An icon inside a button
+    /// asks for `.Passthrough(true)` so the press lands on the button rather
+    /// than on the glyph.
+    ///
+    /// What the pointer *looks* like is `Cursor`, which is a different
+    /// question: an element can refuse the pointer and still name a cursor,
+    /// and the cursor is then whatever is behind it.
+    Passthrough(Bool),
 }
 
 /// How a container arranges its children.
@@ -543,6 +571,10 @@ export enum State {
     Disabled,
     /// It is a toggle and it is on.
     Checked,
+    /// It is failing validation. A `field` and a `toggle` take an `invalid`
+    /// that puts them in it, and that is the only way in: the platform is told
+    /// as well as shown, so a reader hears "invalid" and sees the ring.
+    Invalid,
 }
 
 /// How an element relates to the flow of the page.

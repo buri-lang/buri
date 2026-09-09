@@ -177,9 +177,12 @@ impl Cond {
     }
 }
 
-/// How many conditions a property divides into: seven states counting "none",
+/// How many conditions a property divides into: eight states counting "none",
 /// by five breakpoints counting "none", which is what `Cond::code` numbers.
-const CONDITIONS: u32 = 35;
+///
+/// `ui/node`'s `slotState` divides a slot by this to read a condition back, so
+/// a state added to `ui/style` moves both.
+const CONDITIONS: u32 = 40;
 
 /// How many sub-keys a property divides into: the four `Edge`s — which is also
 /// the four `Corner`s — and the one a `Pin` keeps its `position` in.
@@ -234,8 +237,8 @@ fn sub_key(variant: usize, args: &[Value]) -> u32 {
 const SCREENS: [(&str, &str); 4] =
     [("sm", "40rem"), ("md", "48rem"), ("lg", "64rem"), ("xl", "80rem")];
 
-/// `(class prefix, pseudo-class)`, in `State`'s declaration order.
-const STATES: [(&str, &str); 6] = [
+/// `(class prefix, selector suffix)`, in `State`'s declaration order.
+const STATES: [(&str, &str); 7] = [
     ("hover", ":hover"),
     // `:focus-visible` rather than `:focus`, so a mouse press does not draw a
     // focus ring — which is what the vocabulary's `Focus` promises.
@@ -246,6 +249,12 @@ const STATES: [(&str, &str); 6] = [
     ("active", ":active"),
     ("disabled", ":disabled"),
     ("checked", ":checked"),
+    // An attribute rather than a pseudo-class, and the one state that is: a
+    // program marks a control invalid and `:invalid` is a browser's own
+    // verdict on its own constraints, which no program can reach. The
+    // attribute is what a reader is told too, so the ring and the
+    // announcement are one fact.
+    ("invalid", "[aria-invalid=true]"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1427,6 +1436,20 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
                 format!("{x_key}-{y_key}"),
                 one("transform", &format!("translate({x},{y})")),
             ))
+        }
+
+        // what is painted outside the box, and what the pointer does with it
+        57 => {
+            let on = first?.as_bool()?;
+            // `clip` rather than `hidden`: both stop the paint, and only
+            // `hidden` also makes a scroll container a keyboard can land in.
+            let css = if on { "clip" } else { "visible" };
+            Some(("clip", css.into(), one("overflow", css)))
+        }
+        58 => {
+            let on = first?.as_bool()?;
+            let css = if on { "none" } else { "auto" };
+            Some(("pass", css.into(), one("pointer-events", css)))
         }
         _ => None,
     }

@@ -1,0 +1,63 @@
+// A control failing validation: two pictures of one tree, and the classes
+// behind each.
+//
+// The `describe` assertions are what say the failing picture is no copy of the
+// resting one: the invalid document carries the `invalid_` classes and none of
+// the other five states', and the resting document carries no state class at
+// all.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/control" import { failing, resting };
+
+test "before anything failed" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, resting(ctx), .Invalid);
+    assert.isFalse(scene.contains("invalid_"));
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("focus_"));
+    assert.isFalse(scene.contains("active_"));
+    assert.isFalse(scene.contains("disabled_"));
+    assert.isFalse(scene.contains("checked_"));
+    snapshot(ctx, "invalid-resting", resting(ctx), .Invalid, []);
+}
+
+test "failing validation" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, failing(ctx), .Invalid);
+    assert.containsText(scene, "invalid_bg-");
+    assert.containsText(scene, "invalid_fg-");
+    assert.containsText(scene, "invalid_bw-");
+    assert.containsText(scene, "invalid_bc-");
+    assert.containsText(scene, "invalid_op-");
+    assert.containsText(scene, "invalid_sh-");
+    assert.isFalse(scene.contains("hover_"));
+    assert.isFalse(scene.contains("focus_"));
+    assert.isFalse(scene.contains("active_"));
+    assert.isFalse(scene.contains("disabled_"));
+    assert.isFalse(scene.contains("checked_"));
+    snapshot(ctx, "invalid-stated", failing(ctx), .Invalid, []);
+}
+
+test "the same tree in another state answers nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A state is a state like the other five: a scene taken in one carries
+    // that one's classes and no other's, so the failing tree hovered is the
+    // resting picture.
+    let scene = ui.describe(ctx, failing(ctx), .Hover);
+    assert.isFalse(scene.contains("invalid_"));
+    snapshot(ctx, "invalid-hovered", failing(ctx), .Hover, []);
+}
