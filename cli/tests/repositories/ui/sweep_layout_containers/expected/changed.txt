@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/containers.buri  "rows the walk asks for, under three layouts"
+  the snapshot "containers-each" changed: see test/__snapshots__/containers-each.diff.png
+  --> lib/scenes/test/containers.buri:34:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

@@ -1,0 +1,66 @@
+// One box: how big it is, what is inside its edges, and what it does with a
+// child that does not fit.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import {
+    aspect, height, minMax, overflow, padding, paddingEdges, width,
+};
+
+test "every padding shorthand" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-padding", padding(), .Hover, []);
+}
+
+test "one edge at a time, then two of them and all four" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-padding-edges", paddingEdges(), .Hover, []);
+}
+
+test "every length a width can be" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-width", width(), .Hover, []);
+}
+
+test "every length a height can be" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-height", height(), .Hover, []);
+}
+
+test "a floor and a ceiling beating the size beside them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-min-max", minMax(), .Hover, []);
+}
+
+test "width over height, for a box that keeps its proportions" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-aspect", aspect(), .Hover, []);
+}
+
+test "what a container does with a child larger than it is" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-overflow", overflow(), .Hover, []);
+}
