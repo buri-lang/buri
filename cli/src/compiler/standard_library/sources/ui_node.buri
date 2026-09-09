@@ -126,11 +126,11 @@ enum NodeKind<C> {
     Heading(Int, [Style], Prop<Str>),
     Stack([Style], [Node<C>]),
     Region(Role, [Style], [Node<C>]),
-    Button(Prop<Str>, [Style], fn(C, Event) => ()),
+    Button(Prop<Str>, [Style], fn(C, Event) => (), Prop<Bool>),
     Link(Prop<Str>, [Style], [Node<C>]),
-    Image(Prop<Str>, Prop<Str>),
-    Field(Prop<Str>, FieldKind, [Style], Signal<Str>),
-    Toggle(Prop<Str>, [Style], Signal<Bool>),
+    Image(Prop<Str>, Prop<Str>, [Style]),
+    Field(Prop<Str>, FieldKind, [Style], Signal<Str>, Prop<Bool>),
+    Toggle(Prop<Str>, [Style], Signal<Bool>, Prop<Bool>),
     Form(fn(C, Event) => (), [Style], [Node<C>]),
     When(Prop<Bool>, Node<C>, Node<C>),
     Computed(fn(Scope) => Node<C>),
@@ -216,12 +216,19 @@ export fn heading<C>(level: Int, styles: [Style], content: Prop<Str>): Node<C> {
 /// The styles land on the button itself, which is what makes `On(.Hover, ...)`,
 /// `On(.Focus, ...)` and `On(.Disabled, ...)` fire — a wrapper around it is
 /// none of those things.
+///
+/// `disabled` is what puts it in `State::Disabled`, and it is an attribute
+/// rather than a style: it takes the button out of the tab order, refuses the
+/// press before the handler is reached, and tells a reader the button is
+/// unavailable rather than absent. `.Const(false)` is a button that is always
+/// pressable.
 export fn button<C>(
     label: Prop<Str>,
     styles: [Style],
     onPress: fn(C, Event) => (),
+    disabled: Prop<Bool>,
 ): Node<C> {
-    Node(.Button(label, styles, onPress))
+    Node(.Button(label, styles, onPress, disabled))
 }
 
 /// Somewhere to go.
@@ -237,8 +244,13 @@ export fn link<C>(dest: Prop<Str>, styles: [Style], children: [Node<C>]): Node<C
 /// `alt` is required and may be the empty string, which is how a decorative
 /// image says it is decorative. A reader has to be told that; it cannot
 /// guess.
-export fn image<C>(source: Prop<Str>, alt: Prop<Str>): Node<C> {
-    Node(.Image(source, alt))
+///
+/// The styles land on the picture itself rather than on a box around it, the
+/// same rule `button` and `field` follow. Sizing a picture, giving it a shape
+/// with `AspectRatio`, and rounding its corners with `Radius` are all things
+/// only the picture can be told: a wrapper's own width is the wrapper's.
+export fn image<C>(source: Prop<Str>, alt: Prop<Str>, styles: [Style]): Node<C> {
+    Node(.Image(source, alt, styles))
 }
 
 /// Somewhere to type, and what it is for.
@@ -252,21 +264,34 @@ export fn image<C>(source: Prop<Str>, alt: Prop<Str>): Node<C> {
 ///
 /// The styles land on the input, not on the label around it — the input is what
 /// a reader focuses and what a browser disables.
+///
+/// `disabled` is the input's, for the reason a button's is: it is what refuses
+/// what a reader types rather than what dims it.
 export fn field<C>(
     label: Prop<Str>,
     kind: FieldKind,
     styles: [Style],
     value: Signal<Str>,
+    disabled: Prop<Bool>,
 ): Node<C> {
-    Node(.Field(label, kind, styles, value))
+    Node(.Field(label, kind, styles, value, disabled))
 }
 
 /// Something with two states, and what it is for.
 ///
 /// Binds to a `Signal<Bool>`, for the reason a field binds to a signal. The
-/// styles land on the box, so `On(.Checked, ...)` is the box being checked.
-export fn toggle<C>(label: Prop<Str>, styles: [Style], value: Signal<Bool>): Node<C> {
-    Node(.Toggle(label, styles, value))
+/// styles land on the box, so `On(.Checked, ...)` is the box being checked —
+/// and *this* box, since the value is what says whether it is. A page holding
+/// one toggle that is on and one that is off paints two answers, not one.
+///
+/// `disabled` is the box's, for the reason a button's is.
+export fn toggle<C>(
+    label: Prop<Str>,
+    styles: [Style],
+    value: Signal<Bool>,
+    disabled: Prop<Bool>,
+): Node<C> {
+    Node(.Toggle(label, styles, value, disabled))
 }
 
 /// A group of controls you submit.
@@ -396,6 +421,15 @@ fn rootScope(): Scope;
 /// `At(...)` contributes nothing at all — a breakpoint's rules are in the
 /// stylesheet, and the painter reads that for itself.
 ///
+/// Two of the five states are not the snapshot's to name, because the tree
+/// already holds the answer, and a widget's line says so. A toggle carries
+/// `checked:<true|false>`, which is its signal: a page holding one toggle that
+/// is on and one that is off paints two answers, and the snapshot's `.Checked`
+/// reaches only what holds no answer of its own. A button, a field and a
+/// toggle whose `disabled` is set carry `disabled:true`; that one is a
+/// direction rather than an answer, so the snapshot's `.Disabled` still asks
+/// every element what it would look like unavailable.
+///
 /// A heading's level says nothing here. The level is the document's outline
 /// and the sheet paints no size or weight for one, so a heading's line carries
 /// its own styles and nothing else — which is what the markup carries too.
@@ -422,7 +456,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         .Text(content) => [textLine(ctx, depth, content.read(scope))],
         .Heading(_level, styles, content) => {
             [
-                styledLine(ctx, state, styles, depth),
+                styledLine(ctx, plain(state), styles, depth),
                 textLine(ctx, depth + 1, content.read(scope)),
             ]
         },
@@ -439,9 +473,9 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 depth,
             )
         },
-        .Button(label, styles, _onPress) => {
+        .Button(label, styles, _onPress, disabled) => {
             [
-                styledLine(ctx, state, styles, depth),
+                styledLine(ctx, refusing(state, disabled.read(scope)), styles, depth),
                 textLine(ctx, depth + 1, label.read(scope)),
             ]
         },
@@ -452,24 +486,33 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // it can and paints a placeholder box at the same size for one it
         // cannot; `alt` is what a reader is *told* and never what is drawn, so
         // it is not in the scene.
-        .Image(source, _alt) => {
+        .Image(source, _alt, styles) => {
             let declaration = decl(ctx, "image", escapeValue(ctx, source.read(scope)));
-            [elementLine(ctx, depth, [], [declaration])]
+            [widgetLine(ctx, plain(state), [declaration], styles, depth)]
         },
         // The styles are the input's, not the label's, so the label around it
         // carries no class of its own and the line under it carries them all.
-        .Field(label, kind, styles, value) => {
+        .Field(label, kind, styles, value, disabled) => {
+            let painted = refusing(state, disabled.read(scope));
             [
                 elementLine(ctx, depth, [], wrapper()),
                 textLine(ctx, depth + 1, label.read(scope)),
-                fieldLine(ctx, state, kind, styles, depth + 1),
+                fieldLine(ctx, painted, kind, styles, depth + 1),
                 textLine(ctx, depth + 2, value.get(scope)),
             ]
         },
-        .Toggle(label, styles, _value) => {
+        // The box answers for its own `:checked` — the signal is the answer —
+        // so its line carries what the signal says and the walk over its
+        // styles reads that rather than the snapshot's state.
+        .Toggle(label, styles, value, disabled) => {
+            let painted = Painted {
+                state: state,
+                checked: .Some(value.get(scope)),
+                disabled: disabled.read(scope),
+            };
             [
                 elementLine(ctx, depth, [], wrapper()),
-                styledLine(ctx, state, styles, depth + 1),
+                styledLine(ctx, painted, styles, depth + 1),
                 textLine(ctx, depth + 1, label.read(scope)),
             ]
         },
@@ -513,18 +556,12 @@ fn wrapper(): [Str] {
 /// one.
 fn fieldLine<C: Allocator>(
     ctx: C,
-    state: State,
+    painted: Painted,
     kind: FieldKind,
     styles: [Style],
     depth: Int,
 ): Str {
-    let accepts = decl(ctx, "field", kindName(kind));
-    elementLine(
-        ctx,
-        depth,
-        classNames(ctx, state, styles),
-        [accepts].concat(ctx, inlineIn(ctx, state, styles, 0, [])),
-    )
+    widgetLine(ctx, painted, [decl(ctx, "field", kindName(kind))], styles, depth)
 }
 
 /// What a `FieldKind` is called in a scene: the `type` the markup carries, and
@@ -541,13 +578,61 @@ fn kindName(kind: FieldKind): Str {
 }
 
 /// The `e` line one styled element contributes, with no children under it.
-fn styledLine<C: Allocator>(ctx: C, state: State, styles: [Style], depth: Int): Str {
+fn styledLine<C: Allocator>(
+    ctx: C,
+    painted: Painted,
+    styles: [Style],
+    depth: Int,
+): Str {
+    widgetLine(ctx, painted, [], styles, depth)
+}
+
+/// One `e` line: the classes the styles chose, then `leading` — the scene-only
+/// declarations that say what this element *is* — then everything the styles
+/// wrote out.
+///
+/// The scene-only declarations come first, so a style still wins over one the
+/// way a later declaration wins over an earlier one.
+fn widgetLine<C: Allocator>(
+    ctx: C,
+    painted: Painted,
+    leading: [Str],
+    styles: [Style],
+    depth: Int,
+): Str {
     elementLine(
         ctx,
         depth,
-        classNames(ctx, state, styles),
-        inlineIn(ctx, state, styles, 0, []),
+        classNames(ctx, painted, styles),
+        leading
+            .concat(ctx, answers(ctx, painted))
+            .concat(ctx, inlineIn(ctx, painted, styles, 0, [])),
     )
+}
+
+/// The states an element answers for itself, as the declarations its line
+/// carries.
+///
+/// `checked:<true|false>` is a toggle's signal, and only a toggle writes one:
+/// the answer is two-valued, so an element that holds one says which, and an
+/// element that holds none leaves the snapshot's state to say. `disabled:true`
+/// is a control whose flag is set, and there is no `disabled:false` because a
+/// clear flag takes nothing away — `.Disabled` is still a fair question to ask
+/// of every element.
+fn answers<C: Allocator>(ctx: C, painted: Painted): [Str] {
+    let checked = match (painted.checked) {
+        .Some(on) => [decl(ctx, "checked", boolName(on))],
+        .None => [],
+    };
+    if (painted.disabled) {
+        checked.push(ctx, decl(ctx, "disabled", "true"))
+    } else {
+        checked
+    }
+}
+
+fn boolName(value: Bool): Str {
+    if (value) { "true" } else { "false" }
 }
 
 /// An `e` line for a box, then everything inside it one level deeper.
@@ -558,7 +643,7 @@ fn container<C: Allocator>(
     children: [Node<C>],
     depth: Int,
 ): [Str] {
-    let line = styledLine(ctx, state, styles, depth);
+    let line = styledLine(ctx, plain(state), styles, depth);
     [line].concat(ctx, childLines(ctx, state, children, depth + 1, 0, []))
 }
 
@@ -679,19 +764,67 @@ fn textLine<C: Allocator>(ctx: C, depth: Int, content: Str): Str {
 //
 // Two walks over the same list. One collects the classes the compiler already
 // extracted; the other writes out everything it could not. Both expand `Group`,
-// `When` and `Computed`, both take an `On` only when it names the snapshot's
-// state, and both skip an `At` — a breakpoint lives in the stylesheet.
+// `When` and `Computed`, both take an `On` only when it applies to the element
+// being written, and both skip an `At` — a breakpoint lives in the stylesheet.
+
+/// Which states one element is in, which is not the same question for all five.
+///
+/// `Hover`, `Focus` and `Active` are things a pointer or a keyboard does, and
+/// there is nothing in a tree to read them off: the snapshot names one for the
+/// whole page, and that is a fair way to ask what a page looks like while
+/// something on it is hovered.
+///
+/// The other two are the tree's own. `checked` is a toggle's signal, and a
+/// toggle *is* checked or is not — a snapshot cannot add to that, so a toggle
+/// answers for itself and `.None` is an element that holds no such answer, for
+/// which the snapshot still decides. `disabled` is a control's flag, and it
+/// only ever adds: a control whose flag is set is unavailable in every
+/// snapshot, and one whose flag is clear is still worth asking `.Disabled` of.
+struct Painted {
+    state: State,
+    checked: Option<Bool>,
+    disabled: Bool,
+}
+
+/// An element that answers for none of it: everything but a widget.
+fn plain(state: State): Painted {
+    Painted { state: state, checked: .None, disabled: false }
+}
+
+/// A control that answers for its own `disabled` and for nothing else — a
+/// button and a field.
+fn refusing(state: State, disabled: Bool): Painted {
+    Painted { state: state, checked: .None, disabled: disabled }
+}
+
+/// Whether a style scoped to `scoped` — a `State`'s rank, or `-1` for a style
+/// that applies whatever the state is — reaches this element.
+fn applies(scoped: Int, painted: Painted): Bool {
+    let named = stateRank(painted.state);
+    if (scoped < 0) {
+        true
+    } else if (scoped == stateRank(.Checked)) {
+        match (painted.checked) {
+            .Some(on) => on,
+            .None => named == scoped,
+        }
+    } else if (scoped == stateRank(.Disabled)) {
+        painted.disabled || named == scoped
+    } else {
+        scoped == named
+    }
+}
 
 /// The class each conflict slot ended up with. Last slot wins, which is the
 /// scan the runtime makes over the same pairs.
-fn classNames<C: Allocator>(ctx: C, state: State, styles: [Style]): [Str] {
-    lastPerSlot(ctx, slotsIn(ctx, state, styles, 0, []), 0, [])
+fn classNames<C: Allocator>(ctx: C, painted: Painted, styles: [Style]): [Str] {
+    lastPerSlot(ctx, slotsIn(ctx, painted, styles, 0, []), 0, [])
 }
 
 /// Every `(slot, class)` pair the list contributes, in order.
 fn slotsIn<C: Allocator>(
     ctx: C,
-    state: State,
+    painted: Painted,
     styles: [Style],
     at: Int,
     acc: [(Int, Str)],
@@ -701,26 +834,26 @@ fn slotsIn<C: Allocator>(
         .None => acc,
         .Some(style) => {
             let more = match (style) {
-                .Extracted(classes) => statePairs(ctx, state, classes.pairs(), 0, []),
-                .Group(inner) => slotsIn(ctx, state, inner, 0, []),
+                .Extracted(classes) => statePairs(ctx, painted, classes.pairs(), 0, []),
+                .Group(inner) => slotsIn(ctx, painted, inner, 0, []),
                 .On(on, inner) => {
-                    if (stateRank(on) == stateRank(state)) {
-                        slotsIn(ctx, state, inner, 0, [])
+                    if (applies(stateRank(on), painted)) {
+                        slotsIn(ctx, painted, inner, 0, [])
                     } else {
                         []
                     }
                 },
                 .When(cond, then, otherwise) => {
                     if (cond.read(scope)) {
-                        slotsIn(ctx, state, then, 0, [])
+                        slotsIn(ctx, painted, then, 0, [])
                     } else {
-                        slotsIn(ctx, state, otherwise, 0, [])
+                        slotsIn(ctx, painted, otherwise, 0, [])
                     }
                 },
-                .Computed(build) => slotsIn(ctx, state, build(scope), 0, []),
+                .Computed(build) => slotsIn(ctx, painted, build(scope), 0, []),
                 _ => [],
             };
-            slotsIn(ctx, state, styles, at + 1, acc.concat(ctx, more))
+            slotsIn(ctx, painted, styles, at + 1, acc.concat(ctx, more))
         },
     }
 }
@@ -736,7 +869,7 @@ fn slotsIn<C: Allocator>(
 /// and left out of every document but the hovered one.
 fn statePairs<C: Allocator>(
     ctx: C,
-    state: State,
+    painted: Painted,
     pairs: [(Int, Str)],
     at: Int,
     acc: [(Int, Str)],
@@ -745,13 +878,12 @@ fn statePairs<C: Allocator>(
         .None => acc,
         .Some(pair) => {
             let (slot, _name) = pair;
-            let scoped = slotState(slot);
-            let next = if (scoped < 0 || scoped == stateRank(state)) {
+            let next = if (applies(slotState(slot), painted)) {
                 acc.push(ctx, pair)
             } else {
                 acc
             };
-            statePairs(ctx, state, pairs, at + 1, next)
+            statePairs(ctx, painted, pairs, at + 1, next)
         },
     }
 }
@@ -794,7 +926,7 @@ fn slotAgain(pairs: [(Int, Str)], at: Int, slot: Int): Bool {
 /// of the same property wins, which is what the painter does with them.
 fn inlineIn<C: Allocator>(
     ctx: C,
-    state: State,
+    painted: Painted,
     styles: [Style],
     at: Int,
     acc: [Str],
@@ -804,10 +936,10 @@ fn inlineIn<C: Allocator>(
         .None => acc,
         .Some(style) => {
             let more = match (style) {
-                .Group(inner) => inlineIn(ctx, state, inner, 0, []),
+                .Group(inner) => inlineIn(ctx, painted, inner, 0, []),
                 .On(on, inner) => {
-                    if (stateRank(on) == stateRank(state)) {
-                        inlineIn(ctx, state, inner, 0, [])
+                    if (applies(stateRank(on), painted)) {
+                        inlineIn(ctx, painted, inner, 0, [])
                     } else {
                         []
                     }
@@ -815,16 +947,16 @@ fn inlineIn<C: Allocator>(
                 .At(_screen, _inner) => [],
                 .When(cond, then, otherwise) => {
                     if (cond.read(scope)) {
-                        inlineIn(ctx, state, then, 0, [])
+                        inlineIn(ctx, painted, then, 0, [])
                     } else {
-                        inlineIn(ctx, state, otherwise, 0, [])
+                        inlineIn(ctx, painted, otherwise, 0, [])
                     }
                 },
-                .Computed(build) => inlineIn(ctx, state, build(scope), 0, []),
+                .Computed(build) => inlineIn(ctx, painted, build(scope), 0, []),
                 .Extracted(_classes) => [],
                 _ => declare(ctx, style),
             };
-            inlineIn(ctx, state, styles, at + 1, acc.concat(ctx, more))
+            inlineIn(ctx, painted, styles, at + 1, acc.concat(ctx, more))
         },
     }
 }

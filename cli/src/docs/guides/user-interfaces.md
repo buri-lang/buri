@@ -25,7 +25,12 @@ from "ui/signal" import { Signal };
 
 /// The lambda captures the handle. The authority arrives as `c`.
 export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
-    ui.button(.Const("add one"), [], fn(c, _event) => clicks.update(c, fn(n) => n + 1))
+    ui.button(
+        .Const("add one"),
+        [],
+        fn(c, _event) => clicks.update(c, fn(n) => n + 1),
+        .Const(false),
+    )
 }
 ```
 
@@ -194,18 +199,25 @@ two *different* properties that touch the same declaration, say `Padding` and
 `PaddingX`, the order the variants are declared in decides, and the narrower
 property is always declared later.
 
-**A control carries its own styles.** `button`, `link`, `field` and `toggle`
-take a `[Style]`, and it lands on the element itself — so `On(.Hover, ...)`,
-`On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper around a button is
-none of those things. A field's and a toggle's styles go on the input rather
-than on the label around it, for the same reason.
+**A control carries its own styles.** `button`, `link`, `image`, `field` and
+`toggle` take a `[Style]`, and it lands on the element itself — so
+`On(.Hover, ...)`, `On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper
+around a button is none of those things. A field's and a toggle's styles go on
+the input rather than on the label around it, for the same reason, and a
+picture's go on the picture: only the picture can be told to fill its box, to
+crop square, or to take a corner.
 
 ```buri
 from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/prop" import { Prop };
 
-export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
+export fn primary<C>(
+    label: Str,
+    onPress: fn(C, Event) => (),
+    busy: Prop<Bool>,
+): Node<C> {
     ui.button(
         .Const(label),
         [
@@ -218,9 +230,29 @@ export fn primary<C>(label: Str, onPress: fn(C, Event) => ()): Node<C> {
             .On(.Disabled, [.Opacity(0.5)]),
         ],
         onPress,
+        busy,
     )
 }
+
+export fn avatar<C>(source: Str): Node<C> {
+    ui.stack([.Width(.Px(32)), .Height(.Px(32)), .Radius(.Full)], [
+        ui.image(.Const(source), .Const(""), [
+            .Width(.Full),
+            .AspectRatio(1.0),
+            .Radius(.Full),
+        ]),
+    ])
+}
 ```
+
+**A state a widget holds is the widget's answer, not the snapshot's.**
+`button`, `field` and `toggle` take a `disabled: Prop<Bool>`, and it is an
+attribute rather than a style: it takes the control out of the tab order,
+refuses the press before the handler runs, and tells a reader the control is
+unavailable rather than absent. Dimming it is `On(.Disabled, ...)`, which the
+flag is what fires. `On(.Checked, ...)` needs no flag at all — a toggle's own
+signal says whether it is checked, so a page holds one toggle that is on and
+one that is off and each paints its own answer.
 
 `heading` takes one too. Its level is the document's outline, so the size and
 the weight are the styles' — an unstyled heading reads at the size of the text

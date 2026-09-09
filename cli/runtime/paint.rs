@@ -70,6 +70,17 @@
 //! none. A picture that is not there is better shown as a box than as nothing,
 //! which is what an image with no source used to be.
 //!
+//! An `e` line may also carry what the element answers about its own state.
+//! Three of the five pseudo-classes are things a pointer or a keyboard does,
+//! and the request's `state` names one of those for the whole scene. The other
+//! two are the tree's own, and a widget writes its answer down.
+//! `checked:<true|false>` is a toggle's value: a rule scoped to `:checked`
+//! reaches that box when the value says so and never otherwise, which is what
+//! lets one page hold a toggle that is on and one that is off.
+//! `disabled:true` is a control whose flag is set, and it only ever adds — a
+//! scene with no `disabled:` on it still answers a `disabled` request the way
+//! it always did.
+//!
 //! The sheet is read as class rules, plus **one shape of descendant rule**:
 //! `.<class>>*`, which is what `Layout(.Layers)` is written as. Every child of
 //! an element carrying the class takes the rule's declarations, so
@@ -317,6 +328,13 @@ struct Node {
     /// `Some` for a box whose declarations named an `image`. A picture holds
     /// no children either: what is inside it is the source.
     image: Option<String>,
+    /// `Some` for a box that answers for its own `:checked` — a toggle, whose
+    /// value is the answer. `None` leaves the request's state to say.
+    checked: Option<bool>,
+    /// Whether the box carries the `disabled` attribute. A box that does is in
+    /// `:disabled` whatever the request asked for; one that does not is left
+    /// to the request, which may still be asking.
+    disabled: bool,
     classes: Vec<String>,
     declarations: Vec<(String, String)>,
     children: Vec<usize>,
@@ -362,17 +380,29 @@ impl Scene {
                 Node {
                     text: Some(unescape(body)),
                     image: None,
+                    checked: None,
+                    disabled: false,
                     classes: Vec::new(),
                     declarations: Vec::new(),
                     children: Vec::new(),
                 }
             } else {
                 let (classes, declarations) = parse_declarations(body)?;
-                let image = declarations
-                    .iter()
-                    .find(|(name, _)| name == "image")
-                    .map(|(_, source)| source.clone());
-                Node { text: None, image, classes, declarations, children: Vec::new() }
+                let named = |wanted: &str| {
+                    declarations.iter().find(|(name, _)| name == wanted).map(|(_, v)| v.as_str())
+                };
+                let image = named("image").map(ToString::to_string);
+                let checked = named("checked").map(|v| v == "true");
+                let disabled = named("disabled") == Some("true");
+                Node {
+                    text: None,
+                    image,
+                    checked,
+                    disabled,
+                    classes,
+                    declarations,
+                    children: Vec::new(),
+                }
             };
             nodes.push(node);
 
@@ -888,7 +918,8 @@ fn resolve(
                 } else {
                     node.classes.contains(&rule.class)
                 };
-                if rule.min_width <= width && rule.state.is_none_or(|s| s == state) && named {
+                if rule.min_width <= width && rule.state.is_none_or(|s| holds(node, s, state)) && named
+                {
                     for (name, value) in &rule.declarations {
                         apply(&mut style, name, &substitute(value, variables), &parent);
                     }
@@ -906,6 +937,20 @@ fn resolve(
         }
     }
     styles
+}
+
+/// Whether an element is in the state a rule is scoped to.
+///
+/// Three of the five are the request's to answer, because nothing in a scene
+/// hovers or is focused. The other two the element answers where it can: a
+/// toggle's `checked:` *is* the answer, and a control's `disabled:` adds one
+/// without taking the request's away.
+fn holds(node: &Node, rule: State, requested: State) -> bool {
+    match rule {
+        State::Checked => node.checked.unwrap_or(requested == State::Checked),
+        State::Disabled => node.disabled || requested == State::Disabled,
+        other => other == requested,
+    }
 }
 
 /// One declaration, folded into the style. An unknown property is ignored.
@@ -3669,6 +3714,41 @@ mod tests {
                      .hov:hover{background-color:rgb(255,0,0)}\n";
         assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
         assert_eq!(at(&render_ok(scene, sheet, "hover"), 0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_checked_rule_follows_the_box_that_answers_for_itself() {
+        // buri#119. Two boxes, one on and one off, and a page can hold both:
+        // the answer is the box's own rather than the request's, so a request
+        // for `checked` still leaves the one that says `false` alone.
+        let scene = "buri-scene 1\nviewport 6 6\n\
+                     e 0 class:box tick;checked:true\n\
+                     e 0 class:box tick;checked:false\n";
+        let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
+                     .tick:checked{background-color:rgb(255,0,0)}\n";
+        for state in ["rest", "hover", "checked"] {
+            let image = render_ok(scene, sheet, state);
+            assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+            assert_eq!(at(&image, 0, 2), [0, 0, 255, 255]);
+        }
+        // A box that answers for nothing is still the request's to decide.
+        let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box tick\n";
+        assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&render_ok(plain, sheet, "checked"), 0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_disabled_box_adds_the_state_and_takes_none_away() {
+        // buri#126. The flag is one direction: a control that carries it is
+        // unavailable in every request, and one that does not is still what a
+        // `disabled` request is asking about.
+        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:box off;disabled:true\n";
+        let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
+                     .off:disabled{background-color:rgb(255,0,0)}\n";
+        assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [255, 0, 0, 255]);
+        let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box off\n";
+        assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&render_ok(plain, sheet, "disabled"), 0, 0), [255, 0, 0, 255]);
     }
 
     #[test]
