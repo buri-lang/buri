@@ -1333,6 +1333,27 @@ impl Diagnostics {
         self.items.is_empty()
     }
 
+    /// Takes back what was pushed at or after `mark` and that `drop` answers
+    /// true for.
+    ///
+    /// For a caller that can only tell whether a diagnostic is worth printing
+    /// *after* running the pass that produced it — the checker, over a block
+    /// whose `}` was never written. What comes back is forgotten from the
+    /// deduplication set too, so a later push of the same thing is still
+    /// reported rather than swallowed by a sibling that no longer exists.
+    pub fn retract_from(&mut self, mark: usize, drop: impl Fn(&Diagnostic) -> bool) {
+        if mark >= self.items.len() {
+            return;
+        }
+        for d in self.items.split_off(mark) {
+            if drop(&d) {
+                self.seen.remove(&(d.span.file.0, d.span.start, d.span.end, d.message.clone()));
+            } else {
+                self.items.push(d);
+            }
+        }
+    }
+
     /// Source order, errors before warnings at the same location.
     pub fn sort(&mut self, map: &SourceMap) {
         self.items.sort_by_key(|d| {
