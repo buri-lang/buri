@@ -1,0 +1,9 @@
+error: expected 1 arguments, found 2 [argument-count-mismatch]
+ --> cmd/value_call_with_one_argument_too_many/main.buri:7:3
+  |
+7 |   f(1, 2)
+  |   ^^^^^^^
+  |
+  = expected: 1
+  = actual: 2
+  = fix: pass exactly 1

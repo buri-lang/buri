@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Pair` holds 2 values, but 3 were given","code":"wrong-value-count","location":{"file":"cmd/variant_with_one_value_too_many/main.buri","line":10,"column":3,"endLine":10,"endColumn":8,"text":"  .Pair(1, \"row\", true)"},"expected":"2","actual":"3","fix":"pass exactly 2","notes":[],"related":[]}

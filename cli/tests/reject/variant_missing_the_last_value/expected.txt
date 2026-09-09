@@ -1,0 +1,9 @@
+error: `Pair` holds 2 values, but 1 were given [wrong-value-count]
+  --> cmd/variant_missing_the_last_value/main.buri:11:3
+   |
+11 |   .Pair(1)
+   |   ^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
