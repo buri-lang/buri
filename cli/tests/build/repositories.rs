@@ -295,6 +295,12 @@ fn serving_a_page() {
 /// reported as an abort with no message, which is a shape no lower tier can
 /// see — the binary linked, the front end was happy, and the process died.
 ///
+/// The ninth is the icon: a PNG data URI in a colour type the painter's own
+/// encoder does not write, and one SVG glyph in both forms a page writes one
+/// in, painted at their own colours. Its last step moves one glyph's stroke
+/// from red to blue, which is the record that a golden with an icon in it can
+/// now fail on the icon rather than only on where the box around it sat.
+///
 /// Beside them are the **sweeps**, which ask a different question: not whether
 /// the machinery works, but whether each property in the vocabulary paints
 /// what the stylesheet promises. `sweep_layout_*` is six cases and thirty-two
@@ -329,7 +335,7 @@ fn serving_a_page() {
 /// palette so exactly one of its six goldens fails. That is the tier-2 record
 /// that a state golden is not a copy of the resting one.
 ///
-/// **The `sweep_properties_*` cases are the matrix under those nine**: every
+/// **The `sweep_properties_*` cases are the matrix under those ten**: every
 /// `ui/style` property that paints something, at three to five values each,
 /// against every node primitive — a case per primitive, six pictures in it,
 /// one per family of properties, and a seventh under `field` for the six kinds
@@ -343,7 +349,7 @@ fn serving_a_page() {
 /// than a picture per value.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 36);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 37);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
