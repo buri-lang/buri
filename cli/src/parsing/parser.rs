@@ -1060,6 +1060,40 @@ impl<'a> Parser<'a> {
         false
     }
 
+    /// Whether the statement the parser is in the middle of still ends with a
+    /// `;` inside this block.
+    ///
+    /// The question a stray token raises: `assert @.equal(1, 1);` is a mistake
+    /// inside a block that closes on the next line, and reading it as the
+    /// block's own `}` going missing puts the caret on the `@` and the message
+    /// somewhere else entirely. The `;` is what tells the two apart. A block
+    /// whose next delimiter at this depth is its own `}` really may have lost
+    /// one — a deleted `}` leaves `},` where a `;` never comes — and that is
+    /// the reading the caller keeps.
+    fn statement_ends_ahead(&self) -> bool {
+        let mut depth = 0i32;
+        for steps in 0..MAX_CLOSE_LOOKAHEAD {
+            let t = self.kind_at(self.pos.saturating_add(steps));
+            if depth == 0 && (t == TokenKind::Semi || starts_declaration(t)) {
+                return t == TokenKind::Semi;
+            }
+            match t {
+                TokenKind::Eof => return false,
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
+                    depth = depth.saturating_add(1);
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket if depth == 0 => {
+                    return false;
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     /// A `;` that ends a declaration or a statement, named for what it ends.
     ///
     /// Only where something that could follow a `;` is actually there. A token
@@ -2263,15 +2297,30 @@ impl<'a> Parser<'a> {
                                 // The block ends here, so this expression is
                                 // its value.
                                 tail = e.0;
+                            } else if self.statement_ends_ahead() {
+                                // A stray token inside a statement that still
+                                // ends where it should. The statement is
+                                // poisoned and the block reads on, so one
+                                // mistake stays one mistake instead of
+                                // becoming a `}` the reader is told to write
+                                // in the middle of a line.
+                                self.refuse_postfix(opened_with);
+                                let found = self.found();
+                                let span = self.span();
+                                self.expected(span, "`;`", &found, "write `;` here");
+                                self.sync_stmt(0);
+                                broken = self.error_expr(estart.to(self.prev_span())).0;
+                                continue;
                             } else {
-                                // Nothing may follow. Either the chain SPEC
-                                // 12.13 refuses, or the block's `}` is missing
-                                // — and either way the value is poisoned,
-                                // because what parsed is not what was written.
+                                // Nothing may follow, and this block has no
+                                // `}` left. Either the chain SPEC 12.13
+                                // refuses, or the block's `}` is missing — and
+                                // either way the value is poisoned, because
+                                // what parsed is not what was written.
                                 self.refuse_postfix(opened_with);
                                 broken = self.error_expr(estart.to(self.prev_span())).0;
+                                break;
                             }
-                            break;
                         } else {
                             // Something follows, so this was a statement and
                             // its `;` is missing rather than the block's `}`.
