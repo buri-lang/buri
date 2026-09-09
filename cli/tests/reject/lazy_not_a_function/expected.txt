@@ -1,4 +1,4 @@
-error: `load` takes the name of a function, and this is _1 [lazy-not-a-function]
+error: `load` takes the name of a function, and this is Int [lazy-not-a-function]
  --> cmd/lazy_not_a_function/main.buri:5:21
   |
 5 |   let f = lazy.load(3);

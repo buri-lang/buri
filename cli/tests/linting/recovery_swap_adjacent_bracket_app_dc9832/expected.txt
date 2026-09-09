@@ -21,7 +21,6 @@ error: expected `Char`, found `fn(I64, I64) => Char` [type-mismatch]
    |
    = expected: `Char`
    = actual: `fn(I64, I64) => Char`
-   = fix: produce a `Char` here, or change what surrounds it to accept a `fn(I64, I64) => Char`
 error: expected `Char`, found `(I64, Int)` [type-mismatch]
   --> lib/recovery_swap_adjacent_bracket_app_dc9832/main.buri:40:50
    |
@@ -30,4 +29,3 @@ error: expected `Char`, found `(I64, Int)` [type-mismatch]
    |
    = expected: `Char`
    = actual: `(I64, Int)`
-   = fix: produce a `Char` here, or change what surrounds it to accept a `(I64, Int)`

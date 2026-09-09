@@ -1,0 +1,101 @@
+# One column of the `properties` sweep: every `ui/style` property that paints
+# something, at three to five values each, over a `toggle`, whose styles land
+# on the box and whose label is the run beside it.
+#
+# Six pictures, one per family, each a labelled grid — the property down the
+# page, its values across it. The values are the ends of the range and a middle,
+# and they name their unit where the unit changes the answer: pixels, rems, a
+# percentage of the containing box.
+#
+# Resting state only. No style here sits inside an `On`, so the state the
+# snapshot is taken in contributes nothing; `sweep_states_*` is where a state
+# is the subject. Nor is any property here a layout one — `Layout`, the
+# alignments, `Grow`, `Shrink`, `Span`, `Pin` and `Position` belong to
+# `sweep_layout_*`, and tokens and breakpoints to `sweep_themes_*`.
+#
+# The lifecycle is `every_shape_and_state_is_painted`'s: every golden compares,
+# a renamed snapshot is reported as missing rather than as a difference,
+# `--update` records it, the run after that compares against what it wrote, and
+# an edit that widens one cell fails the comparison. Only the first run paints
+# the whole suite; the four after it are `--filter`ed to the one picture they
+# are about, because painting six 800 by 600 pages five times over is four
+# fifths of what this case would cost the bar.
+#
+# **Four of these pictures are pinned as painted rather than as right**, and each
+# is a filed bug. Re-record the goldens as each closes.
+#
+#   * #86 — a `Width` or a `Height` is a border box, so the padding sits inside
+#     it. Visible wherever the `size` picture puts a length against the base's
+#     two pixels of padding.
+#   * #87 — a translucent `Foreground`, and any fractional `Opacity`, paint the
+#     glyphs fully opaque. The `surface` picture's third `Foreground` cell and
+#     its `Opacity` band.
+#   * #78 — `Truncate` paints every line, so all four cells of the `runs`
+#     picture's last band are one picture.
+#   * #81 — `TextWrap(.Balance)` paints exactly as `.Wrap` does.
+#
+# Three bands are the same picture across their values on purpose, and each says
+# something. `FontFamily`: every family resolves to the one bundled face, which
+# is what keeps a snapshot the same bytes on two hosts. A `Gap` or a
+# `ListMarker` on a primitive whose styled element holds one child or none has
+# nothing to space or to mark, which is what the DOM does with it too. And
+# `Scroll`'s three axes are one picture because CSS computes `visible` to `auto`
+# on the other axis, so any of them clips both ways.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "every ui/style property that paints, at three to five values each, over a `toggle`, whose styles land on the box and whose label is the run beside it, as 6 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/sweep", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/toggle-surface.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sweep/test/pictures.buri"
+  replace: "\"toggle-surface\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=surface"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sweep", "--update", "--force", "--filter=surface"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=surface"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: four pixels on one cell of the `size` picture, which is the
+# smallest edit that has to fail.
+edit {
+  file: "lib/sweep/scenes.buri"
+  replace: ".Width(.Px(40))"
+  with: ".Width(.Px(44))"
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=sizing"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/toggle-size.diff.png"  exists: true }

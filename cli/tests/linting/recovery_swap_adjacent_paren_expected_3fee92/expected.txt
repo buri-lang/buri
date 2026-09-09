@@ -25,7 +25,7 @@ error: there is nothing named `render` in scope [unresolved-name]
    |     ^^^^^^
    |
    = did you mean `rendered`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `rendered`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: `rendered` takes 2 arguments, but 3 were given [wrong-argument-count]
   --> lib/recovery_swap_adjacent_paren_expected_3fee92/main.buri:60:18
    |
@@ -43,4 +43,3 @@ error: expected `(a context, Str)`, found `fn(_18, _16) => Str` [type-mismatch]
    |
    = expected: `(a context, Str)`
    = actual: `fn(_18, _16) => Str`
-   = fix: produce a `(a context, Str)` here, or change what surrounds it to accept a `fn(_18, _16) => Str`

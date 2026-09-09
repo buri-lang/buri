@@ -6,7 +6,6 @@ error: expected `(Color, Color)`, found `(Color, fn(Token) => Color, <error>)` [
    |
    = expected: `(Color, Color)`
    = actual: `(Color, fn(Token) => Color, <error>)`
-   = fix: produce a `(Color, Color)` here, or change what surrounds it to accept a `(Color, fn(Token) => Color, <error>)`
 error: a tuple element ends with `,` [missing-separator]
   --> main.buri:60:33
    |

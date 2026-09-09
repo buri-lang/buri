@@ -14,7 +14,7 @@ error: there is nothing named `out` in scope [unresolved-name]
    |                 ^^^
    |
    = did you mean `Stdout`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `Stdout`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: there is nothing named `out` in scope [unresolved-name]
   --> main.buri:66:18
    |
@@ -22,4 +22,4 @@ error: there is nothing named `out` in scope [unresolved-name]
    |                  ^^^
    |
    = did you mean `Stdout`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `Stdout`, use that; if not, a name is in scope only from this module's own declarations and its imports

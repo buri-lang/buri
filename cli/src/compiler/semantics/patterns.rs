@@ -263,9 +263,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let Ty::Con(con, args) = ty else {
                 if !ty.is_error() {
                     let shown = self.show_ty(ty);
-                    self.templated("not-an-enum", span)
-                        .bind("type", shown)
-                        .fix("a `.Variant` pattern matches an enum; match this value another way");
+                    self.report_dot_form_against(&shown, head, span);
                 }
                 return typed::PatKind::Error;
             };
@@ -344,12 +342,16 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn report_no_variant(&mut self, con: TyConId, name: &str, span: Span) {
         let ty = self.c.tables.tycon(con).name.clone();
-        let note = no_variant_note(&self.c.tables, con, name);
+        let (note, fix) = no_variant_advice(&self.c.tables, con, name);
         let d = self
             .templated("no-such-variant", span)
             .bind("type", ty)
             .bind("variant", name.to_string());
         d.notes.extend(note);
+        // After the binds: every `bind` re-renders the page's own fix over it.
+        if let Some(fix) = fix {
+            d.fix(fix);
+        }
     }
 
     fn variant_pattern(
@@ -527,22 +529,34 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 }
 
-/// The words for `.Nmae` on an enum with no such variant: the message, and the
-/// note that either suggests the near miss or lists what is there.
+/// The words for `.Nmae` on an enum with no such variant: the note that either
+/// suggests the near miss or lists what is there, and — where there is a near
+/// miss — the fix that names it.
 ///
 /// One function because a pattern and an expression are the same mistake and
 /// deserve the same sentence. They had two spellings, and the two disagreed
 /// about whether the variant names are quoted. The span stays the caller's,
 /// because it is the only thing that genuinely differs.
-pub(crate) fn no_variant_note(tables: &Tables, con: TyConId, name: &str) -> Option<String> {
+pub(crate) fn no_variant_advice(
+    tables: &Tables,
+    con: TyConId,
+    name: &str,
+) -> (Option<String>, Option<String>) {
+    let ty = tables.tycon(con).name.clone();
     let variants: Vec<String> =
         tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect();
     let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
     match crate::build::buildfile::nearest(name, &refs) {
-        Some(x) => Some(format!("did you mean `.{x}`?")),
+        Some(x) => (
+            Some(format!("did you mean `.{x}`?")),
+            Some(crate::diagnostics::candidate_fix(
+                &format!(".{x}"),
+                &format!("`{ty}`'s declaration lists its variants"),
+            )),
+        ),
         None if !variants.is_empty() => {
-            Some(format!("its variants are {}", crate::diagnostics::names(&variants)))
+            (Some(format!("its variants are {}", crate::diagnostics::names(&variants))), None)
         }
-        None => None,
+        None => (None, None),
     }
 }

@@ -6,7 +6,6 @@ error: expected `[I64]`, found `Option<<error>>` [type-mismatch]
   |
   = expected: `[I64]`
   = actual: `Option<<error>>`
-  = fix: produce a `[I64]` here, or change what surrounds it to accept a `Option<<error>>`
 error: there is nothing named `extra` in scope [unresolved-name]
  --> main.buri:3:13
   |
