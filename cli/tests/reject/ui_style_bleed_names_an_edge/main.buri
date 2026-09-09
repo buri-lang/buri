@@ -1,0 +1,15 @@
+// EXPECT: has no variant `Middle`
+//
+// An edge is one of four, named by where it is in the reading order. There is
+// no middle of a box to bleed past, and a bleed that named one would have no
+// margin to write.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([.Bleed(.Middle, .Px(8))], []), [])
+}
