@@ -14,7 +14,6 @@ error: expected `I64`, found `(I64)` [type-mismatch]
   |
   = expected: `I64`
   = actual: `(I64)`
-  = fix: produce a `I64` here, or change what surrounds it to accept a `(I64)`
 error: this tuple is missing its closing `)` [unclosed-delimiter]
  --> main.buri:3:1
   |

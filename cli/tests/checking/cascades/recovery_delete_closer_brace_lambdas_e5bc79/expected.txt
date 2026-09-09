@@ -15,13 +15,15 @@ error: there is nothing named `f` in scope [unresolved-name]
     |
     = did you mean `n`?
     = fix: correct the spelling, or declare it
-error: `_0` is not an enum [not-an-enum]
+error: expected `_0`, found a variant `.Ok` [type-mismatch]
    --> main.buri:112:24
     |
 112 |     assert.equal(f(4), .Ok(4));
     |                        ^^^
     |
-    = fix: the dot form names an enum variant; write the value another way
+    = expected: `_0`
+    = actual: a variant `.Ok`
+    = a value written with a leading dot names a variant of the enum the position expects, and this position expects `_0`
 error: there is nothing named `f` in scope [unresolved-name]
    --> main.buri:113:18
     |
@@ -30,13 +32,15 @@ error: there is nothing named `f` in scope [unresolved-name]
     |
     = did you mean `n`?
     = fix: correct the spelling, or declare it
-error: `_1` is not an enum [not-an-enum]
+error: expected `_1`, found a variant `.Err` [type-mismatch]
    --> main.buri:113:24
     |
 113 |     assert.equal(f(0), .Err("low"));
     |                        ^^^^
     |
-    = fix: the dot form names an enum variant; write the value another way
+    = expected: `_1`
+    = actual: a variant `.Err`
+    = a value written with a leading dot names a variant of the enum the position expects, and this position expects `_1`
 error: a statement ends with `;` [missing-terminator]
    --> main.buri:114:2
     |

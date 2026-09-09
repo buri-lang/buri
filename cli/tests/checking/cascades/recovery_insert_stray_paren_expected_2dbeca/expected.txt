@@ -20,4 +20,3 @@ error: expected `(<error>, Bool)`, found `Bool` [type-mismatch]
    |
    = expected: `(<error>, Bool)`
    = actual: `Bool`
-   = fix: produce a `(<error>, Bool)` here, or change what surrounds it to accept a `Bool`
