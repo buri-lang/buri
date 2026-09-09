@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "a radius named corner by corner"
+  the snapshot "edges-radius" changed: see test/__snapshots__/edges-radius.diff.png
+  --> lib/sweep/test/pictures.buri:22:1
+
+0 passed, 1 failed, 3 skipped (0.0s)
