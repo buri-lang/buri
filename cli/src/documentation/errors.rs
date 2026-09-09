@@ -258,6 +258,11 @@ pub const ERRORS: &[ErrorDoc] = &[
         "An anonymous literal takes its type from its surroundings",
         &["language/types"]
     ),
+    e!(
+        "style-alpha-out-of-range",
+        "A colour's alpha is a fraction from 0 to 1",
+        &["guides/user-interfaces"]
+    ),
     e!("style-not-static", "A conditional style is known at compile time", &["guides/user-interfaces"]),
     e!("tag-name-not-a-string", "A tag is named by a quoted string", &["build/tags"]),
     e!("tag-not-a-block", "A `tag` is a block in REPO.buri", &["build/tags"]),

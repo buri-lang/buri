@@ -1,0 +1,90 @@
+# What `Shadows` is worth in pixels: an elevation is two layers, and the second
+# one is the whole reason the variant exists.
+#
+# Four pictures, each a labelled grid on the eight-hundred-wide page a snapshot
+# gets:
+#
+#   * **Every elevation, layer by layer.** Tailwind's four, each as its far
+#     layer alone, its near one alone, and both — so a layer that stopped being
+#     painted turns a `both` cell into a copy of one beside it. The geometry is
+#     Tailwind's own; the opacities are darker, because at the five and ten per
+#     cent a design system ships, three neighbouring cells are the same grey to
+#     the eye and the picture would say nothing.
+#   * **How many, in what order, and one slot.** None, one, two and three
+#     layers; a ring over an offset slab and the same two the other way round,
+#     which is the painting order; and `Shadow` beside `Shadows` in both
+#     orders, which is the conflict slot the two share — the second cell keeps
+#     the ring and loses the elevation, and the first keeps the elevation and
+#     loses the ring. An empty list after a `Shadow` paints nothing at all.
+#   * **A card that is raised and focused**, resting and focused, on the five
+#     primitives that carry a style. This is the picture issue #96 is about: the
+#     ring is a spread shadow, the elevation is two more, and one `Shadow` could
+#     only ever have carried one of the three. The focused golden keeps the
+#     elevation and gains the ring, and the `describe` assertion beside each
+#     names the state class that separates the two.
+#
+# The lifecycle is `sweep_properties_stack`'s: every golden compares, a renamed
+# snapshot is reported as missing rather than as a difference, `--update`
+# records it, the run after that compares against what it wrote, and an edit
+# that drops one layer fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "every way a `Shadows` can be written — four elevations layer by layer, the count and the order, the slot it shares with `Shadow`, and a raised card that gains a focus ring without losing its elevation"
+
+run {
+  args: ["test", "//lib/sweep", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/shadows-elevations.diff.png"  exists: false }
+path { path: "lib/sweep/test/__snapshots__/shadows-ring-focus.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sweep/test/pictures.buri"
+  replace: "\"shadows-stacking\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=order"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sweep", "--update", "--force", "--filter=order"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=order"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin, and it is the bug the variant was opened for: drop the near
+# layer of `lg` and the picture that is about the near layer has to fail.
+edit {
+  file: "lib/sweep/scenes.buri"
+  replace: "card([.Shadows([layer(10, 15, -3, 0.6), layer(4, 6, -4, 0.6)])]),"
+  with: "card([.Shadows([layer(10, 15, -3, 0.6)])]),"
+}
+
+run {
+  args: ["test", "//lib/sweep", "--force", "--filter=elevation"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sweep/test/__snapshots__/shadows-elevations.diff.png"  exists: true }
+path { path: "lib/sweep/test/__snapshots__/never-recorded.diff.png"  exists: false }
