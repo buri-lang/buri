@@ -1,0 +1,9 @@
+# One library and one test source: six pictures of a `toggle`, whose styles
+# land on the box and whose label is the run beside it, and a snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
