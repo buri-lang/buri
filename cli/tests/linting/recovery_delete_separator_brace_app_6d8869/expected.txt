@@ -20,7 +20,7 @@ error: `I64` has no method `Err` [no-such-method]
 34 |         .Err(_error) => 1,
    |          ^^^
    |
-   = fix: check the spelling — `buri docs core/number` lists every method `I64` has, and one may not be added to it from outside `core/number`
+   = fix: check the spelling — `buri docs core/number` lists every method `I64` has
 error: this `match` is missing its closing `}` [unclosed-delimiter]
   --> lib/recovery_delete_separator_brace_app_6d8869/main.buri:34:22
    |

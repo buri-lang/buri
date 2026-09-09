@@ -1,0 +1,1 @@
+{"severity":"error","message":"`I64` has no method `eq`","code":"no-such-method","location":{"file":"cmd/renamed_trait_method/main.buri","line":10,"column":32,"endLine":10,"endColumn":34,"text":"  let _ = io.println(ctx, \"${a.eq(2)}\").ignore();"},"fix":"write `equal`","notes":["`eq` was renamed to `equal`"],"related":[]}

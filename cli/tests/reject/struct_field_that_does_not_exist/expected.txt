@@ -5,12 +5,14 @@ error: `Rec` has no field `f1` [no-such-field]
    |                                             ^^
    |
    = did you mean `f0`?
-   = fix: check the spelling, or name a field the type declares
+   = fix: if you meant `f0`, use that; if not, `Rec`'s declaration lists its fields
 
      What to do
      ──────────
 
-     Correct the spelling, or name a field the type declares.
+     Correct the spelling, or name a field the type declares. Where there is a
+     near miss the fix names it: "if you meant f0, use that; if not, Rec's
+     declaration lists its fields".
 
      Why
      ───

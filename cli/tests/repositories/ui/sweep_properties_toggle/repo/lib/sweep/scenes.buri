@@ -1,0 +1,642 @@
+//! The pictures one sweep column is: every `ui/style` property that paints, at
+//! three to five values each, over a `toggle`, whose styles land on the box
+//! and whose label is the run beside it.
+//!
+//! A page is two columns of bands and a band is one property, so a property's
+//! values read across and the whole family fits the 800 by 600 the painter
+//! gives a scene. A band clips, which is what keeps a value that grows from
+//! pushing the ones below it off the page.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Shadow, Style };
+
+/// Background, foreground, the three border properties, radius, opacity and a
+/// shadow.
+export fn surfacePage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("Background", 145, [
+            cell("transparent", subject(ctx, [.Background(.Transparent)], "Ada")),
+            cell("rgb", subject(ctx, [.Background(.Rgb(220, 90, 40))], "Ada")),
+            cell(
+                "rgba 0.35",
+                subject(ctx, [.Background(.Rgba(30, 110, 220, 0.35))], "Ada"),
+            ),
+            cell("inherit", subject(ctx, [.Background(.Inherit)], "Ada")),
+        ]),
+        band("Foreground", 145, [
+            cell("near black", subject(ctx, [.Foreground(.Rgb(20, 20, 20))], "Ada")),
+            cell("red", subject(ctx, [.Foreground(.Rgb(200, 30, 30))], "Ada")),
+            cell("rgba 0.3", subject(ctx, [.Foreground(.Rgba(0, 0, 0, 0.3))], "Ada")),
+            cell("transparent", subject(ctx, [.Foreground(.Transparent)], "Ada")),
+        ]),
+        band("BorderWidth", 145, [
+            cell("0px", subject(ctx, [.BorderWidth(.Px(0))], "Ada")),
+            cell("1px", subject(ctx, [.BorderWidth(.Px(1))], "Ada")),
+            cell("4px", subject(ctx, [.BorderWidth(.Px(4))], "Ada")),
+            cell("0.5rem", subject(ctx, [.BorderWidth(.Rem(0.5))], "Ada")),
+            cell("12px", subject(ctx, [.BorderWidth(.Px(12))], "Ada")),
+        ]),
+        band("BorderColor", 145, [
+            cell(
+                "red",
+                subject(
+                    ctx,
+                    [.BorderWidth(.Px(3)), .BorderColor(.Rgb(200, 30, 30))],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "green",
+                subject(
+                    ctx,
+                    [.BorderWidth(.Px(3)), .BorderColor(.Rgb(30, 120, 60))],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "rgba 0.3",
+                subject(
+                    ctx,
+                    [.BorderWidth(.Px(3)), .BorderColor(.Rgba(0, 0, 0, 0.3))],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "transparent",
+                subject(ctx, [.BorderWidth(.Px(3)), .BorderColor(.Transparent)], "Ada"),
+            ),
+        ]),
+        band("BorderStyle", 145, [
+            cell(
+                "none",
+                subject(ctx, [.BorderWidth(.Px(3)), .BorderStyle(.None)], "Ada"),
+            ),
+            cell(
+                "solid",
+                subject(ctx, [.BorderWidth(.Px(3)), .BorderStyle(.Solid)], "Ada"),
+            ),
+            cell(
+                "dashed",
+                subject(ctx, [.BorderWidth(.Px(3)), .BorderStyle(.Dashed)], "Ada"),
+            ),
+        ]),
+        band("Radius", 145, [
+            cell("0px", subject(ctx, [.Radius(.Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.Radius(.Px(4))], "Ada")),
+            cell("1rem", subject(ctx, [.Radius(.Rem(1.0))], "Ada")),
+            cell("50%", subject(ctx, [.Radius(.Percent(50.0))], "Ada")),
+            cell("full", subject(ctx, [.Radius(.Full)], "Ada")),
+        ]),
+        band("Opacity", 145, [
+            cell("0.0", subject(ctx, [.Opacity(0.0)], "Ada")),
+            cell("0.25", subject(ctx, [.Opacity(0.25)], "Ada")),
+            cell("0.6", subject(ctx, [.Opacity(0.6)], "Ada")),
+            cell("1.0", subject(ctx, [.Opacity(1.0)], "Ada")),
+        ]),
+        band("Shadow", 145, [
+            cell(
+                "all zero",
+                subject(
+                    ctx,
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(0),
+                            y: .Px(0),
+                            blur: .Px(0),
+                            spread: .Px(0),
+                            color: .Rgb(0, 0, 0),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "blurred",
+                subject(
+                    ctx,
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(0),
+                            y: .Px(2),
+                            blur: .Px(6),
+                            spread: .Px(0),
+                            color: .Rgb(0, 0, 0),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "spread",
+                subject(
+                    ctx,
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(0),
+                            y: .Px(0),
+                            blur: .Px(0),
+                            spread: .Px(5),
+                            color: .Rgb(0, 0, 0),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "offset red",
+                subject(
+                    ctx,
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(7),
+                            y: .Px(7),
+                            blur: .Px(5),
+                            spread: .Px(0),
+                            color: .Rgb(200, 30, 30),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// The family, the size, the weight, the slant, the line height and the letter
+/// spacing.
+export fn typePage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("FontFamily", 195, [
+            cell("sans", subject(ctx, [.FontFamily(.Sans)], "Ada")),
+            cell("serif", subject(ctx, [.FontFamily(.Serif)], "Ada")),
+            cell("mono", subject(ctx, [.FontFamily(.Mono)], "Ada")),
+            cell("named", subject(ctx, [.FontFamily(.Named("Inter"))], "Ada")),
+        ]),
+        band("FontSize", 195, [
+            cell("8px", subject(ctx, [.FontSize(.Px(8))], "Ada")),
+            cell("12px", subject(ctx, [.FontSize(.Px(12))], "Ada")),
+            cell("1rem", subject(ctx, [.FontSize(.Rem(1.0))], "Ada")),
+            cell("150%", subject(ctx, [.FontSize(.Percent(150.0))], "Ada")),
+            cell("28px", subject(ctx, [.FontSize(.Px(28))], "Ada")),
+        ]),
+        band("FontWeight", 195, [
+            cell("regular", subject(ctx, [.FontWeight(.Regular)], "Ada")),
+            cell("medium", subject(ctx, [.FontWeight(.Medium)], "Ada")),
+            cell("semibold", subject(ctx, [.FontWeight(.Semibold)], "Ada")),
+            cell("bold", subject(ctx, [.FontWeight(.Bold)], "Ada")),
+        ]),
+        band("Italic", 195, [
+            cell("false", subject(ctx, [.Italic(false)], "Ada")),
+            cell("true", subject(ctx, [.Italic(true)], "Ada")),
+        ]),
+        band("LineHeight", 195, [
+            cell(
+                "0.8",
+                subject(ctx, [.LineHeight(0.8)], "Ada Byron counted the engine"),
+            ),
+            cell(
+                "1.0",
+                subject(ctx, [.LineHeight(1.0)], "Ada Byron counted the engine"),
+            ),
+            cell(
+                "1.5",
+                subject(ctx, [.LineHeight(1.5)], "Ada Byron counted the engine"),
+            ),
+            cell(
+                "2.5",
+                subject(ctx, [.LineHeight(2.5)], "Ada Byron counted the engine"),
+            ),
+        ]),
+        band("LetterSpacing", 195, [
+            cell("-1px", subject(ctx, [.LetterSpacing(.Px(-1))], "Ada")),
+            cell("0px", subject(ctx, [.LetterSpacing(.Px(0))], "Ada")),
+            cell("2px", subject(ctx, [.LetterSpacing(.Px(2))], "Ada")),
+            cell("6px", subject(ctx, [.LetterSpacing(.Px(6))], "Ada")),
+        ]),
+    ])
+}
+
+/// How a run of text is aligned, cased, ruled, wrapped and clamped.
+export fn runsPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("TextAlign", 195, [
+            cell(
+                "start",
+                subject(
+                    ctx,
+                    [.Width(.Full), .TextAlign(.Start)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "center",
+                subject(
+                    ctx,
+                    [.Width(.Full), .TextAlign(.Center)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "end",
+                subject(
+                    ctx,
+                    [.Width(.Full), .TextAlign(.End)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "justify",
+                subject(
+                    ctx,
+                    [.Width(.Full), .TextAlign(.SpaceBetween)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+        band("TextCase", 195, [
+            cell(
+                "as written",
+                subject(ctx, [.TextCase(.AsWritten)], "ada byron LOVELACE"),
+            ),
+            cell("upper", subject(ctx, [.TextCase(.Upper)], "ada byron LOVELACE")),
+            cell("lower", subject(ctx, [.TextCase(.Lower)], "ada byron LOVELACE")),
+            cell(
+                "capitalize",
+                subject(ctx, [.TextCase(.Capitalize)], "ada byron LOVELACE"),
+            ),
+        ]),
+        band("TextLine", 195, [
+            cell("none", subject(ctx, [.TextLine(.None)], "Ada")),
+            cell("underline", subject(ctx, [.TextLine(.Underline)], "Ada")),
+            cell("strike", subject(ctx, [.TextLine(.Strike)], "Ada")),
+        ]),
+        band("TextWrap", 195, [
+            cell(
+                "wrap",
+                subject(
+                    ctx,
+                    [.Width(.Full), .TextWrap(.Wrap)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "nowrap",
+                subject(
+                    ctx,
+                    [.Width(.Full), .TextWrap(.NoWrap)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "balance",
+                subject(
+                    ctx,
+                    [.Width(.Full), .TextWrap(.Balance)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+        band("Truncate", 195, [
+            cell(
+                "0 lines",
+                subject(
+                    ctx,
+                    [.Width(.Full), .Truncate(0)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "1 line",
+                subject(
+                    ctx,
+                    [.Width(.Full), .Truncate(1)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "2 lines",
+                subject(
+                    ctx,
+                    [.Width(.Full), .Truncate(2)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "3 lines",
+                subject(
+                    ctx,
+                    [.Width(.Full), .Truncate(3)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// Every padding shorthand, and each edge of the long one.
+export fn paddingPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("Padding", 145, [
+            cell("0px", subject(ctx, [.Padding(.Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.Padding(.Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.Padding(.Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.Padding(.Px(20))], "Ada")),
+            cell("10%", subject(ctx, [.Padding(.Percent(10.0))], "Ada")),
+        ]),
+        band("PaddingX", 145, [
+            cell("0px", subject(ctx, [.PaddingX(.Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.PaddingX(.Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.PaddingX(.Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.PaddingX(.Px(20))], "Ada")),
+        ]),
+        band("PaddingY", 145, [
+            cell("0px", subject(ctx, [.PaddingY(.Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.PaddingY(.Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.PaddingY(.Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.PaddingY(.Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge top", 145, [
+            cell("0px", subject(ctx, [.PaddingEdge(.Top, .Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.PaddingEdge(.Top, .Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.PaddingEdge(.Top, .Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.PaddingEdge(.Top, .Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge bottom", 145, [
+            cell("0px", subject(ctx, [.PaddingEdge(.Bottom, .Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.PaddingEdge(.Bottom, .Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.PaddingEdge(.Bottom, .Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.PaddingEdge(.Bottom, .Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge start", 145, [
+            cell("0px", subject(ctx, [.PaddingEdge(.Start, .Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.PaddingEdge(.Start, .Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.PaddingEdge(.Start, .Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.PaddingEdge(.Start, .Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge end", 145, [
+            cell("0px", subject(ctx, [.PaddingEdge(.End, .Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.PaddingEdge(.End, .Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.PaddingEdge(.End, .Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.PaddingEdge(.End, .Px(20))], "Ada")),
+        ]),
+    ])
+}
+
+/// The space between children, both ways, and the mark beside each of them.
+export fn gapPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("Gap", 195, [
+            cell("0px", subject(ctx, [.Gap(.Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.Gap(.Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.Gap(.Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.Gap(.Px(20))], "Ada")),
+        ]),
+        band("GapX in a row", 195, [
+            cell("0px", subject(ctx, [.Layout(.Row), .GapX(.Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.Layout(.Row), .GapX(.Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.Layout(.Row), .GapX(.Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.Layout(.Row), .GapX(.Px(20))], "Ada")),
+        ]),
+        band("GapY", 195, [
+            cell("0px", subject(ctx, [.GapY(.Px(0))], "Ada")),
+            cell("4px", subject(ctx, [.GapY(.Px(4))], "Ada")),
+            cell("0.75rem", subject(ctx, [.GapY(.Rem(0.75))], "Ada")),
+            cell("20px", subject(ctx, [.GapY(.Px(20))], "Ada")),
+        ]),
+        band("ListMarker", 195, [
+            cell(
+                "none",
+                subject(
+                    ctx,
+                    [.PaddingEdge(.Start, .Px(16)), .ListMarker(.None)],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "disc",
+                subject(
+                    ctx,
+                    [.PaddingEdge(.Start, .Px(16)), .ListMarker(.Disc)],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "decimal",
+                subject(
+                    ctx,
+                    [.PaddingEdge(.Start, .Px(16)), .ListMarker(.Decimal)],
+                    "Ada",
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// The six sizing properties, the aspect ratio and the scroll axes.
+export fn sizePage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("Width", 145, [
+            cell("16px", subject(ctx, [.Width(.Px(16))], "Ada")),
+            cell("40px", subject(ctx, [.Width(.Px(40))], "Ada")),
+            cell("50%", subject(ctx, [.Width(.Percent(50.0))], "Ada")),
+            cell("full", subject(ctx, [.Width(.Full)], "Ada")),
+            cell("auto", subject(ctx, [.Width(.Auto)], "Ada")),
+        ]),
+        band("Height", 145, [
+            cell("10px", subject(ctx, [.Height(.Px(10))], "Ada")),
+            cell("40px", subject(ctx, [.Height(.Px(40))], "Ada")),
+            cell("4rem", subject(ctx, [.Height(.Rem(4.0))], "Ada")),
+            cell("50%", subject(ctx, [.Height(.Percent(50.0))], "Ada")),
+            cell("auto", subject(ctx, [.Height(.Auto)], "Ada")),
+        ]),
+        band("MinWidth", 145, [
+            cell("0px", subject(ctx, [.MinWidth(.Px(0))], "Ada")),
+            cell("30px", subject(ctx, [.MinWidth(.Px(30))], "Ada")),
+            cell("60px", subject(ctx, [.MinWidth(.Px(60))], "Ada")),
+            cell("full", subject(ctx, [.MinWidth(.Full)], "Ada")),
+        ]),
+        band("MaxWidth", 145, [
+            cell(
+                "16px",
+                subject(ctx, [.Width(.Full), .MaxWidth(.Px(16))], "Ada Byron"),
+            ),
+            cell(
+                "40px",
+                subject(ctx, [.Width(.Full), .MaxWidth(.Px(40))], "Ada Byron"),
+            ),
+            cell(
+                "60px",
+                subject(ctx, [.Width(.Full), .MaxWidth(.Px(60))], "Ada Byron"),
+            ),
+            cell("full", subject(ctx, [.Width(.Full), .MaxWidth(.Full)], "Ada Byron")),
+        ]),
+        band("MinHeight", 145, [
+            cell("0px", subject(ctx, [.MinHeight(.Px(0))], "Ada")),
+            cell("20px", subject(ctx, [.MinHeight(.Px(20))], "Ada")),
+            cell("44px", subject(ctx, [.MinHeight(.Px(44))], "Ada")),
+            cell("4rem", subject(ctx, [.MinHeight(.Rem(4.0))], "Ada")),
+        ]),
+        band("MaxHeight", 145, [
+            cell(
+                "8px",
+                subject(
+                    ctx,
+                    [.Width(.Full), .MaxHeight(.Px(8))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "24px",
+                subject(
+                    ctx,
+                    [.Width(.Full), .MaxHeight(.Px(24))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "60px",
+                subject(
+                    ctx,
+                    [.Width(.Full), .MaxHeight(.Px(60))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "full",
+                subject(
+                    ctx,
+                    [.Width(.Full), .MaxHeight(.Full)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+        band("AspectRatio", 145, [
+            cell(
+                "0.5",
+                subject(
+                    ctx,
+                    [.Height(.Auto), .Width(.Px(40)), .AspectRatio(0.5)],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "1.0",
+                subject(
+                    ctx,
+                    [.Height(.Auto), .Width(.Px(40)), .AspectRatio(1.0)],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "2.0",
+                subject(
+                    ctx,
+                    [.Height(.Auto), .Width(.Px(40)), .AspectRatio(2.0)],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "3.0",
+                subject(
+                    ctx,
+                    [.Height(.Auto), .Width(.Px(40)), .AspectRatio(3.0)],
+                    "Ada",
+                ),
+            ),
+        ]),
+        band("Scroll", 145, [
+            cell(
+                "none",
+                subject(
+                    ctx,
+                    [.Width(.Px(48)), .Height(.Px(22))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "x",
+                subject(
+                    ctx,
+                    [.Width(.Px(48)), .Height(.Px(22)), .Scroll(.X)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "y",
+                subject(
+                    ctx,
+                    [.Width(.Px(48)), .Height(.Px(22)), .Scroll(.Y)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "both",
+                subject(
+                    ctx,
+                    [.Width(.Px(48)), .Height(.Px(22)), .Scroll(.Both)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// One picture: two columns of bands, one band per property.
+fn page<C>(bands: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Layout(.Grid([.Fraction(1), .Fraction(1)])),
+            .Gap(.Px(2)),
+            .Padding(.Px(4)),
+            .Background(.Rgb(255, 255, 255)),
+            .Foreground(.Rgb(20, 20, 20)),
+            .FontSize(.Px(11)),
+        ],
+        bands,
+    )
+}
+
+/// One property's band: its name, then a cell per value, clipped to
+/// `height` so a value that grows stays inside its own row.
+fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Height(.Px(height)),
+            .Scroll(.Both),
+            .Padding(.Px(3)),
+            .Background(.Rgb(243, 244, 247)),
+        ],
+        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
+    )
+}
+
+/// One value: its label, and the primitive carrying it. The cell does
+/// not stretch its children, so a box is as wide as it asked to be.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(72)), .Gap(.Px(1)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// The subject every cell holds: a `toggle`, whose styles land on the box and
+/// whose label is the run beside it.
+fn subject<C: Ui>(ctx: C, styles: [Style], words: Str): Node<C> {
+    ui.toggle(.Const(words), base(styles), signal(ctx, true))
+}
+
+/// What every subject carries before the cell's own styles, which come
+/// last so the property under test wins.
+fn base(styles: [Style]): [Style] {
+    [
+        .Background(.Rgb(206, 218, 240)),
+        .Foreground(.Rgb(18, 18, 28)),
+        .Padding(.Px(2)),
+        .Width(.Px(14)),
+        .Height(.Px(14)),
+        .Group(styles),
+    ]
+}

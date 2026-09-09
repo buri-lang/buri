@@ -6,7 +6,6 @@ error: expected `I64`, found `()` [type-mismatch]
   |
   = expected: `I64`
   = actual: `()`
-  = fix: produce a `I64` here, or change what surrounds it to accept a `()`
 error: expected a declaration, found `1` [unexpected-token]
  --> main.buri:1:24
   |

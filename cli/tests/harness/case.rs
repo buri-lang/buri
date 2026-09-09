@@ -772,7 +772,7 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                     // finished. The same rule the reject corpus enforces.
                     if golden.ends_with(".json") {
                         for (n, line) in printed.lines().enumerate() {
-                            if line.starts_with('{') && !line.contains("\"fix\":") {
+                            if super::is_a_diagnostic_with_no_fix(line) {
                                 g.fail(format!(
                                     "{}/{golden}: diagnostic {} carries no `fix`:\n{}",
                                     case.name,

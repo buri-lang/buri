@@ -6,7 +6,6 @@ error: expected `Str`, found `()` [type-mismatch]
    |
    = expected: `Str`
    = actual: `()`
-   = fix: produce a `Str` here, or change what surrounds it to accept a `()`
 error: an expression statement is legal only in a test source [expression-statement]
   --> main.buri:41:49
    |
@@ -30,7 +29,7 @@ error: there is nothing named `pad` in scope [unresolved-name]
    |                                       ^^^
    |
    = did you mean `Add`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `Add`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: a statement ends with `;` [missing-terminator]
   --> main.buri:43:6
    |

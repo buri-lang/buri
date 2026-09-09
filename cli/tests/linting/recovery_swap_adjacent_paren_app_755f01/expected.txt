@@ -22,7 +22,6 @@ error: expected `Bool`, found `F64` [type-mismatch]
    |
    = expected: `Bool`
    = actual: `F64`
-   = fix: produce a `Bool` here, or change what surrounds it to accept a `F64`
 error: this `if` condition is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_swap_adjacent_paren_app_755f01/main.buri:33:14
    |

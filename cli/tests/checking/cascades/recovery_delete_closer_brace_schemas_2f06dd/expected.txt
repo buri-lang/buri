@@ -18,13 +18,15 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |                ^ opened here
    |
    = fix: write `)` here
-error: `[_3]` is not an enum [not-an-enum]
+error: expected `[_3]`, found a variant `.Some` [type-mismatch]
   --> main.buri:76:9
    |
 76 |         .Some(pair) => .Some(pair.0),
    |         ^^^^^^^^^^^
    |
-   = fix: a `.Variant` pattern matches an enum; match this value another way
+   = expected: `[_3]`
+   = actual: a variant `.Some`
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_3]`
 error: there is nothing named `pair` in scope [unresolved-name]
   --> main.buri:76:30
    |
@@ -32,13 +34,15 @@ error: there is nothing named `pair` in scope [unresolved-name]
    |                              ^^^^
    |
    = fix: declare `pair`, or import it — a name is in scope only from this module's own declarations and its imports
-error: `[_3]` is not an enum [not-an-enum]
+error: expected `[_3]`, found a variant `.None` [type-mismatch]
   --> main.buri:77:9
    |
 77 |         .None => .None,
    |         ^^^^^
    |
-   = fix: a `.Variant` pattern matches an enum; match this value another way
+   = expected: `[_3]`
+   = actual: a variant `.None`
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_3]`
 error: this arm is unreachable [unreachable-arm]
   --> main.buri:77:9
    |
