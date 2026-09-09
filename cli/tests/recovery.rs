@@ -434,7 +434,13 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // corpus is drawn from, and a mutation of a call that used to fit on one
         // line is now a mutation of a different program. 253 of 1686 is 15.1%,
         // one case over a ceiling of fifteen, and sixteen is that rounded up.
-        ("a syntax error stays a syntax error", "delete-closer") => 16,
+        // Lowered when a block whose `}` was never written stopped being
+        // typechecked (issue 112). What that row was mostly counting is a
+        // deleted brace that left an inner block holding the rest of the file:
+        // the checker read the statements it swallowed and had an opinion about
+        // every one of them. 243 of 1704 is 14.3%, read off a
+        // `BURI_RECOVERY_CAP=0` run, and fifteen is that rounded up.
+        ("a syntax error stays a syntax error", "delete-closer") => 15,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,

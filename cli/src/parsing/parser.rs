@@ -125,7 +125,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         depth: 0,
         trial: 0,
         chain: 0,
-        recovered_closer: false,
+        closed: Closed::Read,
     };
     let mut module = p.module();
     // `//!` documents the module, so it belongs above everything. One that
@@ -484,12 +484,24 @@ struct Parser<'a> {
     /// a loop passes its own count to [`Parser::link`] instead, so there is
     /// nothing for it to leak.
     chain: u32,
-    /// Whether the block that just finished had its closing `}` recovered
-    /// rather than read — see [`Parser::block_inner`], which writes it, and
-    /// [`Parser::if_expr`], which reads it the moment the branch returns. A
-    /// branch whose `}` was already reported missing has cost the reader a
-    /// diagnostic, and `if-without-else` behind it is one mistake said twice.
-    recovered_closer: bool,
+    /// How the construct that just finished got its closing delimiter — see
+    /// [`Closed`]. Written by [`Parser::expect_close`] and read the moment it
+    /// returns: by [`Parser::if_expr`], because `if-without-else` behind a
+    /// branch whose `}` was already reported missing is one mistake said
+    /// twice, and by [`Parser::block_inner`], because a block that never
+    /// closed is a region rather than a body.
+    closed: Closed,
+}
+
+/// How a construct's closing delimiter was come by.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Closed {
+    /// It was written, where it belongs.
+    Read,
+    /// It was written late: recovery skipped to it and read on from there.
+    Late,
+    /// It was never written. Where the construct ends is the parser's guess.
+    Absent,
 }
 
 /// How deep the grammar may nest a production inside itself: an expression
@@ -914,6 +926,7 @@ impl<'a> Parser<'a> {
         opened: Span,
     ) -> PResult<Span> {
         if self.is(close) {
+            self.closed = Closed::Read;
             return Ok(self.bump());
         }
         if self.trial > 0 {
@@ -934,12 +947,16 @@ impl<'a> Parser<'a> {
         // stray token into an error on every line after it.
         match self.find_close(close) {
             Some(steps) => {
+                self.closed = Closed::Late;
                 for _ in 0..steps {
                     self.bump();
                 }
                 Ok(self.bump())
             }
-            None => Ok(self.prev_span()),
+            None => {
+                self.closed = Closed::Absent;
+                Ok(self.prev_span())
+            }
         }
     }
 
@@ -2228,9 +2245,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let read = self.is(Punctuation::RBrace);
         let end = self.expect_close(Punctuation::RBrace, construct, start)?;
-        self.recovered_closer = !read;
         // A block that recovered and has nothing to return is not an empty
         // block: its value is the error node, so the return type it is checked
         // against reports nothing.
@@ -2244,6 +2259,13 @@ impl<'a> Parser<'a> {
             stmts_len: sl,
             tail,
             span: Location::of(start.to(end)),
+            // Where a block with no `}` ends is a guess, and the statements it
+            // read are whatever the missing brace let it swallow — an inner
+            // block that took this one's closer for its own has taken the rest
+            // of the file with it. The formatter still lays them out, because
+            // they are the tokens somebody wrote; the checker does not, because
+            // they are not the program somebody wrote.
+            broken: self.closed == Closed::Absent,
         }))
     }
 
@@ -2509,7 +2531,7 @@ impl<'a> Parser<'a> {
         let cond = self.expr()?;
         self.expect_close(Punctuation::RParen, "`if` condition", open)?;
         let then = self.block("`if` branch")?;
-        let branch_recovered = self.recovered_closer;
+        let branch_recovered = self.closed != Closed::Read;
         // `else` is mandatory. There is nothing sensible for a missing branch
         // to produce in a language where `if` is an expression.
         if !self.is_keyword(Keyword::Else) {
