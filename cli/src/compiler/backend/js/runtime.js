@@ -3506,10 +3506,16 @@ function $dom_classes(element, value) {
   // Nothing to say is nothing to write. Assigning "" to an element that has no
   // class *adds* `class=""` to it, which on a resume is markup the server did
   // not write appearing on every element the reader can see.
-  if (value === "" && element.getAttribute("class") === null) return;
-  // The attribute rather than `className`, which on an SVG element is a
-  // read-only `SVGAnimatedString`: an icon's classes went nowhere at all.
-  element.setAttribute("class", value);
+  // An SVG element's `className` is a read-only `SVGAnimatedString`, so an
+  // icon's classes went nowhere at all. The attribute is the same thing on
+  // every other element and the only thing that works on this one.
+  if (element.namespaceURI === $DOM_SVG_NS) {
+    if (value === "" && element.getAttribute("class") === null) return;
+    element.setAttribute("class", value);
+    return;
+  }
+  if (value === "" && element.className === "") return;
+  element.className = value;
 }
 
 // The inline declarations an element has, all of them at once, for the same
@@ -3745,6 +3751,12 @@ let $ui_sheet = "";
 // style in the program can reach the tier, and emits nothing when it cannot,
 // which is the same mechanism `$ui_sheet` above uses.
 let $tree_declare_hook = null;
+
+// The artwork renderer, through the same kind of hole and for the same reason:
+// `$tree_icon` below is a parser and two allow lists, 2.5 KB of an artifact,
+// and only a tree holding an `icon` ever reaches it. The backend assigns this
+// when `Program::icons` says the program can build one.
+let $tree_icon_hook = null;
 
 // The theme installer, through the same kind of hole and for the same reason:
 // `$ui_node_mount` installs themes before it renders, so the seven functions
@@ -4324,7 +4336,17 @@ function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
 // else, whatever a source says. `xmlns` is left out because the element is in
 // that namespace already, and setting it would put a second one beside the
 // namespaced attribute a parser wrote.
-const $TREE_ARTWORK = ["svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon"];
+const $TREE_ARTWORK = [
+  "svg",
+  "g",
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+];
 
 const $TREE_ARTWORK_ATTRIBUTES = [
   "viewBox",
@@ -4357,9 +4379,23 @@ const $TREE_ARTWORK_ATTRIBUTES = [
 // The source as tags: `[name, attribute names and values, closing, empty]`.
 // Nothing else in the document is read, because nothing else may be in one —
 // no text, no comments, no declarations, no entities.
+
+const $ARTWORK_SPACE = " \t\r\n";
+
+function $tree_artwork_space(c) {
+  return $ARTWORK_SPACE.indexOf(c) >= 0;
+}
+
+// How far a run of characters the predicate accepts reaches from `at`.
+function $tree_artwork_run(source, at, ok) {
+  let i = at;
+  while (i < source.length && ok(source[i])) i++;
+  return i;
+}
+
 function $tree_artwork_tags(source) {
   const out = [];
-  const space = " \t\r\n";
+  const named = (c) => !$tree_artwork_space(c) && c !== "/" && c !== ">";
   let at = 0;
   for (;;) {
     const open = source.indexOf("<", at);
@@ -4368,34 +4404,36 @@ function $tree_artwork_tags(source) {
     const closing = source[i] === "/";
     if (closing) i++;
     const from = i;
-    while (i < source.length && space.indexOf(source[i]) < 0 && source[i] !== "/" && source[i] !== ">") i++;
+    i = $tree_artwork_run(source, i, named);
     const name = source.slice(from, i);
     const attributes = [];
     let empty = false;
     for (;;) {
-      while (i < source.length && space.indexOf(source[i]) >= 0) i++;
+      i = $tree_artwork_run(source, i, $tree_artwork_space);
       if (i >= source.length || source[i] === ">") {
         i++;
         break;
       }
+      // A self-closing tag's slash, which says only that the tag holds nothing.
       if (source[i] === "/") {
         empty = true;
         i++;
         continue;
       }
       const nameFrom = i;
-      while (i < source.length && space.indexOf(source[i]) < 0 && "=/>".indexOf(source[i]) < 0) i++;
+      i = $tree_artwork_run(source, i, (c) => named(c) && c !== "=");
       const attribute = source.slice(nameFrom, i);
-      while (i < source.length && space.indexOf(source[i]) >= 0) i++;
+      i = $tree_artwork_run(source, i, $tree_artwork_space);
       let value = "";
       if (source[i] === "=") {
-        i++;
-        while (i < source.length && space.indexOf(source[i]) >= 0) i++;
+        i = $tree_artwork_run(source, i + 1, $tree_artwork_space);
         const quote = source[i];
-        const valueFrom = quote === '"' || quote === "'" ? ++i : i;
-        while (i < source.length && (quote === '"' || quote === "'" ? source[i] !== quote : space.indexOf(source[i]) < 0 && source[i] !== ">")) i++;
+        const quoted = quote === '"' || quote === "'";
+        const valueFrom = quoted ? i + 1 : i;
+        const ends = quoted ? (c) => c !== quote : (c) => named(c);
+        i = $tree_artwork_run(source, valueFrom, ends);
         value = source.slice(valueFrom, i);
-        if (quote === '"' || quote === "'") i++;
+        if (quoted) i++;
       }
       attributes.push(attribute, value);
     }
@@ -4565,7 +4603,13 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
     return;
   }
-  $tree_icon(parent, node[1], node[2], anchor);
+  if ($tree_icon_hook === null) {
+    // The compiler said no tree here holds artwork, so it left the renderer
+    // out of the artifact. Reaching this is that decision being wrong, and
+    // saying so beats a `TypeError` about `null`.
+    $abort("an icon was rendered in a program that was said to have none");
+  }
+  $tree_icon_hook(parent, node[1], node[2], anchor);
 }
 
 // `ui/node`'s one operation with a body in the runtime. Everything else in that
