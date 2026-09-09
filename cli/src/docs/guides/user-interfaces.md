@@ -247,11 +247,13 @@ Two constructors exist only in this tier, because neither has an inline form:
   nothing, needs no signal write on a mouse move, and maps to a native pressed
   or focused trait. `Focus` is the element's own keyboard attention and
   `FocusWithin` is a container's: the wrapper of an input group owns the
-  hairline and the ring, and the control inside it stays bare. Six of the seven
-  are the platform's own; `Invalid` is the one a program enters, by passing a
-  `field` or a `toggle` an `invalid` — which writes the `aria-invalid` a reader
-  is told about and the rule hangs off, so the ring and the announcement are
-  one fact.
+  hairline and the ring, and the control inside it stays bare. Four of the
+  seven are the platform's own. `Invalid` and `Disabled` are the two a program
+  enters, by passing a control an `invalid` or a `disabled` — which write the
+  `aria-invalid` and the `disabled` a reader is told about and the rules hang
+  off, so the ring and the announcement are one fact. `Checked` is neither: a
+  toggle's own signal is the answer, so a page holds one that is on and one
+  that is off and each paints its own.
 - `At(Screen, [Style])` is a breakpoint, from one of four widths upwards.
   Mobile-first: the media queries are written in ascending order, so a larger
   tier overrides a smaller one by position, and there is never a maximum-width
