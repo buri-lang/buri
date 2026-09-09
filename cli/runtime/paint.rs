@@ -2165,7 +2165,9 @@ impl Painter<'_> {
             return;
         }
 
-        let radii = style.radii.map(|r| resolve_length(r, layout.size.width));
+        let radii = style.radii.map(|r| {
+            [resolve_length(r, layout.size.width), resolve_length(r, layout.size.height)]
+        });
         if !style.shadow.is_empty() {
             // An outer shadow is painted outside the border box and nowhere
             // else, so the box is knocked out of whatever clip was already in
@@ -2177,7 +2179,7 @@ impl Painter<'_> {
             // the ones after it, so the last is laid down first.
             for shadow in style.shadow.iter().rev().copied() {
                 let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
-                let corner = radii.map(|r| r + shadow.spread);
+                let corner = radii.map(|corner| corner.map(|r| r + shadow.spread));
                 if shadow.blur > 0.0 {
                     cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
                 } else {
@@ -2273,8 +2275,8 @@ impl Painter<'_> {
         art: &Art,
     ) {
         let Some(picture) = self.pictures.get(index).and_then(Option::as_ref) else {
-            fill(canvas, box_, [0.0; 4], PLACEHOLDER_EDGE, style.opacity, clip);
-            fill(canvas, box_.grow(-1.0), [0.0; 4], PLACEHOLDER_FILL, style.opacity, clip);
+            fill(canvas, box_, circular(0.0), PLACEHOLDER_EDGE, style.opacity, clip);
+            fill(canvas, box_.grow(-1.0), circular(0.0), PLACEHOLDER_FILL, style.opacity, clip);
             return;
         };
         // An icon's `currentColor` is the colour this element paints in, which
@@ -2325,7 +2327,7 @@ impl Painter<'_> {
         fill(
             canvas,
             Box2 { l: box_.l, t: px(middle - bar / 2.0), r: box_.r, b: px(middle + bar / 2.0) },
-            [0.0; 4],
+            circular(0.0),
             style.colour,
             style.opacity,
             clip,
@@ -2341,7 +2343,7 @@ impl Painter<'_> {
                 r: px(centre + size / 2.0),
                 b: px(middle + size / 2.0),
             },
-            [size / 2.0; 4],
+            circular(size / 2.0),
             style.colour,
             style.opacity,
             clip,
@@ -2364,7 +2366,7 @@ impl Painter<'_> {
             return;
         }
         if style.mark == Mark::Thumb {
-            fill(canvas, box_, [side / 2.0; 4], style.colour, style.opacity, clip);
+            fill(canvas, box_, circular(side / 2.0), style.colour, style.opacity, clip);
             return;
         }
         let unit = side / 16.0;
@@ -2426,7 +2428,7 @@ impl Painter<'_> {
                     r: px(left - gap),
                     b: px(middle + size / 2.0),
                 };
-                fill(canvas, box_, [size / 2.0; 4], style.colour, style.opacity, clip);
+                fill(canvas, box_, circular(size / 2.0), style.colour, style.opacity, clip);
             }
             Marker::Decimal => {
                 let text = format!("{item}.");
@@ -2545,7 +2547,7 @@ impl Painter<'_> {
                 r: box_.l.saturating_add(px(to)),
                 b: top.saturating_add(px(thickness).max(1)),
             };
-            fill(canvas, bar, [0.0; 4], style.colour, style.opacity, clip);
+            fill(canvas, bar, circular(0.0), style.colour, style.opacity, clip);
         }
     }
 }
@@ -2590,7 +2592,7 @@ impl Box2 {
         }
     }
 
-    fn path(self, radii: [f32; 4]) -> Option<tiny_skia::Path> {
+    fn path(self, radii: Radii) -> Option<tiny_skia::Path> {
         self.inset_path(0.0, radii)
     }
 
@@ -2601,9 +2603,25 @@ impl Box2 {
     /// half a pixel — a number [`px`] has no room for. Rounding it is what put
     /// a one-pixel border astride the box's edge, so the inset is applied to
     /// the edges rather than to the box.
-    fn inset_path(self, by: f32, radii: [f32; 4]) -> Option<tiny_skia::Path> {
+    fn inset_path(self, by: f32, radii: Radii) -> Option<tiny_skia::Path> {
         rounded(self.l as f32 + by, self.t as f32 + by, self.r as f32 - by, self.b as f32 - by, radii)
     }
+}
+
+/// One corner's two radii, across and then down, for the four corners in
+/// `Corner`'s own order: start-start, start-end, end-start, end-end.
+///
+/// A corner is an ellipse rather than a circle because CSS resolves a
+/// percentage radius against the box's width horizontally and its height
+/// vertically (CSS Backgrounds §5.1), so a box wider than it is tall has a
+/// corner wider than it is deep.
+type Radii = [[f32; 2]; 4];
+
+/// The same radius on both axes of all four corners: a square corner at zero,
+/// and a circular one otherwise. What a shape the painter draws for itself —
+/// a thumb, a disc, a bar — asks for.
+fn circular(radius: f32) -> Radii {
+    [[radius; 2]; 4]
 }
 
 /// Where a `transform: translate` puts a box, against the size it was laid out
@@ -2620,29 +2638,33 @@ fn shift(style: &Computed, size: Size<f32>) -> (f32, f32) {
 /// The corners run start-start, start-end, end-start, end-end — top-left,
 /// top-right, bottom-left, bottom-right on a left-to-right page — which is the
 /// order `ui/style`'s `Corner` declares them in.
-fn rounded(l: f32, t: f32, r: f32, b: f32, radii: [f32; 4]) -> Option<tiny_skia::Path> {
+fn rounded(l: f32, t: f32, r: f32, b: f32, radii: Radii) -> Option<tiny_skia::Path> {
     if r <= l || b <= t {
         return None;
     }
     let radii = clamp_radii(radii, r - l, b - t);
     let mut path = PathBuilder::new();
-    if radii.iter().all(|v| *v <= 0.0) {
+    if radii.iter().flatten().all(|v| *v <= 0.0) {
         path.push_rect(tiny_skia::Rect::from_ltrb(l, t, r, b)?);
         return path.finish();
     }
-    // A quarter circle as one cubic; `K` is the classic control-point
+    // A quarter ellipse as one cubic; `K` is the classic control-point
     // fraction, and it is a constant so both platforms draw the same arc.
     const K: f32 = 0.552_285;
-    let [tl, tr, bl, br] = radii;
-    path.move_to(l + tl, t);
-    path.line_to(r - tr, t);
-    path.cubic_to(r - tr + tr * K, t, r, t + tr - tr * K, r, t + tr);
-    path.line_to(r, b - br);
-    path.cubic_to(r, b - br + br * K, r - br + br * K, b, r - br, b);
-    path.line_to(l + bl, b);
-    path.cubic_to(l + bl - bl * K, b, l, b - bl + bl * K, l, b - bl);
-    path.line_to(l, t + tl);
-    path.cubic_to(l, t + tl - tl * K, l + tl - tl * K, t, l + tl, t);
+    let [[tl_x, tl_y], [tr_x, tr_y], [bl_x, bl_y], [br_x, br_y]] = radii;
+    let (k_tl_x, k_tl_y) = (tl_x * K, tl_y * K);
+    let (k_tr_x, k_tr_y) = (tr_x * K, tr_y * K);
+    let (k_bl_x, k_bl_y) = (bl_x * K, bl_y * K);
+    let (k_br_x, k_br_y) = (br_x * K, br_y * K);
+    path.move_to(l + tl_x, t);
+    path.line_to(r - tr_x, t);
+    path.cubic_to(r - tr_x + k_tr_x, t, r, t + tr_y - k_tr_y, r, t + tr_y);
+    path.line_to(r, b - br_y);
+    path.cubic_to(r, b - br_y + k_br_y, r - br_x + k_br_x, b, r - br_x, b);
+    path.line_to(l + bl_x, b);
+    path.cubic_to(l + bl_x - k_bl_x, b, l, b - bl_y + k_bl_y, l, b - bl_y);
+    path.line_to(l, t + tl_y);
+    path.cubic_to(l, t + tl_y - k_tl_y, l + tl_x - k_tl_x, t, l + tl_x, t);
     path.close();
     path.finish()
 }
@@ -2651,19 +2673,30 @@ fn rounded(l: f32, t: f32, r: f32, b: f32, radii: [f32; 4]) -> Option<tiny_skia:
 /// more than that side is long, every radius is scaled by the same factor
 /// until none of the four sides is over-subscribed.
 ///
+/// The sum a side is held to is the sum along *that side's own axis* — the two
+/// horizontal radii against the width on the top and the bottom, the two
+/// vertical ones against the height on the left and the right — and the one
+/// factor scales both axes of all four corners, which is what §5.5 says.
+///
 /// Scaling all four together rather than clipping each one is what keeps a box
 /// with one big corner and one small one looking like the browser's.
-fn clamp_radii(radii: [f32; 4], width: f32, height: f32) -> [f32; 4] {
-    let mut out = radii.map(|v| if v.is_finite() { v.max(0.0) } else { 0.0 });
+fn clamp_radii(radii: Radii, width: f32, height: f32) -> Radii {
+    let mut out =
+        radii.map(|corner| corner.map(|v| if v.is_finite() { v.max(0.0) } else { 0.0 }));
     let [tl, tr, bl, br] = out;
     let mut factor = 1.0_f32;
-    for (side, sum) in [(width, tl + tr), (width, bl + br), (height, tl + bl), (height, tr + br)] {
+    for (side, sum) in [
+        (width, tl[0] + tr[0]),
+        (width, bl[0] + br[0]),
+        (height, tl[1] + bl[1]),
+        (height, tr[1] + br[1]),
+    ] {
         if sum > 0.0 {
             factor = factor.min(side / sum);
         }
     }
     if factor < 1.0 {
-        for v in &mut out {
+        for v in out.iter_mut().flatten() {
             *v *= factor;
         }
     }
@@ -2681,7 +2714,7 @@ fn resolve_length(len: Len, basis: f32) -> f32 {
 fn fill(
     canvas: &mut Pixmap,
     box_: Box2,
-    radii: [f32; 4],
+    radii: Radii,
     colour: Rgba,
     opacity: f32,
     clip: Option<&Mask>,
@@ -2695,7 +2728,7 @@ fn fill(
 fn stroke(
     canvas: &mut Pixmap,
     box_: Box2,
-    radii: [f32; 4],
+    radii: Radii,
     width: f32,
     style: &Computed,
     clip: Option<&Mask>,
@@ -2703,7 +2736,7 @@ fn stroke(
     // A CSS border sits inside the box, so the centreline is half a width in —
     // a half pixel for an odd width, which is why this is not a `grow`.
     let half = width / 2.0;
-    let inner = radii.map(|r| (r - half).max(0.0));
+    let inner = radii.map(|corner| corner.map(|r| (r - half).max(0.0)));
     let Some(path) = box_.inset_path(half, inner) else { return };
     let paint = Paint {
         anti_alias: true,
@@ -2732,7 +2765,7 @@ fn stroke(
 fn stroke_edges(
     canvas: &mut Pixmap,
     box_: Box2,
-    radii: [f32; 4],
+    radii: Radii,
     widths: [f32; 4],
     style: &Computed,
     clip: Option<&Mask>,
@@ -2743,11 +2776,15 @@ fn stroke_edges(
     };
     ring.fill_path(&outer, FillRule::Winding, true, Transform::identity());
     let [l, t, r, b] = [box_.l as f32, box_.t as f32, box_.r as f32, box_.b as f32];
+    // Each corner pulls in by the mean of the two edges that meet at it, on
+    // both of its axes, so the ring keeps an even thickness round a corner
+    // whose two edges are different widths.
+    let pull = |corner: [f32; 2], by: f32| corner.map(|r| (r - by).max(0.0));
     let inner_radii = [
-        (radii[0] - (widths[0] + widths[2]) / 2.0).max(0.0),
-        (radii[1] - (widths[1] + widths[2]) / 2.0).max(0.0),
-        (radii[2] - (widths[0] + widths[3]) / 2.0).max(0.0),
-        (radii[3] - (widths[1] + widths[3]) / 2.0).max(0.0),
+        pull(radii[0], (widths[0] + widths[2]) / 2.0),
+        pull(radii[1], (widths[1] + widths[2]) / 2.0),
+        pull(radii[2], (widths[0] + widths[3]) / 2.0),
+        pull(radii[3], (widths[1] + widths[3]) / 2.0),
     ];
     let inner = rounded(l + widths[0], t + widths[2], r - widths[1], b - widths[3], inner_radii);
     if let (Some(inner), Some(mut hole)) = (inner, Mask::new(width, height)) {
@@ -2846,7 +2883,7 @@ fn full_mask(width: u32, height: u32) -> Option<Mask> {
 /// Narrows `mask` to a box, **rounded corners included**: `overflow: hidden`
 /// on a box with a radius clips to the shape the box paints, so a child does
 /// not square off a corner its parent rounded.
-fn intersect(mask: &mut Mask, box_: Box2, radii: [f32; 4]) {
+fn intersect(mask: &mut Mask, box_: Box2, radii: Radii) {
     if let Some(path) = box_.path(radii) {
         mask.intersect_path(&path, FillRule::Winding, true, Transform::identity());
     } else {
@@ -2863,7 +2900,7 @@ fn intersect(mask: &mut Mask, box_: Box2, radii: [f32; 4]) {
 fn cast_blurred(
     canvas: &mut Pixmap,
     cast: Box2,
-    radii: [f32; 4],
+    radii: Radii,
     shadow: Shadow,
     opacity: f32,
     clip: Option<&Mask>,
@@ -2883,7 +2920,7 @@ fn cast_blurred(
         r: i32::try_from(width).unwrap_or(i32::MAX),
         b: i32::try_from(height).unwrap_or(i32::MAX),
     };
-    let Some(path) = all.path([0.0; 4]) else { return };
+    let Some(path) = all.path(circular(0.0)) else { return };
     let paint =
         Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
     canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
@@ -2897,7 +2934,7 @@ fn cast_blurred(
 /// allocated, and the caller keeps its own clip.
 fn outside_the_box(
     box_: Box2,
-    radii: [f32; 4],
+    radii: Radii,
     clip: Option<&Mask>,
     width: u32,
     height: u32,
@@ -3609,6 +3646,44 @@ mod tests {
         assert_eq!(at(&image, 6, 6), [0, 0, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
         assert_eq!(at(&image, 11, 11), [255, 255, 255, 255]);
+    }
+
+    /// CSS resolves a percentage radius against the box's width across and its
+    /// height down, so a corner on a box that is wider than it is tall is an
+    /// ellipse: a 200 by 40 box at `50%` is a 200 by 40 ellipse, not a pill of
+    /// twenty-pixel circles.
+    #[test]
+    fn a_percentage_radius_resolves_across_against_the_width_and_down_against_the_height() {
+        let scene = "buri-scene 1\nviewport 200 40\ne 0 width:200px;height:40px;\
+                     border-radius:50%;background-color:rgb(0,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        // The middle is the fill, and the ellipse meets each edge at that
+        // edge's own middle: the top at x=100, the left at y=20.
+        assert_eq!(at(&image, 100, 20), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 100, 1), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 1, 20), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
+        // Fourteen in and four down is inside a twenty-pixel circle and
+        // outside the ellipse, which is the whole of the difference.
+        assert_eq!(at(&image, 14, 4), [255, 255, 255, 255]);
+    }
+
+    /// One corner resolves the same way: `RadiusCorner` is `Radius` on a single
+    /// corner, so a percentage on it is an ellipse of the width and the height
+    /// too.
+    #[test]
+    fn a_percentage_on_one_corner_is_an_ellipse_of_the_width_and_the_height() {
+        let scene = "buri-scene 1\nviewport 200 40\ne 0 width:200px;height:40px;\
+                     border-start-start-radius:50%;background-color:rgb(0,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        // The other three corners are square.
+        assert_eq!(at(&image, 199, 39), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 0, 39), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 199, 0), [0, 0, 0, 255]);
+        // The bite is a hundred wide and twenty deep, so it is still eating the
+        // top edge at x=45 and has finished with the left edge by y=15.
+        assert_eq!(at(&image, 45, 1), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 5, 15), [0, 0, 0, 255]);
     }
 
     /// Padding indents the child; a column gap separates two of them.

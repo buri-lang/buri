@@ -20,7 +20,9 @@
 #   * `edges-radius` — the same shape for corners, plus the two things a corner
 #     changes about what is already painted: a border follows the corner it
 #     goes round, and where two radii on one side add up to more than the side
-#     is long, all four scale by one factor, which is what CSS does.
+#     is long, all four scale by one factor, which is what CSS does. A
+#     percentage is a share of the width across and of the height down, so the
+#     `50%` and `Full` cells cut an ellipse rather than a circle.
 #   * `edges-primitives` — both properties on all nine primitives. A `text` and
 #     an `image` take no styles of their own, so their cell styles the
 #     container, which is where a property on either of them goes anyway.
@@ -30,12 +32,6 @@
 #     neighbours share one hairline because every child but the first drops its
 #     start edge. The caller maps over its own children, so nothing here needs
 #     a selector.
-#
-# **One band is pinned as painted rather than as right**: a percentage radius
-# in `edges-radius` — `50%` and `Full` — resolves against the box's width on
-# both axes, so it draws a circular corner where CSS draws an ellipse of the
-# width and the height. That is how `Radius` has always been painted and
-# `RadiusCorner` inherits it; re-record when it is fixed.
 #
 # The lifecycle is `sweep_properties_*`'s: every golden compares, a renamed
 # snapshot is reported as missing rather than as a difference, `--update`
