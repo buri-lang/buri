@@ -72,6 +72,12 @@ run {
 # The negative twin the rows above owe a reader: break the page, and `buri run`
 # is a build that failed rather than a server over the artifact that is still
 # lying in `.buri/out` from the row at the top.
+#
+# `--port=0` because this is the one step here that really listens: the port is
+# taken before anything is compiled, so on the default 4000 the case would fail
+# with `Address already in use` whenever something else on the machine — another
+# suite, another agent — happened to be holding it. A case that needs a
+# particular port free is a case that reports the machine.
 edit {
   file: "cmd/site/main.buri"
   replace: "ui.text(.Const(\"the front page\"))"
@@ -79,7 +85,7 @@ edit {
 }
 
 run {
-  args: ["run", "//cmd/site"]
+  args: ["run", "//cmd/site", "--port=0"]
   exit: 1
   golden: "nothing_to_serve.txt"
 }
