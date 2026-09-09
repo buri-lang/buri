@@ -1,0 +1,50 @@
+// Four pictures of `Shadows`, and the classes behind the two that differ only
+// by a state.
+//
+// The `describe` assertion beside the focused picture is what says a state
+// golden is no copy of the resting one: the focused document carries a
+// `focus_sh-` class and the resting one carries no state class at all.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import { elevationPage, ringPage, stackingPage };
+
+test "every elevation, layer by layer" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "shadows-elevations", elevationPage(), .Hover, []);
+}
+
+test "how many layers, in what order, and the slot the two spellings share" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "shadows-stacking", stackingPage(), .Hover, []);
+}
+
+test "a raised card at rest" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, ringPage(ctx), .Hover);
+    assert.isFalse(scene.contains("focus_"));
+    snapshot(ctx, "shadows-ring-resting", ringPage(ctx), .Hover, []);
+}
+
+test "and the same card focused, which keeps the elevation and gains the ring" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, ringPage(ctx), .Focus);
+    assert.containsText(scene, "focus_sh-");
+    snapshot(ctx, "shadows-ring-focus", ringPage(ctx), .Focus, []);
+}

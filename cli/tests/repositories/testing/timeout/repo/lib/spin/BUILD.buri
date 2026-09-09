@@ -1,19 +1,19 @@
-# Small, because the point of the declaration is that the runner stops the
-# suite rather than that the number is large — and not one second, because the
-# clock starts when the suite's *process* does (`commands::test::execute`).
-# Building the suite is not on the budget; starting it is, and starting a
-# process is the machine's cost rather than the suite's: on a loaded machine
-# the window between spawning a freshly linked binary and its first line of
-# `main` has been measured at several hundred milliseconds. The twin below has
-# to *finish* inside this same number, so a budget that only just covers what
-# the machine charges is a budget a busy machine can miss, and the case then
-# fails for a reason it is not about. Both halves keep one declaration: one
-# variable changes between them, and it is the loop.
+# One second, because the suite below never finishes. `spin` is a loop with no
+# exit, so the runner kills it whatever this number is, and the number only
+# decides how long the case waits for a verdict it already knows.
+#
+# The twin at the bottom of `CASE.textproto` has the opposite job and raises
+# this rather than reusing it: the budget is wall time from the spawn
+# (`commands::test::execute`), so a suite that must *finish* inside one needs a
+# bound no loaded machine can reach — and a bound nothing can reach is one this
+# half could never exceed. One number cannot do both jobs. It used to try, and
+# three test binaries at once made the finishing half miss five seconds by
+# three tenths.
 library {
     sources: ["spin.buri"]
 
     test {
         sources: ["test/spin.buri"]
-        timeout_seconds: 5
+        timeout_seconds: 1
     }
 }

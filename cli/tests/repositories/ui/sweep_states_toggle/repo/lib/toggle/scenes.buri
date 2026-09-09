@@ -91,6 +91,7 @@ fn allStates(): [Style] {
 fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
     ui.toggle(
         .Const("on"),
+        .Checkbox,
         [
             .Padding(.Px(8)),
             .Background(.Rgb(150, 170, 200)),
@@ -101,6 +102,7 @@ fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
             .Width(.Full),
             .Group(extra),
         ],
+        [],
         signal.signal(ctx, true),
     )
 }
@@ -112,6 +114,7 @@ fn styled<C: Ui>(ctx: C, extra: [Style]): Node<C> {
 fn boxed<C: Ui>(ctx: C, extra: [Style]): Node<C> {
     ui.toggle(
         .Const("on"),
+        .Checkbox,
         [
             .Width(.Px(16)),
             .Height(.Px(16)),
@@ -121,13 +124,14 @@ fn boxed<C: Ui>(ctx: C, extra: [Style]): Node<C> {
             .BorderColor(.Rgb(70, 90, 120)),
             .Group(extra),
         ],
+        [],
         signal.signal(ctx, true),
     )
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C: Ui>(ctx: C, extra: [Style]): Node<C> {
-    ui.toggle(.Const("on"), [.Group(extra)], signal.signal(ctx, true))
+    ui.toggle(.Const("on"), .Checkbox, [.Group(extra)], [], signal.signal(ctx, true))
 }
 
 /// One label cell.
