@@ -1096,11 +1096,104 @@ test "a field's kind is in the scene, and a password's value is never in it" {
     assert.containsText(kindOf(ctx, .Email, secret), "field:email");
     assert.containsText(kindOf(ctx, .Number, secret), "field:number");
     assert.containsText(kindOf(ctx, .Search, secret), "field:search");
+    assert.containsText(kindOf(ctx, .Range(0.0, 100.0, 1.0), secret), "field:range");
 }
 
 /// The scene document one field of a kind writes.
 fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
     ui.describe(ctx, ui.field(.Const("secret"), kind, [], value), .Hover)
+}
+
+test "a range field is a slider, and the browser drives it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let volume = signal(ctx, "40");
+    // The bounds are the kind's payload, so a slider cannot be built without
+    // saying what it runs between — a reader is told that, and there is
+    // nowhere else on `field` to put it. The one attribute buys the thumb, the
+    // drag, the arrow and Home/End stepping, `role="slider"` and
+    // `aria-valuenow`, `aria-valuemin` and `aria-valuemax`, none of which this
+    // vocabulary could draw for itself.
+    let page = render(
+        ctx,
+        ui.field(.Const("Volume"), .Range(0.0, 100.0, 1.0), [], volume),
+    );
+    assert.equal(
+        page.markup(),
+        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"1.0\" value=\"40\" /></label>",
+    );
+    // `fill` is what a test does to any field, and a range is no different:
+    // where the reader dragged to lands in the signal, and the signal lands
+    // back on the input.
+    let _ = page.fill("Volume", "75");
+    assert.equal(volume.get(ctx), "75");
+    assert.containsText(page.markup(), "value=\"75\"");
+}
+
+test "a range's bounds are in the scene, and its value is not a run of text" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let volume = signal(ctx, "40");
+    let inline = "display:flex;flex-direction:row;flex-wrap:wrap;align-items:center";
+    // The painter places the thumb, so it is told the bounds and the value the
+    // thumb sits at. It is not told the step: what an arrow key moves by is
+    // never drawn, which is the rule that keeps `alt` out of a scene too. And
+    // the value is a declaration rather than a `t` line, because a browser
+    // draws a slider and never the number behind one.
+    assert.equal(
+        ui.describe(
+            ctx,
+            ui.field(.Const("Volume"), .Range(0.0, 100.0, 1.0), [], volume),
+            .Hover,
+        ),
+        str.format(
+            ctx,
+            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 Volume\ne 1 field:range;range:0.0 100.0 40",
+        ),
+    );
+    // The bounds are the ones the program wrote, whatever they are, and a
+    // value outside them is carried as written — clamping is the painter's and
+    // the browser's, not the scene's.
+    assert.containsText(
+        ui.describe(
+            ctx,
+            ui.field(.Const("Fine"), .Range(-1.5, 1.5, 0.25), [], signal(ctx, "9")),
+            .Hover,
+        ),
+        "e 1 field:range;range:-1.5 1.5 9",
+    );
+}
+
+test "a range field's styles land on the input, and compose the way a control's do" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let volume = signal(ctx, "40");
+    // Two edges naming different sides compose, the same edge is last-wins,
+    // and a state and a position sit beside them — all on the input, which is
+    // the thing a reader focuses and a browser disables.
+    let tree = ui.field(
+        .Const("Volume"),
+        .Range(0.0, 10.0, 0.5),
+        [
+            .PaddingEdge(.Start, .Px(8)),
+            .PaddingEdge(.End, .Px(4)),
+            .Width(.Px(120)),
+            .Width(.Px(160)),
+            .On(.Hover, [.Opacity(0.9)]),
+            .Position(.Sticky),
+        ],
+        volume,
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"10.0\" step=\"0.5\" class=\"pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky\" value=\"40\" /></label>",
+    );
+    assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
 }
 
 test "a control takes styles of its own, and they land on the control" {
