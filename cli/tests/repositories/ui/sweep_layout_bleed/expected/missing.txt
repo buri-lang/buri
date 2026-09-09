@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/bleed.buri  "a bleed on every edge a box has"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/scenes/test/bleed.buri:12:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

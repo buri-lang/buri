@@ -118,11 +118,41 @@ at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 46 properties and five ways of composing them. Every property is
+`ui/style` is 47 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
 right by construction. What matters is where a style *goes*.
+
+`Bleed(Edge, Length)` is the one way *out* of the box a container put a child
+in, and it is a distance outwards rather than a margin: `.Auto` and a negative
+length bleed nothing, so the space between things still belongs to the
+container. Two bleeds naming different edges compose.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// A rule from one edge of a menu padded by four to the other. Without the
+/// bleed it stops four short at each end.
+export fn separator<C>(): Node<C> {
+    ui.stack([.Height(.Px(1)), .Bleed(.Start, .Px(4)), .Bleed(.End, .Px(4))], [])
+}
+
+/// An avatar that laps the one before it. The later one paints over the
+/// earlier, the way a document stacks them.
+export fn lapped<C>(letter: Str): Node<C> {
+    ui.stack(
+        [
+            .Width(.Px(32)),
+            .Height(.Px(32)),
+            .Radius(.Percent(50.0)),
+            .Bleed(.Start, .Px(8)),
+        ],
+        [ui.text(.Const(letter))],
+    )
+}
+```
 
 **Static — everything except `Computed`.** The compiler evaluates it, turns each
 distinct property value into one atomic class, and writes the classes into a

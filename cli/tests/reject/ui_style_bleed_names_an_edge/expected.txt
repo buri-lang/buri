@@ -1,0 +1,12 @@
+error: `Edge` has no variant `Middle` [no-such-variant]
+  --> cmd/ui_style_bleed_names_an_edge/main.buri:14:34
+   |
+14 |   ui.mount(ctx, ui.stack([.Bleed(.Middle, .Px(8))], []), [])
+   |                                  ^^^^^^^
+   |
+   = its variants are `Top`, `Bottom`, `Start` and `End`
+   = fix: name a variant the enum declares
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+
