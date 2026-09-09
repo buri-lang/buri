@@ -4372,9 +4372,17 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // button that submits the form it happens to be inside is the surprise
     // this vocabulary exists to remove.
     $dom_attribute(element, "type", "button");
+    // The label is the accessible name however the button is drawn, so it is
+    // an attribute rather than the glyphs: a button holding an icon and a word
+    // is still announced as the one thing the program named it.
+    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
     $tree_styles(element, node[2]);
-    $tree_text(node[1], element, null);
-    const onPress = node[3];
+    const children = node[3];
+    // A button with no children shows its label. That is the only place the
+    // name and the glyphs are the same string.
+    if (children.length === 0) $tree_text(node[1], element, null);
+    else for (const child of children) $tree_render(ctx, child, element, null);
+    const onPress = node[4];
     $dom_listen(element, "click", () =>
       // One transaction, so that a handler which writes three signals causes
       // one pass over the watchers rather than three.
@@ -4400,6 +4408,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // identifier to collide, and no way to render a field whose label is
     // attached to something else.
     const wrapper = $tree_element(parent, "label", anchor);
+    // `around` is the label's, because the label is the box a surrounding row
+    // lays out and nothing on the input can reach it.
+    $tree_styles(wrapper, node[4]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     const kind = node[2];
     const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
@@ -4407,8 +4418,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // The styles are the input's rather than the label's: the input is what a
     // reader focuses and what a browser disables.
     $tree_styles(element, node[3]);
-    const cell = node[4][0];
-    $tree_bind([1, node[4]], (value) => {
+    const cell = node[5][0];
+    $tree_bind([1, node[5]], (value) => {
       // Writing what is already there moves the caret in a real browser.
       if (element.value !== value) element.value = value;
     });
@@ -4417,12 +4428,18 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 9) {
     const wrapper = $tree_element(parent, "label", anchor);
+    $tree_styles(wrapper, node[4]);
     const element = $tree_element(wrapper, "input", null);
     $dom_attribute(element, "type", "checkbox");
-    $tree_styles(element, node[2]);
+    // A switch is the same control with a different mark and a different
+    // announcement — "on" and "off" rather than "ticked". The mark itself is
+    // the sheet's, drawn on the box by the reset, because an `<input>` holds
+    // no children.
+    if (node[2] === 1) $dom_attribute(element, "role", "switch");
+    $tree_styles(element, node[3]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
-    const cell = node[3][0];
-    $tree_bind([1, node[3]], (value) => {
+    const cell = node[5][0];
+    $tree_bind([1, node[5]], (value) => {
       element.checked = value;
     });
     $dom_listen(element, "change", () => $ui_flush(() => $ui_write(cell, element.checked)));
@@ -4744,7 +4761,10 @@ function $ui_testing_Rendered_text(self) {
 // no-op, which is the whole reason these abort.
 function $tree_labelled(self, name, label) {
   for (const element of $dom_elements($slot(self), name, [])) {
-    if ($dom_label(element) === label) return element;
+    // A button carries its accessible name as an attribute, because its glyphs
+    // may be an icon; everything else is addressed by the text a reader sees.
+    const named = element.attributes["aria-label"];
+    if ((named === undefined ? $dom_label(element) : named) === label) return element;
   }
   $abort("this tree has no " + name + ' labelled "' + label + '"');
   return null;
