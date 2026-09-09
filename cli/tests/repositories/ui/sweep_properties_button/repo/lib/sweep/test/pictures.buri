@@ -1,0 +1,61 @@
+// One picture per family of `ui/style` properties, over a `button`, whose
+// styles land on the button itself.
+//
+// Resting state throughout: no style here is inside an `On`, so the
+// state a snapshot is taken in contributes nothing to any of them.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import {
+    gapPage, paddingPage, runsPage, sizePage, surfacePage, typePage,
+};
+
+test "the surface properties, on a button" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "button-surface", surfacePage(), .Hover, []);
+}
+
+test "the type properties, on a button" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "button-type", typePage(), .Hover, []);
+}
+
+test "how a run of text is set, on a button" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "button-runs", runsPage(), .Hover, []);
+}
+
+test "the paddings, on a button" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "button-padding", paddingPage(), .Hover, []);
+}
+
+test "the gaps, and the mark beside a child, on a button" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "button-gap", gapPage(), .Hover, []);
+}
+
+test "the sizing properties, on a button" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "button-size", sizePage(), .Hover, []);
+}
