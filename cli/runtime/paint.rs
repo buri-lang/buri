@@ -244,9 +244,30 @@ fn parse_variables(text: &str) -> Vec<(String, String)> {
 /// still reads as one and each property's own arm decides what that means —
 /// which is what the painter did before a theme could reach it at all.
 ///
+/// A value a theme bound may hold a `var()` of its own — `Color.alpha` on a
+/// token binds one to `color-mix(in srgb, var(--other) 50%, transparent)` — so
+/// substitution repeats until nothing moves. The budget is the number of
+/// bindings there are, which is [`crate::ui::render`]'s rule for a chain: one
+/// that closes on itself stops instead of hanging.
+///
 /// Borrowed where there is nothing to do, which is every declaration in a
 /// program with no design tokens.
 fn substitute<'a>(value: &'a str, variables: &[(String, String)]) -> Cow<'a, str> {
+    let mut out = substitute_once(value, variables);
+    for _ in 0..variables.len() {
+        if !out.contains("var(") {
+            break;
+        }
+        let next = substitute_once(&out, variables).into_owned();
+        if next == out {
+            break;
+        }
+        out = Cow::Owned(next);
+    }
+    out
+}
+
+fn substitute_once<'a>(value: &'a str, variables: &[(String, String)]) -> Cow<'a, str> {
     if !value.contains("var(") {
         return Cow::Borrowed(value);
     }
@@ -804,7 +825,9 @@ struct Computed {
     /// left-to-right page.
     radii: [Len; 4],
     opacity: f32,
-    shadow: Option<Shadow>,
+    /// Every `box-shadow` layer, in the order they were written — the first
+    /// painted over the ones after it.
+    shadow: Vec<Shadow>,
     marker: Marker,
 
     font_size: f32,
@@ -862,7 +885,7 @@ impl Computed {
             border_style: [Border::Solid; 4],
             radii: [Len::Px(0.0); 4],
             opacity: 1.0,
-            shadow: None,
+            shadow: Vec::new(),
             marker: Marker::None,
             font_size: ROOT_FONT_SIZE,
             weight: 400,
@@ -1109,7 +1132,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
                 style.opacity = parent.opacity * o.clamp(0.0, 1.0);
             }
         }
-        "box-shadow" => style.shadow = shadow(value, font_size),
+        "box-shadow" => style.shadow = shadows(value, font_size),
         "list-style-type" => {
             style.marker = match value {
                 "disc" => Marker::Disc,
@@ -1254,11 +1277,72 @@ fn item_alignment(value: &str) -> Option<AlignItems> {
     }
 }
 
+/// Splits on a separator that is not inside brackets.
+///
+/// `color-mix(in srgb,rgb(1,2,3) 50%,transparent)` has commas in two meanings
+/// and spaces inside a function, so neither `split(',')` nor `split(' ')` can
+/// read one. Everything the painter takes apart by hand goes through this.
+fn split_top(text: &str, separator: char) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (at, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ if c == separator && depth == 0 => {
+                out.push(text.get(start..at).unwrap_or(""));
+                start = at + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    out.push(text.get(start..).unwrap_or(""));
+    out
+}
+
 fn colour(value: &str) -> Option<Spec> {
+    colour_at(value, 0)
+}
+
+/// How many `color-mix`es may nest. A theme can bind a token to a *faded*
+/// token, so a chain of them nests one deep per link; past this a declaration
+/// reads as a colour the painter does not know rather than as a recursion.
+const MIX_DEPTH: usize = 4;
+
+/// A colour declaration, with the nesting `color-mix` puts in bounded by
+/// [`MIX_DEPTH`].
+fn colour_at(value: &str, depth: usize) -> Option<Spec> {
+    let value = value.trim();
     match value {
         "transparent" => return Some(Spec::Transparent),
         "inherit" => return Some(Spec::Inherit),
         _ => {}
+    }
+    // `Color.alpha` on a token: the token still decides the hue, and the
+    // percentage decides how much of it there is. Read *after* the themes were
+    // substituted, so what is left inside is a colour or an unbound name.
+    if let Some(rest) = value.strip_prefix("color-mix(in srgb,") {
+        if depth >= MIX_DEPTH {
+            return None;
+        }
+        let inner = rest.strip_suffix(')')?;
+        let [mixed, rest] = split_top(inner, ',')[..] else { return None };
+        if rest.trim() != "transparent" {
+            return None;
+        }
+        let [base, share] = split_top(mixed.trim(), ' ')[..] else { return None };
+        let fraction = share.trim().strip_suffix('%')?.parse::<f32>().ok()? / 100.0;
+        return match colour_at(base, depth + 1)? {
+            Spec::Value(c) => {
+                Some(Spec::Value(Rgba { a: (c.a * fraction).clamp(0.0, 1.0), ..c }))
+            }
+            // Nothing bound the token, so the mix is a colour that is not
+            // there — which is what every property already does with one.
+            Spec::Token => Some(Spec::Token),
+            Spec::Transparent => Some(Spec::Transparent),
+            Spec::Inherit => None,
+        };
     }
     if value.starts_with("var(") {
         return Some(Spec::Token);
@@ -1279,9 +1363,25 @@ fn colour(value: &str) -> Option<Spec> {
     Some(Spec::Value(Rgba { r, g, b, a }))
 }
 
+/// Every layer of a `box-shadow`, in the order they were written.
+///
+/// A layer this cannot read drops the whole declaration, which is what a
+/// browser does with one invalid value in a list — and what the unbound-token
+/// picture in `sweep_themes_tokens` already pins for the one-layer spelling.
+fn shadows(value: &str, font_size: f32) -> Vec<Shadow> {
+    let mut out = Vec::new();
+    for layer in split_top(value, ',') {
+        match shadow(layer.trim(), font_size) {
+            Some(one) => out.push(one),
+            None => return Vec::new(),
+        }
+    }
+    out
+}
+
 /// `<x> <y> <blur> <spread> <colour>`.
 fn shadow(value: &str, font_size: f32) -> Option<Shadow> {
-    let mut parts = value.split(' ').filter(|p| !p.is_empty());
+    let mut parts = split_top(value, ' ').into_iter().filter(|p| !p.is_empty());
     let px = |v: Option<&str>| match length(v?, font_size) {
         Some(Len::Px(n)) => Some(n),
         _ => Some(0.0),
@@ -1919,19 +2019,23 @@ impl Painter<'_> {
         }
 
         let radii = style.radii.map(|r| resolve_length(r, layout.size.width));
-        if let Some(shadow) = style.shadow {
-            let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
-            let corner = radii.map(|r| r + shadow.spread);
+        if !style.shadow.is_empty() {
             // An outer shadow is painted outside the border box and nowhere
             // else, so the box is knocked out of whatever clip was already in
             // force. A ring around a transparent control is the case that
             // needs it: without the knockout the ring fills the control.
             let outside = outside_the_box(box_, radii, clip, canvas.width(), canvas.height());
             let under = outside.as_ref().or(clip);
-            if shadow.blur > 0.0 {
-                cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
-            } else {
-                fill(canvas, cast, corner, shadow.colour, style.opacity, under);
+            // Back to front: a `box-shadow` list paints the first layer over
+            // the ones after it, so the last is laid down first.
+            for shadow in style.shadow.iter().rev().copied() {
+                let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
+                let corner = radii.map(|r| r + shadow.spread);
+                if shadow.blur > 0.0 {
+                    cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
+                } else {
+                    fill(canvas, cast, corner, shadow.colour, style.opacity, under);
+                }
             }
         }
         if style.background.visible() {
