@@ -831,6 +831,18 @@ test "format interpolates a Bool" {
     assert.equal(str.format(ctx, "${b}"), "true");
 }
 
+// `Bool.toStr` is what a hole writes, and there are exactly two answers.
+test "a Bool spells itself the way interpolation does" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let yes = true;
+    let no = false;
+    assert.equal(yes.toStr(), "true");
+    assert.equal(no.toStr(), "false");
+    assert.equal(str.format(ctx, "${no}"), no.toStr());
+}
+
 test "format interpolates a Char" {
     let ctx = context {
         Allocator: alloc(),
