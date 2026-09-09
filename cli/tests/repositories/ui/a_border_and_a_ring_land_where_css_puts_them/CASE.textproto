@@ -6,11 +6,20 @@
 #     Every width is that many solid rows starting at y=20, the odd ones
 #     included — a one-pixel border used to straddle the edge and paint two
 #     half-covered rows, one of them above the box.
+#   * **A border with no colour is the foreground** (buri#88).
+#     `edges-current-colour.png` is three boxes: one whose `Foreground` is the
+#     only colour it has, one told a colour of its own, and one taking the
+#     foreground it inherited. Only the middle one is red; the others are the
+#     colour their text would be. They used to be black.
+#
+# The negative twin moves the foreground of the first box in the second
+# picture. That is the row's whole claim: a border with no colour follows the
+# foreground, so exactly that picture fails.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a border of every width, inside the box it belongs to"
+doc: "a border of every width inside its box, and a border taking the foreground it was given"
 
 run {
   args: ["test", "//lib/edges", "--force"]
@@ -18,4 +27,20 @@ run {
   golden: "pass.txt"
 }
 
+path { path: "lib/edges/test/__snapshots__/edges-border-widths.diff.png"  exists: false }
+path { path: "lib/edges/test/__snapshots__/edges-current-colour.diff.png"  exists: false }
+
+edit {
+  file: "lib/edges/edges.buri"
+  replace: ".Foreground(.Rgb(18, 18, 28)),"
+  with: ".Foreground(.Rgb(214, 44, 44)),"
+}
+
+run {
+  args: ["test", "//lib/edges", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/edges/test/__snapshots__/edges-current-colour.diff.png"  exists: true }
 path { path: "lib/edges/test/__snapshots__/edges-border-widths.diff.png"  exists: false }

@@ -701,7 +701,9 @@ struct Computed {
     background: Rgba,
     colour: Rgba,
     border_width: Len,
-    border_colour: Rgba,
+    /// `None` is CSS's initial `currentColor`: the stroke takes the element's
+    /// own `colour`, whichever order the two were written in.
+    border_colour: Option<Rgba>,
     border_style: Border,
     radius: Len,
     opacity: f32,
@@ -747,7 +749,7 @@ impl Computed {
             background: Rgba::CLEAR,
             colour: Rgba::BLACK,
             border_width: Len::Px(0.0),
-            border_colour: Rgba::BLACK,
+            border_colour: None,
             border_style: Border::Solid,
             radius: Len::Px(0.0),
             opacity: 1.0,
@@ -916,9 +918,12 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "border-width" => style.border_width = len(value).unwrap_or(style.border_width),
         "border-color" => {
             style.border_colour = match colour(value) {
-                Some(Spec::Value(c)) => c,
-                Some(Spec::Transparent) => Rgba::CLEAR,
-                _ => style.colour,
+                Some(Spec::Value(c)) => Some(c),
+                Some(Spec::Transparent) => Some(Rgba::CLEAR),
+                // `inherit`, and a `var()` nothing defined: back to the
+                // element's own colour, which is where a border with no
+                // declaration starts.
+                _ => None,
             };
         }
         "border-style" => {
@@ -1555,7 +1560,7 @@ impl Painter<'_> {
             Len::Px(n) if style.border_style != Border::None => n,
             _ => 0.0,
         };
-        if width > 0.0 && style.border_colour.visible() {
+        if width > 0.0 && style.border_colour.unwrap_or(style.colour).visible() {
             stroke(canvas, box_, radius, width, style, clip);
         }
 
@@ -1869,7 +1874,7 @@ fn stroke(
     let Some(path) = box_.inset_path(half, (radius - half).max(0.0)) else { return };
     let paint = Paint {
         anti_alias: true,
-        shader: shade(style.border_colour, style.opacity),
+        shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
         ..Paint::default()
     };
     let mut pen = Stroke { width, ..Stroke::default() };
@@ -3183,6 +3188,17 @@ mod tests {
             assert_eq!(at(&three, 10, y), [0, 0, 0, 255], "row {y} of a three-pixel border");
         }
         assert_eq!(at(&three, 10, 7), [255, 255, 255, 255]);
+    }
+
+    /// A border with no colour of its own draws in the element's foreground,
+    /// which is CSS's `currentColor` — and the `color` beside it may be
+    /// written after the border.
+    #[test]
+    fn a_border_with_no_colour_draws_in_the_foreground() {
+        let scene = "buri-scene 1\nviewport 20 20\ne 0 padding:4px\n\
+                     e 1 width:12px;height:12px;border-style:solid;border-width:4px;\
+                     color:rgb(18,18,28)\n";
+        assert_eq!(at(&render_ok(scene, "", "rest"), 5, 10), [18, 18, 28, 255]);
     }
 
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the
