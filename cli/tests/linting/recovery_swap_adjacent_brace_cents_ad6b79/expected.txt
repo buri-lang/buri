@@ -22,7 +22,6 @@ error: expected `Str`, found `()` [type-mismatch]
   |
   = expected: `Str`
   = actual: `()`
-  = fix: produce a `Str` here, or change what surrounds it to accept a `()`
 error: an `if` used as a statement ends with `;` [missing-terminator]
  --> lib/recovery_swap_adjacent_brace_cents_ad6b79/lib.buri:6:36
   |

@@ -6,7 +6,6 @@ error: expected `Result<(), Str>`, found `()` [type-mismatch]
    |
    = expected: `Result<(), Str>`
    = actual: `()`
-   = fix: produce a `Result<(), Str>` here, or change what surrounds it to accept a `()`
 warning: this discards a `Result` [discarded-result]
   --> lib/recovery_delete_separator_brace_app_2f4181/main.buri:26:13
    |
