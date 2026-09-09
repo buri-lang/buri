@@ -517,7 +517,7 @@ fn cell<C>(label: Str, inner: Node<C>): Node<C> {
 /// no styles of its own, and its source is one the painter cannot load, so it
 /// draws the placeholder.
 fn subject<C>(styles: [Style], words: Str): Node<C> {
-    ui.stack(base(styles), [ui.image(.Const("logo.png"), .Const(words), [], [])])
+    ui.stack(base(styles), [ui.image(.Const("logo.png"), .Const(words), [])])
 }
 
 /// What every subject carries before the cell's own styles, which come

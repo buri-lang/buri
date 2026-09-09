@@ -252,6 +252,13 @@ pub struct Program {
     /// with no design tokens at all, which can only ever hand `mount` an empty
     /// list.
     pub themes: bool,
+    /// Whether this program can build a `ui/node` icon.
+    ///
+    /// The same shape as the two above and for the same reason: the renderer
+    /// would otherwise name `$tree_icon` unconditionally, so 2.5 KB of SVG
+    /// parser and allow lists shipped in every user interface — including one
+    /// with no artwork anywhere in it.
+    pub icons: bool,
     /// The chunks `core/lazy`'s `load` split out of this artifact, numbered by
     /// their position here.
     ///
@@ -531,6 +538,7 @@ pub fn run(
     // exists, so no walk starts.
     let mut reached = crate::compiler::semantics::styles::Reached::default();
     let mut themes = false;
+    let mut icons = false;
     let mut reset = crate::compiler::semantics::styles::Reset::default();
     for f in &mut m.funcs {
         let FuncKind::Body(body) = &mut f.kind else { continue };
@@ -540,6 +548,10 @@ pub fn run(
         if let Some(theme_con) = checked.theme_con {
             themes = themes
                 || crate::compiler::semantics::styles::builds_a_theme(body, theme_con);
+        }
+        if let Some(node_con) = checked.node_con {
+            icons = icons
+                || crate::compiler::semantics::icons::builds_an_icon(body, node_con);
         }
         // Which elements a browser paints something on the artifact can build,
         // which is which reset rules the sheet opens with. Asked here for the
@@ -597,6 +609,7 @@ pub fn run(
         ),
         inline_styles: reached.inline,
         themes,
+        icons,
         // `middle::chunks` is the only thing that fills this, and it runs after
         // inlining and dead-code elimination have settled which functions
         // there still are.

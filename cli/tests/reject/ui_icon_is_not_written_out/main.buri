@@ -1,0 +1,20 @@
+// EXPECT: an icon's artwork has to be written out at the call site
+//
+// The compiler reads the artwork, so it has to be there to read. One that
+// arrives as a parameter is not there until the program runs, and by then it is
+// already in the document.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+fn glyph<C>(source: Str): Node<C> {
+  ui.icon([], source)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, glyph("<svg viewBox='0 0 24 24'></svg>"), [])
+}

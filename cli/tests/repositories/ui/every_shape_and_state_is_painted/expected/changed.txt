@@ -1,17 +1,17 @@
 FAIL //lib/scenes  test/states.buri  "hovered"
   the snapshot "state-hover" changed: see test/__snapshots__/state-hover.diff.png
-  --> lib/scenes/test/states.buri:42:1
+  --> lib/scenes/test/states.buri:43:1
 FAIL //lib/scenes  test/states.buri  "focused"
   the snapshot "state-focus" changed: see test/__snapshots__/state-focus.diff.png
-  --> lib/scenes/test/states.buri:50:1
+  --> lib/scenes/test/states.buri:51:1
 FAIL //lib/scenes  test/states.buri  "pressed"
   the snapshot "state-active" changed: see test/__snapshots__/state-active.diff.png
-  --> lib/scenes/test/states.buri:58:1
+  --> lib/scenes/test/states.buri:59:1
 FAIL //lib/scenes  test/states.buri  "refusing input"
   the snapshot "state-disabled" changed: see test/__snapshots__/state-disabled.diff.png
-  --> lib/scenes/test/states.buri:66:1
+  --> lib/scenes/test/states.buri:67:1
 FAIL //lib/scenes  test/states.buri  "on"
   the snapshot "state-checked" changed: see test/__snapshots__/state-checked.diff.png
-  --> lib/scenes/test/states.buri:74:1
+  --> lib/scenes/test/states.buri:75:1
 
 18 passed, 5 failed, 0 skipped (0.0s)

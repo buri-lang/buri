@@ -364,7 +364,7 @@ fn serving_a_page() {
 /// rather than only what colour it is.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 44);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 48);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

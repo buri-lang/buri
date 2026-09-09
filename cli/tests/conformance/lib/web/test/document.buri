@@ -255,6 +255,23 @@ test "every kind of node renders" {
     );
 }
 
+test "a worker writes an icon's artwork into the page it sends" {
+    // The artwork is in the tree, so it is in the markup: one `<svg>` the
+    // browser paints in whatever colour the page's own rules give the element,
+    // rather than an `<img>` whose source is a document of its own. The `xmlns`
+    // is dropped — an `<svg>` in HTML is in that namespace already — and
+    // `aria-hidden` says what an icon is, which is decoration.
+    assert.equal(
+        web.render(
+            ui.icon(
+                [.Width(.Px(16))],
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor'><path d='M20 6 9 17l-5-5'/></svg>",
+            ),
+        ),
+        "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" aria-hidden=\"true\" class=\"w-16\"><path d=\"M20 6 9 17l-5-5\"></path></svg>",
+    );
+}
+
 test "a heading's level clamps to the range a document has" {
     assert.equal(web.render(ui.heading(0, [], .Const("low"))), "<h1>low</h1>");
     assert.equal(web.render(ui.heading(-4, [], .Const("lower"))), "<h1>lower</h1>");

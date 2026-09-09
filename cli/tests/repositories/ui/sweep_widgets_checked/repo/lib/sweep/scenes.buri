@@ -66,7 +66,14 @@ fn base(extra: [Style]): [Style] {
 /// be read the wrong way round.
 fn switch<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
     let name = if (on) { "on" } else { "off" };
-    ui.toggle(.Const(name), base(extra), signal.signal(ctx, on), .Const(false))
+    ui.toggle(
+        .Const(name),
+        .Switch,
+        base(extra),
+        [],
+        signal.signal(ctx, on),
+        .Const(false),
+    )
 }
 
 /// A plain box carrying the same `On(.Checked, ...)`. Nothing but a toggle

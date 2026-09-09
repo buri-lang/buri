@@ -56,15 +56,29 @@ fn base(extra: [Style]): [Style] {
 }
 
 fn pressable<C>(off: Bool, extra: [Style]): Node<C> {
-    ui.button(.Const("save"), base(extra), fn(_c, _e) => (), .Const(off))
+    ui.button(.Const("save"), base(extra), [], fn(_c, _e) => (), .Const(off))
 }
 
 fn typing<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
-    ui.field(.Const("name"), .Text, base(extra), signal.signal(ctx, "ada"), .Const(off))
+    ui.field(
+        .Const("name"),
+        .Text,
+        base(extra),
+        [],
+        signal.signal(ctx, "ada"),
+        .Const(off),
+    )
 }
 
 fn ticking<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
-    ui.toggle(.Const("on"), base(extra), signal.signal(ctx, false), .Const(off))
+    ui.toggle(
+        .Const("on"),
+        .Checkbox,
+        base(extra),
+        [],
+        signal.signal(ctx, false),
+        .Const(off),
+    )
 }
 
 /// One label cell.

@@ -24,7 +24,7 @@ from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui, Watch };
+from "ui/effect" import { Event, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node };
 from "ui/prop" import { Prop };
@@ -1343,6 +1343,138 @@ test "an image says what it shows" {
     );
 }
 
+// --- artwork -------------------------------------------------------------------------
+//
+// An `icon` is vector artwork *in* the tree. The source is written into the
+// document as an `<svg>`, so `currentColor` inside it is the element's own
+// `Foreground` and the cascade reaches the stroke — which is the one thing an
+// `image` cannot do, its source being a document of its own.
+
+/// A lucide check, the way a component library ships one: `currentColor` where
+/// the stroke goes, so the colour is whatever the caller is painting in.
+fn check<C>(styles: [Style]): Node<C> {
+    ui.icon(
+        styles,
+        "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>",
+    )
+}
+
+/// That artwork as the markup it becomes: the `xmlns` dropped, because the
+/// element is in that namespace already, and `aria-hidden` after the source's
+/// own attributes.
+let drawn: Str =
+    "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"></path></svg>";
+
+test "an icon is artwork in the tree, so the colour around it reaches inside" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(render(ctx, check([])).markup(), drawn);
+    // The row asks for white text and the glyph strokes in `currentColor`, so
+    // one declaration paints the label and the glyph together. A data URI in an
+    // `image` would still be whatever colour was baked into it.
+    let row = ui.row([.Foreground(.Rgb(255, 255, 255))], [check([])]);
+    assert.containsText(render(ctx, row).markup(), "stroke=\"currentColor\"");
+}
+
+test "an icon is decorative, because what it means is said around it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // There is no `alt` and no label: a button's label and a link's destination
+    // already say what the thing an icon sits in is for, and a reader told
+    // about the glyph as well would hear it twice. A picture that *is* the
+    // content is an `image`, which takes its `alt`.
+    assert.containsText(render(ctx, check([])).markup(), "aria-hidden=\"true\"");
+}
+
+test "an icon takes styles of its own, and they land on the artwork" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The `<svg>` is the element, so a size and a colour apply to the thing
+    // that is drawn rather than to a wrapper around it.
+    assert.containsText(
+        render(ctx, check([.Width(.Px(16)), .Height(.Px(16))])).markup(),
+        "class=\"w-16 h-16\"",
+    );
+    assert.isTrue(stylesheet().contains(".w-16{width:16px}"));
+}
+
+test "an icon's styles compose and conflict the way every other element's do" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Two edges are two slots, so they compose; one edge twice is one slot, so
+    // the last one wins. The scan is the runtime's, over pairs the compiler
+    // assigned, and an icon is no different from a stack.
+    assert.containsText(
+        render(
+            ctx,
+            check([.PaddingEdge(.Top, .Px(4)), .PaddingEdge(.Bottom, .Px(8))]),
+        ).markup(),
+        "class=\"pe-top-4 pe-bottom-8\"",
+    );
+    assert.containsText(
+        render(
+            ctx,
+            check([.Foreground(.Rgb(200, 30, 30)), .Foreground(.Rgb(30, 120, 60))]),
+        ).markup(),
+        "class=\"fg-1e783c\"",
+    );
+    // A pin takes the artwork out of the flow, exactly as it does a stack.
+    assert.containsText(
+        render(ctx, check([.Position(.Flow), .Pin(.Top, .Px(0))])).markup(),
+        "class=\"pos-flow pin-out pin-top-0\"",
+    );
+}
+
+test "an icon's artwork is one scene line however it was written" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A declaration is one line, and artwork is usually written across several.
+    // The breaks flatten to spaces, which is the same whitespace either way —
+    // nothing an icon may hold reads a line break as anything else.
+    let scene = ui.describe(
+        ctx,
+        ui.icon([], "<svg viewBox='0 0 24 24'>\n  <path d='M20 6 9 17l-5-5'/>\n</svg>"),
+        .Hover,
+    );
+    assert.equal(scene.lines(ctx).length(), 3);
+    assert.containsText(scene, "icon:<svg viewBox='0 0 24 24'>   <path");
+}
+
+test "an icon's artwork is in the scene the painter reads" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // `icon:` is a scene-only declaration, as `image:` and `field:` are, and it
+    // carries the artwork itself rather than an address — which is what lets
+    // the painter bind `currentColor` to the element's own colour. It comes
+    // first, so a style still wins over it.
+    let scene = ui.describe(ctx, check([.Width(.Px(16))]), .Hover);
+    assert.containsText(scene, "e 0 class:w-16;icon:<svg xmlns=");
+    assert.containsText(scene, "stroke='currentColor'");
+    // A picture holds no children: what is inside it is the source.
+    assert.equal(scene.lines(ctx).length(), 3);
+}
+
+test "an icon in a state carries that state's classes and no other's" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A pseudo-class is a rule in the sheet, so what the scene decides is which
+    // state's classes the element carries — the same rule every other element
+    // is read under.
+    let hovered = check([.On(.Hover, [.Foreground(.Rgb(200, 30, 30))])]);
+    assert.containsText(ui.describe(ctx, hovered, .Hover), "class:");
+    assert.isFalse(ui.describe(ctx, hovered, .Focus).contains("class:"));
+}
+
 test "a field is labelled, and what is typed into it is in its signal" {
     let ctx = context {
         Ui: headless(),
@@ -2303,6 +2435,43 @@ test "formatted text follows the signal it was formatted from" {
     assert.equal(page.text(), "1 items");
     let _ = n.set(ctx, 12);
     assert.equal(page.text(), "12 items");
+}
+
+// buri-lang/buri#143, in the document. A handler that grows a list signal out
+// of the list the cell already holds is the ordinary way to append, and every
+// press has to reach the page — not the first one only.
+
+fn appendRow<C: Allocator + Ui + Watch>(ctx: C, xs: Signal<[Str]>): () {
+    let current = xs.get(ctx);
+    let next = str.format(ctx, "x${current.length()}");
+    xs.set(ctx, current.concat(ctx, [next]))
+}
+
+fn growable<C>(xs: Signal<[Str]>, add: fn(C, Event) => ()): Node<C> {
+    ui.column([], [
+        ui.button(.Const("go"), [], [], add, .Const(false)),
+        ui.region(.List, [], [ui.each(.Cell(xs), itself, labelRow)]),
+    ])
+}
+
+test "each follows a get-then-set append on every press" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: alloc(),
+    };
+    let xs = signal(ctx, ["a", "b"]);
+    let page = render(ctx, growable(xs, fn(c, e) => appendRow(c, xs)));
+    assert.equal(page.text(), "go a b");
+    let _ = page.press("go");
+    assert.equal(page.text(), "go a b x2");
+    let _ = page.press("go");
+    assert.equal(page.text(), "go a b x2 x3");
+    let _ = page.press("go");
+    assert.equal(page.text(), "go a b x2 x3 x4");
+    // The state and the document say the same thing, which is the half the
+    // issue reported as a disagreement.
+    assert.equal(xs.get(ctx), ["a", "b", "x2", "x3", "x4"]);
 }
 
 // --- batching ------------------------------------------------------------------------

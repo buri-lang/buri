@@ -25,7 +25,7 @@ let remote: Str = "https://example.com/logo.png";
 /// One icon in a box of its own, the way a component library ships one.
 fn framed<C>(source: Str): Node<C> {
     ui.stack([.Width(.Px(24)), .Height(.Px(24))], [
-        ui.image(.Const(source), .Const(""), [], []),
+        ui.image(.Const(source), .Const(""), []),
     ])
 }
 

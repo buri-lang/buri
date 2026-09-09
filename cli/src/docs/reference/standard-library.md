@@ -688,10 +688,11 @@ parent's padding: the full-width rule inside a padded menu, and the avatar that
 laps the one before it. It is a distance outwards, so `.Auto` and a negative
 length bleed nothing.
 
-`heading`, `button`, `link`, `image`, `field` and `toggle` take a `[Style]` like
-every container does, and it lands on the element itself — so a hover, focus or
-disabled rule fires on the thing that is hovered, focused or disabled, a picture
-is sized, shaped and rounded rather than the box around it, and a
+`heading`, `button`, `link`, `image`, `field`, `toggle` and `icon` take a
+`[Style]` like every container does, and it lands on the element itself — so a
+hover, focus or disabled rule fires on the thing that is hovered, focused or
+disabled, a picture is sized, shaped and rounded rather than the box around it,
+and a
 heading is the size its styles say rather than the size a browser picked. The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list — so what is left is what the styles
@@ -716,6 +717,14 @@ They are one conflict slot, so the last written is the element's shadow.
 `Color.alpha(f)` is the same colour at `f` of its opacity — arithmetic for a
 colour written out, and a `color-mix` around the `var()` for a design token, so
 a translucent shade needs no token of its own.
+
+`icon` is the one that takes artwork rather than an address. The SVG is written
+into the document, so `currentColor` in it is the element's own `Foreground` —
+an icon follows the text beside it and turns over with a theme, which an
+`image` cannot do, its source being a document of its own. It is decorative by
+construction and carries no name. The source is written out at the call site
+and the compiler reads it: an `<svg>` and the shapes inside it, and anything
+else is `icon-not-drawable`.
 
 `button`, `field` and `toggle` take a `disabled: Prop<Bool>` as well. It is an
 attribute rather than a style: it takes the control out of the tab order,

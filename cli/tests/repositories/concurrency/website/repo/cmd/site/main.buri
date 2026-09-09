@@ -46,11 +46,14 @@ fn page<C>(
 ): Node<C> {
     ui.region(.Main, [], [
         ui.heading(1, [], .Const(title)),
+        ui.icon([], "<svg viewBox='0 0 24 24'><path d='M20 6 9 17l-5-5'/></svg>"),
         ui.text(.Const(visitors)),
         ui.button(label, [], [], onPress, .Const(false)),
         ui.button(.Const("about"), [], [], onGo, .Const(false)),
         ui.computed(fn(scope) => at(path.read(scope))),
     ])
+    // Artwork the worker wrote into the markup, which the page then adopts
+    // rather than building: an `<svg>` is nodes like any other.
 }
 
 /// Routing: an ordinary match on the path.
