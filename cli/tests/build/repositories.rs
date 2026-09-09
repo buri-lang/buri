@@ -303,13 +303,16 @@ fn serving_a_page() {
 ///
 /// Beside them are the **sweeps**, which ask a different question: not whether
 /// the machinery works, but whether each property in the vocabulary paints
-/// what the stylesheet promises. `sweep_layout_*` is seven cases and
-/// thirty-seven pictures, one per layout property, each a labelled grid of
+/// what the stylesheet promises. `sweep_layout_*` is eight cases and
+/// forty-one pictures, one per layout property, each a labelled grid of
 /// every value that property has on the eight-hundred-wide page the viewport
 /// is. `sweep_layout_bleed` is the one that reads as two components rather than
 /// as a grid, because that is what its property is for: the full-width rule
 /// inside a padded menu, and the avatar group whose children lap the one
-/// before them. They are
+/// before them. `sweep_layout_clip` is the one whose finding is two pictures
+/// that *agree*: `Clip(true)` and `Scroll(.Both)` paint the same box, and what
+/// the newer property buys is not a different picture but not becoming a
+/// scroll container a keyboard can land in. They are
 /// generated rather than written, so an enumeration is the whole of a
 /// `ui/style` enum by construction, and every picture was read pixel by pixel
 /// against the CSS its classes lower to. Two pictures hold a row recorded as
@@ -339,6 +342,13 @@ fn serving_a_page() {
 /// palette so exactly one of its six goldens fails. That is the tier-2 record
 /// that a state golden is not a copy of the resting one.
 ///
+/// `sweep_states_invalid` is the same grid for the state a *program* enters
+/// rather than the platform: `field` and `toggle` take an `invalid`, and it
+/// writes the `aria-invalid` the rule hangs off. Its third picture is the
+/// failing tree painted hovered, and it comes out byte for byte the resting
+/// one — which is the claim that a state is read back off the conflict slot
+/// and not off the tree.
+///
 /// **The `sweep_properties_*` cases are the matrix under those ten**: every
 /// `ui/style` property that paints something, at three to five values each,
 /// against every node primitive — a case per primitive, six pictures in it,
@@ -353,7 +363,7 @@ fn serving_a_page() {
 /// than a picture per value.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 39);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 41);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

@@ -1157,14 +1157,14 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
 
         // what is painted outside the box, and what the pointer does with it
-        53 => {
+        55 => {
             let on = first?.as_bool()?;
             // `clip` rather than `hidden`: both stop the paint, and only
             // `hidden` also makes a scroll container a keyboard can land in.
             let css = if on { "clip" } else { "visible" };
             Some(("clip", css.into(), one("overflow", css)))
         }
-        54 => {
+        56 => {
             let on = first?.as_bool()?;
             let css = if on { "none" } else { "auto" };
             Some(("pass", css.into(), one("pointer-events", css)))

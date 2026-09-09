@@ -25,9 +25,26 @@ fn band<C>(label: Str, demo: Node<C>): Node<C> {
     ])
 }
 
-/// The child that does not fit: wider and taller than whatever holds it.
+/// The child that does not fit: wider than whatever holds it, and short
+/// enough that the amber shows underneath.
 fn oversized<C>(): Node<C> {
-    ui.stack([.Background(.Rgb(40, 40, 200)), .Width(.Px(260)), .Height(.Px(60))], [])
+    ui.stack([.Background(.Rgb(40, 40, 200)), .Width(.Px(260)), .Height(.Px(24))], [])
+}
+
+/// The child that does not fit the other way: taller than what holds it.
+///
+/// `Shrink(0)` is what makes it overflow rather than be squeezed — a column
+/// gives up the height it has to before anything runs past an edge.
+fn toolong<C>(): Node<C> {
+    ui.stack(
+        [
+            .Background(.Rgb(20, 130, 90)),
+            .Width(.Px(120)),
+            .Height(.Px(64)),
+            .Shrink(0),
+        ],
+        [],
+    )
 }
 
 /// A box a hundred and eighty by forty, with `extra` on it and the oversized
@@ -51,12 +68,33 @@ export fn overflow<C>(): Node<C> {
         band("no Clip at all", holder([])),
         band("Clip(false)", holder([.Clip(false)])),
         band("Clip(true)", holder([.Clip(true)])),
-        // `Scroll` clips too, at the cost of a region a keyboard can land in.
-        // The two pictures agree, which is the point: what `Clip` buys is not
-        // a different picture, it is not becoming a scroll container.
         band("Scroll(.Both)", holder([.Scroll(.Both)])),
-        band("Scroll(.X)", holder([.Scroll(.X)])),
+        band(
+            "a child taller than the box, under Clip(true)",
+            ui.stack(
+                [
+                    .Background(.Rgb(230, 160, 20)),
+                    .Width(.Px(180)),
+                    .Height(.Px(40)),
+                    .Clip(true),
+                ],
+                [toolong()],
+            ),
+        ),
+        band(
+            "the same child with no Clip",
+            ui.stack(
+                [.Background(.Rgb(230, 160, 20)), .Width(.Px(180)), .Height(.Px(40))],
+                [toolong()],
+            ),
+        ),
     ])
+    // `Scroll` clips too, at the cost of a region a keyboard can land in.
+    // The two pictures agree, which is the point: what `Clip` buys is not
+    // a different picture, it is not becoming a scroll container.
+    // Down the page as well as across it: one property, both axes. The
+    // clipped one comes first, so the one that runs past its box has
+    // nothing under it to run into.
 }
 
 /// The card: the radius rounds the parent, and the clip is what stops a
@@ -72,8 +110,6 @@ export fn corners<C>(): Node<C> {
             "Radius(.Percent(50.0)) and Clip(true)",
             holder([.Radius(.Percent(50.0)), .Clip(true)]),
         ),
-        // The card the issue is about: a picture that reaches every edge, cut
-        // to the corners its parent has.
         band(
             "a card whose banner runs edge to edge",
             ui.stack(
@@ -90,11 +126,15 @@ export fn corners<C>(): Node<C> {
             ),
         ),
     ])
+    // The card the issue is about: a picture that reaches every edge, cut
+    // to the corners its parent has.
 }
 
 /// Two properties over one declaration. `Clip` is declared after `Scroll`, so
-/// the sheet writes its rule later and an element that asks for both is
-/// clipped — whichever order the program wrote them in.
+/// the sheet writes its rule later and `Clip` decides — whichever order the
+/// program wrote them in. The first two rows are `Clip(false)`, which is the
+/// value that says *visible*, so an element that asked a `Scroll` to clip
+/// paints its overflow anyway.
 export fn against<C>(): Node<C> {
     page([
         band("Scroll(.Both) then Clip(false)", holder([.Scroll(.Both), .Clip(false)])),
@@ -104,18 +144,26 @@ export fn against<C>(): Node<C> {
     ])
 }
 
-/// Every primitive that holds children, clipped and not. A `heading`, a
-/// `button` and a `text` hold a run of text rather than a box, and `Truncate`
-/// is the property that cuts one of those.
+/// Every primitive that holds children, clipped and then not. The clipped one
+/// is first in each row so that the one that overflows runs into empty page
+/// rather than over its neighbour.
+///
+/// A `heading`, a `button` and a `text` hold a run of text rather than a box,
+/// and `Truncate` is the property that cuts one of those.
 export fn primitives<C>(): Node<C> {
     page([
-        band("stack", ui.row([.Gap(.Px(12))], [holder([]), holder([.Clip(true)])])),
+        band("stack", ui.row([.Gap(.Px(12))], [holder([.Clip(true)]), holder([])])),
         band(
             "region(.Article)",
             ui.row([.Gap(.Px(12))], [
                 ui.region(
                     .Article,
-                    [.Background(.Rgb(230, 160, 20)), .Width(.Px(180)), .Height(.Px(40))],
+                    [
+                        .Background(.Rgb(230, 160, 20)),
+                        .Width(.Px(180)),
+                        .Height(.Px(40)),
+                        .Clip(true),
+                    ],
                     [oversized()],
                 ),
                 ui.region(
@@ -124,7 +172,6 @@ export fn primitives<C>(): Node<C> {
                         .Background(.Rgb(230, 160, 20)),
                         .Width(.Px(180)),
                         .Height(.Px(40)),
-                        .Clip(true),
                     ],
                     [oversized()],
                 ),
@@ -135,7 +182,12 @@ export fn primitives<C>(): Node<C> {
             ui.row([.Gap(.Px(12))], [
                 ui.link(
                     .Const("/a"),
-                    [.Background(.Rgb(230, 160, 20)), .Width(.Px(180)), .Height(.Px(40))],
+                    [
+                        .Background(.Rgb(230, 160, 20)),
+                        .Width(.Px(180)),
+                        .Height(.Px(40)),
+                        .Clip(true),
+                    ],
                     [oversized()],
                 ),
                 ui.link(
@@ -144,7 +196,6 @@ export fn primitives<C>(): Node<C> {
                         .Background(.Rgb(230, 160, 20)),
                         .Width(.Px(180)),
                         .Height(.Px(40)),
-                        .Clip(true),
                     ],
                     [oversized()],
                 ),
@@ -155,7 +206,12 @@ export fn primitives<C>(): Node<C> {
             ui.row([.Gap(.Px(12))], [
                 ui.form(
                     fn(_c, _e) => (),
-                    [.Background(.Rgb(230, 160, 20)), .Width(.Px(180)), .Height(.Px(40))],
+                    [
+                        .Background(.Rgb(230, 160, 20)),
+                        .Width(.Px(180)),
+                        .Height(.Px(40)),
+                        .Clip(true),
+                    ],
                     [oversized()],
                 ),
                 ui.form(
@@ -164,7 +220,6 @@ export fn primitives<C>(): Node<C> {
                         .Background(.Rgb(230, 160, 20)),
                         .Width(.Px(180)),
                         .Height(.Px(40)),
-                        .Clip(true),
                     ],
                     [oversized()],
                 ),

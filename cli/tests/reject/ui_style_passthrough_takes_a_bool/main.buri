@@ -1,8 +1,8 @@
 // EXPECT: expected `Bool`
 //
 // An element either takes the pointer or passes it through, so this is a
-// `Bool`. There is no third answer to name — `.None` is the CSS value, and no
-// property here is named after one.
+// `Bool`. There is no third answer to name, and `"none"` and `"auto"` are the
+// CSS values — no property here is named after one, and none takes one.
 from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
@@ -11,5 +11,5 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([.Passthrough(.None)], []), [])
+  ui.mount(ctx, ui.stack([.Passthrough("none")], []), [])
 }

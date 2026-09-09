@@ -804,7 +804,9 @@ test "a press does not reach an element the pointer passes through" {
     let page = render(
         ctx,
         ui.stack([.Layout(.Layers)], [
-            ui.button(.Const("flip"), [], fn(c, _e) => presses.set(c, presses.get(c) + 1)),
+            ui.button(.Const("flip"), [], fn(c, _e) => {
+                presses.set(c, presses.get(c) + 1)
+            }),
             ui.stack([.Passthrough(true)], []),
         ]),
     );
@@ -817,9 +819,13 @@ test "a press does not reach an element the pointer passes through" {
     let dock = render(
         ctx,
         ui.stack([.Passthrough(true)], [
-            ui.button(.Const("dead"), [], fn(c, _e) => ignored.set(c, ignored.get(c) + 1)),
+            ui.button(.Const("dead"), [], fn(c, _e) => {
+                ignored.set(c, ignored.get(c) + 1)
+            }),
             ui.stack([.Passthrough(false)], [
-                ui.button(.Const("live"), [], fn(c, _e) => ignored.set(c, ignored.get(c) + 10)),
+                ui.button(.Const("live"), [], fn(c, _e) => {
+                    ignored.set(c, ignored.get(c) + 10)
+                }),
             ]),
         ]),
     );
@@ -877,7 +883,9 @@ test "a failing control announces so, and the ring hangs off the attribute" {
     // attribute — `:invalid` is a browser's own verdict and no program can
     // reach it.
     assert.isTrue(
-        sheet.contains(".invalid_bc-dc2626[aria-invalid=true]{border-color:rgb(220,38,38)}"),
+        sheet.contains(
+            ".invalid_bc-dc2626[aria-invalid=true]{border-color:rgb(220,38,38)}",
+        ),
     );
     // Valid again, and the attribute goes rather than saying `false`: an
     // attribute that is there is what the selector asks about.
@@ -923,7 +931,9 @@ test "the invalid state is a state like the other five" {
     );
     let sheet = stylesheet();
     assert.isTrue(
-        sheet.contains(".invalid_bg-fee2e2[aria-invalid=true]{background-color:rgb(254,226,226)}"),
+        sheet.contains(
+            ".invalid_bg-fee2e2[aria-invalid=true]{background-color:rgb(254,226,226)}",
+        ),
     );
     assert.isTrue(sheet.contains(".sm_invalid_op-0_5[aria-invalid=true]{opacity:0.5}"));
     // A scene taken in one state carries that state's classes and no other's,
@@ -1321,7 +1331,11 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     // A field is the same wrapper with the text first, which is the order the
     // markup puts them in too.
     assert.equal(
-        ui.describe(ctx, ui.field(.Const("name"), .Text, [], name, .Const(false)), .Hover),
+        ui.describe(
+            ctx,
+            ui.field(.Const("name"), .Text, [], name, .Const(false)),
+            .Hover,
+        ),
         str.format(
             ctx,
             "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 field:text\nt 2 ada",

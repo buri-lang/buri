@@ -48,17 +48,14 @@ fn ring(): Shadow {
 /// below ask for one at a time.
 fn everything(): [Style] {
     [
-        .On(
-            .Invalid,
-            [
-                .Background(.Rgb(254, 226, 226)),
-                .Foreground(.Rgb(153, 27, 27)),
-                .BorderWidth(.Px(3)),
-                .BorderColor(.Rgb(220, 38, 38)),
-                .Opacity(0.55),
-                .Shadow(ring()),
-            ],
-        ),
+        .On(.Invalid, [
+            .Background(.Rgb(254, 226, 226)),
+            .Foreground(.Rgb(153, 27, 27)),
+            .BorderWidth(.Px(3)),
+            .BorderColor(.Rgb(220, 38, 38)),
+            .Opacity(0.55),
+            .Shadow(ring()),
+        ]),
     ]
 }
 
@@ -84,6 +81,10 @@ fn cell<C>(extra: [Style]): Node<C> {
 }
 
 /// The tree, with the state groups on it or with nothing on it at all.
+///
+/// The last row holds the two controls that can *enter* the state: `field` and
+/// `toggle` take an `invalid`, and it is what writes the `aria-invalid` the
+/// rule asks about.
 fn tree<C: Ui>(ctx: C, stated: Bool): Node<C> {
     let background: [Style] = [.On(.Invalid, [.Background(.Rgb(254, 226, 226))])];
     let foreground: [Style] = [.On(.Invalid, [.Foreground(.Rgb(153, 27, 27))])];
@@ -109,9 +110,6 @@ fn tree<C: Ui>(ctx: C, stated: Bool): Node<C> {
             ui.button(.Const("press"), base(on(all)), fn(_c, _e) => ()),
             ui.link(.Const("/a"), base(on(all)), [ui.text(.Const("go"))]),
         ]),
-        // The two controls that can *enter* the state: `invalid` is a
-        // parameter on each, and it is what writes the `aria-invalid` the
-        // rule asks about.
         band("field and toggle, marked invalid", [
             ui.field(
                 .Const("Email"),

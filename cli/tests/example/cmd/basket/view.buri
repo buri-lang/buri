@@ -174,7 +174,13 @@ fn banner<C>(state: State): Node<C> {
 fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
     ui.form(fn(c, submitted) => add(c, state), [formStyle], [
         ui.field(.Const("Item"), .Text, [fieldStyle], state.draftMemo, .Const(false)),
-        ui.field(.Const("Amount in dollars"), .Number, [fieldStyle], state.draftAmount, .Const(false)),
+        ui.field(
+            .Const("Amount in dollars"),
+            .Number,
+            [fieldStyle],
+            state.draftAmount,
+            .Const(false),
+        ),
         ui.button(.Const("Add"), [buttonStyle], fn(c, pressed) => add(c, state)),
         ui.spacer(),
         ui.button(.Const("Load the ledger"), [buttonStyle], fn(c, pressed) => {

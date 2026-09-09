@@ -3489,6 +3489,54 @@ mod tests {
         assert_eq!(at(&render_ok(round, "", "rest"), 0, 0), [255, 255, 255, 255]);
     }
 
+    /// `overflow: clip` is what a `Clip(true)` writes, and it clips the same
+    /// way `hidden` does — corners included. That is the whole of what a card
+    /// needs to cut a full-bleed child to its own radius, and what a `Scroll`
+    /// beside it would have charged a scroll container for.
+    #[test]
+    fn overflow_clip_clips_to_the_rounded_corner_too() {
+        let round = "buri-scene 1\nviewport 16 16\n\
+                     e 0 width:16px;height:16px;border-radius:8px;overflow:clip\n\
+                     e 1 width:16px;height:16px;background-color:rgb(255,0,0)\n";
+        let visible = "buri-scene 1\nviewport 16 16\n\
+                       e 0 width:16px;height:16px;border-radius:8px;overflow:visible\n\
+                       e 1 width:16px;height:16px;background-color:rgb(255,0,0)\n";
+        // The corner the child would have squared off stays the canvas, and
+        // the middle of the box is still the child.
+        let clipped = render_ok(round, "", "rest");
+        assert_eq!(at(&clipped, 0, 0), [255, 255, 255, 255]);
+        assert_eq!(at(&clipped, 8, 8), [255, 0, 0, 255]);
+        // `Clip(false)` is `visible`, and it paints the corner over.
+        assert_eq!(at(&render_ok(visible, "", "rest"), 0, 0), [255, 0, 0, 255]);
+    }
+
+    /// A rule scoped to `[aria-invalid=true]` is a state like a pseudo-class:
+    /// it applies in the invalid document and in no other. It is the one state
+    /// whose selector suffix is an attribute, so it is also what says the
+    /// sheet's reader takes a whole suffix rather than a pseudo-class's
+    /// alphabet.
+    #[test]
+    fn an_aria_invalid_rule_applies_in_the_invalid_state_and_no_other() {
+        let sheet = ".invalid_bg-ff0000[aria-invalid=true]{background-color:rgb(255,0,0)}\n";
+        let scene =
+            "buri-scene 1\nviewport 8 8\ne 0 class:invalid_bg-ff0000;width:8px;height:8px\n";
+        assert_eq!(at(&render_ok(scene, sheet, "invalid"), 4, 4), [255, 0, 0, 255]);
+        assert_eq!(at(&render_ok(scene, sheet, "hover"), 4, 4), [255, 255, 255, 255]);
+        assert_eq!(at(&render_ok(scene, sheet, "rest"), 4, 4), [255, 255, 255, 255]);
+    }
+
+    /// `pointer-events` reaches the painter and paints nothing, which is the
+    /// header's rule about a property it does not know: parse it and ignore it.
+    #[test]
+    fn a_pass_through_paints_the_same_box() {
+        let plain = "buri-scene 1\nviewport 8 8\n\
+                     e 0 width:8px;height:8px;background-color:rgb(255,0,0)\n";
+        let through = "buri-scene 1\nviewport 8 8\n\
+                       e 0 width:8px;height:8px;background-color:rgb(255,0,0);\
+                       pointer-events:none\n";
+        assert_eq!(render_ok(plain, "", "rest").rgba, render_ok(through, "", "rest").rgba);
+    }
+
     #[test]
     fn overflow_hidden_clips_a_child_to_its_box() {
         let scene = "buri-scene 1\nviewport 10 10\n\
