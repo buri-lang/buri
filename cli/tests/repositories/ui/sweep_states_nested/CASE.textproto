@@ -9,9 +9,16 @@
 #
 # Three rows: the parent answers, the child answers, both answer. `Background`,
 # `BorderWidth` and `Shadow` are each element's own, so a child's paints over
-# its parent's; `Foreground` inherits until the child sets one; `Opacity` is the
-# only one that compounds, because the painter multiplies it into every colour
-# the subtree paints instead of compositing the subtree as a group.
+# its parent's, and `Foreground` inherits until the child sets one. All four
+# agree with the cascade.
+#
+# `Opacity` is the one that does not, and it is a stated simplification rather
+# than a mistake: `cli/runtime/paint.rs` multiplies opacity into every colour
+# the subtree paints instead of compositing the subtree as a group. So in the
+# `both` row the child is drawn at the two fractions multiplied over a parent
+# already faded against the page, where CSS would fade the finished pair once.
+# The two answers differ by a few counts per channel, and the picture is the
+# painter's.
 #
 # The negative twin moves one number in one cell of the hover palette. Exactly
 # one of the six goldens changes, which is what the state pictures rest on:
