@@ -382,6 +382,7 @@ export fn avatar<C>(source: Str): Node<C> {
 nothing around it shifts. That is what a press is:
 `On(.Active, [.Translate(.Px(0), .Px(1))])` sinks a button by a pixel and leaves
 the row it is in alone, where a padding would reflow the row.
+
 **A state a widget holds is the widget's answer, not the snapshot's.**
 `button`, `field` and `toggle` take a `disabled: Prop<Bool>`, and it is an
 attribute rather than a style: it takes the control out of the tab order,
