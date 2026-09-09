@@ -1,0 +1,38 @@
+error: "core/effect" does not export `Alloc` [no-such-export]
+ --> cmd/renamed_effect_in_a_bound/main.buri:4:29
+  |
+4 | from "core/effect" import { Alloc, Stdout };
+  |                             ^^^^^
+  |
+  = did you mean `Allocator`?
+  = fix: check the spelling, or add `export` to `Alloc`'s declaration in "core/effect"
+
+    What to do
+    ──────────
+
+    If the module declares the name but holds it back, add export to the
+    declaration there. If it declares no such name, the spelling is the mistake.
+    The diagnostic says which of the two it is, and offers the nearest exported
+    name.
+
+    Why
+    ───
+
+    A re-export may name only what its module path exports, so a library's
+    surface is never wider than the modules it is built from.
+
+error: `Alloc` is not a trait or effect [not-a-trait]
+ --> cmd/renamed_effect_in_a_bound/main.buri:7:20
+  |
+7 | export fn greet<C: Alloc + Stdout>(ctx: C): () {
+  |                    ^^^^^
+  |
+  = a bound names a declared trait; there are no where clauses
+  = fix: name a declared trait or effect, or declare `Alloc` as one
+
+    What to do
+    ──────────
+
+    Name a declared trait or effect, or declare the one you meant. There are no
+    where clauses and no structural constraints.
+

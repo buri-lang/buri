@@ -1,0 +1,69 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> cmd/renamed_name_is_gone/main.buri:10:3
+   |
+10 |   time.sleepMs(ctx, 5);
+   |   ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+
+     What to do
+     ──────────
+
+     Bind it — let _ = ...; — or make it the block's result expression.
+
+     Why
+     ───
+
+     A block is lets followed by a result expression; there is no third
+     statement form. A test source is the one exception, which is what lets
+     assert.equal(...) stand alone: there, any expression of type () may stand
+     alone, terminated by ; — a match or an if whose branches all assert
+     included.
+
+     Between this rule and result-discarded, a value can be thrown away in
+     exactly two places — bound to a _, or left standing — and both refuse a
+     Result. So a statement whose type is Result is *both* errors at once, and
+     the edit is .ignore() and let _ = together:
+
+       # from "core/effect" import { Allocator, Stdout };
+       # from "core/host" import * as host;
+       # from "core/io" import * as io;
+
+       export fn main(): Result<(), Str> {
+           let ctx = context {
+               Allocator: host.alloc,
+               Stdout: host.stdout,
+           };
+           let _ = io.println(ctx, "ready").ignore();
+           .Ok(())
+       }
+
+error: "core/time" has no member `sleepMs` [no-such-member]
+  --> cmd/renamed_name_is_gone/main.buri:10:8
+   |
+10 |   time.sleepMs(ctx, 5);
+   |        ^^^^^^^
+   |
+   = the module exports 30 names
+   = did you mean `sleep`?
+   = fix: correct the member name, or check `buri docs core/time`
+
+     What to do
+     ──────────
+
+     Correct the member name. The diagnostic lists what the module exports, and
+     offers the nearest of them when the name is a near miss.
+
+     Why
+     ───
+
+     fs in fs.appendBytes(...) is a namespace, not a value. It stands for the
+     module its import named, and what you may write after the dot is exactly
+     what that module exports.
+
+     A namespace qualifies a type, a bound and an impl head the same way it
+     qualifies a function, so list.Vector<Int> and <T: order.Comparable> are
+     answered here too. When no import bound the name at all, fs.readText(...)
+     is unresolved-name on fs instead.
+
