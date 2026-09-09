@@ -1678,6 +1678,34 @@ test "a list has no marker until one is asked for" {
     assert.isTrue(reset < marker);
 }
 
+test "a separator is a rule the caller paints, and a picture is its own block" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A browser's `<hr>` is a 1px `inset` border on all four edges, so a
+    // hairline asked for one pixel paints three in two tones, and its automatic
+    // inline margin shrinks it inside a column. A picture is the one leaf a
+    // browser leaves inline, so it hangs on the text baseline beside whatever
+    // was written before it.
+    let tree = ui.stack([], [
+        ui.region(.Separator, [.Height(.Px(1)), .Background(.Rgb(229, 229, 229))], []),
+        ui.image(.Const("/logo.png"), .Const("")),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><hr class=\"h-1 bg-e5e5e5\" /><img src=\"/logo.png\" alt=\"\" /></div>",
+    );
+
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(":where(hr){border:0;margin:0}"));
+    assert.isTrue(sheet.contains(":where(img){display:block}"));
+    // Both weigh nothing, so the caller's own hairline is the whole of what is
+    // painted.
+    let reset = assert.some(sheet.indexOf(":where(hr)"));
+    let height = assert.some(sheet.indexOf(".h-1{"));
+    assert.isTrue(reset < height);
+}
+
 test "a form is submitted, which is behaviour and so not a role" {
     let ctx = context {
         Ui: headless(),
