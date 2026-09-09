@@ -255,6 +255,10 @@ export fn lineHeight<C>(): Node<C> {
 /// `Truncate` says show at most this many lines and end the last one with
 /// an ellipsis; zero means no limit. Four lines of text in a box a hundred
 /// and eighty wide, asked for one, two and three of them.
+///
+/// The last band is the negative twin: a run that already fits in two lines,
+/// asked for two, keeps its own last word. An ellipsis on that one would say
+/// the painter appends one whether or not it cut anything.
 export fn truncate<C>(): Node<C> {
     page([
         band(
@@ -307,6 +311,13 @@ export fn truncate<C>(): Node<C> {
                         ),
                     ),
                 ],
+            ),
+        ),
+        band(
+            "Truncate(2) on a run that already fits",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .Truncate(2)],
+                [ui.text(.Const("A sentence that breaks once, and no more."))],
             ),
         ),
     ])

@@ -24,6 +24,11 @@ fn band<C>(label: Str, demo: Node<C>): Node<C> {
 /// against the viewport rather than against the box it was written in,
 /// escapes every clip, and paints last — so it is at the top left of the
 /// page, over the first caption.
+///
+/// A `Sticky` child ignores the pin: a snapshot has nothing to scroll, so a
+/// browser holds it at its static position. The second sticky row puts a
+/// sixteen-pixel sibling above it, which is what tells "where the flow put
+/// it" apart from "the ground's own corner".
 export fn positions<C>(): Node<C> {
     page([
         band(
@@ -72,6 +77,26 @@ export fn positions<C>(): Node<C> {
             ui.stack(
                 [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
                 [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                            .Position(.Sticky),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Position(.Sticky) under a sibling — its static position, not the corner",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(16))], []),
                     ui.stack(
                         [
                             .Background(.Rgb(40, 40, 200)),
