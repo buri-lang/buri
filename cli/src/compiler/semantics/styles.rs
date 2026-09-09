@@ -71,6 +71,8 @@ const FIRST_PROPERTY: usize = 6;
 const STYLE_PIN: usize = 15;
 /// `PaddingEdge(Edge, Length)`.
 const STYLE_PADDING_EDGE: usize = 23;
+/// `BorderWidth(Length)`.
+const STYLE_BORDER_WIDTH: usize = 33;
 /// `BorderEdge(Edge, Length)`.
 const STYLE_BORDER_EDGE: usize = 34;
 /// `RadiusCorner(Corner, Length)`.
@@ -82,6 +84,10 @@ const STYLE_SHADOW: usize = 40;
 const STYLE_SHADOWS: usize = 41;
 /// `Bleed(Edge, Length)`, declared last because nothing else writes a margin.
 const STYLE_BLEED: usize = 55;
+
+/// `ui/style`'s `State::Focus`, which is `:focus-visible`. The one state the
+/// sheet says anything about beyond the class that names it.
+const STATE_FOCUS: u8 = 1;
 
 /// `ui/style`'s `Color`, for the two variants that carry an alpha: `Rgba`, and
 /// the `Faded` token `alpha` answers for one.
@@ -772,6 +778,7 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
     });
 
     let mut out = reset.rules();
+    out.push_str(&focus_ring(&unique));
     let mut open: Option<Option<u8>> = None;
     for rule in unique {
         if open != Some(rule.screen) {
@@ -793,6 +800,42 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
         out.push_str("}\n");
     }
     out
+}
+
+/// Takes the platform's focus ring away from the elements that draw one of
+/// their own, and from no others.
+///
+/// A browser paints its own `outline` on whatever is focused, over anything a
+/// program put there — so a designed ring and Chrome's blue rectangle render at
+/// once, and `ui/style` has no `Outline` to turn one of them off with. Naming
+/// the classes rather than writing `:where(:focus-visible){outline:none}` is
+/// what keeps a control that styles nothing visibly focusable, which is the
+/// whole reason `State.Focus` is `:focus-visible` in the first place.
+///
+/// A ring is a shadow or a border: the two things this vocabulary can draw one
+/// with. A focus style that only fades or recolours adds to the platform's ring
+/// rather than replacing it, so the platform's stays. So does a ring that only
+/// applies from a breakpoint upwards, because there is a width at which it
+/// paints nothing.
+fn focus_ring(rules: &[&StyleRule]) -> String {
+    let mut classes: Vec<&str> = rules
+        .iter()
+        .filter(|r| r.state == Some(STATE_FOCUS) && r.screen.is_none())
+        .filter(|r| {
+            matches!(
+                r.property as usize,
+                STYLE_BORDER_WIDTH | STYLE_BORDER_EDGE | STYLE_SHADOW | STYLE_SHADOWS
+            )
+        })
+        .map(|r| r.class.as_str())
+        .collect();
+    if classes.is_empty() {
+        return String::new();
+    }
+    classes.sort_unstable();
+    let selectors =
+        classes.iter().map(|c| format!(".{c}")).collect::<Vec<_>>().join(",");
+    format!(":where({selectors}):focus-visible{{outline:none}}\n")
 }
 
 /// Everything a browser paints on an element by itself that no atomic class
