@@ -898,6 +898,23 @@ pub struct Reset {
 const CONTROL_RESET: &str =
     "appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit";
 
+/// A slider's track: a bar a quarter of the control's height, across the
+/// middle of it, in the control's own colour.
+///
+/// A background image rather than a background colour, so a `Background` on the
+/// range is the box behind the bar rather than a fight with it. The painter
+/// draws the same rectangle, unrounded, because a gradient has no corners.
+const TRACK_BAR: &str = "background-image:linear-gradient(currentColor,currentColor);\
+    background-size:100% 25%;background-repeat:no-repeat;background-position:center";
+
+/// A slider's thumb: a disc one line across, in the control's own colour.
+///
+/// One line rather than the control's height, because a percentage height on a
+/// slider thumb resolves against nothing in either engine. The painter pins it
+/// to the same line, so a taller track has the same thumb in both.
+const THUMB: &str = "appearance:none;-webkit-appearance:none;width:1rem;height:1rem;\
+    border-radius:9999px;background-color:currentColor";
+
 /// A checkbox's tick, as the shape that masks the box's own colour.
 ///
 /// A mask rather than a picture, because the mark takes the control's
@@ -952,6 +969,28 @@ impl Reset {
             // own below, because it is the one control that draws a mark.
             out.push_str(&format!(
                 ":where(input:not([type=checkbox]),textarea){{{CONTROL_RESET}}}\n"
+            ));
+            // A range is the other control that draws itself. The line above
+            // has already taken a browser's own slider away, so these put back
+            // one this vocabulary can paint: a track twelve lines wide and one
+            // line tall, a bar a quarter of that height across the middle of
+            // it, and a round thumb the browser slides along it. All three are
+            // `currentColor`, so `Foreground` is the one property that paints a
+            // slider, and the painter draws the same three from the scene's
+            // `range:` — which is why the sizes are here rather than left to a
+            // browser, whose own differ by a few pixels each.
+            out.push_str(&format!(
+                ":where(input[type=range]){{width:12rem;height:1rem;flex-shrink:0;\
+                 {TRACK_BAR}}}\n"
+            ));
+            // Two rules and not one selector list: an unknown pseudo-element
+            // throws the whole selector away, so a browser that knows only one
+            // of these has to meet it on its own.
+            out.push_str(&format!(
+                ":where(input[type=range])::-webkit-slider-thumb{{{THUMB}}}\n"
+            ));
+            out.push_str(&format!(
+                ":where(input[type=range])::-moz-range-thumb{{border:0;{THUMB}}}\n"
             ));
         }
         if self.field || self.toggle {

@@ -1,0 +1,18 @@
+// EXPECT: `Range`
+//
+// The bounds are the kind's payload, so there is no range with them left off: a
+// reader is told what a slider runs between, and by this module's own rule that
+// makes the numbers parameters rather than attributes somebody may remember to
+// set.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let volume = signal(ctx, "40");
+  ui.mount(ctx, ui.field(.Const("Volume"), .Range(0.0, 100.0), [], [], volume, .Const(false)), [])
+}

@@ -1,0 +1,5 @@
+FAIL //lib/slider  test/pictures.buri  "how big the track is"
+  the snapshot "range-sizes" changed: see test/__snapshots__/range-sizes.diff.png
+  --> lib/slider/test/pictures.buri:35:1
+
+0 passed, 1 failed, 2 skipped (0.0s)

@@ -477,6 +477,34 @@ export fn notify<C>(value: Signal<Bool>): Node<C> {
 }
 ```
 
+**A `.Range` field is a slider**, and it carries what it runs between:
+`Range(min, max, step)`. The three are the kind's payload because a reader is
+told the range they are dragging inside, so by the rule above they are
+parameters rather than attributes somebody may remember to set — and the one
+`type="range"` they lower to buys the thumb, the drag, the arrow and Home/End
+keys and the `role="slider"` announcement without a line of your own. The bar
+and the thumb are the control's `Foreground`; a `Background` sits behind them.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn volume<C>(value: Signal<Str>): Node<C> {
+    ui.field(
+        .Const("Volume"),
+        .Range(0.0, 100.0, 1.0),
+        [.Width(.Px(180)), .Foreground(.Rgb(40, 50, 90))],
+        [],
+        value,
+    )
+}
+```
+
+The value is a `Signal<Str>` like every other kind's, because it is what the
+control holds rather than what it means — a browser answers a range's `value` as
+the text of a number. Read it with `str.toFloat`.
+
 `heading` takes one too. Its level is the document's outline, so the size and
 the weight are the styles' — an unstyled heading reads at the size of the text
 around it.
@@ -497,8 +525,9 @@ border on a separator, the baseline a picture or an icon sits on — so your
 styles are all there is. Those rules are `:where(...)`, which weighs nothing in
 the cascade,
 and only the elements the program actually builds get one. The same rules lay a
-labelled control's `<label>` out as a wrapping row and give a checkbox its box
-and its mark, and a class on either beats them.
+labelled control's `<label>` out as a wrapping row, give a checkbox its box and
+its mark, and give a range its track, its bar and its thumb, and a class on any
+of them beats them.
 
 Two of the opening rules are about every element rather than about one:
 
@@ -754,6 +783,13 @@ The rest is short:
   golden holds the width of the secret and none of it. `.Multiline` is the one
   kind that wraps; the other four paint alike, because the reset takes away the
   chrome a browser would tell them apart by.
+- **A `.Range` field is painted as the slider it is**: a bar across the middle
+  of the track and a round thumb on it at the value, both in the control's
+  `Foreground`. Its value never appears as text — a browser draws no number for
+  one either. A value outside the bounds is clamped into them and one that is
+  not a number sits in the middle, which is what HTML says a `value` attribute
+  is worth. A track shorter than one line is the one place the picture and a
+  browser differ: the thumb shrinks to fit the box here and overflows it there.
 - `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.

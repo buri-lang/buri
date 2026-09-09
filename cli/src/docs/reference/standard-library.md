@@ -740,6 +740,15 @@ way into `State::Invalid`, so `On(.Invalid, ...)` paints the ring on the same
 fact a reader is told, and a control that never fails passes `.Const(false)`
 and carries no markup it did not ask for.
 
+A field's `FieldKind.Range(min, max, step)` is a slider, and it carries the
+three numbers on the kind because a reader is told what one runs between. It
+lowers to `<input type="range">`, so the thumb, the drag, the arrow and Home/End
+keys, `role="slider"` and the three `aria-value*` all come from the one
+attribute. The sheet paints the track, the bar and the thumb in `currentColor`,
+and the painter draws the same two shapes at the same sizes. The value stays a
+`Signal<Str>` like every other kind's — it is what the control holds, not what
+it means — and a value outside the bounds reads as the nearer one.
+
 `Shadow` is one shadow and `Shadows` is a list of them, painted first over last,
 because every elevation is two layers and a focus ring is a third beside them.
 They are one conflict slot, so the last written is the element's shadow.

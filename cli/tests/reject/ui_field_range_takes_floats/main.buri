@@ -1,0 +1,19 @@
+// EXPECT: expected `F64`
+//
+// A range runs between two numbers in steps of a third, and all three are
+// distances along the track rather than counts of anything — `0.0`, `100.0`,
+// `1.0`. A bare `0` is the `Int` `Grow`, `Shrink` and `Span` take, and the two
+// are not interchangeable: a slider from nought to a hundred is written with
+// points in it.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let volume = signal(ctx, "40");
+  ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), [], [], volume, .Const(false)), [])
+}
