@@ -406,6 +406,11 @@ The rest is short:
 - `.Table` stacks its rows and a `.TableRow` divides into one equal column per
   cell, so a column lines up down the table. `.ColumnHeader` and `.RowHeader`
   are bold and centred, which is what a browser does to a `<th>`.
+- **A `.Password` field's value is never painted.** It is one • per
+  character, the way a browser draws `<input type="password">`, so a recorded
+  golden holds the width of the secret and none of it. `.Multiline` is the one
+  kind that wraps; the other four paint alike, because the reset takes away the
+  chrome a browser would tell them apart by.
 - `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.

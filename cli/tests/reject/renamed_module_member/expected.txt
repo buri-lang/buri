@@ -1,0 +1,32 @@
+error: "core/math" has no member `sqrt` [no-such-member]
+  --> cmd/renamed_module_member/main.buri:11:35
+   |
+11 |   let _ = io.println(ctx, "${math.sqrt(2.0)}").ignore();
+   |                                   ^^^^
+   |
+   = `sqrt` was renamed to `squareRoot`
+   = fix: write `squareRoot`
+
+     What to do
+     ──────────
+
+     Correct the member name. The diagnostic lists what the module exports, and
+     where one of them is a near miss the fix names it: "if you meant readText,
+     use that; if not, buri docs core/fs lists what the module exports".
+
+     A name the standard library renamed is not a guess, so it gets the answer
+     instead — sqrt was renamed to squareRoot — and a name it removed says what
+     covers it now: ZERO was removed; write time.nanoseconds(0).
+
+     Why
+     ───
+
+     fs in fs.appendBytes(...) is a namespace, not a value. It stands for the
+     module its import named, and what you may write after the dot is exactly
+     what that module exports.
+
+     A namespace qualifies a type, a bound and an impl head the same way it
+     qualifies a function, so list.Vector<Int> and <T: order.Comparable> are
+     answered here too. When no import bound the name at all, fs.readText(...)
+     is unresolved-name on fs instead.
+

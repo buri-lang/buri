@@ -44,6 +44,15 @@
 //! folded and one that did not paint alike. Anything else parses and is
 //! ignored, which is what lets the vocabulary grow without breaking a scene.
 //!
+//! An `e` line may also carry `field:<kind>`, which says what an input accepts:
+//! the `type` its markup carries, or `multiline` for the `textarea` that has
+//! none. Two of the six paint differently, and they are the two a browser draws
+//! differently under this stylesheet's reset. A **password's value is never
+//! painted** — one `•` per character, the way `<input type="password">` is
+//! drawn, so a golden holds the width of the secret and none of it. And only
+//! `multiline` wraps, because an `<input>` is one line whatever is typed into
+//! it.
+//!
 //! An `e` line may also carry `image:<source>`, which makes the box a picture
 //! rather than a container. **The painter loads nothing** — no network, no
 //! disk — so the only source it can read is a `data:` URI, and [`image`] is
@@ -53,6 +62,12 @@
 //! scene declared for it, or filling the box around it when the scene declared
 //! none. A picture that is not there is better shown as a box than as nothing,
 //! which is what an image with no source used to be.
+//!
+//! The sheet is read as class rules, plus **one shape of descendant rule**:
+//! `.<class>>*`, which is what `Layout(.Layers)` is written as. Every child of
+//! an element carrying the class takes the rule's declarations, so
+//! `.lay-layers>*{grid-area:1/1}` puts all of a layer stack's children in the
+//! same grid cell rather than in a column of their own rows.
 //!
 //! Two deliberate simplifications, each visible in a snapshot:
 //!
@@ -531,6 +546,9 @@ impl State {
 struct Rule {
     class: String,
     state: Option<State>,
+    /// `.<class>>*` rather than `.<class>`: the declarations land on every
+    /// child of an element carrying the class, and on the element itself never.
+    child: bool,
     /// The `@media (min-width:)` floor in pixels; `0` outside a query.
     min_width: f32,
     declarations: Vec<(String, String)>,
@@ -558,16 +576,25 @@ fn parse_stylesheet(source: &str) -> Vec<Rule> {
         }
         let Some((selector, body)) = line.split_once('{') else { continue };
         let Some(body) = body.strip_suffix('}') else { continue };
-        let Some((class, state)) = parse_selector(selector) else { continue };
+        let Some((class, state, child)) = parse_selector(selector) else { continue };
         let Ok((_, declarations)) = parse_declarations(body) else { continue };
-        rules.push(Rule { class, state, min_width, declarations });
+        rules.push(Rule { class, state, child, min_width, declarations });
     }
     rules
 }
 
-/// `.<class><pseudo?>` — and `None` for a selector carrying anything after the
-/// pseudo-class, because a descendant rule is out of scope for version one.
-fn parse_selector(selector: &str) -> Option<(String, Option<State>)> {
+/// `.<class><pseudo?>`, or the same followed by `>*`, which is the one rule
+/// about descendants the sheet writes: `Layout(.Layers)` is a `display:grid` on
+/// the container and a `grid-area:1/1` on each of its children, and the pair is
+/// the only way that value is expressed. Anything else after the pseudo-class —
+/// a descendant combinator, a second pseudo-class, a named child — is `None`.
+///
+/// The third answer is whether the rule is the children's.
+fn parse_selector(selector: &str) -> Option<(String, Option<State>, bool)> {
+    let (selector, child) = match selector.trim_end().strip_suffix('*') {
+        Some(head) => (head.trim_end().strip_suffix('>')?.trim_end(), true),
+        None => (selector, false),
+    };
     let mut chars = selector.chars();
     if chars.next()? != '.' {
         return None;
@@ -591,9 +618,9 @@ fn parse_selector(selector: &str) -> Option<(String, Option<State>)> {
         return None;
     }
     if !in_pseudo {
-        return Some((class, None));
+        return Some((class, None, child));
     }
-    State::pseudo(&pseudo).map(|state| (class, Some(state)))
+    State::pseudo(&pseudo).map(|state| (class, Some(state), child))
 }
 
 // ---------------------------------------------------------------------------
@@ -692,6 +719,9 @@ struct Computed {
     shrink: f32,
     tracks: Vec<Len>,
     span: Option<u16>,
+    /// `grid-area: <row>/<column>`, as the two lines the box starts at. The
+    /// sheet writes one of these — `1/1`, for a layer stack's children.
+    area: Option<(i16, i16)>,
     gap_column: Len,
     gap_row: Len,
     padding: [Len; 4],
@@ -703,13 +733,18 @@ struct Computed {
     /// `position: fixed`. Absolute as well, and measured against the viewport
     /// rather than against the box it was written in.
     fixed: bool,
+    /// `position: sticky`. In the flow, and the inset it carries is a
+    /// threshold rather than an offset — see [`taffy_style`].
+    sticky: bool,
     inset: [Len; 4],
     clipped: [bool; 2],
 
     background: Rgba,
     colour: Rgba,
     border_width: Len,
-    border_colour: Rgba,
+    /// `None` is CSS's initial `currentColor`: the stroke takes the element's
+    /// own `colour`, whichever order the two were written in.
+    border_colour: Option<Rgba>,
     border_style: Border,
     radius: Len,
     opacity: f32,
@@ -725,6 +760,15 @@ struct Computed {
     case: Case,
     decoration: Decoration,
     nowrap: bool,
+    /// `text-wrap: balance`: break the run into the lines it would take
+    /// anyway, evened out.
+    balance: bool,
+    /// `-webkit-line-clamp`: show at most this many lines and end the last one
+    /// in an ellipsis. `None` is no limit.
+    clamp: Option<usize>,
+    /// A password's text: painted as bullets, never as itself. Inherited, so
+    /// that the run inside the input carries it.
+    masked: bool,
 }
 
 impl Computed {
@@ -741,6 +785,7 @@ impl Computed {
             shrink: 1.0,
             tracks: Vec::new(),
             span: None,
+            area: None,
             gap_column: Len::Px(0.0),
             gap_row: Len::Px(0.0),
             padding: [Len::Px(0.0); 4],
@@ -750,12 +795,13 @@ impl Computed {
             aspect: None,
             absolute: false,
             fixed: false,
+            sticky: false,
             inset: [Len::Auto; 4],
             clipped: [false; 2],
             background: Rgba::CLEAR,
             colour: Rgba::BLACK,
             border_width: Len::Px(0.0),
-            border_colour: Rgba::BLACK,
+            border_colour: None,
             border_style: Border::Solid,
             radius: Len::Px(0.0),
             opacity: 1.0,
@@ -770,6 +816,9 @@ impl Computed {
             case: Case::None,
             decoration: Decoration::None,
             nowrap: false,
+            balance: false,
+            clamp: None,
+            masked: false,
         }
     }
 
@@ -786,6 +835,13 @@ impl Computed {
         child.case = self.case;
         child.decoration = self.decoration;
         child.nowrap = self.nowrap;
+        child.balance = self.balance;
+        // CSS puts the clamp on the block and counts the lines of the inline
+        // content inside it. The painter's inline content is a `t` node one
+        // level down, so the clamp has to reach it the way an inherited
+        // property does.
+        child.clamp = self.clamp;
+        child.masked = self.masked;
         // Not inherited, but it multiplies down: a subtree under a half
         // transparent box is half transparent.
         child.opacity = self.opacity;
@@ -803,19 +859,24 @@ fn resolve(
 ) -> Vec<Computed> {
     let root = Computed::root();
     let mut styles = vec![root.clone(); scene.nodes.len()];
-    let mut stack: Vec<(usize, Computed)> =
-        scene.roots.iter().rev().map(|&i| (i, root.clone())).collect();
+    let mut stack: Vec<(usize, Option<usize>, Computed)> =
+        scene.roots.iter().rev().map(|&i| (i, None, root.clone())).collect();
 
-    while let Some((index, parent)) = stack.pop() {
+    while let Some((index, holder, parent)) = stack.pop() {
         let Some(node) = scene.node(index) else { continue };
         let mut style = parent.inherit();
         if node.text.is_none() {
             let width = scene.width as f32;
+            // A `.<class>>*` rule is the enclosing box's class rather than this
+            // one's, so a child rule is matched against the node above.
+            let holder = holder.and_then(|i| scene.node(i));
             for rule in sheet {
-                if rule.min_width <= width
-                    && rule.state.is_none_or(|s| s == state)
-                    && node.classes.contains(&rule.class)
-                {
+                let named = if rule.child {
+                    holder.is_some_and(|h| h.classes.contains(&rule.class))
+                } else {
+                    node.classes.contains(&rule.class)
+                };
+                if rule.min_width <= width && rule.state.is_none_or(|s| s == state) && named {
                     for (name, value) in &rule.declarations {
                         apply(&mut style, name, &substitute(value, variables), &parent);
                     }
@@ -826,7 +887,7 @@ fn resolve(
             }
         }
         for &child in node.children.iter().rev() {
-            stack.push((child, style.clone()));
+            stack.push((child, Some(index), style.clone()));
         }
         if let Some(slot) = styles.get_mut(index) {
             *slot = style;
@@ -873,6 +934,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "grid-column" => {
             style.span = value.strip_prefix("span ").and_then(|n| n.trim().parse().ok());
         }
+        "grid-area" => style.area = grid_area(value).or(style.area),
         "gap" => {
             if let Some(l) = len(value) {
                 style.gap_column = l;
@@ -898,6 +960,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "position" => {
             style.fixed = value == "fixed";
             style.absolute = style.fixed || value == "absolute";
+            style.sticky = value == "sticky";
         }
         "inset-inline-start" => set_sides(&mut style.inset, [0], len(value)),
         "inset-inline-end" => set_sides(&mut style.inset, [1], len(value)),
@@ -924,9 +987,12 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "border-width" => style.border_width = len(value).unwrap_or(style.border_width),
         "border-color" => {
             style.border_colour = match colour(value) {
-                Some(Spec::Value(c)) => c,
-                Some(Spec::Transparent) => Rgba::CLEAR,
-                _ => style.colour,
+                Some(Spec::Value(c)) => Some(c),
+                Some(Spec::Transparent) => Some(Rgba::CLEAR),
+                // `inherit`, and a `var()` nothing defined: back to the
+                // element's own colour, which is where a border with no
+                // declaration starts.
+                _ => None,
             };
         }
         "border-style" => {
@@ -989,7 +1055,19 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
                 _ => Decoration::None,
             };
         }
-        "text-wrap" => style.nowrap = value == "nowrap",
+        "text-wrap" => {
+            style.nowrap = value == "nowrap";
+            style.balance = value == "balance";
+        }
+        // `none` is the value `Truncate(0)` writes, and it parses to no limit.
+        "-webkit-line-clamp" => style.clamp = value.parse().ok().filter(|&n| n > 0),
+        // What the input accepts. A secret is masked; an `<input>` is one line
+        // and a `textarea` is the one kind that is not, so the rest is the
+        // difference the sheet's own reset leaves — which is none.
+        "field" => {
+            style.masked = value == "password";
+            style.nowrap = value != "multiline";
+        }
         // `font-family` resolves to the bundled family whatever it names, and
         // `cursor` paints nothing. Both parse so that a scene keeps them.
         _ => {}
@@ -1029,6 +1107,15 @@ fn track(value: &str, font_size: f32) -> Len {
         return n.parse().ok().map_or(Len::Auto, |n: f32| Len::Percent(-n));
     }
     length(value, font_size).unwrap_or(Len::Auto)
+}
+
+/// `grid-area: <row>/<column>`, the one shorthand the sheet writes. Both halves
+/// are line numbers, so `1/1` is the first cell — and the end of each span is
+/// left to the row and column the box starts in, which is what CSS does with a
+/// two-value `grid-area` too.
+fn grid_area(value: &str) -> Option<(i16, i16)> {
+    let (row, column) = value.split_once('/')?;
+    Some((row.trim().parse().ok()?, column.trim().parse().ok()?))
 }
 
 fn alignment(value: &str) -> Option<AlignContent> {
@@ -1156,7 +1243,14 @@ fn taffy_style(c: &Computed) -> Style {
         // zero, which is what a box holding one text run wants.
         flex_basis: Dimension::auto(),
         grid_template_columns: c.tracks.iter().map(|t| grid_track(*t)).collect(),
-        grid_column: c.span.map_or(Line::from_span(1), Line::from_span),
+        grid_row: match c.area {
+            Some((row, _)) => Line::from_line_index(row),
+            None => Line::from_span(1),
+        },
+        grid_column: match c.area {
+            Some((_, column)) => Line::from_line_index(column),
+            None => c.span.map_or(Line::from_span(1), Line::from_span),
+        },
         gap: Size { width: spacing(c.gap_column), height: spacing(c.gap_row) },
         padding: Rect {
             left: spacing(c.padding[0]),
@@ -1176,11 +1270,20 @@ fn taffy_style(c: &Computed) -> Style {
         max_size: Size { width: dimension_auto(c.max[0]), height: dimension_auto(c.max[1]) },
         aspect_ratio: c.aspect,
         position: if c.absolute { Position::Absolute } else { Position::Relative },
-        inset: Rect {
-            left: dimension_auto(c.inset[0]),
-            right: dimension_auto(c.inset[1]),
-            top: dimension_auto(c.inset[2]),
-            bottom: dimension_auto(c.inset[3]),
+        // **A sticky box keeps its static position.** Its inset is the edge it
+        // would be held at once a scrollport crossed it, and a snapshot has no
+        // scrolling, so a browser applies none of it — while `taffy`, which
+        // has only `relative` and `absolute`, would take the same numbers as a
+        // relative offset and move the box.
+        inset: if c.sticky {
+            Rect::auto()
+        } else {
+            Rect {
+                left: dimension_auto(c.inset[0]),
+                right: dimension_auto(c.inset[1]),
+                top: dimension_auto(c.inset[2]),
+                bottom: dimension_auto(c.inset[3]),
+            }
         },
         overflow: Point { x: overflow(c.clipped[0]), y: overflow(c.clipped[1]) },
         ..Style::default()
@@ -1246,8 +1349,16 @@ thread_local! {
         std::cell::RefCell::new((font_system(), SwashCache::new()));
 }
 
-fn transformed(text: &str, case: Case) -> String {
-    match case {
+/// The characters a run is shaped from: the mask, if it is a password's, and
+/// otherwise what `text-transform` made of it.
+///
+/// One bullet per `char`, which is what a browser draws and what keeps the box
+/// the width the secret would have taken without the box holding it.
+fn transformed(text: &str, style: &Computed) -> String {
+    if style.masked {
+        return "\u{2022}".repeat(text.chars().count());
+    }
+    match style.case {
         Case::None => text.to_string(),
         Case::Upper => text.to_uppercase(),
         Case::Lower => text.to_lowercase(),
@@ -1305,14 +1416,153 @@ fn shape(
     if style.letter_spacing != 0.0 {
         attrs = attrs.letter_spacing(style.letter_spacing / size);
     }
-    buffer.set_text(
-        &transformed(text, style.case),
-        &attrs,
-        Shaping::Advanced,
-        Some(style.align_text),
-    );
-    buffer.shape_until_scroll(fonts, false);
+    let mut content = transformed(text, style);
+    lay(fonts, &mut buffer, &content, &attrs, style.align_text);
+
+    // A clamp and a balance are answers about the run at the width it will
+    // take. Width `Some(0.0)` is the one place a run is asked how narrow it
+    // can be *made*, and neither changes that answer — the longest word is
+    // still the longest word; `None` is max-content, which is one line
+    // already.
+    if let Some(room) = width.filter(|&w| w > 0.0) {
+        if let Some(limit) = style.clamp {
+            content = clamp(fonts, &mut buffer, &content, &attrs, style.align_text, limit);
+        }
+        if style.balance {
+            balance(fonts, &mut buffer, &content, &attrs, style.align_text, room);
+        }
+    }
     buffer
+}
+
+/// Puts a string in the buffer and shapes it.
+fn lay(
+    fonts: &mut FontSystem,
+    buffer: &mut Buffer,
+    text: &str,
+    attrs: &Attrs,
+    align: cosmic_text::Align,
+) {
+    buffer.set_text(text, attrs, Shaping::Advanced, Some(align));
+    buffer.shape_until_scroll(fonts, false);
+}
+
+/// How many lines the buffer laid out.
+fn line_count(buffer: &Buffer) -> usize {
+    buffer.layout_runs().count()
+}
+
+/// Cuts the run down to `limit` lines and ends the last one in an ellipsis —
+/// `-webkit-line-clamp`, which is what `.Truncate(n)` lowers to.
+///
+/// Where a browser cuts is where the shaper broke, so the cut is found by
+/// asking the shaper rather than by counting characters: the longest prefix
+/// that still lays out in `limit` lines once the ellipsis is on the end of it.
+/// A prefix only ever needs more lines as it grows, so that is a binary search
+/// over the run's character boundaries — a handful of re-shapes rather than
+/// one per character.
+fn clamp(
+    fonts: &mut FontSystem,
+    buffer: &mut Buffer,
+    text: &str,
+    attrs: &Attrs,
+    align: cosmic_text::Align,
+    limit: usize,
+) -> String {
+    if line_count(buffer) <= limit {
+        return text.to_string();
+    }
+    let cuts: Vec<usize> =
+        text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
+    let ellipsised = |head: &str| format!("{}…", head.trim_end());
+    // The empty prefix always fits: an ellipsis on its own is one line.
+    let (mut lo, mut hi) = (0_usize, cuts.len().saturating_sub(1));
+    while lo < hi {
+        let mid = lo.saturating_add(hi.saturating_sub(lo).div_ceil(2));
+        let head = cuts.get(mid).and_then(|&at| text.get(..at)).unwrap_or(text);
+        lay(fonts, buffer, &ellipsised(head), attrs, align);
+        if line_count(buffer) <= limit {
+            lo = mid;
+        } else {
+            hi = mid.saturating_sub(1);
+        }
+    }
+    let head = cuts.get(lo).and_then(|&at| text.get(..at)).unwrap_or(text);
+    let cut = ellipsised(head);
+    lay(fonts, buffer, &cut, attrs, align);
+    cut
+}
+
+/// Evens the line lengths out — `text-wrap: balance`, the way a browser
+/// approximates it.
+///
+/// The run keeps the number of lines it took at its full width, and takes them
+/// at the narrowest width that still does: a heading whose last line was one
+/// short word comes out as lines of a length. Which width that is comes from
+/// the shaper, by binary search over whole pixels, because a run only ever
+/// needs more lines as its room shrinks.
+///
+/// The breaks are then written back into the run as newlines and it is laid
+/// out in the room it was actually given. Setting the buffer to the narrow
+/// width and leaving it there would balance the lines and then align them
+/// inside that width, so a centred heading would sit left of centre in its
+/// box.
+fn balance(
+    fonts: &mut FontSystem,
+    buffer: &mut Buffer,
+    text: &str,
+    attrs: &Attrs,
+    align: cosmic_text::Align,
+    room: f32,
+) {
+    let target = line_count(buffer);
+    if target <= 1 {
+        return;
+    }
+    // `hi` is the room the run already fits in, so it always satisfies the
+    // search; `lo` climbs until the two meet on the narrowest width that does.
+    let (mut lo, mut hi) = (1_u32, room.ceil().max(1.0) as u32);
+    while lo < hi {
+        let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+        buffer.set_size(Some(mid as f32), None);
+        lay(fonts, buffer, text, attrs, align);
+        if line_count(buffer) <= target {
+            hi = mid;
+        } else {
+            lo = mid.saturating_add(1);
+        }
+    }
+    buffer.set_size(Some(lo as f32), None);
+    lay(fonts, buffer, text, attrs, align);
+
+    let broken = broken(buffer, text);
+    buffer.set_size(Some(room), None);
+    lay(fonts, buffer, &broken, attrs, align);
+}
+
+/// The run with a newline wherever the shaper broke it, so the same breaks
+/// survive being laid out in a wider box.
+fn broken(buffer: &Buffer, text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for run in buffer.layout_runs() {
+        let Some((from, to)) = run
+            .glyphs
+            .iter()
+            .map(|g| (g.start, g.end))
+            .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)))
+        else {
+            continue;
+        };
+        let line = text.get(from..to).unwrap_or_default().trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 /// The width and height a shaped buffer occupies.
@@ -1552,10 +1802,16 @@ impl Painter<'_> {
         if let Some(shadow) = style.shadow {
             let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
             let corner = radius + shadow.spread;
+            // An outer shadow is painted outside the border box and nowhere
+            // else, so the box is knocked out of whatever clip was already in
+            // force. A ring around a transparent control is the case that
+            // needs it: without the knockout the ring fills the control.
+            let outside = outside_the_box(box_, radius, clip, canvas.width(), canvas.height());
+            let under = outside.as_ref().or(clip);
             if shadow.blur > 0.0 {
-                cast_blurred(canvas, cast, corner, shadow, style.opacity, clip);
+                cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
             } else {
-                fill(canvas, cast, corner, shadow.colour, style.opacity, clip);
+                fill(canvas, cast, corner, shadow.colour, style.opacity, under);
             }
         }
         if style.background.visible() {
@@ -1565,7 +1821,7 @@ impl Painter<'_> {
             Len::Px(n) if style.border_style != Border::None => n,
             _ => 0.0,
         };
-        if width > 0.0 && style.border_colour.visible() {
+        if width > 0.0 && style.border_colour.unwrap_or(style.colour).visible() {
             stroke(canvas, box_, radius, width, style, clip);
         }
 
@@ -1678,6 +1934,14 @@ impl Painter<'_> {
     }
 
     /// Draws one text run at the box the layout gave it.
+    ///
+    /// **The ink's alpha is applied here, not by the shaper.** `cosmic_text`
+    /// rasterizes a glyph to a coverage mask and hands the callback that
+    /// coverage with the ink's red, green and blue only — the alpha it was
+    /// given never reaches the pixel, so a translucent foreground used to
+    /// paint at full strength beside a background that had faded correctly.
+    /// `colour[3]` is the colour's alpha times the element's opacity already,
+    /// and the coverage is multiplied by it.
     fn text(
         &mut self,
         canvas: &mut Pixmap,
@@ -1692,6 +1956,7 @@ impl Painter<'_> {
         if colour[3] == 0 {
             return;
         }
+        let alpha = colour[3];
         let ink = cosmic_text::Color::rgba(colour[0], colour[1], colour[2], colour[3]);
         let (ox, oy) = (box_.l, box_.t);
         let (cw, ch) = (canvas.width(), canvas.height());
@@ -1714,7 +1979,7 @@ impl Painter<'_> {
                     if coverage == 0 {
                         continue;
                     }
-                    let a = mul255(pixel.a(), coverage);
+                    let a = mul255(mul255(pixel.a(), alpha), coverage);
                     let src = [
                         mul255(pixel.r(), a),
                         mul255(pixel.g(), a),
@@ -1805,8 +2070,19 @@ impl Box2 {
     }
 
     fn path(self, radius: f32) -> Option<tiny_skia::Path> {
-        let (l, t) = (self.l as f32, self.t as f32);
-        let (r, b) = (self.r as f32, self.b as f32);
+        self.inset_path(0.0, radius)
+    }
+
+    /// The same path, pulled `by` device pixels in on every side, in floating
+    /// point.
+    ///
+    /// A stroke's centreline is half a width in, and half of an odd width is
+    /// half a pixel — a number [`px`] has no room for. Rounding it is what put
+    /// a one-pixel border astride the box's edge, so the inset is applied to
+    /// the edges rather than to the box.
+    fn inset_path(self, by: f32, radius: f32) -> Option<tiny_skia::Path> {
+        let (l, t) = (self.l as f32 + by, self.t as f32 + by);
+        let (r, b) = (self.r as f32 - by, self.b as f32 - by);
         if r <= l || b <= t {
             return None;
         }
@@ -1863,12 +2139,13 @@ fn stroke(
     style: &Computed,
     clip: Option<&Mask>,
 ) {
-    // A CSS border sits inside the box, so the centreline is half a width in.
-    let inset = box_.grow(-width / 2.0);
-    let Some(path) = inset.path((radius - width / 2.0).max(0.0)) else { return };
+    // A CSS border sits inside the box, so the centreline is half a width in —
+    // a half pixel for an odd width, which is why this is not a `grow`.
+    let half = width / 2.0;
+    let Some(path) = box_.inset_path(half, (radius - half).max(0.0)) else { return };
     let paint = Paint {
         anti_alias: true,
-        shader: shade(style.border_colour, style.opacity),
+        shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
         ..Paint::default()
     };
     let mut pen = Stroke { width, ..Stroke::default() };
@@ -1959,6 +2236,30 @@ fn cast_blurred(
     let paint =
         Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
     canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
+}
+
+/// The clip an outer shadow paints under: what the caller was already clipped
+/// to, minus the element's own border box.
+///
+/// CSS clips an outer `box-shadow` to the region outside the border box, so a
+/// shadow is never under the box that cast it. `None` means nothing could be
+/// allocated, and the caller keeps its own clip.
+fn outside_the_box(
+    box_: Box2,
+    radius: f32,
+    clip: Option<&Mask>,
+    width: u32,
+    height: u32,
+) -> Option<Mask> {
+    let mut mask = clip.cloned().or_else(|| full_mask(width, height))?;
+    let Some(path) = box_.path(radius) else { return Some(mask) };
+    let mut hole = Mask::new(width, height)?;
+    hole.fill_path(&path, FillRule::Winding, true, Transform::identity());
+    for coverage in hole.data_mut() {
+        *coverage = 255 - *coverage;
+    }
+    narrow(&mut mask, &hole);
+    Some(mask)
 }
 
 /// Multiplies `mask` by `other`, which is mask intersection on coverage.
@@ -2753,11 +3054,63 @@ mod tests {
             .find(|&x| (0..image.height).any(|y| at(image, x, y) != [255, 255, 255, 255]))
     }
 
+    /// The last column holding ink, or `None` for a blank picture.
+    fn last_inked_column(image: &Image) -> Option<u32> {
+        (0..image.width)
+            .rev()
+            .find(|&x| (0..image.height).any(|y| at(image, x, y) != [255, 255, 255, 255]))
+    }
+
     fn inked_pixels(image: &Image) -> usize {
         (0..image.height)
             .flat_map(|y| (0..image.width).map(move |x| (x, y)))
             .filter(|&(x, y)| at(image, x, y) != [255, 255, 255, 255])
             .count()
+    }
+
+    /// The darkest pixel in a picture, as its red channel. Everything here is
+    /// ink over a lighter ground, so a smaller number is more of it.
+    fn darkest(image: &Image) -> u8 {
+        darkest_pixel(image)[0]
+    }
+
+    /// The whole of that pixel, for a test that reads a composited colour
+    /// rather than an amount of ink.
+    fn darkest_pixel(image: &Image) -> [u8; 4] {
+        (0..image.height)
+            .flat_map(|y| (0..image.width).map(move |x| (x, y)))
+            .map(|(x, y)| at(image, x, y))
+            .min_by_key(|p| p[0])
+            .unwrap_or([255; 4])
+    }
+
+    /// One entry per band of consecutive inked rows — one line of text — as
+    /// the columns its ink runs between.
+    fn inked_lines(image: &Image) -> Vec<(u32, u32)> {
+        let mut lines: Vec<(u32, u32)> = Vec::new();
+        let mut open = false;
+        for y in 0..image.height {
+            let mut span: Option<(u32, u32)> = None;
+            for x in 0..image.width {
+                if at(image, x, y) != [255, 255, 255, 255] {
+                    span = Some(match span {
+                        None => (x, x),
+                        Some((from, _)) => (from, x),
+                    });
+                }
+            }
+            match span {
+                None => open = false,
+                Some((from, to)) => {
+                    match lines.last_mut().filter(|_| open) {
+                        Some(line) => *line = (line.0.min(from), line.1.max(to)),
+                        None => lines.push((from, to)),
+                    }
+                    open = true;
+                }
+            }
+        }
+        lines
     }
 
     #[test]
@@ -2829,6 +3182,53 @@ mod tests {
         assert_eq!(at(&image, 5, 10), [255, 255, 255, 255]);
     }
 
+    /// A border sits inside the box, whatever its width: a one-pixel border is
+    /// one solid row on the box's own first row, and nothing above it.
+    #[test]
+    fn an_odd_border_width_paints_solid_rows_inside_the_box() {
+        let scene = "buri-scene 1\nviewport 20 24\ne 0 padding:4px\n\
+                     e 1 width:12px;height:12px;border-style:solid;border-width:1px;\
+                     border-color:rgb(0,0,0)\n";
+        let one = render_ok(scene, "", "rest");
+        assert_eq!(at(&one, 10, 3), [255, 255, 255, 255], "a border paints outside its box");
+        assert_eq!(at(&one, 10, 4), [0, 0, 0, 255], "a one-pixel border is one solid row");
+        assert_eq!(at(&one, 10, 5), [255, 255, 255, 255]);
+        assert_eq!(at(&one, 10, 15), [0, 0, 0, 255], "the box's last row is the border's");
+
+        // Three is the same rule, three rows in: the row above the box is
+        // untouched and the three inside it are solid.
+        let scene = scene.replace("border-width:1px", "border-width:3px");
+        let three = render_ok(&scene, "", "rest");
+        assert_eq!(at(&three, 10, 3), [255, 255, 255, 255]);
+        for y in 4..7 {
+            assert_eq!(at(&three, 10, y), [0, 0, 0, 255], "row {y} of a three-pixel border");
+        }
+        assert_eq!(at(&three, 10, 7), [255, 255, 255, 255]);
+    }
+
+    /// A border with no colour of its own draws in the element's foreground,
+    /// which is CSS's `currentColor` — and the `color` beside it may be
+    /// written after the border.
+    #[test]
+    fn a_border_with_no_colour_draws_in_the_foreground() {
+        let scene = "buri-scene 1\nviewport 20 20\ne 0 padding:4px\n\
+                     e 1 width:12px;height:12px;border-style:solid;border-width:4px;\
+                     color:rgb(18,18,28)\n";
+        assert_eq!(at(&render_ok(scene, "", "rest"), 5, 10), [18, 18, 28, 255]);
+    }
+
+    /// An outer shadow paints outside the border box only, so a spread-only
+    /// ring around a transparent box leaves the box's own pixels alone.
+    #[test]
+    fn an_outer_shadow_paints_outside_the_box_it_was_cast_from() {
+        let scene = "buri-scene 1\nviewport 24 24\ne 0 padding:6px\n\
+                     e 1 width:12px;height:12px;box-shadow:0px 0px 0px 3px rgb(150,150,150)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 4, 12), [150, 150, 150, 255], "the ring is three pixels out");
+        assert_eq!(at(&image, 12, 12), [255, 255, 255, 255], "a ring flooded the control");
+        assert_eq!(at(&image, 6, 6), [255, 255, 255, 255], "the box's own corner");
+    }
+
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the
     /// corner pixel a child would have squared off stays the canvas.
     #[test]
@@ -2883,6 +3283,185 @@ mod tests {
         let scene = "buri-scene 1\nviewport 60 40\ne 0 font-size:0px\nt 1 Ada\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!((image.width, image.height), (60, 40));
+    }
+
+    /// **The alpha a colour carries reaches the glyphs, not only the boxes.**
+    /// The shaper hands the painter a glyph's own coverage and drops the ink
+    /// colour's alpha, so a half transparent foreground used to paint hard
+    /// black text on a card whose background had faded correctly.
+    ///
+    /// Three tenths of black over `rgb(206,218,240)` is `rgb(144,153,168)`,
+    /// and this is the ground and the answer the issue read off a browser. The
+    /// tolerance is one byte because the compositing here is integer
+    /// arithmetic: the same alpha on a *border* in the same picture reads
+    /// `rgb(144,152,167)`, and the glyphs may not be held to a stricter rule
+    /// than the fill beside them.
+    #[test]
+    fn a_translucent_colour_fades_the_text_written_in_it() {
+        let ground = "background-color:rgb(206,218,240);width:60px;height:30px";
+        let opaque = format!(
+            "buri-scene 1\nviewport 60 30\ne 0 {ground};font-size:24px;color:rgb(0,0,0)\n\
+             t 1 Ada\n"
+        );
+        let faded = format!(
+            "buri-scene 1\nviewport 60 30\ne 0 {ground};font-size:24px;color:rgba(0,0,0,0.3)\n\
+             t 1 Ada\n"
+        );
+        assert!(darkest(&render_ok(&opaque, "", "rest")) <= 2);
+        let ink = darkest_pixel(&render_ok(&faded, "", "rest"));
+        for (was, want) in ink.iter().zip([144_u8, 153, 168]) {
+            assert!(
+                was.abs_diff(want) <= 1,
+                "three tenths of black over rgb(206,218,240) is rgb(144,153,168), not {ink:?}"
+            );
+        }
+    }
+
+    /// And so does the `opacity` multiplied into it, which is what the header
+    /// says an opacity is: a factor on every colour the subtree paints.
+    #[test]
+    fn a_fractional_opacity_fades_the_text_under_it() {
+        let scene = "buri-scene 1\nviewport 60 30\ne 0 font-size:24px;opacity:0.5\nt 1 Ada\n";
+        let faded = darkest(&render_ok(scene, "", "rest"));
+        assert!((120..=134).contains(&faded), "half opacity over white is 127, not {faded}");
+    }
+
+    /// The underline takes the same alpha, since it is drawn from the same
+    /// colour by a different path.
+    #[test]
+    fn a_translucent_colour_fades_the_underline_too() {
+        let scene = "buri-scene 1\nviewport 60 30\n\
+                     e 0 font-size:24px;color:rgba(0,0,0,0.5);text-decoration-line:underline\n\
+                     t 1 Ada\n";
+        let faded = darkest(&render_ok(scene, "", "rest"));
+        assert!((120..=134).contains(&faded), "half of black over white is 127, not {faded}");
+    }
+
+    /// **A sticky box stays where the flow put it.** A snapshot has nothing to
+    /// scroll, so the inset a sticky element carries is a threshold it never
+    /// crosses — an unscrolled browser paints it at its static position. It
+    /// used to take the inset as a relative offset, the way `Position(.Flow)`
+    /// does.
+    #[test]
+    fn a_sticky_box_stays_where_the_flow_put_it() {
+        let scene = "buri-scene 1\nviewport 12 12\n\
+                     e 0 width:12px;height:12px\n\
+                     e 1 position:sticky;inset-block-start:4px;inset-inline-start:4px;\
+                     width:2px;height:2px;background-color:rgb(0,128,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 0, 0), [0, 128, 0, 255]);
+        assert_eq!(at(&image, 5, 5), [255, 255, 255, 255]);
+    }
+
+    /// A `relative` box beside it, which is the answer `sticky` used to give,
+    /// so the two are read together.
+    #[test]
+    fn a_relative_box_does_take_the_inset_it_carries() {
+        let scene = "buri-scene 1\nviewport 12 12\n\
+                     e 0 width:12px;height:12px\n\
+                     e 1 position:relative;inset-block-start:4px;inset-inline-start:4px;\
+                     width:2px;height:2px;background-color:rgb(0,128,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 4, 4), [0, 128, 0, 255]);
+        assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
+    }
+
+    /// The sentence every truncation test below breaks: long enough for six
+    /// lines in a box eighty wide.
+    const PARAGRAPH: &str =
+        "A sentence long enough that it has to break somewhere, twice over. A sentence \
+         long enough that it has to break somewhere, twice over.";
+
+    /// **`-webkit-line-clamp` shows at most the lines it names.** It is what
+    /// `Truncate(n)` lowers to, and nothing read it, so one, two, three and no
+    /// clamp at all painted the same six lines.
+    #[test]
+    fn a_line_clamp_shows_at_most_the_lines_it_names() {
+        let lines = |clamp: &str| {
+            let scene = format!(
+                "buri-scene 1\nviewport 200 200\n\
+                 e 0 width:80px;font-size:12px{clamp}\nt 1 {PARAGRAPH}\n"
+            );
+            inked_lines(&render_ok(&scene, "", "rest")).len()
+        };
+        let clamp = |n: u32| {
+            format!(";display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden")
+        };
+        let free = lines("");
+        assert!(free > 3, "the sentence has to break more than three times, not {free}");
+        assert_eq!(lines(&clamp(1)), 1);
+        assert_eq!(lines(&clamp(2)), 2);
+        assert_eq!(lines(&clamp(3)), 3);
+        // A clamp no shorter than the run is not a truncation.
+        assert_eq!(lines(";display:-webkit-box;-webkit-line-clamp:none;overflow:visible"), free);
+    }
+
+    /// And the last line it shows ends in an ellipsis, which is the half of
+    /// the property a reader can see. A run the clamp did not cut keeps its
+    /// own last glyph.
+    #[test]
+    fn the_last_clamped_line_ends_in_an_ellipsis() {
+        let edge = |text: &str| {
+            let scene = format!(
+                "buri-scene 1\nviewport 200 40\n\
+                 e 0 width:40px;font-size:12px;display:-webkit-box;\
+                 -webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden\n\
+                 t 1 {text}\n"
+            );
+            last_inked_column(&render_ok(&scene, "", "rest")).unwrap()
+        };
+        let whole = edge("Ada");
+        let cut = edge("Ada bee");
+        assert!(cut > whole, "the ellipsis puts ink past `Ada`: {cut} against {whole}");
+    }
+
+    /// **`text-wrap: balance` evens the lines out.** It breaks a run into the
+    /// number of lines `wrap` gave it, at the narrowest width that still does,
+    /// which is how a browser approximates a balanced heading. The painter
+    /// read the property as one bit, so `balance` painted byte for byte like
+    /// `wrap`.
+    #[test]
+    fn a_balanced_run_evens_its_lines_out_without_adding_one() {
+        let picture = |mode: &str| {
+            let scene = format!(
+                "buri-scene 1\nviewport 200 120\n\
+                 e 0 width:180px;font-size:13px;text-wrap:{mode}\n\
+                 t 1 A sentence long enough that it has to break somewhere, twice over.\n"
+            );
+            render_ok(&scene, "", "rest")
+        };
+        let spread = |image: &Image| {
+            let widths: Vec<u32> =
+                inked_lines(image).iter().map(|&(from, to)| to.saturating_sub(from)).collect();
+            let (top, bottom) = (widths.iter().max().copied(), widths.iter().min().copied());
+            top.unwrap_or(0).saturating_sub(bottom.unwrap_or(0))
+        };
+        let wrapped = picture("wrap");
+        let balanced = picture("balance");
+        assert_eq!(
+            inked_lines(&wrapped).len(),
+            inked_lines(&balanced).len(),
+            "balancing may not cost a line"
+        );
+        assert!(
+            spread(&balanced) < spread(&wrapped),
+            "balanced lines are closer in length: {} against {}",
+            spread(&balanced),
+            spread(&wrapped)
+        );
+    }
+
+    /// A run that already fits on one line has nothing to balance, so it does
+    /// not move.
+    #[test]
+    fn a_balanced_run_of_one_line_paints_where_it_did() {
+        let one = "buri-scene 1\nviewport 200 40\ne 0 width:180px;font-size:13px\nt 1 Ada\n";
+        let two = "buri-scene 1\nviewport 200 40\n\
+                   e 0 width:180px;font-size:13px;text-wrap:balance\nt 1 Ada\n";
+        let render = |scene: &str| {
+            render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap()
+        };
+        assert_eq!(render(one), render(two));
     }
 
     /// A source the painter cannot read — an address is the common one, since
@@ -3045,11 +3624,87 @@ mod tests {
     }
 
     #[test]
-    fn a_descendant_rule_is_skipped() {
-        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:lay\n";
+    fn a_child_rule_lands_on_the_children_and_not_on_the_box_that_names_it() {
+        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:lay\ne 1 width:2px;height:2px\n";
         let sheet = ".lay{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
                      .lay>*{background-color:rgb(255,0,0)}\n";
-        assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
+        let image = render_ok(scene, sheet, "rest");
+        // The child took the rule; the box that carries the class did not.
+        assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 3, 0), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn a_descendant_rule_that_is_not_the_child_one_is_still_skipped() {
+        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:lay\ne 1 width:4px;height:2px\n";
+        let sheet = ".lay p{background-color:rgb(255,0,0)}\n\
+                     .lay *{background-color:rgb(0,255,0)}\n\
+                     .lay>p{background-color:rgb(0,0,255)}\n";
+        assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [255, 255, 255, 255]);
+    }
+
+    /// buri#77: `.lay-layers{display:grid}` with `.lay-layers>*{grid-area:1/1}`
+    /// beside it is how `Layout(.Layers)` is written, and the pair has to put
+    /// every child in the same cell rather than in a column of its own rows.
+    #[test]
+    fn layered_children_share_one_cell() {
+        let scene = "buri-scene 1\nviewport 40 20\n\
+                     e 0 class:lay-layers;width:40px;height:20px\n\
+                     e 1 width:30px;height:15px;background-color:rgb(200,40,40)\n\
+                     e 1 width:20px;height:10px;background-color:rgb(40,150,40)\n\
+                     e 1 width:10px;height:5px;background-color:rgb(40,40,200)\n";
+        let sheet = ".lay-layers{display:grid}\n.lay-layers>*{grid-area:1/1}\n";
+        let image = render_ok(scene, sheet, "rest");
+        // One origin, and the order they were written in is the order they
+        // stack in: the smallest is whole, the largest is only what shows.
+        assert_eq!(at(&image, 0, 0), [40, 40, 200, 255]);
+        assert_eq!(at(&image, 15, 7), [40, 150, 40, 255]);
+        assert_eq!(at(&image, 25, 12), [200, 40, 40, 255]);
+        // 15 tall, not 30: three boxes in one cell, never one under another.
+        assert_eq!(at(&image, 0, 16), [255, 255, 255, 255]);
+    }
+
+    /// buri#89: a snapshot of a password field used to hold the secret as
+    /// ordinary text, so `buri test --update` wrote it into a file somebody
+    /// commits.
+    #[test]
+    fn a_password_field_paints_bullets_and_never_the_value() {
+        let field = |kind: &str, value: &str| {
+            format!(
+                "buri-scene 1\nviewport 80 24\n\
+                 e 0 field:{kind};font-size:12px\n\
+                 t 1 {value}\n"
+            )
+        };
+        let secret = render_ok(&field("password", "Ada"), "", "rest");
+        let bullets = render_ok(&field("text", "\u{2022}\u{2022}\u{2022}"), "", "rest");
+        let clear = render_ok(&field("text", "Ada"), "", "rest");
+        // What a browser draws for `<input type="password">`, one per character.
+        assert_eq!(secret.rgba, bullets.rgba);
+        // And not the secret: the two are different pictures, and the masked
+        // one has ink in it, so "no glyph of Ada" is not "nothing at all".
+        assert_ne!(secret.rgba, clear.rgba);
+        assert!(inked_pixels(&secret) > 0, "the mask painted nothing");
+    }
+
+    /// The other half of the kind, and the only other one this sheet leaves
+    /// visible: an `<input>` is one line whatever is typed into it, and a
+    /// `textarea` is the one kind that wraps.
+    #[test]
+    fn only_a_multiline_field_wraps_its_value() {
+        let field = |kind: &str| {
+            format!(
+                "buri-scene 1\nviewport 60 40\n\
+                 e 0 field:{kind};width:40px;font-size:12px\n\
+                 t 1 one two three four\n"
+            )
+        };
+        let one_line = render_ok(&field("text"), "", "rest");
+        let wrapped = render_ok(&field("multiline"), "", "rest");
+        assert_ne!(one_line.rgba, wrapped.rgba);
+        // The single line runs past the forty pixels the box was given; the
+        // wrapped one does not reach the bottom of the viewport on one line.
+        assert!(inked_pixels(&wrapped) > inked_pixels(&one_line));
     }
 
     #[test]
@@ -3329,11 +3984,24 @@ mod tests {
 
     #[test]
     fn a_selector_with_a_suffix_or_an_unknown_pseudo_is_not_a_rule() {
-        assert_eq!(parse_selector(".p-8"), Some(("p-8".to_string(), None)));
-        assert_eq!(parse_selector(".p-8:hover"), Some(("p-8".to_string(), Some(State::Hover))));
-        let escaped = Some(("hover:bg".to_string(), Some(State::Hover)));
+        assert_eq!(parse_selector(".p-8"), Some(("p-8".to_string(), None, false)));
+        assert_eq!(
+            parse_selector(".p-8:hover"),
+            Some(("p-8".to_string(), Some(State::Hover), false))
+        );
+        let escaped = Some(("hover:bg".to_string(), Some(State::Hover), false));
         assert_eq!(parse_selector(r".hover\:bg:hover"), escaped);
-        assert_eq!(parse_selector(".lay > *"), None);
+        // The one rule about descendants the sheet writes, with and without
+        // the spaces CSS allows around the combinator.
+        assert_eq!(parse_selector(".lay>*"), Some(("lay".to_string(), None, true)));
+        assert_eq!(parse_selector(".lay > *"), Some(("lay".to_string(), None, true)));
+        assert_eq!(
+            parse_selector(".lay:hover>*"),
+            Some(("lay".to_string(), Some(State::Hover), true))
+        );
+        // A descendant, and a named child, are neither.
+        assert_eq!(parse_selector(".lay *"), None);
+        assert_eq!(parse_selector(".lay>p"), None);
         assert_eq!(parse_selector(".p-8:first-child"), None);
         assert_eq!(parse_selector("p-8"), None);
     }

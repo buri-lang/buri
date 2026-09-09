@@ -1,0 +1,12 @@
+// EXPECT: `describe` takes 3 arguments, but 2 were given
+//
+// A `Bool` fills none of the first three positions, so no reading of this call
+// leaves exactly one parameter out. The fix prints the signature rather than
+// guessing.
+fn describe(id: Int, name: Str, ready: Bool): Str {
+  name
+}
+
+fn go(): Str {
+  describe(true, "ready")
+}

@@ -25,7 +25,7 @@ error: there is nothing named `render` in scope [unresolved-name]
    |     ^^^^^^
    |
    = did you mean `rendered`?
-   = fix: correct the spelling, or declare it
+   = fix: if you meant `rendered`, use that; if not, a name is in scope only from this module's own declarations and its imports
 error: `rendered` takes 2 arguments, but 3 were given [wrong-argument-count]
   --> lib/recovery_swap_adjacent_paren_expected_3fee92/main.buri:60:18
    |
@@ -34,13 +34,4 @@ error: `rendered` takes 2 arguments, but 3 were given [wrong-argument-count]
    |
    = expected: 2
    = actual: 3
-   = fix: pass exactly 2
-error: expected `(a context, Str)`, found `fn(_18, _16) => Str` [type-mismatch]
-  --> lib/recovery_swap_adjacent_paren_expected_3fee92/main.buri:60:32
-   |
-60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(
-   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `(a context, Str)`
-   |
-   = expected: `(a context, Str)`
-   = actual: `fn(_18, _16) => Str`
-   = fix: produce a `(a context, Str)` here, or change what surrounds it to accept a `fn(_18, _16) => Str`
+   = fix: pass `rendered` the following arguments: rendered<C: Allocator + Clock>(ctx: C, renderfn: (C, Str))

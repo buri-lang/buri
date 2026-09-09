@@ -7,10 +7,20 @@
 # to nothing — so a picture says which element responded and how, with the cell
 # that did not beside the ones that did.
 #
-# Six kinds, and `describe` puts none of them in the scene: the styles land on
-# the input and the kind decides the keyboard rather than the paint. So the six
-# rows are deliberately identical, and a row that stopped matching its
-# neighbours is the finding.
+# Six kinds, and the scene names each of them — the `type` the markup carries,
+# or `multiline` for the `textarea` that has none. **The password row is the one
+# that paints differently**: its value is one bullet per character, never the
+# word, which is what a browser draws for `<input type="password">`. The other
+# five are deliberately identical, and so are a browser's once `appearance:none`
+# has taken the chrome it would tell them apart by; one of the five that stopped
+# matching its neighbours is the finding. The second difference a browser keeps
+# — only a `textarea` wraps — needs a value longer than this picture's and is
+# pinned in `cli/runtime/paint.rs`.
+#
+# That row is why the scene carries the kind at all. Until buri#89 closed,
+# `describe` dropped it, all six painted alike, and a `buri test --update` on a
+# suite that snapshots a password field wrote the secret into a file somebody
+# commits.
 #
 # The sheet resets `:where(input:not([type=checkbox]),textarea)` to the same
 # control reset a button gets, which is why no `Focus` picture here carries a

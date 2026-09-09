@@ -6,7 +6,6 @@ error: expected `(Str, Str)`, found `(Str, <error>, Str)` [type-mismatch]
    |
    = expected: `(Str, Str)`
    = actual: `(Str, <error>, Str)`
-   = fix: produce a `(Str, Str)` here, or change what surrounds it to accept a `(Str, <error>, Str)`
 error: a tuple element ends with `,` [missing-separator]
   --> main.buri:25:39
    |

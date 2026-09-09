@@ -6,7 +6,6 @@ error: expected `Bool`, found `I64` [type-mismatch]
   |
   = expected: `Bool`
   = actual: `I64`
-  = fix: produce a `Bool` here, or change what surrounds it to accept a `I64`
 error: this `if` condition is missing its closing `)` [unclosed-delimiter]
  --> main.buri:1:34
   |
