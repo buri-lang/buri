@@ -249,6 +249,11 @@ pub enum PatternKind {
     Tuple,
     Array,
     Or,
+    /// A pattern that did not parse. The leaf a recovered arm keeps in place
+    /// of the pattern nobody could read, so that a `match` with a mistake in
+    /// it is a `match` the checker declines to reason about rather than one
+    /// whose arms are the arms that happened to parse.
+    Error,
 }
 
 /// What a type expression is.
@@ -1032,6 +1037,7 @@ impl Tree {
                 span,
             },
             PatternKind::Or => PatView::Or { alts: self.slice(&self.pkids, p[0], p[1]), span },
+            PatternKind::Error => PatView::Error { span },
         }
     }
 
@@ -1341,4 +1347,6 @@ pub enum PatView<'t> {
     Tuple { elems: &'t [PatId], span: Span },
     Array { elems: &'t [PatId], rest: Option<Option<Location>>, span: Span },
     Or { alts: &'t [PatId], span: Span },
+    /// A region of a pattern that did not parse — see [`PatternKind::Error`].
+    Error { span: Span },
 }

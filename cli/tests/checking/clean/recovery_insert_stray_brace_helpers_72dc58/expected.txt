@@ -1,11 +1,3 @@
-error: this `match` does not cover `.Ok(_)` [match-not-exhaustive]
-  --> main.buri:51:5
-   |
-51 |     match (bytes.fromUtf8(ctx, octets)) {
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
-   |
-   = every `match` must cover its scrutinee's type
-   = fix: add an arm for `.Ok(_)`, or a `_` arm for everything left
 error: a match arm is `pattern => expression` [missing-arrow]
   --> main.buri:52:15
    |

@@ -1,15 +1,10 @@
-error [match-not-exhaustive] 9:3-10:16
-message: this `match` does not cover `.Point(_, _)`
-fix: add an arm for `.Point(_, _)`, or a `_` arm for everything left
-note: every `match` must cover its scrutinee's type
-
-error [missing-arrow] 10:16-10:16
+error [missing-arrow] 9:16-9:16
 message: a match arm is `pattern => expression`
 fix: write `=>` here
-edit: 10:16-10:16 " =>"
+edit: 9:16-9:16 " =>"
 
-error [unclosed-delimiter] 11:1-11:1
+error [unclosed-delimiter] 10:1-10:1
 message: this variant payload pattern is missing its closing `)`
 fix: write `)` here
-related: 10:11-10:12 opened here
+related: 9:11-9:12 opened here
 

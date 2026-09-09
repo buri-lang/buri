@@ -15,8 +15,3 @@ message: there is no type `Ranking.Less`
 fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value
 note: a bare identifier in a pattern is always a binding; a variant is written `.Variant` or `Enum.Variant`
 
-error [unreachable-arm] 8:5-8:11
-message: this arm is unreachable
-fix: delete it, or move it above the arm that subsumes it
-note: the arms before it already cover everything it matches
-

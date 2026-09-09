@@ -125,6 +125,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         depth: 0,
         trial: 0,
         chain: 0,
+        arm_body: 0,
     };
     let mut module = p.module();
     // `//!` documents the module, so it belongs above everything. One that
@@ -483,6 +484,10 @@ struct Parser<'a> {
     /// a loop passes its own count to [`Parser::link`] instead, so there is
     /// nothing for it to leak.
     chain: u32,
+    /// How many match-arm bodies the parser is inside. Non-zero is the one
+    /// place a `.` may belong to the *next* arm rather than to the expression
+    /// under the cursor — see [`Parser::arm_pattern_follows`].
+    arm_body: u32,
 }
 
 /// How deep the grammar may nest a production inside itself: an expression
@@ -828,6 +833,18 @@ impl<'a> Parser<'a> {
         self.tree.push(Kind::Error, [0; 4], span, at)
     }
 
+    /// The same leaf, in pattern position.
+    ///
+    /// An arm whose pattern did not parse is kept rather than dropped: a
+    /// `match` the parser could not read whole is not a `match` with fewer
+    /// arms, and a checker handed the arms that happened to parse will say the
+    /// scrutinee is not covered — a type error invented downstream of a syntax
+    /// error.
+    fn error_pattern(&mut self, span: Span) -> PatId {
+        let at = self.tree.next_pat();
+        self.tree.ppush(PatternKind::Error, [0; 4], span, at)
+    }
+
     /// The chain design/grammar-rationale.md 12.13 refuses, named where a reader would otherwise be
     /// told the enclosing block is missing its `}`.
     ///
@@ -945,6 +962,102 @@ impl<'a> Parser<'a> {
             }
         }
         None
+    }
+
+    /// Whether the `.` under the cursor opens the *next* match arm's pattern.
+    ///
+    /// A match arm ends with `,` even after a brace-terminated body
+    /// (design/grammar-rationale.md 12.12), and when that comma is missing the
+    /// arm before it reads on: `.Circle => 1` followed by `.Square => 4` is the
+    /// field access `1.Square`, and the checker is then asked what field
+    /// `Square` of `Int` is — a type error invented downstream of a syntax
+    /// error, with the `match` losing an arm as well.
+    ///
+    /// What tells the two readings apart is the `=>`, and it has to be *this*
+    /// `.`'s own arrow: `assert.isTrue(true)` followed by `.Some(x) => …` has
+    /// one two tokens further on, and stopping the chain at `assert` would
+    /// report a comma before a field access somebody wrote. So the shape asked
+    /// for is a whole variant pattern — `.Name`, with a payload or a field list
+    /// if it has one, and a guard or another alternative if it has one — and
+    /// then the arrow. No expression the grammar has ends in `=>`, so nothing
+    /// a person wrote can match it.
+    fn arm_pattern_follows(&self) -> bool {
+        let mut i = self.pos.saturating_add(1);
+        if self.kind_at(i) != TokenKind::Ident {
+            return false;
+        }
+        i = i.saturating_add(1);
+        match self.kind_at(i) {
+            TokenKind::LParen => i = match self.past_group(i, TokenKind::RParen) {
+                Some(j) => j,
+                None => return false,
+            },
+            TokenKind::LBrace => i = match self.past_group(i, TokenKind::RBrace) {
+                Some(j) => j,
+                None => return false,
+            },
+            _ => {}
+        }
+        match self.kind_at(i) {
+            TokenKind::FatArrow => true,
+            // A guard or a further alternative stands between the pattern and
+            // its arrow, and either of them is an arbitrary run of tokens — so
+            // this is the one part that scans, bounded like every other
+            // lookahead here and stopped by anything that would end the arm.
+            TokenKind::KeywordIf | TokenKind::Or => self.arrow_before_the_arm_ends(i),
+            _ => false,
+        }
+    }
+
+    /// The index just past the group opening at `i`, or `None` if it does not
+    /// close with `close` within the lookahead bound.
+    ///
+    /// `None` where the group is unclosed rather than merely long, which is
+    /// the answer the caller wants: a payload without its `)` is not a payload
+    /// the parser can read as one, so the `.` before it is not an arm's.
+    fn past_group(&self, i: usize, close: TokenKind) -> Option<usize> {
+        let mut depth = 0i32;
+        for steps in 0..MAX_CLOSE_LOOKAHEAD {
+            let at = i.saturating_add(steps);
+            let t = self.kind_at(at);
+            match t {
+                TokenKind::Eof => return None,
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
+                    depth = depth.saturating_add(1);
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
+                    depth = depth.saturating_sub(1);
+                    if depth <= 0 {
+                        return (t == close && depth == 0).then(|| at.saturating_add(1));
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// Whether a `=>` comes before anything that would end the arm.
+    fn arrow_before_the_arm_ends(&self, from: usize) -> bool {
+        let mut depth = 0i32;
+        for steps in 0..MAX_CLOSE_LOOKAHEAD {
+            match self.kind_at(from.saturating_add(steps)) {
+                TokenKind::FatArrow if depth <= 0 => return true,
+                TokenKind::Eof => return false,
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
+                    depth = depth.saturating_add(1);
+                }
+                TokenKind::Comma | TokenKind::Semi if depth <= 0 => return false,
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket if depth <= 0 => {
+                    return false;
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// A `;` that ends a declaration or a statement, named for what it ends.
@@ -2510,8 +2623,19 @@ impl<'a> Parser<'a> {
                 Ok(a) => self.scratch.arms.push(a),
                 Err(Bail) => {
                     let depth = self.open_delimiters_since(save.pos);
+                    let from = self.tokens.span(self.at(save.pos));
                     self.restore(save);
                     self.sync_match_arm(depth);
+                    // The arm stays, as the leaf that says a mistake was here.
+                    let span = from.to(self.prev_span());
+                    let pattern = self.error_pattern(span);
+                    let body = self.error_expr(span);
+                    self.scratch.arms.push(ArmData {
+                        pattern: pattern.0,
+                        guard: NONE,
+                        body: body.0,
+                        span: Location::of(span),
+                    });
                     if self.is(Punctuation::RBrace) {
                         break;
                     }
@@ -2541,7 +2665,10 @@ impl<'a> Parser<'a> {
         let pattern = self.pattern()?;
         let guard = if self.eat_keyword(Keyword::If) { self.expr()?.0 } else { NONE };
         self.expect_arrow()?;
-        let body = self.expr()?;
+        self.arm_body = self.arm_body.saturating_add(1);
+        let body = self.expr();
+        self.arm_body = self.arm_body.saturating_sub(1);
+        let body = body?;
         Ok(ArmData {
             pattern: pattern.0,
             guard,
@@ -2753,6 +2880,13 @@ impl<'a> Parser<'a> {
             let start = self.tree.span(base);
             match self.peek() {
                 TokenKind::Dot => {
+                    // Inside a match arm's body, a `.` that leads to `=>` is
+                    // the next arm's pattern with the comma between them
+                    // missing — see `arm_pattern_follows`. Stopping here is
+                    // what lets `more_elements` report that one comma.
+                    if self.arm_body > 0 && self.arm_pattern_follows() {
+                        return Ok(base);
+                    }
                     self.bump();
                     match self.peek() {
                         // Tuple element access. `t.0.1` lexes as `t` `.` `0.1`,
