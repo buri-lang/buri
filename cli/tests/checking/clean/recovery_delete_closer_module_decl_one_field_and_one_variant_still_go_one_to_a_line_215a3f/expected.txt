@@ -14,15 +14,3 @@ error: expected an identifier, found `enum` [unexpected-token]
   = expected: an identifier
   = actual: `enum`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: this `enum` is missing its closing `}` [unclosed-delimiter]
-  --> main.buri:10:1
-   |
-10 | 
-   | ^
-   |
- --> main.buri:7:19
-  |
-7 | export enum Hello { World, Now(Bool) 
-  |                   ^ opened here
-  |
-  = fix: write `}` here

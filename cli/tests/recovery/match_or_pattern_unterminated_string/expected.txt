@@ -1,9 +1,4 @@
-error [unterminated-string] 5:25-6:1
+error [unterminated-string] 4:25-5:1
 message: unterminated string literal
 fix: close it with `"`; a string literal does not span a line break
-
-error [missing-separator] 5:25-5:25
-message: a match arm ends with `,`
-fix: write `,` here
-edit: 5:25-5:25 ","
 

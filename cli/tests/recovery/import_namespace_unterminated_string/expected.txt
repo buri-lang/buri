@@ -1,12 +1,8 @@
-error [unterminated-string] 3:34-4:1
+error [unterminated-string] 2:34-3:1
 message: unterminated string literal
 fix: close it with `"`; a string literal does not span a line break
 
-error [unexpected-token] 5:8-5:10
-message: expected `{`, found `fn`
-fix: write `{` here
-
-error [unresolved-name] 6:3-6:7
+error [unresolved-name] 5:3-5:7
 message: there is nothing named `list` in scope
 fix: declare `list`, or import it — a name is in scope only from this module's own declarations and its imports
 

@@ -338,6 +338,10 @@ pub struct BlockData {
     pub stmts_len: u32,
     pub tail: u32,
     pub span: Location,
+    /// The closing `}` was never written, so where this block ends is the
+    /// parser's guess. Everything it read is text the mistake moved, which is
+    /// why the checker draws nothing from it — see `Infer::check_block`.
+    pub broken: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -427,7 +431,7 @@ pub struct PatPayloadData {
     pub len: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<BlockData>() == 20);
+const _: () = assert!(std::mem::size_of::<BlockData>() == 24);
 const _: () = assert!(std::mem::size_of::<StmtData>() == 24);
 const _: () = assert!(std::mem::size_of::<ArmData>() == 20);
 const _: () = assert!(std::mem::size_of::<InitData>() == 20);
@@ -710,6 +714,7 @@ impl Tree {
             stmts_len: 0,
             tail: NONE,
             span: Location::default(),
+            broken: false,
         })
     }
 

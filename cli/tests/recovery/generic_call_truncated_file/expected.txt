@@ -1,15 +1,3 @@
-error [type-mismatch] 6:29-7:15
-message: expected `I64`, found `Bool`
-
-error [missing-conformance] 7:3-7:15
-message: `fn(_0) => _0` does not implement `Ordered`
-fix: bound the type parameter with `Ordered`, so the method is available
-
-error [unresolved-name] 7:12-7:15
-message: there is nothing named `Int` in scope
-fix: if you meant `n`, use that; if not, a name is in scope only from this module's own declarations and its imports
-note: did you mean `n`?
-
 error [unclosed-delimiter] 8:1-8:1
 message: this function body is missing its closing `}`
 fix: write `}` here

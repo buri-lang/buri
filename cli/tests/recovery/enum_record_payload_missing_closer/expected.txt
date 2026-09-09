@@ -2,8 +2,3 @@ error [unexpected-token] 4:8-4:9
 message: expected `:`, found `,`
 fix: write `:` here
 
-error [unclosed-delimiter] 6:1-6:1
-message: this `enum` is missing its closing `}`
-fix: write `}` here
-related: 2:19-2:20 opened here
-
