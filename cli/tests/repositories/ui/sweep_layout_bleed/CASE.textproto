@@ -1,0 +1,74 @@
+# `Bleed`: how far past its parent's edge a child reaches. It is the only
+# property that writes a margin, and the only way out of the box a container
+# put a child in — so these five pictures are the whole of what it can do.
+#
+# `bleed-divider.png` is buri#105, the full-width rule inside a padded menu, and
+# `bleed-overlap.png` is buri#109, the avatar group whose children lap the one
+# before them. Both used to be unwriteable: the vocabulary had no margin at all.
+#
+# `bleed-lengths.png` holds the two that bleed nothing — `.Auto`, which is no
+# distance, and a negative one, which would be the inward margin the container
+# owns. Their rows are the ground with nothing out of it, on purpose.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "every edge and every length a bleed takes, the padded menu it bleeds out of, and the siblings it laps"
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/scenes/test/__snapshots__/bleed-overlap.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to record
+# one rather than showing a difference against nothing.
+edit {
+  file: "lib/scenes/test/bleed.buri"
+  replace: "\"bleed-edges\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
+
+# `--update` records the one that was missing and rewrites the rest, and the
+# run after it compares against what it just wrote.
+run {
+  args: ["test", "//lib/scenes", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: the first avatar of the last row stops pulling the next one
+# back — a distance of nothing is no bleed — and only the picture that holds it
+# fails.
+edit {
+  file: "lib/scenes/scenes.buri"
+  replace: ".Bleed(.End, .Px(8)),"
+  with: ".Bleed(.End, .Px(0)),"
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/bleed-overlap.diff.png"  exists: true }
+path { path: "lib/scenes/test/__snapshots__/bleed-divider.diff.png"  exists: false }
