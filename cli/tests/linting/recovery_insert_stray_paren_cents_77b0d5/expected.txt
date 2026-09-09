@@ -20,4 +20,4 @@ error: `Cents` holds 2 values, but 1 were given [wrong-value-count]
   |
   = expected: 2
   = actual: 1
-  = fix: pass exactly 2
+  = fix: pass `Cents` the following values: Cents(extra, I64)

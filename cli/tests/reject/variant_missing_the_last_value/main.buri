@@ -1,0 +1,12 @@
+// EXPECT: `Pair` holds 2 values, but 1 were given
+//
+// A variant is a constructor too, and the shape the fix prints is the one the
+// enum declares.
+enum Shape {
+  Pair(Int, Str),
+  Empty,
+}
+
+fn go(): Shape {
+  .Pair(1)
+}

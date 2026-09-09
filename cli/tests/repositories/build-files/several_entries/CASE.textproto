@@ -115,9 +115,23 @@ run {
   golden: "no_such_entry.txt"
 }
 
+# …and when the spelling is close, the fix names the candidate rather than
+# leaving it in a note the reader has to act on themselves.
 edit {
   file: "cmd/site/BUILD.buri"
   replace: "entry: \"handle\""
+  with: "entry: \"fetsh\""
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "entry_is_a_near_miss.txt"
+}
+
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "entry: \"fetsh\""
   with: "entry: \"fetch\""
 }
 

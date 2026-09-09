@@ -772,7 +772,7 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                     // finished. The same rule the reject corpus enforces.
                     if golden.ends_with(".json") {
                         for (n, line) in printed.lines().enumerate() {
-                            if line.starts_with('{') && !line.contains("\"fix\":") {
+                            if super::is_a_diagnostic_with_no_fix(line) {
                                 g.fail(format!(
                                     "{}/{golden}: diagnostic {} carries no `fix`:\n{}",
                                     case.name,
@@ -853,11 +853,20 @@ pub fn run_case(case: &Case, g: &mut Golden) {
 }
 
 /// The whole body of a corpus test.
+///
+/// The cases run at once — see [`super::pool`] — and each gets a [`Golden`] of
+/// its own, absorbed afterwards in the corpus's own order. So what a failing
+/// run prints is what a one-case-at-a-time run printed, and the only thing the
+/// threads decide is when each case runs.
 pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
     let mut g = Golden::new();
     let cases = super::case_dirs(dir, "CASE.textproto", floor);
-    for dir in &cases {
-        run_case(&load_case(dir), &mut g);
+    for found in super::pool::map(&cases, |dir| {
+        let mut one = Golden::new();
+        run_case(&load_case(dir), &mut one);
+        one
+    }) {
+        g.absorb(found);
     }
     g.finish(what, cases.len());
     // Last, and on the bytes the run above has just written: see

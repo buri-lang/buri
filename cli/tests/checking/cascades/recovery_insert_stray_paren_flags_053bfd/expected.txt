@@ -6,7 +6,7 @@ error: `any` takes 1 arguments, but 2 were given [wrong-argument-count]
   |
   = expected: 1
   = actual: 2
-  = fix: pass exactly 1
+  = fix: pass `any` the following arguments: any(self, predicate: fn(T) => Bool)
 error: there is nothing named `extra` in scope [unresolved-name]
  --> main.buri:7:31
   |

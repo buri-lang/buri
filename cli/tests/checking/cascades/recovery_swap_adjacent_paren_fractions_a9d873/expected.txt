@@ -6,7 +6,7 @@ error: `secondsFloat` takes 1 arguments, but 2 were given [wrong-argument-count]
    |
    = expected: 1
    = actual: 2
-   = fix: pass exactly 1
+   = fix: pass `secondsFloat` the following arguments: secondsFloat(seconds: Float)
 error: a call argument ends with `,` [missing-separator]
   --> main.buri:42:32
    |

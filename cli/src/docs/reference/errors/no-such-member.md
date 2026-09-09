@@ -12,8 +12,13 @@ error: "core/fs" has no member `appendBytes` [no-such-member]
 
 ## What to do
 
-Correct the member name. The diagnostic lists what the module exports, and
-offers the nearest of them when the name is a near miss.
+Correct the member name. The diagnostic lists what the module exports, and where
+one of them is a near miss the fix names it: "if you meant `readText`, use that;
+if not, `buri docs core/fs` lists what the module exports".
+
+A name the standard library renamed is not a guess, so it gets the answer
+instead — `sqrt` was renamed to `squareRoot` — and a name it removed says what
+covers it now: `ZERO` was removed; write `time.nanoseconds(0)`.
 
 ## Why
 
@@ -36,5 +41,14 @@ from "core/path" import * as path;
 
 export fn appendWal<C: Allocator + FileSystemWrite>(ctx: C): Bool {
     fs.appendBytes(ctx, path.of(ctx, "wal"))
+}
+```
+
+```buri fail code=no-such-member
+from "core/effect" import { Allocator };
+from "core/math" import * as math;
+
+export fn root<C: Allocator>(ctx: C): Float {
+    math.sqrt(2.0)
 }
 ```

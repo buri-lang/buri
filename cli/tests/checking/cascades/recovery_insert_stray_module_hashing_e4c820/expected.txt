@@ -27,7 +27,7 @@ error: `_1` has no method `hash` [no-such-method]
 21 |     assert.equal(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
    |                                                                             ^^^^
    |
-   = fix: check the spelling, or declare it in `impl _1 { ... }` in that type's own module — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl _1 { ... }` in that type's own module
 error: there is nothing named `bigint` in scope [unresolved-name]
   --> main.buri:22:18
    |
@@ -62,7 +62,7 @@ error: `_4` has no method `hash` [no-such-method]
 25 |         assert.some(bigint.parse(ctx, "1267650600228229401496703205376")).hash(),
    |                                                                           ^^^^
    |
-   = fix: check the spelling, or declare it in `impl _4 { ... }` in that type's own module — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl _4 { ... }` in that type's own module
 error: there is nothing named `bigint` in scope [unresolved-name]
   --> main.buri:36:21
    |

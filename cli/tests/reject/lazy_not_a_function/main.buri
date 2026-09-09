@@ -1,4 +1,4 @@
-// EXPECT: `load` takes the name of a function, and this is _1
+// EXPECT: `load` takes the name of a function, and this is Int
 from "core/lazy" import * as lazy;
 
 fn eager(): Int {

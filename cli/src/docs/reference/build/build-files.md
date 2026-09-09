@@ -271,6 +271,11 @@ artifact's name, which is the package's directory name. `lang` is the BCP 47 tag
 on `<html>`, and unset it is `en`. Both are escaped, so a title is text and not
 markup. Every other platform writes no document and ignores the block.
 
+The shell names the module and the stylesheet from the root — `/main.mjs` and
+`/main.css` — because it is the document every route answers with, and a
+relative name would resolve against whatever path the reader arrived on. So
+serve the artifact directory at the site's root.
+
 A *server-rendered* page names its own head instead — `ui/web`'s `Document`, on
 the `shell` call — because there the title follows the route.
 [Build a website](../../guides/websites.md) has both halves.

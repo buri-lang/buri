@@ -377,10 +377,9 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
                 None => match info.methods.get(*method) {
                     Some(m) => (
                         format!(
-                            "fn {}({}): {}",
-                            m.name,
-                            parameters(tables, &m.params),
-                            types::show(tables, None, &[], &m.ret)
+                            "fn {}: {}",
+                            types::call_signature(tables, &m.name, &m.generics, &m.params),
+                            types::show(tables, None, &m.generics, &m.ret)
                         ),
                         Vec::new(),
                     ),
@@ -1536,21 +1535,10 @@ fn function_syntax(analyzed: &Analyzed, id: FnId) -> Option<(&flat::Tree, &tree:
 fn function_from_table(tables: &Tables, id: FnId) -> String {
     let info = tables.fn_info(id);
     format!(
-        "fn {}({}): {}",
-        info.name,
-        parameters(tables, &info.params),
-        types::show(tables, None, &[], &info.ret)
+        "fn {}: {}",
+        types::call_signature(tables, &info.name, &info.generics, &info.params),
+        types::show(tables, None, &info.generics, &info.ret)
     )
-}
-
-fn parameters(tables: &Tables, params: &[types::ParamInfo]) -> String {
-    params
-        .iter()
-        .map(|p| {
-            format!("{}: {}", p.name, types::show(tables, None, &[], &p.ty))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 fn field_info(

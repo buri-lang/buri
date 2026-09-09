@@ -8,7 +8,7 @@
 use crate::build::buildfile::nearest;
 use crate::compiler::modules::Role;
 use crate::compiler::semantics::inference::{Infer, LitCheck};
-use crate::compiler::semantics::resolve::Sym;
+use crate::compiler::semantics::resolve::{Checker, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
@@ -27,6 +27,41 @@ enum Static {
     Const(ConstId),
     /// A tuple struct's name, which constructs one: `Meters(9.8)`.
     TupleStruct(TyConId),
+}
+
+/// A call that supplied the wrong number of things, and what it was measured
+/// against: a function's parameters, a function type's, or a constructor's
+/// values.
+///
+/// `fill` and `types` are what the arguments fill, so a method's receiver and
+/// the parameter it fills are not among them: the first as the declaration
+/// wrote them, the second as they stand at this call. A slot with no name of
+/// its own — a function type's parameter, a tuple's field — carries the empty
+/// one, and the fix that reports it says the position instead.
+struct Miscounted<'x> {
+    fill: &'x [ParamInfo],
+    types: &'x [Ty],
+    args: &'x [ExprId],
+    checked: &'x [typed::Expr],
+}
+
+/// A slot in a shape that names none: a function type's parameter, or one of a
+/// tuple constructor's values.
+fn unnamed_slot(ty: &Ty, span: Span) -> ParamInfo {
+    ParamInfo { name: String::new(), ty: ty.clone(), role: ParamRole::Normal, span }
+}
+
+/// `2` as "second". A fix names a position in prose where the thing at that
+/// position has no name to give.
+fn ordinal(n: usize) -> String {
+    const WORDS: [&str; 10] = [
+        "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+        "tenth",
+    ];
+    match WORDS.get(n.saturating_sub(1)) {
+        Some(word) => (*word).to_string(),
+        None => format!("{n}th"),
+    }
 }
 
 /// Where a method call dispatches.
@@ -590,19 +625,27 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             None => {
                 let _ = expected;
-                let mut note = None;
-                if self.c.scope(self.module).namespaces.contains_key(name) {
+                let note;
+                let fix;
+                if let Some((said, write)) = standard_library::renamed::anywhere(name) {
+                    note = Some(said);
+                    fix = write;
+                } else if self.c.scope(self.module).namespaces.contains_key(name) {
                     note = Some(format!("`{name}` is a module namespace; name a member of it"));
+                    fix = "correct the spelling, or declare it".to_string();
                 } else if let Some(near) = self.nearest_value(name) {
                     note = Some(format!("did you mean `{near}`?"));
-                }
-                let fix = match &note {
-                    Some(_) => "correct the spelling, or declare it".to_string(),
-                    None => format!(
+                    fix = crate::diagnostics::candidate_fix(
+                        &near,
+                        crate::diagnostics::NAMES_IN_SCOPE,
+                    );
+                } else {
+                    note = None;
+                    fix = format!(
                         "declare `{name}`, or import it — a name is in scope only from this \
                          module's own declarations and its imports"
-                    ),
-                };
+                    );
+                }
                 let d = self.templated("unresolved-name", span).bind("name", name);
                 d.fix(fix);
                 if let Some(n) = note {
@@ -774,16 +817,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             Some(Ty::Con(c, ts)) if c == con => ts,
             _ => (0..arity).map(|_| self.fresh(span)).collect(),
         };
-        if args.len() != fields.len() {
-            let n = self.c.tables.tycon(con).name.clone();
-            let have = args.len();
-            let want = fields.len();
-            self.templated("wrong-value-count", span)
-                .bind("name", n)
-                .bind("expected", want.to_string())
-                .bind("given", have.to_string())
-                .mismatch(want.to_string(), have.to_string());
-        }
         // A struct with any private field cannot be constructed from scratch
         // outside its module.
         for i in 0..fields.len() {
@@ -791,7 +824,25 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let param_types: Vec<Ty> =
             fields.iter().map(|f| substitute(&f.ty, &targs, None)).collect();
-        let checked = self.check_args(args, &param_types);
+        let checked = if args.len() == param_types.len() {
+            self.check_args(args, &param_types)
+        } else {
+            let name = self.c.tables.tycon(con).name.clone();
+            let shape = shape_of_struct(self.c, con);
+            // A tuple struct's fields are numbered, not named, so there is
+            // nothing here for a fix to quote.
+            let fill: Vec<ParamInfo> =
+                param_types.iter().map(|t| unnamed_slot(t, span)).collect();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted {
+                fill: &fill,
+                types: &param_types,
+                args,
+                checked: &checked,
+            };
+            self.report_wrong_value_count(span, &name, &shape, &call);
+            checked
+        };
         let ty = Ty::Con(con, targs.clone());
         typed::Expr::new(typed::ExprKind::StructLit { con, targs, fields: checked }, ty, span)
     }
@@ -867,15 +918,22 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let cty = self.resolve(&c.ty);
                 match cty {
                     Ty::Fn(params, ret) => {
-                        if params.len() != args.len() {
-                            let want = params.len();
-                            let got = args.len();
-                            self.templated("argument-count-mismatch", span)
-                                .bind("expected", want.to_string())
-                                .bind("found", got.to_string())
-                                .mismatch(want.to_string(), got.to_string());
-                        }
-                        let checked = self.check_args(args, &params);
+                        let checked = if params.len() == args.len() {
+                            self.check_args(args, &params)
+                        } else {
+                            let shown = self.show_ty(&Ty::Fn(params.clone(), ret.clone()));
+                            let fill: Vec<ParamInfo> =
+                                params.iter().map(|t| unnamed_slot(t, span)).collect();
+                            let checked = self.check_unpaired(args);
+                            let call = Miscounted {
+                                fill: &fill,
+                                types: &params,
+                                args,
+                                checked: &checked,
+                            };
+                            self.report_argument_count_mismatch(span, &shown, &call);
+                            checked
+                        };
                         typed::Expr::new(
                             typed::ExprKind::CallValue { callee: Box::new(c), args: checked },
                             *ret,
@@ -963,24 +1021,6 @@ impl<'a, 'b> Infer<'a, 'b> {
         // than a claim about the declaration.
         let expected_args =
             if receiver.is_some() { params.len().saturating_sub(1) } else { params.len() };
-        if args.len() != expected_args {
-            let (name, takes_ctx) = {
-                let info = self.c.tables.fn_info(f);
-                (info.name.clone(), info.params.iter().any(|p| p.role == ParamRole::Ctx))
-            };
-            let have = args.len();
-            let mut d = Diagnostic::templated("wrong-argument-count", span)
-                .with_bind("function", name.clone())
-                .with_bind("expected", expected_args.to_string())
-                .with_bind("given", have.to_string())
-                .with_mismatch(expected_args.to_string(), have.to_string());
-            // The most common cause is forgetting the context, which is always
-            // the parameter right after the receiver.
-            if takes_ctx && have.saturating_add(1) == expected_args {
-                d = d.with_fix("pass the context: the convention is receiver first, context second, everything else after");
-            }
-            self.c.diags.push(d);
-        }
 
         let mut hir_args = Vec::new();
         // The receiver takes the first slot and the arguments are checked
@@ -994,7 +1034,24 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             hir_args.push(r);
         }
-        hir_args.extend(self.check_args(args, param_types));
+        if args.len() == expected_args {
+            hir_args.extend(self.check_args(args, param_types));
+        } else {
+            let (name, declared) = {
+                let info = self.c.tables.fn_info(f);
+                (info.name.clone(), info.params.clone())
+            };
+            let signature = signature_of_fn(self.c, f);
+            // The receiver fills the first parameter, so neither it nor that
+            // parameter takes part in what the arguments are lined up against.
+            let taken = declared.len().saturating_sub(param_types.len());
+            let fill: Vec<ParamInfo> = declared.into_iter().skip(taken).collect();
+            let types = param_types.to_vec();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted { fill: &fill, types: &types, args, checked: &checked };
+            self.report_wrong_argument_count(span, &name, &signature, &call);
+            hir_args.extend(checked);
+        }
         self.check_lazy_load(f, &hir_args, args, span);
         typed::Expr::new(
             typed::ExprKind::CallFn {
@@ -1004,6 +1061,160 @@ impl<'a, 'b> Infer<'a, 'b> {
             ret,
             span,
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // A call that does not pass what the declaration takes
+    // -----------------------------------------------------------------------
+
+    /// The arguments of a call whose count is already wrong, each checked on
+    /// its own.
+    ///
+    /// Pairing them with the parameters left to right would be a guess — the
+    /// call is short somewhere, or long — and a guess that lands wrong is a
+    /// type error about an argument that is fine, printed under a diagnostic
+    /// that has already said what the mistake was.
+    fn check_unpaired(&mut self, args: &[ExprId]) -> Vec<typed::Expr> {
+        args.iter().map(|a| self.check_expr(*a, None)).collect()
+    }
+
+    /// Reports the count, and prints what the declaration takes.
+    fn report_wrong_argument_count(
+        &mut self,
+        span: Span,
+        name: &str,
+        signature: &str,
+        call: &Miscounted<'_>,
+    ) {
+        let mut d = Diagnostic::templated("wrong-argument-count", span)
+            .with_bind("function", name.to_string())
+            .with_bind("expected", call.types.len().to_string())
+            .with_bind("given", call.checked.len().to_string())
+            .with_bind("signature", signature.to_string())
+            .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
+        if let Some(at) = self.missing_slot(call) {
+            let missing = call.fill.get(at).map_or(String::new(), |p| p.name.clone());
+            d = d.with_fix(format!("`{name}` requires a `{missing}` parameter: {signature}"));
+        }
+        self.c.diags.push(d);
+    }
+
+    /// The same for a call through a value, whose type has parameters and no
+    /// names for them: what is missing is named by its position.
+    fn report_argument_count_mismatch(
+        &mut self,
+        span: Span,
+        shown: &str,
+        call: &Miscounted<'_>,
+    ) {
+        let mut d = Diagnostic::templated("argument-count-mismatch", span)
+            .with_bind("expected", call.types.len().to_string())
+            .with_bind("found", call.checked.len().to_string())
+            .with_bind("type", shown.to_string())
+            .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
+        if let Some(at) = self.missing_slot(call) {
+            let which = ordinal(at.saturating_add(1));
+            d = d.with_fix(format!("the {which} argument is missing: {shown}"));
+        }
+        self.c.diags.push(d);
+    }
+
+    /// And for a constructor. Its values are positional however the
+    /// declaration writes them, so the position is what a fix can name.
+    fn report_wrong_value_count(
+        &mut self,
+        span: Span,
+        name: &str,
+        shape: &str,
+        call: &Miscounted<'_>,
+    ) {
+        let mut d = Diagnostic::templated("wrong-value-count", span)
+            .with_bind("name", name.to_string())
+            .with_bind("expected", call.types.len().to_string())
+            .with_bind("given", call.checked.len().to_string())
+            .with_bind("shape", shape.to_string())
+            .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
+        if let Some(at) = self.missing_slot(call) {
+            let which = ordinal(at.saturating_add(1));
+            d = d.with_fix(format!("`{name}` is missing its {which} value: {shape}"));
+        }
+        self.c.diags.push(d);
+    }
+
+    /// The position the call left out, where the arguments say which.
+    ///
+    /// Only when exactly one is missing, and only when exactly one position
+    /// answers: a call whose arguments line up two ways has not said which one
+    /// it forgot, and a guess would send the reader to the wrong end of the
+    /// line. Then the fix prints the shape and names nothing.
+    fn missing_slot(&self, call: &Miscounted<'_>) -> Option<usize> {
+        let Miscounted { fill, types, args, checked, .. } = *call;
+        if checked.len().saturating_add(1) != types.len() || fill.len() != types.len() {
+            return None;
+        }
+        let mut found: Option<usize> = None;
+        for skip in 0..types.len() {
+            // One copy per reading: an alignment is a sequence of unifications,
+            // and the ones a losing reading made must not be left behind.
+            let mut probe = self.subst.clone();
+            let lines_up = checked.iter().zip(args).enumerate().all(|(i, (arg, id))| {
+                let at = if i < skip { i } else { i.saturating_add(1) };
+                match (fill.get(at), types.get(at)) {
+                    (Some(p), Some(want)) => self.argument_fits(*id, &arg.ty, p, want, &mut probe),
+                    _ => false,
+                }
+            });
+            if !lines_up {
+                continue;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = Some(skip);
+        }
+        found
+    }
+
+    /// Whether this argument could be the one that parameter takes.
+    ///
+    /// A dot form has no type of its own — it takes one from where it is
+    /// passed — and still says what kind of parameter it could fill: an enum
+    /// with that variant, and nothing else. A `ctx` parameter takes a context,
+    /// and a value that carries no effect is not one, which is what makes a
+    /// forgotten context nameable rather than a guess between two positions.
+    fn argument_fits(
+        &self,
+        arg: ExprId,
+        ty: &Ty,
+        param: &ParamInfo,
+        want: &Ty,
+        probe: &mut Subst,
+    ) -> bool {
+        if let Some(variant) = self.dot_form(arg) {
+            let Ty::Con(con, _) = probe.shallow(want) else { return false };
+            return self.c.tables.variant_index(con, &variant).is_some();
+        }
+        let resolved = probe.shallow(ty);
+        if !resolved.is_error()
+            && self.c.tables.is_effect_carrying(&resolved, &self.generics)
+                != (param.role == ParamRole::Ctx)
+        {
+            return false;
+        }
+        probe.unify(&self.c.tables, ty, want).is_ok()
+    }
+
+    /// The variant a `.Some(x)` or a bare `.None` names.
+    fn dot_form(&self, e: ExprId) -> Option<String> {
+        let t = self.tree();
+        let head = match t.expr(e) {
+            V::Call { callee, .. } => t.strip_type_args(callee),
+            _ => e,
+        };
+        match t.expr(head) {
+            V::DotVariant { name, .. } => Some(name.to_string()),
+            _ => None,
+        }
     }
 
     /// `core/lazy`'s `load` takes the **name of a function**, and nothing else.
@@ -1040,9 +1251,21 @@ impl<'a, 'b> Infer<'a, 'b> {
             return;
         }
         let at = args.first().map(|a| self.tree().span(*a)).unwrap_or(span);
-        let described = match &arg.ty {
+        // Named through the solver, never around it: the argument is checked
+        // before anything settles it, so rendering the bare `Ty` told a reader
+        // their `lazy.load(3)` "is _1". A literal answers with the type it
+        // defaults to, and a variable nothing constrains says so in words.
+        let resolved = self.resolve(&arg.ty);
+        let described = match &resolved {
             Ty::Fn(..) => String::from("a function value"),
-            other => crate::compiler::semantics::types::show(&self.c.tables, None, &[], other),
+            other => {
+                let spelled =
+                    show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, other);
+                match spelled {
+                    Spelling::Unconstrained => spelled.quoted(),
+                    _ => spelled.name().to_string(),
+                }
+            }
         };
         self.c.diags.push(
             Diagnostic::templated("lazy-not-a-function", at).with_bind("got", described),
@@ -1412,17 +1635,18 @@ impl<'a, 'b> Infer<'a, 'b> {
         // The receiver takes the first parameter, so the arguments are checked
         // against what is left.
         let rest = params.split_first().map_or(&[][..], |(_, rest)| rest);
-        if args.len() != rest.len() {
+        if args.len() == rest.len() {
+            hir_args.extend(self.check_args(args, rest));
+        } else {
             let name = method.name.clone();
-            let want = rest.len();
-            let have = args.len();
-            self.templated("wrong-argument-count", span)
-                .bind("function", name)
-                .bind("expected", want.to_string())
-                .bind("given", have.to_string())
-                .mismatch(want.to_string(), have.to_string());
+            let signature = signature_of_trait_method(self.c, tid, index);
+            let fill: Vec<ParamInfo> = method.params.iter().skip(1).cloned().collect();
+            let types = rest.to_vec();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted { fill: &fill, types: &types, args, checked: &checked };
+            self.report_wrong_argument_count(span, &name, &signature, &call);
+            hir_args.extend(checked);
         }
-        hir_args.extend(self.check_args(args, rest));
         typed::Expr::new(
             typed::ExprKind::CallTrait { trait_id: tid, method: index, recv: recv_ty, targs, args: hir_args },
             ret,
@@ -1509,6 +1733,15 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let shown = self.show_ty(recv);
         let mut notes = Vec::new();
+        // A name the standard library used to have, asked of the type's own
+        // module first and of the whole table second: `Str.len` is `core/str`'s
+        // rename, and `.eq` is `core/order`'s however it was reached.
+        let home = self.method_home(recv);
+        let renamed = home
+            .as_ref()
+            .and_then(|(path, ..)| standard_library::renamed::in_module(path, name))
+            .or_else(|| standard_library::renamed::anywhere(name));
+        let mut near = None;
         match recv {
             Ty::Param(i) => {
                 let g = self.generics.get(*i as usize).cloned();
@@ -1532,9 +1765,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             Ty::Con(con, _) => {
-                let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
-                if let Some(near) = nearest(name, &refs) {
-                    notes.push(format!("did you mean `{near}`?"));
+                if renamed.is_none() {
+                    let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
+                    near = nearest(name, &refs).map(str::to_string);
+                    if let Some(n) = &near {
+                        notes.push(format!("did you mean `{n}`?"));
+                    }
                 }
                 if self.c.tables.field_index(*con, name).is_some() {
                     notes.push(format!("`{name}` is a field; a field is not called"));
@@ -1558,15 +1794,68 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {}
         }
-        let fix = self.no_method_fix(recv, &shown, name);
+        let fix = match (&renamed, &near) {
+            (Some((_, write)), _) => Some(write.clone()),
+            (None, Some(n)) => Some(crate::diagnostics::candidate_fix(
+                n,
+                &Self::where_the_methods_are(home.as_ref(), &shown),
+            )),
+            (None, None) => self.no_method_fix(recv, &shown, name),
+        };
         let d = self
             .templated("no-such-method", span)
             .bind("type", shown)
             .bind("method", name.to_string());
+        if let Some((note, _)) = renamed {
+            d.notes.push(note);
+        }
         d.notes.extend(notes);
         // After the binds: every `bind` re-renders the page's own fix over it.
         if let Some(fix) = fix {
             d.fix(fix);
+        }
+    }
+
+    /// Where a receiver's methods live: its defining module, that module's
+    /// role, and the `impl` header a caller could add one to when the module is
+    /// theirs to edit (SPEC 6.7.3).
+    ///
+    /// A primitive's table entry lives in a synthetic module, so its methods'
+    /// module is the one SPEC names rather than the one the entry points at.
+    fn method_home(&self, recv: &Ty) -> Option<(String, Role, Option<String>)> {
+        let Ty::Con(con, _) = recv else { return None };
+        let info = self.c.tables.tycon(*con);
+        match &info.def {
+            TyDef::Prim(p) => {
+                Some((standard_library::defining_module(*p).to_string(), Role::Std, None))
+            }
+            _ => {
+                let module = self.c.module(info.module);
+                let params: Vec<&str> = info.generics.iter().map(|g| g.name.as_str()).collect();
+                let header = if params.is_empty() {
+                    format!("impl {}", info.name)
+                } else {
+                    format!("impl<{0}> {1}<{0}>", params.join(", "), info.name)
+                };
+                Some((module.path.clone(), module.role, Some(header)))
+            }
+        }
+    }
+
+    /// Where to look when the candidate is not the one: a page for a type the
+    /// toolchain ships, the `impl` block for a type of your own.
+    fn where_the_methods_are(
+        home: Option<&(String, Role, Option<String>)>,
+        shown: &str,
+    ) -> String {
+        match home {
+            Some((path, Role::Std | Role::Platform, _)) | Some((path, _, None)) => {
+                format!("`buri docs {path}` lists every method `{shown}` has")
+            }
+            Some((path, _, Some(header))) => {
+                format!("`{shown}`'s methods are declared in `{header} {{ ... }}` in `{path}`")
+            }
+            None => format!("`{shown}` has no defining module, so it has no methods of its own"),
         }
     }
 
@@ -1584,36 +1873,20 @@ impl<'a, 'b> Infer<'a, 'b> {
                 "there is no module to declare `{name}` in, so write a free function taking \
                  the value, or wrap it in a struct of yours and give that the method"
             )),
-            Ty::Con(con, _) => {
-                let info = self.c.tables.tycon(*con);
-                // A primitive's table entry lives in a synthetic module; the
-                // module its methods are declared in is SPEC 6.7.3's.
-                let (path, role, header) = match &info.def {
-                    TyDef::Prim(p) => {
-                        (standard_library::defining_module(*p).to_string(), Role::Std, None)
+            Ty::Con(..) => {
+                let home = self.method_home(recv);
+                match home.as_ref() {
+                    Some((_, Role::Std | Role::Platform, _)) | Some((_, _, None)) => {
+                        Some(format!(
+                            "check the spelling — {}",
+                            Self::where_the_methods_are(home.as_ref(), shown)
+                        ))
                     }
-                    _ => {
-                        let module = self.c.module(info.module);
-                        let params: Vec<&str> =
-                            info.generics.iter().map(|g| g.name.as_str()).collect();
-                        let header = if params.is_empty() {
-                            format!("impl {}", info.name)
-                        } else {
-                            format!("impl<{0}> {1}<{0}>", params.join(", "), info.name)
-                        };
-                        (module.path.clone(), module.role, Some(header))
-                    }
-                };
-                match (role, header) {
-                    (Role::Std | Role::Platform, _) | (_, None) => Some(format!(
-                        "check the spelling — `buri docs {path}` lists every method `{shown}` \
-                         has, and one may not be added to it from outside `{path}`"
-                    )),
-                    (_, Some(header)) => Some(format!(
+                    Some((path, _, Some(header))) => Some(format!(
                         "check the spelling, or declare it in `{header} {{ ... }}` in \
-                         `{path}`, where the type is declared — a method may not be added \
-                         from anywhere else"
+                         `{path}`, where the type is declared"
                     )),
+                    None => None,
                 }
             }
             _ => None,
@@ -1787,19 +2060,24 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn report_no_field(&mut self, ty: &Ty, name: &str, span: Span) {
         let shown = self.show_ty(ty);
-        let mut note = None;
+        let mut near = None;
         if let Ty::Con(con, _) = ty {
             let names: Vec<String> =
                 self.c.tables.tycon(*con).fields().iter().map(|f| f.name.clone()).collect();
             let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-            note = nearest(name, &refs).map(|n| format!("did you mean `{n}`?"));
+            near = nearest(name, &refs).map(str::to_string);
         }
         let d = self
             .templated("no-such-field", span)
-            .bind("type", shown)
+            .bind("type", shown.clone())
             .bind("field", name.to_string());
-        if let Some(n) = note {
-            d.notes.push(n);
+        // After the binds: every `bind` re-renders the page's own fix over it.
+        if let Some(n) = near {
+            d.notes.push(format!("did you mean `{n}`?"));
+            d.fix(crate::diagnostics::candidate_fix(
+                &n,
+                &format!("`{shown}`'s declaration lists its fields"),
+            ));
         }
     }
 
@@ -1831,15 +2109,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         let Ty::Con(con, _) = &exp else {
             if !exp.is_error() {
                 let shown = self.show_ty(&exp);
-                self.templated("not-an-enum", dot_span)
-                    .bind("type", shown)
-                    .fix("the dot form names an enum variant; write the value another way");
+                self.report_dot_form_against(&shown, name, dot_span);
             }
             return self.error_expr(span);
         };
         let Some(index) = self.c.tables.variant_index(*con, name) else {
             let ty = self.c.tables.tycon(*con).name.clone();
-            let note = crate::compiler::semantics::patterns::no_variant_note(
+            let (note, fix) = crate::compiler::semantics::patterns::no_variant_advice(
                 &self.c.tables,
                 *con,
                 name,
@@ -1848,6 +2124,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .bind("type", ty)
                 .bind("variant", name.to_string());
             d.notes.extend(note);
+            // After the binds: every `bind` re-renders the page's own fix over it.
+            if let Some(fix) = fix {
+                d.fix(fix);
+            }
             return self.error_expr(span);
         };
         self.construct_variant(*con, index, args, span, Some(&exp), dot_span)
@@ -1897,17 +2177,31 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         let param_types: Vec<Ty> =
             variant.fields.iter().map(|f| substitute(&f.ty, &targs, None)).collect();
-        if args.len() != param_types.len() {
-            let v = variant.name.clone();
-            let want = param_types.len();
-            let have = args.len();
-            self.templated("wrong-value-count", head_span)
-                .bind("name", v)
-                .bind("expected", want.to_string())
-                .bind("given", have.to_string())
-                .mismatch(want.to_string(), have.to_string());
-        }
-        let checked = self.check_args(args, &param_types);
+        let checked = if args.len() == param_types.len() {
+            self.check_args(args, &param_types)
+        } else {
+            let name = variant.name.clone();
+            let shape = shape_of_variant(self.c, con, index);
+            let fill: Vec<ParamInfo> = variant
+                .fields
+                .iter()
+                .map(|f| ParamInfo {
+                    name: if variant.record { f.name.clone() } else { String::new() },
+                    ty: f.ty.clone(),
+                    role: ParamRole::Normal,
+                    span: f.span,
+                })
+                .collect();
+            let checked = self.check_unpaired(args);
+            let call = Miscounted {
+                fill: &fill,
+                types: &param_types,
+                args,
+                checked: &checked,
+            };
+            self.report_wrong_value_count(head_span, &name, &shape, &call);
+            checked
+        };
         let ty = Ty::Con(con, targs.clone());
         typed::Expr::new(
             typed::ExprKind::EnumLit { con, targs, variant: index, args: checked },
@@ -3007,7 +3301,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
                 let shown = t.type_head(effect_id).unwrap_or("?").to_string();
-                self.templated("not-an-effect", effect_span).bind("name", shown);
+                let renamed = standard_library::renamed::anywhere(&shown);
+                let d = self.templated("not-an-effect", effect_span).bind("name", shown);
+                // After the binds: every `bind` re-renders the page's own fix over it.
+                if let Some((note, fix)) = renamed {
+                    d.fix(fix);
+                    d.notes.push(note);
+                }
                 continue;
             };
             if !self.c.tables.trait_(tid).is_effect {
@@ -3092,6 +3392,82 @@ impl<'a, 'b> Infer<'a, 'b> {
             result,
             span,
         )
+    }
+}
+
+/// What a function takes, as a caller has to write it.
+///
+/// The declaration's own syntax where there is some, through the printer
+/// `buri docs` and the language server's hover already use, so a diagnostic
+/// spells a parameter the way the source does — `Int` rather than the `I64` the
+/// table holds. A declaration nobody wrote — a primitive's method — is rendered
+/// from the table instead.
+fn signature_of_fn(c: &Checker, id: FnId) -> String {
+    let info = c.tables.fn_info(id);
+    if let Some((module, item)) = info.ast.item() {
+        let declared = match (info.ast, c.module(module).ast.items.get(item as usize)) {
+            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => Some(&**d),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => d.methods.get(sub as usize),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => d.methods.get(sub as usize),
+            _ => None,
+        };
+        if let Some(d) = declared {
+            return crate::formatting::call_signature(c.tree(module), d);
+        }
+    }
+    call_signature(&c.tables, &info.name, &info.generics, &info.params)
+}
+
+/// What a tuple struct's constructor takes, as a caller has to write it.
+///
+/// The declaration's own syntax where there is some, through the printer
+/// `buri docs` and the language server's hover already use; the table where
+/// there is none.
+fn shape_of_struct(c: &Checker, con: TyConId) -> String {
+    let info = c.tables.tycon(con);
+    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
+        tree::Item::Struct(d) if d.name.span == info.span => {
+            crate::formatting::constructor(c.tree(info.module), d)
+        }
+        _ => None,
+    });
+    declared.unwrap_or_else(|| {
+        let record = matches!(info.def, TyDef::Struct { record: true, .. });
+        constructor_shape(&c.tables, &info.name, &info.generics, info.fields(), record)
+    })
+}
+
+/// The same for one variant of an enum, whose declaration is the enum's.
+fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
+    let info = c.tables.tycon(con);
+    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
+        tree::Item::Enum(d) if d.name.span == info.span => d
+            .variants
+            .get(index)
+            .map(|v| crate::formatting::variant(c.tree(info.module), v)),
+        _ => None,
+    });
+    match (declared, info.variants().get(index)) {
+        (Some(shape), _) => shape,
+        (None, Some(v)) => {
+            constructor_shape(&c.tables, &v.name, &info.generics, &v.fields, v.record)
+        }
+        (None, None) => info.name.clone(),
+    }
+}
+
+/// The same for a method reached through a bound, whose declaration is the
+/// trait's — including one nobody wrote, which `derive` supplies.
+fn signature_of_trait_method(c: &Checker, tid: TraitId, index: usize) -> String {
+    let info = c.tables.trait_(tid);
+    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
+        tree::Item::Trait(d) if d.name.span == info.span => d.methods.get(index),
+        _ => None,
+    });
+    match (declared, info.methods.get(index)) {
+        (Some(d), _) => crate::formatting::call_signature(c.tree(info.module), d),
+        (None, Some(m)) => call_signature(&c.tables, &m.name, &m.generics, &m.params),
+        (None, None) => info.name.clone(),
     }
 }
 

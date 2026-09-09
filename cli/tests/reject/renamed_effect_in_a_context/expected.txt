@@ -1,0 +1,18 @@
+error: `Alloc` is not a declared effect [not-an-effect]
+ --> cmd/renamed_effect_in_a_context/main.buri:8:23
+  |
+8 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  |                       ^^^^^
+  |
+  = `Alloc` was renamed to `Allocator`
+  = fix: write `Allocator`
+
+    What to do
+    ──────────
+
+    Every key in a context has to be an effect. The set is core/effect's, plus
+    ui/effect's where the platform grants them.
+
+    An effect the standard library renamed is answered with what it is called
+    now: Alloc was renamed to Allocator, and the fix says to write it.
+
