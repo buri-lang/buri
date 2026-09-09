@@ -901,6 +901,17 @@ impl Reset {
             // initial `content-box` would hang a padded, bordered child out of
             // its parent by exactly its padding.
             out.push_str("*,*::before,*::after{box-sizing:border-box}\n");
+            // `Layout`'s documented default: a container that names none
+            // stacks its children downwards, because a document is a column.
+            // Without this a container is CSS's `display:block`, where
+            // `AlignMain` and `AlignCross` are computed and do nothing — and
+            // the headless painter has laid a container out as a flex column
+            // all along. The four table elements are left out: a browser's own
+            // table layout is what the scene document mirrors for them.
+            out.push_str(
+                ":where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,\
+                 button){display:flex;flex-direction:column}\n",
+            );
         }
         if self.heading {
             // A level is an outline position, not a size, so the size and the
