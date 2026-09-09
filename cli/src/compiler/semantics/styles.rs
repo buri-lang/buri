@@ -96,11 +96,14 @@ const NODE_BUTTON: usize = 5;
 const NODE_LINK: usize = 6;
 const NODE_FIELD: usize = 8;
 const NODE_TOGGLE: usize = 9;
+const NODE_IMAGE: usize = 7;
 
-/// `ui/node`'s `Role::List`, the one role that lowers to an element a browser
-/// marks and indents by itself. A role is written at the call site rather than
-/// inside `region`, so this is the literal the walk looks for.
+/// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
+/// an element a browser paints something on by itself. A role is written at the
+/// call site rather than inside `region`, so these are the literals the walk
+/// looks for.
 const ROLE_LIST: usize = 7;
+const ROLE_SEPARATOR: usize = 10;
 
 /// One rule in the emitted stylesheet.
 ///
@@ -795,7 +798,8 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 /// Everything a browser paints on an element by itself that no atomic class
 /// can get under: the size, the weight and the margins on a heading, the bevel
 /// on a button, the blue underline on a link, the border and the inner shadow
-/// on a field, the disc and the forty-pixel indent on a list.
+/// on a field, the disc and the forty-pixel indent on a list, the inset border
+/// on a separator, and the baseline a picture sits on.
 ///
 /// A class says what one property is and nothing about the rest, so the sheet
 /// has to say it once, up front, for the elements the program actually builds.
@@ -822,6 +826,8 @@ pub struct Reset {
     pub field: bool,
     pub toggle: bool,
     pub list: bool,
+    pub separator: bool,
+    pub image: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -920,6 +926,20 @@ impl Reset {
             // class, so it beats this wherever the two meet.
             out.push_str(":where(ul,ol){margin:0;padding:0;list-style:none}\n");
         }
+        if self.separator {
+            // A browser's `<hr>` is a 1px `inset` border on all four edges and
+            // an automatic inline margin, so a separator asked for one pixel
+            // paints three in two tones and shrinks inside a column. A break
+            // between sections is a rule the caller paints.
+            out.push_str(":where(hr){border:0;margin:0}\n");
+        }
+        if self.image {
+            // A picture is the one leaf a browser leaves inline, so it sits on
+            // the text baseline with a descender gap under it. Every other leaf
+            // here is a block, and the headless painter has no inline flow at
+            // all.
+            out.push_str(":where(img){display:block}\n");
+        }
         out
     }
 }
@@ -946,11 +966,16 @@ pub fn reset_in(
                 NODE_LINK => out.link = true,
                 NODE_FIELD => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
+                NODE_IMAGE => out.image = true,
                 _ => {}
             }
         }
-        if Some(*con) == role_con && *variant == ROLE_LIST {
-            out.list = true;
+        if Some(*con) == role_con {
+            match *variant {
+                ROLE_LIST => out.list = true,
+                ROLE_SEPARATOR => out.separator = true,
+                _ => {}
+            }
         }
     }
     typed::children_mut(e, &mut |child| reset_in(child, node_con, role_con, out));
