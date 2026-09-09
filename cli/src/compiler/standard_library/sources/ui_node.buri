@@ -498,7 +498,7 @@ fn rootScope(): Scope;
 /// `At(...)` contributes nothing at all — a breakpoint's rules are in the
 /// stylesheet, and the painter reads that for itself.
 ///
-/// Two of the five states are not the snapshot's to name, because the tree
+/// Two of the six states are not the snapshot's to name, because the tree
 /// already holds the answer, and a widget's line says so. A toggle carries
 /// `checked:<true|false>`, which is its signal — the same thing its mark is
 /// drawn from: a page holding one toggle that is on and one that is off paints
@@ -957,12 +957,12 @@ fn textLine<C: Allocator>(ctx: C, depth: Int, content: Str): Str {
 // `When` and `Computed`, both take an `On` only when it applies to the element
 // being written, and both skip an `At` — a breakpoint lives in the stylesheet.
 
-/// Which states one element is in, which is not the same question for all five.
+/// Which states one element is in, which is not the same question for all six.
 ///
-/// `Hover`, `Focus` and `Active` are things a pointer or a keyboard does, and
-/// there is nothing in a tree to read them off: the snapshot names one for the
-/// whole page, and that is a fair way to ask what a page looks like while
-/// something on it is hovered.
+/// `Hover`, `Focus`, `FocusWithin` and `Active` are things a pointer or a
+/// keyboard does, and there is nothing in a tree to read them off: the snapshot
+/// names one for the whole page, and that is a fair way to ask what a page
+/// looks like while something on it is hovered.
 ///
 /// The other two are the tree's own. `checked` is a toggle's signal, and a
 /// toggle *is* checked or is not — a snapshot cannot add to that, so a toggle

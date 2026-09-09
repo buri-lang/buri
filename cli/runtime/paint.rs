@@ -98,9 +98,9 @@
 //! which is what an image with no source used to be.
 //!
 //! An `e` line may also carry what the element answers about its own state.
-//! Three of the five pseudo-classes are things a pointer or a keyboard does,
-//! and the request's `state` names one of those for the whole scene. The other
-//! two are the tree's own, and a widget writes its answer down.
+//! Four of the six pseudo-classes are things a pointer or a keyboard does, and
+//! the request's `state` names one of those for the whole scene. The other two
+//! are the tree's own, and a widget writes its answer down.
 //! `checked:<true|false>` is a toggle's value: a rule scoped to `:checked`
 //! reaches that box when the value says so and never otherwise, which is what
 //! lets one page hold a toggle that is on and one that is off.
