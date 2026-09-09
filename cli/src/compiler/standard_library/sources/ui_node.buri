@@ -973,6 +973,9 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         },
         .Opacity(amount) => [decl(ctx, "opacity", str.fromFloat(ctx, amount))],
         .Shadow(shadow) => [decl(ctx, "box-shadow", shadowCss(ctx, shadow))],
+        .Shadows(shadows) => {
+            [decl(ctx, "box-shadow", shadowList(ctx, shadows, 0, []).join(ctx, ","))]
+        },
         .FontFamily(family) => [decl(ctx, "font-family", fontStack(ctx, family))],
         .FontSize(length) => [decl(ctx, "font-size", lengthCss(ctx, length))],
         .FontWeight(weight) => [decl(ctx, "font-weight", weightName(weight))],
@@ -1072,6 +1075,41 @@ fn colorCss<C: Allocator>(ctx: C, color: Color): Str {
         },
         .Transparent => "transparent",
         .Inherit => "inherit",
+        // The token stays a token, so a theme decides the hue and this decides
+        // only how much of it there is.
+        .Faded(reference, a) => {
+            let space = reference.namespace();
+            let name = reference.name();
+            let percent = cssNumber(ctx, a * 100.0);
+            str.format(
+                ctx,
+                "color-mix(in srgb,var(--${space}-${name}) ${percent}%,transparent)",
+            )
+        },
+    }
+}
+
+/// A number the way CSS writes one: `50`, not the `50.0` a `Float` shows as.
+///
+/// A `Float`'s own rendering always carries a point so `1.0` cannot read as an
+/// integer, and the DOM renderer's does not — so a percentage would come out
+/// of the two halves as two different declarations. Stripping the trailing
+/// `.0` is exactly the inverse of what the float printer adds.
+fn cssNumber<C: Allocator>(ctx: C, value: Float): Str {
+    let shown = str.fromFloat(ctx, value);
+    match (shown.stripSuffix(".0")) {
+        .Some(trimmed) => trimmed,
+        .None => shown,
+    }
+}
+
+/// Every layer of a `Shadows`, in the order they were written.
+fn shadowList<C: Allocator>(ctx: C, shadows: [Shadow], at: Int, acc: [Str]): [Str] {
+    match (shadows.get(at)) {
+        .None => acc,
+        .Some(shadow) => {
+            shadowList(ctx, shadows, at + 1, acc.push(ctx, shadowCss(ctx, shadow)))
+        },
     }
 }
 
