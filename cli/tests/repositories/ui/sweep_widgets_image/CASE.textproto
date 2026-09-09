@@ -22,6 +22,8 @@
 #   * `image-avatar` — the avatar the slot was asked for, and the two things a
 #     program could ask for before it. The `filled` cells are the picture
 #     filling a round box, cropped square and taking the corner: a real avatar.
+#     The band above them is the same picture with no box at all, so what the
+#     corner and the crop do is read on the picture itself.
 #     `box only` is the workaround — a round box with a picture of its own size
 #     inside it, square-cornered, because nothing in `ui/style` clips overflow
 #     (filed separately). `no box` is the picture with nothing said to it at
