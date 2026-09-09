@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "and a height is the whole box down the page"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/sweep/test/pictures.buri:28:1
+
+0 passed, 1 failed, 1 skipped (0.0s)

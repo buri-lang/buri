@@ -1,0 +1,34 @@
+// Two pictures of the box model: a `Width` and a `Height` are the whole box, so
+// a padded, bordered child stays inside the parent that sized it.
+//
+// The `describe` assertion beside the first is what says the picture is of the
+// declaration and not of a coincidence: the child carries the width, the
+// padding and the border, and the frame around it carries the width they are
+// measured against.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/sweep" import { heightPage, widthPage };
+
+test "a width is the whole box, so a padded, bordered child stays inside it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, widthPage(), .Hover);
+    assert.containsText(scene, "class:w-168 py-8 bg-96989e");
+    assert.containsText(scene, "w-full p-16 bw-6");
+    snapshot(ctx, "box-sizing-width", widthPage(), .Hover, []);
+}
+
+test "and a height is the whole box down the page" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "box-sizing-height", heightPage(), .Hover, []);
+}
