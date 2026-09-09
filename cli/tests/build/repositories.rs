@@ -371,7 +371,7 @@ fn serving_a_page() {
 /// than a picture per value.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 42);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 43);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

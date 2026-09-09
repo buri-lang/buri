@@ -3701,6 +3701,9 @@ const $TREE_LIST_MARKERS = ["none", "disc", "decimal"];
 
 // Logical edges, so a right-to-left page is right by construction.
 const $TREE_EDGES = ["block-start", "block-end", "inline-start", "inline-end"];
+// CSS names a corner by the two logical edges that meet at it, block first,
+// which is the order `Corner` declares them in.
+const $TREE_CORNERS = ["start-start", "start-end", "end-start", "end-end"];
 
 const $TREE_POSITIONS = ["relative", "sticky", "fixed"];
 
@@ -3730,7 +3733,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all forty-seven properties
+// `$tree_declare` below is the run-time lowering of all forty-nine properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -3946,14 +3949,22 @@ function $tree_declare(style, out) {
     out.set("border-style", "solid");
     out.set("border-width", $tree_length(value));
   } else if (tag === 34) {
-    out.set("border-color", $tree_color(value));
+    // One edge, and the same solid a whole-box width implies. `BorderStyle` is
+    // applied after it, and `BorderColor` stays whole-box.
+    const edge = "border-" + $TREE_EDGES[value];
+    out.set(edge + "-style", "solid");
+    out.set(edge + "-width", $tree_length(style[2]));
   } else if (tag === 35) {
-    out.set("border-style", $TREE_BORDER_STYLES[value]);
+    out.set("border-color", $tree_color(value));
   } else if (tag === 36) {
-    out.set("border-radius", $tree_length(value));
+    out.set("border-style", $TREE_BORDER_STYLES[value]);
   } else if (tag === 37) {
-    out.set("opacity", String(value));
+    out.set("border-radius", $tree_length(value));
   } else if (tag === 38) {
+    out.set("border-" + $TREE_CORNERS[value] + "-radius", $tree_length(style[2]));
+  } else if (tag === 39) {
+    out.set("opacity", String(value));
+  } else if (tag === 40) {
     out.set(
       "box-shadow",
       $tree_length(value[0]) +
@@ -3966,27 +3977,27 @@ function $tree_declare(style, out) {
         " " +
         $tree_color(value[4]),
     );
-  } else if (tag === 39) {
-    out.set("font-family", $tree_font(value));
-  } else if (tag === 40) {
-    out.set("font-size", $tree_length(value));
   } else if (tag === 41) {
-    out.set("font-weight", $TREE_WEIGHTS[value]);
+    out.set("font-family", $tree_font(value));
   } else if (tag === 42) {
-    out.set("font-style", value ? "italic" : "normal");
+    out.set("font-size", $tree_length(value));
   } else if (tag === 43) {
-    out.set("line-height", String(value));
+    out.set("font-weight", $TREE_WEIGHTS[value]);
   } else if (tag === 44) {
-    out.set("letter-spacing", $tree_length(value));
+    out.set("font-style", value ? "italic" : "normal");
   } else if (tag === 45) {
-    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
+    out.set("line-height", String(value));
   } else if (tag === 46) {
-    out.set("text-transform", $TREE_TEXT_CASES[value]);
+    out.set("letter-spacing", $tree_length(value));
   } else if (tag === 47) {
-    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
+    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
   } else if (tag === 48) {
-    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
+    out.set("text-transform", $TREE_TEXT_CASES[value]);
   } else if (tag === 49) {
+    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
+  } else if (tag === 50) {
+    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
+  } else if (tag === 51) {
     if (value > 0) {
       out.set("display", "-webkit-box");
       out.set("-webkit-box-orient", "vertical");
@@ -3996,11 +4007,11 @@ function $tree_declare(style, out) {
       out.set("-webkit-line-clamp", "none");
       out.set("overflow", "visible");
     }
-  } else if (tag === 50) {
-    out.set("cursor", $TREE_CURSORS[value]);
-  } else if (tag === 51) {
-    out.set("list-style-type", $TREE_LIST_MARKERS[value]);
   } else if (tag === 52) {
+    out.set("cursor", $TREE_CURSORS[value]);
+  } else if (tag === 53) {
+    out.set("list-style-type", $TREE_LIST_MARKERS[value]);
+  } else if (tag === 54) {
     out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
   } else {
     out.set("transform", "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")");
