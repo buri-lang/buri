@@ -1,0 +1,78 @@
+# `State.FocusWithin`, in four pictures of one tree.
+#
+# Three rows in each: an input group that rings on `FocusWithin`, the same
+# wrapper ringed on `Focus` instead, and a card around a field. Only the state
+# the picture is taken in changes between them.
+#
+# `group-focuswithin.png` is the shape the issue asked for — one box, one
+# hairline, one ring, with the field inside it bare. `group-focus.png` is the
+# comparison that says the two are different conditions: the row written on
+# `Focus` rings and the two written on `FocusWithin` do not. `group-hover.png`
+# is the pair to it from the other side, and `group-resting.png` is the same
+# tree with no `On` group anywhere, which is what a resting picture is —
+# `State` has no resting variant, so `snapshot` cannot ask for one.
+#
+# A `<div>` is never focused or focus-within in a browser by itself; a
+# snapshot's state applies to every element in the tree by construction, which
+# is what `ui/testing`'s `snapshot` documents, so the painter fires both. These
+# four are the record of that.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an input group that rings while the field inside it has the keyboard, painted at rest and in three states, with the classes each document carried asserted beside every picture"
+
+run {
+  args: ["test", "//lib/group", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/group/test/__snapshots__/group-focuswithin.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet says how to record one.
+edit {
+  file: "lib/group/test/group.buri"
+  replace: "\"group-focuswithin\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/group", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/group/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/group", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/group/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/group", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: the border the `Focus` row rings in changes colour, and
+# only the picture taken in that state moves. That is what says the four
+# goldens are four documents rather than four copies of one.
+edit {
+  file: "lib/group/scenes.buri"
+  replace: ".BorderColor(.Rgb(210, 80, 40))"
+  with: ".BorderColor(.Rgb(24, 160, 90))"
+}
+
+run {
+  args: ["test", "//lib/group", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/group/test/__snapshots__/group-focus.diff.png"  exists: true }
+path { path: "lib/group/test/__snapshots__/group-hover.diff.png"  exists: false }
+path { path: "lib/group/test/__snapshots__/group-resting.diff.png"  exists: false }

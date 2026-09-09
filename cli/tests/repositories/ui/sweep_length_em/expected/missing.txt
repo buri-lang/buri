@@ -1,0 +1,5 @@
+FAIL //lib/em  test/em.buri  "half an em of padding at four text sizes"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/em/test/em.buri:11:1
+
+3 passed, 1 failed, 0 skipped (0.0s)

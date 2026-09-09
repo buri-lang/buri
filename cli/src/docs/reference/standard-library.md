@@ -704,6 +704,10 @@ that draw a ring of their own — an `On(.Focus, ...)` carrying a `Shadow`,
 `Shadows`, `BorderWidth` or `BorderEdge`. A control that styles nothing keeps
 the platform's ring.
 
+A container has a state of its own: `On(.FocusWithin, ...)` fires while
+something inside it has the keyboard, which is how an input group carries one
+hairline and one ring around a prefix, a bare field and a suffix.
+
 `theme.scheme(.Dark)` is a theme that binds no token and says only which scheme
 the page is in, so the native controls and the scrollbar follow it. It goes in
 `mount`'s list beside a package's themes, and `switching` takes one on either
