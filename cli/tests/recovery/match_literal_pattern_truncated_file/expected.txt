@@ -1,9 +1,4 @@
-error [match-not-exhaustive] 4:3-5:9
-message: this `match` does not cover `_`
-fix: add a `_` arm
-note: exhaustiveness is not attempted over integer or string ranges
-
-error [unexpected-token] 6:1-6:1
+error [unexpected-token] 5:1-5:1
 message: expected an expression, found end of file
 fix: write a value here
 

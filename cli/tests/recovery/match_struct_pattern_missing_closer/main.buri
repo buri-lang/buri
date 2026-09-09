@@ -1,5 +1,4 @@
-// EXPECT: this `match` does not cover `Point { x: _, y: _ }`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/110
+// EXPECT: this variant field pattern is missing its closing `}`
 export struct Point {
   export x: Int,
   export y: Int,

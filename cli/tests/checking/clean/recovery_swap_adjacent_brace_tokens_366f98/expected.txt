@@ -1,11 +1,3 @@
-error: this `match` does not cover `.Surface` [match-not-exhaustive]
-  --> main.buri:38:9
-   |
-38 |         match (self) {
-   |         ^^^^^^^^^^^^^^ not covered
-   |
-   = every `match` must cover its scrutinee's type
-   = fix: add an arm for `.Surface`, or a `_` arm for everything left
 error: expected an identifier, found `=>` [unexpected-token]
   --> main.buri:39:14
    |

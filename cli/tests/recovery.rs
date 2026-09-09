@@ -357,13 +357,22 @@ fn ceiling(invariant: &str, row: &str) -> usize {
 
         ("the caret is on the mistake", "delete-closer") => 30,
         ("the caret is on the mistake", "delete-separator ()") => 5,
-        ("the caret is on the mistake", "delete-separator {}") => 8,
+        // Read again when the arm the parser could not read stopped being
+        // dropped. A deleted `,` between match arms used to be swallowed by
+        // the arm before it — `=> 1` followed by `.Err(e) =>` read as a field
+        // of `1` — and the caret then landed on whatever the swallowed text
+        // ran into. `arm_pattern_follows` stops the chain where the comma
+        // belongs, so the caret is on the comma: 3 of 716, or 0.5%, and one is
+        // that rounded up.
+        ("the caret is on the mistake", "delete-separator {}") => 1,
         ("the caret is on the mistake", "insert-stray") => 2,
         ("the caret is on the mistake", "swap-adjacent") => 3,
 
         ("the fix names the missing token", "delete-closer") => 19,
         ("the fix names the missing token", "delete-separator ()") => 5,
-        ("the fix names the missing token", "delete-separator {}") => 7,
+        // The same three cases, at this invariant: see the note on
+        // `the caret is on the mistake` above. 3 of 716 is 0.5%.
+        ("the fix names the missing token", "delete-separator {}") => 1,
         // The list row, and its one case is a *list pattern*: `[a, b, c, ..]`
         // in `lib/semantics/shapes.buri` with the comma before the rest pattern
         // deleted. What is left binds three names and no rest, so the arm stops
@@ -429,9 +438,14 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,
-        // The arm before the comma swallows the next arm's pattern, so `2` gets
-        // a field: the same residue this invariant's sibling caps at 7.
-        ("a syntax error stays a syntax error", "delete-separator {}") => 7,
+        // The arm before the comma used to swallow the next arm's pattern, so
+        // `2` got a field and the checker was asked what field of `Int` that
+        // is. It does not any more — `arm_pattern_follows` reads the `.Name`
+        // and its arrow as the arm they open — and a `match` the parser could
+        // not read whole keeps the arm it could not read rather than losing
+        // it, so the exhaustiveness report is not drawn from the arms that
+        // happened to parse. 5 of 716 is 0.7%, and one is that rounded up.
+        ("a syntax error stays a syntax error", "delete-separator {}") => 1,
         // Re-read a fourth time when the F5 standard-library wave landed —
         // `crypto/entropy.buri`, `random/gen.buri`, `text/hex.buri`,
         // `calendar/duration.buri`, `checksum/checksum.buri`,
