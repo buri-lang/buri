@@ -1,0 +1,9 @@
+# One library and one test source: six pictures of a `heading`, whose level is
+# the outline and whose size is the styles, and a snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

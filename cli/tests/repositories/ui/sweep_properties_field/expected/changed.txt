@@ -1,0 +1,5 @@
+FAIL //lib/sweep  test/pictures.buri  "the sizing properties, on a field"
+  the snapshot "field-size" changed: see test/__snapshots__/field-size.diff.png
+  --> lib/sweep/test/pictures.buri:55:1
+
+0 passed, 1 failed, 6 skipped (0.0s)
