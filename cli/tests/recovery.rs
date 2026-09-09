@@ -351,15 +351,24 @@ impl Tally {
 /// hundred-case row is a sample and a sample has a spread.
 fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
-        ("one mistake is one diagnostic", "delete-closer") => 6,
+        // Lowered when `if-without-else` stopped being reported behind a branch
+        // whose own `}` was already reported missing (issue 111). Every case
+        // that row lost was a deleted closer inside an `if`, said twice. 67 of
+        // 1704 is 3.9%, read off a `BURI_RECOVERY_CAP=0` run, and four is that
+        // rounded up.
+        ("one mistake is one diagnostic", "delete-closer") => 4,
         ("one mistake is one diagnostic", "insert-stray") => 2,
         ("one mistake is one diagnostic", "swap-adjacent") => 1,
 
         ("the caret is on the mistake", "delete-closer") => 30,
         ("the caret is on the mistake", "delete-separator ()") => 5,
         ("the caret is on the mistake", "delete-separator {}") => 8,
-        ("the caret is on the mistake", "insert-stray") => 2,
-        ("the caret is on the mistake", "swap-adjacent") => 3,
+        // Both lowered with the same change (issue 111): a token wedged between
+        // a branch's `}` and its `else` now carries the caret, where the caret
+        // used to land on the branch — three lines above the mistake. 5 of 2184
+        // and 28 of 2109, which is 0.3% and 1.4% rounded up.
+        ("the caret is on the mistake", "insert-stray") => 1,
+        ("the caret is on the mistake", "swap-adjacent") => 2,
 
         ("the fix names the missing token", "delete-closer") => 19,
         ("the fix names the missing token", "delete-separator ()") => 5,
@@ -425,7 +434,13 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // corpus is drawn from, and a mutation of a call that used to fit on one
         // line is now a mutation of a different program. 253 of 1686 is 15.1%,
         // one case over a ceiling of fifteen, and sixteen is that rounded up.
-        ("a syntax error stays a syntax error", "delete-closer") => 16,
+        // Lowered when a block whose `}` was never written stopped being
+        // typechecked (issue 112). What that row was mostly counting is a
+        // deleted brace that left an inner block holding the rest of the file:
+        // the checker read the statements it swallowed and had an opinion about
+        // every one of them. 243 of 1704 is 14.3%, read off a
+        // `BURI_RECOVERY_CAP=0` run, and fifteen is that rounded up.
+        ("a syntax error stays a syntax error", "delete-closer") => 15,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,

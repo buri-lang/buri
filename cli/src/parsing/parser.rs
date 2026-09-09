@@ -125,6 +125,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
         depth: 0,
         trial: 0,
         chain: 0,
+        closed: Closed::Read,
     };
     let mut module = p.module();
     // `//!` documents the module, so it belongs above everything. One that
@@ -483,6 +484,24 @@ struct Parser<'a> {
     /// a loop passes its own count to [`Parser::link`] instead, so there is
     /// nothing for it to leak.
     chain: u32,
+    /// How the construct that just finished got its closing delimiter — see
+    /// [`Closed`]. Written by [`Parser::expect_close`] and read the moment it
+    /// returns: by [`Parser::if_expr`], because `if-without-else` behind a
+    /// branch whose `}` was already reported missing is one mistake said
+    /// twice, and by [`Parser::block_inner`], because a block that never
+    /// closed is a region rather than a body.
+    closed: Closed,
+}
+
+/// How a construct's closing delimiter was come by.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Closed {
+    /// It was written, where it belongs.
+    Read,
+    /// It was written late: recovery skipped to it and read on from there.
+    Late,
+    /// It was never written. Where the construct ends is the parser's guess.
+    Absent,
 }
 
 /// How deep the grammar may nest a production inside itself: an expression
@@ -673,6 +692,28 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Whether the cursor is on a string whose closing `"` was never written.
+    ///
+    /// The lexer ends such a string at the line break and reports it there, so
+    /// the token holds the rest of the line rather than a literal. A construct
+    /// read out of that is a construct read out of the quote's leftovers — a
+    /// `,` that is now inside a string, a `)` that is no longer anywhere — and
+    /// every diagnostic it draws is about text nobody wrote. So the production
+    /// abandons the construct and the one syntax error stands.
+    fn on_an_unterminated_string(&self) -> bool {
+        self.tokens.is_unterminated(self.at(self.pos))
+    }
+
+    /// Whether the token just read was one of those strings.
+    ///
+    /// The separator, terminator or closing delimiter the parser wants next
+    /// may be sitting inside it, so asking for one here is asking for a token
+    /// that was written. The construct is closed as though it were there, and
+    /// the unterminated string stays the whole of what went wrong.
+    fn after_an_unterminated_string(&self) -> bool {
+        self.pos > 0 && self.tokens.is_unterminated(self.at(self.pos.saturating_sub(1)))
+    }
+
     fn is(&self, p: Punctuation) -> bool {
         self.peek() == TokenKind::of_punctuation(p)
     }
@@ -803,7 +844,9 @@ impl<'a> Parser<'a> {
         if self.is(close) || self.at_eof() || !starts(self.peek()) {
             return false;
         }
-        self.separator_missing(construct);
+        if !self.after_an_unterminated_string() {
+            self.separator_missing(construct);
+        }
         true
     }
 
@@ -883,17 +926,20 @@ impl<'a> Parser<'a> {
         opened: Span,
     ) -> PResult<Span> {
         if self.is(close) {
+            self.closed = Closed::Read;
             return Ok(self.bump());
         }
         if self.trial > 0 {
             return Err(Bail);
         }
-        let span = self.span();
-        let token = format!("`{}`", close.text());
-        if let Some(d) = self.templated("unclosed-delimiter", span) {
-            d.bind("construct", construct);
-            d.bind("token", token);
-            d.secondary_span(opened, "opened here");
+        if !self.after_an_unterminated_string() {
+            let span = self.span();
+            let token = format!("`{}`", close.text());
+            if let Some(d) = self.templated("unclosed-delimiter", span) {
+                d.bind("construct", construct);
+                d.bind("token", token);
+                d.secondary_span(opened, "opened here");
+            }
         }
         // The closer is late rather than absent when it is still there at this
         // construct's own depth. Skipping to it is what stops the cursor from
@@ -901,12 +947,16 @@ impl<'a> Parser<'a> {
         // stray token into an error on every line after it.
         match self.find_close(close) {
             Some(steps) => {
+                self.closed = Closed::Late;
                 for _ in 0..steps {
                     self.bump();
                 }
                 Ok(self.bump())
             }
-            None => Ok(self.prev_span()),
+            None => {
+                self.closed = Closed::Absent;
+                Ok(self.prev_span())
+            }
         }
     }
 
@@ -959,6 +1009,9 @@ impl<'a> Parser<'a> {
         }
         if self.trial > 0 {
             return Err(Bail);
+        }
+        if self.after_an_unterminated_string() {
+            return Ok(self.prev_span());
         }
         if !self.starts_something() {
             let found = self.found();
@@ -1062,6 +1115,9 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_string(&mut self) -> PResult<(String, Span)> {
+        if self.on_an_unterminated_string() {
+            return Err(Bail);
+        }
         if matches!(self.peek(), TokenKind::Str) {
             let s = self.take_text();
             let span = self.bump();
@@ -2203,6 +2259,13 @@ impl<'a> Parser<'a> {
             stmts_len: sl,
             tail,
             span: Location::of(start.to(end)),
+            // Where a block with no `}` ends is a guess, and the statements it
+            // read are whatever the missing brace let it swallow — an inner
+            // block that took this one's closer for its own has taken the rest
+            // of the file with it. The formatter still lays them out, because
+            // they are the tokens somebody wrote; the checker does not, because
+            // they are not the program somebody wrote.
+            broken: self.closed == Closed::Absent,
         }))
     }
 
@@ -2468,11 +2531,26 @@ impl<'a> Parser<'a> {
         let cond = self.expr()?;
         self.expect_close(Punctuation::RParen, "`if` condition", open)?;
         let then = self.block("`if` branch")?;
+        let branch_recovered = self.closed != Closed::Read;
         // `else` is mandatory. There is nothing sensible for a missing branch
         // to produce in a language where `if` is an expression.
         if !self.is_keyword(Keyword::Else) {
-            let span = self.tree.span_of(self.tree.block(then).span);
-            self.templated("if-without-else", span);
+            // …but a branch is not missing when the `else` is right there
+            // behind one token nobody meant to write. The stray token is the
+            // whole mistake, so that is what the caret lands on, rather than a
+            // branch the reader can see they wrote.
+            if self.kind_at(self.pos.saturating_add(1)) == TokenKind::KeywordElse {
+                let found = self.found();
+                let span = self.span();
+                self.expected(span, "`else`", &found, "delete it — the `else` branch follows");
+            } else if !branch_recovered {
+                // A branch whose own `}` was reported missing has already said
+                // what went wrong. Its `else` was consumed by that recovery or
+                // never reached, and naming a branch nobody omitted on top of
+                // it is the same mistake twice.
+                let span = self.tree.span_of(self.tree.block(then).span);
+                self.templated("if-without-else", span);
+            }
             return Err(Bail);
         }
         self.bump();
@@ -2592,6 +2670,14 @@ impl<'a> Parser<'a> {
                 let ix = self.tree.push_float(value);
                 Ok(self.tree.push(Kind::Float, [ix, span.start, span.end, 0], span, at))
             }
+            // A string with no closing quote holds the rest of the line rather
+            // than a value, so it stands as the region it is. The checker gives
+            // it `Ty::Error`, and the block around it is read on from the next
+            // line, which is where the lexer left the cursor.
+            TokenKind::Str if self.on_an_unterminated_string() => {
+                let span = self.bump();
+                Ok(self.error_expr(span))
+            }
             TokenKind::Str => {
                 let value = self.take_text();
                 let span = self.bump();
@@ -2708,6 +2794,14 @@ impl<'a> Parser<'a> {
                         let ix = self.tree.push_str(text);
                         self.scratch.parts.push(PartData { text: ix, hole: NONE });
                     }
+                }
+                // The quote that would have ended the template is missing, so
+                // its last run of text is the rest of the line. The whole
+                // template is the region that did not parse.
+                TokenKind::TemplateTail if self.on_an_unterminated_string() => {
+                    let end = self.bump();
+                    self.scratch.parts.truncate(base);
+                    return Ok(self.error_expr(start.to(end)));
                 }
                 TokenKind::TemplateTail => {
                     let text = self.take_text();
