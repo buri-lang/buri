@@ -1,0 +1,12 @@
+// EXPECT: has no method `len`
+// `Str.len` went the same way as every other collection's.
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let greeting = "hello";
+  let _ = io.println(ctx, "${greeting.len()}").ignore();
+  .Ok(())
+}
