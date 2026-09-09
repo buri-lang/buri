@@ -1,0 +1,191 @@
+//! The pictures `Shadows` is: an elevation is two layers, and the second one is
+//! the whole reason the variant exists.
+//!
+//! A page is a column of bands and a band is one question, so a value's cells
+//! read across it and the whole page fits the 800 by 600 the painter gives a
+//! scene. Every subject is a white card on a grey ground, because a shadow is
+//! only visible against something.
+//!
+//! The offsets, blurs and spreads are Tailwind's own, which is the table issue
+//! #96 opens with. The **opacities are not**: at the 5 and 10 per cent a design
+//! system ships, three neighbouring cells are the same grey to the eye and a
+//! layer that stopped being painted would not show. So every layer here is
+//! darker, and what a cell says is which layers are in it rather than what a
+//! particular elevation is worth.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Color, Shadow, Style };
+
+/// One layer, offset down the page and never along it — which is how every
+/// elevation in every design system is written.
+fn layer(y: Int, blur: Int, spread: Int, opacity: Float): Shadow {
+    Shadow {
+        x: .Px(0),
+        y: .Px(y),
+        blur: .Px(blur),
+        spread: .Px(spread),
+        color: .Rgba(0, 0, 0, opacity),
+    }
+}
+
+/// The ring a focus style is: no offset and no blur, so a spread is a band
+/// around the element rather than a slab behind it.
+fn ring(): Shadow {
+    Shadow {
+        x: .Px(0),
+        y: .Px(0),
+        blur: .Px(0),
+        spread: .Px(3),
+        color: .Rgba(59, 130, 246, 0.5),
+    }
+}
+
+/// Tailwind's four elevations, layer by layer. `xs` is one layer and the other
+/// three are two, which is the arithmetic issue #96 opens with.
+///
+/// `xs` is the one elevation that survived the old vocabulary, and its two
+/// cells are its two spellings — one class between them, so one picture.
+export fn elevationPage<C>(): Node<C> {
+    page([
+        band("xs — one layer either way", [
+            cell("Shadow", card([.Shadow(layer(1, 2, 0, 0.5))])),
+            cell("Shadows", card([.Shadows([layer(1, 2, 0, 0.5)])])),
+        ]),
+        band("sm", [
+            cell("far", card([.Shadows([layer(1, 3, 0, 0.6)])])),
+            cell("near", card([.Shadows([layer(1, 2, -1, 0.6)])])),
+            cell("both", card([.Shadows([layer(1, 3, 0, 0.6), layer(1, 2, -1, 0.6)])])),
+        ]),
+        band("md", [
+            cell("far", card([.Shadows([layer(4, 6, -1, 0.6)])])),
+            cell("near", card([.Shadows([layer(2, 4, -2, 0.6)])])),
+            cell(
+                "both",
+                card([.Shadows([layer(4, 6, -1, 0.6), layer(2, 4, -2, 0.6)])]),
+            ),
+        ]),
+        band("lg", [
+            cell("far", card([.Shadows([layer(10, 15, -3, 0.6)])])),
+            cell("near", card([.Shadows([layer(4, 6, -4, 0.6)])])),
+            cell(
+                "both",
+                card([.Shadows([layer(10, 15, -3, 0.6), layer(4, 6, -4, 0.6)])]),
+            ),
+        ]),
+    ])
+}
+
+/// How many layers, in what order, and what happens when the two spellings
+/// meet.
+export fn stackingPage<C>(): Node<C> {
+    page([
+        band("how many", [
+            cell("none", card([.Shadows([])])),
+            cell("one", card([.Shadows([layer(4, 6, -1, 0.3)])])),
+            cell("two", card([.Shadows([layer(4, 6, -1, 0.3), layer(2, 4, -2, 0.3)])])),
+            cell(
+                "three",
+                card([
+                    .Shadows([ring(), layer(4, 6, -1, 0.3), layer(10, 15, -3, 0.3)]),
+                ]),
+            ),
+        ]),
+        band("order", [
+            cell("ring first", card([.Shadows([ring(), layer(6, 0, 6, 0.5)])])),
+            cell("ring last", card([.Shadows([layer(6, 0, 6, 0.5), ring()])])),
+        ]),
+        band("one slot, last written wins", [
+            cell(
+                "Shadow, Shadows",
+                card([.Shadow(ring()), .Shadows([layer(6, 8, 0, 0.5)])]),
+            ),
+            cell(
+                "Shadows, Shadow",
+                card([.Shadows([layer(6, 8, 0, 0.5)]), .Shadow(ring())]),
+            ),
+            cell("Shadow, empty", card([.Shadow(ring()), .Shadows([])])),
+        ]),
+    ])
+}
+
+/// The motivating picture: a card that is raised *and* focused wants both, and
+/// one `Shadow` could only ever have one of them.
+///
+/// Painted resting and focused, because the ring is what a state adds.
+export fn ringPage<C: Ui>(ctx: C): Node<C> {
+    let raised: [Style] = [
+        .Shadows([layer(4, 6, -1, 0.4), layer(2, 4, -2, 0.4)]),
+        .On(.Focus, [.Shadows([ring(), layer(4, 6, -1, 0.4), layer(2, 4, -2, 0.4)])]),
+    ];
+    page([
+        band("stack", [cell("raised", card(raised))]),
+        band("heading", [cell("raised", ui.heading(2, base(raised), .Const("Ada")))]),
+        band("button", [
+            cell("raised", ui.button(.Const("press"), base(raised), fn(_c, _e) => ())),
+        ]),
+        band("link", [
+            cell(
+                "raised",
+                ui.link(.Const("/"), base(raised), [ui.text(.Const("home"))]),
+            ),
+        ]),
+        band("field", [
+            cell(
+                "raised",
+                ui.field(.Const("name"), .Text, base(raised), signal(ctx, "Ada")),
+            ),
+        ]),
+    ])
+}
+
+/// One picture: a column of bands on a grey ground.
+fn page<C>(bands: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Gap(.Px(6)),
+            .Padding(.Px(10)),
+            .Background(.Rgb(232, 234, 238)),
+            .Foreground(.Rgb(20, 20, 20)),
+            .FontSize(.Px(11)),
+        ],
+        bands,
+    )
+}
+
+/// One question's band: its name, then a cell per answer.
+fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
+    ui.stack([.Height(.Px(112)), .Scroll(.Both), .Padding(.Px(4))], [
+        ui.text(.Const(name)),
+        ui.row([.Gap(.Px(18)), .AlignCross(.Start), .PaddingY(.Px(8))], cells),
+    ])
+}
+
+/// One answer: its label, and the subject carrying it.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(150)), .Gap(.Px(4)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// The subject: a white card, so the only dark pixels in a cell are the
+/// shadow's.
+fn card<C>(styles: [Style]): Node<C> {
+    ui.stack(base(styles), [ui.text(.Const("Ada"))])
+}
+
+/// What every subject carries before the styles under test, which come last so
+/// the shadow wins.
+fn base(styles: [Style]): [Style] {
+    [
+        .Width(.Px(96)),
+        .Padding(.Px(10)),
+        .Radius(.Px(6)),
+        .Background(.Rgb(255, 255, 255)),
+        .Foreground(.Rgb(24, 24, 27)),
+        .Group(styles),
+    ]
+}
