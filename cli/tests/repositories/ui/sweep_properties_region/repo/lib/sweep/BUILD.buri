@@ -1,0 +1,10 @@
+# One library and one test source: six pictures of a `region` with a plain
+# role, which paints as a stack does because a role paints nothing, and a
+# snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

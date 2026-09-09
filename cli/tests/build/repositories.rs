@@ -294,9 +294,18 @@ fn serving_a_page() {
 /// `ui/testing` facility the native backend has no body for. Both bugs it pins
 /// reported as an abort with no message, which is a shape no lower tier can
 /// see — the binary linked, the front end was happy, and the process died.
+///
+/// **The `sweep_properties_*` cases are the matrix under those nine**: every
+/// `ui/style` property that paints something, at three to five values each,
+/// against every node primitive that takes styles — one case per primitive,
+/// six pictures per case, one picture per family of properties. Each picture is
+/// a labelled grid, so a property is a row and its values read across it, and
+/// each case ends with the same record-and-fail lifecycle the case above it
+/// pins. A property that stops being painted turns one row into a row of
+/// identical cells, and the goldens say which.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 9);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 14);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

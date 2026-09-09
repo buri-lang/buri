@@ -1,0 +1,532 @@
+//! The pictures one sweep column is: every `ui/style` property that paints, at
+//! three to five values each, over a run of `text`, styled by the stack around
+//! it — `ui.text` takes no styles of its own, so the container is where a
+//! property goes.
+//!
+//! A page is two columns of bands and a band is one property, so a property's
+//! values read across and the whole family fits the 800 by 600 the painter
+//! gives a scene. A band clips, which is what keeps a value that grows from
+//! pushing the ones below it off the page.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Shadow, Style };
+
+/// Background, foreground, the three border properties, radius, opacity and a
+/// shadow.
+export fn surfacePage<C>(): Node<C> {
+    page([
+        band("Background", 145, [
+            cell("transparent", subject([.Background(.Transparent)], "Ada")),
+            cell("rgb", subject([.Background(.Rgb(220, 90, 40))], "Ada")),
+            cell("rgba 0.35", subject([.Background(.Rgba(30, 110, 220, 0.35))], "Ada")),
+            cell("inherit", subject([.Background(.Inherit)], "Ada")),
+        ]),
+        band("Foreground", 145, [
+            cell("near black", subject([.Foreground(.Rgb(20, 20, 20))], "Ada")),
+            cell("red", subject([.Foreground(.Rgb(200, 30, 30))], "Ada")),
+            cell("rgba 0.3", subject([.Foreground(.Rgba(0, 0, 0, 0.3))], "Ada")),
+            cell("transparent", subject([.Foreground(.Transparent)], "Ada")),
+        ]),
+        band("BorderWidth", 145, [
+            cell("0px", subject([.BorderWidth(.Px(0))], "Ada")),
+            cell("1px", subject([.BorderWidth(.Px(1))], "Ada")),
+            cell("4px", subject([.BorderWidth(.Px(4))], "Ada")),
+            cell("0.5rem", subject([.BorderWidth(.Rem(0.5))], "Ada")),
+            cell("12px", subject([.BorderWidth(.Px(12))], "Ada")),
+        ]),
+        band("BorderColor", 145, [
+            cell(
+                "red",
+                subject([.BorderWidth(.Px(3)), .BorderColor(.Rgb(200, 30, 30))], "Ada"),
+            ),
+            cell(
+                "green",
+                subject([.BorderWidth(.Px(3)), .BorderColor(.Rgb(30, 120, 60))], "Ada"),
+            ),
+            cell(
+                "rgba 0.3",
+                subject(
+                    [.BorderWidth(.Px(3)), .BorderColor(.Rgba(0, 0, 0, 0.3))],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "transparent",
+                subject([.BorderWidth(.Px(3)), .BorderColor(.Transparent)], "Ada"),
+            ),
+        ]),
+        band("BorderStyle", 145, [
+            cell("none", subject([.BorderWidth(.Px(3)), .BorderStyle(.None)], "Ada")),
+            cell("solid", subject([.BorderWidth(.Px(3)), .BorderStyle(.Solid)], "Ada")),
+            cell(
+                "dashed",
+                subject([.BorderWidth(.Px(3)), .BorderStyle(.Dashed)], "Ada"),
+            ),
+        ]),
+        band("Radius", 145, [
+            cell("0px", subject([.Radius(.Px(0))], "Ada")),
+            cell("4px", subject([.Radius(.Px(4))], "Ada")),
+            cell("1rem", subject([.Radius(.Rem(1.0))], "Ada")),
+            cell("50%", subject([.Radius(.Percent(50.0))], "Ada")),
+            cell("full", subject([.Radius(.Full)], "Ada")),
+        ]),
+        band("Opacity", 145, [
+            cell("0.0", subject([.Opacity(0.0)], "Ada")),
+            cell("0.25", subject([.Opacity(0.25)], "Ada")),
+            cell("0.6", subject([.Opacity(0.6)], "Ada")),
+            cell("1.0", subject([.Opacity(1.0)], "Ada")),
+        ]),
+        band("Shadow", 145, [
+            cell(
+                "all zero",
+                subject(
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(0),
+                            y: .Px(0),
+                            blur: .Px(0),
+                            spread: .Px(0),
+                            color: .Rgb(0, 0, 0),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "blurred",
+                subject(
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(0),
+                            y: .Px(2),
+                            blur: .Px(6),
+                            spread: .Px(0),
+                            color: .Rgb(0, 0, 0),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "spread",
+                subject(
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(0),
+                            y: .Px(0),
+                            blur: .Px(0),
+                            spread: .Px(5),
+                            color: .Rgb(0, 0, 0),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+            cell(
+                "offset red",
+                subject(
+                    [
+                        .Shadow(Shadow {
+                            x: .Px(7),
+                            y: .Px(7),
+                            blur: .Px(5),
+                            spread: .Px(0),
+                            color: .Rgb(200, 30, 30),
+                        }),
+                    ],
+                    "Ada",
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// The family, the size, the weight, the slant, the line height and the letter
+/// spacing.
+export fn typePage<C>(): Node<C> {
+    page([
+        band("FontFamily", 195, [
+            cell("sans", subject([.FontFamily(.Sans)], "Ada")),
+            cell("serif", subject([.FontFamily(.Serif)], "Ada")),
+            cell("mono", subject([.FontFamily(.Mono)], "Ada")),
+            cell("named", subject([.FontFamily(.Named("Inter"))], "Ada")),
+        ]),
+        band("FontSize", 195, [
+            cell("8px", subject([.FontSize(.Px(8))], "Ada")),
+            cell("12px", subject([.FontSize(.Px(12))], "Ada")),
+            cell("1rem", subject([.FontSize(.Rem(1.0))], "Ada")),
+            cell("150%", subject([.FontSize(.Percent(150.0))], "Ada")),
+            cell("28px", subject([.FontSize(.Px(28))], "Ada")),
+        ]),
+        band("FontWeight", 195, [
+            cell("regular", subject([.FontWeight(.Regular)], "Ada")),
+            cell("medium", subject([.FontWeight(.Medium)], "Ada")),
+            cell("semibold", subject([.FontWeight(.Semibold)], "Ada")),
+            cell("bold", subject([.FontWeight(.Bold)], "Ada")),
+        ]),
+        band("Italic", 195, [
+            cell("false", subject([.Italic(false)], "Ada")),
+            cell("true", subject([.Italic(true)], "Ada")),
+        ]),
+        band("LineHeight", 195, [
+            cell("0.8", subject([.LineHeight(0.8)], "Ada Byron counted the engine")),
+            cell("1.0", subject([.LineHeight(1.0)], "Ada Byron counted the engine")),
+            cell("1.5", subject([.LineHeight(1.5)], "Ada Byron counted the engine")),
+            cell("2.5", subject([.LineHeight(2.5)], "Ada Byron counted the engine")),
+        ]),
+        band("LetterSpacing", 195, [
+            cell("-1px", subject([.LetterSpacing(.Px(-1))], "Ada")),
+            cell("0px", subject([.LetterSpacing(.Px(0))], "Ada")),
+            cell("2px", subject([.LetterSpacing(.Px(2))], "Ada")),
+            cell("6px", subject([.LetterSpacing(.Px(6))], "Ada")),
+        ]),
+    ])
+}
+
+/// How a run of text is aligned, cased, ruled, wrapped and clamped.
+export fn runsPage<C>(): Node<C> {
+    page([
+        band("TextAlign", 195, [
+            cell(
+                "start",
+                subject(
+                    [.Width(.Full), .TextAlign(.Start)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "center",
+                subject(
+                    [.Width(.Full), .TextAlign(.Center)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "end",
+                subject(
+                    [.Width(.Full), .TextAlign(.End)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "justify",
+                subject(
+                    [.Width(.Full), .TextAlign(.SpaceBetween)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+        band("TextCase", 195, [
+            cell("as written", subject([.TextCase(.AsWritten)], "ada byron LOVELACE")),
+            cell("upper", subject([.TextCase(.Upper)], "ada byron LOVELACE")),
+            cell("lower", subject([.TextCase(.Lower)], "ada byron LOVELACE")),
+            cell("capitalize", subject([.TextCase(.Capitalize)], "ada byron LOVELACE")),
+        ]),
+        band("TextLine", 195, [
+            cell("none", subject([.TextLine(.None)], "Ada")),
+            cell("underline", subject([.TextLine(.Underline)], "Ada")),
+            cell("strike", subject([.TextLine(.Strike)], "Ada")),
+        ]),
+        band("TextWrap", 195, [
+            cell(
+                "wrap",
+                subject(
+                    [.Width(.Full), .TextWrap(.Wrap)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "nowrap",
+                subject(
+                    [.Width(.Full), .TextWrap(.NoWrap)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "balance",
+                subject(
+                    [.Width(.Full), .TextWrap(.Balance)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+        band("Truncate", 195, [
+            cell(
+                "0 lines",
+                subject([.Width(.Full), .Truncate(0)], "Ada Byron counted the engine"),
+            ),
+            cell(
+                "1 line",
+                subject([.Width(.Full), .Truncate(1)], "Ada Byron counted the engine"),
+            ),
+            cell(
+                "2 lines",
+                subject([.Width(.Full), .Truncate(2)], "Ada Byron counted the engine"),
+            ),
+            cell(
+                "3 lines",
+                subject([.Width(.Full), .Truncate(3)], "Ada Byron counted the engine"),
+            ),
+        ]),
+    ])
+}
+
+/// Every padding shorthand, and each edge of the long one.
+export fn paddingPage<C>(): Node<C> {
+    page([
+        band("Padding", 145, [
+            cell("0px", subject([.Padding(.Px(0))], "Ada")),
+            cell("4px", subject([.Padding(.Px(4))], "Ada")),
+            cell("0.75rem", subject([.Padding(.Rem(0.75))], "Ada")),
+            cell("20px", subject([.Padding(.Px(20))], "Ada")),
+            cell("10%", subject([.Padding(.Percent(10.0))], "Ada")),
+        ]),
+        band("PaddingX", 145, [
+            cell("0px", subject([.PaddingX(.Px(0))], "Ada")),
+            cell("4px", subject([.PaddingX(.Px(4))], "Ada")),
+            cell("0.75rem", subject([.PaddingX(.Rem(0.75))], "Ada")),
+            cell("20px", subject([.PaddingX(.Px(20))], "Ada")),
+        ]),
+        band("PaddingY", 145, [
+            cell("0px", subject([.PaddingY(.Px(0))], "Ada")),
+            cell("4px", subject([.PaddingY(.Px(4))], "Ada")),
+            cell("0.75rem", subject([.PaddingY(.Rem(0.75))], "Ada")),
+            cell("20px", subject([.PaddingY(.Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge top", 145, [
+            cell("0px", subject([.PaddingEdge(.Top, .Px(0))], "Ada")),
+            cell("4px", subject([.PaddingEdge(.Top, .Px(4))], "Ada")),
+            cell("0.75rem", subject([.PaddingEdge(.Top, .Rem(0.75))], "Ada")),
+            cell("20px", subject([.PaddingEdge(.Top, .Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge bottom", 145, [
+            cell("0px", subject([.PaddingEdge(.Bottom, .Px(0))], "Ada")),
+            cell("4px", subject([.PaddingEdge(.Bottom, .Px(4))], "Ada")),
+            cell("0.75rem", subject([.PaddingEdge(.Bottom, .Rem(0.75))], "Ada")),
+            cell("20px", subject([.PaddingEdge(.Bottom, .Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge start", 145, [
+            cell("0px", subject([.PaddingEdge(.Start, .Px(0))], "Ada")),
+            cell("4px", subject([.PaddingEdge(.Start, .Px(4))], "Ada")),
+            cell("0.75rem", subject([.PaddingEdge(.Start, .Rem(0.75))], "Ada")),
+            cell("20px", subject([.PaddingEdge(.Start, .Px(20))], "Ada")),
+        ]),
+        band("PaddingEdge end", 145, [
+            cell("0px", subject([.PaddingEdge(.End, .Px(0))], "Ada")),
+            cell("4px", subject([.PaddingEdge(.End, .Px(4))], "Ada")),
+            cell("0.75rem", subject([.PaddingEdge(.End, .Rem(0.75))], "Ada")),
+            cell("20px", subject([.PaddingEdge(.End, .Px(20))], "Ada")),
+        ]),
+    ])
+}
+
+/// The space between children, both ways, and the mark beside each of them.
+export fn gapPage<C>(): Node<C> {
+    page([
+        band("Gap", 195, [
+            cell("0px", subject([.Gap(.Px(0))], "Ada")),
+            cell("4px", subject([.Gap(.Px(4))], "Ada")),
+            cell("0.75rem", subject([.Gap(.Rem(0.75))], "Ada")),
+            cell("20px", subject([.Gap(.Px(20))], "Ada")),
+        ]),
+        band("GapX in a row", 195, [
+            cell("0px", subject([.Layout(.Row), .GapX(.Px(0))], "Ada")),
+            cell("4px", subject([.Layout(.Row), .GapX(.Px(4))], "Ada")),
+            cell("0.75rem", subject([.Layout(.Row), .GapX(.Rem(0.75))], "Ada")),
+            cell("20px", subject([.Layout(.Row), .GapX(.Px(20))], "Ada")),
+        ]),
+        band("GapY", 195, [
+            cell("0px", subject([.GapY(.Px(0))], "Ada")),
+            cell("4px", subject([.GapY(.Px(4))], "Ada")),
+            cell("0.75rem", subject([.GapY(.Rem(0.75))], "Ada")),
+            cell("20px", subject([.GapY(.Px(20))], "Ada")),
+        ]),
+        band("ListMarker", 195, [
+            cell(
+                "none",
+                subject([.PaddingEdge(.Start, .Px(16)), .ListMarker(.None)], "Ada"),
+            ),
+            cell(
+                "disc",
+                subject([.PaddingEdge(.Start, .Px(16)), .ListMarker(.Disc)], "Ada"),
+            ),
+            cell(
+                "decimal",
+                subject([.PaddingEdge(.Start, .Px(16)), .ListMarker(.Decimal)], "Ada"),
+            ),
+        ]),
+    ])
+}
+
+/// The six sizing properties, the aspect ratio and the scroll axes.
+export fn sizePage<C>(): Node<C> {
+    page([
+        band("Width", 145, [
+            cell("16px", subject([.Width(.Px(16))], "Ada")),
+            cell("40px", subject([.Width(.Px(40))], "Ada")),
+            cell("50%", subject([.Width(.Percent(50.0))], "Ada")),
+            cell("full", subject([.Width(.Full)], "Ada")),
+            cell("auto", subject([.Width(.Auto)], "Ada")),
+        ]),
+        band("Height", 145, [
+            cell("10px", subject([.Height(.Px(10))], "Ada")),
+            cell("40px", subject([.Height(.Px(40))], "Ada")),
+            cell("4rem", subject([.Height(.Rem(4.0))], "Ada")),
+            cell("50%", subject([.Height(.Percent(50.0))], "Ada")),
+            cell("auto", subject([.Height(.Auto)], "Ada")),
+        ]),
+        band("MinWidth", 145, [
+            cell("0px", subject([.MinWidth(.Px(0))], "Ada")),
+            cell("30px", subject([.MinWidth(.Px(30))], "Ada")),
+            cell("60px", subject([.MinWidth(.Px(60))], "Ada")),
+            cell("full", subject([.MinWidth(.Full)], "Ada")),
+        ]),
+        band("MaxWidth", 145, [
+            cell("16px", subject([.Width(.Full), .MaxWidth(.Px(16))], "Ada Byron")),
+            cell("40px", subject([.Width(.Full), .MaxWidth(.Px(40))], "Ada Byron")),
+            cell("60px", subject([.Width(.Full), .MaxWidth(.Px(60))], "Ada Byron")),
+            cell("full", subject([.Width(.Full), .MaxWidth(.Full)], "Ada Byron")),
+        ]),
+        band("MinHeight", 145, [
+            cell("0px", subject([.MinHeight(.Px(0))], "Ada")),
+            cell("20px", subject([.MinHeight(.Px(20))], "Ada")),
+            cell("44px", subject([.MinHeight(.Px(44))], "Ada")),
+            cell("4rem", subject([.MinHeight(.Rem(4.0))], "Ada")),
+        ]),
+        band("MaxHeight", 145, [
+            cell(
+                "8px",
+                subject(
+                    [.Width(.Full), .MaxHeight(.Px(8))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "24px",
+                subject(
+                    [.Width(.Full), .MaxHeight(.Px(24))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "60px",
+                subject(
+                    [.Width(.Full), .MaxHeight(.Px(60))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "full",
+                subject(
+                    [.Width(.Full), .MaxHeight(.Full)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+        band("AspectRatio", 145, [
+            cell(
+                "0.5",
+                subject([.Height(.Auto), .Width(.Px(40)), .AspectRatio(0.5)], "Ada"),
+            ),
+            cell(
+                "1.0",
+                subject([.Height(.Auto), .Width(.Px(40)), .AspectRatio(1.0)], "Ada"),
+            ),
+            cell(
+                "2.0",
+                subject([.Height(.Auto), .Width(.Px(40)), .AspectRatio(2.0)], "Ada"),
+            ),
+            cell(
+                "3.0",
+                subject([.Height(.Auto), .Width(.Px(40)), .AspectRatio(3.0)], "Ada"),
+            ),
+        ]),
+        band("Scroll", 145, [
+            cell(
+                "none",
+                subject(
+                    [.Width(.Px(48)), .Height(.Px(22))],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "x",
+                subject(
+                    [.Width(.Px(48)), .Height(.Px(22)), .Scroll(.X)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "y",
+                subject(
+                    [.Width(.Px(48)), .Height(.Px(22)), .Scroll(.Y)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+            cell(
+                "both",
+                subject(
+                    [.Width(.Px(48)), .Height(.Px(22)), .Scroll(.Both)],
+                    "Ada Byron counted the engine",
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// One picture: two columns of bands, one band per property.
+fn page<C>(bands: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Layout(.Grid([.Fraction(1), .Fraction(1)])),
+            .Gap(.Px(2)),
+            .Padding(.Px(4)),
+            .Background(.Rgb(255, 255, 255)),
+            .Foreground(.Rgb(20, 20, 20)),
+            .FontSize(.Px(11)),
+        ],
+        bands,
+    )
+}
+
+/// One property's band: its name, then a cell per value, clipped to
+/// `height` so a value that grows stays inside its own row.
+fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Height(.Px(height)),
+            .Scroll(.Both),
+            .Padding(.Px(3)),
+            .Background(.Rgb(243, 244, 247)),
+        ],
+        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
+    )
+}
+
+/// One value: its label, and the primitive carrying it. The cell does
+/// not stretch its children, so a box is as wide as it asked to be.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(72)), .Gap(.Px(1)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}
+
+/// The subject every cell holds: a run of `text`, styled by the stack around
+/// it — `ui.text` takes no styles of its own, so the container is where a
+/// property goes.
+fn subject<C>(styles: [Style], words: Str): Node<C> {
+    ui.stack(base(styles), [ui.text(.Const(words))])
+}
+
+/// What every subject carries before the cell's own styles, which come
+/// last so the property under test wins.
+fn base(styles: [Style]): [Style] {
+    [
+        .Background(.Rgb(206, 218, 240)),
+        .Foreground(.Rgb(18, 18, 28)),
+        .Padding(.Px(2)),
+        .Group(styles),
+    ]
+}
