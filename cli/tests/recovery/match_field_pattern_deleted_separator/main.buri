@@ -1,0 +1,12 @@
+// EXPECT: a field pattern ends with `,`
+export enum Shape {
+  Rect { width: Int, height: Int },
+  Empty,
+}
+
+export fn area(shape: Shape): Int {
+  match (shape) {
+    .Rect { width height } => width * height,
+    .Empty => 0,
+  }
+}

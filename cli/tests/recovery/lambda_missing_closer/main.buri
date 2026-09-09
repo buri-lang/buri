@@ -1,0 +1,5 @@
+// EXPECT: this lambda parameter list is missing its closing `)`
+export fn twice(n: Int): Int {
+  let double = fn(n: Int: Int => n * 2;
+  double(n)
+}

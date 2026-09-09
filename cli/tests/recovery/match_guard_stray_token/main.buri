@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `if`
+export fn size(n: Int): Str {
+  match (n) {
+    n @ if n > 10 => "large",
+    _ => "small",
+  }
+}

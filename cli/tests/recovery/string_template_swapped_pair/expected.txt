@@ -1,0 +1,4 @@
+error [no-such-variant] 6:3-6:13
+message: `Str` has no variant `strformat`
+fix: name a variant the enum declares
+

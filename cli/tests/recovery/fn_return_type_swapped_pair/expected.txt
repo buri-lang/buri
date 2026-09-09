@@ -1,0 +1,8 @@
+error [unexpected-token] 3:4-3:10
+message: expected an identifier, found `export`
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+error [unexpected-token] 3:11-3:15
+message: expected a declaration, found `pair`
+fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+

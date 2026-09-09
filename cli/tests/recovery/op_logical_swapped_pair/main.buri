@@ -1,0 +1,4 @@
+// EXPECT: expected an expression, found `&&`
+export fn any(a: Bool, b: Bool, c: Bool): Bool {
+  && a b || c
+}

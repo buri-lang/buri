@@ -1,0 +1,10 @@
+// EXPECT: expected an identifier, found `match`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/114
+from "core/effect" import { Allocator, Clock };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.match, Clock: host.clock };
+  let _ = ctx;
+  .Ok(())
+}

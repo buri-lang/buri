@@ -1,0 +1,4 @@
+error [unexpected-token] 4:1-4:1
+message: expected an identifier, found end of file
+fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+

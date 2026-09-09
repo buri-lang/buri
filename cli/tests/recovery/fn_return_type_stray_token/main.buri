@@ -1,0 +1,4 @@
+// EXPECT: expected a declaration, found `@`
+export @ fn pair(): (Int, Str) {
+  (1, "one")
+}

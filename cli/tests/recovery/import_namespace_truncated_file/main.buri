@@ -1,0 +1,2 @@
+// EXPECT: expected `{`, found end of file
+from "core/list" import

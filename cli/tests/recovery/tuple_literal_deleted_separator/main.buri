@@ -1,0 +1,4 @@
+// EXPECT: a tuple element ends with `,`
+export fn triple(): (Int, Str, Bool) {
+  (1 "one", true)
+}

@@ -1,0 +1,12 @@
+error [no-assignment] 3:21-3:22
+message: there is no assignment; a binding is given its value once, where it is declared
+fix: bind the new value to a new name with `let`, or return it from the expression that computes it
+
+error [unresolved-name] 4:3-4:7
+message: there is nothing named `left` in scope
+fix: declare `left`, or import it — a name is in scope only from this module's own declarations and its imports
+
+error [unresolved-name] 4:10-4:15
+message: there is nothing named `right` in scope
+fix: declare `right`, or import it — a name is in scope only from this module's own declarations and its imports
+

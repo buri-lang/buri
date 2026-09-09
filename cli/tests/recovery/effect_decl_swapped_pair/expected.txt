@@ -1,0 +1,4 @@
+error [unexpected-token] 4:3-4:9
+message: expected `fn`, found `meddle`
+fix: write `fn` here
+

@@ -1,0 +1,10 @@
+error [match-not-exhaustive] 4:3-7:4
+message: this `match` does not cover `_`
+fix: add a `_` arm
+note: exhaustiveness is not attempted over integer or string ranges
+
+error [missing-arrow] 6:6-6:6
+message: a match arm is `pattern => expression`
+fix: write `=>` here
+edit: 6:6-6:6 " =>"
+

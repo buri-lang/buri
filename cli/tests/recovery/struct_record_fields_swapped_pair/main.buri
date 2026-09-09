@@ -1,0 +1,5 @@
+// EXPECT: expected `:`, found `export`
+export struct Point {
+  x export: Int,
+  export y: Int,
+}

@@ -1,0 +1,4 @@
+// EXPECT: this tuple is missing its closing `)`
+export fn triple(): (Int, Str, Bool) {
+  (1, "one", true
+}

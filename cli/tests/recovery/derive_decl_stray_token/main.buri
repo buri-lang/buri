@@ -1,0 +1,6 @@
+// EXPECT: expected an identifier, found `@`
+derive @ Equal, Show for Shape;
+export enum Shape {
+  Circle,
+  Square,
+}

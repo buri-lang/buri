@@ -1,0 +1,8 @@
+// EXPECT: `Point` is missing `y`
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn origin(): Point {
+  Point { x: 1

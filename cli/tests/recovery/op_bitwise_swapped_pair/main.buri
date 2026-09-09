@@ -1,0 +1,4 @@
+// EXPECT: expected an expression, found `|`
+export fn mask(a: Int, b: Int, c: Int, d: Int): Int {
+  | a b ^ c & d
+}

@@ -1,0 +1,4 @@
+// EXPECT: this parameter list is missing its closing `)`
+export fn same<A: Equal + Ordered>(value: A: Bool {
+  value.equal(value)
+}

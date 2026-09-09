@@ -1,0 +1,4 @@
+// EXPECT: a method signature ends with `;`
+export trait Area {
+  fn area(self): Int
+}

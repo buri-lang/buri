@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 4:11-4:13
+message: this tuple pattern is missing its closing `)`
+fix: write `)` here
+related: 4:5-4:6 opened here
+

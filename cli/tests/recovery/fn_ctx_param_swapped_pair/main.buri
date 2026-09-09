@@ -1,0 +1,8 @@
+// EXPECT: expected an identifier, found `export`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
+from "core/effect" import { Stdout };
+from "core/io" import * as io;
+
+fn export note<C: Stdout>(ctx: C, line: Str): () {
+  io.println(ctx, line).ignore()
+}

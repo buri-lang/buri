@@ -1,0 +1,7 @@
+// EXPECT: a match arm is `pattern => expression`
+export fn sum(xs: [Int]): Int {
+  match (xs) {
+    first[, second] => first + second,
+    _ => 0,
+  }
+}

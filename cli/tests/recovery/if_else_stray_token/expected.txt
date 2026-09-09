@@ -1,0 +1,4 @@
+error [unexpected-token] 3:6-3:7
+message: expected `(`, found `@`
+fix: write `(` here
+

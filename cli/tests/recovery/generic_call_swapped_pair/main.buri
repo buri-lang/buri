@@ -1,0 +1,8 @@
+// EXPECT: expected an expression, found `<`
+fn identity<A>(value: A): A {
+  value
+}
+
+export fn same(n: Int): Int {
+  <identityInt>(n)
+}

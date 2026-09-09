@@ -1,0 +1,6 @@
+// EXPECT: an import name ends with `,`
+from "core/order" import { Order Equal };
+
+export fn kind(): Str {
+  "named"
+}

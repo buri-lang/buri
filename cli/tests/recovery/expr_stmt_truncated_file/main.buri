@@ -1,0 +1,6 @@
+// EXPECT: `equal` takes 2 arguments, but 0 were given
+// ROLE: test
+from "core/testing/assert" import * as assert;
+
+test "an expression statement stands alone in a test" {
+  assert.equal(

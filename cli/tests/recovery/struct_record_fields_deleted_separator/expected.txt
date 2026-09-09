@@ -1,0 +1,5 @@
+error [missing-separator] 3:16-3:16
+message: a record field ends with `,`
+fix: write `,` here
+edit: 3:16-3:16 ","
+

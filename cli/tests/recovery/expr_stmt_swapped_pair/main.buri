@@ -1,0 +1,7 @@
+// EXPECT: `.assertequal` needs a known expected type
+// ROLE: test
+from "core/testing/assert" import * as assert;
+
+test "an expression statement stands alone in a test" {
+  .assertequal(1, 1);
+}

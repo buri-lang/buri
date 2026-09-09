@@ -1,0 +1,4 @@
+// EXPECT: this parameter list is missing its closing `)`
+// ROLE: platform
+export effect Mischief {
+  fn meddle(self

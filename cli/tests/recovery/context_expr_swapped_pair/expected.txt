@@ -1,0 +1,22 @@
+error [expression-statement] 7:3-7:6
+message: an expression statement is legal only in a test source
+fix: bind it: `let _ = ...;`, or make it the block's result expression
+note: a block is `let`s followed by a result expression
+
+error [unresolved-name] 7:3-7:6
+message: there is nothing named `ctx` in scope
+fix: declare `ctx` as a parameter of this function
+
+error [missing-terminator] 7:6-7:6
+message: a statement ends with `;`
+fix: write `;` here
+edit: 7:6-7:6 ";"
+
+error [unexpected-token] 7:11-7:12
+message: expected a pattern, found `=`
+fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+
+error [unresolved-name] 8:11-8:14
+message: there is nothing named `ctx` in scope
+fix: declare `ctx` as a parameter of this function
+

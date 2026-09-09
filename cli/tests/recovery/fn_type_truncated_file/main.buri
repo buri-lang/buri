@@ -1,0 +1,2 @@
+// EXPECT: this function type is missing its closing `)`
+export fn apply(f: fn(Int, Int

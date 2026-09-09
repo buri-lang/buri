@@ -1,0 +1,7 @@
+// EXPECT: a tuple-pattern element ends with `,`
+export fn pick(pair: (Int, Int)): Int {
+  match (pair) {
+    (0 y) => y,
+    (x, _) => x,
+  }
+}

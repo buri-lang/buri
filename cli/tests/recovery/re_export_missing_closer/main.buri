@@ -1,0 +1,6 @@
+// EXPECT: this re-export list is missing its closing `}`
+from "core/order" export { Order, Equal ;
+
+export fn kind(): Str {
+  "re-export"
+}

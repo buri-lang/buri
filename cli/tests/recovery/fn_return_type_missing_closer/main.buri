@@ -1,0 +1,4 @@
+// EXPECT: this tuple type is missing its closing `)`
+export fn pair(): (Int, Str {
+  (1, "one")
+}

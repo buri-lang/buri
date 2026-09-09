@@ -1,0 +1,9 @@
+// EXPECT: this function body is missing its closing `}`
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn flatten(point: Point): Point {
+  Point { ..point, x: 0 
+}

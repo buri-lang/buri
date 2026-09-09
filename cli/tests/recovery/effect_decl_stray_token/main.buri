@@ -1,0 +1,5 @@
+// EXPECT: expected an identifier, found `@`
+// ROLE: platform
+export effect Mischief {
+  fn @ meddle(self): ();
+}

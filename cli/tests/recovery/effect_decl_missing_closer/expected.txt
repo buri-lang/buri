@@ -1,0 +1,9 @@
+error [unexpected-token] 4:21-4:22
+message: expected a type, found `;`
+fix: name a type here, as in `Int` or `[Str]`
+
+error [unclosed-delimiter] 6:1-6:1
+message: this `effect` body is missing its closing `}`
+fix: write `}` here
+related: 3:24-3:25 opened here
+

@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `match`
+export fn head(xs: [Int]): Int {
+  match (xs) {
+    [match, ..rest] => match + rest.length(),
+    _ => 0,
+  }
+}

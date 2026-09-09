@@ -1,0 +1,4 @@
+// EXPECT: this parameter list is missing its closing `)`
+export fn add(left: Int, right: Int: Int {
+  left + right
+}

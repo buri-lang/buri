@@ -1,0 +1,6 @@
+// EXPECT: expected an identifier, found `match`
+let match: Int = 7;
+
+export fn seed(): Int {
+  match
+}

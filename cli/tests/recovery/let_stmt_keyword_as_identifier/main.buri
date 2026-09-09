@@ -1,0 +1,5 @@
+// EXPECT: expected an identifier, found `match`
+export fn match(): Int {
+  let match: Int = 1 + 2;
+  match
+}

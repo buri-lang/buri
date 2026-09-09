@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `match`
+export fn sum(match: (Int, Int)): Int {
+  match.0 + match.1
+}

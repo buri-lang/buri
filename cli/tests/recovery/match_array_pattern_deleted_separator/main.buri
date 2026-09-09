@@ -1,0 +1,7 @@
+// EXPECT: an array-pattern element ends with `,`
+export fn sum(xs: [Int]): Int {
+  match (xs) {
+    [first second] => first + second,
+    _ => 0,
+  }
+}

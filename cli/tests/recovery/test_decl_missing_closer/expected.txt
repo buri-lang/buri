@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 8:1-8:1
+message: this `test` body is missing its closing `}`
+fix: write `}` here
+related: 5:19-5:20 opened here
+

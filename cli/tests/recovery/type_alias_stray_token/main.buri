@@ -1,0 +1,6 @@
+// EXPECT: expected a declaration, found `@`
+export @ type Meters = Float;
+
+export fn zero(): Meters {
+  0.0
+}

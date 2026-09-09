@@ -1,0 +1,12 @@
+// EXPECT: this `match` does not cover `Point { x: _, y: _ }`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/110
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn sum(point: Point): Int {
+  match (point) {
+    Point @ { x, y } => x + y,
+  }
+}

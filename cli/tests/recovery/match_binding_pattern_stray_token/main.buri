@@ -1,0 +1,7 @@
+// EXPECT: expected a pattern, found `@`
+export fn pick(n: Int): Int {
+  match (n) {
+    small @ @ 1 => small,
+    other => other,
+  }
+}

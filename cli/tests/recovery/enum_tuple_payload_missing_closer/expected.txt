@@ -1,0 +1,9 @@
+error [unresolved-type] 4:3-4:8
+message: there is no type `Empty`
+fix: declare it, import it, or correct the spelling
+
+error [unclosed-delimiter] 5:1-5:2
+message: this variant payload is missing its closing `)`
+fix: write `)` here
+related: 3:8-3:9 opened here
+

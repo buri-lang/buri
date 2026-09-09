@@ -1,0 +1,4 @@
+error [unexpected-token] 6:1-6:1
+message: expected an expression, found end of file
+fix: write a value here
+

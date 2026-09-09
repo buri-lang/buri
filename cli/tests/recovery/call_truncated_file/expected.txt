@@ -1,0 +1,9 @@
+error [wrong-argument-count] 7:3-7:8
+message: `add` takes 2 arguments, but 1 were given
+fix: pass `add` the following arguments: add(left: Int, right: Int)
+
+error [unclosed-delimiter] 8:1-8:1
+message: this call is missing its closing `)`
+fix: write `)` here
+related: 7:6-7:7 opened here
+

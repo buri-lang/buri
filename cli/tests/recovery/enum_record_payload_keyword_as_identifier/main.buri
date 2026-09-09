@@ -1,0 +1,5 @@
+// EXPECT: expected an identifier, found `match`
+export enum Shape {
+  match { width: Int, height: Int },
+  Empty,
+}

@@ -1,0 +1,4 @@
+// EXPECT: expected a declaration, found `@`
+export @ fn wrap(n: Int): [[Int]] {
+  [[n]]
+}

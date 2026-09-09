@@ -1,0 +1,5 @@
+// EXPECT: expected an identifier, found `match`
+export struct Point {
+  export match: Int,
+  export y: Int,
+}

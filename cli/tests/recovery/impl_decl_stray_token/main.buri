@@ -1,0 +1,11 @@
+// EXPECT: expected a type, found `@`
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+impl @ Point {
+  export fn sum(self): Int {
+    self.x + self.y
+  }
+}

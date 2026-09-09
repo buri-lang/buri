@@ -1,0 +1,12 @@
+// EXPECT: expected a declaration, found `Point`
+// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/115
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+Point impl {
+  export fn sum(self): Int {
+    self.x + self.y
+  }
+}

@@ -1,0 +1,7 @@
+// EXPECT: expected a string literal, found `@`
+// ROLE: test
+from "core/testing/assert" import * as assert;
+
+test @ "one is one" {
+  assert.equal(1, 1);
+}
