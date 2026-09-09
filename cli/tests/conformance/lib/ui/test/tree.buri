@@ -361,6 +361,191 @@ test "padding named edge by edge composes too" {
     assert.isTrue(sheet.contains(".pe-end-4{padding-inline-end:4px}"));
 }
 
+test "a border named edge by edge composes, and the colour stays whole-box" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The divider under a table row, the guide line down a submenu: one edge
+    // of a box rather than a box of its own.
+    let edges: [Style] = [
+        .BorderEdge(.Top, .Px(1)),
+        .BorderEdge(.Bottom, .Px(2)),
+        .BorderEdge(.Start, .Px(3)),
+        .BorderEdge(.End, .Rem(0.5)),
+        .BorderColor(.Rgb(200, 200, 210)),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(edges, [])).markup(),
+        "<div class=\"be-top-1 be-bottom-2 be-start-3 be-end-r0_5 bc-c8c8d2\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ".be-top-1{border-block-start-style:solid;border-block-start-width:1px}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(
+            ".be-end-r0_5{border-inline-end-style:solid;border-inline-end-width:0.5rem}",
+        ),
+    );
+    assert.isTrue(sheet.contains(".bc-c8c8d2{border-color:rgb(200,200,210)}"));
+}
+
+test "a border edge sits after the width it narrows and before the style" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [.BorderWidth(.Px(1)), .BorderEdge(.Bottom, .Px(4)), .BorderStyle(.Dashed)],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"bw-1 be-bottom-4 bs-dashed\"></div>",
+    );
+    // Position in the sheet is what decides between two properties that touch
+    // one declaration: the edge overrides the whole box, and `BorderStyle`
+    // overrides the solid both of them implied.
+    let sheet = stylesheet();
+    let whole = sheet
+        .indexOf(".bw-1{border-style:solid;border-width:1px}")
+        .withDefault(-1);
+    let edge = sheet
+        .indexOf(
+            ".be-bottom-4{border-block-end-style:solid;border-block-end-width:4px}",
+        )
+        .withDefault(-1);
+    let dashed = sheet.indexOf(".bs-dashed{border-style:dashed}").withDefault(-1);
+    assert.isTrue(whole >= 0);
+    assert.isTrue(whole < edge);
+    assert.isTrue(edge < dashed);
+}
+
+test "the same border edge twice is last-wins, and a state is its own slot" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [
+            .BorderEdge(.Bottom, .Px(1)),
+            .BorderEdge(.Bottom, .Px(3)),
+            .On(.Hover, [.BorderEdge(.Bottom, .Px(1))]),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"be-bottom-3 hover_be-bottom-1\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ".hover_be-bottom-1:hover{border-block-end-style:solid;border-block-end-width:1px}",
+        ),
+    );
+}
+
+test "radius named corner by corner composes, and a joined group is spellable" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let corners: [Style] = [
+        .RadiusCorner(.TopStart, .Px(1)),
+        .RadiusCorner(.TopEnd, .Px(2)),
+        .RadiusCorner(.BottomStart, .Px(3)),
+        .RadiusCorner(.BottomEnd, .Px(4)),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(corners, [])).markup(),
+        "<div class=\"rc-topstart-1 rc-topend-2 rc-bottomstart-3 rc-bottomend-4\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".rc-topstart-1{border-start-start-radius:1px}"));
+    assert.isTrue(sheet.contains(".rc-topend-2{border-start-end-radius:2px}"));
+    assert.isTrue(sheet.contains(".rc-bottomstart-3{border-end-start-radius:3px}"));
+    assert.isTrue(sheet.contains(".rc-bottomend-4{border-end-end-radius:4px}"));
+}
+
+test "a corner squares the side that meets its neighbour, and the shorthand loses" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The middle child of a joined button group: rounded ends, square where it
+    // welds onto the button beside it, and one shared hairline.
+    let middle: [Style] = [
+        .Radius(.Px(6)),
+        .RadiusCorner(.TopStart, .Px(0)),
+        .RadiusCorner(.BottomStart, .Px(0)),
+        .BorderWidth(.Px(1)),
+        .BorderEdge(.Start, .Px(0)),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(middle, [])).markup(),
+        "<div class=\"r-6 rc-topstart-0 rc-bottomstart-0 bw-1 be-start-0\"></div>",
+    );
+    let sheet = stylesheet();
+    let whole = sheet.indexOf(".r-6{border-radius:6px}").withDefault(-1);
+    let corner = sheet
+        .indexOf(".rc-topstart-0{border-start-start-radius:0px}")
+        .withDefault(-1);
+    assert.isTrue(whole >= 0);
+    assert.isTrue(whole < corner);
+    assert.isTrue(
+        sheet.contains(
+            ".be-start-0{border-inline-start-style:solid;border-inline-start-width:0px}",
+        ),
+    );
+}
+
+test "an edge and a corner reach the scene document the way the sheet does" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [
+            .BorderEdge(.Bottom, .Px(1)),
+            .BorderColor(.Rgb(0, 0, 0)),
+            .RadiusCorner(.TopEnd, .Px(4)),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"be-bottom-1 bc-000000 rc-topend-4\"></div>",
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:be-bottom-1 bc-000000 rc-topend-4",
+    );
+}
+
+test "an edge and a corner the compiler cannot evaluate become inline styles" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // `get` takes a context, so the folder stops and both degrade to the tier
+    // `Computed` lives in — the same declarations, written out.
+    let thickness = signal(ctx, 2);
+    let rounding = signal(ctx, 5);
+    assert.equal(
+        render(
+            ctx,
+            ui.stack([.BorderEdge(.Bottom, .Px(thickness.get(ctx)))], []),
+        ).markup(),
+        "<div style=\"border-block-end-style: solid; border-block-end-width: 2px\"></div>",
+    );
+    assert.equal(
+        render(
+            ctx,
+            ui.stack([.RadiusCorner(.BottomEnd, .Px(rounding.get(ctx)))], []),
+        ).markup(),
+        "<div style=\"border-end-end-radius: 5px\"></div>",
+    );
+}
+
 test "a bleed takes a child out past the padding its parent put it inside" {
     let ctx = context {
         Ui: headless(),
