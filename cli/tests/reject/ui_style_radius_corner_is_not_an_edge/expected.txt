@@ -1,0 +1,12 @@
+error: `Corner` has no variant `Top` [no-such-variant]
+  --> cmd/ui_style_radius_corner_is_not_an_edge/main.buri:14:36
+   |
+14 | let rounded: Style = .RadiusCorner(.Top, .Px(4));
+   |                                    ^^^^
+   |
+   = did you mean `.TopEnd`?
+   = fix: if you meant `.TopEnd`, use that; if not, `Corner`'s declaration lists its variants
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+
