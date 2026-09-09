@@ -29,7 +29,8 @@ from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
-from "ui/style" import { Shadow, Style };
+from "ui/style" import * as style;
+from "ui/style" import { Color, Shadow, Style };
 from "ui/testing" import { headless, observer, recorder, render, stylesheet };
 from "ui/theme" import { Theme };
 
@@ -229,6 +230,55 @@ fn boxed<C>(extra: [Style], label: Str): Node<C> {
     ui.stack([.Group([.Padding(.Px(8)), .Background(.Rgb(0, 0, 0))]), .Group(extra)], [
         ui.text(.Const(label)),
     ])
+}
+
+/// The three shadows a design system ships: a tight one under a resting card,
+/// the wide half of an elevation, and the ring a focus style is.
+///
+/// Module-level, because a style is extracted where it is written and a local
+/// is a value only the run time has.
+let tight: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(1),
+    blur: .Px(2),
+    spread: .Px(0),
+    color: .Rgba(0, 0, 0, 0.05),
+};
+
+let lift: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(2),
+    blur: .Px(4),
+    spread: .Px(0),
+    color: .Rgba(0, 0, 0, 0.2),
+};
+
+let ring: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(0),
+    blur: .Px(0),
+    spread: .Px(3),
+    color: .Rgba(59, 130, 246, 0.5),
+};
+
+/// A component with a shadow of its own that a caller may replace.
+///
+/// `Shadow` and `Shadows` are one conflict slot, so a caller's two-layer
+/// elevation replaces this one rather than landing beside it.
+fn shadowed<C>(extra: [Style], label: Str): Node<C> {
+    ui.stack([.Shadow(tight), .Group(extra)], [ui.text(.Const(label))])
+}
+
+/// A component whose shadow and whose background are whatever its caller asks
+/// for. Both styles are built out of a parameter, so the compiler cannot
+/// evaluate either and both degrade to the inline tier — which is where the
+/// other half of each lowering is.
+fn cast<C>(layers: [Shadow]): Node<C> {
+    ui.stack([.Shadows(layers)], [])
+}
+
+fn painted<C>(paint: Color): Node<C> {
+    ui.stack([.Background(paint)], [])
 }
 
 test "every property lowers to the one declaration it names" {
@@ -731,6 +781,268 @@ test "the last value of a property is the one that survives" {
     assert.equal(render(ctx, tree).markup(), "<div class=\"bg-inherit\"></div>");
 }
 
+// --- shadows, in layers ---------------------------------------------------------------
+
+test "several shadows are one declaration, in the order they were written" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The elevation every design system ships: a wide soft layer, and a tight
+    // one under the near edge that keeps it crisp.
+    let tree = ui.stack(
+        [
+            .Shadows([
+                Shadow {
+                    x: .Px(0),
+                    y: .Px(4),
+                    blur: .Px(6),
+                    spread: .Px(-1),
+                    color: .Rgba(0, 0, 0, 0.1),
+                },
+                Shadow {
+                    x: .Px(0),
+                    y: .Px(2),
+                    blur: .Px(4),
+                    spread: .Px(-2),
+                    color: .Rgba(0, 0, 0, 0.1),
+                },
+            ]),
+        ],
+        [],
+    );
+    let _ = render(ctx, tree).markup();
+    assert.isTrue(
+        stylesheet().contains(
+            "{box-shadow:0px 4px 6px -1px rgba(0,0,0,0.1),0px 2px 4px -2px rgba(0,0,0,0.1)}",
+        ),
+    );
+}
+
+test "one shadow written as a list is the one-layer spelling's own class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The declaration decides the class, so a list of one and the single
+    // spelling of the same shadow are one rule rather than two.
+    let tree = ui.stack([], [
+        ui.stack([.Shadow(tight)], []),
+        ui.stack([.Shadows([tight])], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"sh-f3a4517c\"></div><div class=\"sh-f3a4517c\"></div></div>",
+    );
+    assert.isTrue(
+        stylesheet().contains(
+            ".sh-f3a4517c{box-shadow:0px 1px 2px 0px rgba(0,0,0,0.05)}",
+        ),
+    );
+}
+
+test "`Shadow` and `Shadows` share one slot, so the last written wins" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Both sides are literals, so the compiler settled this: one class each,
+    // and it is the one written last.
+    let tree = ui.stack([], [
+        ui.stack([.Shadow(ring), .Shadows([lift, ring])], []),
+        ui.stack([.Shadows([lift, ring]), .Shadow(ring)], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"sh-a990b199\"></div><div class=\"sh-a64dfa66\"></div></div>",
+    );
+}
+
+test "a shadow under a state is its own slot, beside the resting one" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A pseudo-class and the resting value are different slots, so a card that
+    // is raised keeps its elevation and gains the ring on focus.
+    let tree = ui.stack([.Shadow(lift), .On(.Focus, [.Shadows([ring, lift])])], []);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"sh-174de1bf focus_sh-10967775\"></div>",
+    );
+    assert.isTrue(
+        stylesheet().contains(
+            ".focus_sh-10967775:focus-visible{box-shadow:0px 0px 0px 3px rgba(59,130,246,0.5),0px 2px 4px 0px rgba(0,0,0,0.2)}",
+        ),
+    );
+}
+
+test "shadows that arrive as a parameter resolve last-wins over the one emitted" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The merge is the runtime scan, and one slot for the two spellings is
+    // what makes a caller's elevation replace the component's own shadow
+    // rather than land beside it.
+    let tree = ui.stack([], [
+        shadowed([], "plain"),
+        shadowed([.Shadows([lift, ring])], "raised"),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"sh-f3a4517c\">plain</div><div class=\"sh-a990b199\">raised</div></div>",
+    );
+}
+
+test "a shadow list is in the scene document the painter reads" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The layers are a parameter, so this is the inline tier — and what it
+    // writes out is the same declaration the stylesheet would have held. The
+    // headless painter reads the scene and a browser reads the markup, and
+    // they agree only while the two carry the same text.
+    let tree = cast([lift, ring]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div style=\"box-shadow: 0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)\"></div>",
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 box-shadow:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
+    );
+}
+
+// --- a colour, faded ------------------------------------------------------------------
+
+test "a colour written out fades to a plain rgba" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Nothing is deferred: the channels are known, so the fade is arithmetic
+    // the compiler does and the class is the ordinary `Rgba` one.
+    let tree = ui.stack([], [
+        ui.stack([.Background(Color.Rgb(30, 110, 220).alpha(0.5))], []),
+        ui.stack([.Foreground(Color.Rgba(0, 0, 0, 1.0).alpha(0.25))], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"bg-1e6edca0_5\"></div><div class=\"fg-000000a0_25\"></div></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(".bg-1e6edca0_5{background-color:rgba(30,110,220,0.5)}"),
+    );
+    assert.isTrue(sheet.contains(".fg-000000a0_25{color:rgba(0,0,0,0.25)}"));
+}
+
+test "a token fades into a mix that still names the token" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The token is still what decides the hue, so a theme that changes it
+    // changes this too — and no second token has to be minted to spell a fade.
+    let tree = ui.stack(
+        [
+            .BorderWidth(.Px(3)),
+            .BorderColor(style.token("cardlib", "ring").alpha(0.5)),
+            .Background(style.token("cardlib", "ring").alpha(0.2)),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"bw-3 bc-t_cardlib_ringa0_5 bg-t_cardlib_ringa0_2\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ".bc-t_cardlib_ringa0_5{border-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(
+            ".bg-t_cardlib_ringa0_2{background-color:color-mix(in srgb,var(--cardlib-ring) 20%,transparent)}",
+        ),
+    );
+}
+
+test "fading a colour is the same property, so the last one wins" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A fade is not a property of its own. It is the colour, so it lands in
+    // the colour's slot and the two never sit side by side.
+    let tree = ui.stack(
+        [
+            .Background(style.token("cardlib", "ring")),
+            .Background(style.token("cardlib", "ring").alpha(0.5)),
+        ],
+        [],
+    );
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div class=\"bg-t_cardlib_ringa0_5\"></div>",
+    );
+}
+
+test "nothing and whatever-was-inherited have no colour to fade" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Neither names a colour, so `alpha` answers each of them unchanged rather
+    // than inventing one to fade.
+    let tree = ui.stack([], [
+        ui.stack([.Background(Color.Transparent.alpha(0.5))], []),
+        ui.stack([.Foreground(Color.Inherit.alpha(0.5))], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"bg-none\"></div><div class=\"fg-inherit\"></div></div>",
+    );
+}
+
+test "a faded token is the same mix inline, and in the scene document" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The colour is a parameter, so it degrades to the inline tier — and what
+    // is written out is the same text the stylesheet would have held.
+    let tree = painted(style.token("cardlib", "ring").alpha(0.5));
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div style=\"background-color: color-mix(in srgb,var(--cardlib-ring) 50%,transparent)\"></div>",
+    );
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 background-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
+    );
+}
+
+test "a faded token inside a shadow is the ring every focus style is" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [
+            .On(.Focus, [
+                .Shadow(Shadow {
+                    x: .Px(0),
+                    y: .Px(0),
+                    blur: .Px(0),
+                    spread: .Px(3),
+                    color: style.token("cardlib", "ring").alpha(0.5),
+                }),
+            ]),
+        ],
+        [],
+    );
+    let _ = render(ctx, tree).markup();
+    assert.isTrue(
+        stylesheet().contains(
+            ":focus-visible{box-shadow:0px 0px 0px 3px color-mix(in srgb,var(--cardlib-ring) 50%,transparent)}",
+        ),
+    );
+}
+
 test "the remaining alignments and weights and cursors each have a name" {
     let ctx = context {
         Ui: headless(),
@@ -920,14 +1232,52 @@ test "a button carries its label, and a press runs its handler" {
         Watch: observer(),
     };
     let count = signal(ctx, 0);
-    let tree = ui.button(.Const("add"), [], fn(c, e) => {
+    let tree = ui.button(.Const("add"), [], [], fn(c, e) => {
         count.update(c, fn(n) => n + 1)
     });
     let page = render(ctx, tree);
-    assert.equal(page.markup(), "<button type=\"button\">add</button>");
+    // The label is the accessible name, so it is an attribute; a button with no
+    // children shows it, which is the one place the name and the glyphs agree.
+    assert.equal(
+        page.markup(),
+        "<button type=\"button\" aria-label=\"add\">add</button>",
+    );
     let _ = page.press("add");
     let _ = page.press("add");
     assert.equal(count.get(ctx), 2);
+}
+
+test "a button holds children, and its label stays its name" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let count = signal(ctx, 0);
+    // A rail entry: a mark and a word, one element. Before this the two had to
+    // be a row, and a wash for hovered or for the current page went on the row
+    // rather than on the thing that is pressed.
+    let tree = ui.button(
+        .Const("Overview"),
+        [.Padding(.Px(4))],
+        [ui.text(.Const("*")), ui.text(.Const("Overview"))],
+        fn(c, e) => count.update(c, fn(n) => n + 1),
+    );
+    let page = render(ctx, tree);
+    assert.equal(
+        page.markup(),
+        "<button type=\"button\" aria-label=\"Overview\" class=\"p-4\">*Overview</button>",
+    );
+    // Pressed by the name a reader hears, which is the label and never the
+    // glyphs.
+    let _ = page.press("Overview");
+    assert.equal(count.get(ctx), 1);
+    // And the children are inside the button in the scene too, so what paints
+    // the button paints them.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:p-4\nt 1 *\nt 1 Overview",
+    );
 }
 
 test "a handler is handed the context the tree was rendered with" {
@@ -941,7 +1291,7 @@ test "a handler is handed the context the tree was rendered with" {
     // `lambda-captures-effect`, which is `cli/tests/reject/`'s business.
     let page = render(
         ctx,
-        ui.button(.Const("go"), [], fn(c, e) => seen.set(c, "pressed")),
+        ui.button(.Const("go"), [], [], fn(c, e) => seen.set(c, "pressed")),
     );
     let _ = page.press("go");
     assert.equal(seen.get(ctx), "pressed");
@@ -988,7 +1338,7 @@ test "a field is labelled, and what is typed into it is in its signal" {
         Watch: observer(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
+    let page = render(ctx, ui.field(.Const("name"), .Text, [], [], name));
     assert.equal(
         page.markup(),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
@@ -1002,7 +1352,7 @@ test "a field follows its signal when something else writes it" {
         Ui: headless(),
     };
     let name = signal(ctx, "ada");
-    let page = render(ctx, ui.field(.Const("name"), .Text, [], name));
+    let page = render(ctx, ui.field(.Const("name"), .Text, [], [], name));
     let _ = name.set(ctx, "grace");
     assert.equal(
         page.markup(),
@@ -1016,11 +1366,11 @@ test "a field kind is what the field accepts" {
     };
     let value = signal(ctx, "");
     let tree = ui.stack([], [
-        ui.field(.Const("story"), .Multiline, [], value),
-        ui.field(.Const("secret"), .Password, [], value),
-        ui.field(.Const("address"), .Email, [], value),
-        ui.field(.Const("how many"), .Number, [], value),
-        ui.field(.Const("query"), .Search, [], value),
+        ui.field(.Const("story"), .Multiline, [], [], value),
+        ui.field(.Const("secret"), .Password, [], [], value),
+        ui.field(.Const("address"), .Email, [], [], value),
+        ui.field(.Const("how many"), .Number, [], [], value),
+        ui.field(.Const("query"), .Search, [], [], value),
     ]);
     assert.equal(
         render(ctx, tree).markup(),
@@ -1034,7 +1384,7 @@ test "a toggle is two states and a label" {
         Watch: observer(),
     };
     let done = signal(ctx, false);
-    let page = render(ctx, ui.toggle(.Const("done"), [], done));
+    let page = render(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], done));
     assert.equal(
         page.markup(),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
@@ -1056,27 +1406,117 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     };
     let name = signal(ctx, "ada");
     let done = signal(ctx, false);
-    // The wrapper is the runtime's element rather than the program's, and a
-    // browser lays it out as an inline box: the control and its text sit on one
-    // line, and a control as wide as the line takes one of its own. The painter
-    // has no inline flow, so the scene says what that comes to in the
+    // The wrapper is the runtime's element rather than the program's, and the
+    // sheet's reset lays it out as a wrapping row: the control and its text sit
+    // on one line, and a control as wide as the line takes one of its own. The
+    // painter has no inline flow, so the scene says what that comes to in the
     // vocabulary it does have — and the two renderers agree only while it does.
-    let inline = "display:flex;flex-direction:row;flex-wrap:wrap;align-items:center";
+    let inline = "class:lay-row wrap-wrap ac-center";
+    let box = "class:lay-row ac-center w-r1 h-r1 shrink-0 am-start";
     assert.equal(
-        ui.describe(ctx, ui.toggle(.Const("done"), [], done), .Hover),
+        ui.describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], done), .Hover),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 \nt 1 done",
+            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 ${box}\nt 1 done",
         ),
     );
     // A field is the same wrapper with the text first, which is the order the
     // markup puts them in too.
     assert.equal(
-        ui.describe(ctx, ui.field(.Const("name"), .Text, [], name), .Hover),
+        ui.describe(ctx, ui.field(.Const("name"), .Text, [], [], name), .Hover),
         str.format(
             ctx,
             "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 field:text\nt 2 ada",
         ),
+    );
+    // And that arrangement is in the sheet as well, weightless, so a class on
+    // the wrapper beats it.
+    assert.isTrue(
+        stylesheet().contains(
+            ":where(label){display:flex;flex-direction:row;flex-wrap:wrap;align-items:center}",
+        ),
+    );
+}
+
+test "a labelled control takes styles for the box around it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let site = signal(ctx, "");
+    // The input group every form library has: an addon either side of a control
+    // that takes the room they leave. `Grow` has to land on the `<label>`,
+    // because the label is what the row lays out and nothing on the input can
+    // reach it.
+    let tree = ui.field(.Const("Site"), .Text, [.Width(.Full)], [.Grow(1)], site);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<label class=\"grow-1\"><span>Site</span><input type=\"text\" class=\"w-full\" /></label>",
+    );
+    // The scene says the same: the wrapper carries the caller's class beside
+    // the arrangement it is given, and the input carries its own.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 600\ne 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
+    );
+    // A style the caller puts on the wrapper beats the arrangement the runtime
+    // gave it, which is the rule a `row`'s own `Layout` follows.
+    assert.containsText(
+        ui.describe(
+            ctx,
+            ui.field(.Const("Site"), .Text, [], [.Layout(.Column)], site),
+            .Hover,
+        ),
+        "e 0 class:wrap-wrap ac-center lay-col",
+    );
+}
+
+test "a toggle draws its own mark" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let off = signal(ctx, false);
+    let on = signal(ctx, true);
+    // A switch always has its thumb, and where it sits is the whole of what
+    // tells off from on: at the near end of the track, then at the far end.
+    assert.containsText(
+        ui.describe(ctx, ui.toggle(.Const("email"), .Switch, [], [], off), .Hover),
+        "am-start\ne 2 mark:thumb;height:100%;aspect-ratio:1",
+    );
+    assert.containsText(
+        ui.describe(ctx, ui.toggle(.Const("email"), .Switch, [], [], on), .Hover),
+        "am-end\ne 2 mark:thumb;height:100%;aspect-ratio:1",
+    );
+    // A checkbox has its tick only when it is on. Before this a ticked checkbox
+    // was a filled square with no check in it.
+    assert.isFalse(
+        ui
+            .describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], off), .Hover)
+            .contains("mark:"),
+    );
+    assert.containsText(
+        ui.describe(ctx, ui.toggle(.Const("done"), .Checkbox, [], [], on), .Hover),
+        "e 2 mark:tick;width:100%;height:100%",
+    );
+    // In a browser the mark is the reset's, on the box the runtime built —
+    // because an `<input>` holds no children — and a switch says which it is.
+    assert.equal(
+        render(ctx, ui.toggle(.Const("email"), .Switch, [], [], on)).markup(),
+        "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
+    );
+    let sheet = stylesheet();
+    assert.containsText(
+        sheet,
+        ":where(input[type=checkbox][role=switch])::before{content:\"\";height:100%;aspect-ratio:1;border-radius:9999px;background-color:currentColor}",
+    );
+    assert.containsText(
+        sheet,
+        ":where(input[type=checkbox]:checked){justify-content:flex-end}",
+    );
+    assert.containsText(
+        sheet,
+        ":where(input[type=checkbox]:not([role=switch]):checked)::before{",
     );
 }
 
@@ -1100,7 +1540,7 @@ test "a field's kind is in the scene, and a password's value is never in it" {
 
 /// The scene document one field of a kind writes.
 fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
-    ui.describe(ctx, ui.field(.Const("secret"), kind, [], value), .Hover)
+    ui.describe(ctx, ui.field(.Const("secret"), kind, [], [], value), .Hover)
 }
 
 test "a control takes styles of its own, and they land on the control" {
@@ -1114,18 +1554,19 @@ test "a control takes styles of its own, and they land on the control" {
         ui.button(
             .Const("go"),
             [.Padding(.Px(12)), .On(.Hover, [.Opacity(0.9)])],
+            [],
             fn(_c, _e) => (),
         ),
         ui.link(.Const("/prices"), [.Foreground(.Rgb(9, 9, 9))], []),
-        ui.field(.Const("name"), .Text, [.Radius(.Px(4))], name),
-        ui.toggle(.Const("done"), [.Width(.Px(20))], done),
+        ui.field(.Const("name"), .Text, [.Radius(.Px(4))], [], name),
+        ui.toggle(.Const("done"), .Checkbox, [.Width(.Px(20))], [], done),
     ]);
     // The classes are on the button, the anchor and the two inputs, never on a
     // wrapper. That is what makes a state work: a wrapper is not the thing that
     // is hovered, focused or disabled.
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><button type=\"button\" class=\"p-12 hover_op-0_9\">go</button><a href=\"/prices\" class=\"fg-090909\"></a><label><span>name</span><input type=\"text\" class=\"r-4\" value=\"ada\" /></label><label><input type=\"checkbox\" class=\"w-20\" /><span>done</span></label></div>",
+        "<div><button type=\"button\" aria-label=\"go\" class=\"p-12 hover_op-0_9\">go</button><a href=\"/prices\" class=\"fg-090909\"></a><label><span>name</span><input type=\"text\" class=\"r-4\" value=\"ada\" /></label><label><input type=\"checkbox\" class=\"w-20\" /><span>done</span></label></div>",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
 }
@@ -1150,11 +1591,17 @@ test "the sheet drops the chrome a browser draws by itself" {
         ),
     );
     assert.isTrue(sheet.contains(":where(a){color:inherit;text-decoration:none}"));
-    // A checkbox is left out: `appearance: none` erases the tick, and this
-    // vocabulary has nothing to draw a new one with.
+    // A checkbox has a reset of its own, because it is the one control that
+    // draws a mark: `appearance:none` erases a browser's tick, and the rules
+    // beside it put back one this vocabulary can paint.
     assert.isTrue(
         sheet.contains(
             ":where(input:not([type=checkbox]),textarea){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(
+            ":where(input[type=checkbox]){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;width:1rem;height:1rem;flex-shrink:0}",
         ),
     );
     // It opens the sheet, ahead of every class in it.
@@ -1209,7 +1656,7 @@ test "a form is submitted, which is behaviour and so not a role" {
     let page = render(
         ctx,
         ui.form(fn(c, e) => added.set(c, draft.get(c)), [], [
-            ui.field(.Const("what"), .Text, [], draft),
+            ui.field(.Const("what"), .Text, [], [], draft),
         ]),
     );
     let _ = page.fill("what", "milk");
@@ -1598,7 +2045,7 @@ test "one press is one update, however many signals it writes" {
 
     let page = render(
         ctx,
-        ui.button(.Const("both"), [], fn(c, e) => writeBoth(c, first, second)),
+        ui.button(.Const("both"), [], [], fn(c, e) => writeBoth(c, first, second)),
     );
     let _ = page.press("both");
 
@@ -1638,7 +2085,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
     ui.column([], [
-        ui.button(.Const(label), [], fn(c, e) => count.update(c, fn(n) => n + 1)),
+        ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1)),
         badge(.Const(label), .Cell(count)),
         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
     ])

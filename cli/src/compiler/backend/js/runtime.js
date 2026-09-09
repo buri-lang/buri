@@ -3729,7 +3729,7 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all forty-nine properties
+// `$tree_declare` below is the run-time lowering of all fifty properties
 // and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
@@ -3767,7 +3767,31 @@ function $tree_color(color) {
   // look the same on the page.
   if (tag === 2) return "var(--" + $ui_theme_name(color[1]) + ")";
   if (tag === 3) return "transparent";
-  return "inherit";
+  if (tag === 4) return "inherit";
+  // A faded token. The token stays a token, so a theme decides the hue and the
+  // mix decides only how much of it there is.
+  return (
+    "color-mix(in srgb,var(--" +
+    $ui_theme_name(color[1]) +
+    ") " +
+    color[2] * 100 +
+    "%,transparent)"
+  );
+}
+
+// One layer of a `box-shadow`.
+function $tree_shadow(shadow) {
+  return (
+    $tree_length(shadow[0]) +
+    " " +
+    $tree_length(shadow[1]) +
+    " " +
+    $tree_length(shadow[2]) +
+    " " +
+    $tree_length(shadow[3]) +
+    " " +
+    $tree_color(shadow[4])
+  );
 }
 
 function $tree_track(track) {
@@ -3959,39 +3983,32 @@ function $tree_declare(style, out) {
   } else if (tag === 39) {
     out.set("opacity", String(value));
   } else if (tag === 40) {
-    out.set(
-      "box-shadow",
-      $tree_length(value[0]) +
-        " " +
-        $tree_length(value[1]) +
-        " " +
-        $tree_length(value[2]) +
-        " " +
-        $tree_length(value[3]) +
-        " " +
-        $tree_color(value[4]),
-    );
+    out.set("box-shadow", $tree_shadow(value));
   } else if (tag === 41) {
-    out.set("font-family", $tree_font(value));
+    // One declaration, the layers in the order they were written — which is
+    // the order a browser paints them, first over last.
+    out.set("box-shadow", value.map($tree_shadow).join(","));
   } else if (tag === 42) {
-    out.set("font-size", $tree_length(value));
+    out.set("font-family", $tree_font(value));
   } else if (tag === 43) {
-    out.set("font-weight", $TREE_WEIGHTS[value]);
+    out.set("font-size", $tree_length(value));
   } else if (tag === 44) {
-    out.set("font-style", value ? "italic" : "normal");
+    out.set("font-weight", $TREE_WEIGHTS[value]);
   } else if (tag === 45) {
-    out.set("line-height", String(value));
+    out.set("font-style", value ? "italic" : "normal");
   } else if (tag === 46) {
-    out.set("letter-spacing", $tree_length(value));
+    out.set("line-height", String(value));
   } else if (tag === 47) {
-    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
+    out.set("letter-spacing", $tree_length(value));
   } else if (tag === 48) {
-    out.set("text-transform", $TREE_TEXT_CASES[value]);
+    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
   } else if (tag === 49) {
-    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
+    out.set("text-transform", $TREE_TEXT_CASES[value]);
   } else if (tag === 50) {
-    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
+    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
   } else if (tag === 51) {
+    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
+  } else if (tag === 52) {
     if (value > 0) {
       out.set("display", "-webkit-box");
       out.set("-webkit-box-orient", "vertical");
@@ -4001,9 +4018,9 @@ function $tree_declare(style, out) {
       out.set("-webkit-line-clamp", "none");
       out.set("overflow", "visible");
     }
-  } else if (tag === 52) {
-    out.set("cursor", $TREE_CURSORS[value]);
   } else if (tag === 53) {
+    out.set("cursor", $TREE_CURSORS[value]);
+  } else if (tag === 54) {
     out.set("list-style-type", $TREE_LIST_MARKERS[value]);
   } else {
     out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
@@ -4355,9 +4372,17 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // button that submits the form it happens to be inside is the surprise
     // this vocabulary exists to remove.
     $dom_attribute(element, "type", "button");
+    // The label is the accessible name however the button is drawn, so it is
+    // an attribute rather than the glyphs: a button holding an icon and a word
+    // is still announced as the one thing the program named it.
+    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
     $tree_styles(element, node[2]);
-    $tree_text(node[1], element, null);
-    const onPress = node[3];
+    const children = node[3];
+    // A button with no children shows its label. That is the only place the
+    // name and the glyphs are the same string.
+    if (children.length === 0) $tree_text(node[1], element, null);
+    else for (const child of children) $tree_render(ctx, child, element, null);
+    const onPress = node[4];
     $dom_listen(element, "click", () =>
       // One transaction, so that a handler which writes three signals causes
       // one pass over the watchers rather than three.
@@ -4383,6 +4408,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // identifier to collide, and no way to render a field whose label is
     // attached to something else.
     const wrapper = $tree_element(parent, "label", anchor);
+    // `around` is the label's, because the label is the box a surrounding row
+    // lays out and nothing on the input can reach it.
+    $tree_styles(wrapper, node[4]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     const kind = node[2];
     const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
@@ -4390,8 +4418,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // The styles are the input's rather than the label's: the input is what a
     // reader focuses and what a browser disables.
     $tree_styles(element, node[3]);
-    const cell = node[4][0];
-    $tree_bind([1, node[4]], (value) => {
+    const cell = node[5][0];
+    $tree_bind([1, node[5]], (value) => {
       // Writing what is already there moves the caret in a real browser.
       if (element.value !== value) element.value = value;
     });
@@ -4400,12 +4428,18 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 9) {
     const wrapper = $tree_element(parent, "label", anchor);
+    $tree_styles(wrapper, node[4]);
     const element = $tree_element(wrapper, "input", null);
     $dom_attribute(element, "type", "checkbox");
-    $tree_styles(element, node[2]);
+    // A switch is the same control with a different mark and a different
+    // announcement — "on" and "off" rather than "ticked". The mark itself is
+    // the sheet's, drawn on the box by the reset, because an `<input>` holds
+    // no children.
+    if (node[2] === 1) $dom_attribute(element, "role", "switch");
+    $tree_styles(element, node[3]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
-    const cell = node[3][0];
-    $tree_bind([1, node[3]], (value) => {
+    const cell = node[5][0];
+    $tree_bind([1, node[5]], (value) => {
       element.checked = value;
     });
     $dom_listen(element, "change", () => $ui_flush(() => $ui_write(cell, element.checked)));
@@ -4727,7 +4761,10 @@ function $ui_testing_Rendered_text(self) {
 // no-op, which is the whole reason these abort.
 function $tree_labelled(self, name, label) {
   for (const element of $dom_elements($slot(self), name, [])) {
-    if ($dom_label(element) === label) return element;
+    // A button carries its accessible name as an attribute, because its glyphs
+    // may be an icon; everything else is addressed by the text a reader sees.
+    const named = element.attributes["aria-label"];
+    if ((named === undefined ? $dom_label(element) : named) === label) return element;
   }
   $abort("this tree has no " + name + ' labelled "' + label + '"');
   return null;
