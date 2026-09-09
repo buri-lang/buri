@@ -274,6 +274,7 @@ mod tests {
             chunks: Vec::new(),
             stylesheet: String::new(),
             inline_styles: false,
+            icons: false,
             themes: false,
         }
     }

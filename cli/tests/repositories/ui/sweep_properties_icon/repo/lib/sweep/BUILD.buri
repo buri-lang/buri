@@ -1,0 +1,10 @@
+# One library and one test source: seven pictures of an `icon` — the artwork is
+# in the tree, so the styles land on the `<svg>` itself and the colour around it
+# reaches the stroke.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

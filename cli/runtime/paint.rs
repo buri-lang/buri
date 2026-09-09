@@ -66,6 +66,12 @@
 //! `multiline` wraps, because an `<input>` is one line whatever is typed into
 //! it.
 //!
+//! An `e` line may also carry `icon:<artwork>`, which makes the box a drawing
+//! written into the scene itself. Its `currentColor` is the colour the element
+//! paints in, so an icon follows the `Foreground` around it and turns over
+//! between themes — which an `image` cannot, its source being a document of its
+//! own, where `currentColor` is black whatever the page says.
+//!
 //! An `e` line may also carry `mark:<shape>`, which makes the box a mark a
 //! widget draws for itself rather than a container: `thumb`, the disc a switch
 //! moves from one end of its track to the other, and `tick`, the stroke a
@@ -355,12 +361,25 @@ fn faded(p: [u8; 4]) -> [u8; 4] {
 struct Node {
     /// `Some` for a `t` line. A text run has no children and no declarations.
     text: Option<String>,
-    /// `Some` for a box whose declarations named an `image`. A picture holds
-    /// no children either: what is inside it is the source.
-    image: Option<String>,
+    /// `Some` for a box whose declarations named an `image` or an `icon`. A
+    /// picture holds no children either: what is inside it is the source.
+    picture: Option<Art>,
     classes: Vec<String>,
     declarations: Vec<(String, String)>,
     children: Vec<usize>,
+}
+
+/// Where a picture's paint comes from.
+///
+/// The distinction is the whole of what an `icon` is for. An image's source is
+/// a document of its own, so `currentColor` in it is that document's initial
+/// colour and no rule on the page reaches it. An icon's artwork is *in* the
+/// tree, so `currentColor` is the colour the element itself paints in.
+enum Art {
+    /// `image:<source>` — read only where the source is a `data:` URI.
+    Source(String),
+    /// `icon:<artwork>` — the drawing itself, written into the scene.
+    Artwork(String),
 }
 
 struct Scene {
@@ -402,18 +421,20 @@ impl Scene {
             let node = if kind == "t " {
                 Node {
                     text: Some(unescape(body)),
-                    image: None,
+                    picture: None,
                     classes: Vec::new(),
                     declarations: Vec::new(),
                     children: Vec::new(),
                 }
             } else {
                 let (classes, declarations) = parse_declarations(body)?;
-                let image = declarations
-                    .iter()
-                    .find(|(name, _)| name == "image")
-                    .map(|(_, source)| source.clone());
-                Node { text: None, image, classes, declarations, children: Vec::new() }
+                let named = |want: &str| {
+                    declarations.iter().find(|(name, _)| name == want).map(|(_, v)| v.clone())
+                };
+                let picture = named("image")
+                    .map(Art::Source)
+                    .or_else(|| named("icon").map(Art::Artwork));
+                Node { text: None, picture, classes, declarations, children: Vec::new() }
             };
             nodes.push(node);
 
@@ -1823,7 +1844,7 @@ fn paint_with(
     // Every source read once, before the layout asks any of them how large it
     // is. `None` beside a node that has an `image` is the placeholder.
     let pictures: Vec<Option<Picture>> =
-        scene.nodes.iter().map(|node| node.image.as_deref().and_then(picture)).collect();
+        scene.nodes.iter().map(|node| node.picture.as_ref().and_then(picture)).collect();
 
     let mut ids: Vec<Option<NodeId>> = vec![None; scene.nodes.len()];
     let mut fixed: Vec<usize> = Vec::new();
@@ -1935,7 +1956,7 @@ fn build(
         let style = styles.get(index).cloned().unwrap_or_else(Computed::root);
         let id = if node.text.is_some() {
             tree.new_leaf_with_context(taffy_style(&style), index)
-        } else if node.image.is_some() {
+        } else if node.picture.is_some() {
             tree.new_leaf(picture_style(&style, pictures.get(index).and_then(Option::as_ref)))
         } else {
             let children = build(scene, styles, pictures, tree, &node.children, ids, fixed)?;
@@ -2073,8 +2094,19 @@ impl Painter<'_> {
         } else {
             clip
         };
-        if node.image.is_some() {
-            self.picture(canvas, index, style, box_, inner);
+        if let Some(art) = node.picture.as_ref() {
+            // Inside its own padding and border, which is where a browser draws
+            // a picture: the box a drawing fills is the content box. Only an
+            // icon can reach this — an `image` carries no styles of its own —
+            // and without it a padded icon painted over its own frame.
+            let basis = layout.size.width;
+            let content = box_.shrink([
+                resolve_length(style.padding[0], basis) + widths[0],
+                resolve_length(style.padding[1], basis) + widths[1],
+                resolve_length(style.padding[2], basis) + widths[2],
+                resolve_length(style.padding[3], basis) + widths[3],
+            ]);
+            self.picture(canvas, index, style, content, inner, art);
             return;
         }
         let mut item = 0_u32;
@@ -2109,13 +2141,22 @@ impl Painter<'_> {
         style: &Computed,
         box_: Box2,
         clip: Option<&Mask>,
+        art: &Art,
     ) {
         let Some(picture) = self.pictures.get(index).and_then(Option::as_ref) else {
             fill(canvas, box_, [0.0; 4], PLACEHOLDER_EDGE, style.opacity, clip);
             fill(canvas, box_.grow(-1.0), [0.0; 4], PLACEHOLDER_FILL, style.opacity, clip);
             return;
         };
-        picture.draw(canvas, box_, style.opacity, style.colour, clip);
+        // An icon's `currentColor` is the colour this element paints in, which
+        // is the whole of what an icon is for. An image's is not: its source is
+        // a document of its own, where `color` is back at its initial value and
+        // no rule on the page reaches it.
+        let colour = match art {
+            Art::Artwork(_) => style.colour,
+            Art::Source(_) => Rgba::BLACK,
+        };
+        picture.draw(canvas, box_, style.opacity, colour, clip);
     }
 
     /// The mark a widget draws inside its own box, in the box's own colour.
@@ -2335,6 +2376,17 @@ impl Box2 {
             t: self.t.saturating_add(px(y)),
             r: self.r.saturating_add(px(x)),
             b: self.b.saturating_add(px(y)),
+        }
+    }
+
+    /// The same box, pulled in by one distance per side: the inline start and
+    /// end, then the block start and end, which is `Computed::padding`'s order.
+    fn shrink(self, by: [f32; 4]) -> Self {
+        Self {
+            l: self.l.saturating_add(px(by[0])),
+            t: self.t.saturating_add(px(by[2])),
+            r: self.r.saturating_sub(px(by[1])),
+            b: self.b.saturating_sub(px(by[3])),
         }
     }
 
@@ -2558,8 +2610,8 @@ const PLACEHOLDER_EDGE: Rgba = Rgba { r: 153, g: 153, b: 153, a: 1.0 };
 /// What is inside that frame.
 const PLACEHOLDER_FILL: Rgba = Rgba { r: 224, g: 224, b: 224, a: 1.0 };
 
-/// The pixels or the shapes of an image source, or `None` for one this painter
-/// cannot read.
+/// The pixels or the shapes of a picture, or `None` for a source this painter
+/// cannot read. An icon's artwork is always read: it is in the scene.
 ///
 /// **Nothing is fetched and nothing is opened.** A snapshot that reached the
 /// network would answer a different picture on a different day, so the only
@@ -2567,8 +2619,11 @@ const PLACEHOLDER_FILL: Rgba = Rgba { r: 224, g: 224, b: 224, a: 1.0 };
 /// holding a PNG or an SVG. Every other source — an `http` URL, a path, a
 /// media type this does not decode — is a placeholder, and [`Painter::picture`]
 /// paints it as one.
-fn picture(source: &str) -> Option<Picture> {
-    image::read(source)
+fn picture(art: &Art) -> Option<Picture> {
+    match art {
+        Art::Source(source) => image::read(source),
+        Art::Artwork(source) => image::artwork(source),
+    }
 }
 
 fn shade<'a>(colour: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
