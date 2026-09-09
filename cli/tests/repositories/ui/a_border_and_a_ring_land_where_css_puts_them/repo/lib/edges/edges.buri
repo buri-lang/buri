@@ -30,3 +30,33 @@ export fn widths<C>(): Node<C> {
         bordered(.Px(5)),
     ])
 }
+
+/// A border with no colour of its own draws in the foreground: the first box
+/// takes its own, the second is told a colour and uses that, and the third
+/// takes the foreground it inherited from the box around it.
+export fn currentColour<C>(): Node<C> {
+    ui.row([.Gap(.Px(20)), .Padding(.Px(20))], [
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Foreground(.Rgb(18, 18, 28)),
+                .BorderWidth(.Px(4)),
+            ],
+            [],
+        ),
+        ui.stack(
+            [
+                .Width(.Px(60)),
+                .Height(.Px(30)),
+                .Foreground(.Rgb(18, 18, 28)),
+                .BorderWidth(.Px(4)),
+                .BorderColor(.Rgb(214, 44, 44)),
+            ],
+            [],
+        ),
+        ui.stack([.Foreground(.Rgb(20, 120, 90))], [
+            ui.stack([.Width(.Px(60)), .Height(.Px(30)), .BorderWidth(.Px(4))], []),
+        ]),
+    ])
+}

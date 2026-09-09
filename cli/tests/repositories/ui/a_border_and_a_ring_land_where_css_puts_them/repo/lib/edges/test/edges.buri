@@ -4,7 +4,7 @@ from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/testing" import { headless, snapshot };
-from "//lib/edges" import { widths };
+from "//lib/edges" import { currentColour, widths };
 
 test "a border of any width sits inside the box" {
     let ctx = context {
@@ -12,4 +12,12 @@ test "a border of any width sits inside the box" {
         Ui: headless(),
     };
     snapshot(ctx, "edges-border-widths", widths(), .Hover, []);
+}
+
+test "a border with no colour of its own draws in the foreground" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "edges-current-colour", currentColour(), .Hover, []);
 }
