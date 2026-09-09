@@ -1,0 +1,20 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_brace_app_a6385b/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_a6385b/main.buri:25:48
+   |
+25 |     if (left == right) { .Equal } else if (left, ) { .Greater } else { .Less }
+   |                                                ^
+   |
+  --> lib/recovery_insert_stray_brace_app_a6385b/main.buri:25:43
+   |
+25 |     if (left == right) { .Equal } else if (left, ) { .Greater } else { .Less }
+   |                                           ^ opened here
+   |
+   = fix: write `)` here
