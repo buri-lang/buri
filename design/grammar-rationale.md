@@ -100,7 +100,9 @@ themselves. *Cost:* parentheses around a lambda used as an operand.
 
 **12.12 Match arms are comma-separated, always.**
 Without a required separator, `A => x` followed by an arm starting `-1 =>` would
-greedily parse as `x - 1`. *Cost:* a comma after `}`.
+greedily parse as `x - 1`. *Cost:* a comma after `}`. When the comma is missing,
+recovery reads a `.Name` that leads to `=>` as the next arm's pattern rather than
+as a field of the body before it, and says the comma is missing there.
 
 **12.13 Block-like expressions cannot head a postfix chain.**
 `match (x) { ... }.field` is a parse error; parenthesize. That stops

@@ -7,10 +7,3 @@ error: expected `;`, found `@` [unexpected-token]
    = expected: `;`
    = actual: `@`
    = fix: write `;` here
-error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_33ddc5/main.buri:20:5
-   |
-20 |     ctx
-   |     ^^^
-   |
-   = fix: declare `ctx` as a parameter of this function

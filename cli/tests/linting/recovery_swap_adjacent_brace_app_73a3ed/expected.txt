@@ -23,10 +23,3 @@ error: expected `=`, found `elapsedMillis` [unexpected-token]
    = expected: `=`
    = actual: `elapsedMillis`
    = fix: write `=` here
-error: there is nothing named `waited` in scope [unresolved-name]
-  --> lib/recovery_swap_adjacent_brace_app_73a3ed/main.buri:35:26
-   |
-35 |         .println(ctx, "${waited} ${perMillion(2_000_000, 250)}")
-   |                          ^^^^^^
-   |
-   = fix: declare `waited`, or import it — a name is in scope only from this module's own declarations and its imports

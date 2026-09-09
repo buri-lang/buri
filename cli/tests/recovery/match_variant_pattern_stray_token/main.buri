@@ -1,5 +1,4 @@
 // EXPECT: expected an identifier, found `@`
-// ISSUE: recorded as it reads today; filed as https://github.com/buri-lang/buri/issues/110
 export enum Shape {
   Circle,
   Square,

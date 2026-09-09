@@ -7,18 +7,11 @@ error: expected an identifier, found `?` [unexpected-token]
    = expected: an identifier
    = actual: `?`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is no type `Ledger` [unresolved-type]
-  --> lib/recovery_insert_stray_brace_cents_9c08de/lib.buri:16:33
+warning: nothing reads `Ledger.seal` [unused-field]
+  --> lib/recovery_insert_stray_brace_cents_9c08de/lib.buri:13:5
    |
-16 | export fn ledger(entries: I64): Ledger {
-   |                                 ^^^^^^
+13 |     ? seal: Str,
+   |     ^^^^^^^^^^^
    |
-   = did you mean `Order`?
-   = fix: if you meant `Order`, use that; if not, a name is in scope only from this module's own declarations and its imports
-error: this is not a struct or an enum variant [not-a-struct-literal-head]
-  --> lib/recovery_insert_stray_brace_cents_9c08de/lib.buri:17:5
-   |
-17 |     Ledger { entries, seal: "" }
-   |     ^^^^^^
-   |
-   = fix: name a struct, or an enum variant that has fields
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it

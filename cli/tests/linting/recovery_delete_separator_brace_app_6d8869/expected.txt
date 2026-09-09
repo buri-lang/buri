@@ -6,30 +6,10 @@ warning: this drops a `Result` by hand [discarded-result-by-hand]
    |
    = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
    = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
-error: this `match` does not cover `.Err(_)` [match-not-exhaustive]
-  --> lib/recovery_delete_separator_brace_app_6d8869/main.buri:32:5
+error: a match arm ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_app_6d8869/main.buri:33:27
    |
-32 |     match (write(ctx, line)) {
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+33 |         .Ok(_written) => 0
+   |                           ^
    |
-   = every `match` must cover its scrutinee's type
-   = fix: add an arm for `.Err(_)`, or a `_` arm for everything left
-error: `I64` has no method `Err` [no-such-method]
-  --> lib/recovery_delete_separator_brace_app_6d8869/main.buri:34:10
-   |
-34 |         .Err(_error) => 1,
-   |          ^^^
-   |
-   = fix: check the spelling — `buri docs core/number` lists every method `I64` has
-error: this `match` is missing its closing `}` [unclosed-delimiter]
-  --> lib/recovery_delete_separator_brace_app_6d8869/main.buri:34:22
-   |
-34 |         .Err(_error) => 1,
-   |                      ^^
-   |
-  --> lib/recovery_delete_separator_brace_app_6d8869/main.buri:32:30
-   |
-32 |     match (write(ctx, line)) {
-   |                              ^ opened here
-   |
-   = fix: write `}` here
+   = fix: write `,` here

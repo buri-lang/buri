@@ -23,10 +23,3 @@ error: expected `;`, found `,` [unexpected-token]
    = expected: `;`
    = actual: `,`
    = fix: write `;` here
-error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_ed5fa2/main.buri:35:18
-   |
-35 |         .println(ctx, "${waited} ${perMillion(2_000_000, 250)}")
-   |                  ^^^
-   |
-   = fix: declare `ctx` as a parameter of this function
