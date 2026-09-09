@@ -124,7 +124,15 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
         band("stack", [cell("raised", card(raised))]),
         band("heading", [cell("raised", ui.heading(2, base(raised), .Const("Ada")))]),
         band("button", [
-            cell("raised", ui.button(.Const("press"), base(raised), fn(_c, _e) => ())),
+            cell(
+                "raised",
+                ui.button(
+                    .Const("press"),
+                    base(raised),
+                    fn(_c, _e) => (),
+                    .Const(false),
+                ),
+            ),
         ]),
         band("link", [
             cell(
@@ -135,7 +143,13 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
         band("field", [
             cell(
                 "raised",
-                ui.field(.Const("name"), .Text, base(raised), signal(ctx, "Ada")),
+                ui.field(
+                    .Const("name"),
+                    .Text,
+                    base(raised),
+                    signal(ctx, "Ada"),
+                    .Const(false),
+                ),
             ),
         ]),
     ])
