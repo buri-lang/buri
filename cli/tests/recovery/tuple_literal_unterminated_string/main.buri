@@ -1,4 +1,4 @@
-// EXPECT: expected `(I64, Str, Bool)`, found `(Int, Str)`
+// EXPECT: expected `(I64, Str, Bool)`, found `(Int, <error>)`
 export fn triple(): (Int, Str, Bool) {
   (1, "one, true)
 }
