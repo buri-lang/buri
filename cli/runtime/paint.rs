@@ -720,6 +720,9 @@ struct Computed {
     case: Case,
     decoration: Decoration,
     nowrap: bool,
+    /// `-webkit-line-clamp`: show at most this many lines and end the last one
+    /// in an ellipsis. `None` is no limit.
+    clamp: Option<usize>,
 }
 
 impl Computed {
@@ -766,6 +769,7 @@ impl Computed {
             case: Case::None,
             decoration: Decoration::None,
             nowrap: false,
+            clamp: None,
         }
     }
 
@@ -782,6 +786,11 @@ impl Computed {
         child.case = self.case;
         child.decoration = self.decoration;
         child.nowrap = self.nowrap;
+        // CSS puts the clamp on the block and counts the lines of the inline
+        // content inside it. The painter's inline content is a `t` node one
+        // level down, so the clamp has to reach it the way an inherited
+        // property does.
+        child.clamp = self.clamp;
         // Not inherited, but it multiplies down: a subtree under a half
         // transparent box is half transparent.
         child.opacity = self.opacity;
@@ -987,6 +996,8 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             };
         }
         "text-wrap" => style.nowrap = value == "nowrap",
+        // `none` is the value `Truncate(0)` writes, and it parses to no limit.
+        "-webkit-line-clamp" => style.clamp = value.parse().ok().filter(|&n| n > 0),
         // `font-family` resolves to the bundled family whatever it names, and
         // `cursor` paints nothing. Both parse so that a scene keeps them.
         _ => {}
@@ -1311,14 +1322,75 @@ fn shape(
     if style.letter_spacing != 0.0 {
         attrs = attrs.letter_spacing(style.letter_spacing / size);
     }
-    buffer.set_text(
-        &transformed(text, style.case),
-        &attrs,
-        Shaping::Advanced,
-        Some(style.align_text),
-    );
-    buffer.shape_until_scroll(fonts, false);
+    let content = transformed(text, style.case);
+    lay(fonts, &mut buffer, &content, &attrs, style.align_text);
+
+    // A clamp is an answer about the run at the width it will take. Width
+    // `Some(0.0)` is the one place a run is asked how narrow it can be *made*,
+    // and the longest word is still the longest word however few lines a
+    // reader is shown; `None` is max-content, which is one line already.
+    if let (Some(limit), Some(w)) = (style.clamp, width) {
+        if w > 0.0 {
+            clamp(fonts, &mut buffer, &content, &attrs, style.align_text, limit);
+        }
+    }
     buffer
+}
+
+/// Puts a string in the buffer and shapes it.
+fn lay(
+    fonts: &mut FontSystem,
+    buffer: &mut Buffer,
+    text: &str,
+    attrs: &Attrs,
+    align: cosmic_text::Align,
+) {
+    buffer.set_text(text, attrs, Shaping::Advanced, Some(align));
+    buffer.shape_until_scroll(fonts, false);
+}
+
+/// How many lines the buffer laid out.
+fn line_count(buffer: &Buffer) -> usize {
+    buffer.layout_runs().count()
+}
+
+/// Cuts the run down to `limit` lines and ends the last one in an ellipsis —
+/// `-webkit-line-clamp`, which is what `.Truncate(n)` lowers to.
+///
+/// Where a browser cuts is where the shaper broke, so the cut is found by
+/// asking the shaper rather than by counting characters: the longest prefix
+/// that still lays out in `limit` lines once the ellipsis is on the end of it.
+/// A prefix only ever needs more lines as it grows, so that is a binary search
+/// over the run's character boundaries — a handful of re-shapes rather than
+/// one per character.
+fn clamp(
+    fonts: &mut FontSystem,
+    buffer: &mut Buffer,
+    text: &str,
+    attrs: &Attrs,
+    align: cosmic_text::Align,
+    limit: usize,
+) {
+    if line_count(buffer) <= limit {
+        return;
+    }
+    let cuts: Vec<usize> =
+        text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
+    let ellipsised = |head: &str| format!("{}…", head.trim_end());
+    // The empty prefix always fits: an ellipsis on its own is one line.
+    let (mut lo, mut hi) = (0_usize, cuts.len().saturating_sub(1));
+    while lo < hi {
+        let mid = lo.saturating_add(hi.saturating_sub(lo).div_ceil(2));
+        let head = cuts.get(mid).and_then(|&at| text.get(..at)).unwrap_or(text);
+        lay(fonts, buffer, &ellipsised(head), attrs, align);
+        if line_count(buffer) <= limit {
+            lo = mid;
+        } else {
+            hi = mid.saturating_sub(1);
+        }
+    }
+    let head = cuts.get(lo).and_then(|&at| text.get(..at)).unwrap_or(text);
+    lay(fonts, buffer, &ellipsised(head), attrs, align);
 }
 
 /// The width and height a shaped buffer occupies.
@@ -3096,6 +3168,13 @@ mod tests {
             .find(|&x| (0..image.height).any(|y| at(image, x, y) != [255, 255, 255, 255]))
     }
 
+    /// The last column holding ink, or `None` for a blank picture.
+    fn last_inked_column(image: &Image) -> Option<u32> {
+        (0..image.width)
+            .rev()
+            .find(|&x| (0..image.height).any(|y| at(image, x, y) != [255, 255, 255, 255]))
+    }
+
     fn inked_pixels(image: &Image) -> usize {
         (0..image.height)
             .flat_map(|y| (0..image.width).map(move |x| (x, y)))
@@ -3117,6 +3196,35 @@ mod tests {
             .map(|(x, y)| at(image, x, y))
             .min_by_key(|p| p[0])
             .unwrap_or([255; 4])
+    }
+
+    /// One entry per band of consecutive inked rows — one line of text — as
+    /// the columns its ink runs between.
+    fn inked_lines(image: &Image) -> Vec<(u32, u32)> {
+        let mut lines: Vec<(u32, u32)> = Vec::new();
+        let mut open = false;
+        for y in 0..image.height {
+            let mut span: Option<(u32, u32)> = None;
+            for x in 0..image.width {
+                if at(image, x, y) != [255, 255, 255, 255] {
+                    span = Some(match span {
+                        None => (x, x),
+                        Some((from, _)) => (from, x),
+                    });
+                }
+            }
+            match span {
+                None => open = false,
+                Some((from, to)) => {
+                    match lines.last_mut().filter(|_| open) {
+                        Some(line) => *line = (line.0.min(from), line.1.max(to)),
+                        None => lines.push((from, to)),
+                    }
+                    open = true;
+                }
+            }
+        }
+        lines
     }
 
     #[test]
@@ -3323,6 +3431,55 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 4, 4), [0, 128, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
+    }
+
+    /// The sentence every truncation test below breaks: long enough for six
+    /// lines in a box eighty wide.
+    const PARAGRAPH: &str =
+        "A sentence long enough that it has to break somewhere, twice over. A sentence \
+         long enough that it has to break somewhere, twice over.";
+
+    /// **`-webkit-line-clamp` shows at most the lines it names.** It is what
+    /// `Truncate(n)` lowers to, and nothing read it, so one, two, three and no
+    /// clamp at all painted the same six lines.
+    #[test]
+    fn a_line_clamp_shows_at_most_the_lines_it_names() {
+        let lines = |clamp: &str| {
+            let scene = format!(
+                "buri-scene 1\nviewport 200 200\n\
+                 e 0 width:80px;font-size:12px{clamp}\nt 1 {PARAGRAPH}\n"
+            );
+            inked_lines(&render_ok(&scene, "", "rest")).len()
+        };
+        let clamp = |n: u32| {
+            format!(";display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden")
+        };
+        let free = lines("");
+        assert!(free > 3, "the sentence has to break more than three times, not {free}");
+        assert_eq!(lines(&clamp(1)), 1);
+        assert_eq!(lines(&clamp(2)), 2);
+        assert_eq!(lines(&clamp(3)), 3);
+        // A clamp no shorter than the run is not a truncation.
+        assert_eq!(lines(";display:-webkit-box;-webkit-line-clamp:none;overflow:visible"), free);
+    }
+
+    /// And the last line it shows ends in an ellipsis, which is the half of
+    /// the property a reader can see. A run the clamp did not cut keeps its
+    /// own last glyph.
+    #[test]
+    fn the_last_clamped_line_ends_in_an_ellipsis() {
+        let edge = |text: &str| {
+            let scene = format!(
+                "buri-scene 1\nviewport 200 40\n\
+                 e 0 width:40px;font-size:12px;display:-webkit-box;\
+                 -webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden\n\
+                 t 1 {text}\n"
+            );
+            last_inked_column(&render_ok(&scene, "", "rest")).unwrap()
+        };
+        let whole = edge("Ada");
+        let cut = edge("Ada bee");
+        assert!(cut > whole, "the ellipsis puts ink past `Ada`: {cut} against {whole}");
     }
 
     /// A source the painter cannot read — an SVG data URI is the common one,
