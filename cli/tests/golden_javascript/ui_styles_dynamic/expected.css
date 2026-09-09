@@ -1,3 +1,5 @@
+*,*::before,*::after{box-sizing:border-box}
+:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}
 .lay-col{display:flex;flex-direction:column}
 .lay-row{display:flex;flex-direction:row}
 .bg-16a34a{background-color:rgb(22,163,74)}

@@ -71,6 +71,8 @@ const FIRST_PROPERTY: usize = 6;
 const STYLE_PIN: usize = 15;
 /// `PaddingEdge(Edge, Length)`.
 const STYLE_PADDING_EDGE: usize = 23;
+/// `BorderWidth(Length)`.
+const STYLE_BORDER_WIDTH: usize = 33;
 /// `BorderEdge(Edge, Length)`.
 const STYLE_BORDER_EDGE: usize = 34;
 /// `RadiusCorner(Corner, Length)`.
@@ -82,6 +84,10 @@ const STYLE_SHADOW: usize = 40;
 const STYLE_SHADOWS: usize = 41;
 /// `Bleed(Edge, Length)`, declared last because nothing else writes a margin.
 const STYLE_BLEED: usize = 55;
+
+/// `ui/style`'s `State::Focus`, which is `:focus-visible`. The one state the
+/// sheet says anything about beyond the class that names it.
+const STATE_FOCUS: u8 = 1;
 
 /// `ui/style`'s `Color`, for the two variants that carry an alpha: `Rgba`, and
 /// the `Faded` token `alpha` answers for one.
@@ -96,11 +102,15 @@ const NODE_BUTTON: usize = 5;
 const NODE_LINK: usize = 6;
 const NODE_FIELD: usize = 8;
 const NODE_TOGGLE: usize = 9;
+const NODE_IMAGE: usize = 7;
+const NODE_ICON: usize = 14;
 
-/// `ui/node`'s `Role::List`, the one role that lowers to an element a browser
-/// marks and indents by itself. A role is written at the call site rather than
-/// inside `region`, so this is the literal the walk looks for.
+/// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
+/// an element a browser paints something on by itself. A role is written at the
+/// call site rather than inside `region`, so these are the literals the walk
+/// looks for.
 const ROLE_LIST: usize = 7;
+const ROLE_SEPARATOR: usize = 10;
 
 /// One rule in the emitted stylesheet.
 ///
@@ -772,6 +782,7 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
     });
 
     let mut out = reset.rules();
+    out.push_str(&focus_ring(&unique));
     let mut open: Option<Option<u8>> = None;
     for rule in unique {
         if open != Some(rule.screen) {
@@ -795,15 +806,61 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
     out
 }
 
+/// Takes the platform's focus ring away from the elements that draw one of
+/// their own, and from no others.
+///
+/// A browser paints its own `outline` on whatever is focused, over anything a
+/// program put there — so a designed ring and Chrome's blue rectangle render at
+/// once, and `ui/style` has no `Outline` to turn one of them off with. Naming
+/// the classes rather than writing `:where(:focus-visible){outline:none}` is
+/// what keeps a control that styles nothing visibly focusable, which is the
+/// whole reason `State.Focus` is `:focus-visible` in the first place.
+///
+/// A ring is a shadow or a border: the two things this vocabulary can draw one
+/// with. A focus style that only fades or recolours adds to the platform's ring
+/// rather than replacing it, so the platform's stays. So does a ring that only
+/// applies from a breakpoint upwards, because there is a width at which it
+/// paints nothing.
+///
+/// `State::FocusWithin` is deliberately not here. The platform's outline lands
+/// on the descendant that has the keyboard, not on the container that rings
+/// itself around it, so taking it away needs a descendant selector — a shape
+/// this sheet writes nowhere else. An input group therefore rings twice, once
+/// around the group and once around the field inside it.
+fn focus_ring(rules: &[&StyleRule]) -> String {
+    let mut classes: Vec<&str> = rules
+        .iter()
+        .filter(|r| r.state == Some(STATE_FOCUS) && r.screen.is_none())
+        .filter(|r| {
+            matches!(
+                r.property as usize,
+                STYLE_BORDER_WIDTH | STYLE_BORDER_EDGE | STYLE_SHADOW | STYLE_SHADOWS
+            )
+        })
+        .map(|r| r.class.as_str())
+        .collect();
+    if classes.is_empty() {
+        return String::new();
+    }
+    classes.sort_unstable();
+    let selectors =
+        classes.iter().map(|c| format!(".{c}")).collect::<Vec<_>>().join(",");
+    format!(":where({selectors}):focus-visible{{outline:none}}\n")
+}
+
 /// Everything a browser paints on an element by itself that no atomic class
 /// can get under: the size, the weight and the margins on a heading, the bevel
 /// on a button, the blue underline on a link, the border and the inner shadow
-/// on a field, the disc and the forty-pixel indent on a list.
+/// on a field, the disc and the forty-pixel indent on a list, the inset border
+/// on a separator, and the baseline a picture sits on.
 ///
 /// A class says what one property is and nothing about the rest, so the sheet
 /// has to say it once, up front, for the elements the program actually builds.
 /// `:where()` holds the selectors, which makes the reset weigh nothing in the
 /// cascade — every class beats it, whatever order they land in.
+///
+/// One rule is about the box model rather than about any element: a `Width` is
+/// the whole box, which is the box the headless painter measures.
 ///
 /// What comes out is also what the headless painter already draws: no padding
 /// nobody asked for, the surrounding font, no margin the scene document has
@@ -813,12 +870,17 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 /// a tick and a thumb this vocabulary can paint.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Reset {
+    /// The artifact builds a tree at all. The box model belongs to the
+    /// vocabulary rather than to any one element, so it is asked once.
+    pub tree: bool,
     pub heading: bool,
     pub button: bool,
     pub link: bool,
     pub field: bool,
     pub toggle: bool,
     pub list: bool,
+    pub separator: bool,
+    pub image: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -859,6 +921,25 @@ const TICK_MASK: &str = "mask-image:url(\"data:image/svg+xml,\
 impl Reset {
     fn rules(self) -> String {
         let mut out = String::new();
+        if self.tree {
+            // A `Width` is the whole box, padding and border inside it — which
+            // is what the headless painter lays out and what every design
+            // system this vocabulary is aimed at is written against. CSS's own
+            // initial `content-box` would hang a padded, bordered child out of
+            // its parent by exactly its padding.
+            out.push_str("*,*::before,*::after{box-sizing:border-box}\n");
+            // `Layout`'s documented default: a container that names none
+            // stacks its children downwards, because a document is a column.
+            // Without this a container is CSS's `display:block`, where
+            // `AlignMain` and `AlignCross` are computed and do nothing — and
+            // the headless painter has laid a container out as a flex column
+            // all along. The four table elements are left out: a browser's own
+            // table layout is what the scene document mirrors for them.
+            out.push_str(
+                ":where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,\
+                 button){display:flex;flex-direction:column}\n",
+            );
+        }
         if self.heading {
             // A level is an outline position, not a size, so the size and the
             // weight belong to the styles and the margin to nobody: this
@@ -948,6 +1029,20 @@ impl Reset {
             // class, so it beats this wherever the two meet.
             out.push_str(":where(ul,ol){margin:0;padding:0;list-style:none}\n");
         }
+        if self.separator {
+            // A browser's `<hr>` is a 1px `inset` border on all four edges and
+            // an automatic inline margin, so a separator asked for one pixel
+            // paints three in two tones and shrinks inside a column. A break
+            // between sections is a rule the caller paints.
+            out.push_str(":where(hr){border:0;margin:0}\n");
+        }
+        if self.image {
+            // A picture and an inlined `<svg>` are the two leaves a browser
+            // leaves inline, so each sits on the text baseline with a descender
+            // gap under it. Every other leaf here is a block, and the headless
+            // painter has no inline flow at all.
+            out.push_str(":where(img,svg){display:block}\n");
+        }
         out
     }
 }
@@ -967,17 +1062,23 @@ pub fn reset_in(
 ) {
     if let ExprKind::EnumLit { con, variant, .. } = &e.kind {
         if *con == node_con {
+            out.tree = true;
             match *variant {
                 NODE_HEADING => out.heading = true,
                 NODE_BUTTON => out.button = true,
                 NODE_LINK => out.link = true,
                 NODE_FIELD => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
+                NODE_IMAGE | NODE_ICON => out.image = true,
                 _ => {}
             }
         }
-        if Some(*con) == role_con && *variant == ROLE_LIST {
-            out.list = true;
+        if Some(*con) == role_con {
+            match *variant {
+                ROLE_LIST => out.list = true,
+                ROLE_SEPARATOR => out.separator = true,
+                _ => {}
+            }
         }
     }
     typed::children_mut(e, &mut |child| reset_in(child, node_con, role_con, out));
