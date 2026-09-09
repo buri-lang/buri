@@ -15,7 +15,6 @@ error: expected `Expr`, found `[Expr]` [type-mismatch]
    |
    = expected: `Expr`
    = actual: `[Expr]`
-   = fix: produce a `Expr` here, or change what surrounds it to accept a `[Expr]`
 error: this array is missing its closing `]` [unclosed-delimiter]
   --> main.buri:76:27
    |

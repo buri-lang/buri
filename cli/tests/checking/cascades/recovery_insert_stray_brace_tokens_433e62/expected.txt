@@ -14,7 +14,6 @@ error: expected `Color`, found `fn(Str, Str) => Color` [type-mismatch]
    |
    = expected: `Color`
    = actual: `fn(Str, Str) => Color`
-   = fix: produce a `Color` here, or change what surrounds it to accept a `fn(Str, Str) => Color`
 error: this `match` is missing its closing `}` [unclosed-delimiter]
   --> main.buri:39:36
    |

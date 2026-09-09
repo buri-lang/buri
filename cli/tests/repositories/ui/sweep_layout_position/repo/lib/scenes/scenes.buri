@@ -1,0 +1,283 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// The page every picture is drawn on: eight hundred wide with nothing inset
+/// either side, so a boundary in a picture is a number off the viewport's own
+/// edge.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))], rows)
+}
+
+/// One row of a picture: the value it shows, and the boxes that show it.
+fn band<C>(label: Str, demo: Node<C>): Node<C> {
+    ui.column([.Gap(.Px(2))], [
+        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
+            ui.text(.Const(label)),
+        ]),
+        demo,
+    ])
+}
+
+/// Each ground carries the `Position(.Flow)` a pin is measured from, and
+/// each child asks to be eight from the top and eight from the start. **The
+/// last row's child is not in the last row**: `PinViewport` measures
+/// against the viewport rather than against the box it was written in,
+/// escapes every clip, and paints last — so it is at the top left of the
+/// page, over the first caption.
+export fn positions<C>(): Node<C> {
+    page([
+        band(
+            "the page's own top left corner, left empty",
+            ui.stack([.Height(.Px(40))], []),
+        ),
+        band(
+            "no Position at all — the two pins take it out of the flow",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Position(.Flow) on the pinned child",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                            .Position(.Flow),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Position(.Sticky) on the pinned child",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                            .Position(.Sticky),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Position(.PinViewport) on the pinned child",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                            .Position(.PinViewport),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}
+
+/// The ground carries the `Position(.Flow)` each pin is measured from, and
+/// each child is eight pixels in from the edge it names.
+export fn pinEdges<C>(): Node<C> {
+    page([
+        band(
+            "Pin(.Top, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Pin(.Bottom, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Bottom, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Pin(.Start, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Start, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Pin(.End, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.End, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}
+
+/// A box goes to a corner rather than to whichever edge was written last,
+/// and four pins stretch it to the ground inset by what they say.
+export fn pinCompose<C>(): Node<C> {
+    page([
+        band(
+            "Pin(.Top, .Px(8)) and Pin(.Start, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Pin(.Top, .Px(8)) and Pin(.End, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.End, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Pin(.Bottom, .Px(8)) and Pin(.Start, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Bottom, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "Pin(.Bottom, .Px(8)) and Pin(.End, .Px(8))",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Bottom, .Px(8)),
+                            .Pin(.End, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+        band(
+            "all four edges pinned at eight",
+            ui.stack(
+                [.Background(.Rgb(232, 232, 238)), .Position(.Flow), .Height(.Px(56))],
+                [
+                    ui.stack(
+                        [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Pin(.Top, .Px(8)),
+                            .Pin(.Bottom, .Px(8)),
+                            .Pin(.Start, .Px(8)),
+                            .Pin(.End, .Px(8)),
+                        ],
+                        [ui.text(.Const("pin"))],
+                    ),
+                ],
+            ),
+        ),
+    ])
+}

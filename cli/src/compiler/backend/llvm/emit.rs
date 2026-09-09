@@ -166,6 +166,8 @@ pub struct Unit<'ctx, 'a> {
     copy_elems: Map<Ty, FunctionValue<'ctx>>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
     entries: Map<(Vec<Ty>, Ty, Option<usize>), FunctionValue<'ctx>>,
+    /// The C-ABI equality thunks of [`Job::Equal`], one per cell type.
+    equals: Map<Ty, FunctionValue<'ctx>>,
     env_glue: Option<FunctionValue<'ctx>>,
     env_copy_glue: Option<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
@@ -211,6 +213,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             copies: Map::default(),
             copy_elems: Map::default(),
             entries: Map::default(),
+            equals: Map::default(),
             env_glue: None,
             env_copy_glue: None,
             pending: Vec::new(),
@@ -2265,6 +2268,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                                 .unwrap_or_else(|| self.ptr_ty().const_null());
                             argv.push(glue.into());
                         }
+                        runtime::Arg::Equal => {
+                            let glue = glue_ty
+                                .and_then(|t| self.equal_glue(&t))
+                                .map(function_pointer)
+                                .unwrap_or_else(|| self.ptr_ty().const_null());
+                            argv.push(glue.into());
+                        }
                         _ => {
                             let glue = glue_ty
                                 .and_then(|t| self.retain_glue(&t))
@@ -2294,6 +2304,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     runtime::Arg::Release => {
                         let glue = self
                             .release_glue(&elem)
+                            .map(function_pointer)
+                            .unwrap_or_else(|| self.ptr_ty().const_null());
+                        argv.push(glue.into());
+                    }
+                    runtime::Arg::Equal => {
+                        let glue = self
+                            .equal_glue(&elem)
                             .map(function_pointer)
                             .unwrap_or_else(|| self.ptr_ty().const_null());
                         argv.push(glue.into());
@@ -3355,6 +3372,18 @@ enum Job<'ctx> {
     /// element. `params` and `ret` are that closure's own signature, and
     /// `index` is which of `params` the runtime's loop counter goes into.
     Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty, index: Option<usize> },
+    /// The C-ABI **equality thunk** the reactive graph compares a write
+    /// through: `void(frame, a, b, out)`, which runs `middle::derives`'s
+    /// generated `Equal` for `ty` on the two values it is handed and writes the
+    /// answer as a byte.
+    ///
+    /// [`Job::Entry`]'s smaller sibling — the other direction through the C
+    /// boundary, and the same reason for existing: the comparison's parameter
+    /// list depends on the type, so the runtime cannot make the call and this
+    /// is generated where the type is known. `frame` is the Buri frame the
+    /// runtime acquired and this backend ignores it, exactly as its
+    /// `Arg::Compute` passes `frame_at` as `-1`.
+    Equal { value: FunctionValue<'ctx>, func: FuncIdx, ty: Ty },
 }
 
 /// The element types one runtime entry's generic parameters are read at.
@@ -3503,6 +3532,94 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.retains.insert(elem.clone(), f);
         self.pending.push(Job::RetainElem { value: f, elem: elem.clone() });
         Some(f)
+    }
+
+    /// The C-ABI equality thunk for one cell type, or `None` where
+    /// `middle::derives` generated no comparison for it — and then the graph
+    /// falls back to the bytes, which is the whole of the value for a scalar.
+    ///
+    /// One per type per unit, memoised for [`Unit::release_glue`]'s reason: it
+    /// is reached through a function pointer, so a copy per call site would be
+    /// a symbol per call site.
+    fn equal_glue(&mut self, ty: &Ty) -> Option<FunctionValue<'ctx>> {
+        let func = self.program.cell_equal.get(ty).copied()?;
+        if let Some(f) = self.equals.get(ty) {
+            return Some(*f);
+        }
+        let p = self.ptr_ty();
+        let fty = self.ctx.void_type().fn_type(&[p.into(), p.into(), p.into(), p.into()], false);
+        let name = format!("buri.equal.{}", self.helpers);
+        self.helpers = self.helpers.saturating_add(1);
+        let f = self.module.add_function(&name, fty, Some(Linkage::Private));
+        // `ccc`: the runtime holds this as a plain C function pointer, exactly
+        // as it holds the retain and the release beside it.
+        attrs::set_convention(f, attrs::C);
+        self.equals.insert(ty.clone(), f);
+        self.pending.push(Job::Equal { value: f, func, ty: ty.clone() });
+        Some(f)
+    }
+
+    /// [`Unit::equal_glue`]'s body: two pointers in, one Buri call, one byte
+    /// out.
+    ///
+    /// The first C argument is the Buri frame the runtime acquired, and it is
+    /// ignored here: this backend's calls work on the machine stack. The two
+    /// values are **loaded and not retained**, because the comparison borrows
+    /// them — a write asks whether the value it is about to store is the one
+    /// already there, and neither side of that question is being given away.
+    /// Where the generated function owns a parameter, the count is taken here,
+    /// which is [`Unit::build_thunk`]'s reconciliation at a call with one
+    /// caller.
+    fn build_equal(&mut self, state: &mut Function<'ctx>, func: FuncIdx, ty: &Ty) {
+        let (Some(a), Some(b), Some(out)) = (
+            state.value.get_nth_param(1).and_then(|p| p.try_into().ok()),
+            state.value.get_nth_param(2).and_then(|p| p.try_into().ok()),
+            state.value.get_nth_param(3).and_then(|p| p.try_into().ok()),
+        ) else {
+            let _ = self.builder.build_unreachable();
+            return;
+        };
+        let (a, b, out): (PointerValue<'ctx>, PointerValue<'ctx>, PointerValue<'ctx>) =
+            (a, b, out);
+        let Some(callee) = self.declare(func) else {
+            let _ = self.builder.build_unreachable();
+            return;
+        };
+        let own = self
+            .program
+            .funcs
+            .get(func.index())
+            .map(|f| f.facts.params.clone())
+            .unwrap_or_default();
+        let r = self.reprs.of_ty(ty);
+        let (slots, align) = (r.slots.clone(), r.layout.align);
+        let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
+        for (i, at) in [a, b].into_iter().enumerate() {
+            let pieces = self.load_slots(at, &slots, align);
+            if own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty) {
+                let place = Place::Registers { slots: slots.clone(), pieces: pieces.clone() };
+                self.walk_rc(state, ty, &place, 0, true, 0);
+            }
+            argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
+        }
+        let Ok(call) = self.builder.build_call(callee, &argv, "") else {
+            let _ = self.builder.build_unreachable();
+            return;
+        };
+        attrs::set_call_convention(call, attrs::FAST);
+        state.observed.opaque = true;
+        // A `Bool` is an `i1` in a register and a byte in memory, and the
+        // runtime reads one byte: zero is "not the same value".
+        let byte = self.ctx.i8_type();
+        let answer = match call.try_as_basic_value().basic() {
+            Some(BasicValueEnum::IntValue(v)) => self
+                .builder
+                .build_int_z_extend_or_bit_cast(v, byte, "eq.byte")
+                .unwrap_or_else(|_| byte.const_zero()),
+            _ => byte.const_zero(),
+        };
+        let _ = self.builder.build_store(out, answer);
+        let _ = self.builder.build_return(None);
     }
 
     /// The C-ABI entry thunk for one step signature.
@@ -3804,7 +3921,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | Job::CopyElems { value, .. }
             | Job::EnvGlue { value }
             | Job::EnvCopy { value }
-            | Job::Entry { value, .. } => *value,
+            | Job::Entry { value, .. }
+            | Job::Equal { value, .. } => *value,
         };
         let entry = self.ctx.append_basic_block(value, "entry");
         self.builder.position_at_end(entry);
@@ -3830,6 +3948,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             Job::Entry { params, ret, index, .. } => {
                 self.build_entry(&mut state, &params, &ret, index);
+                return;
+            }
+            Job::Equal { func, ty, .. } => {
+                self.build_equal(&mut state, func, &ty);
                 return;
             }
             Job::Release { ty, .. } => {
@@ -9860,6 +9982,7 @@ mod cycles {
             units: vec![String::from("main")],
             types: Vec::new(),
             crosses_tasks: false,
+            cell_equal: Default::default(),
         }
     }
 

@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:94:5
+   |
+94 |     };
+   |     ^
+   |
+  --> main.buri:93:26
+   |
+93 |         Location: address(headless(), "/",
+   |                          ^ opened here
+   |
+   = fix: write `)` here

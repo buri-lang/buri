@@ -91,7 +91,9 @@ fn conformance_suite_can_fail() {
 ///
 /// The JSON file is also where the four-part contract is enforced. Every
 /// diagnostic has to carry a `fix`, because a diagnostic that cannot say what
-/// to do about it is not finished.
+/// to do about it is not finished — except where its `expected` and `actual`
+/// lines already are the edit, which `harness::is_a_diagnostic_with_no_fix`
+/// names.
 ///
 /// Regenerate both after a deliberate change:
 ///
@@ -134,7 +136,7 @@ fn rejected_programs_are_rejected() {
 
         // Every diagnostic answers "what do I do about it?".
         for (i, line) in json.lines().enumerate() {
-            if line.starts_with('{') && !line.contains("\"fix\":") {
+            if is_a_diagnostic_with_no_fix(line) {
                 g.fail(format!(
                     "{name}: diagnostic {} carries no `fix`:\n{}",
                     i + 1,

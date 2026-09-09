@@ -1,0 +1,41 @@
+// The derived tiers, before and after a write to the cells under them.
+//
+// A snapshot looks at the graph once and untracked, so what a picture shows is
+// what the derivation answers *now*. Two snapshots either side of a write are
+// therefore the assertion that the write reached the picture: the second is
+// the derived one, or the tier is not connected.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/reactive" import { board, of, rows };
+
+test "every derived tier, before and after one batch of writes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let b = of(ctx);
+    snapshot(ctx, "reactive-before", board(b), .Hover, []);
+    b.tone.set(ctx, 160);
+    b.flag.set(ctx, true);
+    b.count.set(ctx, 8);
+    b.ratio.set(ctx, 0.5);
+    snapshot(ctx, "reactive-after", board(b), .Hover, []);
+}
+
+test "a keyed list added to, taken from and reordered" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let b = of(ctx);
+    snapshot(ctx, "each-rows", rows(b), .Hover, []);
+    b.rows.set(ctx, ["alpha", "beta", "gamma", "delta"]);
+    snapshot(ctx, "each-added", rows(b), .Hover, []);
+    b.rows.set(ctx, ["alpha", "gamma", "delta"]);
+    snapshot(ctx, "each-removed", rows(b), .Hover, []);
+    b.rows.set(ctx, ["delta", "alpha", "gamma"]);
+    snapshot(ctx, "each-reordered", rows(b), .Hover, []);
+}
