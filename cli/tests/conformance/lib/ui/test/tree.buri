@@ -1621,10 +1621,9 @@ test "a size is the whole box, so padding and a border sit inside it" {
     // measured the border box, and this is the declaration that makes the two
     // agree.
     let tree = ui.stack([.Width(.Px(200))], [
-        ui.stack(
-            [.Width(.Full), .Padding(.Px(16)), .BorderWidth(.Px(1))],
-            [ui.text(.Const("inside"))],
-        ),
+        ui.stack([.Width(.Full), .Padding(.Px(16)), .BorderWidth(.Px(1))], [
+            ui.text(.Const("inside")),
+        ]),
     ]);
     assert.equal(
         render(ctx, tree).markup(),
@@ -1702,7 +1701,9 @@ test "a toggle's own styles paint, because the reset takes the native control aw
 
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".r-9999{border-radius:9999px}"));
-    assert.isTrue(sheet.contains(".checked_bg-141414:checked{background-color:rgb(20,20,20)}"));
+    assert.isTrue(
+        sheet.contains(".checked_bg-141414:checked{background-color:rgb(20,20,20)}"),
+    );
     // The reset reaches the control, so nothing the program asked for is
     // painted over.
     assert.isTrue(sheet.contains(":where(input[type=checkbox]){appearance:none;"));
@@ -1710,7 +1711,11 @@ test "a toggle's own styles paint, because the reset takes the native control aw
     // And the same styles are on the control's line of the scene document, one
     // level under the label that wraps it.
     assert.containsText(
-        ui.describe(ctx, ui.toggle(.Const("Email me"), .Switch, styles, [], on), .Checked),
+        ui.describe(
+            ctx,
+            ui.toggle(.Const("Email me"), .Switch, styles, [], on),
+            .Checked,
+        ),
         "am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414",
     );
 }
@@ -1723,9 +1728,10 @@ test "a container with no layout is the column the default promises" {
     // downwards, and the headless painter has laid one out that way all along.
     // As CSS's `display:block` the alignments below would be computed and do
     // nothing, and the text would sit in the top-left corner of the box.
-    let tree = ui.stack([.Width(.Px(40)), .Height(.Px(40)), .AlignMain(.Center), .AlignCross(.Center)], [
-        ui.text(.Const("ok")),
-    ]);
+    let tree = ui.stack(
+        [.Width(.Px(40)), .Height(.Px(40)), .AlignMain(.Center), .AlignCross(.Center)],
+        [ui.text(.Const("ok"))],
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "<div class=\"w-40 h-40 am-center ac-center\">ok</div>",
