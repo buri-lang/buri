@@ -1,0 +1,12 @@
+error: `Edge` has no variant `TopStart` [no-such-variant]
+  --> cmd/ui_style_border_edge_names_an_edge/main.buri:15:35
+   |
+15 | let hairline: Style = .BorderEdge(.TopStart, .Px(1));
+   |                                   ^^^^^^^^^
+   |
+   = did you mean `.Start`?
+   = fix: if you meant `.Start`, use that; if not, `Edge`'s declaration lists its variants
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+

@@ -200,13 +200,13 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 48 properties. The arithmetic, because the cut line is the design:
+  // 50 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
   //    8  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge, Bleed
   //    7  extent:     {Min,Max,}Width, {Min,Max,}Height, AspectRatio
-  //    9  paint:      Background, Foreground, Border{Width,Color,Style},
-  //       Radius, Opacity, Shadow, Shadows
+  //   11  paint:      Background, Foreground, Border{Width,Edge,Color,Style},
+  //       Radius, RadiusCorner, Opacity, Shadow, Shadows
   //   11  type:       FontFamily, FontSize, FontWeight, Italic, LineHeight,
   //       LetterSpacing, TextAlign, TextCase, TextLine, TextWrap, Truncate
   //    1  Cursor
@@ -216,6 +216,8 @@ export enum Style {
   Grow(Int), Shrink(Int), Span(Int),    // on a child
   Pin(Edge, Length), Position(Position),
   PaddingX(Length), Gap(Length), Width(Length), Radius(Length),
+  BorderEdge(Edge, Length),             // one edge; the colour stays whole-box
+  RadiusCorner(Corner, Length),         // one corner; a joined group squares a side
   Bleed(Edge, Length),                  // the one way out of the container's box
   Background(Color), Foreground(Color), Truncate(Int), ...,
   Shadow(Shadow), Shadows([Shadow]),    // one slot; the last written wins
@@ -235,6 +237,8 @@ export enum Layout {
   Layers,                   // children share one space (ZStack), in written order
 }
 
+export enum Edge   { Top, Bottom, Start, End }
+export enum Corner { TopStart, TopEnd, BottomStart, BottomEnd }
 export enum State { Hover, Focus, Active, Disabled, Checked }
 export enum Screen { Small, Medium, Large, ExtraLarge }
                           // closed names, so libraries compose; the widths are
@@ -296,10 +300,11 @@ or a runtime scan did — the scan only ever *chooses between* classes the
 compiler already emitted. A style that arrives as a *parameter* (the
 overridable-component case) resolves at runtime by a linear scan over
 compiler-assigned `(slot, class)` pairs. A slot is the property, **its
-condition**, and **the edge** where the property names one: `Padding` and
-`On(.Hover, [Padding])` are different slots, so are `Pin(.Top, ...)` and
-`Pin(.Bottom, ...)`, and "per property" stopped being enough the moment `On`
-existed. Two *different* properties that touch the same underlying declaration
+condition**, and **the edge or corner** where the property names one: `Padding`
+and `On(.Hover, [Padding])` are different slots, so are `Pin(.Top, ...)` and
+`Pin(.Bottom, ...)`, and so are `RadiusCorner(.TopStart, ...)` and
+`RadiusCorner(.TopEnd, ...)`, and "per property" stopped being enough the moment
+`On` existed. Two *different* properties that touch the same underlying declaration
 — `Padding` and `PaddingX`, `BorderWidth` and `BorderStyle` — are settled by the
 declaration order of the variants, because the sheet is written in that order and
 equal-specificity rules resolve by position. **The variant order is part of the

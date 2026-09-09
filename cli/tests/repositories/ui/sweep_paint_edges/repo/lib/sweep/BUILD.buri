@@ -1,0 +1,9 @@
+# One library and one test source: four pictures of `BorderEdge` and
+# `RadiusCorner`, and a snapshot each.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

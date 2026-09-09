@@ -190,6 +190,14 @@ export enum Style {
     /// because a border nobody can see is not what asking for one means.
     /// `BorderStyle` is declared after it and overrides that.
     BorderWidth(Length),
+    /// How thick the border is on one edge. A row's rule, a submenu's guide
+    /// line, a divider under a header: one edge of a box rather than a box of
+    /// its own. Two `BorderEdge`s naming different edges compose, and each
+    /// draws a solid line the way `BorderWidth` does.
+    ///
+    /// `BorderColor` stays whole-box: a border painted two colours is a
+    /// picture, not a property.
+    BorderEdge(Edge, Length),
     /// What colour the border is. A border with no colour draws in the
     /// foreground colour, which is what every other toolkit does.
     BorderColor(Color),
@@ -197,6 +205,11 @@ export enum Style {
     BorderStyle(BorderStyle),
     /// How rounded the corners are.
     Radius(Length),
+    /// How rounded one corner is. Two `RadiusCorner`s naming different corners
+    /// compose, which is how a caller that knows where a child sits — the
+    /// middle button of a joined group — squares the side that meets its
+    /// neighbour.
+    RadiusCorner(Corner, Length),
     /// How opaque the whole element is, `0.0` to `1.0`, content included.
     Opacity(Float),
     /// A shadow cast by this element.
@@ -454,6 +467,20 @@ export enum Edge {
     Start,
     /// Where the text ends.
     End,
+}
+
+/// One corner of a box, named by the two edges that meet at it, in the reading
+/// order rather than on the screen, so a right-to-left page comes out right by
+/// construction.
+export enum Corner {
+    /// Where the top meets the start of the text.
+    TopStart,
+    /// Where the top meets the end.
+    TopEnd,
+    /// Where the bottom meets the start.
+    BottomStart,
+    /// Where the bottom meets the end.
+    BottomEnd,
 }
 
 /// A screen size, from this width upwards.

@@ -25,8 +25,8 @@
 //! `Style::Extracted` variant: a `Classes`, holding a list of `(slot, class)`
 //! pairs. `Classes` has a private field, so only `ui/style` and this pass can
 //! build one, which is what keeps the variant unwritable. The *slot* is the
-//! conflict key — the property, its condition, and the edge where the property
-//! names one — so the runtime's last-wins resolution is a scan over
+//! conflict key — the property, its condition, and the edge or corner where the
+//! property names one — so the runtime's last-wins resolution is a scan over
 //! compiler-assigned pairs, choosing between classes that are already in the
 //! stylesheet. It never builds one.
 //!
@@ -71,13 +71,17 @@ const FIRST_PROPERTY: usize = 6;
 const STYLE_PIN: usize = 15;
 /// `PaddingEdge(Edge, Length)`.
 const STYLE_PADDING_EDGE: usize = 23;
+/// `BorderEdge(Edge, Length)`.
+const STYLE_BORDER_EDGE: usize = 34;
+/// `RadiusCorner(Corner, Length)`.
+const STYLE_RADIUS_CORNER: usize = 38;
 /// `Shadow(Shadow)`.
-const STYLE_SHADOW: usize = 38;
+const STYLE_SHADOW: usize = 40;
 /// `Shadows([Shadow])`, which writes the same declaration and so shares
 /// `Shadow`'s conflict slot.
-const STYLE_SHADOWS: usize = 39;
+const STYLE_SHADOWS: usize = 41;
 /// `Bleed(Edge, Length)`, declared last because nothing else writes a margin.
-const STYLE_BLEED: usize = 53;
+const STYLE_BLEED: usize = 55;
 
 /// `ui/style`'s `Color`, for the two variants that carry an alpha: `Rgba`, and
 /// the `Faded` token `alpha` answers for one.
@@ -166,8 +170,8 @@ impl Cond {
 /// five breakpoints counting "none", which is what `Cond::code` numbers.
 const CONDITIONS: u32 = 30;
 
-/// How many sub-keys a property divides into: the four `Edge`s, and the one a
-/// `Pin` keeps its `position` in.
+/// How many sub-keys a property divides into: the four `Edge`s — which is also
+/// the four `Corner`s — and the one a `Pin` keeps its `position` in.
 const SUB_KEYS: u32 = 5;
 
 /// The sub-key a `Pin`'s `position` sits in, past the four edges.
@@ -178,9 +182,10 @@ const PIN_FLOW: u32 = 4;
 ///
 /// The sub-key is what stops two `Pin`s from colliding. A property is usually
 /// one declaration, so its variant is the whole key — but `Pin`, `PaddingEdge`
-/// and `Bleed` name an *edge*, and two of them naming different edges write
-/// different declarations and compose. `ui/style` says so in all three
-/// variants' documentation, and the edge is how the slot says it too.
+/// `BorderEdge` and `Bleed` name an *edge* and `RadiusCorner` names a *corner*,
+/// and two of them naming different ones write different declarations and
+/// compose. `ui/style` says so in each variant's documentation, and the sub-key
+/// is how the slot says it too.
 ///
 /// The one place the key is *not* the variant is `Shadows`, which writes the
 /// same `box-shadow` `Shadow` does. Two spellings of one declaration are one
@@ -195,10 +200,15 @@ fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
         .checked_add(cond.code())
 }
 
-/// The sub-key a property's value falls in: the edge it names, or nothing.
+/// The sub-key a property's value falls in: the edge or corner it names, or
+/// nothing. Both are four values, so one numbering serves both.
 fn sub_key(variant: usize, args: &[Value]) -> u32 {
     match variant {
-        STYLE_PIN | STYLE_PADDING_EDGE | STYLE_BLEED => args
+        STYLE_PIN
+        | STYLE_PADDING_EDGE
+        | STYLE_BORDER_EDGE
+        | STYLE_RADIUS_CORNER
+        | STYLE_BLEED => args
             .first()
             .and_then(Value::as_variant)
             .and_then(|(edge, _)| u32::try_from(edge).ok())
@@ -1019,28 +1029,44 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             // declared later and overrides this.
             Some(("bw", key, one("border-style", &format!("solid;border-width:{css}"))))
         }
+        // The same solid a whole-box width implies, on one edge. `BorderStyle`
+        // is written later and overrides it, exactly as it does for `bw`.
         34 => {
+            let (property, edge) = edge_property("border", first?)?;
+            let (css, key) = length(args.get(1)?)?;
+            Some((
+                "be",
+                format!("{edge}-{key}"),
+                one(&format!("{property}-style"), &format!("solid;{property}-width:{css}")),
+            ))
+        }
+        35 => {
             let (css, key) = colour(first?)?;
             Some(("bc", key, one("border-color", &css)))
         }
-        35 => {
+        36 => {
             let (which, _) = first?.as_variant()?;
             let css = ["none", "solid", "dashed"].get(which)?;
             Some(("bs", (*css).into(), one("border-style", css)))
         }
-        36 => spacing("r", "border-radius", first?),
-        37 => {
+        37 => spacing("r", "border-radius", first?),
+        38 => {
+            let (property, corner) = corner_property(first?)?;
+            let (css, key) = length(args.get(1)?)?;
+            Some(("rc", format!("{corner}-{key}"), one(property, &css)))
+        }
+        39 => {
             let value = number(first?.as_float()?)?;
             Some(("op", number_key(&value), one("opacity", &value)))
         }
-        38 => {
+        40 => {
             let css = shadow(first?)?;
             Some(("sh", digest(&css), one("box-shadow", &css)))
         }
         // The layers in the order they were written, which is the order a
         // browser paints them — first over last. One layer here renders what
         // `Shadow` renders, so the two arrive at one class and one rule.
-        39 => {
+        41 => {
             let Value::Array(layers) = first? else { return None };
             let mut rendered = Vec::with_capacity(layers.len());
             for layer in layers {
@@ -1051,7 +1077,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
 
         // text
-        40 => {
+        42 => {
             let (which, inner) = first?.as_variant()?;
             let stack = match which {
                 0 => "ui-sans-serif,system-ui,sans-serif".to_string(),
@@ -1072,25 +1098,25 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             };
             Some(("ff", digest(&stack), one("font-family", &stack)))
         }
-        41 => spacing("fs", "font-size", first?),
-        42 => {
+        43 => spacing("fs", "font-size", first?),
+        44 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) = [("400", "regular"), ("500", "medium"), ("600", "semibold"), ("700", "bold")]
                 .get(which)
                 .copied()?;
             Some(("fw", key.into(), one("font-weight", css)))
         }
-        43 => {
+        45 => {
             let on = first?.as_bool()?;
             let css = if on { "italic" } else { "normal" };
             Some(("it", css.into(), one("font-style", css)))
         }
-        44 => {
+        46 => {
             let value = number(first?.as_float()?)?;
             Some(("lh", number_key(&value), one("line-height", &value)))
         }
-        45 => spacing("ls", "letter-spacing", first?),
-        46 => {
+        47 => spacing("ls", "letter-spacing", first?),
+        48 => {
             let (_, key) = align(first?)?;
             // Text has no leftover room to distribute, so every distribution
             // means justified.
@@ -1100,7 +1126,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             };
             Some(("ta", key.into(), one("text-align", css)))
         }
-        47 => {
+        49 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) = [
                 ("none", "aswritten"),
@@ -1112,7 +1138,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             .copied()?;
             Some(("tc", key.into(), one("text-transform", css)))
         }
-        48 => {
+        50 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) =
                 [("none", "none"), ("underline", "underline"), ("line-through", "strike")]
@@ -1120,12 +1146,12 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
                     .copied()?;
             Some(("tl", key.into(), one("text-decoration-line", css)))
         }
-        49 => {
+        51 => {
             let (which, _) = first?.as_variant()?;
             let css = ["wrap", "nowrap", "balance"].get(which)?;
             Some(("tw", (*css).into(), one("text-wrap", css)))
         }
-        50 => {
+        52 => {
             let lines = first?.as_int()?;
             if lines <= 0 {
                 return Some((
@@ -1148,7 +1174,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
 
         // interaction
-        51 => {
+        53 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) = [
                 ("auto", "default"),
@@ -1162,7 +1188,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
 
         // lists
-        52 => {
+        54 => {
             let (which, _) = first?.as_variant()?;
             let css = ["none", "disc", "decimal"].get(which)?;
             // The type, not the shorthand: the reset already cleared the
@@ -1171,7 +1197,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         }
 
         // out of the box the container put the child in
-        53 => {
+        55 => {
             let (property, edge) = edge_property("margin", first?)?;
             let value = args.get(1)?;
             let (_, key) = length(value)?;
@@ -1252,6 +1278,23 @@ fn edge_property(prefix: &str, value: &Value) -> Option<(String, &'static str)> 
     .get(which)
     .copied()?;
     Some((format!("{prefix}-{suffix}"), key))
+}
+
+/// One logical corner, as the CSS radius property it names.
+///
+/// CSS spells a corner as the two logical edges that meet at it, block edge
+/// first: `border-start-end-radius` is the top edge's end. `Corner` says the
+/// same thing in the same order, so this is a rename rather than a mapping.
+fn corner_property(value: &Value) -> Option<(&'static str, &'static str)> {
+    let (which, _) = value.as_variant()?;
+    [
+        ("border-start-start-radius", "topstart"),
+        ("border-start-end-radius", "topend"),
+        ("border-end-start-radius", "bottomstart"),
+        ("border-end-end-radius", "bottomend"),
+    ]
+    .get(which)
+    .copied()
 }
 
 fn length(value: &Value) -> Option<(String, String)> {
