@@ -56,7 +56,8 @@ the JavaScript runtime, so a `snapshot` call there fails the test saying so.
 `ui/testing`'s `snapshot` paints a tree and compares the PNG against a golden in
 the package's `test/__snapshots__/`. A mismatch fails the test like any other
 assertion and writes `<name>.diff.png` beside the golden, showing where the two
-disagree.
+disagree. A repository from `buri init` ignores `*.diff.png`, so a diff is
+something you look at rather than something you commit.
 
 `--update` records what each `snapshot` painted as its golden instead of
 comparing, and clears any diff left from an earlier run:
