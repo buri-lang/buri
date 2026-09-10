@@ -1,3 +1,5 @@
 # Everything the build writes.
 .buri/
 out
+# A snapshot that did not match, written beside its golden.
+*.diff.png

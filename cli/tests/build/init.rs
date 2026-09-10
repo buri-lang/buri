@@ -66,6 +66,7 @@ fn an_existing_gitignore_is_merged_into() {
     assert!(merged.starts_with("# mine\nnode_modules/\n"), "the user's lines come through first");
     assert!(merged.contains(".buri/"), "the build's entries are appended: {merged}");
     assert!(merged.contains("\nout\n"), "the build's entries are appended: {merged}");
+    assert!(merged.contains("\n*.diff.png\n"), "a failed snapshot's picture too: {merged}");
 
     // What came out is still a working repository.
     scratch.run(&["build", "//..."]).ok();
