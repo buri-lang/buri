@@ -186,6 +186,11 @@ fn formatting_build_files_is_a_fixed_point() {
 /// tool is where it is fixed, which is [`GENERATED_NOT_BLESSED`] below.
 const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
     (
+        "cli/tests/repositories/cli/format_takes_paths/repo/libs/greeting",
+        "the one file `buri format --check` is asked about through a path and through \
+         a label; it is indented wrongly on purpose so both forms have something to find",
+    ),
+    (
         "cli/tests/formatting",
         "the formatter's own cases. `input.buri` is badly laid out on purpose and \
          `expected.buri` is the one answer recorded for it, both checked by \
