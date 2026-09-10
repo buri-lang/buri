@@ -796,7 +796,24 @@ The rest is short:
   `snapshot<C: Allocator + Ui>(ctx: C, name: Str, root: Node<C>, state: State): ()`.
 - `state` is `ui/style`'s `State`, and it applies to **every** element in the
   tree. A hovered card and a resting one are two snapshots of one tree.
-- The viewport is 800x600 CSS pixels, always.
+- **The picture is the size of what is in it.** The page is 800 CSS pixels
+  across and as tall as the paint came to, never less than one line. So a
+  snapshot of a button is the size of a button, and a page taller than a screen
+  is painted whole rather than stopping half way down. Where paint runs past
+  the page sideways — a dock pinned wider than it, a bleed, a translate off the
+  edge — the picture is wider too, and the layout still ran against the 800.
+- **800 across is stated because things resolve against it.** `At(.Small)` and
+  every percentage width are measured from the page, so its width may not
+  depend on what the tree turned out to hold. `snapshotWide` is the same call
+  with that width stated:
+
+  ```text
+  snapshotWide(ctx, "card-narrow", card(.Const("Ada")), .Hover, [], 390);
+  ```
+
+  which is how one tree is painted either side of a breakpoint. Only the width
+  is stated: the height is still the paint's, because a height a test picks is
+  a height that cuts something off.
 - A snapshot name is a file name: never empty, never holding a path separator.
   It names one file, so two `snapshot` calls with one name share one golden and
   the last `--update` wins.
@@ -814,7 +831,13 @@ The rest is short:
   it declared.
 - `.Position(.PinViewport)` is measured against the page, so a dock pinned to
   the bottom right lands in the bottom right however deep it was written, and it
-  paints over everything else.
+  paints over everything else. The page it is measured against is the flow's:
+  the tree settles how tall the picture is, and the pin is placed on it — so a
+  bottom-pinned dock sits on the last row of the tree rather than a screenful
+  below it.
+- A `.Clip` or a `.Scroll` is measured at its own box. It cuts what is under
+  it, so what a reader would have to scroll to see is not what the picture is
+  tall enough to show.
 - `.Table` stacks its rows and a `.TableRow` divides into one equal column per
   cell, so a column lines up down the table. `.ColumnHeader` and `.RowHeader`
   are bold and centred, which is what a browser does to a `<th>`.

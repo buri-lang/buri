@@ -1,11 +1,14 @@
-# Every breakpoint the vocabulary has, on the one page width there is.
+# Every breakpoint the vocabulary has, on the page width `snapshot` takes.
 #
-# `snapshot` takes no size — the viewport is 800x600 CSS pixels, always — so a
-# breakpoint cannot be shown by painting the same tree at two widths. It is
-# shown by putting all four on one page and letting 800 fall where it falls:
-# above 40rem and 48rem, below 64rem and 80rem. **The two that never apply are
-# the assertion.** A painter that ignored `@media` would paint all four rows
-# green, and a painter that dropped the sheet would paint all four red.
+# `snapshot` paints an 800-wide page, so all four breakpoints are shown on one
+# picture and 800 is let fall where it falls: above 40rem and 48rem, below
+# 64rem and 80rem. **The two that never apply are the assertion.** A painter
+# that ignored `@media` would paint all four rows green, and a painter that
+# dropped the sheet would paint all four red.
+#
+# The other half of a breakpoint — one tree painted either side of one — is
+# `snapshotWide`'s, and `the_page_fits_what_is_painted` is where that pair is
+# recorded.
 #
 # Five pictures.
 #

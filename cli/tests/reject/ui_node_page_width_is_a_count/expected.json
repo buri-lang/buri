@@ -1,0 +1,1 @@
+{"severity":"error","message":"`I64` has no variant `Px`","code":"no-such-variant","location":{"file":"cmd/ui_node_page_width_is_a_count/main.buri","line":16,"column":58,"endLine":16,"endColumn":61,"text":"  let _ = ui.describeWide(ctx, ui.stack([], []), .Hover, .Px(390));"},"fix":"name a variant the enum declares","notes":[],"related":[]}

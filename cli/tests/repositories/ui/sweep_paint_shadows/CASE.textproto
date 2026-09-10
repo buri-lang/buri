@@ -23,6 +23,11 @@
 #     elevation and gains the ring, and the `describe` assertion beside each
 #     names the state class that separates the two.
 #
+# The two `ring` pictures are 800x604 rather than 800x600, and the four extra
+# rows are the point: a shadow is paint like any other, so the page is tall
+# enough to hold the blur the last row casts below itself. On a fixed 600-tall
+# page the bottom of that ring was off the picture.
+#
 # The lifecycle is `sweep_properties_stack`'s: every golden compares, a renamed
 # snapshot is reported as missing rather than as a difference, `--update`
 # records it, the run after that compares against what it wrote, and an edit

@@ -776,7 +776,12 @@ Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it
 itself, so neither needs a browser. `snapshot` takes a `[Theme]` where `mount`
-does, which is how a component gets a light golden and a dark one.
+does, which is how a component gets a light golden and a dark one. The picture
+is 800 CSS pixels across — a viewport width, which breakpoints and percentages
+resolve against — and as tall as the paint came to, so a component's golden is
+the size of the component and a page's is the height of the page.
+`snapshotWide` and `describeWide` are the same two with that width stated,
+which is how one tree is painted either side of a breakpoint.
 
 `ui/web` is the same tree on a server. A worker renders it to HTML and sends
 the state it rendered from with it; the page reads that state back, builds the
