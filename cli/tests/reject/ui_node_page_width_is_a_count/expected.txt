@@ -1,0 +1,11 @@
+error: `I64` has no variant `Px` [no-such-variant]
+  --> cmd/ui_node_page_width_is_a_count/main.buri:16:58
+   |
+16 |   let _ = ui.describeWide(ctx, ui.stack([], []), .Hover, .Px(390));
+   |                                                          ^^^
+   |
+   = fix: name a variant the enum declares
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+
