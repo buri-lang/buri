@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! buri-scene 1
-//! viewport 800 600
+//! viewport 800 fit
 //! e 0 class:p-8 bg-slate;background-color:rgb(255,255,255)
 //! e 1 font-size:20px
 //! t 2 Ada
@@ -11,6 +11,42 @@
 //! [`render`] answers the PNG of that tree. [`diff`] compares two PNGs and
 //! answers the picture of where they disagree. `buri test` calls both, through
 //! `snapshot.rs`, and never sees a window or a browser.
+//!
+//! # How large the picture is
+//!
+//! **Across is stated and down is what the paint came to.** The viewport line
+//! carries the page's inline size — 800 unless the suite asked for another one
+//! — and that number is a viewport width in the sense every layout engine
+//! means: percentages and `@media` breakpoints resolve against it
+//! ([`resolve`]), so it may not depend on what the tree turned out to hold.
+//!
+//! The height is the word `fit`, and the page is then the flow's own painted
+//! extent: the lowest pixel a box, a shadow's blur or a translate puts down,
+//! never less than one line ([`SHORTEST`]) so that a tree drawing nothing
+//! still has a picture. The canvas grows *across* too, but only where paint
+//! ran past the page — a dock pinned wider than it, a bleed, a translate off
+//! the edge — and the layout is never re-run against the wider number. So
+//! nothing a scene draws is cut off, and a picture of a small component is the
+//! size of the component.
+//!
+//! Two shapes are measured by rule rather than by their content, and both
+//! rules are what a browser does:
+//!
+//! * **A `position: fixed` box is measured against the page**, which is the
+//!   inline size across and the *flow's* height down. It is added after that
+//!   height has settled, so a dock pinned to the bottom lands on the last row
+//!   of the tree and a pin can never decide the height it is pinned to. Where
+//!   the pinned box itself runs past the page, the canvas grows to hold it and
+//!   the pin stays where the page put it.
+//! * **A `Clip` or a `Scroll` is measured at its own box.** Any `overflow` but
+//!   `visible` cuts what is under it, and the page is measured on what is
+//!   left: a scroll container five hundred pixels deep inside a forty-pixel
+//!   box is a forty-pixel box on the page, because forty pixels is all of it
+//!   that is ever painted.
+//!
+//! A height written as a number instead is exactly the page, and nothing about
+//! it grows. `describe` never writes one; the painter's own tests do, and it
+//! is what a canvas of a stated size means.
 //!
 //! # The one thing this file is for
 //!
@@ -138,9 +174,10 @@
 //!   children show through each other.
 //!
 //! `position: fixed` is honoured the way the page does it: the element leaves
-//! the flow, is laid out against the **viewport** rather than against whatever
-//! it was written inside, escapes every ancestor's clip, and paints last so an
-//! overlay covers the page it is over.
+//! the flow, is laid out against the **page** rather than against whatever it
+//! was written inside, escapes every ancestor's clip, and paints last so an
+//! overlay covers the page it is over. Which page that is, on a picture whose
+//! height nobody stated, is written above.
 //!
 //! A run of text answers all three intrinsic-width questions a layout engine
 //! asks it, so `grid-template-columns: 1fr 2fr` divides the room the other
@@ -204,6 +241,11 @@ const ROOT_FONT_SIZE: f32 = 16.0;
 
 /// `line-height: normal`, as a multiple of the font size.
 const NORMAL_LINE_HEIGHT: f32 = 1.2;
+
+/// The shortest page a `fit` scene is painted on: one line at the root's own
+/// size. A tree that draws nothing still gets a picture, and a canvas of no
+/// height is not an image at all.
+const SHORTEST: f32 = ROOT_FONT_SIZE * NORMAL_LINE_HEIGHT;
 
 /// A list marker's distance from the item it marks, and a disc's diameter,
 /// both as a multiple of the item's font size. What a browser draws.
@@ -421,8 +463,13 @@ enum Art {
 }
 
 struct Scene {
+    /// The page's inline size, and the number every percentage and every
+    /// breakpoint resolves against. Never the canvas's width, which may be
+    /// larger where something painted past the edge.
     width: u32,
-    height: u32,
+    /// The page's height, or `None` for the `fit` the scene document writes:
+    /// the height is then what the paint came to.
+    height: Option<u32>,
     nodes: Vec<Node>,
     roots: Vec<usize>,
 }
@@ -512,19 +559,30 @@ impl Scene {
     }
 }
 
-fn parse_viewport(line: &str) -> Result<(u32, u32), String> {
+/// `viewport <width> <height>`, where the height may be the word `fit`.
+///
+/// The width is always a number. A percentage and a breakpoint resolve against
+/// the page's inline size, so it may not depend on what the tree turned out to
+/// hold; the height has nothing resolving against it and is the one that may
+/// be left to the paint.
+fn parse_viewport(line: &str) -> Result<(u32, Option<u32>), String> {
     let mut parts = line.split(' ');
     let bad = || format!("the scene's second line `{line}` is not a viewport");
     if parts.next() != Some("viewport") {
         return Err(bad());
     }
     let width: u32 = parts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
-    let height: u32 = parts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
+    let down = parts.next().ok_or_else(bad)?;
+    let height = match down {
+        "fit" => None,
+        number => Some(number.parse::<u32>().map_err(|_| bad())?),
+    };
     if parts.next().is_some() {
         return Err(bad());
     }
-    if width == 0 || height == 0 || width > MAX_VIEWPORT || height > MAX_VIEWPORT {
-        return Err(format!("the viewport {width}x{height} is not between 1x1 and 8192x8192"));
+    let stated = height.unwrap_or(1);
+    if width == 0 || stated == 0 || width > MAX_VIEWPORT || stated > MAX_VIEWPORT {
+        return Err(format!("the viewport {width}x{down} is not between 1x1 and 8192x8192"));
     }
     Ok((width, height))
 }
@@ -2018,7 +2076,7 @@ fn paint_with(
     let mut fixed: Vec<usize> = Vec::new();
     let roots =
         build(scene, styles, &pictures, &mut tree, &scene.roots, &mut ids, &mut fixed)?;
-    // **The canvas is an unstyled `stack`, sized to the viewport**, and that is
+    // **The canvas is an unstyled `stack`, sized to the page**, and that is
     // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
     // must not move a pixel. An unstyled `stack` lowers to `display: flex;
     // flex-direction: column` (`$tree_declare`'s tag 6) and takes flexbox's own
@@ -2026,27 +2084,98 @@ fn paint_with(
     // default is a *row*, whose cross axis is vertical, and a canvas left at it
     // stretches its child's height — which the same child one `stack` deeper
     // would not do.
-    let viewport = Style {
+    let across = scene.width as f32;
+    let page = |down: Dimension| Style {
         flex_direction: FlexDirection::Column,
-        size: Size {
-            width: Dimension::length(scene.width as f32),
-            height: Dimension::length(scene.height as f32),
-        },
+        size: Size { width: Dimension::length(across), height: down },
         ..Style::default()
     };
-    // A fixed element is measured against the viewport, so it hangs off the
-    // canvas rather than off whatever it was written inside — and it comes
-    // last, so it is laid out over the page and painted over it.
+    // The flow on its own to begin with, and with nothing holding the page
+    // open downwards: a pin is measured *against* the page, so it cannot be
+    // part of what decides how tall the page is.
+    let root = tree
+        .new_with_children(page(Dimension::auto()), &roots)
+        .map_err(|e| format!("layout: {e}"))?;
+
+    // **How tall the page is.** A scene that states a height is painted at
+    // exactly that one. One that says `fit` takes the flow's own painted
+    // extent — the lowest pixel a box, a shadow or a translate puts down —
+    // and never less than one line, because a page with nothing on it is
+    // still a page and a canvas of no height is not an image.
+    let down = match scene.height {
+        Some(stated) => stated as f32,
+        None => {
+            lay_out(&mut tree, root, scene, styles, fonts, across, AvailableSpace::MaxContent)?;
+            let flow = reach_of(scene, styles, &tree, &ids, &[]);
+            // **Rounded up, never to the nearest.** A flex item's
+            // `flex-shrink` is 1, so a page half a pixel shorter than the flow
+            // it holds squeezes the whole tree by half a pixel — and [`px`]
+            // rounds absolute edges, so half a pixel of squeeze moves a border
+            // a whole one somewhere down the page. The paint's own extent is
+            // already whole pixels; the layout's height is not.
+            let laid = tree.layout(root).map_or(0.0, |l| l.size.height);
+            (flow.b as f32).max(laid.ceil()).max(px(SHORTEST) as f32)
+        }
+    };
+
+    // A fixed element is measured against the page, so it hangs off the canvas
+    // rather than off whatever it was written inside — and it comes last, so
+    // it is laid out over the page and painted over it.
     let mut children = roots;
     children.extend(fixed.iter().filter_map(|&index| ids.get(index).copied().flatten()));
-    let root = tree.new_with_children(viewport, &children).map_err(|e| format!("layout: {e}"))?;
+    tree.set_style(root, page(Dimension::length(down))).map_err(|e| format!("layout: {e}"))?;
+    tree.set_children(root, &children).map_err(|e| format!("layout: {e}"))?;
+    lay_out(&mut tree, root, scene, styles, fonts, across, AvailableSpace::Definite(down))?;
 
+    // The canvas is the page, plus wherever the paint ran past it: a dock
+    // pinned wider than the page, a bleed, a translate off the edge. Nothing a
+    // `fit` scene draws is ever cut off — up to the largest canvas there is.
+    let (mut wide, mut tall) = (scene.width, px(down).max(0) as u32);
+    if scene.height.is_none() {
+        let all = reach_of(scene, styles, &tree, &ids, &fixed);
+        wide = wide.max(all.r.max(0) as u32).min(MAX_VIEWPORT);
+        tall = tall.max(all.b.max(0) as u32).min(MAX_VIEWPORT);
+    }
+
+    let mut canvas = Pixmap::new(wide, tall)
+        .ok_or_else(|| format!("the viewport {wide}x{tall} has no canvas"))?;
+    canvas.fill(tiny_skia::Color::WHITE);
+
+    let mut painter =
+        Painter { scene, styles, pictures: &pictures, tree: &tree, ids: &ids, fonts, cache };
+    for &index in &scene.roots {
+        if painter.is_fixed(index) {
+            continue;
+        }
+        painter.draw(&mut canvas, index, 0.0, 0.0, None);
+    }
+    // Out of the flow and out of every ancestor's clip, at the origin the
+    // viewport gave it.
+    for &index in &fixed {
+        painter.draw(&mut canvas, index, 0.0, 0.0, None);
+    }
+    Ok(canvas)
+}
+
+/// Runs the layout over `root`, with the shaper answering for every run of
+/// text under it.
+///
+/// A page is laid out twice — once with its height left open, to find out what
+/// the flow came to, and once against the height that settled — so this is a
+/// function rather than a closure written inline: the shaper is borrowed
+/// mutably by it, and a closure holding that borrow cannot be called twice.
+fn lay_out(
+    tree: &mut TaffyTree<usize>,
+    root: NodeId,
+    scene: &Scene,
+    styles: &[Computed],
+    fonts: &mut FontSystem,
+    across: f32,
+    down: AvailableSpace,
+) -> Result<(), String> {
     tree.compute_layout_with_measure(
         root,
-        Size {
-            width: AvailableSpace::Definite(scene.width as f32),
-            height: AvailableSpace::Definite(scene.height as f32),
-        },
+        Size { width: AvailableSpace::Definite(across), height: down },
         |input, _, context, style| {
             compute_leaf_layout(input, style, |_, _| 0.0, |known, available| {
                 let Some(&mut index) = context else { return Size::ZERO };
@@ -2082,26 +2211,110 @@ fn paint_with(
             })
         },
     )
-    .map_err(|e| format!("layout: {e}"))?;
+    .map_err(|e| format!("layout: {e}"))
+}
 
-    let mut canvas = Pixmap::new(scene.width, scene.height)
-        .ok_or_else(|| format!("the viewport {}x{} has no canvas", scene.width, scene.height))?;
-    canvas.fill(tiny_skia::Color::WHITE);
-
-    let mut painter =
-        Painter { scene, styles, pictures: &pictures, tree: &tree, ids: &ids, fonts, cache };
+/// How far the paint reaches, over the flow and over `fixed` beside it.
+///
+/// The box from the origin down and across to the last pixel any of it puts
+/// down. A `fit` page is this: what a picture has to be for nothing in it to
+/// be cut off.
+fn reach_of(
+    scene: &Scene,
+    styles: &[Computed],
+    tree: &TaffyTree<usize>,
+    ids: &[Option<NodeId>],
+    fixed: &[usize],
+) -> Box2 {
+    let mut out = Box2 { l: 0, t: 0, r: 0, b: 0 };
+    let mut lifted = |index: usize| styles.get(index).is_some_and(|style| style.fixed);
     for &index in &scene.roots {
-        if painter.is_fixed(index) {
+        if lifted(index) {
             continue;
         }
-        painter.draw(&mut canvas, index, 0.0, 0.0, None);
+        reach(scene, styles, tree, ids, index, 0.0, 0.0, None, &mut out);
     }
-    // Out of the flow and out of every ancestor's clip, at the origin the
-    // viewport gave it.
-    for &index in &fixed {
-        painter.draw(&mut canvas, index, 0.0, 0.0, None);
+    for &index in fixed {
+        reach(scene, styles, tree, ids, index, 0.0, 0.0, None, &mut out);
     }
-    Ok(canvas)
+    out
+}
+
+/// One node's own paint, and everything under it, into `out`.
+///
+/// **It mirrors [`Painter::draw`] and has to keep mirroring it**: the same
+/// translate, the same shadow, the same early stops, and the same clip. A box
+/// this walk does not know about is a box the picture cuts off; a box it
+/// counts that `draw` does not is white space at the edge of every golden.
+fn reach(
+    scene: &Scene,
+    styles: &[Computed],
+    tree: &TaffyTree<usize>,
+    ids: &[Option<NodeId>],
+    index: usize,
+    x: f32,
+    y: f32,
+    clip: Option<Box2>,
+    out: &mut Box2,
+) {
+    let (Some(node), Some(style), Some(&Some(id))) =
+        (scene.node(index), styles.get(index), ids.get(index))
+    else {
+        return;
+    };
+    let Ok(layout) = tree.layout(id) else { return };
+    let (across, down) = shift(style, layout.size);
+    let left = x + layout.location.x + across;
+    let top = y + layout.location.y + down;
+    let box_ = Box2 {
+        l: px(left),
+        t: px(top),
+        r: px(left + layout.size.width),
+        b: px(top + layout.size.height),
+    };
+
+    // An outer shadow paints outside the box that cast it, offset, spread and
+    // blurred, and every pixel of that is on the page too.
+    let mut painted = box_;
+    for shadow in &style.shadow {
+        let cast = box_.offset(shadow.x, shadow.y);
+        painted = painted.union(cast.grow(shadow.spread + reach_of_blur(shadow.blur)));
+    }
+    out.absorb(painted.met_by(clip));
+
+    // A picture, a slider and a mark are what their box holds, and none of the
+    // three has children — the same three places `draw` stops at.
+    if node.picture.is_some() || style.range.is_some() || style.mark != Mark::None {
+        return;
+    }
+    // Any `overflow` but `visible` — the `clip` a `Clip` writes and the `auto`
+    // a `Scroll` writes alike — cuts what is under it to this box, so a scroll
+    // container is measured at its own box and never at what it scrolls.
+    let inner = if style.clipped[0] || style.clipped[1] { Some(box_.met_by(clip)) } else { clip };
+    for &child in &node.children {
+        // A fixed child hangs off the page rather than off this box, so it is
+        // neither placed here nor clipped by anything here.
+        if styles.get(child).is_some_and(|s| s.fixed) {
+            continue;
+        }
+        reach(scene, styles, tree, ids, child, left, top, inner, out);
+    }
+}
+
+/// How far a blurred shadow's coverage spreads past the shape it was cast
+/// from.
+///
+/// [`blur`] is three box passes of width `d`, each leaning `d / 2` back, so
+/// the mask reaches `3 * (d / 2)` in every direction — the same `d`, computed
+/// the same way, because a reach short of it would cut the faint edge of a
+/// shadow off the bottom of a page.
+fn reach_of_blur(radius: f32) -> f32 {
+    let sigma = radius / 2.0;
+    if sigma <= 0.0 || !sigma.is_finite() {
+        return 0.0;
+    }
+    let d = (sigma * 1.881_976_2 + 0.5).floor().max(0.0);
+    3.0 * (d / 2.0).floor()
 }
 
 /// Mirrors the scene into a `taffy` tree, remembering each node's id.
@@ -2641,6 +2854,39 @@ impl Box2 {
             r: self.r.saturating_add(n),
             b: self.b.saturating_add(n),
         }
+    }
+
+    /// The smallest box holding both.
+    fn union(self, other: Self) -> Self {
+        Self {
+            l: self.l.min(other.l),
+            t: self.t.min(other.t),
+            r: self.r.max(other.r),
+            b: self.b.max(other.b),
+        }
+    }
+
+    /// The part of this box inside `clip`, or the whole of it where nothing
+    /// clips it. What is left of a box a `Clip` or a `Scroll` cut down.
+    fn met_by(self, clip: Option<Self>) -> Self {
+        match clip {
+            None => self,
+            Some(other) => Self {
+                l: self.l.max(other.l),
+                t: self.t.max(other.t),
+                r: self.r.min(other.r),
+                b: self.b.min(other.b),
+            },
+        }
+    }
+
+    /// Grows to hold `other`, unless `other` is empty — a box a clip cut to
+    /// nothing put no pixel anywhere and must not hold a page open.
+    fn absorb(&mut self, other: Self) {
+        if other.r <= other.l || other.b <= other.t {
+            return;
+        }
+        *self = self.union(other);
     }
 
     fn path(self, radii: Radii) -> Option<tiny_skia::Path> {
@@ -3641,6 +3887,169 @@ mod tests {
         let scene = "buri-scene 1\nviewport 0 3\n";
         let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
         assert!(error.contains("0x3"), "{error}");
+    }
+
+    // -- The page that fits what is painted ---------------------------------
+    //
+    // `fit` is what `describe` writes, so these are the size every golden in
+    // the repository is taken at.
+
+    /// One box forty pixels tall is a forty-pixel page, not a 600-pixel one
+    /// with 560 pixels of nothing under it.
+    #[test]
+    fn a_fitting_page_is_as_tall_as_what_it_holds() {
+        let scene = "buri-scene 1\nviewport 800 fit\n\
+                     e 0 width:40px;height:40px;background-color:rgb(0,0,255)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (800, 40));
+        assert_eq!(at(&image, 0, 39), [0, 0, 255, 255]);
+    }
+
+    /// And a tree taller than the page used to be is painted whole rather than
+    /// cut off at 600.
+    #[test]
+    fn a_fitting_page_holds_a_tree_taller_than_six_hundred() {
+        let scene = "buri-scene 1\nviewport 800 fit\n\
+                     e 0 padding:24px\n\
+                     e 1 width:40px;height:2000px;background-color:rgb(0,0,255)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (800, 2048));
+        // The last row of the box, and the padding under it.
+        assert_eq!(at(&image, 24, 2023), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 24, 2024), [255, 255, 255, 255]);
+    }
+
+    /// A page with nothing on it is still a page: one line at the root's own
+    /// size, because a canvas of no height is not an image.
+    #[test]
+    fn a_fitting_page_with_nothing_on_it_is_one_line() {
+        let image = render_ok("buri-scene 1\nviewport 800 fit\n", "", "rest");
+        assert_eq!((image.width, image.height), (800, 19));
+    }
+
+    /// The inline size is the page's whatever the paint does, because a
+    /// percentage and a breakpoint resolve against it — so a box that runs
+    /// past the edge widens the canvas and moves nothing.
+    #[test]
+    fn paint_past_the_edge_widens_the_canvas_and_not_the_layout() {
+        let scene = "buri-scene 1\nviewport 800 fit\n\
+                     e 0 width:900px;height:10px;background-color:rgb(0,0,255)\n\
+                     e 0 width:100%;height:10px;background-color:rgb(255,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (900, 20));
+        // The wide box reaches its own last column.
+        assert_eq!(at(&image, 899, 0), [0, 0, 255, 255]);
+        // The full-width box is 800 wide: the layout ran against the page, not
+        // against the canvas.
+        assert_eq!(at(&image, 799, 10), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 800, 10), [255, 255, 255, 255]);
+    }
+
+    /// A translate is applied after the layout, so it moves nothing else — and
+    /// the page still grows to hold where it landed.
+    #[test]
+    fn a_translate_off_the_page_grows_it() {
+        let scene = "buri-scene 1\nviewport 800 fit\n\
+                     e 0 width:10px;height:10px;background-color:rgb(0,0,255);\
+                     transform:translate(830px,50px)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (840, 60));
+        assert_eq!(at(&image, 839, 59), [0, 0, 255, 255]);
+    }
+
+    /// A scroll container clips its own overflow, so the page is measured at
+    /// its box and never at the content it scrolls.
+    #[test]
+    fn a_scroll_container_is_measured_at_its_own_box() {
+        let scene = "buri-scene 1\nviewport 800 fit\n\
+                     e 0 height:40px;overflow:auto\n\
+                     e 1 width:10px;height:500px;background-color:rgb(0,0,255)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (800, 40));
+    }
+
+    /// A pin is measured against the page — 800 across and the content's
+    /// height down — so a dock pinned to the bottom lands on the last row of
+    /// the tree, and a pin never decides the height it is measured against.
+    #[test]
+    fn a_pin_is_measured_against_the_page_the_flow_settled() {
+        let scene = "buri-scene 1\nviewport 800 fit\n\
+                     e 0 width:10px;height:200px;background-color:rgb(255,0,0)\n\
+                     e 0 position:fixed;inset-block-end:0px;inset-inline-end:0px;\
+                     width:20px;height:20px;background-color:rgb(0,0,255)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (800, 200));
+        assert_eq!(at(&image, 799, 199), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 780, 180), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 779, 179), [255, 255, 255, 255]);
+    }
+
+    /// A shadow is paint like any other, so the page holds what it casts below
+    /// the box.
+    #[test]
+    fn a_shadow_under_the_last_box_is_on_the_page() {
+        let scene = "buri-scene 1\nviewport 800 fit\n\
+                     e 0 width:40px;height:40px;background-color:rgb(255,255,255);\
+                     box-shadow:0px 8px 0px 0px rgb(0,0,255)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (800, 48));
+        assert_eq!(at(&image, 0, 47), [0, 0, 255, 255]);
+    }
+
+    /// **The two layouts a `fit` page runs land where one layout would.** It
+    /// is laid out once with its height open to find out what the flow comes
+    /// to, and again against the height that settled, and the picture has to
+    /// be the one a page of that height was always going to paint — otherwise
+    /// the height a golden is recorded at would be a second thing that decides
+    /// what is in it.
+    #[test]
+    fn a_page_that_fits_and_the_same_page_stated_are_one_picture() {
+        // A clip, a radius and a run of text, because those are the three that
+        // are measured rather than declared.
+        let body = "e 0 padding:4px;gap:4px\n\
+                    e 1 height:80px;overflow:auto\n\
+                    e 2 width:900px;height:60px;border-radius:24px;\
+                    background-color:rgb(20,60,40)\n\
+                    e 1 height:80px;overflow:auto\n\
+                    t 2 the quick brown fox jumps over the lazy dog\n";
+        let fit = render_ok(&format!("buri-scene 1\nviewport 800 fit\n{body}"), "", "rest");
+        assert_eq!((fit.width, fit.height), (800, 172));
+        let stated = render_ok(&format!("buri-scene 1\nviewport 800 172\n{body}"), "", "rest");
+        for y in 0..fit.height {
+            for x in 0..fit.width {
+                assert_eq!(at(&fit, x, y), at(&stated, x, y), "at {x},{y}");
+            }
+        }
+    }
+
+    /// A scene that states a height is painted at exactly that height, and
+    /// nothing about it grows. That is what an explicit page is for, and what
+    /// the painter's own tests are written against.
+    #[test]
+    fn a_stated_height_is_the_page_and_the_whole_page() {
+        let scene = "buri-scene 1\nviewport 40 30\n\
+                     e 0 width:80px;height:900px;background-color:rgb(0,0,255)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (40, 30));
+    }
+
+    /// `fit` is a height and nothing else: a width has to be a number, because
+    /// a percentage and a breakpoint have to resolve against one.
+    #[test]
+    fn a_viewport_that_fits_across_is_refused() {
+        let scene = "buri-scene 1\nviewport fit 600\n";
+        let error =
+            render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        assert!(error.contains("is not a viewport"), "{error}");
+    }
+
+    /// A zero width is refused whatever the height says.
+    #[test]
+    fn a_fitting_viewport_of_no_width_is_refused() {
+        let scene = "buri-scene 1\nviewport 0 fit\n";
+        let error =
+            render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        assert!(error.contains("0"), "{error}");
     }
 
     #[test]

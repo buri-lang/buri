@@ -1,0 +1,139 @@
+//! Five trees, each the size of a different question about the page a snapshot
+//! is painted on.
+//!
+//! The page is 800 CSS pixels across and as tall as what it holds, so what each
+//! of these is *for* is its own picture's size: a short tree is a short
+//! picture, a tall one is painted whole, paint that runs past the edge widens
+//! the canvas, and a scroll container's overflow holds nothing open.
+
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// One button, and nothing else on the page.
+///
+/// The whole of what a component golden should be: a picture of the component
+/// rather than a sheet of paper with the component in one corner.
+export fn short<C>(): Node<C> {
+    ui.button(
+        .Const("Save"),
+        [
+            .Padding(.Px(10)),
+            .PaddingEdge(.Start, .Px(20)),
+            .PaddingEdge(.End, .Px(20)),
+            .Background(.Rgb(30, 90, 200)),
+            .Foreground(.Rgb(255, 255, 255)),
+            .Radius(.Px(6)),
+        ],
+        [],
+        fn(_c, _e) => {
+        },
+        .Const(false),
+    )
+}
+
+/// `count` numbered rows, striped so that a row that was not painted is a gap
+/// rather than nothing.
+///
+/// Forty of them is well past the six hundred pixels the page used to be, and
+/// the last row's number is the assertion: it is in the picture, at the bottom
+/// of it, with the page's own padding under it.
+export fn rows<C: Allocator>(ctx: C, count: Int): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(8))], numbered(ctx, count, 1, []))
+}
+
+/// Rows `at` to `count`, oldest first.
+fn numbered<C: Allocator>(ctx: C, count: Int, at: Int, acc: [Node<C>]): [Node<C>] {
+    if (at > count) {
+        acc
+    } else {
+        let shade: Style = if (at % 2 == 0) {
+            .Background(.Rgb(235, 238, 245))
+        } else {
+            .Background(.Rgb(215, 222, 238))
+        };
+        let row = ui.stack([shade, .Padding(.Px(6))], [
+            ui.text(.Const(str.format(ctx, "row ${at} of ${count}"))),
+        ]);
+        numbered(ctx, count, at + 1, acc.push(ctx, row))
+    }
+}
+
+/// Two ways paint leaves the page sideways: a box shifted past the right edge
+/// after the layout finished, and a dock pinned across a page it is wider than.
+///
+/// Neither moves anything else, and neither may be cut off, so the picture is
+/// wider than the page and the layout inside it still ran against 800.
+export fn wide<C>(): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(8))], [
+        ui.text(
+            .Const("the layout ran against 800; the canvas holds what ran past it"),
+        ),
+        ui.stack(
+            [
+                .Width(.Percent(100.0)),
+                .Height(.Px(24)),
+                .Background(.Rgb(120, 190, 140)),
+            ],
+            [],
+        ),
+        ui.stack(
+            [
+                .Width(.Px(120)),
+                .Height(.Px(24)),
+                .Translate(.Px(720), .Px(0)),
+                .Background(.Rgb(200, 90, 60)),
+            ],
+            [],
+        ),
+        ui.stack(
+            [
+                .Position(.PinViewport),
+                .Pin(.Start, .Px(0)),
+                .Pin(.Bottom, .Px(0)),
+                .Width(.Px(880)),
+                .Height(.Px(20)),
+                .Background(.Rgb(40, 60, 110)),
+            ],
+            [],
+        ),
+    ])
+}
+
+/// A scroll container sixty pixels deep, holding four hundred pixels of rows.
+///
+/// It clips its own overflow, so the page is measured at its box: what a reader
+/// would have to scroll to see is not what the picture is tall enough to show.
+export fn scrolled<C: Allocator>(ctx: C): Node<C> {
+    ui.column([.Padding(.Px(16))], [
+        ui.stack(
+            [
+                .Height(.Px(60)),
+                .Scroll(.Both),
+                .Background(.Rgb(240, 240, 245)),
+                .Padding(.Px(4)),
+            ],
+            [rows(ctx, 20)],
+        ),
+    ])
+}
+
+/// A block that is red until the page is 640 across and green from there on.
+///
+/// `At(.Small)` resolves against the page's width, so this is the one thing a
+/// stated width buys: the same tree paints red at 390 and green at 800.
+export fn breakpointed<C>(): Node<C> {
+    ui.column([.Padding(.Px(16)), .Gap(.Px(8))], [
+        ui.text(.Const("red under .Small (640px), green from there on")),
+        ui.stack(
+            [
+                .Height(.Px(40)),
+                .Background(.Rgb(200, 60, 60)),
+                .At(.Small, [.Background(.Rgb(40, 160, 80))]),
+            ],
+            [],
+        ),
+    ])
+}

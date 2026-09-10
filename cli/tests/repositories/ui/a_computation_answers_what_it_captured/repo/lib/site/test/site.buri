@@ -13,6 +13,6 @@ test "a computation answers the tree it captured" {
     };
     assert.equal(
         describe(ctx, site(ctx, 3), .Checked),
-        "buri-scene 1\nviewport 800 600\ne 0 class:lay-col\nt 1 page 0\nt 1 page 1\nt 1 page 2",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-col\nt 1 page 0\nt 1 page 1\nt 1 page 2",
     );
 }

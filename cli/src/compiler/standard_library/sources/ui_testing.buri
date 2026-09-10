@@ -203,6 +203,15 @@ export fn variables(): Str;
 /// paint in, so a hovered card and a resting one are two snapshots of one
 /// tree.
 ///
+/// **The picture is the size of what is in it.** The page is 800 CSS pixels
+/// across — a viewport width, which `At(.Small)` and every percentage resolve
+/// against — and as tall as the paint came to, never less than one line. So a
+/// snapshot of a button is the size of a button, a page taller than a screen
+/// is painted whole, and nothing is cut off: where paint runs past the page
+/// sideways — a dock pinned wider than it, a bleed, a translate off the edge —
+/// the picture is wider too, and the layout still ran against the 800.
+/// `snapshotWide` is the same picture on a page of a stated width.
+///
 /// `themes` is `mount`'s parameter, in the same place in the sentence and
 /// meaning the same thing: one theme per package whose design tokens this tree
 /// uses, and where a chain of tokens resolves into the values the painter
@@ -218,8 +227,34 @@ export fn snapshot<C: Allocator + Ui>(
     state: State,
     themes: [Theme],
 ): () {
+    snapshotWide(ctx, name, root, state, themes, 800)
+}
+
+/// `snapshot`, on a page `width` CSS pixels across rather than on the 800-wide
+/// one.
+///
+/// ```text
+/// snapshotWide(ctx, "card-phone", card(ctx, "Ada"), .Hover, [], 390);
+/// ```
+///
+/// A **breakpoint** is the whole of what this is for. `At(.Small)` and its
+/// four siblings resolve against the page, so the only way to see one apply
+/// and not apply is to paint one tree twice — once narrow enough that it does
+/// not and once wide enough that it does.
+///
+/// Only the width is stated. The page still fits what it holds, because a
+/// height a test picks is a height that cuts something off, which is what this
+/// picture is not allowed to do.
+export fn snapshotWide<C: Allocator + Ui>(
+    ctx: C,
+    name: Str,
+    root: Node<C>,
+    state: State,
+    themes: [Theme],
+    width: Int,
+): () {
     let _ = installThemes(theme.document(ctx, themes));
-    paint(name, node.describe(ctx, root, state), stateName(state))
+    paint(name, node.describeWide(ctx, root, state, width), stateName(state))
 }
 
 /// The runner's side: what each token is worth, for the paint that follows.

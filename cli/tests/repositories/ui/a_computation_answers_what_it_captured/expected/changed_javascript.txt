@@ -1,7 +1,7 @@
 FAIL //lib/site  test/site.buri  "a computation answers the tree it captured"
   assert.equal failed
-    actual:   "buri-scene 1\nviewport 800 600\ne 0 class:lay-col\nt 1 leaf 0\nt 1 leaf 1\nt 1 leaf 2"
-    expected: "buri-scene 1\nviewport 800 600\ne 0 class:lay-col\nt 1 page 0\nt 1 page 1\nt 1 page 2"
+    actual:   "buri-scene 1\nviewport 800 fit\ne 0 class:lay-col\nt 1 leaf 0\nt 1 leaf 1\nt 1 leaf 2"
+    expected: "buri-scene 1\nviewport 800 fit\ne 0 class:lay-col\nt 1 page 0\nt 1 page 1\nt 1 page 2"
   --> lib/site/test/site.buri:9:1
 
 0 passed, 1 failed, 0 skipped (0.0s)
