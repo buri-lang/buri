@@ -1,0 +1,68 @@
+// The page a snapshot is painted on, one picture per rule.
+//
+// Every assertion here is the *size* of a golden checked in beside it, which is
+// the one thing no other tier can ask: the scene says `fit`, and what `fit`
+// came to is in the PNG's header.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot, snapshotWide };
+from "//lib/pages" import { breakpointed, rows, scrolled, short, wide };
+
+test "a short tree is a short picture" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The scene asks for a page 800 across and as tall as the paint: the width
+    // is stated because breakpoints and percentages resolve against it, and the
+    // height is not because nothing does.
+    assert.containsText(
+        ui.describe(ctx, short(), .Hover),
+        "buri-scene 1\nviewport 800 fit\n",
+    );
+    snapshot(ctx, "page-short", short(), .Hover, []);
+}
+
+test "a tree taller than six hundred is painted whole" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "page-tall", rows(ctx, 40), .Hover, []);
+}
+
+test "paint that runs past the edge widens the picture" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "page-wide", wide(), .Hover, []);
+}
+
+test "a scroll container is measured at its own box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "page-scrolled", scrolled(ctx), .Hover, []);
+}
+
+test "a breakpoint resolves against the page a snapshot states" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The same tree twice. `At(.Small)` is 640, so the block is red on the
+    // narrow page and green on the wide one — and only the width moves, the
+    // height still being whatever the paint came to.
+    assert.containsText(
+        ui.describeWide(ctx, breakpointed(), .Hover, 390),
+        "buri-scene 1\nviewport 390 fit\n",
+    );
+    snapshotWide(ctx, "page-narrow", breakpointed(), .Hover, [], 390);
+    snapshot(ctx, "page-at-800", breakpointed(), .Hover, []);
+}

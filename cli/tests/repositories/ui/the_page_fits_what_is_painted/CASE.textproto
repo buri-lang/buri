@@ -1,0 +1,72 @@
+# The page a snapshot is painted on, and the six pictures whose *sizes* are the
+# assertion.
+#
+# Every other case here reads pixels. This one reads the PNG header: the page is
+# 800 CSS pixels across and as tall as what the tree painted, so a golden's size
+# is a claim about the rule and a golden that came back 800x600 would be the bug
+# this case exists for.
+#
+#   * **page-short** — one button, and the picture is 800x40. A component
+#     golden is the size of the component, not a sheet of paper with the
+#     component in one corner.
+#   * **page-tall** — forty numbered rows, 800x1592, and the fortieth is in it.
+#     Under a fixed 600-tall page the picture stopped inside row 15 and every
+#     row under that could change without a golden noticing.
+#   * **page-wide** — 880x116. Two ways paint leaves the page sideways: a box
+#     translated past the right edge and a dock pinned across a page it is
+#     wider than. The canvas grows to hold them and the *layout* does not: the
+#     `Width(.Percent(100))` band above them is 768 pixels, which is 800 less
+#     the page's padding and not 880 less it.
+#   * **page-scrolled** — 800x92, holding a 60-pixel scroll container with four
+#     hundred pixels of rows inside it. A `Scroll` clips its own overflow, so
+#     the page is measured at its box: what a reader would scroll to see is not
+#     what the picture is tall enough to show.
+#   * **page-narrow** and **page-at-800** — one tree, two widths, through
+#     `snapshotWide` and `snapshot`. `At(.Small)` is 640 and resolves against
+#     the page, so the block is red at 390 and green at 800. That pair is the
+#     whole of what a stated width buys, and the height is still the paint's on
+#     both.
+#
+# Then the negative twin the corpus rule asks for, and it is placed where it
+# says the most: the fortieth row's text, which is 1560 pixels down a page that
+# used to be 600.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a short tree is a short picture, a tall one is painted whole, paint past the edge widens the canvas, a scroll container is measured at its box, and a stated width moves a breakpoint"
+
+run {
+  args: ["test", "//lib/pages", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/pages/test/__snapshots__/page-short.diff.png"  exists: false }
+path { path: "lib/pages/test/__snapshots__/page-tall.diff.png"  exists: false }
+path { path: "lib/pages/test/__snapshots__/page-wide.diff.png"  exists: false }
+path { path: "lib/pages/test/__snapshots__/page-scrolled.diff.png"  exists: false }
+path { path: "lib/pages/test/__snapshots__/page-narrow.diff.png"  exists: false }
+path { path: "lib/pages/test/__snapshots__/page-at-800.diff.png"  exists: false }
+
+# The negative twin, a thousand pixels below where the old page ended. One
+# row's text changes, so the two pictures built out of those rows fail and the
+# four that are not stay clean. `page-tall` is the one that matters: the row
+# it fails on is 1560 pixels down a page that used to stop at 600.
+edit {
+  file: "lib/pages/pages.buri"
+  replace: "str.format(ctx, \"row ${at} of ${count}\")"
+  with: "str.format(ctx, \"row ${at}/${count}\")"
+}
+
+run {
+  args: ["test", "//lib/pages", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/pages/test/__snapshots__/page-tall.diff.png"  exists: true }
+path { path: "lib/pages/test/__snapshots__/page-scrolled.diff.png"  exists: true }
+path { path: "lib/pages/test/__snapshots__/page-short.diff.png"  exists: false }
+path { path: "lib/pages/test/__snapshots__/page-wide.diff.png"  exists: false }
+path { path: "lib/pages/test/__snapshots__/page-narrow.diff.png"  exists: false }
