@@ -1,0 +1,8 @@
+FAIL //lib/pages  test/pages.buri  "a tree taller than six hundred is painted whole"
+  the snapshot "page-tall" changed: see test/__snapshots__/page-tall.diff.png
+  --> lib/pages/test/pages.buri:30:1
+FAIL //lib/pages  test/pages.buri  "a scroll container is measured at its own box"
+  the snapshot "page-scrolled" changed: see test/__snapshots__/page-scrolled.diff.png
+  --> lib/pages/test/pages.buri:46:1
+
+3 passed, 2 failed, 0 skipped (0.0s)

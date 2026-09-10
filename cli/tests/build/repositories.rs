@@ -269,7 +269,7 @@ fn serving_a_page() {
 /// JavaScript answer at all — there is no painter there. So the only tier that
 /// can ask this question is the one that links a real binary and runs it.
 ///
-/// Nine cases pin the machinery. Six are one axis of the snapshot each: the whole lifecycle over
+/// Ten cases pin the machinery. Six are one axis of the snapshot each: the whole lifecycle over
 /// one picture; the range of every axis a snapshot has over twenty-one; every
 /// way a comparison cannot be made; the invocation — `buri test` with no target
 /// at all — that puts two packages' suites in one binary; the platform, where a
@@ -300,6 +300,14 @@ fn serving_a_page() {
 /// in, painted at their own colours. Its last step moves one glyph's stroke
 /// from red to blue, which is the record that a golden with an icon in it can
 /// now fail on the icon rather than only on where the box around it sat.
+///
+/// The tenth is the **page** the other nine are painted on, and it is the one
+/// case whose assertion is a picture's size rather than its pixels: a button
+/// that comes out 800x40, forty rows that come out 800x1592 with the fortieth
+/// in the picture, a translate and a pinned dock that widen the canvas to 880
+/// while the layout inside stays 800 wide, a scroll container measured at its
+/// own box, and one tree at two widths through `snapshotWide` and `snapshot`,
+/// where `At(.Small)` applies at 800 and not at 390.
 ///
 /// Beside them are the **sweeps**, which ask a different question: not whether
 /// the machinery works, but whether each property in the vocabulary paints
@@ -335,7 +343,7 @@ fn serving_a_page() {
 ///
 /// The `sweep_themes_*` cases are the theme, breakpoint and reactive sweep:
 /// the four colour slots a design token can fill on five primitives under five
-/// theme lists, the four breakpoints on the one page width a snapshot has,
+/// theme lists, the four breakpoints on the page width `snapshot` takes,
 /// every derived tier painted either side of a write, what an image paints
 /// when nothing may be fetched, and the ends of every axis the tree has.
 ///
@@ -401,7 +409,7 @@ fn serving_a_page() {
 /// hold, which HTML sanitizes into the bounds rather than refusing.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 56);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 57);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
