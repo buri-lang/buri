@@ -11,6 +11,25 @@ one a newcomer copies is the one in the prose. So one command lays out all of
 it, and `--check` gates all of it. In a document only fence bodies change; the
 prose around them is yours.
 
+## What to format
+
+```
+buri format                        # the whole repository
+buri format libs/greeting          # a path
+buri format //libs/greeting/...    # a label
+```
+
+A **path** is a file or a directory, and everything under it is formatted —
+markdown included, which no build file declares. A **label** names packages, and
+formats the sources their rules declare plus the `BUILD.buri` that declares
+them, which is what the same label means to `buri gen` and `buri lint`.
+
+Both are repository-absolute, so neither means anything different from a
+subdirectory, and both may be written in one invocation. An argument that is
+neither — a path that is not there, a label that names no package — exits `2`.
+Checking nothing and exiting `0` would read as a tree that was looked at and
+found clean.
+
 Formatting is a fixed point: run it twice and the second run changes nothing.
 That is what lets `buri gen` and `buri format` write the same file without
 fighting over it.

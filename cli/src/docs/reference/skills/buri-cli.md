@@ -20,7 +20,7 @@ for one command.
 | `buri build [targets]` | compile |
 | `buri test [targets]` | compile and run test suites |
 | `buri run <target> [-- args]` | build one binary and execute it |
-| `buri format [paths]` | format `.buri` sources and build files |
+| `buri format [paths or targets]` | format `.buri` sources and build files |
 | `buri lint [targets]` | static checks beyond type checking |
 | `buri gen [targets]` | regenerate the fields of a `BUILD.buri` that restate the sources |
 | `buri query <expr>` | ask about the build graph |
@@ -32,8 +32,9 @@ for one command.
 
 Target arguments accept labels and patterns: `//lib/money`, `//lib/...`,
 `//...`. **With no argument, a command works on the whole repository** — bare
-means `//...`, whatever directory you are standing in. Every command is safe to
-run concurrently, since a file lock serializes cache writes.
+means `//...`, whatever directory you are standing in. `buri format` takes a
+path too — a file or a directory, and everything under it. Every command is safe
+to run concurrently, since a file lock serializes cache writes.
 
 ## Exit codes
 

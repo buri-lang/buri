@@ -555,6 +555,37 @@ impl Workspace {
             .map(|_| TargetId { package: id, kind: RuleKind::Library })
     }
 
+    /// Every source file this package's rules declare, package-relative.
+    ///
+    /// The two entry points lead, and neither is written in a `sources` list:
+    /// `lib.buri` and `main.buri` are named by the rule kind, exactly as
+    /// [`Self::rule_of_file`] answers for them before it reads any list. A name
+    /// here is what the build file says, so one whose file is missing is on
+    /// this list too — the caller decides what a declared source that is not
+    /// there means.
+    ///
+    /// This is the file set behind a label, which is what lets `buri format`
+    /// take one: a label names packages, and a package's files are these.
+    pub fn declared_sources(&self, package: PackageId) -> Vec<String> {
+        let p = self.package(package);
+        let mut out: Vec<String> = Vec::new();
+        if let Some(l) = &p.build.library {
+            out.push("lib.buri".into());
+            out.extend(l.sources.iter().map(|s| s.value.clone()));
+            out.extend(l.test.iter().flat_map(|t| t.sources.iter()).map(|s| s.value.clone()));
+            if let Some(testing) = &l.testing {
+                out.push("testing/lib.buri".into());
+                out.extend(testing.sources.iter().map(|s| s.value.clone()));
+            }
+        }
+        if let Some(b) = &p.build.binary {
+            out.push("main.buri".into());
+            out.extend(b.sources.iter().map(|s| s.value.clone()));
+            out.extend(b.test.iter().flat_map(|t| t.sources.iter()).map(|s| s.value.clone()));
+        }
+        out
+    }
+
     /// Which rule a file in a package belongs to, by its package-relative
     /// path.
     ///

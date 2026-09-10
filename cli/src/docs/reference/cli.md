@@ -18,6 +18,10 @@ and the directory you happen to be standing in never changes what a command
 means. Run as many commands at once as you like; a file lock serializes cache
 writes.
 
+`buri format` is the exception, and takes a path as well: it formats files, and
+a repository holds files no build file declares. Its page says what each form
+covers.
+
 ## The two global flags
 
 `--color=never` drops the ANSI escapes. `--error-format=json` prints diagnostics

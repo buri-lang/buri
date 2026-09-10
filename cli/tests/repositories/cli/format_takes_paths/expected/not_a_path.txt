@@ -1,0 +1,1 @@
+error: `libs/nope` is not a path in this repository; `buri format` takes a path to a file or a directory, or a label such as `//lib/money/...`

@@ -6,7 +6,7 @@ buri — the toolchain for the Buri language
   buri build      [targets]           compile
   buri test       [targets]           compile and run test suites
   buri run        <target> [-- args]  build one binary and execute it
-  buri format     [paths]             format .buri sources and BUILD.buri files
+  buri format     [paths or targets]  format .buri sources and BUILD.buri files
   buri lint       [targets]           static checks beyond type checking
   buri gen        [targets]           regenerate sources/deps in existing BUILD.buri files
   buri query      <expr>              ask about the build graph
@@ -19,7 +19,8 @@ buri — the toolchain for the Buri language
 
 Target arguments accept labels and patterns: //lib/money, //lib/..., //...
 With no argument, commands operate on the whole repository, wherever you
-happen to be standing in it.
+happen to be standing in it. `buri format` takes a path too — a file or
+a directory, and everything under it.
 
   --verbose                say more about what was skipped and why
   --color[=<when>]         ANSI escapes; also honours NO_COLOR
