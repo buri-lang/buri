@@ -1,6 +1,8 @@
 target/
 .buri/
 out
+# What a failed snapshot comparison writes beside its golden.
+*.diff.png
 # Zed rebuilds these from the grammar pin in extension.toml.
 editors/zed/grammars/
 # `nix build`'s symlink to the store path it produced.

@@ -4,3 +4,6 @@ target/
 
 # The toolchain's cache.
 .buri/
+
+# Pictures of a snapshot that changed.
+*.diff.png

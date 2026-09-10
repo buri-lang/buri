@@ -375,6 +375,10 @@ mod tests {
         assert!(merged.contains("\n.buri/\n"), "the build's entries are appended: {merged}");
         assert!(merged.contains("\nout\n"), "the build's entries are appended: {merged}");
         assert!(
+            merged.contains("\n*.diff.png\n"),
+            "a failed snapshot's picture is one of them: {merged}"
+        );
+        assert!(
             done.iter().any(|(outcome, at)| *outcome == Outcome::Updated
                 && *at == root.join(IGNORE_FILE)),
             "a merge is reported as an update, not a write"
@@ -393,7 +397,7 @@ mod tests {
     fn a_gitignore_already_covering_the_build_is_untouched() {
         let root = scratch("gitignore-covered");
         std::fs::create_dir_all(&root).unwrap();
-        let theirs = "node_modules/\n  .buri/\nout";
+        let theirs = "node_modules/\n  .buri/\n*.diff.png\nout";
         std::fs::write(root.join(IGNORE_FILE), theirs).unwrap();
 
         let done = generate(&root).unwrap();
@@ -424,6 +428,7 @@ mod tests {
         assert_eq!(merged.matches("out").count(), 1, "an entry already there is not repeated");
         assert!(merged.starts_with("out\n"), "the unterminated last line is closed, not glued to");
         assert!(merged.contains(".buri/\n"), "the missing entry is what lands: {merged}");
+        assert!(merged.contains("*.diff.png\n"), "and so is the snapshot picture: {merged}");
         std::fs::remove_dir_all(&root).unwrap();
     }
 
