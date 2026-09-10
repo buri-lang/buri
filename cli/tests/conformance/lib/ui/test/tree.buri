@@ -191,7 +191,7 @@ test "a heading paints what the program asked for and nothing else" {
     // They agree only while the heading's line carries what the sheet does.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:fs-13\ne 1 \nt 2 not found",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:fs-13\ne 1 \nt 2 not found",
     );
 }
 
@@ -208,7 +208,7 @@ test "a heading takes styles of its own, and they land on the heading" {
     assert.equal(render(ctx, tree).markup(), "<h2 class=\"fs-28 fw-bold\">Prices</h2>");
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:fs-28 fw-bold\nt 1 Prices",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:fs-28 fw-bold\nt 1 Prices",
     );
 }
 
@@ -567,7 +567,7 @@ test "an edge and a corner reach the scene document the way the sheet does" {
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:be-bottom-1 bc-000000 rc-topend-4",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:be-bottom-1 bc-000000 rc-topend-4",
     );
 }
 
@@ -730,7 +730,7 @@ test "the scene document writes the bleed the browser was given" {
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 margin-inline-start:-8px;margin-block-start:0px",
+        "buri-scene 1\nviewport 800 fit\ne 0 margin-inline-start:-8px;margin-block-start:0px",
     );
 }
 
@@ -822,7 +822,7 @@ test "the scene document writes the clip the browser was given" {
     // them.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:r-4;overflow:clip",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:r-4;overflow:clip",
     );
 }
 
@@ -1207,7 +1207,7 @@ test "a shadow list is in the scene document the painter reads" {
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 box-shadow:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
+        "buri-scene 1\nviewport 800 fit\ne 0 box-shadow:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
     );
 }
 
@@ -1314,7 +1314,7 @@ test "a faded token is the same mix inline, and in the scene document" {
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 background-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
+        "buri-scene 1\nviewport 800 fit\ne 0 background-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
     );
 }
 
@@ -1622,11 +1622,11 @@ test "a document is taken in one state, and carries only that state's classes" {
     );
     assert.equal(
         ui.describe(ctx, tree, .FocusWithin),
-        "buri-scene 1\nviewport 800 600\ne 0 class:bg-010101 focuswithin_bg-030303",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:bg-010101 focuswithin_bg-030303",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:bg-010101 hover_bg-020202",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:bg-010101 hover_bg-020202",
     );
 }
 
@@ -1657,7 +1657,7 @@ test "the three new entries write the same declarations inline" {
     // The scene document the headless painter reads says the same thing.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 display:flex;flex-direction:column-reverse;letter-spacing:0.1em;transform:translate(0px,-0.5em)",
+        "buri-scene 1\nviewport 800 fit\ne 0 display:flex;flex-direction:column-reverse;letter-spacing:0.1em;transform:translate(0px,-0.5em)",
     );
     assert.isFalse(stylesheet().contains("letter-spacing:0.1em"));
 }
@@ -1814,7 +1814,7 @@ test "a button holds children, and its label stays its name" {
     // the button paints them.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:p-4\nt 1 *\nt 1 Overview",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-4\nt 1 *\nt 1 Overview",
     );
 }
 
@@ -2154,7 +2154,7 @@ test "the label a field and a toggle are wrapped in flows on one line" {
         ),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\ne 1 ${box};checked:false\nt 1 done",
+            "buri-scene 1\nviewport 800 fit\ne 0 ${inline}\ne 1 ${box};checked:false\nt 1 done",
         ),
     );
     // A field is the same wrapper with the text first, which is the order the
@@ -2167,7 +2167,7 @@ test "the label a field and a toggle are wrapped in flows on one line" {
         ),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 name\ne 1 field:text\nt 2 ada",
+            "buri-scene 1\nviewport 800 fit\ne 0 ${inline}\nt 1 name\ne 1 field:text\nt 2 ada",
         ),
     );
     // And that arrangement is in the sheet as well, weightless, so a class on
@@ -2206,7 +2206,7 @@ test "a labelled control takes styles for the box around it" {
     // the arrangement it is given, and the input carries its own.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
     );
     // A style the caller puts on the wrapper beats the arrangement the runtime
     // gave it, which is the rule a `row`'s own `Layout` follows.
@@ -2359,7 +2359,7 @@ test "an image takes styles of its own, and they land on the picture" {
     // is a picture — the source comes first, so a style still wins over it.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:w-full ar-1 r-9999;image:/a.png",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:w-full ar-1 r-9999;image:/a.png",
     );
 }
 
@@ -2382,14 +2382,14 @@ test "a picture's styles take the conflict slots every other element's do" {
     let classes = "class:pe-top-8 pe-bottom-6 pos-sticky hover_op-0_5 md_w-40";
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${classes};image:/a.png"),
+        str.format(ctx, "buri-scene 1\nviewport 800 fit\ne 0 ${classes};image:/a.png"),
     );
     // The same list at rest keeps the breakpoint class — a breakpoint is the
     // stylesheet's business, not the snapshot's — and drops the hover one.
     let resting = "class:pe-top-8 pe-bottom-6 pos-sticky md_w-40";
     assert.equal(
         ui.describe(ctx, tree, .Focus),
-        str.format(ctx, "buri-scene 1\nviewport 800 600\ne 0 ${resting};image:/a.png"),
+        str.format(ctx, "buri-scene 1\nviewport 800 fit\ne 0 ${resting};image:/a.png"),
     );
 }
 
@@ -2504,17 +2504,17 @@ test "On(.Disabled) fires from the control's own flag, in every state" {
     let pressable = ui.button(.Const("save"), dim, [], fn(_c, _e) => (), .Const(false));
     assert.equal(
         ui.describe(ctx, refusing, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 class:disabled_op-0_5;disabled:true\nt 1 save",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5;disabled:true\nt 1 save",
     );
     assert.equal(
         ui.describe(ctx, pressable, .Hover),
-        "buri-scene 1\nviewport 800 600\ne 0 \nt 1 save",
+        "buri-scene 1\nviewport 800 fit\ne 0 \nt 1 save",
     );
     // The snapshot still reaches a control that holds no such flag, which is
     // the question `.Disabled` was always asking.
     assert.equal(
         ui.describe(ctx, pressable, .Disabled),
-        "buri-scene 1\nviewport 800 600\ne 0 class:disabled_op-0_5\nt 1 save",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5\nt 1 save",
     );
 }
 
@@ -2554,9 +2554,9 @@ test "the snapshot's Checked reaches what holds no answer of its own" {
     let box = ui.stack([.On(.Checked, [.Opacity(0.25)])], []);
     assert.equal(
         ui.describe(ctx, box, .Checked),
-        "buri-scene 1\nviewport 800 600\ne 0 class:checked_op-0_25",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:checked_op-0_25",
     );
-    assert.equal(ui.describe(ctx, box, .Hover), "buri-scene 1\nviewport 800 600\ne 0 ");
+    assert.equal(ui.describe(ctx, box, .Hover), "buri-scene 1\nviewport 800 fit\ne 0 ");
 }
 
 test "a checked toggle answers the pointer's states as well as its own" {
@@ -2679,7 +2679,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
         ),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 600\ne 0 ${inline}\nt 1 Volume\ne 1 ${track};field:range;range:0.0 100.0 40",
+            "buri-scene 1\nviewport 800 fit\ne 0 ${inline}\nt 1 Volume\ne 1 ${track};field:range;range:0.0 100.0 40",
         ),
     );
     // The bounds are the ones the program wrote, whatever they are, and a
@@ -3148,6 +3148,41 @@ test "a form is submitted, which is behaviour and so not a role" {
     let _ = page.fill("what", "milk");
     let _ = page.submit(0);
     assert.equal(added.get(ctx), "milk");
+}
+
+// --- the page a scene is painted on ----------------------------------------------------
+
+test "a scene is a page 800 across and as tall as what it holds" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // 800 across is a viewport width: `At(.Sm)` and every percentage resolve
+    // against it, so it is stated and never read off the tree. Down is `fit`,
+    // which is the painter being told to take the height the paint came to —
+    // so a short tree is a short picture and a tall one is not cut off.
+    assert.equal(
+        ui.describe(ctx, ui.stack([.Padding(.Px(4))], []), .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-4",
+    );
+}
+
+test "a scene may be laid out at a width of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tree = ui.stack([.Padding(.Px(4))], []);
+    assert.equal(
+        ui.describeWide(ctx, tree, .Hover, 390),
+        "buri-scene 1\nviewport 390 fit\ne 0 class:p-4",
+    );
+    // The width is the only thing that moves: the same tree at the page's own
+    // width is the same document.
+    assert.equal(
+        ui.describeWide(ctx, tree, .Hover, 800),
+        ui.describe(ctx, tree, .Hover),
+    );
 }
 
 // --- reactivity in the tree ----------------------------------------------------------

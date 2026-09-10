@@ -16,13 +16,19 @@
 # page reaches inside it. That contrast is the whole reason there are two
 # constructors.
 #
+# The two theme pictures are 800x104 rather than 800x600, and their tree is the
+# reason: it asks for `Height(.Full)`, which is `height: 100%`, and a page that
+# is as tall as what it holds resolves that against itself. So the themed
+# surface is the height of the text on it rather than a screenful of it — the
+# same answer CSS gives a `height: 100%` under a `body` with no height of its
+# own, and neither theme lost a pixel of the drawing to it.
+#
 # The lifecycle is `sweep_properties_image`'s: every golden compares, a renamed
 # snapshot is reported as missing rather than as a difference, `--update`
 # records it, the run after that compares against what it wrote, and an edit
 # fails the comparison. Only the first run paints the whole suite; the runs
 # after it are `--filter`ed to the one picture they are about, because painting
-# seven 800 by 600 pages over and over is most of what this case would cost the
-# bar.
+# seven pages over and over is most of what this case would cost the bar.
 #
 # **Two negative twins, and each is a different claim.** One colour on the
 # *row* — not on the icon — has to move the glyph's pixels, which is false for

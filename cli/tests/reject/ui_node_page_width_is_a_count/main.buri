@@ -1,0 +1,18 @@
+// EXPECT: has no variant `Px`
+//
+// A page's width is a count of CSS pixels rather than a `Length`, and it is
+// the one size in the vocabulary that has to be. Nothing resolves it: a `Rem`
+// resolves against a font size and a `Percent` against the box around it, and
+// this number is what every percentage and every breakpoint in the tree under
+// it resolves *against*.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let _ = ui.describeWide(ctx, ui.stack([], []), .Hover, .Px(390));
+  .Ok(())
+}

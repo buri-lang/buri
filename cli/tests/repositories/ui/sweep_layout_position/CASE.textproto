@@ -8,6 +8,13 @@
 # pins naming different edges compose, and four of them stretch a box to the
 # ground inset by what they say.
 #
+# `position-kinds.png` is the one picture in this repository that is wider than
+# the page: 808 rather than 800. Its absolutely positioned child is as wide as
+# what it is measured against and sits eight pixels in from the start edge, so
+# its own right edge is eight pixels past 800 — and a page that fits what is
+# painted holds it rather than cutting it. The layout still ran against 800:
+# the canvas grew and nothing in it moved.
+#
 # `position-kinds.png` holds two `Sticky` rows. The first is the pin every
 # other row carries, which a sticky box ignores; the second puts a sibling
 # above it, so "where the flow put it" is a different place from "the ground's

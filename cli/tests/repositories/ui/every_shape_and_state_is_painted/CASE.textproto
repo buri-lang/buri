@@ -30,6 +30,19 @@
 #     boundaries land at 80 and 320 rather than wherever the sentences would
 #     rather be.
 #
+# **Each picture is the size of what is in it**, which is what the ends of an
+# axis look like once the page fits its tree: `empty.png` is one line, 800x19,
+# because a page with nothing on it is still a page; `one-run-of-text.png` is
+# 800x20; and `a-hundred-deep.png` is 800x620, which is the hundred nested
+# boxes at their true size — a 600-tall page did not cut them off, it *squashed*
+# them, every level losing a fifth of a pixel to `flex-shrink`.
+# `a-thousand-siblings.png` is the one picture in this repository that is still
+# cut off: a thousand rows is nineteen thousand pixels and 8192 is the largest
+# canvas the painter will allocate, so the stress case stops there and says so.
+# `pinned-dock.png` moved with the page under it — a pin is measured against
+# the page, so the dock sits on the last row of the tree rather than 600 pixels
+# down whatever the tree was.
+#
 # **Twenty-two goldens, and they are the assertion.** They were recorded by the
 # copy-and-patch backend on a mac and CI compares them on Linux too, so this
 # directory is where "the same tree paints the same bytes on both hosts" is

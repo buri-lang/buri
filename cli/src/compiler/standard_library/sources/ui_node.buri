@@ -509,6 +509,15 @@ fn rootScope(): Scope;
 /// <declarations>`) or run of text (`t <depth> <text>`). A line at depth `d`
 /// is a child of the nearest line above it at depth `d - 1`.
 ///
+/// **The page is 800 across and as tall as what it holds.** Across is a
+/// viewport width and so is stated rather than measured: `At(.Small)` and
+/// every percentage resolve against it, and a number read off the tree would
+/// make a breakpoint depend on what it decides. Down is the word `fit`, which
+/// asks the painter for the height the paint came to — so a picture of a
+/// button is the size of a button, and a page taller than a screen is painted
+/// whole rather than cut off. `describeWide` is the same document at another
+/// width.
+///
 /// An image is a box carrying `image:<source>`, its `;` and `\` escaped. The
 /// painter reads a `data:` URI holding a PNG or an SVG and paints every other
 /// source — an address, a path — as a placeholder box of the same size,
@@ -555,7 +564,25 @@ fn rootScope(): Scope;
 /// always, and `mark:tick` for a checkbox that is on. Both are painted in the
 /// box's own foreground.
 export fn describe<C: Allocator>(ctx: C, root: Node<C>, state: State): Str {
-    let head = ["buri-scene 1", "viewport 800 600"];
+    describeWide(ctx, root, state, 800)
+}
+
+/// `describe`, laid out on a page `width` across rather than on the 800-wide
+/// one.
+///
+/// The one thing a width buys is a **breakpoint**: `At(.Small)` and its four
+/// siblings resolve against the page, so the same tree at 390 and at 800 is
+/// the only way to see one apply and not apply. Everything else about the
+/// document is what `describe` says it is, the height included — the page
+/// still fits what it holds, because a stated height is a picture with
+/// something cut off it.
+export fn describeWide<C: Allocator>(
+    ctx: C,
+    root: Node<C>,
+    state: State,
+    width: Int,
+): Str {
+    let head = ["buri-scene 1", str.format(ctx, "viewport ${width} fit")];
     head.concat(ctx, nodeLines(ctx, state, root, 0)).join(ctx, "\n")
 }
 
