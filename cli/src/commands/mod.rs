@@ -396,7 +396,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "format",
-        args: "[paths]",
+        args: "[paths or targets]",
         blurb: "format .buri sources and BUILD.buri files",
         doc: include_str!("../docs/reference/cli/format.md"),
         flags: &["check"],
@@ -608,7 +608,8 @@ pub fn usage() -> String {
     out.push_str(
         "\nTarget arguments accept labels and patterns: //lib/money, //lib/..., //...\n\
          With no argument, commands operate on the whole repository, wherever you\n\
-         happen to be standing in it.\n\n",
+         happen to be standing in it. `buri format` takes a path too — a file or\n\
+         a directory, and everything under it.\n\n",
     );
     for f in FLAGS.iter().filter(|f| f.global) {
         let _ = writeln!(out, "  {:<24} {}", spelling(f), f.blurb);

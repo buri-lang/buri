@@ -1,0 +1,92 @@
+# `buri format` takes both spellings of "this part of the repository": a path,
+# and a target label. The two must name the same files, because a label that
+# quietly matched nothing is a `--check` that reports a clean tree it never
+# looked at — and an agent gating on it reads that as "all clean".
+#
+# So every step below asks the same question four ways over one misformatted
+# source, and the goldens are compared against each other by being the same
+# golden.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "format and --check take a path or a label, and the two name the same files"
+
+# The package, by label.
+run {
+  args: ["format", "--check", "//libs/greeting"]
+  exit: 1
+  golden: "check_reports.txt"
+}
+
+# The package and everything under it.
+run {
+  args: ["format", "--check", "//libs/greeting/..."]
+  exit: 1
+  golden: "check_reports.txt"
+}
+
+# The whole repository, as a label. `BUILD.buri` is checked in canonical, so
+# the one file that would change is the one file listed.
+run {
+  args: ["format", "--check", "//..."]
+  exit: 1
+  golden: "check_reports.txt"
+}
+
+# And the path form, which is the same golden: that equality is the claim.
+run {
+  args: ["format", "--check", "libs/greeting"]
+  exit: 1
+  golden: "check_reports.txt"
+}
+
+# A path is repository-absolute the way a label is, so it means the same thing
+# from a directory that is not the root.
+run {
+  args: ["format", "--check", "libs/greeting"]
+  cwd: "libs/greeting"
+  exit: 1
+  golden: "check_reports.txt"
+}
+
+# `--check` rewrites nothing, whichever form asked.
+file {
+  path: "libs/greeting/greeting.buri"
+  golden: "ugly.buri"
+}
+
+# An argument that is neither is refused, rather than matching nothing in
+# silence, and the refusal names both forms.
+run {
+  args: ["format", "--check", "libs/nope"]
+  exit: 2
+  golden: "not_a_path.txt"
+}
+
+# And the label side of that refusal, in the words `buri gen` and `buri lint`
+# refuse the same label in.
+run {
+  args: ["format", "--check", "//libs/nope"]
+  exit: 2
+  golden: "no_such_package.txt"
+}
+
+# A label formats, not merely reports.
+run {
+  args: ["format", "//libs/greeting/..."]
+  exit: 0
+  golden: "formatted.txt"
+}
+
+file {
+  path: "libs/greeting/greeting.buri"
+  golden: "formatted.buri"
+}
+
+# The negative twin: the label form said 1 above because the file was wrong,
+# not because it always says 1.
+run {
+  args: ["format", "--check", "//..."]
+  exit: 0
+}

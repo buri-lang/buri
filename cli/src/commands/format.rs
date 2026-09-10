@@ -20,6 +20,11 @@
 //! command of their own because the alternative is a repository whose sources
 //! are formatted and whose examples are not — and the examples are what a
 //! newcomer copies. `--check` gates all three the same way.
+//!
+//! Both spellings of "this part of the repository" get you there — a path, and
+//! a target label — because this is the one command whose subject is a file and
+//! whose caller is as likely to be holding a label. [`select`] is where the two
+//! meet.
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -29,6 +34,7 @@
 
 use crate::build::session;
 use crate::build::textproto;
+use crate::build::workspace::PackageId;
 use crate::commands::arguments;
 use std::path::{Path, PathBuf};
 
@@ -67,6 +73,78 @@ pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted>
     crate::formatting::source_with_regions(text)
 }
 
+/// A label, rather than a path.
+///
+/// Both spellings are repository-absolute and only one of them says so: a label
+/// starts with `//`, and `@` is the external-repository form, which
+/// [`crate::build::workspace::Pattern::parse`] refuses by name rather than
+/// leaving to be read as a directory called `@other`. Nothing else can be
+/// mistaken for a label, so nothing else is asked about here.
+fn is_label(argument: &str) -> bool {
+    argument.starts_with("//") || argument.starts_with('@')
+}
+
+/// The files one invocation is about: the sources and build files to lay out,
+/// and the documents whose fences to lay out.
+///
+/// Two spellings reach the same repository. A **path** is a file or a
+/// directory, and everything under it is formatted — the markdown included,
+/// which no build file declares. A **label** names packages, and a package's
+/// files are the sources its rules declare plus the `BUILD.buri` that declares
+/// them: the set `buri gen` and `buri lint` already resolve a label to, so the
+/// three commands can be asked about the same thing in the same words.
+///
+/// An argument that is neither is refused. Matching it against nothing and
+/// exiting 0 is the one answer a `--check` must never give, because a silent
+/// success reads as a tree that was looked at and found clean.
+fn select(
+    session: &session::Session,
+    arguments: &[String],
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
+    let mut files = Vec::new();
+    let mut documents = Vec::new();
+    if arguments.is_empty() {
+        collect(&session.root, &mut files);
+        crate::documentation::layout::documents_under(&session.root, &mut documents);
+        return Ok((files, documents));
+    }
+
+    let mut labels: Vec<String> = Vec::new();
+    for argument in arguments {
+        if is_label(argument) {
+            labels.push(argument.clone());
+            continue;
+        }
+        let path = session.root.join(argument);
+        if !path.exists() {
+            return Err(format!(
+                "`{argument}` is not a path in this repository; `buri format` takes a path to a \
+                 file or a directory, or a label such as `//lib/money/...`"
+            ));
+        }
+        collect(&path, &mut files);
+        crate::documentation::layout::documents_under(&path, &mut documents);
+    }
+    // No label is not the same question with an empty answer: `resolve_targets`
+    // reads an empty argument list as `//...`, which is right for a command
+    // given no arguments and wrong for one given three paths.
+    if labels.is_empty() {
+        return Ok((files, documents));
+    }
+    let mut packages: Vec<PackageId> =
+        session.resolve_targets(&labels)?.iter().map(|t| t.package).collect();
+    packages.sort();
+    packages.dedup();
+    for id in packages {
+        let package = session.workspace.package(id);
+        files.push(package.build_path.clone());
+        for source in session.workspace.declared_sources(id) {
+            files.push(package.dir.join(source));
+        }
+    }
+    Ok((files, documents))
+}
+
 /// Formats `.buri` sources, build files, and the Buri written in documentation,
 /// with no options and no configuration file. A formatter with options is a
 /// formatter whose output is a repository decision.
@@ -75,17 +153,15 @@ pub fn command_format(args: &arguments::Args) -> i32 {
         Ok(session) => session,
         Err(c) => return c as i32,
     };
-    let roots: Vec<PathBuf> = if args.targets.is_empty() {
-        vec![session.root.clone()]
-    } else {
-        args.targets.iter().map(|t| session.root.join(t.trim_start_matches("//"))).collect()
+    let (mut files, mut documents) = match select(&session, &args.targets) {
+        Ok(both) => both,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return 2;
+        }
     };
-
-    let mut files = Vec::new();
-    for r in &roots {
-        collect(r, &mut files);
-    }
     files.sort();
+    files.dedup();
 
     let mut changed = Vec::new();
     // The files a syntax error kept part or all of out of the formatter's
@@ -129,10 +205,8 @@ pub fn command_format(args: &arguments::Args) -> i32 {
 
     // The documents. A fence body is laid out and nothing else on the page is
     // touched — the prose is the author's.
-    let mut documents = Vec::new();
-    for r in &roots {
-        crate::documentation::layout::documents_under(r, &mut documents);
-    }
+    documents.sort();
+    documents.dedup();
     for path in &documents {
         let Ok(text) = std::fs::read_to_string(path) else { continue };
         let rel = session.workspace.rel_of(path);
