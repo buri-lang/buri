@@ -3422,6 +3422,10 @@ function $dom_make(kind, name) {
     value: "",
     checked: false,
     disabled: false,
+    // A `<dialog>`'s own flag. In a browser this is the property the element
+    // reflects; here it is what `$dom_markup` writes and what says which side
+    // of an open modal an element is on.
+    open: false,
   };
 }
 
@@ -3522,6 +3526,23 @@ function $dom_flag(element, name, on) {
   else element.removeAttribute(name);
 }
 
+// Open or shut, in the top layer. `showModal` is the whole of what the widget
+// is for: the browser stops the page behind from scrolling, makes it inert,
+// paints the `::backdrop`, traps the focus and answers Escape — none of which
+// a style can say and none of which a `<div>` can have.
+//
+// A server wrote `<dialog open>`, which is open and *not* modal, and
+// `showModal` on an open dialog throws. So a resume shuts it first: that is
+// what promotes the panel the reader is already looking at into the top layer.
+function $dom_modal(element, on) {
+  if (element.$shim) {
+    element.open = on;
+    return;
+  }
+  if (element.open) element.close();
+  if (on) element.showModal();
+}
+
 // The classes an element has, all of them at once. Replacing rather than
 // adding is what makes re-applying a style list idempotent: a `When` that
 // switched back has to lose the class it gained.
@@ -3615,6 +3636,7 @@ function $dom_markup(node) {
   if (node.value !== "") out += ' value="' + $dom_escape(node.value, true) + '"';
   if (node.checked) out += " checked";
   if (node.disabled) out += " disabled";
+  if (node.open) out += " open";
   const styles = Object.keys(node.styles);
   if (styles.length > 0) {
     const parts = [];
@@ -3666,6 +3688,25 @@ function $dom_first(node, names) {
   return null;
 }
 
+// Whether a dialog has taken this element out of the page.
+//
+// Two ways, and both are the widget's own doing rather than anything a style
+// says. A `<dialog>` a browser opened with `showModal` is in the top layer and
+// everything outside it is inert — no pointer, no keyboard, no announcement.
+// A shut one is drawn nowhere, so what is inside it is out of reach the other
+// way round.
+function $dom_inert(node) {
+  let root = node;
+  for (let at = node; at !== null && at !== undefined; at = at.parent) {
+    if (at.name === "dialog") return !at.open;
+    root = at;
+  }
+  for (const dialog of $dom_elements(root, "dialog", [])) {
+    if (dialog.open) return true;
+  }
+  return false;
+}
+
 // A disabled control is not dispatched to at all, which is what a browser does
 // with one: the press, the keystroke and the flip never reach it, so a handler
 // behind one cannot run.
@@ -3683,7 +3724,7 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon
+//  14 Icon     15 Dialog
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -4736,6 +4777,31 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
     return;
   }
+  if (tag === 15) {
+    const element = $tree_element(parent, "dialog", anchor);
+    // The label is the accessible name however the panel is drawn, the rule a
+    // button's label follows: a reader is announced into the dialog by what it
+    // is for, and the heading inside it may not be there yet.
+    $tree_bind(node[2], (label) => $dom_attribute(element, "aria-label", label));
+    $tree_styles(element, node[3]);
+    for (const child of node[4]) $tree_render(ctx, child, element, null);
+    const cell = node[1][0];
+    // Whether the shutting is ours or the reader's. `close()` fires the same
+    // event either way, and only the reader's is news to the signal.
+    let ours = false;
+    $tree_bind([1, node[1]], (on) => {
+      ours = true;
+      $dom_modal(element, on);
+      ours = false;
+    });
+    // Escape, and every other way a browser shuts a dialog by itself. A signal
+    // that went on saying `true` would leave the program holding a panel
+    // nobody can see.
+    $dom_listen(element, "close", () => {
+      if (!ours) $ui_flush(() => $ui_write(cell, false));
+    });
+    return;
+  }
   if ($tree_icon_hook === null) {
     // The compiler said no tree here holds artwork, so it left the renderer
     // out of the artifact. Reaching this is that decision being wrong, and
@@ -5061,7 +5127,7 @@ function $tree_labelled(self, name, label) {
 // assertion, and one that meant otherwise fails on the state it expected.
 function $ui_testing_Rendered_press(self, label) {
   const button = $tree_labelled(self, "button", label);
-  if ($dom_reachable(button)) $dom_fire(button, "click");
+  if ($dom_reachable(button) && !$dom_inert(button)) $dom_fire(button, "click");
   return 0;
 }
 
@@ -5103,7 +5169,7 @@ function $ui_testing_Rendered_fill(self, label, value) {
   if (field === null) $abort('the label "' + label + '" is not a field');
   // Nothing is typed into a disabled field, so nothing is written and nothing
   // is dispatched.
-  if (field.disabled) return 0;
+  if (field.disabled || $dom_inert(field)) return 0;
   field.value = value;
   $dom_fire(field, "input");
   return 0;
@@ -5112,7 +5178,7 @@ function $ui_testing_Rendered_fill(self, label, value) {
 function $ui_testing_Rendered_flip(self, label) {
   const box = $dom_first($tree_labelled(self, "label", label), ["input"]);
   if (box === null) $abort('the label "' + label + '" is not a toggle');
-  if (box.disabled) return 0;
+  if (box.disabled || $dom_inert(box)) return 0;
   box.checked = !box.checked;
   $dom_fire(box, "change");
   return 0;
@@ -5122,7 +5188,7 @@ function $ui_testing_Rendered_submit(self, at) {
   const forms = $dom_elements($slot(self), "form", []);
   const index = Number(at);
   if (index < 0 || index >= forms.length) $abort("this tree has no form " + index);
-  $dom_fire(forms[index], "submit");
+  if (!$dom_inert(forms[index])) $dom_fire(forms[index], "submit");
   return 0;
 }
 

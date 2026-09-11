@@ -1,0 +1,5 @@
+FAIL //lib/panels  test/pictures.buri  "a shut dialog draws nothing over the page"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/panels/test/pictures.buri:16:1
+
+0 passed, 1 failed, 1 skipped (0.0s)

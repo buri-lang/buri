@@ -1,0 +1,9 @@
+# One library and one test source: a page, and a dialog over it that is open or
+# is shut.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
