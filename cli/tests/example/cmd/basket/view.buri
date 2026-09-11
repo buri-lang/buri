@@ -173,8 +173,12 @@ fn banner<C>(state: State): Node<C> {
 ///
 /// A `form` rather than a stack, because submission is behaviour: pressing
 /// Enter in either field runs `onSubmit`, which is the browser's own dispatch
-/// and not a key handler this program had to write. The button does the same
-/// thing for a reader who would rather press it.
+/// and not a key handler this program had to write. `ui.submit` is what makes
+/// that dispatch reach here — a form of two fields is submitted implicitly
+/// through its submit button, and one with none discards the keypress — and it
+/// carries no handler of its own, so pressing it and pressing Enter arrive at
+/// the one place that says what adding a line does. `Load the ledger` is an
+/// ordinary `button` beside it and stays one.
 ///
 /// Both fields are labelled, because `ui.field` has no form that is not. An
 /// unlabelled input is the commonest accessibility failure there is and, unlike
@@ -199,13 +203,7 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
             .Const(false),
             .Const(false),
         ),
-        ui.button(
-            .Const("Add"),
-            [buttonStyle],
-            [],
-            fn(c, pressed) => add(c, state),
-            .Const(false),
-        ),
+        ui.submit(.Const("Add"), [buttonStyle]),
         ui.spacer(),
         ui.button(
             .Const("Load the ledger"),

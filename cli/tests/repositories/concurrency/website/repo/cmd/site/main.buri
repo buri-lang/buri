@@ -65,6 +65,15 @@ fn at<C>(path: Str): Node<C> {
     }
 }
 
+/// The tab, as the same match. The worker hands it to `shell` and the page
+/// hands it to `web.title`, so the two halves name the document the same way.
+fn tab(path: Str): Str {
+    match (path) {
+        "/about" => "About — Buri",
+        _other => "Buri",
+    }
+}
+
 export fn main(): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
@@ -81,8 +90,13 @@ export fn main(): Result<(), Str> {
         .decode(ctx, json.parse(ctx, sent).withDefault(.Null))
         .withDefault(Site { title: "no state", visitors: 0 });
     let thanks = signal(ctx, "say thanks");
+    let route = web.route(ctx);
+    // The tab follows the route: the computation runs again on every
+    // navigation, so two addresses of this site are two names in the history
+    // menu rather than one repeated.
+    let _ = web.title(ctx, .Computed(fn(scope) => tab(route.read(scope))));
     let tree = page(
-        web.route(ctx),
+        route,
         state.title,
         str.format(ctx, "visitors: ${state.visitors}"),
         .Cell(thanks),
@@ -118,7 +132,7 @@ export fn fetch(request: Request): Response {
         web.shell(
             ctx,
             request.path(),
-            web.Document { ..web.defaultDocument(), title: state.title },
+            web.Document { ..web.defaultDocument(), title: tab(request.path()) },
             web.render(
                 page(
                     .Const(request.path()),
