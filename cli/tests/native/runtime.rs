@@ -445,6 +445,33 @@ fn the_element_document_reads_back() {
     assert!(out.status.success());
 }
 
+/// The fourth closure shape the native renderer drives (issue #53, phase 2):
+/// `renderInto: fn(Builder, Node) => ()`, the walk `render` invokes to build
+/// the document.
+///
+/// The driver hands the runtime a walk whose body is an ordinary C function of
+/// `ComputeEntry`'s shape — the same one a memo and a step cross — and the
+/// runtime invokes it with the builder handle as the index and the node as the
+/// element. The walk reads the node it was handed (a heading level, proving the
+/// pointer is live) and emits into the builder, so what is pinned is that the
+/// runtime can drive a whole-tree walk into the document across the C ABI: no
+/// new thunk shape, and so no SPEC or type-system change. It fails first the way
+/// a missing runtime symbol does — the driver does not link.
+#[test]
+fn a_walk_closure_builds_the_document() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-walk"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        concat!("e 0 class:fs-28\n", "t 1 hi\n", "::count h2=1"),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
 /// `Str`'s ASCII flag and the scalar count it stands in for
 /// (VALUE-MODEL.md §3.1), and `[T]` construction.
 #[test]
