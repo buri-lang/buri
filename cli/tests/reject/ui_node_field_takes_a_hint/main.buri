@@ -1,0 +1,18 @@
+// EXPECT: `field` takes 8 arguments
+//
+// The hint sits between the kind and the styles, because it is content and not
+// decoration: what a field is for, then what it looks like. A call written
+// without one is a call short of an argument rather than a field with no hint —
+// no hint is `.Const("")`, the way an image spells "decorative".
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let query = signal(ctx, "");
+  ui.mount(ctx, ui.field(.Const("Search"), .Search, [], [], query, .Const(false), .Const(false)), [])
+}

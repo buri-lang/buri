@@ -168,6 +168,7 @@ test "every kind of node renders" {
             ui.field(
                 .Const("name"),
                 .Text,
+                .Const(""),
                 [],
                 [],
                 typed,
@@ -183,6 +184,7 @@ test "every kind of node renders" {
             ui.field(
                 .Const("story"),
                 .Multiline,
+                .Const(""),
                 [],
                 [],
                 typed,
@@ -201,6 +203,7 @@ test "every kind of node renders" {
             ui.field(
                 .Const("Volume"),
                 .Range(0.0, 100.0, 5.0),
+                .Const(""),
                 [],
                 [],
                 signal(ctx, "40"),
@@ -209,6 +212,24 @@ test "every kind of node renders" {
             ),
         ),
         "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"5.0\" value=\"40\" /></label>",
+    );
+    // A hint crosses as the attribute, so the search line a reader lands on
+    // already says what goes in it before a byte of script has run — and the
+    // label is still beside it, because a placeholder is not a name.
+    assert.equal(
+        web.render(
+            ui.field(
+                .Const("Search"),
+                .Search,
+                .Const("Type a command"),
+                [],
+                [],
+                signal(ctx, ""),
+                .Const(false),
+                .Const(false),
+            ),
+        ),
+        "<label><span>Search</span><input type=\"search\" placeholder=\"Type a command\" /></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
@@ -245,7 +266,16 @@ test "every kind of node renders" {
     );
     assert.equal(
         web.render(
-            ui.field(.Const("name"), .Text, [], [], typed, .Const(false), .Const(true)),
+            ui.field(
+                .Const("name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                typed,
+                .Const(false),
+                .Const(true),
+            ),
         ),
         "<label><span>name</span><input type=\"text\" value=\"ada\" disabled /></label>",
     );
@@ -295,6 +325,7 @@ test "every kind of node renders" {
                 ui.field(
                     .Const("Email"),
                     .Email,
+                    .Const(""),
                     [],
                     [],
                     typed,
@@ -453,6 +484,7 @@ test "a failing control crosses the worker already saying so" {
     let failing = ui.field(
         .Const("Email"),
         .Email,
+        .Const(""),
         [.On(.Invalid, [.BorderColor(.Rgb(220, 38, 38))])],
         [],
         typed,

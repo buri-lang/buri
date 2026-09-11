@@ -1,0 +1,90 @@
+// One picture per axis of a field's hint: which kinds draw one, what paints
+// it, and how it is set.
+//
+// The `describe` assertion beside each picture is what says the hint is in the
+// document and not only in the pixels: the declaration rides on the input's
+// own line beside the kind, it is there whatever the value is, and a range
+// never carries one.
+//
+// Resting throughout: no style here sits inside an `On`, so the state a
+// snapshot is taken in contributes nothing to any of them.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, snapshot };
+from "//lib/hint" import { kindsPage, paintPage, typePage };
+
+test "which kinds draw a hint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let typed = signal(ctx, "");
+    let line = ui.field(
+        .Const("Search"),
+        .Search,
+        .Const("Type a command"),
+        [],
+        [],
+        typed,
+        .Const(false),
+        .Const(false),
+    );
+    assert.containsText(
+        ui.describe(ctx, line, .Hover),
+        "field:search;placeholder:Type a command",
+    );
+    // The declaration stays once there is a value, the way the attribute stays
+    // in the markup: what changes is that the painter stops drawing it, which
+    // is the second band of the picture.
+    let _ = typed.set(ctx, "Ada");
+    assert.containsText(
+        ui.describe(ctx, line, .Hover),
+        "field:search;placeholder:Type a command",
+    );
+    // A slider has no box to put a word in, so it carries none at all.
+    let slider = ui.field(
+        .Const("Volume"),
+        .Range(0.0, 100.0, 1.0),
+        .Const("Type a command"),
+        [],
+        [],
+        signal(ctx, "40"),
+        .Const(false),
+        .Const(false),
+    );
+    assert.isFalse(ui.describe(ctx, slider, .Hover).contains("placeholder"));
+    snapshot(ctx, "hint-kinds", kindsPage(ctx), .Hover, []);
+}
+
+test "what paints a hint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // No hint is no declaration, rather than a declaration saying nothing.
+    let unhinted = ui.field(
+        .Const("Search"),
+        .Text,
+        .Const(""),
+        [],
+        [],
+        signal(ctx, ""),
+        .Const(false),
+        .Const(false),
+    );
+    assert.isFalse(ui.describe(ctx, unhinted, .Hover).contains("placeholder"));
+    snapshot(ctx, "hint-paint", paintPage(ctx), .Hover, []);
+}
+
+test "how a hint is set" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "hint-type", typePage(ctx), .Hover, []);
+}

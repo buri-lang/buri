@@ -1,7 +1,7 @@
 error: `Range` holds 3 values, but 2 were given [wrong-value-count]
   --> cmd/ui_field_range_needs_its_bounds/main.buri:17:44
    |
-17 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0.0, 100.0), [], [], volume, .Const(false), .Const(false)), [])
+17 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0.0, 100.0), .Const(""), [], [], volume, .Const(false), .Const(false)), [])
    |                                            ^^^^^^
    |
    = expected: 3

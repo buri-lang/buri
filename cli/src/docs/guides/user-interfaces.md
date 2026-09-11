@@ -166,8 +166,26 @@ export fn contact<C: Ui>(
     sent: Signal<Str>,
 ): Node<C> {
     ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
-        ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
-        ui.field(.Const("Email"), .Email, [], [], email, .Const(false), .Const(false)),
+        ui.field(
+            .Const("Name"),
+            .Text,
+            .Const(""),
+            [],
+            [],
+            name,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("Email"),
+            .Email,
+            .Const(""),
+            [],
+            [],
+            email,
+            .Const(false),
+            .Const(false),
+        ),
         ui.submit(.Const("Send"), []),
     ])
 }
@@ -499,6 +517,7 @@ export fn site<C>(value: Signal<Str>): Node<C> {
         ui.field(
             .Const("Site"),
             .Text,
+            .Const(""),
             [.Width(.Full)],
             [.Grow(1)],
             value,
@@ -507,6 +526,35 @@ export fn site<C>(value: Signal<Str>): Node<C> {
         ),
         ui.stack([.Shrink(0)], [ui.text(.Const(".com"))]),
     ])
+}
+```
+
+**A `field` takes a hint**, which is the sample value inside its own empty
+box — a search line's `Type a command`, a combobox's `Search the docs`. It is
+`aria-placeholder`-shaped: a screen reader announces it *after* the label
+rather than instead of it, so the label stays required beside it, and it is
+gone the moment there is a value. That is why it is a parameter and not a
+`Style` — it is content, not decoration, the same rule that makes `label` and
+`alt` parameters. The empty string is no hint at all, the way an `image`'s
+`alt` spells "decorative", and a `.Range` ignores one because a slider has no
+box to put a word in.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn search<C>(query: Signal<Str>): Node<C> {
+    ui.field(
+        .Const("Search"),
+        .Search,
+        .Const("Type a command"),
+        [.Width(.Full)],
+        [.Grow(1)],
+        query,
+        .Const(false),
+        .Const(false),
+    )
 }
 ```
 
@@ -558,6 +606,7 @@ export fn volume<C>(value: Signal<Str>): Node<C> {
     ui.field(
         .Const("Volume"),
         .Range(0.0, 100.0, 1.0),
+        .Const(""),
         [.Width(.Px(180)), .Foreground(.Rgb(40, 50, 90))],
         [],
         value,

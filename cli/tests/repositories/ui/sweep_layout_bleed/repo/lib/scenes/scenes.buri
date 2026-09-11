@@ -664,6 +664,7 @@ export fn bleedPrimitives<C: Ui>(ctx: C): Node<C> {
                 ui.field(
                     .Const("field"),
                     .Text,
+                    .Const(""),
                     [
                         .Background(.Rgb(40, 40, 200)),
                         .Foreground(.Rgb(255, 255, 255)),

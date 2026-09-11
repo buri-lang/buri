@@ -67,6 +67,7 @@ fn group<C>(site: Signal<Str>): Node<C> {
         ui.field(
             .Const("Site"),
             .Text,
+            .Const(""),
             [],
             [.Grow(1)],
             site,
@@ -101,6 +102,7 @@ fn onFocus<C>(site: Signal<Str>): Node<C> {
             ui.field(
                 .Const("Site"),
                 .Text,
+                .Const(""),
                 [],
                 [.Grow(1)],
                 site,
@@ -127,7 +129,16 @@ fn card<C>(site: Signal<Str>): Node<C> {
         ],
         [
             ui.stack([], [ui.text(.Const("Where does it live?"))]),
-            ui.field(.Const("Site"), .Text, [], [], site, .Const(false), .Const(false)),
+            ui.field(
+                .Const("Site"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                site,
+                .Const(false),
+                .Const(false),
+            ),
         ],
     )
 }
@@ -174,6 +185,7 @@ fn bare<C>(site: Signal<Str>): Node<C> {
             ui.field(
                 .Const("Site"),
                 .Text,
+                .Const(""),
                 [],
                 [.Grow(1)],
                 site,
@@ -197,7 +209,16 @@ fn bareCard<C>(site: Signal<Str>): Node<C> {
         ],
         [
             ui.stack([], [ui.text(.Const("Where does it live?"))]),
-            ui.field(.Const("Site"), .Text, [], [], site, .Const(false), .Const(false)),
+            ui.field(
+                .Const("Site"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                site,
+                .Const(false),
+                .Const(false),
+            ),
         ],
     )
 }
