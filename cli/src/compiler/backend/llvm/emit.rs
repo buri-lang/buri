@@ -2525,6 +2525,43 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         .unwrap_or_else(|| self.ptr_ty().const_null());
                     argv.push(give_back.into());
                 }
+                runtime::Arg::Walk => {
+                    let body = self.type_of(ir_ty);
+                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                        self.error(
+                            span,
+                            format!("internal error: `{key}`'s walk is not a function"),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    };
+                    if ps.len() != 2 {
+                        self.error(
+                            span,
+                            format!(
+                                "internal error: `{key}` was given a walk taking {} arguments",
+                                ps.len()
+                            ),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    }
+                    // The builder handle is the index the runtime supplies and
+                    // the node is the element, so `index = Some(0)`.
+                    let bytes = self.step_state_bytes(&ps, Some(0));
+                    let record = self.scratch(state, bytes, 8);
+                    self.store_slots(record, &slots, 8, &pieces);
+                    // No retain: the walk is invoked once, during this call, and
+                    // released by `middle::rc` at its last use here — the
+                    // runtime keeps nothing.
+                    let thunk = self.entry_thunk(&ps, &r, Some(0));
+                    let word = self.ctx.i64_type();
+                    argv.push(function_pointer(thunk).into());
+                    argv.push(record.into());
+                    // No frame word: this backend's thunk works on the machine
+                    // stack, so there is nothing for the runtime to fill in.
+                    argv.push(word.const_all_ones().into());
+                }
                 runtime::Arg::Spilled => {
                     let (size, align) = match &element {
                         Some(t) => {
