@@ -184,6 +184,7 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
         ui.field(
             .Const("Item"),
             .Text,
+            .Const(""),
             [fieldStyle],
             [],
             state.draftMemo,
@@ -193,6 +194,7 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
         ui.field(
             .Const("Amount in dollars"),
             .Number,
+            .Const(""),
             [fieldStyle],
             [],
             state.draftAmount,

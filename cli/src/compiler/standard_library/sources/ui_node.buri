@@ -162,7 +162,7 @@ enum NodeKind<C> {
     Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>),
     Link(Prop<Str>, [Style], [Node<C>]),
     Image(Prop<Str>, Prop<Str>, [Style]),
-    Field(Prop<Str>, FieldKind, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>),
+    Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>),
     Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>, Prop<Bool>),
     Form(fn(C, Event) => (), [Style], [Node<C>]),
     When(Prop<Bool>, Node<C>, Node<C>),
@@ -350,16 +350,28 @@ export fn icon<C>(styles: [Style], source: Str): Node<C> {
 /// `disabled` is beside it and is the other half of the same idea: it is what
 /// refuses what a reader types rather than what dims it, and it is what puts
 /// the input in `State::Disabled`.
+///
+/// **`hint` is the sample value inside the empty box**, and it is a parameter
+/// rather than a `Style` because it is content: the module's rule is that a
+/// property says how a thing looks and a parameter says what it holds. It is
+/// `aria-placeholder`-shaped — announced *after* the accessible name, gone the
+/// moment there is a value, never a substitute for the name — which is why the
+/// label stays required beside it. The empty string is no hint at all, the way
+/// an `image`'s `alt` already spells "decorative".
+///
+/// A `.Range` ignores it, because HTML's `placeholder` reaches the kinds that
+/// hold text and a slider is not one.
 export fn field<C>(
     label: Prop<Str>,
     kind: FieldKind,
+    hint: Prop<Str>,
     styles: [Style],
     around: [Style],
     value: Signal<Str>,
     invalid: Prop<Bool>,
     disabled: Prop<Bool>,
 ): Node<C> {
-    Node(.Field(label, kind, styles, around, value, invalid, disabled))
+    Node(.Field(label, kind, hint, styles, around, value, invalid, disabled))
 }
 
 /// Something with two states, what it looks like, and what it is for.
@@ -559,6 +571,11 @@ fn rootScope(): Scope;
 /// text under it, because a browser draws a slider and never the number behind
 /// one. The painter reads the three and puts the thumb where the value is.
 ///
+/// A field with a hint carries `placeholder:<hint>` beside its kind, whatever
+/// its value is — the attribute stays in the markup whatever is typed, and it
+/// is the painter that stops drawing the hint once the run under the input has
+/// something in it. A range carries none.
+///
 /// A toggle's box carries a line for its mark, which is the widget's own
 /// drawing rather than anything a program wrote: `mark:thumb` for a switch,
 /// always, and `mark:tick` for a checkbox that is on. Both are painted in the
@@ -645,12 +662,12 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // this element paints in. The declaration comes first, so a style still
         // wins over it.
         .Icon(styles, source) => {
-            let artwork = decl(ctx, "icon", escapeArtwork(ctx, source));
+            let artwork = decl(ctx, "icon", escapeInline(ctx, source));
             [widgetLine(ctx, plain(state), [artwork], styles, depth)]
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the
         // control inside it.
-        .Field(label, kind, styles, around, value, _invalid, disabled) => {
+        .Field(label, kind, hint, styles, around, value, _invalid, disabled) => {
             [
                 styledLine(ctx, plain(state), wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -660,6 +677,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                     ctx,
                     refusing(state, disabled.read(scope)),
                     kind,
+                    hint.read(scope),
                     styles,
                     value.get(scope),
                     depth + 1,
@@ -786,11 +804,12 @@ fn fieldLines<C: Allocator>(
     ctx: C,
     painted: Painted,
     kind: FieldKind,
+    hint: Str,
     styles: [Style],
     value: Str,
     depth: Int,
 ): [Str] {
-    let line = fieldLine(ctx, painted, kind, styles, value, depth);
+    let line = fieldLine(ctx, painted, kind, hint, styles, value, depth);
     match (kind) {
         .Range(_min, _max, _step) => [line],
         _ => [line, textLine(ctx, depth + 1, value)],
@@ -817,13 +836,37 @@ fn fieldLine<C: Allocator>(
     ctx: C,
     painted: Painted,
     kind: FieldKind,
+    hint: Str,
     styles: [Style],
     value: Str,
     depth: Int,
 ): Str {
     let accepts = decl(ctx, "field", kindName(kind));
-    let leading = [accepts].concat(ctx, bounds(ctx, kind, value));
+    let leading = [accepts]
+        .concat(ctx, bounds(ctx, kind, value))
+        .concat(ctx, placeholder(ctx, kind, hint));
     widgetLine(ctx, painted, leading, trackStyles(kind, styles), depth)
+}
+
+/// The `placeholder:` declaration a hint carries, and nothing for a field that
+/// has none.
+///
+/// It rides on the line whatever the value is, the way the attribute stays in
+/// the markup whatever is typed: the painter draws it only while the run under
+/// the input is empty, which is where "gone once there is a value" lives. A
+/// `.Range` gets none — HTML's `placeholder` reaches the kinds that hold text,
+/// and a browser drops it on a slider rather than refusing it.
+fn placeholder<C: Allocator>(ctx: C, kind: FieldKind, hint: Str): [Str] {
+    match (kind) {
+        .Range(_min, _max, _step) => [],
+        _ => {
+            if (hint.isEmpty()) {
+                []
+            } else {
+                [decl(ctx, "placeholder", escapeInline(ctx, hint))]
+            }
+        },
+    }
 }
 
 /// The `range:` declaration a slider carries, and nothing for any other kind.
@@ -1060,12 +1103,15 @@ fn escapeValue<C: Allocator>(ctx: C, value: Str): Str {
     value.replace(ctx, "\\", "\\\\").replace(ctx, ";", "\\;")
 }
 
-/// An icon's artwork, as a declaration value: the two characters the format
-/// reserves escaped, and every line break a space. A declaration is one line,
-/// and nothing an icon may hold needs a break — whitespace between two tags
-/// and inside a path is the same whitespace either way.
-fn escapeArtwork<C: Allocator>(ctx: C, source: Str): Str {
-    escapeValue(ctx, source).replace(ctx, "\n", " ").replace(ctx, "\r", " ")
+/// A declaration value that has to stay on one line: the two characters the
+/// format reserves escaped, and every line break a space.
+///
+/// A declaration is one line, and neither value that needs this loses anything
+/// by it — the whitespace between two tags of an icon's artwork and the
+/// whitespace inside a path are the same whitespace either way, and HTML says
+/// a `placeholder` holds no line break at all.
+fn escapeInline<C: Allocator>(ctx: C, value: Str): Str {
+    escapeValue(ctx, value).replace(ctx, "\n", " ").replace(ctx, "\r", " ")
 }
 
 /// One `t` line. A backslash, a newline and a carriage return are the three

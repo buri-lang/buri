@@ -3522,6 +3522,18 @@ function $dom_flag(element, name, on) {
   else element.removeAttribute(name);
 }
 
+// An attribute whose empty value means "not there". A field's hint is the one:
+// `placeholder=""` is an attribute that says nothing, and a hint the program
+// cleared has to leave rather than linger as an empty one.
+function $dom_optional(element, name, value) {
+  if (value === "") {
+    if (element.$shim) delete element.attributes[name];
+    else element.removeAttribute(name);
+    return;
+  }
+  $dom_attribute(element, name, value);
+}
+
 // The classes an element has, all of them at once. Replacing rather than
 // adding is what makes re-applying a style list idempotent: a `When` that
 // switched back has to lose the class it gained.
@@ -4658,7 +4670,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const wrapper = $tree_element(parent, "label", anchor);
     // `around` is the label's, because the label is the box a surrounding row
     // lays out and nothing on the input can reach it.
-    $tree_styles(wrapper, node[4]);
+    $tree_styles(wrapper, node[5]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     const kind = node[2][0];
     const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
@@ -4671,16 +4683,23 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       $dom_attribute(element, "min", $f64(node[2][1]));
       $dom_attribute(element, "max", $f64(node[2][2]));
       $dom_attribute(element, "step", $f64(node[2][3]));
+    } else {
+      // The hint inside the empty box. `placeholder` is announced after the
+      // accessible name rather than instead of it, which is why the label
+      // beside it is still required — and it reaches the kinds that hold text
+      // and no others, so a slider is handed none rather than one a browser
+      // would drop.
+      $tree_bind(node[3], (hint) => $dom_optional(element, "placeholder", hint));
     }
     // Failing validation is announced as well as painted, and the attribute is
     // both: a reader hears it, and `On(.Invalid, …)` is a rule about it.
-    $tree_bind(node[6], (invalid) => $dom_flag(element, "aria-invalid", invalid));
+    $tree_bind(node[7], (invalid) => $dom_flag(element, "aria-invalid", invalid));
     // The styles are the input's rather than the label's: the input is what a
     // reader focuses and what a browser disables.
-    $tree_styles(element, node[3]);
-    $tree_disabled(element, node[7]);
-    const cell = node[5][0];
-    $tree_bind([1, node[5]], (value) => {
+    $tree_styles(element, node[4]);
+    $tree_disabled(element, node[8]);
+    const cell = node[6][0];
+    $tree_bind([1, node[6]], (value) => {
       // Writing what is already there moves the caret in a real browser.
       if (element.value !== value) element.value = value;
     });

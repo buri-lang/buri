@@ -1,0 +1,93 @@
+# The hint a `field` draws inside its own empty box — `placeholder`, painted.
+#
+# Three pictures, one per axis. **Which kinds draw one** — all seven, hinted and
+# empty, then the same seven with something typed into them, then the pair that
+# asked for no hint at all. Six of the kinds show the words and lose them the
+# moment there is a value; a range shows its slider and never a hint, because
+# HTML's `placeholder` reaches the kinds that hold text and a browser drops it
+# on the others. **What paints it** — the foreground it is a fade of, beside the
+# same words typed into the box, so a cell and its neighbour are one string at
+# two strengths; a foreground with an alpha of its own; the `Opacity` that
+# multiplies the whole box; and the backgrounds it sits on. **How it is set** —
+# the size, the case, the alignment and the two ways a box narrower than the
+# hint cuts it.
+#
+# The hint is drawn by the widget in all three renderers, which is why this case
+# exists: `::placeholder` at half the element's own colour on a page,
+# `placeholder:<hint>` on the input's own line in the scene document, and a run
+# of text in the painter where the run under the input is empty. The half is the
+# sheet's and the painter's one number — a browser's own placeholder colour is
+# grey in one engine and a faded text colour in another, and neither is a colour
+# a golden may rest on.
+#
+# Three things a reader should expect to see and not mistake for a fault. **A
+# password's hint is not bulleted**: the first band's `password` cell reads
+# `Type a command` in clear and the second band's reads four bullets, which is
+# what a browser draws — a prompt is not a secret. **An empty box with no hint
+# has no text in it at all**, so the third band's first and third cells are bare
+# boxes two pixels tall plus their padding, and that is the picture, not a
+# missing cell. And **`Opacity(0.0)` is a cell with a label and nothing under
+# it**, because the hint fades with the box it is in.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the hint a field draws inside its own empty box: which kinds take one, what paints it and how it is set, as 3 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/hint", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/hint/test/__snapshots__/hint-kinds.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/hint/test/pictures.buri"
+  replace: "\"hint-kinds\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/hint", "--force", "--filter=kinds draw"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/hint/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/hint", "--update", "--force", "--filter=kinds draw"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/hint/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/hint", "--force", "--filter=kinds draw"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one word of the hint every subject carries, which moves
+# every cell of the picture that is about what paints it.
+edit {
+  file: "lib/hint/scenes.buri"
+  replace: "\"Search the docs\""
+  with: "\"Search the doc\""
+}
+
+run {
+  args: ["test", "//lib/hint", "--force", "--filter=what paints"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/hint/test/__snapshots__/hint-paint.diff.png"  exists: true }

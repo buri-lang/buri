@@ -160,7 +160,10 @@ ui.image(source: Prop<Str>, alt: Prop<Str>, styles): Node<C>
 // artwork in the tree, so `currentColor` in it is the element's own Foreground.
 // The source is written out and the compiler reads it: `<svg>` and shapes only.
 ui.icon(styles, source: Str): Node<C>            // decorative, always
-ui.field(label, kind: FieldKind, styles, around,
+// hint is the sample value inside the empty box, `aria-placeholder`-shaped:
+// announced after the label, gone once there is a value. Content, so a
+// parameter; the empty string is none, and a `.Range` ignores it.
+ui.field(label, kind: FieldKind, hint: Prop<Str>, styles, around,
          value: Signal<Str>, invalid: Prop<Bool>, disabled: Prop<Bool>): Node<C>
 // value is also the answer to On(.Checked, ...): the box is checked, not the page
 ui.toggle(label, kind: ToggleKind, styles, around,

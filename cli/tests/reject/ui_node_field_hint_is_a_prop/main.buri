@@ -1,0 +1,17 @@
+// EXPECT: expected `Prop<Str>`
+//
+// A hint changes while the page is open — a combobox retitles its box as the
+// filter narrows — so it is a `Prop<Str>` like the label beside it rather than
+// a `Str` fixed when the tree was built.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let query = signal(ctx, "");
+  ui.mount(ctx, ui.field(.Const("Search"), .Search, "Type a command", [], [], query, .Const(false), .Const(false)), [])
+}

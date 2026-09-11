@@ -605,6 +605,7 @@ fn kind<C: Ui>(ctx: C, of: FieldKind): Node<C> {
     ui.field(
         .Const("Name"),
         of,
+        .Const(""),
         base([]),
         [],
         signal(ctx, "Ada"),
@@ -657,6 +658,7 @@ fn subject<C: Ui>(ctx: C, styles: [Style], words: Str): Node<C> {
     ui.field(
         .Const("Name"),
         .Text,
+        .Const(""),
         base(styles),
         [],
         signal(ctx, words),

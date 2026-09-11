@@ -915,6 +915,12 @@ const TRACK_BAR: &str = "background-image:linear-gradient(currentColor,currentCo
 const THUMB: &str = "appearance:none;-webkit-appearance:none;width:1rem;height:1rem;\
     border-radius:9999px;background-color:currentColor";
 
+/// How much of the element's own foreground a hint is painted at. The painter
+/// carries the same number as `PLACEHOLDER_FADE`, because a browser's default
+/// placeholder colour differs by engine and neither is one a golden may rest
+/// on.
+const PLACEHOLDER_FADE: &str = "0.5";
+
 /// A checkbox's tick, as the shape that masks the box's own colour.
 ///
 /// A mask rather than a picture, because the mark takes the control's
@@ -991,6 +997,15 @@ impl Reset {
             ));
             out.push_str(&format!(
                 ":where(input[type=range])::-moz-range-thumb{{border:0;{THUMB}}}\n"
+            ));
+            // The hint inside an empty box. A browser's own placeholder colour
+            // is its own — grey in one engine, a faded text colour in another
+            // — and neither is a colour the painter can guess, so the sheet
+            // pins it: the element's own foreground at `PLACEHOLDER_FADE`. The
+            // painter multiplies the same fraction into the same colour, which
+            // is what makes the two renderers draw one hint.
+            out.push_str(&format!(
+                ":where(input,textarea)::placeholder{{color:inherit;opacity:{PLACEHOLDER_FADE}}}\n"
             ));
         }
         if self.field || self.toggle {

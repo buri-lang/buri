@@ -1,8 +1,8 @@
 error: expected `Prop<Bool>`, found `Bool` [type-mismatch]
-  --> cmd/ui_node_field_invalid_is_a_prop/main.buri:16:66
+  --> cmd/ui_node_field_invalid_is_a_prop/main.buri:16:78
    |
-16 |   ui.mount(ctx, ui.field(.Const("Email"), .Email, [], [], typed, true, .Const(false)), [])
-   |                                                                  ^^^^ the parameter type is `Prop<Bool>`
+16 |   ui.mount(ctx, ui.field(.Const("Email"), .Email, .Const(""), [], [], typed, true, .Const(false)), [])
+   |                                                                              ^^^^ the parameter type is `Prop<Bool>`
    |
    = expected: `Prop<Bool>`
    = actual: `Bool`
