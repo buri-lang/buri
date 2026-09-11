@@ -95,7 +95,7 @@ const COLOR_RGBA: usize = 1;
 const COLOR_FADED: usize = 5;
 
 // `ui/node`'s `NodeKind`, whose variant order is load-bearing for the same
-// reason and says so in its own comment. Only the four that lower to an
+// reason and says so in its own comment. Only the ones that lower to an
 // element a browser paints chrome on are named here.
 const NODE_HEADING: usize = 2;
 const NODE_BUTTON: usize = 5;
@@ -104,7 +104,10 @@ const NODE_FIELD: usize = 8;
 const NODE_TOGGLE: usize = 9;
 const NODE_IMAGE: usize = 7;
 const NODE_ICON: usize = 14;
-const NODE_DIALOG: usize = 15;
+/// A form's action, which is a `<button>` like `button`'s and takes the same
+/// reset. Declared before `Dialog`, because the variant order is append-only.
+const NODE_SUBMIT: usize = 15;
+const NODE_DIALOG: usize = 16;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -939,6 +942,13 @@ impl Reset {
             // initial `content-box` would hang a padded, bordered child out of
             // its parent by exactly its padding.
             out.push_str("*,*::before,*::after{box-sizing:border-box}\n");
+            // The document is what the tree is mounted into, and a browser's
+            // own sheet puts eight pixels around it. Nothing a program writes
+            // can reach that: this vocabulary has no margin, a margin is not
+            // inherited, and `mount` renders into `<body>` rather than into a
+            // box the program made. Left alone it frames every page, on every
+            // route, in a band of the browser's white.
+            out.push_str(":where(body){margin:0}\n");
             // `Layout`'s documented default: a container that names none
             // stacks its children downwards, because a document is a column.
             // Without this a container is CSS's `display:block`, where
@@ -1101,6 +1111,7 @@ pub fn reset_in(
                 NODE_FIELD => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
                 NODE_IMAGE | NODE_ICON => out.image = true,
+                NODE_SUBMIT => out.button = true,
                 NODE_DIALOG => out.dialog = true,
                 _ => {}
             }

@@ -2868,6 +2868,12 @@ test "the sheet drops the chrome a browser draws by itself" {
             ":where(input[type=range])::-moz-range-thumb{border:0;appearance:none;-webkit-appearance:none;width:1rem;height:1rem;border-radius:9999px;background-color:currentColor}",
         ),
     );
+    // The document itself. A browser's own sheet puts eight pixels around
+    // `<body>`, and `mount` renders into `<body>`, so without this every page
+    // floats in a band of the browser's white on every route. Nothing in
+    // `ui/style` can reach it: this vocabulary has no margin, and a margin is
+    // not inherited, so no ancestor's style touches one.
+    assert.isTrue(sheet.contains(":where(body){margin:0}"));
     // It opens the sheet, ahead of every class in it.
     let reset = assert.some(sheet.indexOf(":where(h1,"));
     let padding = assert.some(sheet.indexOf(".p-12{"));
@@ -3148,6 +3154,101 @@ test "a form is submitted, which is behaviour and so not a role" {
     let _ = page.fill("what", "milk");
     let _ = page.submit(0);
     assert.equal(added.get(ctx), "milk");
+}
+
+test "a form of two fields is submitted through the button that is its action" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "");
+    let email = signal(ctx, "");
+    let sent = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
+            ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
+            ui.field(
+                .Const("Email"),
+                .Email,
+                [],
+                [],
+                email,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.submit(.Const("Send"), []),
+        ]),
+    );
+    // One button, and it is the form's action. That attribute is the whole of
+    // what makes Enter work: a browser submits a form implicitly through its
+    // submit button, and a form of two fields with none discards the keypress.
+    assert.equal(page.count("button"), 1);
+    assert.isTrue(page.markup().contains("<button type=\"submit\""));
+    let _ = page.submit(0);
+    assert.equal(sent.get(ctx), "sent");
+}
+
+test "a submit button pressed submits the form it is in" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let typed = signal(ctx, "");
+    let sent = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(fn(c, _e) => sent.set(c, typed.get(c)), [], [
+            ui.field(
+                .Const("Name"),
+                .Text,
+                [],
+                [],
+                typed,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.submit(.Const("Send"), []),
+        ]),
+    );
+    let _ = page.fill("Name", "Ada");
+    // No handler of its own: submitting is the form's, and pressing the button
+    // is the browser's own way of asking for it.
+    let _ = page.press("Send");
+    assert.equal(sent.get(ctx), "Ada");
+}
+
+test "a form of two fields with no submit button is not submitted at all" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "");
+    let email = signal(ctx, "");
+    let sent = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
+            ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
+            ui.field(
+                .Const("Email"),
+                .Email,
+                [],
+                [],
+                email,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.button(.Const("Send"), [], [], fn(_c, _e) => (), .Const(false)),
+        ]),
+    );
+    // An ordinary button is not a form's action, so this is the markup a
+    // browser refuses to submit from the keyboard — and the double refuses it
+    // too, because a double more permissive than the platform is a suite that
+    // cannot catch a form nobody can send.
+    assert.isTrue(page.markup().contains("<button type=\"button\""));
+    let _ = page.submit(0);
+    assert.equal(sent.get(ctx), "");
 }
 
 // --- a dialog ------------------------------------------------------------------------

@@ -166,6 +166,9 @@ ui.field(label, kind: FieldKind, styles, around,
 ui.toggle(label, kind: ToggleKind, styles, around,
           value: Signal<Bool>, invalid: Prop<Bool>, disabled: Prop<Bool>): Node<C>
 ui.form(onSubmit: fn(C, Event) => (), styles, children): Node<C>
+// the form's action: no handler of its own, and `type="submit"` is what makes
+// Enter in a field reach onSubmit. A form of two fields needs one.
+ui.submit(label: Prop<Str>, styles): Node<C>
 // a modal panel. The signal is writable because the platform writes it:
 // Escape shuts the dialog without asking.
 ui.dialog(open: Signal<Bool>, label: Prop<Str>, styles, children): Node<C>
@@ -623,9 +626,9 @@ repositories land, `ui/...` can migrate out wholesale.
 | `core/host` (WEB, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
-| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `choose`, `computed`, `each`, `icon`, `mount` |
+| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `choose`, `computed`, `each`, `icon`, `mount` |
 | `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
-| `ui/theme` | library | `Theme`, `Scheme`, `themed`, `switching`, `scheme` |
+| `ui/theme` | library | `Theme`, `Scheme`, `themed`, `switching`, `scheme`, `page` |
 | `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |
 
 There is **no `ui` umbrella module**: re-exporting from seven modules buys one
