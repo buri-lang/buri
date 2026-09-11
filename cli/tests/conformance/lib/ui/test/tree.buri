@@ -3854,6 +3854,94 @@ test "an open dialog is a scrim and a panel, and a shut one is nothing at all" {
     );
 }
 
+// --- an outside press ------------------------------------------------------------------
+
+test "an outside-press wrapper is a bare div around its children" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // It adds no visible element beyond its own wrapper: the styles and the
+    // children are a stack's, and the press it watches for is the document's,
+    // which no markup carries.
+    let tree = ui.onPressOutside(
+        fn(c, _e) => {
+        },
+        [.Padding(.Px(8))],
+        [ui.text(.Const("panel"))],
+    );
+    assert.equal(render(ctx, tree).markup(), "<div class=\"p-8\">panel</div>");
+    // And a picture of it is a picture of its children — the same `e` line and
+    // the same child a stack of the same styles writes.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-8\nt 1 panel",
+    );
+}
+
+test "an unstyled outside-press wrapper is exactly a stack" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.onPressOutside(
+        fn(c, _e) => {
+        },
+        [],
+        [ui.text(.Const("x"))],
+    );
+    // No styles is no class, the way a bare stack has none.
+    assert.equal(render(ctx, tree).markup(), "<div>x</div>");
+}
+
+test "a press inside does not fire, a press outside does, and disposal takes the listener" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let fired = signal(ctx, 0);
+    let open = signal(ctx, true);
+    // A dismissable overlay: the wrapper watches for a press outside the panel,
+    // and the panel holds a control of its own. An `outside` button stands in
+    // for the rest of the page.
+    let tree = ui.stack([], [
+        ui.button(
+            .Const("outside"),
+            [],
+            [],
+            fn(c, _e) => {
+            },
+            .Const(false),
+        ),
+        ui.choose(
+            .Cell(open),
+            ui.onPressOutside(fn(c, _e) => fired.update(c, fn(n) => n + 1), [], [
+                ui.button(
+                    .Const("inside"),
+                    [],
+                    [],
+                    fn(c, _e) => {
+                    },
+                    .Const(false),
+                ),
+            ]),
+            ui.nothing(),
+        ),
+    ]);
+    let page = render(ctx, tree);
+    // A press inside the subtree is not a press outside it, so the reader's
+    // press on the panel's own control does not dismiss it.
+    let _ = page.press("inside");
+    assert.equal(fired.get(ctx), 0);
+    // A press anywhere else fires the handler once.
+    let _ = page.press("outside");
+    assert.equal(fired.get(ctx), 1);
+    // Shutting the `choose` disposes the subtree, and the document listener goes
+    // with it: a press outside now reaches nothing, so the handler stays put.
+    open.set(ctx, false);
+    let _ = page.press("outside");
+    assert.equal(fired.get(ctx), 1);
+}
+
 // --- the page a scene is painted on ----------------------------------------------------
 
 test "a scene is a page 800 across and as tall as what it holds" {
