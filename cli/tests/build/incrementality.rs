@@ -1620,3 +1620,110 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
     );
     scratch.run(&["run", "//cmd/app"]).ok().says("width=16");
 }
+
+// ---------------------------------------------------------------------------
+// Byte-identical across the four edit classes
+// ---------------------------------------------------------------------------
+
+/// The base a `middle::rc` / `lower` change is measured against: a program with
+/// a type, a helper the caller hands a value it keeps, and a `main` that prints
+/// what the helper computes — enough that the whole-program ownership analysis
+/// and the per-function lowering both have work to do.
+fn edit_base() -> &'static str {
+    r#"from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+struct Point { x: Int, y: Int }
+
+fn scale(p: Point, k: Int): Int { p.x * k + p.y }
+
+fn answer(): Int { scale(Point { x: 3, y: 4 }, 2) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "answer=${answer()}").ignore();
+  .Ok(())
+}
+"#
+}
+
+/// Seeds the cache with `before`, applies `after`, and asserts the artifact an
+/// incremental build produces is the artifact a full `--force` rebuild does.
+///
+/// The claim these tests share — the one a redundant whole-program pass removed
+/// or a parallel loop reordered would break — is that the two are
+/// **byte-identical**. `--force` re-runs every action from cold, so its
+/// artifact is the ground truth; the incremental one has to match it exactly,
+/// edit for edit. See `blog/dev-mode-compilation-speed.md`, finding 5.
+fn incremental_vs_force(name: &str, before: &str, after: &str) {
+    assert_ne!(before, after, "{name}: the edit changed nothing, so it proves nothing");
+
+    let scratch = Scratch::repo(name);
+    scratch.binary_package("cmd/app", before);
+    scratch.run(&["build", "//cmd/app"]).ok();
+
+    scratch.write("cmd/app/main.buri", after);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let incremental = std::fs::read(scratch.artifact("cmd/app"))
+        .expect("the incremental build left an artifact");
+
+    scratch.run(&["build", "//cmd/app", "--force"]).ok();
+    let forced =
+        std::fs::read(scratch.artifact("cmd/app")).expect("the --force build left an artifact");
+
+    assert_eq!(
+        incremental, forced,
+        "{name}: the incrementally rebuilt artifact is not byte-identical to a --force rebuild"
+    );
+    assert!(!incremental.is_empty(), "{name}: the artifact is empty");
+}
+
+/// A function-body edit: the same signatures, one expression changed. The unit
+/// it lands in re-emits; everything else is served from the cache, and the
+/// result is the artifact a cold build would have produced.
+#[test]
+fn a_function_body_edit_rebuilds_to_the_force_artifact() {
+    let after = edit_base().replace("p.x * k + p.y", "p.x * k - p.y");
+    incremental_vs_force("edit-body", edit_base(), &after);
+}
+
+/// An added function, reached from `answer`, so it is not dead-code-eliminated.
+/// A new declaration shifts nothing a content-addressed cache keys on that the
+/// force build does not shift too.
+#[test]
+fn an_added_function_rebuilds_to_the_force_artifact() {
+    let after = edit_base().replace(
+        "fn answer(): Int { scale(Point { x: 3, y: 4 }, 2) }",
+        "fn twice(n: Int): Int { n + n }\n\n\
+         fn answer(): Int { scale(Point { x: 3, y: 4 }, 2) + twice(5) }",
+    );
+    incremental_vs_force("edit-add-fn", edit_base(), &after);
+}
+
+/// An added type, constructed and read, so it reaches the type table the
+/// lowering interns. The interner meets it wherever the function order puts it,
+/// and the force build has to intern it in the same place.
+#[test]
+fn an_added_type_rebuilds_to_the_force_artifact() {
+    let after = edit_base().replace(
+        "fn answer(): Int { scale(Point { x: 3, y: 4 }, 2) }",
+        "struct Tag { id: Int }\n\n\
+         fn answer(): Int { let t = Tag { id: 7 }; scale(Point { x: 3, y: 4 }, 2) + t.id }",
+    );
+    incremental_vs_force("edit-add-type", edit_base(), &after);
+}
+
+/// A signature edit: a parameter added to `scale`, and its one call site
+/// updated. The ownership row and the lowered signature both move, and the
+/// incremental artifact has to be the force build's.
+#[test]
+fn a_signature_edit_rebuilds_to_the_force_artifact() {
+    let after = edit_base()
+        .replace(
+            "fn scale(p: Point, k: Int): Int { p.x * k + p.y }",
+            "fn scale(p: Point, k: Int, b: Int): Int { p.x * k + p.y + b }",
+        )
+        .replace("scale(Point { x: 3, y: 4 }, 2)", "scale(Point { x: 3, y: 4 }, 2, 1)");
+    incremental_vs_force("edit-signature", edit_base(), &after);
+}
