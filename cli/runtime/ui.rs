@@ -750,6 +750,135 @@ pub extern "C" fn buri_rt_ui_flush_end() {
 }
 
 // ---------------------------------------------------------------------------
+// The renderer's closure trampolines (issue #53, phase 1)
+// ---------------------------------------------------------------------------
+//
+// Three shapes the native renderer will drive, added ahead of the renderer so
+// the maintainer can confirm against running code that invoking each is the
+// SPEC 10.6 callback-with-context the language already blesses, not a new rule.
+// None is reached from a Buri walk yet — the builder intrinsics and the
+// reconciler that call them are a later phase — exactly as `rows` below is here
+// before `$tree_each` is:
+//
+//   * `build:   fn(Scope) => Node`      a `computed`'s body, run under a scope.
+//   * `rowAt:   fn(C, Scope, Int) => Node`  an `each`'s row, at a supplied index.
+//   * `onPress: fn(C, Event) => ()`     a button's handler, fired with an event.
+//
+// Each is the very thunk [`ComputeEntry`] already spells — `(state, index, arg,
+// out)`. `build` is [`buri_rt_ui_memo`]'s `fn(Scope) => T` with `T` a `Node`
+// stride; `rowAt` is [`crate::list`]'s step with the loop index as the `Int`,
+// the scope as the element, and the context dropped as a step already drops it;
+// `onPress` is that step once more with the event as the element and nothing
+// written back. No new thunk shape, no new argument the boundary cannot already
+// carry — which is the whole of the "no SPEC change" claim, in code.
+
+/// Mints a scope, runs `body` under it as [`run`] runs a reactive body, and
+/// restores the cursors.
+///
+/// The scope is a [`Kind::Owner`] node so a later phase can hang a rebuilt
+/// subtree's watchers off it; phase 1 needs only that it is a live id a read
+/// inside the body subscribes through [`buri_rt_ui_scope_read`], the way a
+/// `computed`'s reads become its dependencies.
+fn under_fresh_scope<R>(body: impl FnOnce(i64) -> R) -> R {
+    let (scope, outer) = {
+        let mut g = lock();
+        let scope = g.make(Kind::Owner, Vec::new(), 0, None);
+        let outer = (g.current, g.tracking);
+        g.current = scope;
+        g.tracking = scope;
+        (scope, outer)
+    };
+    let answer = body(scope);
+    let mut g = lock();
+    g.current = outer.0;
+    g.tracking = outer.1;
+    answer
+}
+
+/// `build(scope)` — a `computed`'s body, invoked once under a fresh scope.
+///
+/// The scope crosses as the thunk's element, a pointer to the one word a
+/// `Scope` carries, exactly as [`run`] hands one to a memo's body; the `Node`
+/// the body answers is written through `out` at the stride it was compiled for.
+/// The runtime keeps nothing yet — a reactive rebuild is a later phase — so this
+/// is the step half of a deferred body, invoked in place.
+///
+/// # Safety
+/// `entry` is the thunk the backend generated for this body and `state` the
+/// record it was generated against; `out` is writable for the body's `Node`
+/// stride.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_build_node(
+    entry: ComputeEntry,
+    state: *mut u8,
+    out: *mut u8,
+) {
+    under_fresh_scope(|scope| {
+        // SAFETY: forwarded to the caller's promise; `scope` is one live word.
+        unsafe { (entry)(state, 0, std::ptr::addr_of!(scope).cast(), out) };
+    });
+}
+
+/// `rowAt(ctx, scope, at)` — an `each`'s row body, driven with the supplied
+/// index and a fresh scope.
+///
+/// The context is dropped at the boundary as a step drops it: it allocates
+/// through `buri_rt_alloc` and reads no capability, so it crosses nothing and
+/// the thunk never names it. `at` is the loop index a step already carries, the
+/// scope is its element, and the `Node` comes back through `out` at its stride.
+///
+/// # Safety
+/// As [`buri_rt_ui_build_node`], with `at` any index the caller chose.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_row_at(
+    entry: ComputeEntry,
+    state: *mut u8,
+    at: i64,
+    out: *mut u8,
+) {
+    under_fresh_scope(|scope| {
+        // SAFETY: forwarded to the caller's promise; `scope` is one live word.
+        unsafe { (entry)(state, at, std::ptr::addr_of!(scope).cast(), out) };
+    });
+}
+
+/// `onPress(ctx, event)` — a button's handler, fired with a runtime-minted
+/// event.
+///
+/// A handler is not a computation — it writes signals freely — so this sets no
+/// tracking cursor: it fires outside every scope, and a signal write inside it
+/// drains as any write does. The context is dropped as `rowAt`'s is; the event
+/// crosses as the element, a pointer to the one word an [`Event`] carries; and a
+/// body that answers `()` still gets a non-null `out` to write through, as
+/// [`run`] gives a watcher one.
+///
+/// # Safety
+/// `entry` is the thunk the backend generated for this handler and `state` the
+/// record it was generated against.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_fire_press(entry: ComputeEntry, state: *mut u8, event: i64) {
+    let mut sink = [0u8; 8];
+    // SAFETY: forwarded to the caller's promise; `event` is one live word and
+    // `sink` a live destination a `()`-answering thunk writes nothing to.
+    unsafe { (entry)(state, 0, std::ptr::addr_of!(event).cast(), sink.as_mut_ptr()) };
+}
+
+/// `Event(0)` — the one event the runtime mints, matching the JavaScript
+/// renderer's `[0]`.
+///
+/// `Event`'s field is private so only the runtime may construct one; its native
+/// shape is the one `Int` it wraps, and a press carries no data yet, so the
+/// field is zero.
+///
+/// # Safety
+/// `out` is writable and aligned for eight bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_event(out: *mut i64) {
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(0) };
+}
+
+// ---------------------------------------------------------------------------
 // Owners, for the keyed list
 // ---------------------------------------------------------------------------
 
