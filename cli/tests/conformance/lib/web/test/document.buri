@@ -285,6 +285,27 @@ test "every kind of node renders" {
         ),
         "<button type=\"button\" aria-label=\"Overview\">* Overview</button>",
     );
+    // A form's action, and the one button in this vocabulary that carries
+    // `type="submit"`. The markup is what makes Enter in a field submit the
+    // form the worker sent, before any of this program's code has run on the
+    // page.
+    assert.equal(
+        web.render(
+            ui.form(fn(_c, _e) => (), [], [
+                ui.field(
+                    .Const("Email"),
+                    .Email,
+                    [],
+                    [],
+                    typed,
+                    .Const(false),
+                    .Const(false),
+                ),
+                ui.submit(.Const("Send"), []),
+            ]),
+        ),
+        "<form><label><span>Email</span><input type=\"email\" value=\"ada\" /></label><button type=\"submit\" aria-label=\"Send\">Send</button></form>",
+    );
     // The three that decide what to render resolve rather than register: a
     // condition is read once, a computation is run once, and a list renders the
     // rows it has.

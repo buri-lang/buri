@@ -3683,7 +3683,7 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon
+//  14 Icon     15 Submit
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -4611,9 +4611,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 5) {
     const element = $tree_element(parent, "button", anchor);
-    // Not a submit button: a form's submission is its own handler, and a
-    // button that submits the form it happens to be inside is the surprise
-    // this vocabulary exists to remove.
+    // Not a submit button: a form usually holds a Cancel as well, and a button
+    // that submits the form it happens to be inside is the surprise this
+    // vocabulary exists to remove. `submit` is the one that submits.
     $dom_attribute(element, "type", "button");
     // The label is the accessible name however the button is drawn, so it is
     // an attribute rather than the glyphs: a button holding an icon and a word
@@ -4734,6 +4734,19 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 13) {
     $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
+    return;
+  }
+  if (tag === 15) {
+    const element = $tree_element(parent, "button", anchor);
+    // The form's action. This attribute is the whole of what makes Enter in a
+    // field submit: HTML submits a form implicitly through its submit button,
+    // and a form of two fields with none discards the keypress. There is no
+    // listener here — submitting is the form's own handler, and a click that
+    // ran it as well would run it twice.
+    $dom_attribute(element, "type", "submit");
+    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
+    $tree_styles(element, node[2]);
+    $tree_text(node[1], element, null);
     return;
   }
   if ($tree_icon_hook === null) {
@@ -5076,8 +5089,25 @@ function $tree_labelled(self, name, label) {
 // assertion, and one that meant otherwise fails on the state it expected.
 function $ui_testing_Rendered_press(self, label) {
   const button = $tree_labelled(self, "button", label);
-  if ($dom_reachable(button)) $dom_fire(button, "click");
+  if (!$dom_reachable(button)) return 0;
+  $dom_fire(button, "click");
+  // A submit button has no handler of its own: submitting is the form's, and
+  // reaching it is the browser's default action for the press. Nothing here
+  // listens for a click, so the default action is dispatched here.
+  if (button.attributes["type"] === "submit" && !button.disabled) {
+    const form = $dom_enclosing(button, "form");
+    if (form !== null) $dom_fire(form, "submit");
+  }
   return 0;
+}
+
+// The nearest element of this name at or above `node`, or null where there is
+// none.
+function $dom_enclosing(node, name) {
+  for (let at = node; at !== null && at !== undefined; at = at.parent) {
+    if (at.kind === 0 && at.name === name) return at;
+  }
+  return null;
 }
 
 // Whether the pointer reaches this element rather than passing through it.
@@ -5133,11 +5163,46 @@ function $ui_testing_Rendered_flip(self, label) {
   return 0;
 }
 
+// The input types that block implicit submission, which is the HTML Standard's
+// own list: the kinds a reader types a line into. A `range` is dragged and a
+// `textarea` holds newlines, so neither blocks and neither counts.
+const $DOM_BLOCKING = {
+  text: true,
+  password: true,
+  email: true,
+  number: true,
+  search: true,
+};
+
+// Pressing Enter in a field, which is implicit submission — and implicit
+// submission is the platform's rule, not this double's. A form is submitted
+// through its submit button; a form with none is submitted only while exactly
+// one of its fields blocks implicit submission, and one with two fields and no
+// submit button discards the keypress.
+//
+// So this discards it too. A double more permissive than the platform is a
+// suite that goes green on markup a browser will not submit, which is a form
+// nobody can send and a test that cannot say so.
 function $ui_testing_Rendered_submit(self, at) {
   const forms = $dom_elements($slot(self), "form", []);
   const index = Number(at);
   if (index < 0 || index >= forms.length) $abort("this tree has no form " + index);
-  $dom_fire(forms[index], "submit");
+  const form = forms[index];
+  for (const button of $dom_elements(form, "button", [])) {
+    if (button.attributes["type"] === "submit") {
+      // A disabled submit button is no default action at all, so the form has
+      // none and the single-field rule below is what is left.
+      if (!button.disabled) {
+        $dom_fire(form, "submit");
+        return 0;
+      }
+    }
+  }
+  let blocking = 0;
+  for (const field of $dom_elements(form, "input", [])) {
+    if ($DOM_BLOCKING[field.attributes["type"]]) blocking++;
+  }
+  if (blocking === 1) $dom_fire(form, "submit");
   return 0;
 }
 
