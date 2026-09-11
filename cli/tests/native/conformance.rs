@@ -785,6 +785,12 @@ const PACKAGES: &[Case] = &[
     // Its two neighbours below stay out, and for a reason no wave retires:
     // they are the *document*.
     included("ui/reactivity.buri"),
+    // The native renderer's static half (#53): `render`/`markup`/`text`/`count`
+    // over trees with no reactivity, pinned byte-for-byte to the headerless
+    // `describe`. Native-only — on the JavaScript backend `markup()` is still
+    // the HTML document double, which is Phase 6's to move — so it is not in the
+    // package's `BUILD.buri` and `buri test` never runs it; this driver does.
+    included("ui/render.buri"),
     excluded(
         "ui/tree.buri",
         "`ui/node`'s `mount` and `ui/testing`'s renderer, which are a \

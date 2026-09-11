@@ -202,6 +202,28 @@ pub enum Extra {
     /// at the call site and given back at exit, and this is what gives it
     /// back.
     Compute,
+    /// The three words a **walk** crosses on: a `fn(Builder, Node) => ()` the
+    /// runtime invokes **once**, to walk a whole tree into the document
+    /// (`cli/runtime/document.rs`, issue #53). It is `ui_testing.render`'s
+    /// `renderInto`, and it is the last argument of `ui_testing.mount`.
+    ///
+    /// ```text
+    ///   entry     the generated C-ABI thunk, `void(state, index, in, out)`
+    ///   state     the record this backend built — the closure, then a frame
+    ///   frame_at  where in it to write a working frame, or -1
+    /// ```
+    ///
+    /// [`Extra::Step`]'s thunk once more, shaped by [`crate::compiler::backend::stencil::glue::Helper::Entry`]
+    /// with the **context dropped**, the **builder handle as the index** and the
+    /// **node as the element** — `renderInto(ctx, builder, node)` with
+    /// `index = Some(1)`. It is
+    /// [`Extra::Compute`] with the *keeping* taken out: the walk runs during
+    /// the call that handed it over, so the record is used in place rather than
+    /// copied, and there is no stride and no release — the walk answers `()` and
+    /// the runtime keeps nothing. `frame_at` stays because the walk is a Buri
+    /// body and the frame-threaded backend runs one in a frame the caller sets
+    /// aside; the LLVM twin passes `-1`.
+    Walk,
 }
 
 /// Where a generic row's `T` is — the question [`Extra::Element`]'s stride and
@@ -431,6 +453,20 @@ const fn ec(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
         carrier: Carrier::Element,
         ret,
         by_ref: None,
+        ctx: None,
+    }
+}
+
+/// A walk ([`Extra::Walk`]): the closure is the last argument, `by_ref` names
+/// the node passed by address, and `ctx` the context the runtime drops.
+const fn ew(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Walk,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: Some(by_ref),
         ctx: None,
     }
 }
@@ -1328,6 +1364,32 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_testing.Recorder.recorded", "buri_rt_ui_testing_recorder_recorded", Ret::Out),
     e("ui_testing.Recorder.note", "buri_rt_ui_testing_recorder_note", Ret::Scalar),
     e("ui_testing.Recorder.noted", "buri_rt_ui_testing_recorder_noted", Ret::Out),
+    // -- the renderer, and the document it builds (issue #53) ----------------
+    //
+    // `render` is not here: it is a Buri body now, `Rendered(mount(ctx, root,
+    // renderInto))`, so the walk crosses as an ordinary argument the backend
+    // materialises rather than a body-less intrinsic this table would name.
+    // What is here is the mount it reaches, the builders the walk emits to, and
+    // the readers a `Rendered` answers.
+    //
+    // `mount` drops its context, passes `root` by address — a pointer to the
+    // one `Node` the walk destructures and this side never reads — and takes
+    // the walk as its last argument ([`Extra::Walk`]). `renderInto` never
+    // crosses whole: only its `{ code, env }` does, inside the record.
+    cx(ew("ui_testing.mount", "buri_rt_ui_testing_mount", Ret::Scalar, 1), 0),
+    // The builders the walk emits to. `emitElement` takes the element name and
+    // its scene declarations, both `Str`; `emitText` a run; `exitElement`
+    // closes the open element. The builder handle is a `Builder`, one word.
+    e("ui_node.emitElement", "buri_rt_ui_node_emit_element", Ret::Void),
+    e("ui_node.exitElement", "buri_rt_ui_node_exit_element", Ret::Void),
+    e("ui_node.emitText", "buri_rt_ui_node_emit_text", Ret::Void),
+    // The readers, over the reconciled document rather than the string:
+    // `markup` and `text` answer a `Str` through an out-pointer, `count` and
+    // `identity` an `Int`.
+    e("ui_testing.Rendered.markup", "buri_rt_ui_testing_rendered_markup", Ret::Out),
+    e("ui_testing.Rendered.text", "buri_rt_ui_testing_rendered_text", Ret::Out),
+    e("ui_testing.Rendered.count", "buri_rt_ui_testing_rendered_count", Ret::Scalar),
+    e("ui_testing.Rendered.identity", "buri_rt_ui_testing_rendered_identity", Ret::Scalar),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.
@@ -1575,8 +1637,9 @@ mod tests {
         // Twenty-nine until F6, then the nine `core/actor` rows, then
         // `core/tasks`'s six: every one of the fifteen is a module function
         // whose first parameter is the context, which is the second of the two
-        // shapes below.
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 44);
+        // shapes below. `ui_testing.mount` is the forty-fifth — the renderer
+        // drops its context the way every one of these does.
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 45);
     }
 
     /// The two shapes the column takes, by example, so that the indices are

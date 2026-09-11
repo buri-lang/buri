@@ -1,0 +1,413 @@
+// The native renderer's static half (#53): `render(ctx, root).markup()`,
+// `.text()`, `.count()` and `.identity()` over trees with no reactivity,
+// byte-for-byte the headerless scene document `ui/node`'s `describe` writes for
+// the same tree.
+//
+// This is the parity the design asks for, met by construction: `describe` is
+// ordinary Buri that runs the same on both backends, and `renderInto` mirrors
+// its `nodeLines` arm for arm — the same helpers build the class-and-declaration
+// body — so pinning `markup()` to a headerless `describe` pins it to what the
+// JavaScript backend produces for the scene document too. Every static
+// `NodeKind` is covered here, styled and unstyled.
+//
+// It runs on the native backend only — `native::conformance` drives it — because
+// on the JavaScript backend `markup()` is still the HTML document double, which
+// is Phase 6's to move; here it is the scene lines.
+//
+// Static only. `choose`/`computed`/`each` are built once, a `Prop` is read once,
+// and a widget's `disabled`/`checked`/value are the current ones. Reactive
+// behaviour — watchers, identity across writes, reconciliation, dispatch — is a
+// later phase.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc as testAlloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Event, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, render };
+
+/// The scene document without its `buri-scene 1` / `viewport` header — what
+/// `markup()` answers, which is a `describe` with those two lines dropped.
+fn headerless(scene: Str): Str {
+    // The header is always two lines — `buri-scene 1` and `viewport <w> fit` —
+    // and the body is everything after the second newline. A tree that draws
+    // nothing (a shut dialog, a bare `nothing`) has no body and no second
+    // newline, and its markup is the empty string, so both `.None` arms answer
+    // that rather than a header line.
+    match (scene.splitOnce("\n")) {
+        .None => "",
+        .Some(afterFirst) => {
+            match (afterFirst.1.splitOnce("\n")) {
+                .None => "",
+                .Some(afterSecond) => afterSecond.1,
+            }
+        },
+    }
+}
+
+/// The one claim every test below makes: a native `markup()` is a headerless
+/// `describe` of the same tree, in the same resting state.
+fn matchesDescribe<C: Allocator + Ui>(ctx: C, tree: Node<C>): () {
+    assert.equal(render(ctx, tree).markup(), headerless(ui.describe(ctx, tree, .Hover)))
+}
+
+/// A press handler that does nothing — dropped by the static walk, as `describe`
+/// drops it, so it does not reach the markup.
+fn noPress<C>(c: C, event: Event): () {
+    let _ = c;
+    let _ = event;
+}
+
+fn noFollow<C>(c: C, dest: Str): () {
+    let _ = c;
+    let _ = dest;
+}
+
+test "text, headings and a nested stack, styled" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    matchesDescribe(ctx, ui.text(.Const("bare")));
+    matchesDescribe(ctx, ui.heading(2, [.FontWeight(.Bold)], .Const("Prices")));
+    matchesDescribe(
+        ctx,
+        ui.stack([.Layout(.Row), .Padding(.Rem(1.0)), .Gap(.Rem(0.5))], [
+            ui.text(.Const("a")),
+            ui.stack([], [ui.text(.Const("b")), ui.nothing()]),
+        ]),
+    );
+}
+
+test "every region role lowers to its own element" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    matchesDescribe(ctx, ui.region(.Navigation, [], [ui.text(.Const("home"))]));
+    matchesDescribe(
+        ctx,
+        ui.region(.Main, [.Padding(.Rem(1.0))], [ui.region(.Banner, [], [])]),
+    );
+    matchesDescribe(
+        ctx,
+        ui.region(.List, [], [
+            ui.region(.ListItem, [], [ui.text(.Const("a"))]),
+            ui.region(.ListItem, [], [ui.text(.Const("b"))]),
+        ]),
+    );
+    matchesDescribe(
+        ctx,
+        ui.region(.Table, [], [
+            ui.region(.TableRow, [], [
+                ui.region(.ColumnHeader, [], [ui.text(.Const("H"))]),
+                ui.region(.Cell, [], [ui.text(.Const("c"))]),
+            ]),
+        ]),
+    );
+}
+
+test "a button draws its label or its children" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    matchesDescribe(
+        ctx,
+        ui.button(
+            .Const("ok"),
+            [.Padding(.Rem(0.5))],
+            [],
+            noPress,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    matchesDescribe(
+        ctx,
+        ui.button(
+            .Const("ok"),
+            [],
+            [ui.text(.Const("glyph"))],
+            noPress,
+            .Const(true),
+            .Const(false),
+        ),
+    );
+}
+
+test "links, a route link, a picture and an icon" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    matchesDescribe(ctx, ui.link(.Const("/a"), [], [ui.text(.Const("go"))]));
+    matchesDescribe(
+        ctx,
+        ui.routeLink(.Const("/b"), [], [ui.text(.Const("route"))], noFollow),
+    );
+    matchesDescribe(
+        ctx,
+        ui.image(.Const("data:x"), .Const("alt"), [.Width(.Rem(4.0))]),
+    );
+    matchesDescribe(ctx, ui.icon([.Width(.Rem(1.0))], "<svg><path d=\"M0 0\"/></svg>"));
+}
+
+test "fields of every kind, and the run of text they hold" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let text = signal(ctx, "typed");
+    matchesDescribe(
+        ctx,
+        ui.field(
+            .Const("Name"),
+            .Text,
+            .Const("hint"),
+            [],
+            [],
+            text,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let secret = signal(ctx, "");
+    matchesDescribe(
+        ctx,
+        ui.field(
+            .Const("Password"),
+            .Password,
+            .Const(""),
+            [],
+            [],
+            secret,
+            .Const(false),
+            .Const(true),
+        ),
+    );
+    let note = signal(ctx, "lines");
+    matchesDescribe(
+        ctx,
+        ui.field(
+            .Const("Note"),
+            .Multiline,
+            .Const(""),
+            [],
+            [],
+            note,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let level = signal(ctx, "3");
+    matchesDescribe(
+        ctx,
+        ui.field(
+            .Const("Level"),
+            .Range(0.0, 10.0, 1.0),
+            .Const(""),
+            [],
+            [],
+            level,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+}
+
+test "toggles, on and off, switch and checkbox" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let on = signal(ctx, true);
+    matchesDescribe(
+        ctx,
+        ui.toggle(.Const("Wifi"), .Switch, [], [], on, .Const(false), .Const(false)),
+    );
+    let off = signal(ctx, false);
+    matchesDescribe(
+        ctx,
+        ui.toggle(.Const("Wifi"), .Switch, [], [], off, .Const(false), .Const(false)),
+    );
+    let ticked = signal(ctx, true);
+    matchesDescribe(
+        ctx,
+        ui.toggle(
+            .Const("Agree"),
+            .Checkbox,
+            [],
+            [],
+            ticked,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let clear = signal(ctx, false);
+    matchesDescribe(
+        ctx,
+        ui.toggle(
+            .Const("Agree"),
+            .Checkbox,
+            [],
+            [],
+            clear,
+            .Const(false),
+            .Const(true),
+        ),
+    );
+}
+
+test "a form with a submit, and a radio group" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let name = signal(ctx, "");
+    matchesDescribe(
+        ctx,
+        ui.form(noPress, [.Padding(.Rem(1.0))], [
+            ui.field(
+                .Const("Name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                name,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.submit(.Const("Send"), []),
+        ]),
+    );
+    let choice = signal(ctx, "b");
+    matchesDescribe(
+        ctx,
+        ui.radioGroup(
+            .Const("Pick"),
+            [("a", .Const("First")), ("b", .Const("Second"))],
+            [],
+            choice,
+        ),
+    );
+}
+
+test "choose, computed and each are built once" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    matchesDescribe(
+        ctx,
+        ui.choose(.Const(true), ui.text(.Const("then")), ui.text(.Const("else"))),
+    );
+    matchesDescribe(
+        ctx,
+        ui.choose(.Const(false), ui.text(.Const("then")), ui.text(.Const("else"))),
+    );
+    matchesDescribe(ctx, ui.computed(fn(_scope) => ui.heading(1, [], .Const("built"))));
+    matchesDescribe(
+        ctx,
+        ui.region(.List, [], [
+            ui.each(.Const(["x", "y", "z"]), fn(item) => item, fn(_c, item, _index) => {
+                ui.region(.ListItem, [], [ui.text(.Const(item))])
+            }),
+        ]),
+    );
+}
+
+test "a dialog, an overlay, a progress bar and a disclosure" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    matchesDescribe(
+        ctx,
+        ui.dialog(open, .Const("Delete?"), [.Padding(.Rem(1.0))], [
+            ui.text(.Const("Sure?")),
+        ]),
+    );
+    let shut = signal(ctx, false);
+    matchesDescribe(
+        ctx,
+        ui.dialog(shut, .Const("Hidden"), [], [ui.text(.Const("nope"))]),
+    );
+    matchesDescribe(ctx, ui.onPressOutside(noPress, [], [ui.text(.Const("panel"))]));
+    matchesDescribe(
+        ctx,
+        ui.progress(.Const("Loading"), .Const(0.5), [], [ui.text(.Const("half"))]),
+    );
+    let expanded = signal(ctx, true);
+    matchesDescribe(
+        ctx,
+        ui.disclosure(.Const("More"), expanded, [], [ui.text(.Const("details"))]),
+    );
+    let collapsed = signal(ctx, false);
+    matchesDescribe(
+        ctx,
+        ui.disclosure(.Const("More"), collapsed, [], [ui.text(.Const("hidden"))]),
+    );
+}
+
+test "text, count and identity over a resolved tree" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let tree = ui.region(.List, [], [
+        ui.region(.ListItem, [], [ui.text(.Const("a"))]),
+        ui.region(.ListItem, [], [ui.text(.Const("b"))]),
+        ui.region(.ListItem, [], [ui.text(.Const("c"))]),
+    ]);
+    let page = render(ctx, tree);
+    assert.equal(page.text(), "a b c");
+    assert.equal(page.count("ul"), 1);
+    assert.equal(page.count("li"), 3);
+    assert.equal(page.count("h1"), 0);
+    let first = page.identity("li", 0);
+    assert.equal(page.identity("li", 0), first);
+    assert.notEqual(page.identity("li", 1), first);
+}
+
+test "count reaches the widget elements a form builds" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let name = signal(ctx, "");
+    let email = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(noPress, [], [
+            ui.field(
+                .Const("Name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                name,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.field(
+                .Const("Email"),
+                .Email,
+                .Const(""),
+                [],
+                [],
+                email,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.submit(.Const("Send"), []),
+        ]),
+    );
+    assert.equal(page.count("form"), 1);
+    assert.equal(page.count("input"), 2);
+    assert.equal(page.count("button"), 1);
+    assert.equal(page.count("label"), 2);
+}

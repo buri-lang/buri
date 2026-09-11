@@ -408,6 +408,70 @@ fn a_press_closure_fires_with_a_minted_event() {
     assert!(out.status.success());
 }
 
+/// The element document (issue #53, phase 2): the builder the `renderInto`
+/// walk drives, and the readers a `Rendered` answers from it.
+///
+/// The driver builds a two-item list with classes and a heading — no
+/// reactivity, every prop already read — and reads it back. What is pinned is
+/// the three things this side owns: the `markup()` is the headerless scene
+/// document `describe` writes (the depth from the nesting, the empty body's
+/// trailing space, the classes verbatim), `text()` is the runs joined by a
+/// space, `count(name)` walks the records of one name, and `identity(name, i)`
+/// is the number stamped at creation — from zero in this fresh process, so the
+/// host is 0, the first item 2 and the second 4, and a read mints nothing.
+#[test]
+fn the_element_document_reads_back() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-doc"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        concat!(
+            "e 0 class:lay-col\n",
+            "e 1 \n",
+            "t 2 a\n",
+            "e 1 \n",
+            "t 2 b\n",
+            "e 0 class:fs-28 fw-bold\n",
+            "t 1 Prices\n",
+            "::text=a b Prices\n",
+            "::count ul=1 li=2 h2=1 x=0\n",
+            "::id li0=2 li1=4 h2=6 li0again=2"
+        ),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// The fourth closure shape the native renderer drives (issue #53, phase 2):
+/// `renderInto: fn(Builder, Node) => ()`, the walk `render` invokes to build
+/// the document.
+///
+/// The driver hands the runtime a walk whose body is an ordinary C function of
+/// `ComputeEntry`'s shape — the same one a memo and a step cross — and the
+/// runtime invokes it with the builder handle as the index and the node as the
+/// element. The walk reads the node it was handed (a heading level, proving the
+/// pointer is live) and emits into the builder, so what is pinned is that the
+/// runtime can drive a whole-tree walk into the document across the C ABI: no
+/// new thunk shape, and so no SPEC or type-system change. It fails first the way
+/// a missing runtime symbol does — the driver does not link.
+#[test]
+fn a_walk_closure_builds_the_document() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-walk"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        concat!("e 0 class:fs-28\n", "t 1 hi\n", "::count h2=1"),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
 /// `Str`'s ASCII flag and the scalar count it stands in for
 /// (VALUE-MODEL.md §3.1), and `[T]` construction.
 #[test]
