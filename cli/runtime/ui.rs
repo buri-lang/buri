@@ -895,22 +895,41 @@ pub unsafe extern "C" fn buri_rt_ui_event(out: *mut i64) {
 /// nothing, exactly as `describe` does. A reactive re-walk under a scope is a
 /// later phase; this is the once-through the initial render is.
 ///
+/// The walk is a Buri body, so on the frame-threaded backend its thunk works
+/// in a frame the caller sets aside — the whole of why a deferred call needs
+/// one ([`Compute`]). This acquires that frame and writes it at `frame_at` in
+/// the record, exactly as [`run`] does for a memo, and `frame_at` is `-1` for a
+/// backend whose thunk uses the machine stack instead. The C driver hands a C
+/// thunk that needs neither, and passes `-1`.
+///
 /// # Safety
 /// `entry` is the thunk the backend generated for the walk and `state` the
-/// record it was generated against; `builder` is a live document handle and
-/// `node` points at one whole `Node`.
+/// record it was generated against; `builder` is a live document handle,
+/// `node` points at one whole `Node`, and `frame_at` is an offset inside the
+/// record or negative.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_render_walk(
     entry: ComputeEntry,
     state: *mut u8,
     builder: i64,
     node: *const u8,
+    frame_at: i64,
 ) {
+    let frame = if frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+    if let Ok(at) = usize::try_from(frame_at) {
+        // SAFETY: the backend asked for the frame at this offset in a record of
+        // its own, past the closure's two words.
+        unsafe { state.add(at).cast::<*mut u8>().write(frame) };
+    }
     let mut sink = [0u8; 8];
     // SAFETY: forwarded to the caller's promise; `builder` is one live word,
     // `node` one whole `Node`, and `sink` a live destination a `()`-answering
     // thunk writes nothing to.
     unsafe { (entry)(state, builder, node, sink.as_mut_ptr()) };
+    if !frame.is_null() {
+        // SAFETY: this thread acquired it above and the thunk has returned.
+        unsafe { buri_rt_stack_release(frame) };
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,110 @@
+// The native renderer's static half (#53): `render(ctx, root).markup()`,
+// `.text()` and `.count()` over trees with no reactivity, byte-for-byte the
+// headerless scene document `ui/node`'s `describe` writes for the same tree.
+//
+// This is the parity check the design asks for, met by construction: `describe`
+// is ordinary Buri that runs the same on both backends, so pinning `markup()`
+// to it pins it to what the JavaScript backend produces for the scene document
+// too. It runs on the native backend only — `native::conformance` drives it —
+// because on the JavaScript backend `markup()` is still the HTML document
+// double, which is Phase 6's to move; here it is the scene lines.
+//
+// Static only. Every tree below has empty style lists, so its scene lines carry
+// no declarations yet — the styled body is the next slice. What is pinned is
+// the structure: the element each role and heading becomes, the depth of the
+// nesting, the runs of text, and the counts by name.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc as testAlloc };
+from "core/testing/assert" import * as assert;
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, render };
+
+/// The scene document without its `buri-scene 1` / `viewport` header — what
+/// `markup()` answers, which is a `describe` with those two lines dropped.
+fn headerless(scene: Str): Str {
+    match (scene.splitOnce("\n")) {
+        .None => scene,
+        .Some(afterFirst) => {
+            match (afterFirst.1.splitOnce("\n")) {
+                .None => afterFirst.1,
+                .Some(afterSecond) => afterSecond.1,
+            }
+        },
+    }
+}
+
+test "a stack is a div, and text is a bare run under it" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let tree = ui.stack([], [ui.text(.Const("hello"))]);
+    let page = render(ctx, tree);
+    assert.equal(page.markup(), headerless(ui.describe(ctx, tree, .Hover)));
+    assert.equal(page.markup(), "e 0 \nt 1 hello");
+    assert.equal(page.text(), "hello");
+    assert.equal(page.count("div"), 1);
+}
+
+test "a heading is an h-element at its level, with its text one deeper" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let tree = ui.heading(2, [], .Const("Prices"));
+    let page = render(ctx, tree);
+    assert.equal(page.markup(), headerless(ui.describe(ctx, tree, .Hover)));
+    assert.equal(page.markup(), "e 0 \nt 1 Prices");
+    assert.equal(page.text(), "Prices");
+    assert.equal(page.count("h2"), 1);
+    assert.equal(page.count("h1"), 0);
+}
+
+test "a list is a ul of li, each nested one level in, in document order" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let tree = ui.region(.List, [], [
+        ui.region(.ListItem, [], [ui.text(.Const("a"))]),
+        ui.region(.ListItem, [], [ui.text(.Const("b"))]),
+        ui.region(.ListItem, [], [ui.text(.Const("c"))]),
+    ]);
+    let page = render(ctx, tree);
+    assert.equal(page.markup(), headerless(ui.describe(ctx, tree, .Hover)));
+    assert.equal(page.count("ul"), 1);
+    assert.equal(page.count("li"), 3);
+    assert.equal(page.text(), "a b c");
+}
+
+test "the roles that carry no styles lower to their own elements" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let tree = ui.region(.Main, [], [
+        ui.region(.Navigation, [], [ui.text(.Const("home"))]),
+        ui.region(.Banner, [], []),
+    ]);
+    let page = render(ctx, tree);
+    assert.equal(page.markup(), headerless(ui.describe(ctx, tree, .Hover)));
+    assert.equal(page.count("main"), 1);
+    assert.equal(page.count("nav"), 1);
+    assert.equal(page.count("header"), 1);
+}
+
+test "an identity is stamped once and stable across a read" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    let tree = ui.region(.List, [], [
+        ui.region(.ListItem, [], [ui.text(.Const("a"))]),
+        ui.region(.ListItem, [], [ui.text(.Const("b"))]),
+    ]);
+    let page = render(ctx, tree);
+    let first = page.identity("li", 0);
+    assert.equal(page.identity("li", 0), first);
+    assert.notEqual(page.identity("li", 1), first);
+}
