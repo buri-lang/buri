@@ -365,6 +365,20 @@ fn serving_a_page() {
 /// than itself. It is what closes the gap between the painter's border box and
 /// CSS's initial `content-box`.
 ///
+/// `sweep_backdrop_blur` is the scrim a modal lays over the page, in three
+/// pictures. Every demo is a field split hard down the middle laid under a
+/// scrim, so the reading is that boundary: sharp under a wash at `.Px(0)`, and
+/// a grey ramp that widens with the radius, which is what `backdrop-filter:
+/// blur` means. The first picture is the sweep of radii; the second is the
+/// issue's own case, a tenth of black that separates the panel only once the
+/// page is blurred, beside the half of black a scrim reaches for without one,
+/// and a rounded scrim that clips the blur to its corners; the third is the
+/// blur on every primitive that holds children, all painting it the same. Its
+/// last step widens one radius so only the radii picture moves. The edge of a
+/// scrim that meets the canvas fades where CSS clamps, which
+/// `design/native/DECISIONS.md` records; the pictures keep the field off the
+/// edge so the boundary is the read.
+///
 /// The `sweep_states_*` cases are the states sweep: every `State` against every
 /// interactive primitive, six pictures to a case — the resting one and one per
 /// state — each a labelled grid of `Background`, `Foreground`, `Border`,
@@ -415,17 +429,21 @@ fn serving_a_page() {
 /// kind that takes one and the range that takes none, beside the same box with
 /// something typed into it, and under everything that paints the words — the
 /// element's own foreground at half strength, which is the one number the
-/// sheet's `::placeholder` rule and the painter both carry. `progress` is the
-/// fifth: a track and a fill at every quarter, so the picture reads as the value
-/// climbs — and a `describe` assertion that the role and the three `aria-value*`
-/// are in the markup and nowhere in the scene, which is the whole of what the
-/// widget adds over the boxes that drew the same picture before. `disclosure` is
-/// the sixth: one `<details>` card open and shut, so the pair is the summary
-/// alone against the summary and the body both, with the browser's marker and
-/// block layout taken away by the reset.
+/// sheet's `::placeholder` rule and the painter both carry. `radio` is the dot a
+/// checked radio draws: the selection moved across the options and off the end
+/// of them, so a picture says which option is on and that a key no option holds
+/// is none of them, and the same dot painted every foreground — the disc the
+/// sheet's `:checked::before` and the painter both draw in the element's own
+/// colour. `progress` is a track and a fill at every quarter, so the picture
+/// reads as the value climbs — and a `describe` assertion that the role and the
+/// three `aria-value*` are in the markup and nowhere in the scene, which is the
+/// whole of what the widget adds over the boxes that drew the same picture
+/// before. `disclosure` is one `<details>` card open and shut, so the pair is
+/// the summary alone against the summary and the body both, with the browser's
+/// marker and block layout taken away by the reset.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 61);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 63);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

@@ -1,0 +1,22 @@
+// EXPECT: has no variant `Radio`
+//
+// A radio is not a `FieldKind`. A `field` binds its `Signal<Str>` to one input,
+// and a radio's value is the group's rather than the input's — so a group is
+// the widget `radioGroup`, over the whole choice, and `field` has no `Radio`.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+
+fn choice<C>(value: Signal<Str>): Node<C> {
+  ui.field(.Const("Pro"), .Radio, .Const(""), [], [], value, .Const(false), .Const(false))
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let value = signal(ctx, "pro");
+  ui.mount(ctx, choice(value), [])
+}

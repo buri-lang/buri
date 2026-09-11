@@ -174,6 +174,17 @@ enum NodeKind<C> {
     Icon([Style], Str),
     Submit(Prop<Str>, [Style]),
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
+    OnPressOutside(fn(C, Event) => (), [Style], [Node<C>]),
+    // A `<a href>` like `Link`, plus the plain-left-click handler the runtime
+    // runs in place of the browser's own navigation. Appended after
+    // `OnPressOutside`, because the variant order is load-bearing and
+    // append-only.
+    RouteLink(Prop<Str>, [Style], [Node<C>], fn(C, Str) => ()),
+    // A single choice as one real radio per option. Appended after `RouteLink`,
+    // because the variant order is load-bearing and append-only.
+    RadioGroup(Prop<Str>, [(Str, Prop<Str>)], [Style], Signal<Str>),
+    // Appended after `RadioGroup`, because the variant order is load-bearing
+    // and append-only.
     Progress(Prop<Str>, Prop<Float>, [Style], [Node<C>]),
     Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>]),
 }
@@ -299,6 +310,27 @@ export fn button<C>(
 /// reader announces a link by where it goes.
 export fn link<C>(dest: Prop<Str>, styles: [Style], children: [Node<C>]): Node<C> {
     Node(.Link(dest, styles, children))
+}
+
+/// An anchor that answers a plain left-click itself.
+///
+/// The same `<a href>` `link` renders — so a reader gets the middle-click, the
+/// ⌘-click, the "open in new tab", the status-bar preview and the "link" a
+/// browser gives an anchor — but a plain left-click runs `onFollow` in place of
+/// the browser's own navigation, and every modified click is left to the
+/// browser as an ordinary anchor. `onFollow` is handed the context `mount` was
+/// given and the destination the click was on.
+///
+/// This is the mechanism; `ui/web`'s `routeLink` is the one to reach for, which
+/// fills `onFollow` with a client-side `navigate` and asks for the `Location`
+/// that needs.
+export fn routeLink<C>(
+    dest: Prop<Str>,
+    styles: [Style],
+    children: [Node<C>],
+    onFollow: fn(C, Str) => (),
+): Node<C> {
+    Node(.RouteLink(dest, styles, children, onFollow))
 }
 
 /// A picture, and what it says.
@@ -498,6 +530,79 @@ export fn dialog<C>(
     children: [Node<C>],
 ): Node<C> {
     Node(.Dialog(open, label, styles, children))
+}
+
+/// A wrapper whose `handler` runs when a press lands *outside* the subtree.
+///
+/// ```text
+/// ui.onPressOutside(fn(c, _e) => open.set(c, false), [], [panel])
+/// ```
+///
+/// It is what lets an overlay dismiss itself: a menu, a popover or a select
+/// closes the moment the reader presses anywhere that is not inside it, the way
+/// every overlay on the web does. Wrap it around the panel that is showing, and
+/// write the panel shut in the handler.
+///
+/// The handler takes its context as a parameter for `button`'s reason — a
+/// lambda may not capture one, and the runtime hands it the very context
+/// `mount` was given — and the same press dispatches it however it arrives: a
+/// tap or a mouse press. A press that lands *inside* the subtree is not one it
+/// fires on, which is what keeps it from swallowing the press that chose the
+/// next thing: the reader presses once, and that press both dismisses this and
+/// acts on what it landed on.
+///
+/// **The listener lives exactly as long as the subtree.** On the web it lowers
+/// to one document-level pointer listener, registered while the wrapper is
+/// mounted and taken away with it — so a wrapper inside a `choose` that shuts
+/// leaves nothing behind. It adds no visible element beyond its own wrapper: the
+/// `styles` and `children` are a `stack`'s, and a picture of it is a picture of
+/// its children. A native painter has no pointer to press with, so there it is
+/// inert.
+export fn onPressOutside<C>(
+    handler: fn(C, Event) => (),
+    styles: [Style],
+    children: [Node<C>],
+): Node<C> {
+    Node(.OnPressOutside(handler, styles, children))
+}
+
+/// One choice among a few, as a real radio per option.
+///
+/// A widget rather than a `Role` and a `FieldKind`, because a radio group is
+/// the browser's own model and unreachable any other way. One tab stop for the
+/// group, the arrow keys that *move and select*, Space to select, `aria-checked`
+/// and the roving `tabindex` all come free the moment the options are
+/// `<input type="radio">` inside a `role="radiogroup"`. A stack of `button`s
+/// reaches none of it — a reader tabs through every option and is told they are
+/// buttons. Neither a bare `Role.RadioGroup` nor a `FieldKind.Radio` would
+/// reach it either: a bare role leaves the options something other than radios,
+/// and `field` binds a `Signal<Str>` to *one* input, where a radio's value is
+/// the group's and not the input's.
+///
+/// `label` is the group's accessible name, required for the reason every
+/// widget's label is: a reader is announced into the group by what it is for. It
+/// lands as `aria-label` on the `role="radiogroup"` element.
+///
+/// `options` is one `(key, caption)` per choice. The key is what the signal
+/// holds when that option is picked — the input's `value` — and the caption is
+/// the run of text the reader sees beside it. `value` holds the selected key:
+/// the input whose key equals it is the checked one, and picking another writes
+/// its key back, so two-way binding replaces a change event here the way it does
+/// for a `field`. A key the signal holds that no option carries checks nothing,
+/// which is what an unset group is.
+///
+/// `styles` land on the group, the box a surrounding row or column lays out. The
+/// options are the widget's own elements sharing one `name`, and the dot a
+/// checked one draws is the widget's own drawing — the reset's `:checked::before`
+/// in the group's own `Foreground` — so there is no per-option style list, the
+/// way a toggle needs no child for its mark.
+export fn radioGroup<C>(
+    label: Prop<Str>,
+    options: [(Str, Prop<Str>)],
+    styles: [Style],
+    value: Signal<Str>,
+): Node<C> {
+    Node(.RadioGroup(label, options, styles, value))
 }
 
 /// How far along a task has come, announced as well as drawn.
@@ -800,6 +905,12 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         .Link(_dest, styles, children) => {
             container(ctx, state, styles, children, depth)
         },
+        // A route link paints as the anchor it is — the same box `link` is. What
+        // sets it apart is the plain-click handler, which is behaviour rather
+        // than a picture, so the scene carries nothing of it.
+        .RouteLink(_dest, styles, children, _onFollow) => {
+            container(ctx, state, styles, children, depth)
+        },
         // A picture is a box with a source in it. The painter reads a data URI
         // it can and paints a placeholder box at the same size for one it
         // cannot; `alt` is what a reader is *told* and never what is drawn, so
@@ -892,6 +1003,24 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 []
             }
         },
+        // A bare wrapper around its children: the press it watches for is the
+        // browser's own document listener and no style says it, so a picture of
+        // it is a picture of its children. The handler is dead weight here — a
+        // painter has no pointer — so it is dropped, the way a button's is.
+        .OnPressOutside(_handler, styles, children) => {
+            container(ctx, state, styles, children, depth)
+        },
+        // The group is a box the caller styles; each option is a `<label>`
+        // wrapping a radio box and its caption, the shape a toggle already
+        // takes. The box answers for its own `:checked` off the signal — the
+        // input whose key equals it — and a checked one draws the dot the reset
+        // paints with `:checked::before`, in the box's own foreground.
+        .RadioGroup(_label, options, styles, value) => {
+            [styledLine(ctx, plain(state), styles, depth)].concat(
+                ctx,
+                radioOptions(ctx, state, options, value.get(scope), depth + 1, 0, []),
+            )
+        },
         // A bar and whatever fills it. The role and the three `aria-value*` are
         // what a reader is told, not what a painter draws, so the scene is the
         // caller's own boxes — the same picture the nested `stack`s painted
@@ -914,6 +1043,75 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 head
             }
         },
+    }
+}
+
+/// Every option's lines, in order: a `<label>` wrapper, the radio box, its dot
+/// when it is the checked one, and the caption beside it.
+fn radioOptions<C: Allocator>(
+    ctx: C,
+    state: State,
+    options: [(Str, Prop<Str>)],
+    selected: Str,
+    depth: Int,
+    at: Int,
+    acc: [Str],
+): [Str] {
+    match (options.get(at)) {
+        .None => acc,
+        .Some(option) => {
+            let scope = rootScope();
+            let key = option.0;
+            let on = key == selected;
+            let painted = Painted { state: state, checked: .Some(on), disabled: false };
+            let lines = [
+                styledLine(ctx, plain(state), wrapper([]), depth),
+                styledLine(ctx, painted, radioBox(), depth + 1),
+            ].concat(ctx, dotLines(ctx, on, depth + 2)).push(
+                ctx,
+                textLine(ctx, depth + 1, option.1.read(scope)),
+            );
+            radioOptions(
+                ctx,
+                state,
+                options,
+                selected,
+                depth,
+                at + 1,
+                acc.concat(ctx, lines),
+            )
+        },
+    }
+}
+
+/// A radio's box: a circle one line square that does not shrink, centring the
+/// dot the widget draws in it.
+///
+/// The sheet's reset says the same three sizes and the `border-radius` to a
+/// browser, because with the chrome cleared an unsized radio is a control nobody
+/// can see or hit — the same bargain a checkbox's box makes.
+fn radioBox(): [Style] {
+    [
+        .Layout(.Row),
+        .AlignMain(.Center),
+        .AlignCross(.Center),
+        .Width(.Rem(1.0)),
+        .Height(.Rem(1.0)),
+        .Shrink(0),
+        .Radius(.Full),
+    ]
+}
+
+/// The dot a checked radio draws in its own box, as the line it contributes.
+///
+/// `mark:dot` is a scene-only declaration, as a toggle's `mark:tick` is: a disc
+/// half the box across, centred, in the box's own foreground. An unchecked radio
+/// draws none, the way an unchecked checkbox draws no tick.
+fn dotLines<C: Allocator>(ctx: C, on: Bool, depth: Int): [Str] {
+    if (on) {
+        [elementLine(ctx, depth, [], ["mark:dot", "width:50%", "height:50%"])]
+    } else {
+        []
     }
 }
 
@@ -1666,6 +1864,12 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         .Passthrough(on) => {
             let css = if (on) { "none" } else { "auto" };
             [decl(ctx, "pointer-events", css)]
+        },
+        // Only what is painted behind the box is blurred; the box paints over
+        // the blur.
+        .BackdropBlur(length) => {
+            let css = str.format(ctx, "blur(${lengthCss(ctx, length)})");
+            [decl(ctx, "backdrop-filter", css)]
         },
         _ => [],
     }

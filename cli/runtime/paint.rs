@@ -75,8 +75,9 @@
 //!
 //! The properties [`apply`] names, and no others: flexbox and grid, padding,
 //! the outward margin a `Bleed` writes, sizing, background, border, radius,
-//! shadow, opacity, the text properties, and the one transform the vocabulary
-//! has — a translate. They are the same CSS `semantics::styles::declaration`
+//! shadow, the backdrop blur a scrim casts, opacity, the text properties, and
+//! the one transform the vocabulary has — a translate. They are the same CSS
+//! `semantics::styles::declaration`
 //! writes into the stylesheet and `$tree_declare` writes inline, so a style
 //! that folded and one that did not paint alike. Anything else parses and is
 //! ignored, which is what lets the vocabulary grow without breaking a scene.
@@ -134,13 +135,15 @@
 //!
 //! An `e` line may also carry `mark:<shape>`, which makes the box a mark a
 //! widget draws for itself rather than a container: `thumb`, the disc a switch
-//! moves from one end of its track to the other, and `tick`, the stroke a
-//! checkbox holds when it is on. Neither is a box, which is why neither is a
+//! moves from one end of its track to the other; `tick`, the stroke a checkbox
+//! holds when it is on; and `dot`, the disc a checked radio holds, in a box the
+//! scene sized to half the control. None is a box, which is why none is a
 //! `ui/style` property — there is no radius that makes a tick and no background
-//! that draws one. Both take the element's own **foreground**, so the colour
-//! that paints the mark is the colour that paints the text beside it, and both
-//! are drawn inside whatever box the layout gave the line. The sheet's reset
-//! draws the same two on `input[type=checkbox]::before`.
+//! that draws one. Each takes the element's own **foreground**, so the colour
+//! that paints the mark is the colour that paints the text beside it, and each
+//! is drawn inside whatever box the layout gave the line. The sheet's reset
+//! draws the tick and the dot on `input[type=checkbox]::before` and
+//! `input[type=radio]:checked::before`.
 //!
 //! An `e` line may also carry `image:<source>`, which makes the box a picture
 //! rather than a container. **The painter loads nothing** — no network, no
@@ -196,7 +199,9 @@
 //!
 //! `box-shadow`'s blur is three integer box passes over a coverage mask, which
 //! is what the SVG filter specification writes down for a Gaussian and what a
-//! browser does for a shadow; any `overflow` but `visible` — the `clip` a
+//! browser does for a shadow; a `backdrop-filter: blur` runs the same passes
+//! over the page already painted behind the box, clipped to the box; any
+//! `overflow` but `visible` — the `clip` a
 //! `Clip` writes and the `auto` a `Scroll` writes alike — clips to the box's
 //! own rounded shape, which is what lets a card cut a full-bleed child to its
 //! corners. Both are stated at [`blur`] and [`intersect`].
@@ -953,6 +958,10 @@ enum Mark {
     /// A checkbox's tick: a stroke through three points of the box's largest
     /// centred square.
     Tick,
+    /// A checked radio's dot: a disc filling the box it was given, which the
+    /// scene sizes to half the control. The same shape as a thumb, drawn in a
+    /// smaller box.
+    Dot,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1025,6 +1034,10 @@ struct Computed {
     /// Every `box-shadow` layer, in the order they were written — the first
     /// painted over the ones after it.
     shadow: Vec<Shadow>,
+    /// `backdrop-filter: blur()`, in device pixels: how far the page already
+    /// painted behind this box is blurred before the box paints over it. Zero
+    /// is no blur, and it is not inherited — the blur is the box's own.
+    backdrop_blur: f32,
     /// `transform: translate(x, y)`, applied after the layout, so nothing
     /// around the box moves with it. A percentage is of the box's own size.
     translate: Option<(Len, Len)>,
@@ -1095,6 +1108,7 @@ impl Computed {
             radii: [Len::Px(0.0); 4],
             opacity: 1.0,
             shadow: Vec::new(),
+            backdrop_blur: 0.0,
             translate: None,
             marker: Marker::None,
             mark: Mark::None,
@@ -1377,6 +1391,17 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             }
         }
         "box-shadow" => style.shadow = shadows(value, font_size),
+        // `blur(<length>)`, the one backdrop filter the vocabulary writes. A
+        // radius in anything but a length is no blur, so it stays zero.
+        "backdrop-filter" => {
+            if let Some(Len::Px(n)) = value
+                .strip_prefix("blur(")
+                .and_then(|v| v.strip_suffix(')'))
+                .and_then(|v| length(v.trim(), font_size))
+            {
+                style.backdrop_blur = n.max(0.0);
+            }
+        }
         // The one transform the vocabulary writes. An unreadable one is
         // ignored, which is what a browser does with a declaration it cannot
         // parse.
@@ -1439,6 +1464,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.mark = match value {
                 "thumb" => Mark::Thumb,
                 "tick" => Mark::Tick,
+                "dot" => Mark::Dot,
                 _ => Mark::None,
             };
         }
@@ -1544,16 +1570,20 @@ fn alignment(value: &str) -> Option<AlignContent> {
     }
 }
 
-/// The same seven as item alignment. `space-*` has no item meaning, so it reads
-/// as the start it behaves like.
+/// The same seven as content alignment, read on the cross axis. `space-*` has
+/// no item meaning: `align-items:space-between` is not a legal declaration, so
+/// a browser drops it and `align-items` stays `normal`, which for a flex
+/// container is stretch. The painter lands on the same stretch a browser does,
+/// so a scene document that still carries the raw distribution paints the way
+/// the sheet's `stretch` does.
 fn item_alignment(value: &str) -> Option<AlignItems> {
     match value {
-        "flex-start" | "space-between" | "space-around" | "space-evenly" => {
-            Some(AlignItems::FLEX_START)
-        }
+        "flex-start" => Some(AlignItems::FLEX_START),
         "center" => Some(AlignItems::CENTER),
         "flex-end" => Some(AlignItems::FLEX_END),
-        "stretch" => Some(AlignItems::STRETCH),
+        "stretch" | "space-between" | "space-around" | "space-evenly" => {
+            Some(AlignItems::STRETCH)
+        }
         _ => None,
     }
 }
@@ -2495,6 +2525,13 @@ impl Painter<'_> {
                 }
             }
         }
+        // The page behind the box is blurred before the box paints over it, so
+        // a scrim's tenth of black lands on a softened page. Between the shadow
+        // and the background: the shadow is cast outside the box and the
+        // background fills over the blur.
+        if style.backdrop_blur > 0.0 {
+            backdrop_blur(canvas, box_, radii, style.backdrop_blur, clip);
+        }
         if style.background.visible() {
             fill(canvas, box_, radii, style.background, style.opacity, clip);
         }
@@ -2679,7 +2716,11 @@ impl Painter<'_> {
         if side <= 0.0 {
             return;
         }
-        if style.mark == Mark::Thumb {
+        if style.mark == Mark::Thumb || style.mark == Mark::Dot {
+            // A thumb and a dot are the same shape — a disc filling the box —
+            // and differ only in the box the scene gives them: a thumb takes
+            // the whole control, a dot half of it. The reset's `::before` draws
+            // the same two discs from the same two sizes.
             fill(canvas, box_, circular(side / 2.0), style.colour, style.opacity, clip);
             return;
         }
@@ -3324,30 +3365,105 @@ fn narrow(mask: &mut Mask, other: &Mask) {
 /// target. Only the box width is computed in floating point, and it is one
 /// `squareRoot` of a constant times a length both platforms already agree on.
 fn blur(mask: &mut Mask, radius: f32) {
+    let Some(passes) = blur_passes(radius) else { return };
+    let (w, h) = (mask.width() as usize, mask.height() as usize);
+    let mut scratch = vec![0u8; w.saturating_mul(h)];
+    for (size, lead) in passes {
+        rows(mask.data_mut(), &mut scratch, w, h, size, lead);
+    }
+    for (size, lead) in passes {
+        columns(mask.data_mut(), &mut scratch, w, h, size, lead);
+    }
+}
+
+/// The three box passes a CSS blur radius stands for — one source of truth for
+/// a coverage mask ([`blur`]) and for a backdrop ([`backdrop_blur`]).
+///
+/// A radius of `n` is a Gaussian of standard deviation `n / 2`, and the box
+/// width that stands in for it is `floor(sigma * 3 * sqrt(2 * PI) / 4 + 0.5)`.
+/// `None` is a radius too small to blur anything. An odd box has a centre; an
+/// even one does not, so the three passes lean left, then right, then take one
+/// more sample to land back where they started. SVG filters §15.17 states
+/// exactly this.
+fn blur_passes(radius: f32) -> Option<[(usize, usize); 3]> {
     let sigma = radius / 2.0;
     if sigma <= 0.0 || !sigma.is_finite() {
-        return;
+        return None;
     }
     // 3 * sqrt(2 * PI) / 4, the SVG filter primitive's own constant.
-    let Ok(d) = u32::try_from((sigma * 1.881_976_2 + 0.5).floor() as i64) else { return };
+    let d = u32::try_from((sigma * 1.881_976_2 + 0.5).floor() as i64).ok()?;
     if d == 0 {
-        return;
+        return None;
     }
-    // An odd box has a centre; an even one does not, so the three passes lean
-    // left, then right, then take one more sample to land back where they
-    // started. SVG filters §15.17 states exactly this.
     let passes = if d % 2 == 1 {
         [(d, d / 2), (d, d / 2), (d, d / 2)]
     } else {
         [(d, d / 2), (d, d / 2 - 1), (d + 1, d / 2)]
     };
-    let (w, h) = (mask.width() as usize, mask.height() as usize);
-    let mut scratch = vec![0u8; w.saturating_mul(h)];
-    for (size, lead) in passes {
-        rows(mask.data_mut(), &mut scratch, w, h, size as usize, lead as usize);
+    Some(passes.map(|(size, lead)| (size as usize, lead as usize)))
+}
+
+/// Blurs the page already painted behind a box, clipped to the box's own
+/// rounded shape, before the box paints over it. This is
+/// `backdrop-filter: blur()`.
+///
+/// The blur is [`blur`]'s three box passes, run here over each of the canvas's
+/// four premultiplied channels rather than over a coverage mask. Premultiplied
+/// is the space compositing is linear in, so a box average of premultiplied
+/// bytes is the coverage-weighted average colour, and the average of a channel
+/// that never exceeds alpha never exceeds the average alpha — the premultiplied
+/// invariant survives. The blurred pixels replace the page's within a coverage
+/// mask of the box's shape, met with the caller's clip, so the box's background
+/// and content then land on a softened page.
+///
+/// **The approximation, recorded in `design/native/DECISIONS.md`:** the passes
+/// read off the canvas as transparent, so a blur whose radius reaches the
+/// canvas edge fades there, where CSS clamps the edge sample. A scrim inset
+/// from the page's edge never meets it; a full-bleed one fades by a few pixels
+/// at the very rim.
+fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, clip: Option<&Mask>) {
+    let Some(passes) = blur_passes(radius) else { return };
+    let (w, h) = (canvas.width() as usize, canvas.height() as usize);
+    let n = w.saturating_mul(h);
+    if n == 0 {
+        return;
     }
-    for (size, lead) in passes {
-        columns(mask.data_mut(), &mut scratch, w, h, size as usize, lead as usize);
+    // The mask the blur lands through: the box's rounded shape, met with the
+    // clip already in force, so the blur reaches nowhere the caller excluded.
+    let (Some(mut mask), Some(path)) = (Mask::new(canvas.width(), canvas.height()), box_.path(radii))
+    else {
+        return;
+    };
+    mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
+    if let Some(outer) = clip {
+        narrow(&mut mask, outer);
+    }
+    // Split the premultiplied canvas into four planes, blur each, and lerp the
+    // result back where the mask covers.
+    let mut planes: [Vec<u8>; 4] = [vec![0; n], vec![0; n], vec![0; n], vec![0; n]];
+    for (i, pixel) in canvas.data().chunks_exact(4).enumerate() {
+        for (c, plane) in planes.iter_mut().enumerate() {
+            plane[i] = pixel[c];
+        }
+    }
+    let mut scratch = vec![0u8; n];
+    for plane in &mut planes {
+        for (size, lead) in passes {
+            rows(plane, &mut scratch, w, h, size, lead);
+        }
+        for (size, lead) in passes {
+            columns(plane, &mut scratch, w, h, size, lead);
+        }
+    }
+    let coverage = mask.data().to_vec();
+    for (i, pixel) in canvas.data_mut().chunks_exact_mut(4).enumerate() {
+        let cov = coverage[i];
+        if cov == 0 {
+            continue;
+        }
+        for (c, byte) in pixel.iter_mut().enumerate() {
+            *byte = mul255(*byte, 255 - cov).saturating_add(mul255(planes[c][i], cov));
+        }
     }
 }
 
@@ -4261,6 +4377,22 @@ mod tests {
         assert_eq!(at(&image, 3, 0), [255, 0, 0, 255]);
         assert_eq!(at(&image, 4, 0), [255, 255, 255, 255]);
         assert_eq!(at(&image, 7, 0), [0, 255, 0, 255]);
+    }
+
+    /// buri#80: `align-items:space-between` is not a legal declaration, so a
+    /// browser drops it and `align-items` stays `normal`, which for a flex
+    /// container is stretch. The painter lands on the same stretch, so a child
+    /// with no cross-axis size fills the container the way the sheet's own
+    /// `stretch` makes it — rather than the flex-start it used to read.
+    #[test]
+    fn a_cross_axis_distribution_stretches_the_way_a_browser_drops_it() {
+        let scene = "buri-scene 1\nviewport 20 20\n\
+                     e 0 flex-direction:row;align-items:space-between;width:20px;height:20px\n\
+                     e 1 width:8px;background-color:rgb(255,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        // No height of its own; stretched, it fills the container top to bottom.
+        assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 0, 19), [255, 0, 0, 255]);
     }
 
     /// The glyphs land inside the box the shaper measured, and nowhere else.

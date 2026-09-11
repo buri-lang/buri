@@ -1,0 +1,9 @@
+# No `platforms`: a snapshot is painted by the native runtime, so this suite has
+# to be the linked binary rather than a JavaScript module.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/blur.buri"]
+    }
+}

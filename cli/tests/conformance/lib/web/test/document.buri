@@ -20,11 +20,11 @@ from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, Json, ToJson };
 from "core/net/http" import * as http;
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui };
+from "ui/effect" import { Location, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
-from "ui/testing" import { headless, render };
+from "ui/testing" import { address, headless, observer, render };
 from "ui/web" import * as web;
 
 derive FromJson, ToJson for Reading;
@@ -310,6 +310,22 @@ test "every kind of node renders" {
         ),
         "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
     );
+    // A radio group is a working radio group before a byte of this program's
+    // code runs on the page: real `<input type="radio">` sharing one `name`
+    // inside a `role="radiogroup"`, so the browser's roving tabindex, arrow
+    // keys and `aria-checked` are the markup the worker sent. The checked one is
+    // the input whose key is the signal.
+    assert.equal(
+        web.render(
+            ui.radioGroup(
+                .Const("Plan"),
+                [("free", .Const("Free")), ("pro", .Const("Pro"))],
+                [],
+                signal(ctx, "pro"),
+            ),
+        ),
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
+    );
     // A button holding a mark and a word is one element, and the label the
     // markup carries is what a reader is announced rather than the glyphs.
     assert.equal(
@@ -385,6 +401,71 @@ test "every kind of node renders" {
         ),
         "",
     );
+    // An outside-press wrapper adds no visible element beyond its own wrapper:
+    // it crosses the worker as the bare `<div>` a stack of the same styles and
+    // children would. The document listener that dismisses the overlay is the
+    // page's own, registered when the tree resumes rather than written into the
+    // markup — there is no attribute a server could send for it.
+    assert.equal(
+        web.render(
+            ui.onPressOutside(fn(_c, _e) => (), [.Padding(.Px(8))], [
+                ui.text(.Const("panel")),
+            ]),
+        ),
+        "<div class=\"p-8\">panel</div>",
+    );
+}
+
+test "a route link the worker sends is a real anchor" {
+    // Same markup as `link`: a route is an `<a href>` for the browser and for
+    // the reader, so the page the worker sends already carries middle-click,
+    // ⌘-click, the status-bar preview and the "link" announcement. What sets it
+    // apart is what the page does with a plain left-click, which is a listener
+    // rather than markup.
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    assert.equal(
+        render(
+            ctx,
+            web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]),
+        ).markup(),
+        "<a href=\"/next\">go</a>",
+    );
+}
+
+test "a plain click on a route link navigates in place, keeping the tree" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    // A signal a full document load would throw away — the whole reason to
+    // navigate rather than follow a link.
+    let kept = signal(ctx, "before");
+    let page = render(ctx, web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]));
+    // A plain left-click is the app's: the address changes, the signal is still
+    // there, and the tree was left where it is.
+    let _ = page.follow("go");
+    assert.equal(web.path(ctx), "/next");
+    assert.equal(kept.get(ctx), "before");
+    assert.equal(page.markup(), "<a href=\"/next\">go</a>");
+}
+
+test "a modified click on a route link is left to the browser" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    let page = render(ctx, web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]));
+    // A ⌘/Ctrl-click, or the middle button, is how a reader opens a link beside
+    // the page they are on. A route leaves that to the browser as an ordinary
+    // anchor, so the address bar does not move.
+    let _ = page.openInNewTab("go");
+    assert.equal(web.path(ctx), "/");
 }
 
 test "a worker writes an icon's artwork into the page it sends" {
