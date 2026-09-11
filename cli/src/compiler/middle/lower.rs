@@ -115,7 +115,6 @@ pub fn run(program: &Program, tables: &Tables) -> ir::Program {
 /// the same classifier both native backends build from the same `Program` — see
 /// `rc.rs`, "which types carry a count", for why it has to be.
 pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Program {
-    let mut types = Types::default();
     let units = Units::assign(program);
     // How many loop entries each function has, which is how a `Continue` into
     // another function knows whether to pass a dispatch index. Computed for
@@ -123,55 +122,28 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // function it names.
     let entries: Vec<usize> = program.funcs.iter().map(|f| loop_entries(f.body())).collect();
 
-    let mut funcs = Vec::with_capacity(program.funcs.len());
-    for (i, f) in program.funcs.iter().enumerate() {
-        let dispatch = entries.get(i).copied().unwrap_or(0) > 1;
-        let mut sig = Signature { params: Vec::new(), rets: Vec::new() };
-        if dispatch {
-            sig.params.push(Type::I32);
-        }
-        for p in &f.params {
-            let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Unit);
-            let t = types.of(tables, &ty);
-            sig.params.push(t);
-        }
-        let ret = returns(f);
-        sig.rets.push(types.of(tables, &ret));
+    // Lower every function across the cores. Each gets a type interner of its
+    // own — the one piece of cross-function state — and its `TypeId`s are made
+    // whole-program below. `parallel::map` returns the results in index order,
+    // so `funcs` is the same vector the serial loop built.
+    let lowered: Vec<(Func, Vec<TypeInfo>)> = crate::parallel::map(program.funcs.len(), |i| {
+        let mut types = Types::default();
+        let func = lower_one(program, tables, plan, &entries, &units, &mut types, i);
+        (func, types.list)
+    });
 
-        let fplan = plan.func(FuncIdx(i as u32));
-        let body = match &f.kind {
-            FuncKind::Intrinsic(key) => Body::Runtime(bounded_key(tables, key, &ret)),
-            FuncKind::Unbuilt | FuncKind::Body(_) => {
-                let mut lower = FnLower {
-                    tables,
-                    program,
-                    types: &mut types,
-                    entries: &entries,
-                    locals: &f.locals,
-                    ret: ret.clone(),
-                    code: Code::new(),
-                    cur: BlockId(0),
-                    env: vec![None; f.locals.len()],
-                    loops: Vec::new(),
-                    unmatched: None,
-                    sites: Sites::of(fplan, f.body()),
-                    node_values: HashMap::default(),
-                    #[cfg(debug_assertions)]
-                    debug_name: &f.debug_name,
-                };
-                Body::Code(lower.func(&sig, &f.params, f.body(), dispatch))
-            }
-        };
-
-        funcs.push(Func {
-            facts: facts(fplan, &sig, dispatch),
-            symbol: f.symbol.clone(),
-            debug_name: f.debug_name.clone(),
-            sig,
-            unit: units.of(&f.debug_name),
-            body,
-            span: f.span,
-        });
+    // Fold the per-function type tables into one, in function order, and remap
+    // each function's `TypeId`s onto it. The global interner meets function 0's
+    // types first, then function 1's new ones, and so on — which is the exact
+    // order a single shared interner met them in, so the emitted type table and
+    // every id in it are byte-for-byte the serial ones.
+    let mut types = Types::default();
+    let mut funcs = Vec::with_capacity(lowered.len());
+    for (mut func, local) in lowered {
+        let remap: Vec<TypeId> =
+            local.into_iter().map(|info| types.adopt(info.ty, info.name)).collect();
+        remap_func_types(&mut func, &remap);
+        funcs.push(func);
     }
 
     ir::Program {
@@ -180,6 +152,87 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
         types: types.list,
         crosses_tasks: plan.crosses_tasks,
         cell_equal: program.cell_equal.clone(),
+    }
+}
+
+/// Lowers one function, interning its types into `types`.
+///
+/// Pure in `i`: it reads the program, the plan and the two whole-program tables,
+/// and writes only its own `types`. That is what lets [`run_with`] run it over
+/// the cores; the `TypeId`s it mints are local to `types` and remapped there.
+#[allow(clippy::too_many_arguments, reason = "the whole-program tables one lowering reads")]
+fn lower_one(
+    program: &Program,
+    tables: &Tables,
+    plan: &rc::Plan,
+    entries: &[usize],
+    units: &Units,
+    types: &mut Types,
+    i: usize,
+) -> Func {
+    let f = program.funcs.get(i).or_ice("`parallel::map` ranges over `program.funcs`");
+    let dispatch = entries.get(i).copied().unwrap_or(0) > 1;
+    let mut sig = Signature { params: Vec::new(), rets: Vec::new() };
+    if dispatch {
+        sig.params.push(Type::I32);
+    }
+    for p in &f.params {
+        let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Unit);
+        let t = types.of(tables, &ty);
+        sig.params.push(t);
+    }
+    let ret = returns(f);
+    sig.rets.push(types.of(tables, &ret));
+
+    let fplan = plan.func(FuncIdx(i as u32));
+    let body = match &f.kind {
+        FuncKind::Intrinsic(key) => Body::Runtime(bounded_key(tables, key, &ret)),
+        FuncKind::Unbuilt | FuncKind::Body(_) => {
+            let mut lower = FnLower {
+                tables,
+                program,
+                types,
+                entries,
+                locals: &f.locals,
+                ret: ret.clone(),
+                code: Code::new(),
+                cur: BlockId(0),
+                env: vec![None; f.locals.len()],
+                loops: Vec::new(),
+                unmatched: None,
+                sites: Sites::of(fplan, f.body()),
+                node_values: HashMap::default(),
+                #[cfg(debug_assertions)]
+                debug_name: &f.debug_name,
+            };
+            Body::Code(lower.func(&sig, &f.params, f.body(), dispatch))
+        }
+    };
+
+    Func {
+        facts: facts(fplan, &sig, dispatch),
+        symbol: f.symbol.clone(),
+        debug_name: f.debug_name.clone(),
+        sig,
+        unit: units.of(&f.debug_name),
+        body,
+        span: f.span,
+    }
+}
+
+/// Rewrites a function's local `TypeId`s to the whole-program ones. Covers every
+/// place a `TypeId` reaches the IR: a value's or a signature slot's [`Type`],
+/// and a [`Inst::Structural`]'s type.
+fn remap_func_types(func: &mut Func, remap: &[TypeId]) {
+    for t in func.sig.params.iter_mut().chain(func.sig.rets.iter_mut()) {
+        if let Type::Agg(id) = t {
+            if let Some(&g) = remap.get(id.index()) {
+                *id = g;
+            }
+        }
+    }
+    if let Body::Code(code) = &mut func.body {
+        code.remap_types(remap);
     }
 }
 
@@ -313,6 +366,21 @@ impl Types {
             ty: ty.clone(),
         });
         self.index.insert(ty.clone(), id);
+        id
+    }
+
+    /// Folds one already-interned type — a runtime `ty` and the name it was
+    /// interned under — into this interner, for merging the per-function
+    /// interners `run_with` builds. It takes the entry whole rather than
+    /// recomputing it: the `ty` is already `runtime_ty`-normalized and the name
+    /// is already rendered, so a merged table is byte-for-byte a serial one.
+    fn adopt(&mut self, ty: Ty, name: String) -> TypeId {
+        if let Some(id) = self.index.get(&ty) {
+            return *id;
+        }
+        let id = TypeId(self.list.len() as u32);
+        self.list.push(TypeInfo { name, ty: ty.clone() });
+        self.index.insert(ty, id);
         id
     }
 
@@ -2003,6 +2071,33 @@ mod tests {
     /// Wraps a body in a `main` the driver will accept.
     fn program(extra: &str, body: &str) -> String {
         format!("{extra}\n\nexport fn main(): Result<(), Str> {{\n{body}\n  .Ok(())\n}}\n")
+    }
+
+    /// Lowering runs one function per core and folds the per-worker type tables
+    /// back together afterwards. This pins that the whole is a pure function of
+    /// the program: two lowerings of one source render the same IR, byte for
+    /// byte, whatever order the workers finished in — so a `TypeId` cannot move
+    /// with the scheduler. A merge that read the workers' results in completion
+    /// order rather than index order, or a remap that dropped a function's ids,
+    /// would part these two strings.
+    ///
+    /// The snippet pulls in `core/list` and `core/str` and names four types the
+    /// interner must agree on — a tuple, a list, a `Str` and a struct — so the
+    /// program it lowers is hundreds of functions wide, past the point the pass
+    /// spreads over the cores.
+    #[test]
+    fn lowering_is_a_pure_function_of_the_program() {
+        let src = program(
+            "struct Point { x: Int, y: Int }\n\n\
+             fn label(p: Point): Str { \"pt\" }\n\n\
+             fn pair(a: Int, b: Str): (Int, Str) { (a, b) }\n\n\
+             fn each(xs: [Int]): Int { xs.length() }\n",
+            "  let _ = label(Point { x: 1, y: 2 });\n  \
+             let _ = pair(3, \"a\");\n  let _ = each([4, 5, 6]);",
+        );
+        let once = format!("{}", lower(&src));
+        let twice = format!("{}", lower(&src));
+        assert_eq!(once, twice, "two lowerings of one program rendered differently");
     }
 
     /// The reproduction the release-then-retain class was found on, lowered.

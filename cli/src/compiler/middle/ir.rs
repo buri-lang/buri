@@ -640,6 +640,31 @@ impl Code {
         Code { blocks: Vec::new(), values: Vec::new() }
     }
 
+    /// Rewrites every `TypeId` this code holds through `remap`, which maps a
+    /// local interner's ids to a whole-program one's. `lower` builds each
+    /// function against a private interner, across the cores, and folds the
+    /// interners together afterwards; this is how a function's ids follow. The
+    /// two places a `TypeId` reaches are a value's [`Type`] and a
+    /// [`Inst::Structural`]'s type.
+    pub fn remap_types(&mut self, remap: &[TypeId]) {
+        for ty in &mut self.values {
+            if let Type::Agg(id) = ty {
+                if let Some(&g) = remap.get(id.index()) {
+                    *id = g;
+                }
+            }
+        }
+        for block in &mut self.blocks {
+            for inst in &mut block.insts {
+                if let Inst::Structural { ty, .. } = inst {
+                    if let Some(&g) = remap.get(ty.index()) {
+                        *ty = g;
+                    }
+                }
+            }
+        }
+    }
+
     /// The type of a value.
     ///
     /// Every id was minted by [`Code::value`] or [`Code::block`], both of
