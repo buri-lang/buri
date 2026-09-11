@@ -128,10 +128,12 @@ message Binary {
   // a co-located library, excluding `main.buri` and the test sources.
   repeated string sources = 1;
 
-  // Field 6 was `proto_sources`, retired for the reason the library's was. The
-  // number is not reused.
-  reserved 6;
-  reserved "proto_sources";
+  // Field 6 was `proto_sources`, retired for the reason the library's was.
+  // Field 8 was `web`, which named the `<title>` and the `lang` of the `.html`
+  // a WEB output writes; a page names its own tab now, with `ui/web`'s `title`
+  // on the page and `Document` on the worker. Neither number is reused.
+  reserved 6, 8;
+  reserved "proto_sources", "web";
 
   // Exactly the same meaning as on a library.
   repeated Generator generators = 7;
@@ -147,27 +149,8 @@ message Binary {
   // once per output, because each one names a platform and an entry of its own.
   repeated Output outputs = 4;
 
-  // What the entry shell of a WEB output says about the document it loads.
-  // Ignored by every other platform, which writes no document.
-  Web web = 8;
-
   // Tests that exercise this binary through `main.buri`.
   TestSuite test = 5;
-}
-
-// The `<head>` of the `.html` a WEB output writes.
-//
-// A block on the binary rather than fields on `outputs`, because a binary's
-// outputs are one site said several ways — a page and the worker that renders
-// it — and they name one document between them.
-message Web {
-  // The `<title>`: what names the tab, the bookmark and the window switcher.
-  // Defaults to the artifact's name, which is the package's directory name.
-  // Escaped, so a title is text and not markup.
-  string title = 1;
-
-  // The BCP 47 tag on `<html lang="...">`. Unset means `en`.
-  string lang = 2;
 }
 
 // A program the build runs, whose output becomes a module.

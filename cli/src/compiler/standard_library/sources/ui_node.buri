@@ -172,6 +172,7 @@ enum NodeKind<C> {
     // `Node<C>`'s one type parameter. The runtime asks by index. See `each`.
     Each(fn(Scope) => Int, fn(Scope, Int) => Str, fn(C, Scope, Int) => Node<C>),
     Icon([Style], Str),
+    Submit(Prop<Str>, [Style]),
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
 }
 
@@ -265,6 +266,10 @@ export fn heading<C>(level: Int, styles: [Style], content: Prop<Str>): Node<C> {
 /// press before the handler is reached, and tells a reader the button is
 /// unavailable rather than absent. `.Const(false)` is a button that is always
 /// pressable.
+///
+/// **A button never submits the form it happens to be inside.** `onPress` is
+/// the whole of what it does, so a Cancel beside a Send stays a Cancel. The
+/// button that submits is `submit`, and a form needs one.
 export fn button<C>(
     label: Prop<Str>,
     styles: [Style],
@@ -398,12 +403,34 @@ export fn toggle<C>(
 ///
 /// A widget rather than a role, because submitting is behaviour: pressing Enter
 /// in a field inside one runs `onSubmit`. That is why `Role` has no `Form`.
+///
+/// **Put a `submit` in it.** Enter is the platform's own dispatch and the
+/// platform's own rule comes with it: a form is submitted implicitly through
+/// its submit button, and a form with none is submitted only while it holds
+/// exactly one field. So a form of one field works either way, and a form of
+/// two that ends in an ordinary `button` discards the keypress — which is why
+/// `submit` exists and why `ui/testing`'s `submit` refuses the same forms a
+/// browser does.
 export fn form<C>(
     onSubmit: fn(C, Event) => (),
     styles: [Style],
     children: [Node<C>],
 ): Node<C> {
     Node(.Form(onSubmit, styles, children))
+}
+
+/// The button that submits the form it is in.
+///
+/// It takes no handler, because the form's `onSubmit` *is* its handler: one
+/// place says what submitting does, and pressing this and pressing Enter in a
+/// field both arrive there. A `button` beside it with a handler of its own is
+/// the Cancel, and stays one.
+///
+/// The label is a parameter for `button`'s reason and is the button's text as
+/// well as its accessible name — there are no children, because what a form's
+/// action is called is the one thing about it a reader has to be told.
+export fn submit<C>(label: Prop<Str>, styles: [Style]): Node<C> {
+    Node(.Submit(label, styles))
 }
 
 /// A panel over the page, and the signal that opens and shuts it.
@@ -739,6 +766,15 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         .Form(_onSubmit, styles, children) => {
             container(ctx, state, styles, children, depth)
+        },
+        // A form's action is a button with its label drawn in it, which is a
+        // childless button's own shape: the accessible name and the glyphs are
+        // the same string.
+        .Submit(label, styles) => {
+            [
+                styledLine(ctx, plain(state), styles, depth),
+                textLine(ctx, depth + 1, label.read(scope)),
+            ]
         },
         .When(cond, then, otherwise) => {
             if (cond.read(scope)) {

@@ -147,6 +147,32 @@ update: the handler runs inside a transaction, so three writes cause one pass
 over the watchers rather than three. A field and a toggle have no change event
 at all — they are bound to a `Signal`, and what the reader typed is in it.
 
+**A form ends in a `submit`.** Enter in a field is the browser's own dispatch,
+and the browser's own rule comes with it: a form is submitted implicitly
+through its submit button, and a form with none is submitted only while it
+holds exactly one field. So `submit` is the button that carries no handler —
+the form's `onSubmit` is its handler — and an ordinary `button` beside it stays
+the Cancel it was written as.
+
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn contact<C: Ui>(
+    name: Signal<Str>,
+    email: Signal<Str>,
+    sent: Signal<Str>,
+): Node<C> {
+    ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
+        ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
+        ui.field(.Const("Email"), .Email, [], [], email, .Const(false), .Const(false)),
+        ui.submit(.Const("Send"), []),
+    ])
+}
+```
+
 ## Styling, and the two tiers a style can be in
 
 `ui/style` is 53 properties and five ways of composing them. Every property is
@@ -372,8 +398,8 @@ export fn card<C>(label: Str): Node<C> {
 }
 ```
 
-**A control carries its own styles.** `button`, `link`, `image`, `field` and
-`toggle` take a `[Style]`, and it lands on the element itself — so
+**A control carries its own styles.** `button`, `submit`, `link`, `image`,
+`field` and `toggle` take a `[Style]`, and it lands on the element itself — so
 `On(.Hover, ...)`, `On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper
 around a button is none of those things. A field's and a toggle's styles go on
 the input rather than on the label around it, for the same reason, and a
@@ -611,7 +637,7 @@ labelled control's `<label>` out as a wrapping row, give a checkbox its box and
 its mark, and give a range its track, its bar and its thumb, and a class on any
 of them beats them.
 
-Two of the opening rules are about every element rather than about one:
+Three of the opening rules are about the page rather than about one element:
 
 - **A size is the whole box.** `box-sizing: border-box`, so a `Width` beside a
   `Padding` or a `BorderWidth` counts them inside it and a full-width padded
@@ -620,6 +646,10 @@ Two of the opening rules are about every element rather than about one:
   says it is. `AlignMain` and `AlignCross` therefore mean something on a bare
   `stack`. The four table elements keep a browser's own table layout, because
   that is what the scene document mirrors for them.
+- **The document carries no margin.** A browser puts eight pixels around
+  `<body>`, which is where `mount` renders, so without this every page sits in a
+  band of the browser's white. Nothing a program writes could reach it: this
+  vocabulary has no margin at all.
 
 **A designed focus ring replaces the platform's.** A browser paints its own
 `outline` over anything you put on the focused element, so the sheet takes it
@@ -765,6 +795,25 @@ export fn schemeFor(dark: Prop<Bool>): Theme {
     theme.switching(dark, theme.scheme(.Dark), theme.scheme(.Light))
 }
 ```
+
+`theme.page(background, foreground)` is the other one, and it says what the page
+itself is painted in:
+
+```buri
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+export fn ground(): Theme {
+    theme.page(.Rgb(10, 10, 10), .Rgb(250, 250, 250))
+}
+```
+
+That lands on the document — `background-color` and `color` on `body`, in the
+same block — so the window is the ground colour to its edges and every box
+inherits the text colour. A box inside the page cannot do this: it paints only
+as far as it reaches, leaving the browser's white behind an overscroll and
+anywhere the root box does not cover. Either colour may be a token, read the way
+a class reads one, so switching the values switches the page.
 
 ## Snapshots
 

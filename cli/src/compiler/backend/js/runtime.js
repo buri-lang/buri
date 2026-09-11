@@ -3724,7 +3724,7 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon     15 Dialog
+//  14 Icon     15 Submit   16 Dialog
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -4652,9 +4652,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 5) {
     const element = $tree_element(parent, "button", anchor);
-    // Not a submit button: a form's submission is its own handler, and a
-    // button that submits the form it happens to be inside is the surprise
-    // this vocabulary exists to remove.
+    // Not a submit button: a form usually holds a Cancel as well, and a button
+    // that submits the form it happens to be inside is the surprise this
+    // vocabulary exists to remove. `submit` is the one that submits.
     $dom_attribute(element, "type", "button");
     // The label is the accessible name however the button is drawn, so it is
     // an attribute rather than the glyphs: a button holding an icon and a word
@@ -4778,6 +4778,19 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     return;
   }
   if (tag === 15) {
+    const element = $tree_element(parent, "button", anchor);
+    // The form's action. This attribute is the whole of what makes Enter in a
+    // field submit: HTML submits a form implicitly through its submit button,
+    // and a form of two fields with none discards the keypress. There is no
+    // listener here — submitting is the form's own handler, and a click that
+    // ran it as well would run it twice.
+    $dom_attribute(element, "type", "submit");
+    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
+    $tree_styles(element, node[2]);
+    $tree_text(node[1], element, null);
+    return;
+  }
+  if (tag === 16) {
     const element = $tree_element(parent, "dialog", anchor);
     // The label is the accessible name however the panel is drawn, the rule a
     // button's label follows: a reader is announced into the dialog by what it
@@ -4911,6 +4924,21 @@ function $ui_theme_render(themes, scope) {
     // its own, so a later one wins the way a later value does.
     if (theme[0] === 2) {
       out += ":root{color-scheme:" + $UI_THEME_SCHEMES[theme[1]] + "}\n";
+      continue;
+    }
+    // A page's ground is the other one: the document's own two colours, on
+    // `body` rather than `:root` — a background there is what the browser
+    // paints the canvas with, so it reaches an overscroll and the whole window
+    // and not just the box the tree drew. A token is left as the `var()` a
+    // class would have held, because the properties are declared in this same
+    // text and the cascade resolves them wherever they are used.
+    if (theme[0] === 3) {
+      out +=
+        "body{background-color:" +
+        $tree_color(theme[1]) +
+        ";color:" +
+        $tree_color(theme[2]) +
+        "}\n";
       continue;
     }
     const body = [];
@@ -5127,8 +5155,27 @@ function $tree_labelled(self, name, label) {
 // assertion, and one that meant otherwise fails on the state it expected.
 function $ui_testing_Rendered_press(self, label) {
   const button = $tree_labelled(self, "button", label);
-  if ($dom_reachable(button) && !$dom_inert(button)) $dom_fire(button, "click");
+  // Out of reach when the pointer passes through it, or when a `dialog` has
+  // taken it out of the page — behind an open modal, or inside a shut one.
+  if (!$dom_reachable(button) || $dom_inert(button)) return 0;
+  $dom_fire(button, "click");
+  // A submit button has no handler of its own: submitting is the form's, and
+  // reaching it is the browser's default action for the press. Nothing here
+  // listens for a click, so the default action is dispatched here.
+  if (button.attributes["type"] === "submit" && !button.disabled) {
+    const form = $dom_enclosing(button, "form");
+    if (form !== null) $dom_fire(form, "submit");
+  }
   return 0;
+}
+
+// The nearest element of this name at or above `node`, or null where there is
+// none.
+function $dom_enclosing(node, name) {
+  for (let at = node; at !== null && at !== undefined; at = at.parent) {
+    if (at.kind === 0 && at.name === name) return at;
+  }
+  return null;
 }
 
 // Whether the pointer reaches this element rather than passing through it.
@@ -5184,11 +5231,48 @@ function $ui_testing_Rendered_flip(self, label) {
   return 0;
 }
 
+// The input types that block implicit submission, which is the HTML Standard's
+// own list: the kinds a reader types a line into. A `range` is dragged and a
+// `textarea` holds newlines, so neither blocks and neither counts.
+const $DOM_BLOCKING = {
+  text: true,
+  password: true,
+  email: true,
+  number: true,
+  search: true,
+};
+
+// Pressing Enter in a field, which is implicit submission — and implicit
+// submission is the platform's rule, not this double's. A form is submitted
+// through its submit button; a form with none is submitted only while exactly
+// one of its fields blocks implicit submission, and one with two fields and no
+// submit button discards the keypress.
+//
+// So this discards it too. A double more permissive than the platform is a
+// suite that goes green on markup a browser will not submit, which is a form
+// nobody can send and a test that cannot say so.
 function $ui_testing_Rendered_submit(self, at) {
   const forms = $dom_elements($slot(self), "form", []);
   const index = Number(at);
   if (index < 0 || index >= forms.length) $abort("this tree has no form " + index);
-  if (!$dom_inert(forms[index])) $dom_fire(forms[index], "submit");
+  const form = forms[index];
+  // A form a `dialog` has taken out of reach submits nothing.
+  if ($dom_inert(form)) return 0;
+  for (const button of $dom_elements(form, "button", [])) {
+    if (button.attributes["type"] === "submit") {
+      // A disabled submit button is no default action at all, so the form has
+      // none and the single-field rule below is what is left.
+      if (!button.disabled) {
+        $dom_fire(form, "submit");
+        return 0;
+      }
+    }
+  }
+  let blocking = 0;
+  for (const field of $dom_elements(form, "input", [])) {
+    if ($DOM_BLOCKING[field.attributes["type"]]) blocking++;
+  }
+  if (blocking === 1) $dom_fire(form, "submit");
   return 0;
 }
 
@@ -6624,6 +6708,16 @@ function $ui_web_state(ctx) {
   // state is what a page builds its tree out of and the tree is what it
   // resumes with.
   return $ui_web_embedded();
+}
+
+// The tab's name. `ui/web`'s `title` runs this inside a watch, so a title built
+// out of the route is rewritten every time the reader navigates. Nowhere to
+// write it is not a failure: a JavaScript host that is not a browser has no
+// document, and a page's name is not something a program reads back.
+function $ui_web_setTitle(text) {
+  if (typeof document === "undefined" || document === null) return 0;
+  document.title = text;
+  return 0;
 }
 
 // The address bar, as one cell of the graph. Made on first ask, so a page that

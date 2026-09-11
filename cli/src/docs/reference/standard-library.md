@@ -695,8 +695,8 @@ box at all, corners included, and it makes no scroll container doing it —
 a pinned toaster dock asks for it so the page under it still answers a press,
 and each toast in the dock takes the pointer back.
 
-`heading`, `button`, `link`, `image`, `field`, `toggle` and `icon` take a
-`[Style]` like every container does, and it lands on the element itself — so a
+`heading`, `button`, `submit`, `link`, `image`, `field`, `toggle` and `icon`
+take a `[Style]` like every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or
 disabled, a picture is sized, shaped and rounded rather than the box around it,
 and a heading is the size its styles say rather than the size a browser picked.
@@ -708,7 +708,8 @@ say. `ListMarker` puts a list's marks back.
 
 The same opening rules make a size the whole box (`box-sizing: border-box`, so
 padding and a border count inside a `Width`), make a container that names no
-`Layout` a column, and take the platform's focus outline away from the elements
+`Layout` a column, zero the margin a browser frames the document with, and take
+the platform's focus outline away from the elements
 that draw a ring of their own — an `On(.Focus, ...)` carrying a `Shadow`,
 `Shadows`, `BorderWidth` or `BorderEdge`. A control that styles nothing keeps
 the platform's ring.
@@ -722,10 +723,26 @@ the page is in, so the native controls and the scrollbar follow it. It goes in
 `mount`'s list beside a package's themes, and `switching` takes one on either
 side.
 
+`theme.page(background, foreground)` is the same shape for the page's own
+colours: `background-color` and `color` on the document, so the ground reaches
+the window's edges and an overscroll rather than stopping where the root box
+does. Either colour may be a token.
+
 `button(label, styles, children, onPress)` holds children the way `link` does,
 and one with none shows its label. The label stays a parameter and rides in
 `aria-label`, so a button of an icon and a word is one focusable, hoverable
-element with the name the program gave it.
+element with the name the program gave it. It never submits the form it is
+inside — a Cancel that quietly sent the form would be worse than a form that
+did not send at all.
+
+`submit(label, styles)` is the button that does, and the only one that lowers
+to `type="submit"`. It carries no handler, because the form's `onSubmit` is its
+handler: pressing it and pressing Enter in a field arrive at the same place. A
+form needs one — HTML submits a form implicitly through its submit button, and
+a form with none is submitted only while it holds exactly one field, so a name
+and an email with no `submit` discard the keypress. `ui/testing`'s `submit`
+refuses the same forms a browser does, so a suite cannot go green on markup
+nobody can send.
 
 `field(label, kind, styles, around, value, invalid)` and
 `toggle(label, kind, styles, around, value, invalid)` take two style lists,
@@ -817,8 +834,10 @@ rendered for on that script as `data-path`, and the compiler's stylesheet in the
 head. `web.Document` is the rest of that head: `title` names the tab and `lang`
 names the language, both escaped. `defaultDocument` is the one to write over,
 so a page names the fields it differs in and nothing else. Routing is a match,
-so a page's title is one too. The client-rendered `.html` has the same two
-fields in its build rule, as `binary { web { title lang } }`.
+so a page's title is one too. A page that *mounts* says the same thing with
+`web.title(ctx, text)`, which takes a `Prop<Str>` and rewrites the tab whenever
+it changes — the `.html` a WEB output writes carries the artifact's name and
+knows nothing about the route.
 
 On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
 takes the document over. It creates no element and no run of text — the renderer
