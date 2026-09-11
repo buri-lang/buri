@@ -220,16 +220,18 @@ pub unsafe extern "C" fn buri_rt_ui_doc_open(out: *mut i64) {
 ///
 /// # Safety
 /// `root` points at one whole `Node`; `entry` is the thunk the backend
-/// generated for the walk and `state` the record it was generated against.
+/// generated for the walk and `state` the record it was generated against;
+/// `frame_at` is an offset inside the record or negative.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_testing_mount(
     root: *const u8,
     entry: crate::ui::ComputeEntry,
     state: *mut u8,
+    frame_at: i64,
 ) -> i64 {
     let handle = open();
     // SAFETY: forwarded to the caller's promise; `handle` is a live document.
-    unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, root) };
+    unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, root, frame_at) };
     handle
 }
 

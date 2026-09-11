@@ -5398,6 +5398,26 @@ function $ui_testing_render(ctx, root) {
   return $handle(host);
 }
 
+// `render`'s per-backend half (#53). `render` is a Buri body now,
+// `Rendered(mount(ctx, root, renderInto))`, so the walk is handed over as a
+// closure the two backends treat differently: the native runtime drives it
+// into an element arena, and this one **drops it** and builds the document
+// double from `root` exactly as before. So `$tree_render` and everything
+// `Rendered` reads are untouched, and `renderInto` is a Buri function this side
+// compiles and never calls. `mount` answers the raw handle `$handle` mints;
+// `render` wraps it in a `Rendered`, so this unwraps the one `render` used to
+// return whole.
+function $ui_testing_mount(ctx, root, walk) {
+  return $ui_testing_render(ctx, root)[0];
+}
+
+// The builders `renderInto` emits to. This side never invokes `renderInto`, so
+// they are never called; they exist because `renderInto` names them and the
+// backend emits a reference the module must resolve.
+function $ui_node_emitElement(builder, name, body) {}
+function $ui_node_exitElement(builder) {}
+function $ui_node_emitText(builder, content) {}
+
 function $ui_testing_Rendered_markup(self) {
   let out = "";
   for (const child of $slot(self).children) out += $dom_markup(child);

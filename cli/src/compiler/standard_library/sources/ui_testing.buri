@@ -20,7 +20,7 @@
 from "core/effect" import { Allocator };
 from "ui/effect" import { Location, Scope, Ui, Watch };
 from "ui/node" import * as node;
-from "ui/node" import { Node };
+from "ui/node" import { Builder, Node };
 from "ui/style" import { State };
 from "ui/theme" import * as theme;
 from "ui/theme" import { Theme };
@@ -106,7 +106,24 @@ export struct Rendered(I64);
 ///
 /// The tree's handlers get this context, exactly as `mount` hands over the
 /// context its caller passed.
-export fn render<C: Ui>(ctx: C, root: Node<C>): Rendered;
+///
+/// The walk `renderInto` is `render`'s and not `mount`'s: `mount` is the one
+/// half that differs between backends — the JavaScript renderer builds its
+/// document double and drops the walk, the native one drives it into the
+/// element arena — so the destructuring of the tree is handed to it as a
+/// closure rather than baked into either.
+export fn render<C: Ui>(ctx: C, root: Node<C>): Rendered {
+    Rendered(mount(ctx, root, node.renderInto))
+}
+
+/// `render`'s per-backend half: build the document and answer the handle a
+/// `Rendered` carries.
+///
+/// The context is dropped — the runtime allocates for itself — `root` crosses
+/// by reference to the one `Node` the walk destructures, and `walk` crosses as
+/// the closure `render` handed over, which the native side invokes once and the
+/// JavaScript side ignores.
+fn mount<C: Ui>(ctx: C, root: Node<C>, walk: fn(Builder, Node<C>) => ()): I64;
 
 impl Rendered {
     /// The tree as markup: elements, their attributes, their styles and their

@@ -859,6 +859,117 @@ export fn describeWide<C: Allocator>(
     head.concat(ctx, nodeLines(ctx, state, root, 0)).join(ctx, "\n")
 }
 
+/// A handle to the document `render` is building — the runtime's element arena.
+///
+/// Opaque, and it carries no authority, so it crosses as data. Only `render`
+/// mints one, by way of the runtime, and hands it to `renderInto`.
+export struct Builder(I64);
+
+/// Walks `node` into the document `builder` holds, the way `describe` walks one
+/// into `[Str]`.
+///
+/// The split `design/native` calls for: the *destructuring* of a `Node` stays
+/// here, in Buri, where `describe` already does it and where it is legal, and
+/// the mutable document stays in the runtime. Only the runtime invokes this —
+/// through the walk trampoline `render` reaches — so `C` is unbounded, which is
+/// what lets a handler need any effect.
+///
+/// **Static, and only static.** A `Prop` is read once through the untracked
+/// `rootScope`, and a region is built once; the watcher that re-reads and the
+/// reconciler that re-walks are a later phase. It mirrors `nodeLines` arm for
+/// arm, minus the styles a scene line carries — those are the next slice, and
+/// an element is emitted with an empty declaration list until then.
+export fn renderInto<C>(builder: Builder, node: Node<C>): () {
+    let scope = rootScope();
+    match (node.0) {
+        .Nothing => {
+        },
+        .Text(content) => emitText(builder, content.read(scope)),
+        .Heading(level, _styles, content) => {
+            let _ = emitElement(builder, headingName(level), "");
+            let _ = emitText(builder, content.read(scope));
+            exitElement(builder)
+        },
+        .Stack(_styles, children) => {
+            let _ = emitElement(builder, "div", "");
+            let _ = renderChildren(builder, children, 0);
+            exitElement(builder)
+        },
+        .Region(role, _styles, children) => {
+            let _ = emitElement(builder, roleName(role), "");
+            let _ = renderChildren(builder, children, 0);
+            exitElement(builder)
+        },
+        _ => {
+        },
+    }
+}
+
+/// Every child, in order.
+fn renderChildren<C>(builder: Builder, children: [Node<C>], at: Int): () {
+    match (children.get(at)) {
+        .None => {
+        },
+        .Some(child) => {
+            let _ = renderInto(builder, child);
+            renderChildren(builder, children, at + 1)
+        },
+    }
+}
+
+/// The element a heading of this level becomes, clamped to `h1`–`h6` — the
+/// document's outline, which is why the level is not a size.
+fn headingName(level: Int): Str {
+    if (level <= 1) {
+        "h1"
+    } else if (level == 2) {
+        "h2"
+    } else if (level == 3) {
+        "h3"
+    } else if (level == 4) {
+        "h4"
+    } else if (level == 5) {
+        "h5"
+    } else {
+        "h6"
+    }
+}
+
+/// The element a role becomes — the accessibility taxonomy lowered to the tags
+/// `count` and `identity` address, the same lowering `mount` makes.
+fn roleName(role: Role): Str {
+    match (role) {
+        .Navigation => "nav",
+        .Main => "main",
+        .Banner => "header",
+        .ContentInfo => "footer",
+        .Complementary => "aside",
+        .Article => "article",
+        .Search => "search",
+        .List => "ul",
+        .ListItem => "li",
+        .Group => "div",
+        .Separator => "hr",
+        .Status => "div",
+        .Alert => "div",
+        .Table => "table",
+        .TableRow => "tr",
+        .RowHeader => "th",
+        .ColumnHeader => "th",
+        .Cell => "td",
+    }
+}
+
+/// Emits an element with `name` and its scene declarations `body`, and enters
+/// it: everything until the matching `exitElement` is its child.
+fn emitElement(builder: Builder, name: Str, body: Str): ();
+
+/// Closes the element `emitElement` opened.
+fn exitElement(builder: Builder): ();
+
+/// Emits a run of text under the open element.
+fn emitText(builder: Builder, content: Str): ();
+
 /// The lines one node contributes, and the lines of everything under it.
 ///
 /// Mirrors the runtime's own render, minus the document: a box is an `e` line
