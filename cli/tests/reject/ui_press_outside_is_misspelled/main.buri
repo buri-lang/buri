@@ -1,0 +1,23 @@
+// EXPECT: did you mean `onPressOutside`?
+//
+// The wrapper that dismisses an overlay is `onPressOutside`, and dropping a
+// letter is the mistake the long name invites. It is a no-such-member on the
+// namespace rather than a node quietly built, and the near miss names the one
+// that was meant.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+
+fn dismissable<C: Ui>(open: Signal<Bool>, panel: Node<C>): Node<C> {
+  ui.onPressOutide(fn(c, _e) => open.set(c, false), [], [panel])
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let open = signal(ctx, true);
+  ui.mount(ctx, dismissable(open, ui.text(.Const("panel"))), [])
+}
