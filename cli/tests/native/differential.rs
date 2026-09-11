@@ -84,6 +84,15 @@ impl Verdict {
 }
 
 /// One package's test source, as `<package>/<file>.buri`.
+/// Conformance files whose assertions are backend-specific by design, so the
+/// two pipelines do not agree and this sweep must not compare them.
+///
+/// `ui/render.buri` is the native renderer's parity test (#53): `markup()` is
+/// the scene document on the native backend and still the HTML document double
+/// on JavaScript, so the two disagree until Phase 6 moves JavaScript to the
+/// scene document. It is driven on the native backend by `native::conformance`.
+const NATIVE_ONLY: &[&str] = &["ui/render.buri"];
+
 fn corpus_files() -> Vec<String> {
     let root = crate::shared::conformance_corpus();
     let mut out = Vec::new();
@@ -350,6 +359,10 @@ fn every_corpus_package_agrees_with_the_reference_backend() {
     let mut skipped: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
     for path in corpus_files() {
+        if NATIVE_ONLY.contains(&path.as_str()) {
+            skipped.push(format!("{path} (native-only by design)"));
+            continue;
+        }
         let source = read(&path);
         let reference = match javascript(&path, &source) {
             Ok(v) => v,
