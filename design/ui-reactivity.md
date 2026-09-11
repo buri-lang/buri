@@ -166,6 +166,9 @@ ui.field(label, kind: FieldKind, styles, around,
 ui.toggle(label, kind: ToggleKind, styles, around,
           value: Signal<Bool>, invalid: Prop<Bool>, disabled: Prop<Bool>): Node<C>
 ui.form(onSubmit: fn(C, Event) => (), styles, children): Node<C>
+// a modal panel. The signal is writable because the platform writes it:
+// Escape shuts the dialog without asking.
+ui.dialog(open: Signal<Bool>, label: Prop<Str>, styles, children): Node<C>
 
 // reactivity in the tree
 ui.computed(build: fn(Scope) => Node<C>): Node<C>
@@ -192,6 +195,13 @@ two-way binding replaces the event.
 **`form` is a widget and not a role**, because submission is behaviour: pressing
 Enter in a field inside one runs `onSubmit`, the browser's own dispatch rather
 than a key handler every app would otherwise write.
+
+**`dialog` is a widget for the same reason, twice over.** A modal needs the
+page behind it to stop scrolling, what is behind to go inert, and the focus to
+stay inside — three things no style says and no `Role` can name. A `<dialog>`
+opened with `showModal()` has all three, plus the `::backdrop` and Escape. The
+`open` is a `Signal` and not a `Prop` because the platform writes it back:
+Escape shuts the panel without asking the program first.
 
 `Node<C>` keeps its one type parameter because handlers are open-ended. A press
 may legitimately need `Network`, and `main` chose the effect budget. Everything else

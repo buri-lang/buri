@@ -342,6 +342,29 @@ test "a worker writes an icon's artwork into the page it sends" {
     );
 }
 
+test "a dialog crosses the worker open, and shut" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    let shut = signal(ctx, false);
+    // The panel the worker writes is the panel the page resumes on: one
+    // `<dialog>` either way, and the flag says which. So a reader whose
+    // JavaScript has not arrived is looking at the panel the program opened,
+    // and the resume promotes it into the top layer rather than building it.
+    assert.equal(
+        web.render(ui.dialog(open, .Const("Confirm"), [], [ui.text(.Const("sure?"))])),
+        "<dialog aria-label=\"Confirm\" open>sure?</dialog>",
+    );
+    assert.equal(
+        web.render(ui.dialog(shut, .Const("Confirm"), [], [ui.text(.Const("sure?"))])),
+        "<dialog aria-label=\"Confirm\">sure?</dialog>",
+    );
+    // One renderer, not two.
+    let panel = ui.dialog(open, .Const("Confirm"), [.Padding(.Px(8))], []);
+    assert.equal(web.render(panel), render(ctx, panel).markup());
+}
+
 test "a heading's level clamps to the range a document has" {
     assert.equal(web.render(ui.heading(0, [], .Const("low"))), "<h1>low</h1>");
     assert.equal(web.render(ui.heading(-4, [], .Const("lower"))), "<h1>lower</h1>");

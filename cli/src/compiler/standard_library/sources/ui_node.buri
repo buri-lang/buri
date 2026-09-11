@@ -45,10 +45,11 @@ from "ui/theme" import { Theme };
 /// What a region *is*, as against what it looks like.
 ///
 /// Eighteen names, all from the accessibility taxonomy rather than from HTML.
-/// Some are missing because they need behaviour and not just a name: a dialog
-/// needs focus trapping and a modal stack, tabs and menus need a roving focus
-/// and a key model. There is no `Grid` role: visual arrangement is
-/// `Style::Layout`, and a data table is the four table roles below.
+/// Some are missing because they need behaviour and not just a name: tabs and
+/// menus need a roving focus and a key model, and a dialog needs a focus trap
+/// and a scroll lock, which is why it is the `dialog` widget below. There is
+/// no `Grid` role: visual arrangement is `Style::Layout`, and a data table is
+/// the four table roles below.
 export enum Role {
     /// A set of links to elsewhere. `nav`.
     Navigation,
@@ -171,6 +172,7 @@ enum NodeKind<C> {
     // `Node<C>`'s one type parameter. The runtime asks by index. See `each`.
     Each(fn(Scope) => Int, fn(Scope, Int) => Str, fn(C, Scope, Int) => Node<C>),
     Icon([Style], Str),
+    Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
 }
 
 /// Nothing at all.
@@ -404,6 +406,48 @@ export fn form<C>(
     Node(.Form(onSubmit, styles, children))
 }
 
+/// A panel over the page, and the signal that opens and shuts it.
+///
+/// ```text
+/// ui.dialog(open, .Const("Delete this?"), [.Padding(.Rem(1.0))], [
+///     ui.text(.Const("This cannot be undone.")),
+///     ui.button(.Const("Cancel"), [], [], fn(c, _e) => open.set(c, false), .Const(false)),
+/// ])
+/// ```
+///
+/// A widget rather than a stack with a pin, because a modal needs three things
+/// from the platform that no style can say: the page behind it must stop
+/// scrolling, what is behind must go inert, and the focus must stay inside. A
+/// browser gives all three to a `<dialog>` opened with `showModal`, along with
+/// the backdrop and the Escape key, and gives a `<div>` none of them.
+///
+/// **The signal is writable because the platform writes it.** Escape shuts the
+/// dialog without asking, so a `Prop` would leave the program holding a panel
+/// the reader can no longer see. Write `true` to open it and `false` to shut
+/// it; the browser writes `false` back when it shuts one itself.
+///
+/// The label is the accessible name, the rule `button`'s label follows: a
+/// reader is announced into the dialog by what it is for, and the heading
+/// inside it may not be there yet.
+///
+/// The styles land on the panel, so `Padding`, `Radius` and `Background` are
+/// the panel's own. The scrim behind it is the widget's own drawing, like a
+/// toggle's mark: `::backdrop` in a browser and the same black at half
+/// strength in a picture, and there is no property that names it.
+///
+/// Shut, it draws nothing at all and what is inside it is out of reach. Open,
+/// it is pinned to the viewport — so, like every other pin, it never decides
+/// how tall a page is: a picture of a dialog is a picture of the page it is
+/// over.
+export fn dialog<C>(
+    open: Signal<Bool>,
+    label: Prop<Str>,
+    styles: [Style],
+    children: [Node<C>],
+): Node<C> {
+    Node(.Dialog(open, label, styles, children))
+}
+
 /// One subtree or the other, decided by a condition that may vary.
 ///
 /// When the condition changes, the showing subtree tears down — its
@@ -563,6 +607,12 @@ fn rootScope(): Scope;
 /// drawing rather than anything a program wrote: `mark:thumb` for a switch,
 /// always, and `mark:tick` for a checkbox that is on. Both are painted in the
 /// box's own foreground.
+///
+/// A shut `dialog` writes no lines at all, because a browser draws none of
+/// one. An open one writes two boxes: the scrim it sits on, pinned to the
+/// viewport and centring what it holds, and the panel inside that. The scrim
+/// is the widget's own drawing too — the `::backdrop` a browser paints, said
+/// in the vocabulary the painter reads.
 export fn describe<C: Allocator>(ctx: C, root: Node<C>, state: State): Str {
     describeWide(ctx, root, state, 800)
 }
@@ -701,7 +751,44 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         .Each(count, _keyAt, rowAt) => {
             rowLines(ctx, state, rowAt, count(scope), depth, 0, [])
         },
+        // Shut, a browser draws none of it, so neither does this. Open, it is
+        // the two things a browser draws: the scrim over the page, and the
+        // panel centred on it.
+        .Dialog(open, _label, styles, children) => {
+            if (open.get(scope)) {
+                container(ctx, state, scrim(), [], depth).concat(
+                    ctx,
+                    container(ctx, state, styles, children, depth + 1),
+                )
+            } else {
+                []
+            }
+        },
     }
+}
+
+/// The scrim an open dialog sits on: the `::backdrop` a browser paints, and
+/// the arrangement that centres the panel on it.
+///
+/// The widget's own drawing rather than anything a program wrote, the way a
+/// toggle's mark is — there is no property that names a backdrop. It is pinned
+/// to the viewport and holds the panel as its one child, which is how the
+/// painter centres what a browser centres with the automatic margins its own
+/// stylesheet gives a `<dialog>`. The black at half strength is the same
+/// colour the sheet writes for `::backdrop`, so the two renderers draw one
+/// scrim.
+fn scrim(): [Style] {
+    [
+        .Position(.PinViewport),
+        .Pin(.Top, .Px(0)),
+        .Pin(.Bottom, .Px(0)),
+        .Pin(.Start, .Px(0)),
+        .Pin(.End, .Px(0)),
+        .Layout(.Row),
+        .AlignMain(.Center),
+        .AlignCross(.Center),
+        .Background(.Rgba(0, 0, 0, 0.5)),
+    ]
 }
 
 /// The `<label>` a field and a toggle are wrapped in: the arrangement the
