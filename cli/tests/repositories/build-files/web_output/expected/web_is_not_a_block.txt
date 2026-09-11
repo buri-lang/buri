@@ -1,0 +1,7 @@
+error: unknown field `web` in a `binary` rule [unknown-field]
+ --> cmd/counter/BUILD.buri:2:5
+  |
+2 |     web {
+  |     ^^^
+  |
+  = fix: a `binary` rule accepts: sources, generators, dependencies, tags, outputs, test

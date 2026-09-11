@@ -250,35 +250,17 @@ and its page lists what the module does export.
 
 ### The page's head
 
-A `WEB` output writes an `.html` beside its module, and `web` is what its
-`<head>` says:
-
-```textproto schema=build
-binary {
-    outputs: [
-        { platform: WEB },
-    ]
-
-    web {
-        title: "Buri Design"
-        lang: "en-GB"
-    }
-}
-```
-
-`title` names the tab, the bookmark and the window switcher; unset, it is the
-artifact's name, which is the package's directory name. `lang` is the BCP 47 tag
-on `<html>`, and unset it is `en`. Both are escaped, so a title is text and not
-markup. Every other platform writes no document and ignores the block.
+A `WEB` output writes an `.html` beside its module, and the build rule says
+nothing about it: the tab is the artifact's name until the page renames it, and
+the page does that from code. `web.title(ctx, text)` names it at mount and
+renames it on every navigation; a server-rendered page hands the same name to
+`web.shell` in a `Document`. [Build a website](../../guides/websites.md) has
+both halves.
 
 The shell names the module and the stylesheet from the root — `/main.mjs` and
 `/main.css` — because it is the document every route answers with, and a
 relative name would resolve against whatever path the reader arrived on. So
 serve the artifact directory at the site's root.
-
-A *server-rendered* page names its own head instead — `ui/web`'s `Document`, on
-the `shell` call — because there the title follows the route.
-[Build a website](../../guides/websites.md) has both halves.
 
 ### Platforms and effects
 

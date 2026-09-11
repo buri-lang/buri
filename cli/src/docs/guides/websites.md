@@ -213,21 +213,30 @@ fn document(path: Str): web.Document {
 Hand that to `shell` beside the tree the same match built, and each route names
 its own tab.
 
-The `.html` the WEB output writes has a head as well, and the build file names
-it — the same two fields, on the binary rule:
+The page's half is `web.title`, because the `.html` a WEB output writes carries
+the artifact's name and nothing about the route:
 
-```textproto schema=build
-# cmd/site/BUILD.buri
-binary {
-    web {
-        title: "Buri"
-        lang: "en"
-    }
+```buri
+# from "ui/effect" import { Location, Ui };
+# from "ui/web" import * as web;
+
+fn name<C: Location + Ui>(ctx: C): () {
+    let path = web.route(ctx);
+    web.title(
+        ctx,
+        .Computed(fn(scope) => {
+            match (path.read(scope)) {
+                "/about" => "About — Buri",
+                _other => "Buri",
+            }
+        }),
+    )
 }
 ```
 
-Without the block the title is the artifact's name, which is the package's
-directory name.
+The title is a `Prop<Str>`, so it follows the route the way the tree does: a
+computation over `route` is rewritten on every navigation, and a `.Const` names
+the tab once.
 
 ## Routing is a match
 
@@ -411,5 +420,5 @@ worker's, and the worker runs on its platform's own local runner.
   themes.
 - [Build a web server](./web-server.md) — the other way to answer a request,
   with a port of your own.
-- [The standard library](../reference/standard-library.md) — `ui/web`'s eight
-  functions, and everything under them.
+- [The standard library](../reference/standard-library.md) — every function
+  `ui/web` exports, and everything under them.

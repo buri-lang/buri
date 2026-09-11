@@ -186,35 +186,26 @@ run {
   golden: "built_again.txt"
 }
 
-# A page names its own tab. The `web` block is where a binary says what the
-# document it writes says about itself, and the entry shell takes both fields
-# from it. Escaped, because a title is a string a person writes: the `&` and the
-# angle brackets come back as entities rather than as markup.
-#
-# Not a line of Buri moved, so the module is a cache hit — and the page is
-# rewritten anyway. A companion served out of the cache while the rule that
-# names it has changed is a tab with yesterday's name on it.
+# A page names its own tab from code, so the build rule has nothing to say
+# about the document: `web` is not a block a binary has, and neither is a
+# `title` inside one. The shell above carries the artifact's name, and
+# `ui/web`'s `title` writes the real one at mount — which is the only place a
+# name that follows the route can come from.
 edit {
   file: "cmd/counter/BUILD.buri"
   replace: "binary {"
-  with: "binary {\n    web {\n        title: \"Counter & <Friends>\"\n        lang: \"en-GB\"\n    }\n"
+  with: "binary {\n    web {\n        title: \"Counter & <Friends>\"\n    }\n"
 }
 
 run {
   args: ["build", "//cmd/counter"]
-  exit: 0
+  exit: 2
+  golden: "web_is_not_a_block.txt"
 }
 
-file {
-  path: ".buri/out/web/cmd/counter/counter.html"
-  golden: "counter_named.html"
-}
-
-# And back: a rule that says nothing writes the page it always wrote, so a
-# repository that has never heard of the block sees no change at all.
 edit {
   file: "cmd/counter/BUILD.buri"
-  replace: "binary {\n    web {\n        title: \"Counter & <Friends>\"\n        lang: \"en-GB\"\n    }\n"
+  replace: "binary {\n    web {\n        title: \"Counter & <Friends>\"\n    }\n"
   with: "binary {"
 }
 
