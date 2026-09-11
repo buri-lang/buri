@@ -97,3 +97,45 @@ export fn ring<C>(): Node<C> {
         ),
     ])
 }
+
+/// A lift with a blur and an offset: Tailwind's `shadow-xs` is a pixel down,
+/// two of blur and no spread at all.
+fn lift1(alpha: Float): Shadow {
+    Shadow {
+        x: .Px(0),
+        y: .Px(1),
+        blur: .Px(2),
+        spread: .Px(0),
+        color: .Rgba(0, 0, 0, alpha),
+    }
+}
+
+/// An outer shadow is outside the box whatever its shape, so a blurred and
+/// offset one is a hairline under a transparent box and nothing inside it. The
+/// first box is `shadow-xs` at the five per cent a design system ships, the
+/// second is the same box with no shadow at all — the two read alike — and the
+/// third is the same lift at half black, which is the picture a person can
+/// read. All three keep the page behind them.
+export fn lift<C>(): Node<C> {
+    ui.column([.Gap(.Px(12)), .Padding(.Px(20)), .Background(.Rgb(220, 60, 60))], [
+        ui.stack(
+            [
+                .Width(.Px(200)),
+                .Height(.Px(32)),
+                .Background(.Transparent),
+                .Shadow(lift1(0.05)),
+            ],
+            [],
+        ),
+        ui.stack([.Width(.Px(200)), .Height(.Px(32)), .Background(.Transparent)], []),
+        ui.stack(
+            [
+                .Width(.Px(200)),
+                .Height(.Px(32)),
+                .Background(.Transparent),
+                .Shadow(lift1(0.5)),
+            ],
+            [],
+        ),
+    ])
+}
