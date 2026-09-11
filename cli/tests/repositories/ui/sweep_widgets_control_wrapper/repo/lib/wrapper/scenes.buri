@@ -180,6 +180,7 @@ fn field<C: Ui>(ctx: C, styles: [Style], around: [Style]): Node<C> {
     ui.field(
         .Const("Site"),
         .Text,
+        .Const(""),
         [
             .PaddingX(.Px(6)),
             .PaddingY(.Px(4)),

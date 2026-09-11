@@ -744,13 +744,23 @@ and an email with no `submit` discard the keypress. `ui/testing`'s `submit`
 refuses the same forms a browser does, so a suite cannot go green on markup
 nobody can send.
 
-`field(label, kind, styles, around, value, invalid)` and
+`field(label, kind, hint, styles, around, value, invalid)` and
 `toggle(label, kind, styles, around, value, invalid)` take two style lists,
 because a labelled control is two boxes: `styles` is the input's, `around` is
 the `<label>`'s — the box a surrounding row lays out, and the only place `Grow`,
 `Shrink`, `AlignSelf` and `Span` do anything. A toggle's `ToggleKind` picks the
 mark it draws inside itself: `Checkbox` has a tick when it is on, `Switch` has a
 thumb that travels. Both take the box's `Foreground`.
+
+A field's `hint` is the sample value inside its own empty box, and it is a
+parameter rather than a `Style` because it is content: what a field is for, not
+what it looks like. It is `aria-placeholder`-shaped — a screen reader announces
+it after the accessible name rather than instead of it, so the label stays
+required beside it, and it is gone the moment there is a value. It writes the
+`placeholder` attribute the kinds that hold text take, and the painter draws it
+inside the box at half the element's own foreground while the box is empty. The
+empty string is no hint, the way an `image`'s `alt` spells "decorative", and a
+`.Range` ignores one because a slider has no box to put a word in.
 
 `invalid` is a parameter for the reason the label is: a control failing
 validation has to be *announced*. It writes `aria-invalid` and it is the only

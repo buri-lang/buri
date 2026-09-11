@@ -54,6 +54,20 @@ fn itself(item: Str): Str {
     item
 }
 
+/// One field of a kind, with the same hint on every one of them.
+fn hinted<C>(ctx: C, kind: FieldKind, value: Signal<Str>): Node<C> {
+    ui.field(
+        .Const("what"),
+        kind,
+        .Const("hint"),
+        [],
+        [],
+        value,
+        .Const(false),
+        .Const(false),
+    )
+}
+
 /// A heading whose text does not depend on `value`, so that what changes when
 /// `value` changes is only whether the subtree was built again.
 fn headingFor<C>(value: Int): Node<C> {
@@ -937,6 +951,7 @@ test "a failing control announces so, and the ring hangs off the attribute" {
         ui.field(
             .Const("Email"),
             .Email,
+            .Const(""),
             ring,
             [],
             email,
@@ -2016,7 +2031,16 @@ test "a field is labelled, and what is typed into it is in its signal" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
+        ui.field(
+            .Const("name"),
+            .Text,
+            .Const(""),
+            [],
+            [],
+            name,
+            .Const(false),
+            .Const(false),
+        ),
     );
     assert.equal(
         page.markup(),
@@ -2033,7 +2057,16 @@ test "a field follows its signal when something else writes it" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
+        ui.field(
+            .Const("name"),
+            .Text,
+            .Const(""),
+            [],
+            [],
+            name,
+            .Const(false),
+            .Const(false),
+        ),
     );
     let _ = name.set(ctx, "grace");
     assert.equal(
@@ -2051,6 +2084,7 @@ test "a field kind is what the field accepts" {
         ui.field(
             .Const("story"),
             .Multiline,
+            .Const(""),
             [],
             [],
             value,
@@ -2060,6 +2094,7 @@ test "a field kind is what the field accepts" {
         ui.field(
             .Const("secret"),
             .Password,
+            .Const(""),
             [],
             [],
             value,
@@ -2069,6 +2104,7 @@ test "a field kind is what the field accepts" {
         ui.field(
             .Const("address"),
             .Email,
+            .Const(""),
             [],
             [],
             value,
@@ -2078,17 +2114,208 @@ test "a field kind is what the field accepts" {
         ui.field(
             .Const("how many"),
             .Number,
+            .Const(""),
             [],
             [],
             value,
             .Const(false),
             .Const(false),
         ),
-        ui.field(.Const("query"), .Search, [], [], value, .Const(false), .Const(false)),
+        ui.field(
+            .Const("query"),
+            .Search,
+            .Const(""),
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
     ]);
     assert.equal(
         render(ctx, tree).markup(),
         "<div><label><span>story</span><textarea></textarea></label><label><span>secret</span><input type=\"password\" /></label><label><span>address</span><input type=\"email\" /></label><label><span>how many</span><input type=\"number\" /></label><label><span>query</span><input type=\"search\" /></label></div>",
+    );
+}
+
+test "a field takes a hint, and it is the placeholder inside its box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let query = signal(ctx, "");
+    let line = ui.field(
+        .Const("Search"),
+        .Search,
+        .Const("Type a command"),
+        [],
+        [],
+        query,
+        .Const(false),
+        .Const(false),
+    );
+    // The hint is `aria-placeholder`-shaped: it is announced *after* the
+    // accessible name rather than instead of it, so the label is still there
+    // and still first.
+    assert.equal(
+        render(ctx, line).markup(),
+        "<label><span>Search</span><input type=\"search\" placeholder=\"Type a command\" /></label>",
+    );
+    // The scene carries it beside the kind, which is what the painter draws
+    // the hint from.
+    assert.containsText(
+        ui.describe(ctx, line, .Hover),
+        "e 1 field:search;placeholder:Type a command",
+    );
+}
+
+test "a hint outlives the value in the markup, the way the attribute does" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let query = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.field(
+            .Const("Search"),
+            .Search,
+            .Const("Type a command"),
+            [],
+            [],
+            query,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let _ = query.set(ctx, "open");
+    // A browser keeps the attribute and stops drawing it, so the hint comes
+    // back when the box is cleared. Whether it is *drawn* is the painter's,
+    // and `sweep_widgets_hint` is where that is a picture.
+    assert.equal(
+        page.markup(),
+        "<label><span>Search</span><input type=\"search\" placeholder=\"Type a command\" value=\"open\" /></label>",
+    );
+}
+
+test "no hint is no placeholder at all" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let name = signal(ctx, "ada");
+    let plain = ui.field(
+        .Const("name"),
+        .Text,
+        .Const(""),
+        [],
+        [],
+        name,
+        .Const(false),
+        .Const(false),
+    );
+    // The empty string is "no hint", the way an image's `alt` already spells
+    // "decorative", so a field that wants none carries no markup for one.
+    assert.equal(
+        render(ctx, plain).markup(),
+        "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
+    );
+    assert.isFalse(ui.describe(ctx, plain, .Hover).contains("placeholder"));
+}
+
+test "a hint may vary" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let hint = signal(ctx, "Type a command");
+    let page = render(
+        ctx,
+        ui.field(
+            .Const("Search"),
+            .Search,
+            .Cell(hint),
+            [],
+            [],
+            signal(ctx, ""),
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let _ = hint.set(ctx, "Search the docs");
+    assert.equal(
+        page.markup(),
+        "<label><span>Search</span><input type=\"search\" placeholder=\"Search the docs\" /></label>",
+    );
+    // Emptied, the attribute goes rather than staying on as `placeholder=""`.
+    let _ = hint.set(ctx, "");
+    assert.equal(
+        page.markup(),
+        "<label><span>Search</span><input type=\"search\" /></label>",
+    );
+}
+
+test "every kind that holds text takes a hint, and a range takes none" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let empty = signal(ctx, "");
+    let tree = ui.stack([], [
+        hinted(ctx, .Text, empty),
+        hinted(ctx, .Multiline, empty),
+        hinted(ctx, .Password, empty),
+        hinted(ctx, .Email, empty),
+        hinted(ctx, .Number, empty),
+        hinted(ctx, .Search, empty),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><label><span>what</span><input type=\"text\" placeholder=\"hint\" /></label><label><span>what</span><textarea placeholder=\"hint\"></textarea></label><label><span>what</span><input type=\"password\" placeholder=\"hint\" /></label><label><span>what</span><input type=\"email\" placeholder=\"hint\" /></label><label><span>what</span><input type=\"number\" placeholder=\"hint\" /></label><label><span>what</span><input type=\"search\" placeholder=\"hint\" /></label></div>",
+    );
+    // A slider has no box to put a word in, and HTML's own `placeholder`
+    // applies to the types that hold text and to nothing else. The hint is
+    // dropped rather than refused, which is what the DOM does with one.
+    let slider = ui.field(
+        .Const("Volume"),
+        .Range(0.0, 100.0, 1.0),
+        .Const("hint"),
+        [],
+        [],
+        signal(ctx, "40"),
+        .Const(false),
+        .Const(false),
+    );
+    assert.equal(
+        render(ctx, slider).markup(),
+        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"1.0\" value=\"40\" /></label>",
+    );
+    assert.isFalse(ui.describe(ctx, slider, .Hover).contains("placeholder"));
+}
+
+test "a hint neither ends the declaration nor the line it is on" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // A semicolon separates one declaration from the next and a line break
+    // ends the element, so a hint holding either has to be written out —
+    // otherwise a scene reads a word of a hint as a property of its own.
+    let scene = ui.describe(
+        ctx,
+        ui.field(
+            .Const("Note"),
+            .Text,
+            .Const("a; b\nc"),
+            [],
+            [],
+            signal(ctx, ""),
+            .Const(false),
+            .Const(false),
+        ),
+        .Hover,
+    );
+    assert.equal(
+        scene,
+        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-row wrap-wrap ac-center\nt 1 Note\ne 1 field:text;placeholder:a\\; b c\nt 2 ",
     );
 }
 
@@ -2162,7 +2389,16 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(false)),
+            ui.field(
+                .Const("name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                name,
+                .Const(false),
+                .Const(false),
+            ),
             .Hover,
         ),
         str.format(
@@ -2192,6 +2428,7 @@ test "a labelled control takes styles for the box around it" {
     let tree = ui.field(
         .Const("Site"),
         .Text,
+        .Const(""),
         [.Width(.Full)],
         [.Grow(1)],
         site,
@@ -2216,6 +2453,7 @@ test "a labelled control takes styles for the box around it" {
             ui.field(
                 .Const("Site"),
                 .Text,
+                .Const(""),
                 [],
                 [.Layout(.Column)],
                 site,
@@ -2406,7 +2644,16 @@ test "a disabled control says so in its markup" {
     let done = signal(ctx, false);
     let tree = ui.stack([], [
         ui.button(.Const("save"), [], [], fn(_c, _e) => (), .Const(true)),
-        ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(true)),
+        ui.field(
+            .Const("name"),
+            .Text,
+            .Const(""),
+            [],
+            [],
+            name,
+            .Const(false),
+            .Const(true),
+        ),
         ui.toggle(.Const("done"), .Checkbox, [], [], done, .Const(false), .Const(true)),
     ]);
     assert.containsText(
@@ -2445,7 +2692,16 @@ test "a disabled control refuses a press, a fill and a flip" {
                 fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
                 .Const(true),
             ),
-            ui.field(.Const("name"), .Text, [], [], name, .Const(false), .Const(true)),
+            ui.field(
+                .Const("name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                name,
+                .Const(false),
+                .Const(true),
+            ),
             ui.toggle(
                 .Const("done"),
                 .Checkbox,
@@ -2605,7 +2861,16 @@ test "a field's kind is in the scene, and a password's value is never in it" {
 fn kindOf<C: Allocator>(ctx: C, kind: FieldKind, value: Signal<Str>): Str {
     ui.describe(
         ctx,
-        ui.field(.Const("secret"), kind, [], [], value, .Const(false), .Const(false)),
+        ui.field(
+            .Const("secret"),
+            kind,
+            .Const(""),
+            [],
+            [],
+            value,
+            .Const(false),
+            .Const(false),
+        ),
         .Hover,
     )
 }
@@ -2627,6 +2892,7 @@ test "a range field is a slider, and the browser drives it" {
         ui.field(
             .Const("Volume"),
             .Range(0.0, 100.0, 1.0),
+            .Const(""),
             [],
             [],
             volume,
@@ -2669,6 +2935,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
             ui.field(
                 .Const("Volume"),
                 .Range(0.0, 100.0, 1.0),
+                .Const(""),
                 [],
                 [],
                 volume,
@@ -2691,6 +2958,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
             ui.field(
                 .Const("Fine"),
                 .Range(-1.5, 1.5, 0.25),
+                .Const(""),
                 [],
                 [],
                 signal(ctx, "9"),
@@ -2710,6 +2978,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
             ui.field(
                 .Const("Odd"),
                 .Range(0.0, 1.0, 0.1),
+                .Const(""),
                 [],
                 [],
                 signal(ctx, "a;b"),
@@ -2747,6 +3016,7 @@ test "a range field's styles land on the input, and compose the way a control's 
     let tree = ui.field(
         .Const("Volume"),
         .Range(0.0, 10.0, 0.5),
+        .Const(""),
         styles,
         [],
         volume,
@@ -2786,6 +3056,7 @@ test "a control takes styles of its own, and they land on the control" {
         ui.field(
             .Const("name"),
             .Text,
+            .Const(""),
             [.Radius(.Px(4))],
             [],
             name,
@@ -3143,6 +3414,7 @@ test "a form is submitted, which is behaviour and so not a role" {
             ui.field(
                 .Const("what"),
                 .Text,
+                .Const(""),
                 [],
                 [],
                 draft,
@@ -3167,10 +3439,20 @@ test "a form of two fields is submitted through the button that is its action" {
     let page = render(
         ctx,
         ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
-            ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
+            ui.field(
+                .Const("Name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                name,
+                .Const(false),
+                .Const(false),
+            ),
             ui.field(
                 .Const("Email"),
                 .Email,
+                .Const(""),
                 [],
                 [],
                 email,
@@ -3202,6 +3484,7 @@ test "a submit button pressed submits the form it is in" {
             ui.field(
                 .Const("Name"),
                 .Text,
+                .Const(""),
                 [],
                 [],
                 typed,
@@ -3229,10 +3512,20 @@ test "a form of two fields with no submit button is not submitted at all" {
     let page = render(
         ctx,
         ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
-            ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
+            ui.field(
+                .Const("Name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                name,
+                .Const(false),
+                .Const(false),
+            ),
             ui.field(
                 .Const("Email"),
                 .Email,
+                .Const(""),
                 [],
                 [],
                 email,
@@ -3397,6 +3690,7 @@ test "an open dialog refuses a fill, a flip and a submit behind it" {
                 ui.field(
                     .Const("what"),
                     .Text,
+                    .Const(""),
                     [],
                     [],
                     typed,

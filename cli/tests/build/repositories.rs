@@ -410,10 +410,15 @@ fn serving_a_page() {
 /// rather than only what colour it is. `range` is the third widget that draws
 /// itself: the bar and the thumb a slider is, at every value, at every size,
 /// and under everything that paints them — including the values a range cannot
-/// hold, which HTML sanitizes into the bounds rather than refusing.
+/// hold, which HTML sanitizes into the bounds rather than refusing. `hint` is
+/// the fourth: the words a field shows inside its own empty box, across every
+/// kind that takes one and the range that takes none, beside the same box with
+/// something typed into it, and under everything that paints the words — the
+/// element's own foreground at half strength, which is the one number the
+/// sheet's `::placeholder` rule and the painter both carry.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 58);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 59);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

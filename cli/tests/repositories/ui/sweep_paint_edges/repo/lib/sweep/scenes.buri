@@ -260,6 +260,7 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                 ui.field(
                     .Const("Name"),
                     .Text,
+                    .Const(""),
                     chrome([]),
                     [],
                     signal(ctx, "Ada"),
@@ -307,6 +308,7 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                 ui.field(
                     .Const("Name"),
                     .Text,
+                    .Const(""),
                     chrome(framed()),
                     [],
                     signal(ctx, "Ada"),

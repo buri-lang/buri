@@ -97,6 +97,7 @@ export fn page<C: Ui>(ctx: C): Node<C> {
             ui.field(
                 .Const("name"),
                 .Text,
+                .Const(""),
                 painted,
                 [],
                 signal(ctx, "Ada"),

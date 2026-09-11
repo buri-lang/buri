@@ -25,6 +25,7 @@ test "where the thumb sits" {
         ui.field(
             .Const("Volume"),
             .Range(0.0, 100.0, 1.0),
+            .Const(""),
             [],
             [],
             signal(ctx, "40"),
@@ -52,6 +53,7 @@ test "how big the track is" {
         ui.field(
             .Const("Gain"),
             .Range(0.0, 10.0, 0.5),
+            .Const(""),
             [],
             [],
             signal(ctx, "5"),
@@ -76,6 +78,7 @@ test "what paints a slider" {
         ui.field(
             .Const("Gain"),
             .Range(0.0, 10.0, 0.5),
+            .Const(""),
             [.Foreground(.Rgb(200, 30, 30))],
             [],
             signal(ctx, "5"),

@@ -143,6 +143,7 @@ fn cell<C: Ui>(
     ui.field(
         .Const(name),
         .Range(min, max, 1.0),
+        .Const(""),
         [.Foreground(.Rgb(40, 50, 90)), .Group(styles)],
         [.Layout(.Column), .AlignCross(.Start), .Gap(.Px(3)), .Width(.Px(180))],
         signal(ctx, value),
