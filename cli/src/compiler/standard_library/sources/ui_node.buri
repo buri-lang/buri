@@ -174,6 +174,10 @@ enum NodeKind<C> {
     Icon([Style], Str),
     Submit(Prop<Str>, [Style]),
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
+    // A `<a href>` like `Link`, plus the plain-left-click handler the runtime
+    // runs in place of the browser's own navigation. Appended after `Dialog`,
+    // because the variant order is load-bearing and append-only.
+    RouteLink(Prop<Str>, [Style], [Node<C>], fn(C, Str) => ()),
 }
 
 /// Nothing at all.
@@ -286,6 +290,27 @@ export fn button<C>(
 /// reader announces a link by where it goes.
 export fn link<C>(dest: Prop<Str>, styles: [Style], children: [Node<C>]): Node<C> {
     Node(.Link(dest, styles, children))
+}
+
+/// An anchor that answers a plain left-click itself.
+///
+/// The same `<a href>` `link` renders — so a reader gets the middle-click, the
+/// ⌘-click, the "open in new tab", the status-bar preview and the "link" a
+/// browser gives an anchor — but a plain left-click runs `onFollow` in place of
+/// the browser's own navigation, and every modified click is left to the
+/// browser as an ordinary anchor. `onFollow` is handed the context `mount` was
+/// given and the destination the click was on.
+///
+/// This is the mechanism; `ui/web`'s `routeLink` is the one to reach for, which
+/// fills `onFollow` with a client-side `navigate` and asks for the `Location`
+/// that needs.
+export fn routeLink<C>(
+    dest: Prop<Str>,
+    styles: [Style],
+    children: [Node<C>],
+    onFollow: fn(C, Str) => (),
+): Node<C> {
+    Node(.RouteLink(dest, styles, children, onFollow))
 }
 
 /// A picture, and what it says.
@@ -724,6 +749,12 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
             }
         },
         .Link(_dest, styles, children) => {
+            container(ctx, state, styles, children, depth)
+        },
+        // A route link paints as the anchor it is — the same box `link` is. What
+        // sets it apart is the plain-click handler, which is behaviour rather
+        // than a picture, so the scene carries nothing of it.
+        .RouteLink(_dest, styles, children, _onFollow) => {
             container(ctx, state, styles, children, depth)
         },
         // A picture is a box with a source in it. The painter reads a data URI

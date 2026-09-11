@@ -1,0 +1,18 @@
+// EXPECT: Location
+//
+// A route link navigates on a plain left-click, and navigating needs
+// `Location` — the cell the address bar is, and the history entry behind it.
+// That is what makes it more than an ordinary `ui.link`, which is a document
+// load and needs nothing. Built in a context that grants `Ui` but no
+// `Location`, it is refused, the same as `web.navigate` would be.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/web" import * as web;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]), [])
+}

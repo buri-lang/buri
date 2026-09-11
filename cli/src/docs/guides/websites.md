@@ -301,6 +301,34 @@ Both need `Location` **and** `Ui`: one to move the address bar, one to write the
 cell. Reaching another site is a `ui.link`, and it should be — a reader deserves
 to see where a link goes.
 
+## A link that navigates
+
+A `ui.button` calling `navigate` navigates, but it is not a link: no `href`, so
+no middle-click, no ⌘-click, no "open in new tab", no status-bar preview, and a
+screen reader announces an action rather than a link. `web.routeLink` is that
+navigation *as* a link:
+
+```buri
+# from "ui/effect" import { Location, Ui };
+# from "ui/node" import * as ui;
+# from "ui/node" import { Node };
+# from "ui/web" import * as web;
+
+/// A menu row that navigates without loading a document.
+fn about<C: Location + Ui>(): Node<C> {
+    web.routeLink(.Const("/about"), [], [ui.text(.Const("about"))])
+}
+```
+
+It renders a real `<a href="/about">`, so the reader gets everything an anchor
+is. A plain left-click does what `navigate` does — a history entry, the cell
+written, the tree left where it is — so the signals survive. A middle-click, or
+⌘/Ctrl/Shift/Alt with the left button, falls through to the browser, which opens
+the tab or the window the reader asked for. It needs `Location` and `Ui`, the
+same as `navigate`.
+
+Reach for `web.routeLink` for in-app navigation and `ui.link` for another site.
+
 ## What the page does
 
 `web.state(ctx)` answers the JSON text `shell` was given. Read it back with

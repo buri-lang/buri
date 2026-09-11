@@ -108,6 +108,9 @@ const NODE_ICON: usize = 14;
 /// reset. Declared before `Dialog`, because the variant order is append-only.
 const NODE_SUBMIT: usize = 15;
 const NODE_DIALOG: usize = 16;
+/// An `<a>` like `Link`'s, so it takes the same anchor reset. Appended after
+/// `Dialog`, because the variant order is append-only.
+const NODE_ROUTE_LINK: usize = 17;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -1122,7 +1125,7 @@ pub fn reset_in(
             match *variant {
                 NODE_HEADING => out.heading = true,
                 NODE_BUTTON => out.button = true,
-                NODE_LINK => out.link = true,
+                NODE_LINK | NODE_ROUTE_LINK => out.link = true,
                 NODE_FIELD => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
                 NODE_IMAGE | NODE_ICON => out.image = true,

@@ -87,8 +87,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-nineteen functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the twentieth function, puts a tree on the
+twenty functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twenty-first function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** `region(.List, ...)` says
