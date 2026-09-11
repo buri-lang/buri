@@ -7,11 +7,12 @@
 # in a picture is a number off the viewport's own edge and can be read with a
 # ruler rather than inferred.
 #
-# One of the eight is recorded as painted and is **wrong**, and stays here with
-# the golden it has until the issue under it closes: the last three rows of
-# `layout-align-cross.png`. `align-items: space-between` is not a legal
-# declaration; a browser drops it and stretches, the painter reads it as start
-# — buri#80.
+# `layout-align-cross.png`'s last three rows used to be recorded wrong and
+# stayed here with the golden they had until the issue under them closed:
+# `align-items: space-between` is not a legal declaration, so a browser drops it
+# and stretches where the painter read it as start. buri#80 closed it — the
+# extractor writes the stretch a browser falls back to and the painter maps the
+# three distributions to it, so the three Space* rows now match the Stretch row.
 #
 # `layout-layers.png` and the third row of `layout-direction.png` used to be
 # two more. The painter dropped every rule with a combinator in it, so

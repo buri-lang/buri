@@ -531,6 +531,50 @@ test "radius named corner by corner composes, and a joined group is spellable" {
     assert.isTrue(sheet.contains(".rc-bottomend-4{border-end-end-radius:4px}"));
 }
 
+test "a full radius is a pill on every box, where a percentage is an ellipse" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // buri#144: `Radius(.Full)` lowers to `9999px`, the way Tailwind's
+    // `rounded-full` does — a pill on any box, where `border-radius:100%`
+    // resolves per axis to an ellipse on anything that is not square. A corner
+    // takes the same pill, and `Percent` keeps the ellipse a caller asks for by
+    // writing one.
+    let pill = ui.stack([.Radius(.Full), .RadiusCorner(.TopEnd, .Full)], []);
+    assert.equal(
+        render(ctx, pill).markup(),
+        "<div class=\"r-full rc-topend-full\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".r-full{border-radius:9999px}"));
+    assert.isTrue(sheet.contains(".rc-topend-full{border-start-end-radius:9999px}"));
+    // A percentage radius is left alone: `Percent(50)` is the ellipse.
+    let ellipse = ui.stack([.Radius(.Percent(50.0))], []);
+    assert.equal(render(ctx, ellipse).markup(), "<div class=\"r-pc50\"></div>");
+    assert.isTrue(stylesheet().contains(".r-pc50{border-radius:50%}"));
+}
+
+test "a full radius and a square corner compose, whole radius first" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A pill welded onto its neighbour: rounded but for the one corner squared
+    // where it meets the box beside it. The whole radius is written before the
+    // corner that overrides it, exactly as a numeric radius is.
+    let welded: [Style] = [.Radius(.Full), .RadiusCorner(.TopStart, .Px(0))];
+    assert.equal(
+        render(ctx, ui.stack(welded, [])).markup(),
+        "<div class=\"r-full rc-topstart-0\"></div>",
+    );
+    let sheet = stylesheet();
+    let whole = sheet.indexOf(".r-full{border-radius:9999px}").withDefault(-1);
+    let corner = sheet
+        .indexOf(".rc-topstart-0{border-start-start-radius:0px}")
+        .withDefault(-1);
+    assert.isTrue(whole >= 0);
+    assert.isTrue(whole < corner);
+}
+
 test "a corner squares the side that meets its neighbour, and the shorthand loses" {
     let ctx = context {
         Ui: headless(),
@@ -1452,6 +1496,10 @@ test "the remaining alignments and weights and cursors each have a name" {
     let ctx = context {
         Ui: headless(),
     };
+    // `AlignCross(.SpaceAround)` is not a legal `align-items` value, so it
+    // resolves to the stretch a browser falls back to — the class is
+    // `ac-stretch`, the same one `AlignCross(.Stretch)` earns. On the main
+    // axis a distribution is legal, so `AlignMain(.SpaceEvenly)` keeps `am-evenly`.
     let tree = ui.stack([], [
         ui.stack([.AlignMain(.Start), .AlignCross(.End), .FontWeight(.Regular)], []),
         ui.stack(
@@ -1464,8 +1512,43 @@ test "the remaining alignments and weights and cursors each have a name" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"am-start ac-end fw-regular\"></div><div class=\"am-stretch ac-around fw-medium\"></div><div class=\"am-evenly fw-bold cur-default\"></div><div class=\"cur-text\"></div><div class=\"cur-notallowed\"></div></div>",
+        "<div><div class=\"am-start ac-end fw-regular\"></div><div class=\"am-stretch ac-stretch fw-medium\"></div><div class=\"am-evenly fw-bold cur-default\"></div><div class=\"cur-text\"></div><div class=\"cur-notallowed\"></div></div>",
     );
+}
+
+test "a cross-axis distribution is the stretch a browser falls back to" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // buri#80: `align-items:space-between` is not a legal declaration, so a
+    // browser drops it and `align-items` stays `normal`, which for a flex
+    // container is stretch. `AlignCross` and `AlignSelf` take the whole `Align`
+    // enum, so the three distributions resolve to the stretch a browser lands
+    // on — one class, shared with the `.Stretch` that means it outright — while
+    // `AlignMain`, where a distribution is legal, keeps it.
+    let tree = ui.stack([], [
+        ui.stack([.AlignCross(.SpaceBetween)], []),
+        ui.stack([.AlignCross(.SpaceAround)], []),
+        ui.stack([.AlignCross(.SpaceEvenly)], []),
+        ui.stack([.AlignCross(.Stretch)], []),
+        ui.stack([.AlignSelf(.SpaceEvenly)], []),
+        ui.stack([.AlignSelf(.Stretch)], []),
+        ui.stack([.AlignMain(.SpaceBetween)], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"as-stretch\"></div><div class=\"as-stretch\"></div><div class=\"am-between\"></div></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".ac-stretch{align-items:stretch}"));
+    assert.isTrue(sheet.contains(".as-stretch{align-self:stretch}"));
+    // A distribution on the main axis is legal and untouched.
+    assert.isTrue(sheet.contains(".am-between{justify-content:space-between}"));
+    // The sheet never carries the declaration a browser would throw away.
+    assert.isFalse(sheet.contains("align-items:space-between"));
+    assert.isFalse(sheet.contains("align-items:space-around"));
+    assert.isFalse(sheet.contains("align-items:space-evenly"));
+    assert.isFalse(sheet.contains("align-self:space-evenly"));
 }
 
 test "two elements asking for one padding are given one class" {
@@ -3269,6 +3352,26 @@ test "a size is the whole box, so padding and a border sit inside it" {
     assert.isTrue(box < chrome);
     assert.isTrue(sheet.contains(".w-full{width:100%}"));
     assert.isTrue(sheet.contains(".p-16{padding:16px}"));
+}
+
+test "the reset breaks a word too long for its box the way the painter does" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // buri#79: the headless painter breaks a word wider than its box mid-word,
+    // where CSS's own initial `overflow-wrap: normal` lets it overflow. The
+    // reset says `overflow-wrap: break-word` once for every element, so a
+    // browser breaks the same word the same way — `break-word` rather than
+    // `anywhere` because the min-content width stays the longest word, which is
+    // what the painter measures.
+    let tree = ui.stack([.Width(.Px(180))], [ui.text(.Const("x"))]);
+    let _ = render(ctx, tree);
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains("*{overflow-wrap:break-word}"));
+    // It sits with the box model, ahead of the element resets and the classes.
+    let wrap = assert.some(sheet.indexOf("overflow-wrap"));
+    let chrome = assert.some(sheet.indexOf(":where("));
+    assert.isTrue(wrap < chrome);
 }
 
 test "a list has no marker until one is asked for" {
