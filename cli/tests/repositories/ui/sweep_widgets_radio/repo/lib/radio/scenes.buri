@@ -1,0 +1,89 @@
+//! The dot a checked radio draws, the option it sits on, and the colour it
+//! takes.
+//!
+//! A radio group's options are the widget's own elements and there is no
+//! per-option style list, so what a picture varies is the group: which key the
+//! signal holds, and the `Foreground` the dot is drawn in. One band moves the
+//! selection across the options and off the end of them; the other holds one
+//! option checked and paints its dot every colour.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// Selection: the dot follows the signal, and a key no option carries draws
+/// none.
+export fn selectionPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("radio — the dot marks the checked option")),
+        band("selection — the dot follows the signal", [
+            group(ctx, "first", "a"),
+            group(ctx, "second", "b"),
+            group(ctx, "third", "c"),
+            group(ctx, "none", "x"),
+        ]),
+    ])
+}
+
+/// Colour: one option checked, and its dot painted in the group's foreground.
+export fn colourPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        ui.text(.Const("radio — the foreground draws the dot")),
+        band("Foreground draws the dot", [
+            coloured(ctx, "near black", []),
+            coloured(ctx, "blue", [.Foreground(.Rgb(48, 64, 200))]),
+            coloured(ctx, "red", [.Foreground(.Rgb(200, 30, 30))]),
+            coloured(ctx, "rgba 0.4", [.Foreground(.Rgba(0, 0, 0, 0.4))]),
+        ]),
+    ])
+}
+
+/// A three-option group under its name, `selected` the key the signal holds.
+fn group<C: Ui>(ctx: C, name: Str, selected: Str): Node<C> {
+    ui.column([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)], [
+        ui.text(.Const(name)),
+        ui.radioGroup(
+            .Const(name),
+            [("a", .Const("A")), ("b", .Const("B")), ("c", .Const("C"))],
+            [.Gap(.Px(4))],
+            signal(ctx, selected),
+        ),
+    ])
+}
+
+/// A two-option group under its name, its second option checked, in a
+/// foreground of its own.
+fn coloured<C: Ui>(ctx: C, name: Str, paint: [Style]): Node<C> {
+    ui.column([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)], [
+        ui.text(.Const(name)),
+        ui.radioGroup(
+            .Const(name),
+            [("a", .Const("A")), ("b", .Const("B"))],
+            [.Gap(.Px(4)), .Group(paint)],
+            signal(ctx, "b"),
+        ),
+    ])
+}
+
+/// One band: its name, then a cell per value.
+fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
+    ui.column([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
+        ui.text(.Const(name)),
+        ui.row([.Gap(.Px(8)), .AlignCross(.Start)], cells),
+    ])
+}
+
+/// The page: a title and the bands under it.
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(12)),
+            .Gap(.Px(8)),
+            .FontSize(.Px(11)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        rows,
+    )
+}

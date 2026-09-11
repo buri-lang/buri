@@ -87,8 +87,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-twenty-one functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the twenty-second function, puts a tree on the
+twenty-two functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twenty-third function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** `region(.List, ...)` says
@@ -709,6 +709,43 @@ it swallows the press and costs a focusable element in the tab order besides. It
 adds no visible element beyond its own wrapper, so a picture of it is a picture
 of its children, and a native painter, having no pointer to press with, leaves
 it inert.
+
+**A single choice is `radioGroup`, not a stack of buttons.** A radio group is
+the browser's own model — one tab stop for the group, the arrow keys that move
+*and* select, Space to select, `aria-checked` and the roving `tabindex` — and
+all of it comes free the moment the options are `<input type="radio">` inside a
+`role="radiogroup"`. A stack of buttons reaches none of it: a reader tabs
+through every option and is told they are buttons. It is a widget rather than a
+`Role` and a `FieldKind` for the reason `form` and `dialog` are: a bare
+`role="radiogroup"` would leave the options something other than radios, and a
+`field` binds its `Signal<Str>` to one input, where a radio's value is the
+group's.
+
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn plan<C: Ui>(choice: Signal<Str>): Node<C> {
+    ui.radioGroup(
+        .Const("Plan"),
+        [("free", .Const("Free")), ("pro", .Const("Pro"))],
+        [.Gap(.Px(6))],
+        choice,
+    )
+}
+```
+
+Each option is a `(key, caption)`: the key is what the signal holds when that
+option is picked, and the caption is what the reader sees. The signal holds the
+selected key, so the input whose key matches it is checked and picking another
+writes its key back — two-way binding replaces a change event the way it does
+for a `field`. A key no option carries checks nothing, which is what an unset
+group is. The styles land on the group, the box a row lays out; the options are
+the widget's own elements sharing one `name`, and a checked one draws its dot —
+the reset's `:checked::before`, in the group's own `Foreground` — so there is no
+per-option style list.
 
 The sheet opens by dropping what a browser paints on one of these by itself —
 the bevel on a button, the blue underline on a link, the border and the inner

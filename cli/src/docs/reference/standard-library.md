@@ -815,6 +815,20 @@ the one press that dismisses the overlay also act on what it landed on. It adds
 no visible element beyond its own wrapper — the `styles` and `children` are a
 `stack`'s — and a native painter, having no pointer, leaves it inert.
 
+`radioGroup(label, options, styles, value)` is a single choice among a few, as
+one real `<input type="radio">` per option inside a `role="radiogroup"`. It is a
+widget rather than a `Role` and a `FieldKind` because a radio group is the
+browser's own model — one tab stop for the group, the arrow keys that move *and*
+select, Space, `aria-checked` and the roving `tabindex` — reachable only when
+the options are radios, which a stack of buttons is not and a bare role cannot
+make. `options` is one `(key, caption)` per choice: the key is the input's value
+and what `value` holds when it is picked, and the input whose key matches the
+signal is the checked one — so picking another writes its key back, the two-way
+binding a `field` has. A key no option carries checks nothing. The `styles` land
+on the group, and the options share one `name` and draw their own dot — the
+reset's `:checked::before` in the group's `Foreground`, the disc the painter
+draws from the scene's `mark:dot` — so there is no per-option style list.
+
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it

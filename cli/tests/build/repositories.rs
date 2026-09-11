@@ -429,10 +429,15 @@ fn serving_a_page() {
 /// kind that takes one and the range that takes none, beside the same box with
 /// something typed into it, and under everything that paints the words — the
 /// element's own foreground at half strength, which is the one number the
-/// sheet's `::placeholder` rule and the painter both carry.
+/// sheet's `::placeholder` rule and the painter both carry. `radio` is the dot a
+/// checked radio draws: the selection moved across the options and off the end
+/// of them, so a picture says which option is on and that a key no option holds
+/// is none of them, and the same dot painted every foreground — the disc the
+/// sheet's `:checked::before` and the painter both draw in the element's own
+/// colour.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 60);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 61);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

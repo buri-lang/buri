@@ -111,6 +111,10 @@ const NODE_DIALOG: usize = 16;
 /// An `<a>` like `Link`'s, so it takes the same anchor reset. Appended after
 /// `OnPressOutside`, because the variant order is append-only.
 const NODE_ROUTE_LINK: usize = 18;
+/// A radio group, whose options are `<input type="radio">` drawing a dot of
+/// their own. Appended after `RouteLink`, because the variant order is
+/// append-only.
+const NODE_RADIOGROUP: usize = 19;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -898,6 +902,7 @@ pub struct Reset {
     pub separator: bool,
     pub image: bool,
     pub dialog: bool,
+    pub radiogroup: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -940,6 +945,13 @@ const TICK_MASK: &str = "mask-image:url(\"data:image/svg+xml,\
     %3Cpath d='M3.5 8.5 6.5 11.5 12.5 4.5' fill='none' stroke='%23000' \
     stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E\
     %3C/svg%3E\");mask-size:contain;mask-repeat:no-repeat;mask-position:center";
+
+/// A checked radio's dot: a disc half the box across, centred, in the control's
+/// own colour. Half rather than the whole box because a radio's mark sits inside
+/// its ring, which is what tells it apart from a checkbox at a glance. The
+/// painter draws the same disc from the scene's `mark:dot`, so a browser and it
+/// draw one dot.
+const DOT: &str = "width:50%;height:50%;border-radius:9999px;background-color:currentColor";
 
 impl Reset {
     fn rules(self) -> String {
@@ -1033,12 +1045,13 @@ impl Reset {
                 ":where(input,textarea)::placeholder{{color:inherit;opacity:{PLACEHOLDER_FADE}}}\n"
             ));
         }
-        if self.field || self.toggle {
+        if self.field || self.toggle || self.radiogroup {
             // The `<label>` wrapping a control and its text. A browser lays it
             // out as an inline box, which is not a box a surrounding row can
             // measure and not a box the headless painter has any flow for. One
             // wrapping row says the same thing to both, and `around` beats it
-            // — every class does.
+            // — every class does. A radio group's options are labels of this
+            // shape too.
             out.push_str(
                 ":where(label){display:flex;flex-direction:row;flex-wrap:wrap;\
                  align-items:center}\n",
@@ -1071,6 +1084,24 @@ impl Reset {
                 ":where(input[type=checkbox]:not([role=switch]):checked)::before\
                  {{content:\"\";width:100%;height:100%;\
                  background-color:currentColor;{TICK_MASK}}}\n"
+            ));
+        }
+        if self.radiogroup {
+            // A radio draws a mark like a checkbox, so it clears the same chrome
+            // and takes the same box: one line square, centred, and no shrink,
+            // because with `appearance:none` a browser gives an unsized radio no
+            // size at all. The one thing it keeps is the round outline a radio
+            // has always had — the ring the dot sits in.
+            out.push_str(&format!(
+                ":where(input[type=radio]){{{CONTROL_RESET};display:flex;\
+                 flex-direction:row;align-items:center;justify-content:center;\
+                 width:1rem;height:1rem;flex-shrink:0;border-radius:9999px}}\n"
+            ));
+            // The dot, only when it is on. It takes the box's own colour, the
+            // one property that paints it, and the painter draws the same disc
+            // from the scene's `mark:dot`.
+            out.push_str(&format!(
+                ":where(input[type=radio]:checked)::before{{content:\"\";{DOT}}}\n"
             ));
         }
         if self.list {
@@ -1141,6 +1172,7 @@ pub fn reset_in(
                 NODE_IMAGE | NODE_ICON => out.image = true,
                 NODE_SUBMIT => out.button = true,
                 NODE_DIALOG => out.dialog = true,
+                NODE_RADIOGROUP => out.radiogroup = true,
                 _ => {}
             }
         }
