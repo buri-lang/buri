@@ -2868,6 +2868,12 @@ test "the sheet drops the chrome a browser draws by itself" {
             ":where(input[type=range])::-moz-range-thumb{border:0;appearance:none;-webkit-appearance:none;width:1rem;height:1rem;border-radius:9999px;background-color:currentColor}",
         ),
     );
+    // The document itself. A browser's own sheet puts eight pixels around
+    // `<body>`, and `mount` renders into `<body>`, so without this every page
+    // floats in a band of the browser's white on every route. Nothing in
+    // `ui/style` can reach it: this vocabulary has no margin, and a margin is
+    // not inherited, so no ancestor's style touches one.
+    assert.isTrue(sheet.contains(":where(body){margin:0}"));
     // It opens the sheet, ahead of every class in it.
     let reset = assert.some(sheet.indexOf(":where(h1,"));
     let padding = assert.some(sheet.indexOf(".p-12{"));

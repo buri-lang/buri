@@ -708,7 +708,8 @@ say. `ListMarker` puts a list's marks back.
 
 The same opening rules make a size the whole box (`box-sizing: border-box`, so
 padding and a border count inside a `Width`), make a container that names no
-`Layout` a column, and take the platform's focus outline away from the elements
+`Layout` a column, zero the margin a browser frames the document with, and take
+the platform's focus outline away from the elements
 that draw a ring of their own — an `On(.Focus, ...)` carrying a `Shadow`,
 `Shadows`, `BorderWidth` or `BorderEdge`. A control that styles nothing keeps
 the platform's ring.
@@ -721,6 +722,11 @@ hairline and one ring around a prefix, a bare field and a suffix.
 the page is in, so the native controls and the scrollbar follow it. It goes in
 `mount`'s list beside a package's themes, and `switching` takes one on either
 side.
+
+`theme.page(background, foreground)` is the same shape for the page's own
+colours: `background-color` and `color` on the document, so the ground reaches
+the window's edges and an overscroll rather than stopping where the root box
+does. Either colour may be a token.
 
 `button(label, styles, children, onPress)` holds children the way `link` does,
 and one with none shows its label. The label stays a parameter and rides in

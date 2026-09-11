@@ -4847,6 +4847,21 @@ function $ui_theme_render(themes, scope) {
       out += ":root{color-scheme:" + $UI_THEME_SCHEMES[theme[1]] + "}\n";
       continue;
     }
+    // A page's ground is the other one: the document's own two colours, on
+    // `body` rather than `:root` — a background there is what the browser
+    // paints the canvas with, so it reaches an overscroll and the whole window
+    // and not just the box the tree drew. A token is left as the `var()` a
+    // class would have held, because the properties are declared in this same
+    // text and the cascade resolves them wherever they are used.
+    if (theme[0] === 3) {
+      out +=
+        "body{background-color:" +
+        $tree_color(theme[1]) +
+        ";color:" +
+        $tree_color(theme[2]) +
+        "}\n";
+      continue;
+    }
     const body = [];
     for (const binding of theme[1]) {
       if (binding[0][0] !== $UI_COLOR_TOKEN) continue;
