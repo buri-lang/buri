@@ -682,6 +682,34 @@ browser, and the same black at half strength in a picture. A shut dialog draws
 nothing at all; an open one is pinned to the viewport, so like every other pin
 it never decides how tall a page is.
 
+**An overlay that is not modal dismisses itself with `onPressOutside`.** A
+dialog gets Escape and a backdrop press from the platform, but a menu, a popover
+or a select does not — nothing watches for a press that lands elsewhere. Wrap
+the panel in `onPressOutside` and write it shut in the handler:
+
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn dismissable<C: Ui>(open: Signal<Bool>, panel: Node<C>): Node<C> {
+    ui.onPressOutside(fn(c, _e) => open.set(c, false), [], [panel])
+}
+```
+
+It leads with its handler rather than its styles, the way `button` and `form`
+do, because the behaviour is the point. On the web it lowers to one
+document-level pointer listener, registered while the subtree is mounted and
+taken away with it — so a wrapper inside a `choose` that shuts leaves no listener
+behind. A press *inside* the subtree is not one it fires on: the reader presses
+once, and that press both dismisses the overlay and acts on whatever it landed
+on, which is what the full-viewport scrim you might reach for instead cannot do —
+it swallows the press and costs a focusable element in the tab order besides. It
+adds no visible element beyond its own wrapper, so a picture of it is a picture
+of its children, and a native painter, having no pointer to press with, leaves
+it inert.
+
 The sheet opens by dropping what a browser paints on one of these by itself —
 the bevel on a button, the blue underline on a link, the border and the inner
 shadow on a field, the size, the weight and the margins on a heading, the inset
