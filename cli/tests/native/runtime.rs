@@ -339,6 +339,75 @@ fn the_memory_contract_holds() {
     assert!(out.status.success());
 }
 
+// ---------------------------------------------------------------------------
+// The renderer's closure trampolines (issue #53, phase 1)
+// ---------------------------------------------------------------------------
+//
+// The native renderer will drive three closure shapes it does not invoke yet.
+// These three rows prove the runtime can invoke each of them across the C ABI
+// with the one thunk shape a memo and a step already cross — no new thunk, no
+// new argument the boundary cannot carry, and so no SPEC or type-system change.
+// Each fails first the same way `buri-lang/buri#36`'s missing rows did: the
+// symbol is absent, the driver does not link, and the shape cannot be reached.
+//
+// The C driver plays the compiler's part, handing the runtime a closure whose
+// body is an ordinary C function of `ComputeEntry`'s shape. That the *language*
+// needs no new rule to compile such a body is the sibling claim, and it already
+// runs: `stencil.rs`'s `a_memo_and_a_watcher_run_under_the_native_backend`
+// compiles `fn(Scope) => T` from Buri source onto this same mechanism.
+
+/// `build: fn(Scope) => Node` — a minted scope in, a `Node` stride out.
+///
+/// The body reads a signal through the scope it was handed (proving the scope
+/// is live) and writes a three-word `Node`; the driver reads it back. `seen=5`
+/// is the signal's value returned through the scope, `tag=111` the record.
+#[test]
+fn a_build_closure_is_driven_under_a_fresh_scope() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-build"]);
+    assert_eq!(stdout(&out).trim_end(), "tag=111 seen=5", "stderr:\n{}", stderr(&out));
+    assert!(out.status.success());
+}
+
+/// `rowAt: fn(C, Scope, Int) => Node` — a supplied index and a minted scope in,
+/// the right row out.
+///
+/// The context is dropped as a step drops it; the driver supplies index `3` and
+/// the body returns it as the row's `at`, alongside the signal read through the
+/// scope. `tag=222 at=3 seen=5`.
+#[test]
+fn a_row_closure_is_driven_with_an_index_and_a_scope() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-row"]);
+    assert_eq!(stdout(&out).trim_end(), "tag=222 at=3 seen=5", "stderr:\n{}", stderr(&out));
+    assert!(out.status.success());
+}
+
+/// `onPress: fn(C, Event) => ()` — a runtime-minted event fires the handler,
+/// and the signal write it makes is observed.
+///
+/// `event=0` is the `Event(0)` the runtime mints, as the JavaScript renderer
+/// passes `[0]`; `field=0` is that event received by the handler; `signal-after=7`
+/// is the side effect, observed after the fire.
+#[test]
+fn a_press_closure_fires_with_a_minted_event() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-press"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "event=0 field=0 signal-after=7",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
 /// `Str`'s ASCII flag and the scalar count it stands in for
 /// (VALUE-MODEL.md §3.1), and `[T]` construction.
 #[test]

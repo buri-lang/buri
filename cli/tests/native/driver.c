@@ -229,6 +229,20 @@ extern void buri_rt_list_repeat(const uint8_t *item, int64_t times, uint64_t str
                                 void (*retain)(uint8_t *), BuriList *out);
 extern void buri_rt_list_range(int64_t start, int64_t end, BuriList *out);
 
+/* ui/effect + the renderer's closure trampolines — `cli/runtime/ui.rs`. The
+ * graph is one static table per process, so a fresh driver run starts empty.
+ * A `ComputeEntry` is the one thunk shape a memo, a step and every renderer
+ * closure is reached through: `(state, index, arg, out)`. */
+typedef void (*ComputeEntry)(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out);
+extern int64_t buri_rt_ui_signal(const uint8_t *initial, uint64_t stride);
+extern void buri_rt_ui_read(int64_t id, uint64_t stride, uint8_t *out);
+extern void buri_rt_ui_write(int64_t id, const uint8_t *value, uint64_t stride);
+extern void buri_rt_ui_scope_read(int64_t scope, int64_t id, uint64_t stride, uint8_t *out);
+extern void buri_rt_ui_build_node(ComputeEntry entry, uint8_t *state, uint8_t *out);
+extern void buri_rt_ui_row_at(ComputeEntry entry, uint8_t *state, int64_t at, uint8_t *out);
+extern void buri_rt_ui_fire_press(ComputeEntry entry, uint8_t *state, int64_t event);
+extern void buri_rt_ui_event(int64_t *out);
+
 /* --- Helpers ------------------------------------------------------------ */
 
 /* A borrowed `Str` argument, flattened to the three parameters the contract
@@ -247,6 +261,101 @@ static int drops = 0;
 static void count_drop(uint8_t *p) {
   (void)p;
   drops++;
+}
+
+/* --- The renderer's closure trampolines (issue #53, phase 1) ------------ */
+
+/* A `Node` stride the fake closures write and the driver reads back: three
+ * words with sentinels, standing in for whatever a `Node<C>` lays out. The
+ * point is only that a compound value crosses at a stride, which the runtime
+ * already does for a memo. */
+typedef struct {
+  int64_t tag;
+  int64_t at;
+  int64_t seen;
+} FakeNode;
+
+/* A signal the trampoline closures read through their scope and the press
+ * handler writes, so a `Scope` handed in and a side effect on the way out are
+ * both observable. Globals because a C function value captures nothing — which
+ * is exactly why the runtime keeps the closure's own environment in `state`. */
+static int64_t g_signal;
+static int64_t g_press_field;
+
+/* shape 1 — `fn(Scope) => Node`. Reads the signal through the scope it was
+ * handed, proving the scope is live, and writes a `Node`. */
+static void build_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out) {
+  (void)state;
+  (void)index;
+  int64_t scope = *(const int64_t *)arg;
+  int64_t seen = 0;
+  buri_rt_ui_scope_read(scope, g_signal, 8, (uint8_t *)&seen);
+  FakeNode *n = (FakeNode *)out;
+  n->tag = 111;
+  n->at = -1;
+  n->seen = seen;
+}
+
+/* shape 2 — `fn(C, Scope, Int) => Node`. The context is dropped (the thunk
+ * never names it); `index` is the supplied row index; the scope is the
+ * element. */
+static void row_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out) {
+  (void)state;
+  int64_t scope = *(const int64_t *)arg;
+  int64_t seen = 0;
+  buri_rt_ui_scope_read(scope, g_signal, 8, (uint8_t *)&seen);
+  FakeNode *n = (FakeNode *)out;
+  n->tag = 222;
+  n->at = index;
+  n->seen = seen;
+}
+
+/* shape 3 — `fn(C, Event) => ()`. The context is dropped; the event is the
+ * element; nothing is written back. Its side effect is a signal write. */
+static void press_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out) {
+  (void)state;
+  (void)index;
+  (void)out;
+  g_press_field = *(const int64_t *)arg;
+  int64_t written = 7;
+  buri_rt_ui_write(g_signal, (const uint8_t *)&written, 8);
+}
+
+/* shape 1: a minted scope in, a `Node` stride out. */
+static int mode_ui_build(void) {
+  int64_t initial = 5;
+  g_signal = buri_rt_ui_signal((const uint8_t *)&initial, 8);
+  FakeNode built = {0, 0, 0};
+  buri_rt_ui_build_node(build_thunk, NULL, (uint8_t *)&built);
+  printf("tag=%lld seen=%lld\n", (long long)built.tag, (long long)built.seen);
+  return 0;
+}
+
+/* shape 2: a supplied index and a minted scope in, the right row out. */
+static int mode_ui_row(void) {
+  int64_t initial = 5;
+  g_signal = buri_rt_ui_signal((const uint8_t *)&initial, 8);
+  FakeNode row = {0, 0, 0};
+  buri_rt_ui_row_at(row_thunk, NULL, 3, (uint8_t *)&row);
+  printf("tag=%lld at=%lld seen=%lld\n", (long long)row.tag, (long long)row.at,
+         (long long)row.seen);
+  return 0;
+}
+
+/* shape 3: a runtime-minted event fires the handler, and its signal write is
+ * observed. */
+static int mode_ui_press(void) {
+  int64_t initial = 5;
+  g_signal = buri_rt_ui_signal((const uint8_t *)&initial, 8);
+  g_press_field = -1;
+  int64_t event = -1;
+  buri_rt_ui_event(&event);
+  buri_rt_ui_fire_press(press_thunk, NULL, event);
+  int64_t after = 0;
+  buri_rt_ui_read(g_signal, 8, (uint8_t *)&after);
+  printf("event=%lld field=%lld signal-after=%lld\n", (long long)event,
+         (long long)g_press_field, (long long)after);
+  return 0;
 }
 
 /* --- Modes -------------------------------------------------------------- */
@@ -945,6 +1054,15 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "values") == 0) {
     return mode_values();
+  }
+  if (strcmp(mode, "ui-build") == 0) {
+    return mode_ui_build();
+  }
+  if (strcmp(mode, "ui-row") == 0) {
+    return mode_ui_row();
+  }
+  if (strcmp(mode, "ui-press") == 0) {
+    return mode_ui_press();
   }
   if (strcmp(mode, "streams") == 0) {
     return mode_streams();
