@@ -95,7 +95,7 @@ const COLOR_RGBA: usize = 1;
 const COLOR_FADED: usize = 5;
 
 // `ui/node`'s `NodeKind`, whose variant order is load-bearing for the same
-// reason and says so in its own comment. Only the four that lower to an
+// reason and says so in its own comment. Only the ones that lower to an
 // element a browser paints chrome on are named here.
 const NODE_HEADING: usize = 2;
 const NODE_BUTTON: usize = 5;
@@ -104,6 +104,9 @@ const NODE_FIELD: usize = 8;
 const NODE_TOGGLE: usize = 9;
 const NODE_IMAGE: usize = 7;
 const NODE_ICON: usize = 14;
+/// A form's action, which is a `<button>` like `button`'s and takes the same
+/// reset. Declared last, because the variant order is append-only.
+const NODE_SUBMIT: usize = 15;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -1079,6 +1082,7 @@ pub fn reset_in(
                 NODE_FIELD => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
                 NODE_IMAGE | NODE_ICON => out.image = true,
+                NODE_SUBMIT => out.button = true,
                 _ => {}
             }
         }
