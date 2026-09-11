@@ -1,1 +1,1 @@
-from "//lib/edges/edges.buri" export { currentColour, ring, widths };
+from "//lib/edges/edges.buri" export { currentColour, lift, ring, widths };

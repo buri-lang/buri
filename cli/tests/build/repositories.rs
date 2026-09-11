@@ -347,13 +347,17 @@ fn serving_a_page() {
 /// every derived tier painted either side of a write, what an image paints
 /// when nothing may be fetched, and the ends of every axis the tree has.
 ///
-/// `a_border_and_a_ring_land_where_css_puts_them` is three pictures and three
+/// `a_border_and_a_ring_land_where_css_puts_them` is four pictures and three
 /// rules a browser follows and this painter did not: a border of any width
 /// sits inside its box, a border with no colour of its own is the foreground,
 /// and an outer shadow is painted outside the box that cast it. One row per
 /// rule, because none of the three is visible in a picture of something else —
 /// a one-pixel border reads as a grey smudge, a black border reads as a
-/// choice, and a ring reads as a fill.
+/// choice, and a ring reads as a fill. The shadow rule gets two pictures: the
+/// spread-only ring, and Tailwind's `shadow-xs` on a transparent box, because
+/// the lift a design system ships has a blur and an offset and no spread at
+/// all, and a picture of the loudest shape does not say what happens to the
+/// quietest.
 ///
 /// `sweep_paint_box_sizing` is the box model, in two pictures: a blue box
 /// inside a grey frame of a known width, plain, padded, bordered and both, so
