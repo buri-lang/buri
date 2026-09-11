@@ -375,6 +375,19 @@ test "every kind of node renders" {
         ),
         "",
     );
+    // An outside-press wrapper adds no visible element beyond its own wrapper:
+    // it crosses the worker as the bare `<div>` a stack of the same styles and
+    // children would. The document listener that dismisses the overlay is the
+    // page's own, registered when the tree resumes rather than written into the
+    // markup — there is no attribute a server could send for it.
+    assert.equal(
+        web.render(
+            ui.onPressOutside(fn(_c, _e) => (), [.Padding(.Px(8))], [
+                ui.text(.Const("panel")),
+            ]),
+        ),
+        "<div class=\"p-8\">panel</div>",
+    );
 }
 
 test "a route link the worker sends is a real anchor" {
