@@ -1,11 +1,11 @@
-// Three pictures, one per rule: a border is inside the box, a border with no
-// colour is the foreground, and an outer shadow is outside the box.
+// Four pictures, one per rule: a border is inside the box, a border with no
+// colour is the foreground, and an outer shadow — a ring, a lift — is outside.
 
 from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/testing" import { headless, snapshot };
-from "//lib/edges" import { currentColour, ring, widths };
+from "//lib/edges" import { currentColour, lift, ring, widths };
 
 test "a border of any width sits inside the box" {
     let ctx = context {
@@ -29,4 +29,12 @@ test "an outer shadow is painted outside the box that cast it" {
         Ui: headless(),
     };
     snapshot(ctx, "edges-focus-ring", ring(), .Hover, []);
+}
+
+test "an outer shadow with a blur and an offset is outside the box too" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "edges-lift", lift(), .Checked, []);
 }

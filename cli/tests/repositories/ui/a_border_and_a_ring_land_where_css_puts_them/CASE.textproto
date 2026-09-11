@@ -1,4 +1,4 @@
-# Where the painter puts a border and a shadow, in three pictures a person can
+# Where the painter puts a border and a shadow, in four pictures a person can
 # read. Each one is a rule CSS states and the painter used to get wrong, and
 # each was a bug of its own:
 #
@@ -16,6 +16,14 @@
 #     `edges-focus-ring.png` is the same spread-only ring on a transparent box
 #     and on a white one. Both rings are three pixels wide and the transparent
 #     box still shows the page behind it — the ring used to fill the control.
+#   * **…whatever its blur and offset** (buri#90 again).
+#     `edges-lift.png` is Tailwind's `shadow-xs` — a pixel down, two of blur,
+#     no spread — on a transparent box over a red page, the same box with no
+#     shadow at all, and the same lift at half black so the hairline can be
+#     seen. Read across any of the three at their middle and the two hundred
+#     pixels between x=20 and x=219 are the page: the lift is the fringe
+#     outside them. A ring is only the loudest shape of the rule, and the
+#     blurred, offset one is what a design system actually ships.
 #
 # The negative twin moves the foreground of the first box in the second
 # picture. That is the row's whole claim: a border with no colour follows the
@@ -24,7 +32,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a border of every width inside its box, a border taking the foreground it was given, and a ring outside the box that cast it"
+doc: "a border of every width inside its box, a border taking the foreground it was given, and a ring and a blurred lift outside the box that cast them"
 
 run {
   args: ["test", "//lib/edges", "--force"]
@@ -35,6 +43,7 @@ run {
 path { path: "lib/edges/test/__snapshots__/edges-border-widths.diff.png"  exists: false }
 path { path: "lib/edges/test/__snapshots__/edges-current-colour.diff.png"  exists: false }
 path { path: "lib/edges/test/__snapshots__/edges-focus-ring.diff.png"  exists: false }
+path { path: "lib/edges/test/__snapshots__/edges-lift.diff.png"  exists: false }
 
 edit {
   file: "lib/edges/edges.buri"
@@ -51,3 +60,4 @@ run {
 path { path: "lib/edges/test/__snapshots__/edges-current-colour.diff.png"  exists: true }
 path { path: "lib/edges/test/__snapshots__/edges-border-widths.diff.png"  exists: false }
 path { path: "lib/edges/test/__snapshots__/edges-focus-ring.diff.png"  exists: false }
+path { path: "lib/edges/test/__snapshots__/edges-lift.diff.png"  exists: false }

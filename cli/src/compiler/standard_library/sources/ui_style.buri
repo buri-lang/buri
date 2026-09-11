@@ -689,8 +689,10 @@ export enum ListMarker {
 
 /// A shadow cast by an element.
 ///
-/// It is painted outside the element's box, never under it, so a spread with no
-/// blur is a ring around the element rather than a slab behind it.
+/// It is painted outside the element's box, never under it, whatever its
+/// offset, blur and spread: a spread with no blur is a ring around the element
+/// rather than a slab behind it, and a blurred offset is a fringe below a
+/// transparent element rather than a wash across it.
 export struct Shadow {
     /// How far along the text direction the shadow is offset.
     export x: Length,
