@@ -1,0 +1,1 @@
+from "//lib/hint/scenes.buri" export { kindsPage, paintPage, typePage };

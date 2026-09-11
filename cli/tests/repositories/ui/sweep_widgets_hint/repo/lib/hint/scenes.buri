@@ -1,0 +1,208 @@
+//! The pictures one widget sweep is: the hint a `field` draws inside its own
+//! empty box, across the kinds that take one, against the value that replaces
+//! it, and under everything that paints it.
+//!
+//! A page is one column of bands and a band is one question, so a row reads
+//! across and the whole page fits the 800 the painter gives a scene. A band
+//! clips, which is what keeps a cell that grows from pushing the ones below it
+//! off the page.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { FieldKind, Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// The seven kinds, hinted and empty, and then the same seven with something
+/// typed into them.
+export fn kindsPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("hinted, and nothing typed", 150, [
+            cell("text", hinted(ctx, .Text, "")),
+            cell("multiline", hinted(ctx, .Multiline, "")),
+            cell("password", hinted(ctx, .Password, "")),
+            cell("email", hinted(ctx, .Email, "")),
+            cell("number", hinted(ctx, .Number, "")),
+            cell("search", hinted(ctx, .Search, "")),
+            cell("range", hinted(ctx, .Range(0.0, 100.0, 1.0), "40")),
+        ]),
+        band("the same seven, with a value", 150, [
+            cell("text", hinted(ctx, .Text, "Ada")),
+            cell("multiline", hinted(ctx, .Multiline, "Ada")),
+            cell("password", hinted(ctx, .Password, "Ada")),
+            cell("email", hinted(ctx, .Email, "Ada")),
+            cell("number", hinted(ctx, .Number, "12")),
+            cell("search", hinted(ctx, .Search, "Ada")),
+            cell("range", hinted(ctx, .Range(0.0, 100.0, 1.0), "90")),
+        ]),
+        band("no hint at all, empty and filled", 150, [
+            cell("text", bare(ctx, .Text, "")),
+            cell("text, filled", bare(ctx, .Text, "Ada")),
+            cell("password", bare(ctx, .Password, "")),
+            cell("password, filled", bare(ctx, .Password, "Ada")),
+        ]),
+    ])
+}
+
+/// What paints a hint: the foreground it is a fade of, and everything that
+/// fades with it.
+export fn paintPage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("Foreground: the hint, then the same words typed", 150, [
+            cell("near black", painted(ctx, [.Foreground(.Rgb(20, 20, 20))], "")),
+            cell("typed", painted(ctx, [.Foreground(.Rgb(20, 20, 20))], "Search")),
+            cell("red", painted(ctx, [.Foreground(.Rgb(200, 30, 30))], "")),
+            cell("typed", painted(ctx, [.Foreground(.Rgb(200, 30, 30))], "Search")),
+            cell("blue", painted(ctx, [.Foreground(.Rgb(30, 80, 200))], "")),
+            cell("typed", painted(ctx, [.Foreground(.Rgb(30, 80, 200))], "Search")),
+        ]),
+        band("Foreground with an alpha of its own", 150, [
+            cell("rgba 1.0", painted(ctx, [.Foreground(.Rgba(20, 20, 20, 1.0))], "")),
+            cell("rgba 0.5", painted(ctx, [.Foreground(.Rgba(20, 20, 20, 0.5))], "")),
+            cell("rgba 0.2", painted(ctx, [.Foreground(.Rgba(20, 20, 20, 0.2))], "")),
+            cell("transparent", painted(ctx, [.Foreground(.Transparent)], "")),
+        ]),
+        band("Opacity, which multiplies the whole box", 150, [
+            cell("1.0", painted(ctx, [.Opacity(1.0)], "")),
+            cell("0.5", painted(ctx, [.Opacity(0.5)], "")),
+            cell("0.25", painted(ctx, [.Opacity(0.25)], "")),
+            cell("0.0", painted(ctx, [.Opacity(0.0)], "")),
+        ]),
+        band("Background, which the hint sits on", 150, [
+            cell("none", painted(ctx, [.Background(.Transparent)], "")),
+            cell("pale", painted(ctx, [.Background(.Rgb(226, 232, 245))], "")),
+            cell(
+                "dark",
+                painted(
+                    ctx,
+                    [.Background(.Rgb(30, 34, 48)), .Foreground(.Rgb(240, 242, 248))],
+                    "",
+                ),
+            ),
+        ]),
+    ])
+}
+
+/// How a hint is set: it takes the type properties on the input, the way the
+/// value it stands in for does.
+export fn typePage<C: Ui>(ctx: C): Node<C> {
+    page([
+        band("FontSize", 150, [
+            cell("8px", painted(ctx, [.FontSize(.Px(8))], "")),
+            cell("11px", painted(ctx, [.FontSize(.Px(11))], "")),
+            cell("16px", painted(ctx, [.FontSize(.Px(16))], "")),
+            cell("22px", painted(ctx, [.FontSize(.Px(22))], "")),
+        ]),
+        band("TextCase", 150, [
+            cell("none", painted(ctx, [.TextCase(.AsWritten)], "")),
+            cell("upper", painted(ctx, [.TextCase(.Upper)], "")),
+            cell("lower", painted(ctx, [.TextCase(.Lower)], "")),
+            cell("capitalize", painted(ctx, [.TextCase(.Capitalize)], "")),
+        ]),
+        band("TextAlign, in a box wider than the words", 150, [
+            cell("start", painted(ctx, [.Width(.Px(120)), .TextAlign(.Start)], "")),
+            cell("center", painted(ctx, [.Width(.Px(120)), .TextAlign(.Center)], "")),
+            cell("end", painted(ctx, [.Width(.Px(120)), .TextAlign(.End)], "")),
+        ]),
+        band("a box narrower than the hint", 150, [
+            cell("120px", painted(ctx, [.Width(.Px(120))], "")),
+            cell("60px", painted(ctx, [.Width(.Px(60))], "")),
+            cell(
+                "60px, clipped",
+                painted(ctx, [.Width(.Px(60)), .Height(.Px(20)), .Clip(true)], ""),
+            ),
+            cell("60px, truncated", painted(ctx, [.Width(.Px(60)), .Truncate(1)], "")),
+        ]),
+    ])
+}
+
+/// One field of a kind, hinted, holding `value`.
+fn hinted<C: Ui>(ctx: C, kind: FieldKind, value: Str): Node<C> {
+    ui.field(
+        .Const("Search"),
+        kind,
+        .Const("Type a command"),
+        base([]),
+        [],
+        signal(ctx, value),
+        .Const(false),
+        .Const(false),
+    )
+}
+
+/// The same field with no hint at all, which is what the empty string means.
+fn bare<C: Ui>(ctx: C, kind: FieldKind, value: Str): Node<C> {
+    ui.field(
+        .Const("Search"),
+        kind,
+        .Const(""),
+        base([]),
+        [],
+        signal(ctx, value),
+        .Const(false),
+        .Const(false),
+    )
+}
+
+/// A hinted text field carrying one property under test, and whatever `value`
+/// is — the empty string is the hint showing, and anything else replaces it.
+fn painted<C: Ui>(ctx: C, styles: [Style], value: Str): Node<C> {
+    ui.field(
+        .Const("Search"),
+        .Text,
+        .Const("Search the docs"),
+        base(styles),
+        [],
+        signal(ctx, value),
+        .Const(false),
+        .Const(false),
+    )
+}
+
+/// What every subject carries before the cell's own styles, which come last so
+/// the property under test wins.
+fn base(styles: [Style]): [Style] {
+    [
+        .Background(.Rgb(206, 218, 240)),
+        .Foreground(.Rgb(18, 18, 28)),
+        .Padding(.Px(2)),
+        .Group(styles),
+    ]
+}
+
+/// One picture: a column of bands, one band per question.
+fn page<C>(bands: [Node<C>]): Node<C> {
+    ui.column(
+        [
+            .Gap(.Px(2)),
+            .Padding(.Px(4)),
+            .Background(.Rgb(255, 255, 255)),
+            .Foreground(.Rgb(20, 20, 20)),
+            .FontSize(.Px(11)),
+        ],
+        bands,
+    )
+}
+
+/// One question's band: its name, then a cell per case, clipped to `height` so
+/// a cell that grows stays inside its own row.
+fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
+    ui.stack(
+        [
+            .Height(.Px(height)),
+            .Scroll(.Both),
+            .Padding(.Px(3)),
+            .Background(.Rgb(243, 244, 247)),
+        ],
+        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
+    )
+}
+
+/// One case: its label, and the field carrying it. The cell does not stretch
+/// its children, so a box is as wide as it asked to be.
+fn cell<C>(label: Str, inner: Node<C>): Node<C> {
+    ui.column([.Width(.Px(108)), .Gap(.Px(1)), .AlignCross(.Start)], [
+        ui.text(.Const(label)),
+        inner,
+    ])
+}

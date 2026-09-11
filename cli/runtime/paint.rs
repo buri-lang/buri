@@ -117,6 +117,15 @@
 //! `value` attribute is: clamped into the bounds, and the middle when it is not
 //! a number at all.
 //!
+//! An `e` line may also carry `placeholder:<hint>`, which is the sample value
+//! a field shows inside its own box. It is drawn by the run under the input
+//! and **only while that run is empty** — a browser keeps the attribute and
+//! stops drawing it the moment there is a value, so a box that is cleared
+//! shows the hint again. It is painted in the element's own foreground at
+//! [`PLACEHOLDER_FADE`], which is the fraction the sheet's `::placeholder`
+//! rule writes; and it is never masked, because a browser draws a password's
+//! placeholder as it was written and bullets only what was typed.
+//!
 //! An `e` line may also carry `icon:<artwork>`, which makes the box a drawing
 //! written into the scene itself. Its `currentColor` is the colour the element
 //! paints in, so an icon follows the `Foreground` around it and turns over
@@ -255,6 +264,12 @@ const MARKER_DISC: f32 = 0.35;
 /// A slider's bar, as a fraction of the control's height. The sheet paints the
 /// same one with `background-size: 100% 25%`.
 const TRACK_HEIGHT: f32 = 0.25;
+
+/// How much of the element's own foreground a hint is painted at. The sheet
+/// writes the same number into its `::placeholder` rule, because a browser's
+/// own placeholder colour differs by engine and neither is one a golden may
+/// rest on.
+const PLACEHOLDER_FADE: f32 = 0.5;
 
 /// The largest viewport the painter will allocate a canvas for.
 const MAX_VIEWPORT: u32 = 8192;
@@ -1037,6 +1052,10 @@ struct Computed {
     /// A password's text: painted as bullets, never as itself. Inherited, so
     /// that the run inside the input carries it.
     masked: bool,
+    /// A field's hint, which the run inside an empty input draws instead of
+    /// nothing. Inherited for the reason the mask is: the declaration is on
+    /// the input and the run is a line under it.
+    placeholder: Option<String>,
 }
 
 impl Computed {
@@ -1092,6 +1111,7 @@ impl Computed {
             balance: false,
             clamp: None,
             masked: false,
+            placeholder: None,
         }
     }
 
@@ -1101,6 +1121,16 @@ impl Computed {
     /// a border-width in anything but pixels is not a width CSS accepts. Both
     /// the layout and the painter ask this, so neither can disagree about
     /// which edges are there.
+    /// The hint this run draws in place of nothing, or `None` when the run has
+    /// something in it.
+    ///
+    /// That is the whole of "gone the moment there is a value": a browser
+    /// keeps the attribute and stops drawing it, so a box that is cleared
+    /// shows the hint again.
+    fn hint<'a>(&'a self, text: &str) -> Option<&'a str> {
+        if text.is_empty() { self.placeholder.as_deref() } else { None }
+    }
+
     fn border_widths(&self) -> [f32; 4] {
         let mut out = [0.0; 4];
         for (i, slot) in out.iter_mut().enumerate() {
@@ -1134,6 +1164,7 @@ impl Computed {
         // property does.
         child.clamp = self.clamp;
         child.masked = self.masked;
+        child.placeholder = self.placeholder.clone();
         // Not inherited, but it multiplies down: a subtree under a half
         // transparent box is half transparent.
         child.opacity = self.opacity;
@@ -1422,6 +1453,12 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         // numbers leave the box a box, which is the rule an unreadable image
         // source and an unknown mark both follow.
         "range" => style.range = Slider::read(value),
+        // The hint an empty field draws. The scene writes one only where there
+        // is one to write, so an empty value here is a hint of nothing rather
+        // than a hint that is blank.
+        "placeholder" => {
+            style.placeholder = (!value.is_empty()).then(|| value.to_string());
+        }
         // `font-family` resolves to the bundled family whatever it names, and
         // `cursor` paints nothing. Both parse so that a scene keeps them.
         _ => {}
@@ -1818,16 +1855,29 @@ thread_local! {
         std::cell::RefCell::new((font_system(), SwashCache::new()));
 }
 
-/// The characters a run is shaped from: the mask, if it is a password's, and
-/// otherwise what `text-transform` made of it.
+/// The characters a run is shaped from: the hint where there is nothing to
+/// show, the mask where it is a password's, and otherwise what `text-transform`
+/// made of it.
+///
+/// **A hint is never masked.** A browser draws a password's placeholder as it
+/// was written and bullets only what was typed, which is the difference
+/// between a prompt and a secret.
 ///
 /// One bullet per `char`, which is what a browser draws and what keeps the box
 /// the width the secret would have taken without the box holding it.
 fn transformed(text: &str, style: &Computed) -> String {
+    if let Some(hint) = style.hint(text) {
+        return cased(hint, style.case);
+    }
     if style.masked {
         return "\u{2022}".repeat(text.chars().count());
     }
-    match style.case {
+    cased(text, style.case)
+}
+
+/// `text-transform`, applied.
+fn cased(text: &str, case: Case) -> String {
+    match case {
         Case::None => text.to_string(),
         Case::Upper => text.to_uppercase(),
         Case::Lower => text.to_lowercase(),
@@ -2728,7 +2778,11 @@ impl Painter<'_> {
         clip: Option<&Mask>,
     ) {
         let mut buffer = shape(self.fonts, text, style, Some(width), Wrap::WordOrGlyph);
-        let colour = premultiply(style.colour, style.opacity);
+        // A hint is the element's own foreground, faded — the fraction the
+        // sheet's `::placeholder` rule writes, so a browser and this painter
+        // draw the same grey.
+        let fade = if style.hint(text).is_some() { PLACEHOLDER_FADE } else { 1.0 };
+        let colour = premultiply(style.colour, style.opacity * fade);
         if colour[3] == 0 {
             return;
         }

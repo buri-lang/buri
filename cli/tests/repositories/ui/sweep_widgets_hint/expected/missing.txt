@@ -1,0 +1,5 @@
+FAIL //lib/hint  test/pictures.buri  "which kinds draw a hint"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/hint/test/pictures.buri:21:1
+
+0 passed, 1 failed, 2 skipped (0.0s)

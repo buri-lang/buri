@@ -27,6 +27,7 @@ test "what a row can do to a labelled control" {
         ui.field(
             .Const("Site"),
             .Text,
+            .Const(""),
             [.Radius(.Px(4))],
             [.Grow(1)],
             signal(ctx, ""),

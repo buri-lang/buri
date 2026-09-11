@@ -147,6 +147,7 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
                 ui.field(
                     .Const("name"),
                     .Text,
+                    .Const(""),
                     base(raised),
                     [],
                     signal(ctx, "Ada"),

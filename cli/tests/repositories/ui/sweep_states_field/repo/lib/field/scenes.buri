@@ -92,6 +92,7 @@ fn styled<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
     ui.field(
         .Const(name),
         kind,
+        .Const(""),
         [
             .Padding(.Px(8)),
             .Background(.Rgb(150, 170, 200)),
@@ -114,6 +115,7 @@ fn bare<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
     ui.field(
         .Const(name),
         kind,
+        .Const(""),
         [.Group(extra)],
         [],
         signal.signal(ctx, "typed"),
