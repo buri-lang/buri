@@ -242,6 +242,8 @@ extern void buri_rt_ui_build_node(ComputeEntry entry, uint8_t *state, uint8_t *o
 extern void buri_rt_ui_row_at(ComputeEntry entry, uint8_t *state, int64_t at, uint8_t *out);
 extern void buri_rt_ui_fire_press(ComputeEntry entry, uint8_t *state, int64_t event);
 extern void buri_rt_ui_event(int64_t *out);
+extern void buri_rt_ui_render_walk(ComputeEntry entry, uint8_t *state,
+                                   int64_t builder, const uint8_t *node);
 
 /* The element document (issue #53, phase 2). The Buri `renderInto` walk drives
  * the three builders; a `Rendered` answers the four readers from what they
@@ -363,6 +365,38 @@ static int64_t doc_count(int64_t d, const char *name) {
 
 static int64_t doc_identity(int64_t d, const char *name, int64_t at) {
   return buri_rt_ui_doc_identity(d, NULL, (const uint8_t *)name, strlen(name), at);
+}
+
+/* shape 4 — `fn(Builder, Node) => ()`, the `renderInto` walk. The builder
+ * handle is the `index` and the node the element; the walk reads the node it
+ * was handed (proving the pointer is live) and emits into the builder,
+ * proving the runtime can drive a whole-tree walk into the document. `state`
+ * is the closure's environment, unused by this C stand-in. */
+static void walk_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out) {
+  (void)state;
+  (void)out;
+  int64_t builder = index;
+  int64_t level = *(const int64_t *)arg;
+  char name[4];
+  name[0] = 'h';
+  name[1] = (char)('0' + level);
+  name[2] = '\0';
+  doc_element(builder, name, "class:fs-28");
+  doc_text(builder, "hi");
+  buri_rt_ui_doc_exit(builder);
+}
+
+/* shape 4: the builder handle and a node pointer in, the document built. */
+static int mode_ui_walk(void) {
+  int64_t builder = -1;
+  buri_rt_ui_doc_open(&builder);
+  int64_t node = 2; /* a fake node the thunk reads as a heading level */
+  buri_rt_ui_render_walk(walk_thunk, NULL, builder, (const uint8_t *)&node);
+  BuriStr markup = {0, 0, 0};
+  buri_rt_ui_doc_markup(builder, &markup);
+  printf("%.*s\n", bytes_of(markup), (const char *)markup.ptr);
+  printf("::count h2=%lld\n", (long long)doc_count(builder, "h2"));
+  return 0;
 }
 
 static int mode_ui_doc(void) {
@@ -1140,6 +1174,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "ui-doc") == 0) {
     return mode_ui_doc();
+  }
+  if (strcmp(mode, "ui-walk") == 0) {
+    return mode_ui_walk();
   }
   if (strcmp(mode, "ui-press") == 0) {
     return mode_ui_press();
