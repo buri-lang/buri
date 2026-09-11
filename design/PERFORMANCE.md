@@ -1660,6 +1660,52 @@ need `Backend::emit`'s contract to say that the key is the caller's, a
 build-system change. `llvm/mod.rs` computes the same discarded key the same way,
 so it is one finding and not this backend's.
 
+### 6.11 The ownership fixpoint stops being whole-program, 2026-09-11
+
+§6.9 named `actions::prepare` the largest single-threaded phase, of which
+`middle::rc::analyze` was the half worth as much again. Two things in it were
+whole-program work done the slow way, and neither had to be.
+
+**The ownership fixpoint iterated over every function until nothing moved.**
+`infer_ownership` promotes a parameter from borrowed to owned, and a promotion
+propagates one call edge per pass, so a whole-program loop is Θ(functions × call
+depth) — a deep program walked whole, many times. The promotion is monotone, so
+the answer is a least fixed point independent of order; the loop now walks the
+call graph's strongly connected components in reverse topological order, reusing
+the Tarjan `middle::run` already has. Each component converges against the
+already-final rows of the components it calls, and a non-recursive singleton —
+almost every function — settles in one pass rather than in as many as the call
+graph is deep.
+
+**The per-function scans ran one at a time.** `rc::analyze`'s plan-building scan
+and `lower::run_with`'s lowering are each a pure function of one function and
+the whole-program answers above, with no cross-function shared state — the type
+interner was `lower`'s only exception, and it is now a per-worker table folded
+back together in index order, so the emitted type table and every id in it stay
+byte-for-byte the serial ones. Both loops go through `crate::parallel::map`,
+which returns its results in index order, so the output does not depend on how
+the work was divided. Build output is still compared byte for byte against a
+`--force` rebuild across the four edit classes finding 5 names, and the whole
+golden and agreement corpus is unmoved.
+
+Isolated, min of several runs, `mixed/100k`, macos-arm64 — a throwaway timer
+compiled into the bench, the same instrument §6.9 used, each phase built once
+and timed on its own rather than by subtracting cumulative rows:
+
+| Phase | before | after | |
+|---|---:|---:|---:|
+| `middle::rc::analyze` (ownership SCC walk + parallel scan) | 76.90 ms | 64.16 ms | 0.83× |
+| `lower::run_with` (parallel per-function lowering) | 40.55 ms | 27.98 ms | 0.69× |
+
+The lower row is the cleaner read of the two — lowering is the larger share of
+its phase that parallelizes, where `rc::analyze` still carries the effect and
+parking fixpoints single-threaded beside the scan, so its 0.83× is the scan and
+the SCC walk against those. These are separate binaries measured against each
+other on a shared machine rather than an A/B in one window, so read the
+direction and the ratio rather than the millisecond; both move the way removing
+redundant passes and spreading the rest over ten cores predicts, and the
+observable compiler output does not change at all.
+
 ---
 
 ## 7. Profiling, on this platform
