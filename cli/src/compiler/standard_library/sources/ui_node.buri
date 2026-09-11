@@ -174,6 +174,7 @@ enum NodeKind<C> {
     Icon([Style], Str),
     Submit(Prop<Str>, [Style]),
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
+    RadioGroup(Prop<Str>, [(Str, Prop<Str>)], [Style], Signal<Str>),
 }
 
 /// Nothing at all.
@@ -485,6 +486,45 @@ export fn dialog<C>(
     children: [Node<C>],
 ): Node<C> {
     Node(.Dialog(open, label, styles, children))
+}
+
+/// One choice among a few, as a real radio per option.
+///
+/// A widget rather than a `Role` and a `FieldKind`, because a radio group is
+/// the browser's own model and unreachable any other way. One tab stop for the
+/// group, the arrow keys that *move and select*, Space to select, `aria-checked`
+/// and the roving `tabindex` all come free the moment the options are
+/// `<input type="radio">` inside a `role="radiogroup"`. A stack of `button`s
+/// reaches none of it — a reader tabs through every option and is told they are
+/// buttons. Neither a bare `Role.RadioGroup` nor a `FieldKind.Radio` would
+/// reach it either: a bare role leaves the options something other than radios,
+/// and `field` binds a `Signal<Str>` to *one* input, where a radio's value is
+/// the group's and not the input's.
+///
+/// `label` is the group's accessible name, required for the reason every
+/// widget's label is: a reader is announced into the group by what it is for. It
+/// lands as `aria-label` on the `role="radiogroup"` element.
+///
+/// `options` is one `(key, caption)` per choice. The key is what the signal
+/// holds when that option is picked — the input's `value` — and the caption is
+/// the run of text the reader sees beside it. `value` holds the selected key:
+/// the input whose key equals it is the checked one, and picking another writes
+/// its key back, so two-way binding replaces a change event here the way it does
+/// for a `field`. A key the signal holds that no option carries checks nothing,
+/// which is what an unset group is.
+///
+/// `styles` land on the group, the box a surrounding row or column lays out. The
+/// options are the widget's own elements sharing one `name`, and the dot a
+/// checked one draws is the widget's own drawing — the reset's `:checked::before`
+/// in the group's own `Foreground` — so there is no per-option style list, the
+/// way a toggle needs no child for its mark.
+export fn radioGroup<C>(
+    label: Prop<Str>,
+    options: [(Str, Prop<Str>)],
+    styles: [Style],
+    value: Signal<Str>,
+): Node<C> {
+    Node(.RadioGroup(label, options, styles, value))
 }
 
 /// One subtree or the other, decided by a condition that may vary.
@@ -818,6 +858,86 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 []
             }
         },
+        // The group is a box the caller styles; each option is a `<label>`
+        // wrapping a radio box and its caption, the shape a toggle already
+        // takes. The box answers for its own `:checked` off the signal — the
+        // input whose key equals it — and a checked one draws the dot the reset
+        // paints with `:checked::before`, in the box's own foreground.
+        .RadioGroup(_label, options, styles, value) => {
+            [styledLine(ctx, plain(state), styles, depth)].concat(
+                ctx,
+                radioOptions(ctx, state, options, value.get(scope), depth + 1, 0, []),
+            )
+        },
+    }
+}
+
+/// Every option's lines, in order: a `<label>` wrapper, the radio box, its dot
+/// when it is the checked one, and the caption beside it.
+fn radioOptions<C: Allocator>(
+    ctx: C,
+    state: State,
+    options: [(Str, Prop<Str>)],
+    selected: Str,
+    depth: Int,
+    at: Int,
+    acc: [Str],
+): [Str] {
+    match (options.get(at)) {
+        .None => acc,
+        .Some(option) => {
+            let scope = rootScope();
+            let key = option.0;
+            let on = key == selected;
+            let painted = Painted { state: state, checked: .Some(on), disabled: false };
+            let lines = [
+                styledLine(ctx, plain(state), wrapper([]), depth),
+                styledLine(ctx, painted, radioBox(), depth + 1),
+            ].concat(ctx, dotLines(ctx, on, depth + 2)).push(
+                ctx,
+                textLine(ctx, depth + 1, option.1.read(scope)),
+            );
+            radioOptions(
+                ctx,
+                state,
+                options,
+                selected,
+                depth,
+                at + 1,
+                acc.concat(ctx, lines),
+            )
+        },
+    }
+}
+
+/// A radio's box: a circle one line square that does not shrink, centring the
+/// dot the widget draws in it.
+///
+/// The sheet's reset says the same three sizes and the `border-radius` to a
+/// browser, because with the chrome cleared an unsized radio is a control nobody
+/// can see or hit — the same bargain a checkbox's box makes.
+fn radioBox(): [Style] {
+    [
+        .Layout(.Row),
+        .AlignMain(.Center),
+        .AlignCross(.Center),
+        .Width(.Rem(1.0)),
+        .Height(.Rem(1.0)),
+        .Shrink(0),
+        .Radius(.Full),
+    ]
+}
+
+/// The dot a checked radio draws in its own box, as the line it contributes.
+///
+/// `mark:dot` is a scene-only declaration, as a toggle's `mark:tick` is: a disc
+/// half the box across, centred, in the box's own foreground. An unchecked radio
+/// draws none, the way an unchecked checkbox draws no tick.
+fn dotLines<C: Allocator>(ctx: C, on: Bool, depth: Int): [Str] {
+    if (on) {
+        [elementLine(ctx, depth, [], ["mark:dot", "width:50%", "height:50%"])]
+    } else {
+        []
     }
 }
 

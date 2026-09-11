@@ -134,13 +134,15 @@
 //!
 //! An `e` line may also carry `mark:<shape>`, which makes the box a mark a
 //! widget draws for itself rather than a container: `thumb`, the disc a switch
-//! moves from one end of its track to the other, and `tick`, the stroke a
-//! checkbox holds when it is on. Neither is a box, which is why neither is a
+//! moves from one end of its track to the other; `tick`, the stroke a checkbox
+//! holds when it is on; and `dot`, the disc a checked radio holds, in a box the
+//! scene sized to half the control. None is a box, which is why none is a
 //! `ui/style` property — there is no radius that makes a tick and no background
-//! that draws one. Both take the element's own **foreground**, so the colour
-//! that paints the mark is the colour that paints the text beside it, and both
-//! are drawn inside whatever box the layout gave the line. The sheet's reset
-//! draws the same two on `input[type=checkbox]::before`.
+//! that draws one. Each takes the element's own **foreground**, so the colour
+//! that paints the mark is the colour that paints the text beside it, and each
+//! is drawn inside whatever box the layout gave the line. The sheet's reset
+//! draws the tick and the dot on `input[type=checkbox]::before` and
+//! `input[type=radio]:checked::before`.
 //!
 //! An `e` line may also carry `image:<source>`, which makes the box a picture
 //! rather than a container. **The painter loads nothing** — no network, no
@@ -953,6 +955,10 @@ enum Mark {
     /// A checkbox's tick: a stroke through three points of the box's largest
     /// centred square.
     Tick,
+    /// A checked radio's dot: a disc filling the box it was given, which the
+    /// scene sizes to half the control. The same shape as a thumb, drawn in a
+    /// smaller box.
+    Dot,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1439,6 +1445,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.mark = match value {
                 "thumb" => Mark::Thumb,
                 "tick" => Mark::Tick,
+                "dot" => Mark::Dot,
                 _ => Mark::None,
             };
         }
@@ -2679,7 +2686,11 @@ impl Painter<'_> {
         if side <= 0.0 {
             return;
         }
-        if style.mark == Mark::Thumb {
+        if style.mark == Mark::Thumb || style.mark == Mark::Dot {
+            // A thumb and a dot are the same shape — a disc filling the box —
+            // and differ only in the box the scene gives them: a thumb takes
+            // the whole control, a dot half of it. The reset's `::before` draws
+            // the same two discs from the same two sizes.
             fill(canvas, box_, circular(side / 2.0), style.colour, style.opacity, clip);
             return;
         }
