@@ -214,8 +214,9 @@ pub enum Extra {
     /// ```
     ///
     /// [`Extra::Step`]'s thunk once more, shaped by [`crate::compiler::backend::stencil::glue::Helper::Entry`]
-    /// with the **builder handle as the index** and the **node as the element**
-    /// — `renderInto(builder, node)` with `index = Some(0)`. It is
+    /// with the **context dropped**, the **builder handle as the index** and the
+    /// **node as the element** — `renderInto(ctx, builder, node)` with
+    /// `index = Some(1)`. It is
     /// [`Extra::Compute`] with the *keeping* taken out: the walk runs during
     /// the call that handed it over, so the record is used in place rather than
     /// copied, and there is no stride and no release — the walk answers `()` and

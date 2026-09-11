@@ -2535,7 +2535,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     };
-                    if ps.len() != 2 {
+                    if ps.len() != 3 {
                         self.error(
                             span,
                             format!(
@@ -2546,15 +2546,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     }
-                    // The builder handle is the index the runtime supplies and
-                    // the node is the element, so `index = Some(0)`.
-                    let bytes = self.step_state_bytes(&ps, Some(0));
+                    // The context is dropped, the builder handle is the index the
+                    // runtime supplies, and the node is the element, so
+                    // `index = Some(1)`.
+                    let bytes = self.step_state_bytes(&ps, Some(1));
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // No retain: the walk is invoked once, during this call, and
                     // released by `middle::rc` at its last use here — the
                     // runtime keeps nothing.
-                    let thunk = self.entry_thunk(&ps, &r, Some(0));
+                    let thunk = self.entry_thunk(&ps, &r, Some(1));
                     let word = self.ctx.i64_type();
                     argv.push(function_pointer(thunk).into());
                     argv.push(record.into());
