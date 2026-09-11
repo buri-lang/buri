@@ -133,16 +133,21 @@ impl Rendered {
     /// Pressing a `ui.submit` submits the form around it, which is the
     /// browser's own default action for the press rather than a handler the
     /// button carries.
+    ///
+    /// A `dialog` refuses one the same way, both ways round: what is behind an
+    /// open modal is inert, and what is inside a shut one is drawn nowhere.
+    /// `fill`, `flip` and `submit` follow the same rule.
     export fn press(self, label: Str): ();
 
     /// Types `value` into the field labelled `label`, the way a reader replacing
     /// what was there would.
     ///
-    /// Nothing is typed into a disabled field, so the signal behind one stays
-    /// where it was.
+    /// Nothing is typed into a disabled field, or into one a `dialog` has taken
+    /// out of reach, so the signal behind one stays where it was.
     export fn fill(self, label: Str, value: Str): ();
 
-    /// Flips the toggle labelled `label`, unless it is disabled.
+    /// Flips the toggle labelled `label`, unless it is disabled or a `dialog`
+    /// has taken it out of reach.
     export fn flip(self, label: Str): ();
 
     /// Submits the `index`th form, oldest first — what pressing Enter in one of
@@ -153,7 +158,8 @@ impl Rendered {
     /// only while exactly one of its fields blocks implicit submission. A form
     /// of two fields ending in an ordinary `button` is left alone, because that
     /// is what a browser does with the keypress. A double that submitted it
-    /// anyway would pass a suite whose form nobody can send.
+    /// anyway would pass a suite whose form nobody can send. A form a `dialog`
+    /// has taken out of reach submits nothing.
     export fn submit(self, index: Int): ();
 
     /// How many elements of this kind the tree holds. The name is the one

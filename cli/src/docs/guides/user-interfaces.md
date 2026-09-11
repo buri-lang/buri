@@ -584,6 +584,48 @@ export fn title<C>(text: Str): Node<C> {
 }
 ```
 
+**A modal is `dialog`, not a stack with a pin.** Three of the things a modal
+needs are the platform's and nothing in `ui/style` says any of them: the page
+behind it has to stop scrolling, what is behind has to go inert, and the focus
+has to stay inside. A `<dialog>` opened with `showModal()` has all three, and
+the `::backdrop` and Escape with them.
+
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn confirm<C: Ui>(open: Signal<Bool>, question: Str): Node<C> {
+    ui.dialog(
+        open,
+        .Const(question),
+        [.Width(.Px(320)), .Padding(.Px(16)), .Radius(.Px(10)), .Gap(.Px(10))],
+        [
+            ui.heading(2, [.FontWeight(.Semibold)], .Const(question)),
+            ui.button(
+                .Const("Cancel"),
+                [],
+                [],
+                fn(c, _e) => open.set(c, false),
+                .Const(false),
+            ),
+        ],
+    )
+}
+```
+
+The `open` is a `Signal` and not a `Prop`, because the platform writes it: the
+reader presses Escape and the browser shuts the panel without asking, so a
+one-way value would leave the program holding a dialog nobody can see. Write
+`true` to open it and `false` to shut it.
+
+The styles land on the panel, so a dialog is a card you drew. The scrim behind
+it is the widget's own drawing, the way a toggle's mark is — `::backdrop` in a
+browser, and the same black at half strength in a picture. A shut dialog draws
+nothing at all; an open one is pinned to the viewport, so like every other pin
+it never decides how tall a page is.
+
 The sheet opens by dropping what a browser paints on one of these by itself —
 the bevel on a button, the blue underline on a link, the border and the inner
 shadow on a field, the size, the weight and the margins on a heading, the inset

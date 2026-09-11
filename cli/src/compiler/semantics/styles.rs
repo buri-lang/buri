@@ -105,8 +105,9 @@ const NODE_TOGGLE: usize = 9;
 const NODE_IMAGE: usize = 7;
 const NODE_ICON: usize = 14;
 /// A form's action, which is a `<button>` like `button`'s and takes the same
-/// reset. Declared last, because the variant order is append-only.
+/// reset. Declared before `Dialog`, because the variant order is append-only.
 const NODE_SUBMIT: usize = 15;
+const NODE_DIALOG: usize = 16;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -893,6 +894,7 @@ pub struct Reset {
     pub list: bool,
     pub separator: bool,
     pub image: bool,
+    pub dialog: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -1055,6 +1057,26 @@ impl Reset {
             // between sections is a rule the caller paints.
             out.push_str(":where(hr){border:0;margin:0}\n");
         }
+        if self.dialog {
+            // A browser's own `<dialog>` is a bordered, padded, `canvas`-white
+            // card with a width and a height nobody asked for. What it keeps
+            // is the half no style can say: `position:fixed`, the automatic
+            // margins that centre it, and the top layer `showModal` puts it
+            // in. The panel's own look is the styles'.
+            out.push_str(
+                ":where(dialog){border:0;padding:0;background:none;color:inherit;\
+                 max-width:none;max-height:none}\n",
+            );
+            // Open, it is a container like every other one. Shut, it keeps a
+            // browser's `display:none`, which is why this hangs off `[open]`
+            // rather than joining the reset's own list of containers.
+            out.push_str(":where(dialog[open]){display:flex;flex-direction:column}\n");
+            // The scrim, which is the widget's own drawing rather than
+            // anything a program wrote. `ui/node`'s `scrim` says the same
+            // black at half strength to the painter, so the two renderers draw
+            // one backdrop.
+            out.push_str(":where(dialog)::backdrop{background-color:rgba(0,0,0,0.5)}\n");
+        }
         if self.image {
             // A picture and an inlined `<svg>` are the two leaves a browser
             // leaves inline, so each sits on the text baseline with a descender
@@ -1090,6 +1112,7 @@ pub fn reset_in(
                 NODE_TOGGLE => out.toggle = true,
                 NODE_IMAGE | NODE_ICON => out.image = true,
                 NODE_SUBMIT => out.button = true,
+                NODE_DIALOG => out.dialog = true,
                 _ => {}
             }
         }

@@ -1,0 +1,90 @@
+# A dialog over a page, open and shut, as the two pictures the difference
+# between them is the whole subject of.
+#
+# The page underneath is the same in both: a heading, a line of text and three
+# rows of a list. Shut, the dialog draws nothing and the page is untouched.
+# Open, it is the two things a browser draws for a `showModal` — the scrim over
+# everything behind it, and the panel centred on that — and the page under the
+# scrim is the same page, at the same height, because a dialog is pinned to the
+# viewport and a pin never decides how tall a page is.
+#
+# The panel carries every style that shapes it: a width, padding, a gap, a
+# radius, a border, a background and a shadow. So the pair also reads that the
+# styles land on the panel and nowhere else, and that the sheet's reset takes
+# away the bordered, padded white card a browser draws a `<dialog>` as — a
+# panel that paints twice would show the browser's card behind this one.
+#
+# What no picture can show is the half of a modal that is not pixels: the
+# scroll lock, the inertness of what is behind, the focus trap and Escape.
+# Those come from `showModal` for free, and `conformance/lib/ui/test/tree.buri`
+# is where the headless double is asked for the inertness.
+#
+# Beside each picture is a `describe` assertion naming what the scene carries,
+# which is what says the scrim is in the document and not only in the pixels.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a dialog over a page, open and shut, as 2 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/panels", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/panels/test/__snapshots__/dialog-open.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/panels/test/pictures.buri"
+  replace: "\"dialog-shut\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/panels", "--force", "--filter=shut"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/panels/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/panels", "--update", "--force", "--filter=shut"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/panels/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/panels", "--force", "--filter=shut"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: six more pixels of padding on the panel, which moves the
+# open picture and nothing in the shut one — the panel is the only thing the
+# open golden holds that the shut one does not.
+edit {
+  file: "lib/panels/scenes.buri"
+  replace: ".Padding(.Px(18))"
+  with: ".Padding(.Px(24))"
+}
+
+run {
+  args: ["test", "//lib/panels", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/panels/test/__snapshots__/dialog-open.diff.png"  exists: true }
+# The shut picture, under the name the rename above gave it, did not move: a
+# panel nobody can see is a panel whose padding paints nothing.
+path { path: "lib/panels/test/__snapshots__/never-recorded.diff.png"  exists: false }
