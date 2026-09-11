@@ -1544,16 +1544,20 @@ fn alignment(value: &str) -> Option<AlignContent> {
     }
 }
 
-/// The same seven as item alignment. `space-*` has no item meaning, so it reads
-/// as the start it behaves like.
+/// The same seven as content alignment, read on the cross axis. `space-*` has
+/// no item meaning: `align-items:space-between` is not a legal declaration, so
+/// a browser drops it and `align-items` stays `normal`, which for a flex
+/// container is stretch. The painter lands on the same stretch a browser does,
+/// so a scene document that still carries the raw distribution paints the way
+/// the sheet's `stretch` does.
 fn item_alignment(value: &str) -> Option<AlignItems> {
     match value {
-        "flex-start" | "space-between" | "space-around" | "space-evenly" => {
-            Some(AlignItems::FLEX_START)
-        }
+        "flex-start" => Some(AlignItems::FLEX_START),
         "center" => Some(AlignItems::CENTER),
         "flex-end" => Some(AlignItems::FLEX_END),
-        "stretch" => Some(AlignItems::STRETCH),
+        "stretch" | "space-between" | "space-around" | "space-evenly" => {
+            Some(AlignItems::STRETCH)
+        }
         _ => None,
     }
 }
@@ -4261,6 +4265,22 @@ mod tests {
         assert_eq!(at(&image, 3, 0), [255, 0, 0, 255]);
         assert_eq!(at(&image, 4, 0), [255, 255, 255, 255]);
         assert_eq!(at(&image, 7, 0), [0, 255, 0, 255]);
+    }
+
+    /// buri#80: `align-items:space-between` is not a legal declaration, so a
+    /// browser drops it and `align-items` stays `normal`, which for a flex
+    /// container is stretch. The painter lands on the same stretch, so a child
+    /// with no cross-axis size fills the container the way the sheet's own
+    /// `stretch` makes it — rather than the flex-start it used to read.
+    #[test]
+    fn a_cross_axis_distribution_stretches_the_way_a_browser_drops_it() {
+        let scene = "buri-scene 1\nviewport 20 20\n\
+                     e 0 flex-direction:row;align-items:space-between;width:20px;height:20px\n\
+                     e 1 width:8px;background-color:rgb(255,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        // No height of its own; stretched, it fills the container top to bottom.
+        assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 0, 19), [255, 0, 0, 255]);
     }
 
     /// The glyphs land inside the box the shaper measured, and nowhere else.

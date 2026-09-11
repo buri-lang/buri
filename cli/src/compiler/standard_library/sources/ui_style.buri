@@ -121,10 +121,14 @@ export enum Style {
     Layout(Layout),
     /// Where the children sit along the axis the layout runs along.
     AlignMain(Align),
-    /// Where the children sit across that axis.
+    /// Where the children sit across that axis. The three distributions —
+    /// `SpaceBetween`, `SpaceAround`, `SpaceEvenly` — have no cross-axis
+    /// meaning and resolve to `Stretch`, the way a browser drops the invalid
+    /// declaration and falls back to it.
     AlignCross(Align),
     /// Where this child sits across its parent's main axis, overriding the
-    /// parent's `AlignCross` for it alone.
+    /// parent's `AlignCross` for it alone. A distribution resolves to
+    /// `Stretch`, as it does for `AlignCross`.
     AlignSelf(Align),
     /// Whether children that do not fit start a new line.
     Wrap(Bool),
@@ -203,8 +207,9 @@ export enum Style {
     BorderColor(Color),
     /// What the border is drawn like.
     BorderStyle(BorderStyle),
-    /// How rounded the corners are. A `Percent` or a `Full` is a share of the
-    /// width across and of the height down, so a box wider than it is tall
+    /// How rounded the corners are. A `Full` is a pill on any box, the way
+    /// Tailwind's `rounded-full` is. A `Percent` is a share of the width across
+    /// and of the height down, so a percentage on a box wider than it is tall
     /// rounds to an ellipse rather than a circle.
     Radius(Length),
     /// How rounded one corner is. Two `RadiusCorner`s naming different corners
