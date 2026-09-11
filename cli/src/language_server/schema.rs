@@ -278,7 +278,7 @@ mod tests {
     fn every_block_a_build_file_writes_is_found() {
         let schema = schema();
         for name in
-            ["library", "binary", "test", "testing", "outputs", "js", "web", "tag", "lint", "rules"]
+            ["library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
         {
             assert!(schema.block(name).is_some(), "no message for `{name}`");
         }
@@ -294,8 +294,7 @@ mod tests {
     fn the_field_lists_agree_with_the_formatter() {
         let schema = schema();
         for block in
-            ["", "library", "binary", "test", "testing", "outputs", "js", "web", "tag", "lint",
-             "rules"]
+            ["", "library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
         {
             let mut ordered: Vec<&str> = crate::build::textproto::schema_order(block).to_vec();
             let mut declared: Vec<&str> =

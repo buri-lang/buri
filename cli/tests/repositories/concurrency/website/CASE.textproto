@@ -88,6 +88,20 @@ file {
   absent: "$host_HostLocation_push"
 }
 
+# The tab is named on both sides and by different means: the page writes
+# `document.title` from a watch over the route, and the worker writes a
+# `<title>` into the document it sends. So the page carries the writer and the
+# worker has no use for one.
+file {
+  path: ".buri/out/web/cmd/site/main.mjs"
+  contains: "$ui_web_setTitle"
+}
+
+file {
+  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  absent: "$ui_web_setTitle"
+}
+
 # The negative twin. `Location` is granted on WEB and on nothing else, and a
 # worker that asks for the address bar is refused where it asked — not because
 # the page beside it is fine, but because a worker has no address of its own.
