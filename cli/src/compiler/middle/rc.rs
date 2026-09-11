@@ -268,6 +268,7 @@ use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty};
+use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 
 // ---------------------------------------------------------------------------
@@ -548,6 +549,7 @@ pub trait Counted {
 /// The name is now narrower than the type: this is no longer only what syntax
 /// can say. It stays because `stencil/mod.rs` and `llvm/emit.rs` name it, and
 /// a rename would be an edit to two files for a word.
+#[derive(Clone)]
 pub struct Syntactic {
     shapes: monomorphize::Shapes,
     prim_of: HashMap<Ty, Prim>,
@@ -961,12 +963,55 @@ pub fn sharing(program: &Program) -> Plan {
 
 /// The same, against a caller's own [`Counted`] and options — which is how wave
 /// 2 hands in a `middle::layout`-backed classifier.
-pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> Plan {
+pub fn analyze<C: Counted + Clone + Sync>(
+    program: &Program,
+    counted: &mut C,
+    opts: &Options,
+) -> Plan {
     let ownership = infer_ownership(program, counted, opts);
     let (purity, can_abort) = infer_effects(program);
     let parking = parkability(program);
-    let mut funcs: Vec<FuncPlan> = Vec::with_capacity(program.funcs.len());
-    for (i, f) in program.funcs.iter().enumerate() {
+    // One `FuncPlan` per function, across the cores. Every scan is a pure
+    // function of its function, the whole-program answers above, and a
+    // classifier of its own — the memo is a cache, so a per-worker clone gives
+    // the same answers as one shared table. `parallel::map_with` returns the
+    // plans in index order, so the vector is the same as the serial one.
+    let base: &C = counted;
+    let funcs: Vec<FuncPlan> = crate::parallel::map_with(
+        program.funcs.len(),
+        || base.clone(),
+        |worker, i| scan_func(program, worker, &ownership, &purity, &can_abort, &parking, opts, i),
+    );
+    // The whole-program escape answer. `program.funcs` is the
+    // post-monomorphization set, so an intrinsic present in it is one the
+    // program can *reach* — the same reachability `infer_effects`'s fixpoint
+    // computes, asked of a set of keys rather than propagated to callers,
+    // because the mark it feeds is set once for the whole artifact and there
+    // is no caller to attribute it to.
+    let crosses_tasks = program
+        .funcs
+        .iter()
+        .any(|f| matches!(&f.kind, FuncKind::Intrinsic(key) if crosses_tasks(key)));
+    Plan { funcs, crosses_tasks, parking }
+}
+
+/// One function's reference-counting plan: its ownership row, its effects, and
+/// where every `incref`/`decref` goes. Pure in `i` — it reads the whole-program
+/// answers and its own classifier, and writes nothing shared — which is what
+/// lets `analyze` run it across the cores.
+#[allow(clippy::too_many_arguments, reason = "the whole-program answers a scan reads")]
+fn scan_func(
+    program: &Program,
+    counted: &mut dyn Counted,
+    ownership: &[Vec<ir::Ownership>],
+    purity: &[ir::Purity],
+    can_abort: &[bool],
+    parking: &Parking,
+    opts: &Options,
+    i: usize,
+) -> FuncPlan {
+    let f = program.funcs.get(i).or_ice("`parallel::map_with` ranges over `program.funcs`");
+    {
         let params = ownership.get(i).cloned().unwrap_or_default();
         let mut plan = FuncPlan {
             params,
@@ -985,7 +1030,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             let mut scan = Scan {
                 func: f,
                 counted,
-                ownership: &ownership,
+                ownership,
                 sizes: &sizes,
                 child_at,
                 child_ids,
@@ -1076,19 +1121,8 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             // released twice on a failing path.
             order_sites(&mut plan.sites);
         }
-        funcs.push(plan);
+        plan
     }
-    // The whole-program escape answer. `program.funcs` is the
-    // post-monomorphization set, so an intrinsic present in it is one the
-    // program can *reach* — the same reachability `infer_effects`'s fixpoint
-    // computes, asked of a set of keys rather than propagated to callers,
-    // because the mark it feeds is set once for the whole artifact and there
-    // is no caller to attribute it to.
-    let crosses_tasks = program
-        .funcs
-        .iter()
-        .any(|f| matches!(&f.kind, FuncKind::Intrinsic(key) if crosses_tasks(key)));
-    Plan { funcs, crosses_tasks, parking }
 }
 
 /// Puts a function's sites in the order they are emitted in.
@@ -1234,34 +1268,127 @@ fn infer_ownership(
             }
         }
     }
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for (i, f) in program.funcs.iter().enumerate() {
-            let Some(body) = f.body() else { continue };
-            let mut consumed: HashSet<LocalId> = HashSet::default();
-            consuming_uses(body, &own, counted, i, &mut consumed);
-            let Some(row) = own.get(i) else { continue };
-            let promoted: Vec<ir::Ownership> = f
-                .params
-                .iter()
-                .zip(row.iter())
-                .map(|(p, o)| {
-                    if *o == ir::Ownership::Borrow && consumed.contains(p) {
-                        ir::Ownership::Own
-                    } else {
-                        *o
-                    }
-                })
-                .collect();
-            if Some(&promoted) != own.get(i) {
-                if let Some(slot) = own.get_mut(i) {
-                    *slot = promoted;
-                }
-                changed = true;
+    // The fixpoint is monotone — a parameter only ever moves `Borrow -> Own`,
+    // and never back — so its answer is the same whatever order the rules are
+    // applied in. The old loop applied them to the whole program on every pass,
+    // which is `O(functions × call depth)`: a promotion propagates one call
+    // edge per pass, so a deep program was walked whole, many times.
+    //
+    // Instead walk the call graph's strongly connected components in reverse
+    // topological order. When an SCC is reached every SCC it depends on is
+    // already final, so it converges against fixed inputs and is never revisited
+    // — and a function that calls nothing recursive is one component that
+    // settles in a single pass. `super::strongly_connected` yields the
+    // components callees-first, which is the order this needs.
+    let deps = ownership_dependencies(program);
+    for scc in super::strongly_connected(&deps) {
+        // A non-recursive singleton reads only rows that are already final, so
+        // one evaluation is its fixed point: a second pass would read the same
+        // inputs and change nothing.
+        if let &[only] = scc.as_slice() {
+            if !deps.get(only).is_some_and(|e| e.contains(&only)) {
+                promote_consuming(program, counted, only, &mut own);
+                continue;
             }
         }
-        for (target, k) in loop_variables_taken(program, &own) {
+        converge_scc(program, counted, &scc, &mut own);
+    }
+    own
+}
+
+/// The call graph the ownership fixpoint closes over, as an influence list:
+/// `deps[i]` names every function whose row can change `i`'s.
+///
+/// Two facts flow between functions. A body's consuming uses read the ownership
+/// of the callees it hands values to and of the loop it jumps into, so a callee
+/// influences its caller (`i -> callee`, `i -> target`). And a `Continue` into
+/// another function promotes *that* function's loop variable against the
+/// jumping function's own row, so the source influences the target
+/// (`target -> i`). The second edge is what puts a `Continue` and its target in
+/// one component: a cross-function jump is always a cycle here, so its two ends
+/// converge together rather than one being finalized before the other.
+fn ownership_dependencies(program: &Program) -> Vec<Vec<usize>> {
+    let mut deps: Vec<Vec<usize>> = vec![Vec::new(); program.funcs.len()];
+    for (i, f) in program.funcs.iter().enumerate() {
+        let Some(body) = f.body() else { continue };
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::CallFn { func, .. } => {
+                if let Some(callee) = func.func() {
+                    if let Some(row) = deps.get_mut(i) {
+                        row.push(callee.index());
+                    }
+                }
+            }
+            ExprKind::Continue { func, .. } => {
+                let target = func.map_or(i, FuncIdx::index);
+                if let Some(row) = deps.get_mut(i) {
+                    row.push(target);
+                }
+                if let Some(row) = deps.get_mut(target) {
+                    row.push(i);
+                }
+            }
+            _ => {}
+        });
+    }
+    for row in &mut deps {
+        row.sort_unstable();
+        row.dedup();
+    }
+    deps
+}
+
+/// One function's consuming pass: promotes every borrowed parameter the body
+/// consumes, reading the ownership rows the body's calls and jumps depend on.
+/// Returns whether it moved anything.
+fn promote_consuming(
+    program: &Program,
+    counted: &mut dyn Counted,
+    i: usize,
+    own: &mut [Vec<ir::Ownership>],
+) -> bool {
+    let Some(f) = program.funcs.get(i) else { return false };
+    let Some(body) = f.body() else { return false };
+    let mut consumed: HashSet<LocalId> = HashSet::default();
+    consuming_uses(body, own, counted, i, &mut consumed);
+    let Some(row) = own.get(i) else { return false };
+    let promoted: Vec<ir::Ownership> = f
+        .params
+        .iter()
+        .zip(row.iter())
+        .map(|(p, o)| {
+            if *o == ir::Ownership::Borrow && consumed.contains(p) {
+                ir::Ownership::Own
+            } else {
+                *o
+            }
+        })
+        .collect();
+    if own.get(i) == Some(&promoted) {
+        return false;
+    }
+    if let Some(slot) = own.get_mut(i) {
+        *slot = promoted;
+    }
+    true
+}
+
+/// The local fixpoint over one strongly connected component, against the
+/// already-final rows of everything it calls. Every source of a promoting
+/// `Continue` shares its target's component (`ownership_dependencies`), so the
+/// loop-variable rule need only walk this component's own functions.
+fn converge_scc(
+    program: &Program,
+    counted: &mut dyn Counted,
+    scc: &[usize],
+    own: &mut [Vec<ir::Ownership>],
+) {
+    loop {
+        let mut changed = false;
+        for &i in scc {
+            changed |= promote_consuming(program, counted, i, own);
+        }
+        for (target, k) in loop_variables_taken(program, own, scc) {
             match own.get_mut(target).and_then(|r| r.get_mut(k)) {
                 Some(o) if *o == ir::Ownership::Borrow => {
                     *o = ir::Ownership::Own;
@@ -1270,8 +1397,10 @@ fn infer_ownership(
                 _ => {}
             }
         }
+        if !changed {
+            return;
+        }
     }
-    own
 }
 
 /// The loop variables a `Continue` hands a value the iteration will not
@@ -1285,9 +1414,14 @@ fn infer_ownership(
 /// puts before the back edge frees the next iteration's variable.
 /// `middle/rc.rs`'s own `a_jump_owns_what_it_did_not_pass_through` is that
 /// shape; `stepV` below was the program.
-fn loop_variables_taken(program: &Program, own: &[Vec<ir::Ownership>]) -> Vec<(usize, usize)> {
+fn loop_variables_taken(
+    program: &Program,
+    own: &[Vec<ir::Ownership>],
+    scc: &[usize],
+) -> Vec<(usize, usize)> {
     let mut out: Vec<(usize, usize)> = Vec::new();
-    for (i, f) in program.funcs.iter().enumerate() {
+    for &i in scc {
+        let Some(f) = program.funcs.get(i) else { continue };
         let Some(body) = f.body() else { continue };
         let row = own.get(i);
         typed::walk(body, &mut |e| {
@@ -5574,6 +5708,7 @@ export fn main(): Result<(), Str> {
     /// which is the difference between a leak and a wrong answer.
     #[test]
     fn what_the_classifier_cannot_answer_is_recorded_rather_than_guessed() {
+        #[derive(Clone)]
         struct Nothing;
         impl Counted for Nothing {
             fn counted(&mut self, _ty: &Ty) -> Answer {

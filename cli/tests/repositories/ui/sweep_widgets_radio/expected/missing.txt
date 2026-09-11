@@ -1,0 +1,5 @@
+FAIL //lib/radio  test/pictures.buri  "a radio's dot follows the selection"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/radio/test/pictures.buri:18:1
+
+0 passed, 1 failed, 1 skipped (0.0s)

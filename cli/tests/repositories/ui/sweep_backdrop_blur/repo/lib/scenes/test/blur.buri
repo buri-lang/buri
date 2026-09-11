@@ -1,0 +1,32 @@
+// `BackdropBlur`: the blur a scrim casts on the page behind it, read at the
+// hard boundary it softens.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { primitives, radii, wash };
+
+test "a scrim's blur softens the page more the wider its radius" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blur-radii", radii(), .Hover, []);
+}
+
+test "a tenth of black separates the panel once the page behind it is blurred" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blur-wash", wash(), .Hover, []);
+}
+
+test "every primitive that holds a child can carry a backdrop blur" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blur-primitives", primitives(), .Hover, []);
+}

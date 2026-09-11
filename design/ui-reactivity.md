@@ -179,6 +179,15 @@ ui.submit(label: Prop<Str>, styles): Node<C>
 // a modal panel. The signal is writable because the platform writes it:
 // Escape shuts the dialog without asking.
 ui.dialog(open: Signal<Bool>, label: Prop<Str>, styles, children): Node<C>
+// a wrapper that fires when a press lands outside its subtree, so an overlay
+// can dismiss itself. On the web one document-level pointer listener, mounted
+// and disposed with the subtree; a native painter has no pointer, so inert.
+ui.onPressOutside(handler: fn(C, Event) => (), styles, children): Node<C>
+// a single choice, as one real radio per option inside a role="radiogroup".
+// options are (key, caption); value holds the selected key, so the input whose
+// key matches it is checked and picking another writes its key back.
+ui.radioGroup(label: Prop<Str>, options: [(Str, Prop<Str>)], styles,
+              value: Signal<Str>): Node<C>
 // a progress bar. `value` runs 0.0–1.0 and lowers to aria-valuenow — value
 // times a hundred, rounded — beside aria-valuemin/max and the label as the
 // accessible name. Determinate only; the fill is the caller's children.
@@ -221,6 +230,28 @@ opened with `showModal()` has all three, plus the `::backdrop` and Escape. The
 `open` is a `Signal` and not a `Prop` because the platform writes it back:
 Escape shuts the panel without asking the program first.
 
+**`onPressOutside` is what lets a non-modal overlay dismiss itself.** A dialog
+gets Escape and a backdrop press from the platform; a menu, a popover or a
+select does not, so it registers a document-level listener and shuts when a
+press lands anywhere that is not inside it — the way Basecoat closes each of
+them. It is a bare wrapper: its `styles` and `children` are a stack's, and the
+listener is the whole of what it adds, mounted and disposed with the subtree so
+an overlay that shuts leaves nothing on the document. A press *inside* the
+subtree is not one it fires on, which is what keeps it from swallowing the
+press that chose the next thing.
+
+**`radioGroup` is a widget and neither a `Role` nor a `FieldKind`.** A radio
+group is the browser's own model — one tab stop for the group, the arrow keys
+that move *and* select, Space, `aria-checked` and the roving `tabindex` — free
+the moment the options are `<input type="radio">` inside a `role="radiogroup"`,
+and out of reach otherwise: a stack of buttons has none of it. A bare
+`Role.RadioGroup` would leave the options something other than radios, and a
+`FieldKind.Radio` does not fit because `field` binds its `Signal<Str>` to one
+input where a radio's value is the group's — so the fix is the widget over the
+whole choice, the shape `each` and `form` already take. The signal holds the
+selected key and picking an option writes its key back, the two-way binding that
+replaces a change event here.
+
 **`progress` is a widget because the value is what the role is for.** A bar that
 carried `role="progressbar"` and nothing else would announce a progress bar with
 no progress, so `value` is a parameter and lowers to `aria-valuenow`, `min` and
@@ -256,13 +287,13 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 53 properties. The arithmetic, because the cut line is the design:
+  // 54 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
   //    8  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge, Bleed
   //    7  extent:     {Min,Max,}Width, {Min,Max,}Height, AspectRatio
-  //   11  paint:      Background, Foreground, Border{Width,Edge,Color,Style},
-  //       Radius, RadiusCorner, Opacity, Shadow, Shadows
+  //   12  paint:      Background, Foreground, Border{Width,Edge,Color,Style},
+  //       Radius, RadiusCorner, Opacity, Shadow, Shadows, BackdropBlur
   //   11  type:       FontFamily, FontSize, FontWeight, Italic, LineHeight,
   //       LetterSpacing, TextAlign, TextCase, TextLine, TextWrap, Truncate
   //    2  interaction: Cursor, Passthrough
@@ -282,6 +313,7 @@ export enum Style {
   Translate(Length, Length),            // after the layout; no sibling moves
   Clip(Bool),                           // cut to the box, without a scroll container
   Passthrough(Bool),                    // the pointer goes to whatever is behind
+  BackdropBlur(Length),                 // the page behind is blurred; a scrim softens it
 
   // and six combinators
   Group([Style]),                       // composition; array literal, no Allocator
@@ -659,7 +691,7 @@ repositories land, `ui/...` can migrate out wholesale.
 | `core/host` (WEB, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
-| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `choose`, `computed`, `each`, `icon`, `mount` |
+| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `onPressOutside`, `routeLink`, `radioGroup`, `progress`, `disclosure`, `choose`, `computed`, `each`, `icon`, `mount` |
 | `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
 | `ui/theme` | library | `Theme`, `Scheme`, `themed`, `switching`, `scheme`, `page` |
 | `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |

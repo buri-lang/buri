@@ -1,0 +1,15 @@
+// EXPECT: expected `Length`
+//
+// A backdrop blur is a radius, and a radius is a `Length` — `.Px(4)`,
+// `.Rem(0.25)`. A bare number is the count `Grow` and `Span` take, not a
+// distance: one is pixels of blur and the other is a share of leftover room.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack([.BackdropBlur(4)], []), [])
+}

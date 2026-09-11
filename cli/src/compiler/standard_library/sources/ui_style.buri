@@ -121,10 +121,14 @@ export enum Style {
     Layout(Layout),
     /// Where the children sit along the axis the layout runs along.
     AlignMain(Align),
-    /// Where the children sit across that axis.
+    /// Where the children sit across that axis. The three distributions —
+    /// `SpaceBetween`, `SpaceAround`, `SpaceEvenly` — have no cross-axis
+    /// meaning and resolve to `Stretch`, the way a browser drops the invalid
+    /// declaration and falls back to it.
     AlignCross(Align),
     /// Where this child sits across its parent's main axis, overriding the
-    /// parent's `AlignCross` for it alone.
+    /// parent's `AlignCross` for it alone. A distribution resolves to
+    /// `Stretch`, as it does for `AlignCross`.
     AlignSelf(Align),
     /// Whether children that do not fit start a new line.
     Wrap(Bool),
@@ -203,8 +207,9 @@ export enum Style {
     BorderColor(Color),
     /// What the border is drawn like.
     BorderStyle(BorderStyle),
-    /// How rounded the corners are. A `Percent` or a `Full` is a share of the
-    /// width across and of the height down, so a box wider than it is tall
+    /// How rounded the corners are. A `Full` is a pill on any box, the way
+    /// Tailwind's `rounded-full` is. A `Percent` is a share of the width across
+    /// and of the height down, so a percentage on a box wider than it is tall
     /// rounds to an ellipse rather than a circle.
     Radius(Length),
     /// How rounded one corner is. Two `RadiusCorner`s naming different corners
@@ -319,6 +324,23 @@ export enum Style {
     /// question: an element can refuse the pointer and still name a cursor,
     /// and the cursor is then whatever is behind it.
     Passthrough(Bool),
+
+    /// How far the page behind this element is blurred, so a modal scrim
+    /// separates its panel from the page by softening it rather than by hiding
+    /// it under a heavy wash. A tenth of black over a blurred page is the
+    /// separation a dialog wants; a half of black over a sharp one is the
+    /// heavier thing a scrim reaches for without this.
+    ///
+    /// It is `backdrop-filter: blur()`: only what is already painted behind the
+    /// box is blurred, and the box's own background and content paint over the
+    /// blur untouched. Blur is the whole of it — a backdrop that also shifts
+    /// hue or drops saturation is a picture, not a property, so there is no
+    /// general filter here.
+    ///
+    /// The length is the blur radius, so `.Px(0)` blurs nothing. A length that
+    /// follows the reader — `.Rem` or `.Em` — makes a radius that grows with
+    /// the text; `.Percent`, `.Auto` and `.Full` name no radius a blur can use.
+    BackdropBlur(Length),
 }
 
 /// How a container arranges its children.

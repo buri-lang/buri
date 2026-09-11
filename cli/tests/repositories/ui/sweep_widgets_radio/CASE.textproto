@@ -1,0 +1,86 @@
+# The dot a checked radio draws, the option it sits on, and the colour it takes.
+#
+# Two pictures, one per axis. **Which option is on** — a band of groups moving
+# the selection from the first option to the last and then off the end of them,
+# so the dot is beside the key the signal holds and a group whose signal holds a
+# key no option carries draws no dot at all. **What paints it** — one option
+# checked and its dot painted every colour the group's `Foreground` can be,
+# beside the caption the same colour reaches, so a cell is one colour and the
+# dot is the shape of it.
+#
+# The dot is drawn by the widget in all three renderers, which is why this case
+# exists: the sheet's `:checked::before` on a page, `mark:dot` on the checked
+# option's own line in the scene document, and a filled disc in the painter. It
+# is half the box across and in the box's own foreground, so `Foreground` is the
+# one property that paints it and the two renderers draw one dot. A radio group
+# holds the browser's model — the roving tabindex, the arrow keys that move and
+# select, and Space — the moment its options are real radios, none of which is a
+# picture; what a picture reads is the dot.
+#
+# Beside the selection picture is a `describe` assertion naming what the scene
+# carries: a checked option has `mark:dot` and answers `checked:true`, and a key
+# no option holds carries neither, which is what an unset group is.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the dot a checked radio draws, the option it sits on and the colour it takes, as 2 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/radio", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/radio/test/__snapshots__/radio-selection.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/radio/test/pictures.buri"
+  replace: "\"radio-selection\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/radio", "--force", "--filter=selection"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/radio/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/radio", "--update", "--force", "--filter=selection"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/radio/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/radio", "--force", "--filter=selection"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: the blue the colour picture paints its dot, nudged one
+# step, which moves every cell of that picture and nothing in the other one.
+edit {
+  file: "lib/radio/scenes.buri"
+  replace: ".Rgb(48, 64, 200)"
+  with: ".Rgb(48, 64, 210)"
+}
+
+run {
+  args: ["test", "//lib/radio", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/radio/test/__snapshots__/radio-colour.diff.png"  exists: true }
+path { path: "lib/radio/test/__snapshots__/radio-selection.diff.png"  exists: false }

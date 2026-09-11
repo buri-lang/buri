@@ -1,0 +1,12 @@
+error: `Role` has no variant `RadioGroup` [no-such-variant]
+  --> cmd/ui_role_has_no_radiogroup/main.buri:15:27
+   |
+15 |   ui.mount(ctx, ui.region(.RadioGroup, [], []), [])
+   |                           ^^^^^^^^^^^
+   |
+   = its variants are `Navigation`, `Main`, `Banner`, `ContentInfo`, `Complementary`, `Article`, `Search`, `List`, `ListItem`, `Group`, `Separator`, `Status`, `Alert`, `Table`, `TableRow`, `RowHeader`, `ColumnHeader` and `Cell`
+   = fix: name a variant the enum declares
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+
