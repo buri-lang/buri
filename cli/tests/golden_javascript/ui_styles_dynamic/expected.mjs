@@ -16,7 +16,7 @@ const $k14=[1200n,'lay-row'];
 const $k15=[$k14];
 const $k16=[$k15];
 const $k17=[5,$k16];
-$ui_sheet='*,*::before,*::after{box-sizing:border-box}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.bg-16a34a{background-color:rgb(22,163,74)}\n.bg-dc2626{background-color:rgb(220,38,38)}\n';
+$ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.bg-16a34a{background-color:rgb(22,163,74)}\n.bg-dc2626{background-color:rgb(220,38,38)}\n';
 $tree_declare_hook=$tree_declare;
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];

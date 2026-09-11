@@ -695,6 +695,11 @@ box at all, corners included, and it makes no scroll container doing it —
 a pinned toaster dock asks for it so the page under it still answers a press,
 and each toast in the dock takes the pointer back.
 
+`BackdropBlur(Length)` blurs the page behind an element — `backdrop-filter:
+blur()` — so a modal scrim separates its panel by softening the page rather than
+by hiding it under a heavy wash. The length is the blur radius, and the
+element's own background paints over the blur.
+
 `heading`, `button`, `submit`, `link`, `image`, `field`, `toggle` and `icon`
 take a `[Style]` like every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or
@@ -798,6 +803,17 @@ refuses the press before the handler is reached, and tells a reader the control
 is unavailable rather than absent. It is also what makes `On(.Disabled, ...)`
 fire. `On(.Checked, ...)` needs no flag — a toggle's own signal says whether it
 is checked, so one page holds one toggle that is on and one that is off.
+
+`onPressOutside(handler, styles, children)` is a bare wrapper whose `handler`
+fires when a press lands outside its subtree, so a non-modal overlay — a menu, a
+popover, a select — can dismiss itself the way a `dialog` does with Escape and
+its backdrop. It leads with its handler, the way `button` and `form` do; on the
+web it lowers to one document-level pointer listener, registered while the
+subtree is mounted and disposed with it, so an overlay that shuts leaves nothing
+on the document. A press inside the subtree does not fire it, which is what lets
+the one press that dismisses the overlay also act on what it landed on. It adds
+no visible element beyond its own wrapper — the `styles` and `children` are a
+`stack`'s — and a native painter, having no pointer, leaves it inert.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
