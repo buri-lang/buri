@@ -3728,6 +3728,30 @@ function $dom_fire(node, type) {
   if (handler !== undefined) handler({ preventDefault() {}, target: node });
 }
 
+// A click the headless harness can tell apart: a plain left-click, or a
+// modified one — ⌘/Ctrl held, which is what a reader does to open a link in a
+// new tab. The event carries the flags a real `MouseEvent` does and a
+// `preventDefault` that records, so a listener that intercepts the plain click
+// is *seen* to have done so and one that leaves the modified click alone leaves
+// `defaultPrevented` false — which is a route link falling through to the
+// browser.
+function $dom_click(node, modified) {
+  const handler = node.listeners["click"];
+  if (handler === undefined) return;
+  handler({
+    button: 0,
+    metaKey: modified,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    target: node,
+  });
+}
+
 // --- The tree ---------------------------------------------------------------
 //
 // `ui/node`'s vocabulary, lowered. A `Node` is the one-field struct that keeps
@@ -3736,7 +3760,7 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon     15 Submit   16 Dialog
+//  14 Icon     15 Submit   16 Dialog 17 RouteLink
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -4834,6 +4858,34 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     });
     return;
   }
+  if (tag === 17) {
+    const element = $tree_element(parent, "a", anchor);
+    // The href a browser follows, kept so the plain-click handler can navigate
+    // to the same address the reader sees in the status bar. `.Cell` and
+    // `.Computed` re-run this, so it is always what the anchor points at now.
+    let dest = "";
+    $tree_bind(node[1], (to) => {
+      dest = to;
+      $dom_attribute(element, "href", to);
+    });
+    $tree_children(ctx, element, node[2], node[3]);
+    const onFollow = node[4];
+    // A real anchor, so the browser keeps middle-click, ⌘-click, "open in new
+    // tab", the status bar and the reader's "link". Only a plain left-click is
+    // the app's: a modified click — the middle button, or ⌘/Ctrl/Shift/Alt with
+    // the left one — falls through to the anchor the browser already has, and
+    // one another listener already handled is left alone.
+    $dom_listen(element, "click", (event) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== undefined && event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      // One transaction, the way a press is, so a handler that writes three
+      // signals causes one pass over the watchers rather than three.
+      $ui_flush(() => onFollow(ctx, dest));
+    });
+    return;
+  }
   if ($tree_icon_hook === null) {
     // The compiler said no tree here holds artwork, so it left the renderer
     // out of the artifact. Reaching this is that decision being wrong, and
@@ -5185,6 +5237,28 @@ function $ui_testing_Rendered_press(self, label) {
     const form = $dom_enclosing(button, "form");
     if (form !== null) $dom_fire(form, "submit");
   }
+  return 0;
+}
+
+// A plain left-click on the anchor a reader sees as `label`. A route link
+// answers it in place — the address moves and the tree stays; an ordinary
+// `link` lets the browser follow it, which this headless document cannot do, so
+// nothing observable happens and a test says so by what did not change.
+// Addressed by the text it shows, the way a reader addresses a link.
+function $ui_testing_Rendered_follow(self, label) {
+  const anchor = $tree_labelled(self, "a", label);
+  if (!$dom_reachable(anchor) || $dom_inert(anchor)) return 0;
+  $dom_click(anchor, false);
+  return 0;
+}
+
+// A ⌘/Ctrl-click on that anchor: what a reader does to open the link beside the
+// page they are on. A route link leaves this to the browser, so the address bar
+// does not move — which is the whole of what a test here asserts.
+function $ui_testing_Rendered_openInNewTab(self, label) {
+  const anchor = $tree_labelled(self, "a", label);
+  if (!$dom_reachable(anchor) || $dom_inert(anchor)) return 0;
+  $dom_click(anchor, true);
   return 0;
 }
 

@@ -52,18 +52,26 @@
 //! what read the path, so every signal the program holds survives — which is
 //! what a link cannot do.
 //!
+//! **A link can navigate too.** `routeLink` is an `<a href>` whose plain
+//! left-click does what `navigate` does rather than loading a document, while a
+//! middle-click or a ⌘-click is left to the browser. So in-app navigation keeps
+//! everything an anchor is — the status bar, "open in new tab", and a reader's
+//! "link" — which a `button` calling `navigate` throws away.
+//!
 //! The document half is JavaScript's. A native artifact has nothing to render
 //! into, so a native build that reaches `render`, `shell`, `resume`, `state` or
 //! `title` stops at code generation naming the operation. `path`, `route`,
-//! `navigate` and `replace` are ordinary Buri over the graph, and run wherever a
-//! `Location` does.
+//! `navigate`, `replace` and `routeLink` are ordinary Buri over the graph, and
+//! run wherever a `Location` does.
 
 from "core/effect" import { Allocator };
 from "core/json" import * as json;
 from "core/json" import { Json };
 from "ui/effect" import { Location, Ui, Watch };
+from "ui/node" import * as node;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
+from "ui/style" import { Style };
 
 // --- The server's half ---------------------------------------------------------
 
@@ -303,4 +311,37 @@ export fn navigate<C: Location + Ui>(ctx: C, path: Str): () {
 export fn replace<C: Location + Ui>(ctx: C, path: Str): () {
     let _ = ctx.replace(path);
     ctx.write(ctx.path(), path)
+}
+
+/// A link that navigates without loading a document.
+///
+/// The other half of a router. `navigate` is what a page does *instead* of
+/// following a link; this is that same navigation *as* a link — a real
+/// `<a href>` to `dest`, so a reader keeps everything an anchor is: middle-click
+/// and ⌘-click open it in a new tab, the status bar previews where it goes,
+/// "copy link address" copies it, and a screen reader announces it as a link
+/// rather than as an action. A `ui.button` calling `navigate` is none of those.
+///
+/// A plain left-click is the page's: it does exactly what `navigate` does — a
+/// history entry, the cell `route` wraps written, and the tree left where it
+/// is — so every signal the program holds survives the address changing, which
+/// is the whole reason to route rather than link. Every modified click is the
+/// browser's: the middle button, and ⌘, Ctrl, Shift or Alt with the left one,
+/// fall through to the anchor and open a tab or a window the way a reader who
+/// held that key down asked them to.
+///
+/// `dest` is an address on this site, the same as `navigate`'s `path`. A link
+/// to another origin is an ordinary `ui.link`: it *is* a document load, and a
+/// reader following one is leaving.
+///
+/// It wants `Location` and `Ui` because a plain click navigates, and that is
+/// what navigating needs. A `native` build has no document to click in, so one
+/// that mounts a `routeLink` renders the anchor and its plain click does
+/// nothing there.
+export fn routeLink<C: Location + Ui>(
+    dest: Prop<Str>,
+    styles: [Style],
+    children: [Node<C>],
+): Node<C> {
+    node.routeLink(dest, styles, children, fn(c, to) => navigate(c, to))
 }

@@ -875,6 +875,14 @@ signals survives the navigation, which a `ui.link` cannot manage.
 `web.replace(ctx, path)` writes the same address over the entry the reader is on
 instead of beside it, so Back does not return to it: that is a redirect. Both
 need `Location` and `Ui`, one for the address bar and one for the cell.
+
+`web.routeLink(dest, styles, children)` is that navigation as a link. It renders
+a real `<a href>`, so a reader keeps middle-click, ⌘-click, "open in new tab",
+the status bar and the "link" a screen reader announces — everything a
+`ui.button` calling `navigate` throws away. A plain left-click does what
+`navigate` does instead of loading the document; a middle-click or a ⌘/Ctrl-click
+is left to the browser as an ordinary anchor. It needs `Location` and `Ui` for
+the same reason `navigate` does.
 [Build a website](../guides/websites.md) walks both halves end to end.
 
 ## The platform
