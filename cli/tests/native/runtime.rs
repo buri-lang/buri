@@ -408,6 +408,43 @@ fn a_press_closure_fires_with_a_minted_event() {
     assert!(out.status.success());
 }
 
+/// The element document (issue #53, phase 2): the builder the `renderInto`
+/// walk drives, and the readers a `Rendered` answers from it.
+///
+/// The driver builds a two-item list with classes and a heading — no
+/// reactivity, every prop already read — and reads it back. What is pinned is
+/// the three things this side owns: the `markup()` is the headerless scene
+/// document `describe` writes (the depth from the nesting, the empty body's
+/// trailing space, the classes verbatim), `text()` is the runs joined by a
+/// space, `count(name)` walks the records of one name, and `identity(name, i)`
+/// is the number stamped at creation — from zero in this fresh process, so the
+/// host is 0, the first item 2 and the second 4, and a read mints nothing.
+#[test]
+fn the_element_document_reads_back() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-doc"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        concat!(
+            "e 0 class:lay-col\n",
+            "e 1 \n",
+            "t 2 a\n",
+            "e 1 \n",
+            "t 2 b\n",
+            "e 0 class:fs-28 fw-bold\n",
+            "t 1 Prices\n",
+            "::text=a b Prices\n",
+            "::count ul=1 li=2 h2=1 x=0\n",
+            "::id li0=2 li1=4 h2=6 li0again=2"
+        ),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
 /// `Str`'s ASCII flag and the scalar count it stands in for
 /// (VALUE-MODEL.md §3.1), and `[T]` construction.
 #[test]
