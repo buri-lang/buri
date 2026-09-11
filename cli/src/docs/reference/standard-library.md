@@ -817,8 +817,10 @@ rendered for on that script as `data-path`, and the compiler's stylesheet in the
 head. `web.Document` is the rest of that head: `title` names the tab and `lang`
 names the language, both escaped. `defaultDocument` is the one to write over,
 so a page names the fields it differs in and nothing else. Routing is a match,
-so a page's title is one too. The client-rendered `.html` has the same two
-fields in its build rule, as `binary { web { title lang } }`.
+so a page's title is one too. A page that *mounts* says the same thing with
+`web.title(ctx, text)`, which takes a `Prop<Str>` and rewrites the tab whenever
+it changes — the `.html` a WEB output writes carries the artifact's name and
+knows nothing about the route.
 
 On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
 takes the document over. It creates no element and no run of text — the renderer

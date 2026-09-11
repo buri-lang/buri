@@ -1993,6 +1993,12 @@ console.log(log.join("\n"));
 ///    label the *server* wrote changes, which is the whole of what resuming is
 ///    for.
 ///
+/// And the tab, which the shell the compiler wrote does not know: `main.html`
+/// carries the artifact's name, and `web.title` writes the route's name over it
+/// at mount. The `tab` line is `document.title`, so it starts as `Buri` and
+/// becomes `About — Buri` when the reader navigates — the same match the
+/// worker hands `shell` in a `Document`.
+///
 /// Then the router, which is the same four claims a second time over an address
 /// the reader changed rather than one they arrived at. A press calls
 /// `web.navigate`: the address bar moves, the history grows by one, only the
@@ -2048,13 +2054,16 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
         stdout,
         format!(
             "200 text/html; charset=utf-8\n\
+             sent tab Buri\n\
              {sent}\n\
              resumed / {{\"title\":\"Buri\",\"visitors\":3}}\n\
              made 0 elements and 0 runs of text\n\
              at / over 1\n\
+             tab Buri\n\
              {sent}\n\
              {pressed}\n\
              at /about over 2\n\
+             tab About — Buri\n\
              navigated 2 elements and 1 runs of text\n\
              {about}\n"
         ),
@@ -2314,6 +2323,9 @@ globalThis.addEventListener = (type, handler) => {
 function browser(sent, at, holds) {
   parse(sent, body);
   globalThis.document = {
+    // What the `.html` a WEB output writes carries: the artifact's name, which
+    // is what the page renames as soon as it knows the route.
+    title: "main",
     get body() {
       return holds === false ? null : body;
     },
@@ -2385,6 +2397,9 @@ const answer = await worker.fetch(new Request(`https://example.com${asked}`));
 const document_ = await answer.text();
 const sent = document_.split("<body>")[1].split("</body>")[0];
 console.log(`${answer.status} ${answer.headers.get("content-type")}`);
+// The worker's half of the tab: a `<title>` in the document it sends, so the
+// name is right before a byte of the page's script has run.
+console.log(`sent tab ${document_.split("<title>")[1].split("</title>")[0]}`);
 console.log(sent);
 
 browser(sent, at, true);
@@ -2393,6 +2408,7 @@ await import("./.buri/out/web/cmd/site/main.mjs");
 
 console.log(`made ${made.elements} elements and ${made.text} runs of text`);
 console.log(`at ${location.pathname} over ${history.length}`);
+console.log(`tab ${document.title}`);
 console.log(showing());
 
 // The press the server could not have handled.
@@ -2405,6 +2421,7 @@ made.elements = 0;
 made.text = 0;
 press(findAll(body, "BUTTON")[1]);
 console.log(`at ${location.pathname} over ${history.length}`);
+console.log(`tab ${document.title}`);
 console.log(`navigated ${made.elements} elements and ${made.text} runs of text`);
 console.log(showing());
 "##;

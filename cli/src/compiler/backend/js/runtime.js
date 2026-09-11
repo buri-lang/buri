@@ -6560,6 +6560,16 @@ function $ui_web_state(ctx) {
   return $ui_web_embedded();
 }
 
+// The tab's name. `ui/web`'s `title` runs this inside a watch, so a title built
+// out of the route is rewritten every time the reader navigates. Nowhere to
+// write it is not a failure: a JavaScript host that is not a browser has no
+// document, and a page's name is not something a program reads back.
+function $ui_web_setTitle(text) {
+  if (typeof document === "undefined" || document === null) return 0;
+  document.title = text;
+  return 0;
+}
+
 // The address bar, as one cell of the graph. Made on first ask, so a page that
 // never routes registers nothing, and written from `popstate` — which is what
 // the browser fires when the reader goes back or forward.
