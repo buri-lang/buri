@@ -2495,7 +2495,9 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "testing_assert.report",
     // `ui/effect` and `ui/testing`: the same reactive slots as `core/host`'s,
     // at the scope and at the headless test host. `ui_node.mount` and
-    // `ui_testing.render` are generic in the *context* alone.
+    // `ui_testing.mount` are generic in the *context* alone — the second is the
+    // renderer `render`'s Buri body reaches, and its `C` is dropped, occurring
+    // only inside the `Node<C>` it walks and the walk closure it drives.
     "ui_effect.Scope.read",
     "ui_node.mount",
     "ui_testing.Headless.memo",
@@ -2503,7 +2505,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "ui_testing.Headless.signal",
     "ui_testing.Headless.write",
     "ui_testing.Observer.read",
-    "ui_testing.render",
+    "ui_testing.mount",
     // `ui/web`, and all three are generic in the *context* alone. `render`'s
     // `C` is unbounded and occurs only inside the `Node<C>` it is handed, so
     // what crosses is a tree of tags and strings; `resume` and `state` take the
@@ -2831,7 +2833,7 @@ mod tests {
         ui_effect.Scope.read ui_node.mount \
         ui_testing.Headless.memo ui_testing.Headless.read \
         ui_testing.Headless.signal ui_testing.Headless.write \
-        ui_testing.Observer.read ui_testing.render \
+        ui_testing.Observer.read ui_testing.mount \
         ui_web.render ui_web.resume ui_web.state";
 
     #[test]

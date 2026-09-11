@@ -622,6 +622,11 @@
 mod abort;
 mod bytes;
 mod character;
+/// `ui/testing`'s element document and the readers a `Rendered` answers from
+/// it (issue #53): the arena `render` builds, its `markup`/`text`/`count`/
+/// `identity`, and the builder the Buri `renderInto` walk emits to. Static —
+/// a `Prop` read once, a region built once, no watcher and no reconciler yet.
+mod document;
 /// The operating system's cryptographic generator, behind `Entropy`. Behind
 /// the `crypto` feature in full: without it there is no `getrandom` to call,
 /// the symbol is absent from the archive, and a program that reaches the

@@ -218,6 +218,12 @@ impl Jit<'_> {
             if entry.extra == Extra::Compute && i + 1 == args.len() {
                 continue;
             }
+            // A **walk** is the same, at the same position: the last argument
+            // of an [`Extra::Walk`] row is the `renderInto` closure, and it
+            // crosses inside the record below rather than flattened.
+            if entry.extra == Extra::Walk && i + 1 == args.len() {
+                continue;
+            }
             for leaf in self.leaves(prog, t)? {
                 let at = slot + leaf.offset;
                 if leaf.float {
@@ -294,6 +300,10 @@ impl Jit<'_> {
 
         if entry.extra == Extra::Compute {
             self.compute_extra(prog, st, entry, args, &mut ints)?;
+        }
+
+        if entry.extra == Extra::Walk {
+            self.walk_extra(prog, st, entry, args, &mut ints)?;
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
@@ -1015,6 +1025,56 @@ impl Jit<'_> {
             Some(name) => ints.push(Src::Sym(name)),
             None => ints.push(Src::Imm(0)),
         }
+        Ok(())
+    }
+
+    /// [`Extra::Walk`]'s three words: a `fn(Builder, Node) => ()` the runtime
+    /// invokes once, to walk a tree into the document.
+    ///
+    /// [`Self::compute_extra`] with the keeping taken out. The record holds the
+    /// closure's two words and the frame past them, exactly as a body's does,
+    /// and the thunk is the same [`super::glue::Helper::Entry`] — but the walk
+    /// takes **two** parameters, the builder handle and the node, and the
+    /// builder is the one the runtime supplies, so `index` names it (`Some(0)`)
+    /// and the node is the element the thunk reads out of `arg`. There is no
+    /// stride and no release: the walk answers `()` and is invoked in place, so
+    /// the runtime keeps nothing and its argument is released here at its last
+    /// use, the way a step's is.
+    fn walk_extra(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        entry: &Entry,
+        args: &[(u32, ir::Type)],
+        ints: &mut Vec<Src>,
+    ) -> Result<(), String> {
+        let Some((fslot, fty)) = args.last().copied() else {
+            return Err(format!("{}: no walk argument", entry.key));
+        };
+        let Some(ty) = source_ty(prog, fty) else {
+            return Err(format!("{}: a walk with no type", entry.key));
+        };
+        let Ty::Fn(params, ret) = ty else {
+            return Err(format!("{}: a walk that is not a function", entry.key));
+        };
+        if params.len() != 3 {
+            return Err(format!("{}: a walk taking {} arguments", entry.key, params.len()));
+        }
+        let widths: Vec<u32> =
+            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+        let (_, _bytes) = super::glue::state_shape(&widths, Some(1));
+        let state = st.frame.size;
+        self.mv(state, fslot, 16);
+        let thunk = self.helper(super::glue::Helper::Entry {
+            params,
+            ret: *ret,
+            index: Some(1),
+        });
+        ints.push(Src::Sym(thunk));
+        ints.push(Src::Addr(state));
+        // This backend's record keeps a frame word, and `E_FRAME` is where the
+        // runtime writes the one it acquires before it drives the walk.
+        ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
         Ok(())
     }
 

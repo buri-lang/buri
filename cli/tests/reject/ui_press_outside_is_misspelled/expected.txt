@@ -4,7 +4,7 @@ error: "ui/node" has no member `onPressOutide` [no-such-member]
 16 |   ui.onPressOutide(fn(c, _e) => open.set(c, false), [], [panel])
    |      ^^^^^^^^^^^^^
    |
-   = the module exports 32 names
+   = the module exports 34 names
    = did you mean `onPressOutside`?
    = fix: if you meant `onPressOutside`, use that; if not, `buri docs ui/node` lists what the module exports
 

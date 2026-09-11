@@ -144,6 +144,23 @@ pub enum Arg {
     /// backend's thunk works on the machine stack and wants no frame word, so
     /// `frame_at` is always `-1` here.
     Compute,
+    /// A **walk**: three parameters, from one Buri closure argument — a
+    /// `fn(Builder, Node) => ()` the runtime invokes once, to build the document
+    /// (`cli/runtime/document.rs`, issue #53). The other table's `Extra::Walk`
+    /// argues the shape.
+    ///
+    /// ```text
+    ///   entry     the generated `ccc` thunk, `void(state, index, in, out)`
+    ///   state     the record — the closure, and on the other backend a frame
+    ///   frame_at  where to write a working frame, always -1 here
+    /// ```
+    ///
+    /// [`Arg::Compute`] with the keeping taken out: the walk runs during the
+    /// call, so the record is pointed at rather than copied, and there is no
+    /// stride and no release. The thunk is the same one, shaped with the builder
+    /// handle as its index and the node as its element. `frame_at` rides along
+    /// for the frame-threaded backend and is `-1` here, as `Arg::Compute`'s is.
+    Walk,
 }
 
 impl Arg {
@@ -153,6 +170,7 @@ impl Arg {
             Arg::Compute => 7,
             Arg::Step => 4,
             Arg::Str => 3,
+            Arg::Walk => 3,
             Arg::Bytes | Arg::List | Arg::Elems => 2,
             Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain | Arg::Release
             | Arg::Equal => 1,
@@ -2208,6 +2226,59 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
+    // The renderer and the document it builds (issue #53). `render` is a Buri
+    // body, `Rendered(mount(ctx, root, renderInto))`, so it is not here; `mount`
+    // drops its context, passes `root` by address, and takes the walk as its
+    // last argument. The builders `renderInto` emits to, and the readers a
+    // `Rendered` answers, are monomorphic.
+    Entry {
+        key: "ui_testing.mount",
+        symbol: "buri_rt_ui_testing_mount",
+        args: &[Arg::Dropped, Arg::Spilled, Arg::Walk],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.emitElement",
+        symbol: "buri_rt_ui_node_emit_element",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.exitElement",
+        symbol: "buri_rt_ui_node_exit_element",
+        args: &[Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.emitText",
+        symbol: "buri_rt_ui_node_emit_text",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Rendered.markup",
+        symbol: "buri_rt_ui_testing_rendered_markup",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Rendered.text",
+        symbol: "buri_rt_ui_testing_rendered_text",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Rendered.count",
+        symbol: "buri_rt_ui_testing_rendered_count",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_testing.Rendered.identity",
+        symbol: "buri_rt_ui_testing_rendered_identity",
+        args: &[Arg::Scalar, Arg::Str, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -2637,6 +2708,7 @@ mod tests {
             Arg::Spilled,
             Arg::Step,
             Arg::Compute,
+            Arg::Walk,
         ] {
             assert!(shape.consumes(), "{shape:?}");
         }
@@ -2693,7 +2765,12 @@ mod tests {
             // [`Arg::Step`]'s reason: it also names a release beside it, and
             // the two travel as one shape rather than as three rows that have
             // to be kept in order.
-            let stepped = e.args.contains(&Arg::Step) || e.args.contains(&Arg::Compute);
+            // A walk is the third: it passes its node by address, which reads
+            // as generic, but its thunk names the type the way a step's does, so
+            // it carries no separate stride either.
+            let stepped = e.args.contains(&Arg::Step)
+                || e.args.contains(&Arg::Compute)
+                || e.args.contains(&Arg::Walk);
             assert_eq!(strides > 0, generic && !stepped, "{}", e.key);
         }
     }
@@ -2721,6 +2798,29 @@ mod tests {
             }
         }
         assert_eq!(checked, 2, "the graph's two deferred bodies, and nothing else yet");
+    }
+
+    /// The walk is the last argument of a key the other table marks
+    /// `Extra::Walk`, the same invariant a deferred body keeps and for the same
+    /// reason — one row, in two tables, describing one C signature.
+    #[test]
+    fn a_walk_is_the_last_argument_of_a_key_the_shared_table_names() {
+        use crate::compiler::backend::runtime_table::{self, Extra};
+        let mut checked = 0usize;
+        for e in ENTRIES {
+            let at = e.args.iter().position(|a| *a == Arg::Walk);
+            let shared = runtime_table::entry(e.key).map(|s| s.extra == Extra::Walk);
+            match (at, shared) {
+                (Some(at), Some(true)) => {
+                    assert_eq!(at + 1, e.args.len(), "{}", e.key);
+                    checked += 1;
+                }
+                (None, Some(true)) => panic!("{} is a walk and has no `Arg::Walk`", e.key),
+                (Some(_), _) => panic!("{} has a walk the other table does not name", e.key),
+                (None, _) => {}
+            }
+        }
+        assert_eq!(checked, 1, "the renderer's one walk, and nothing else yet");
     }
 
     /// Every row with a step is one `backend/intrinsic_keys.rs` names, its
