@@ -317,6 +317,58 @@ test "switching flips the scheme with the values it goes with" {
     assert.isTrue(variables().contains("--app-bg:rgb(24,24,27)"));
 }
 
+// --- the page ------------------------------------------------------------------------
+
+test "a page ground is a theme that binds no token" {
+    // The page's own colours are the page's, not a box's inside it. Nothing
+    // else in a program can reach `<body>`, so without this the browser's
+    // white shows through an overscroll and anywhere the root box does not
+    // cover.
+    assert.equal(
+        install([theme.page(.Rgb(10, 10, 10), .Rgb(250, 250, 250))]),
+        "body{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n",
+    );
+}
+
+test "a page ground reads a token the way a class does" {
+    // `var(--app-bg)`, exactly what `.bg-t_app_bg` holds: the ground is
+    // declared once and the theme beside it decides what it is worth, so
+    // changing the value changes the page and nothing else.
+    assert.equal(
+        install([theme.page(App.Bg.color(), App.Fg.color()), appThemed(night)]),
+        "body{background-color:var(--app-bg);color:var(--app-fg)}\n:root{--app-bg:rgb(24,24,27);--app-fg:rgb(240,240,245)}\n",
+    );
+}
+
+test "a page ground sits beside a scheme, in the order they were passed" {
+    assert.equal(
+        install([
+            theme.scheme(.Dark),
+            theme.page(.Rgb(10, 10, 10), .Rgb(250, 250, 250)),
+        ]),
+        ":root{color-scheme:dark}\nbody{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n",
+    );
+}
+
+test "switching turns the page over with the values it goes with" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let dark = signal(ctx, false);
+    let themes = [
+        theme.switching(
+            .Cell(dark),
+            theme.page(.Rgb(10, 10, 10), .Rgb(250, 250, 250)),
+            theme.page(.Rgb(255, 255, 255), .Rgb(24, 24, 27)),
+        ),
+    ];
+    let _ = install(themes);
+    assert.isTrue(variables().contains("body{background-color:rgb(255,255,255)"));
+
+    dark.set(ctx, true);
+    assert.isTrue(variables().contains("body{background-color:rgb(10,10,10)"));
+}
+
 // --- the inline tier -----------------------------------------------------------------
 
 test "a token the compiler could not fold is the same custom property inline" {

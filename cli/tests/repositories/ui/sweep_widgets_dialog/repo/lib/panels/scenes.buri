@@ -1,0 +1,113 @@
+//! One page, and a dialog over it that is open or is shut.
+//!
+//! The page underneath is the same in both pictures — a heading, a line of
+//! text and three rows of a list — so the whole difference between the two
+//! goldens is what the dialog does. Shut, it draws nothing and the page is
+//! untouched. Open, it is the two things a browser draws for a `showModal`:
+//! the scrim over everything behind, and the panel centred on it.
+//!
+//! The panel carries every style that shapes it — a width, padding, a gap, a
+//! radius, a border, a background and a shadow — because the styles land on
+//! the panel and nowhere else. So the picture also reads that a dialog is a
+//! card the caller drew, with the platform's own card taken away by the sheet's
+//! reset.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Color, Shadow, Style };
+
+/// The page, with its dialog bound to `open`.
+export fn page<C: Ui>(ctx: C, open: Bool): Node<C> {
+    let shown = signal(ctx, open);
+    ui.column(
+        [
+            .Padding(.Px(16)),
+            .Gap(.Px(12)),
+            .FontSize(.Px(13)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        [
+            ui.heading(1, [.FontSize(.Px(20)), .FontWeight(.Bold)], .Const("Library")),
+            ui.text(.Const("Four titles are on loan, and one goes back tonight.")),
+            behind("The Left Hand of Darkness", "due Friday"),
+            behind("A Wizard of Earthsea", "due Friday"),
+            behind("The Dispossessed", "due tonight"),
+            ui.dialog(shown, .Const("Return this title?"), panel(), [
+                ui.heading(
+                    2,
+                    [.FontSize(.Px(16)), .FontWeight(.Semibold)],
+                    .Const("Return this title?"),
+                ),
+                ui.text(.Const("It goes back on the shelf tonight.")),
+                ui.row([.Gap(.Px(8)), .AlignMain(.End)], [
+                    button("Cancel", .Rgb(240, 241, 245), .Rgb(24, 24, 40)),
+                    button("Return", .Rgb(48, 64, 200), .Rgb(255, 255, 255)),
+                ]),
+            ]),
+        ],
+    )
+}
+
+/// A row of the page behind the dialog: enough of it to read the scrim over.
+fn behind<C>(title: Str, due: Str): Node<C> {
+    ui.row(
+        [
+            .Gap(.Px(8)),
+            .Padding(.Px(10)),
+            .Radius(.Px(6)),
+            .Background(.Rgb(243, 244, 247)),
+            .AlignCross(.Center),
+        ],
+        [
+            ui.stack(
+                [
+                    .Width(.Px(28)),
+                    .Height(.Px(36)),
+                    .Radius(.Px(3)),
+                    .Background(.Rgb(150, 160, 180)),
+                ],
+                [],
+            ),
+            ui.column([.Gap(.Px(2))], [ui.text(.Const(title)), ui.text(.Const(due))]),
+        ],
+    )
+}
+
+/// The panel: every style that shapes it, landing on the panel itself.
+fn panel(): [Style] {
+    [
+        .Width(.Px(320)),
+        .Padding(.Px(18)),
+        .Gap(.Px(10)),
+        .Radius(.Px(10)),
+        .Background(.Rgb(255, 255, 255)),
+        .BorderWidth(.Px(1)),
+        .BorderColor(.Rgb(214, 218, 228)),
+        .Shadow(Shadow {
+            x: .Px(0),
+            y: .Px(8),
+            blur: .Px(24),
+            spread: .Px(0),
+            color: .Rgba(0, 0, 0, 0.25),
+        }),
+    ]
+}
+
+/// A button in the panel's footer.
+fn button<C>(label: Str, background: Color, ink: Color): Node<C> {
+    ui.button(
+        .Const(label),
+        [
+            .PaddingX(.Px(12)),
+            .PaddingY(.Px(6)),
+            .Radius(.Px(6)),
+            .Background(background),
+            .Foreground(ink),
+        ],
+        [],
+        fn(_c, _e) => (),
+        .Const(false),
+    )
+}

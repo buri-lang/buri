@@ -3422,6 +3422,10 @@ function $dom_make(kind, name) {
     value: "",
     checked: false,
     disabled: false,
+    // A `<dialog>`'s own flag. In a browser this is the property the element
+    // reflects; here it is what `$dom_markup` writes and what says which side
+    // of an open modal an element is on.
+    open: false,
   };
 }
 
@@ -3534,6 +3538,23 @@ function $dom_optional(element, name, value) {
   $dom_attribute(element, name, value);
 }
 
+// Open or shut, in the top layer. `showModal` is the whole of what the widget
+// is for: the browser stops the page behind from scrolling, makes it inert,
+// paints the `::backdrop`, traps the focus and answers Escape — none of which
+// a style can say and none of which a `<div>` can have.
+//
+// A server wrote `<dialog open>`, which is open and *not* modal, and
+// `showModal` on an open dialog throws. So a resume shuts it first: that is
+// what promotes the panel the reader is already looking at into the top layer.
+function $dom_modal(element, on) {
+  if (element.$shim) {
+    element.open = on;
+    return;
+  }
+  if (element.open) element.close();
+  if (on) element.showModal();
+}
+
 // The classes an element has, all of them at once. Replacing rather than
 // adding is what makes re-applying a style list idempotent: a `When` that
 // switched back has to lose the class it gained.
@@ -3627,6 +3648,7 @@ function $dom_markup(node) {
   if (node.value !== "") out += ' value="' + $dom_escape(node.value, true) + '"';
   if (node.checked) out += " checked";
   if (node.disabled) out += " disabled";
+  if (node.open) out += " open";
   const styles = Object.keys(node.styles);
   if (styles.length > 0) {
     const parts = [];
@@ -3678,6 +3700,25 @@ function $dom_first(node, names) {
   return null;
 }
 
+// Whether a dialog has taken this element out of the page.
+//
+// Two ways, and both are the widget's own doing rather than anything a style
+// says. A `<dialog>` a browser opened with `showModal` is in the top layer and
+// everything outside it is inert — no pointer, no keyboard, no announcement.
+// A shut one is drawn nowhere, so what is inside it is out of reach the other
+// way round.
+function $dom_inert(node) {
+  let root = node;
+  for (let at = node; at !== null && at !== undefined; at = at.parent) {
+    if (at.name === "dialog") return !at.open;
+    root = at;
+  }
+  for (const dialog of $dom_elements(root, "dialog", [])) {
+    if (dialog.open) return true;
+  }
+  return false;
+}
+
 // A disabled control is not dispatched to at all, which is what a browser does
 // with one: the press, the keystroke and the flip never reach it, so a handler
 // behind one cannot run.
@@ -3695,7 +3736,7 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon
+//  14 Icon     15 Submit   16 Dialog
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -4623,9 +4664,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 5) {
     const element = $tree_element(parent, "button", anchor);
-    // Not a submit button: a form's submission is its own handler, and a
-    // button that submits the form it happens to be inside is the surprise
-    // this vocabulary exists to remove.
+    // Not a submit button: a form usually holds a Cancel as well, and a button
+    // that submits the form it happens to be inside is the surprise this
+    // vocabulary exists to remove. `submit` is the one that submits.
     $dom_attribute(element, "type", "button");
     // The label is the accessible name however the button is drawn, so it is
     // an attribute rather than the glyphs: a button holding an icon and a word
@@ -4755,6 +4796,44 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
     return;
   }
+  if (tag === 15) {
+    const element = $tree_element(parent, "button", anchor);
+    // The form's action. This attribute is the whole of what makes Enter in a
+    // field submit: HTML submits a form implicitly through its submit button,
+    // and a form of two fields with none discards the keypress. There is no
+    // listener here — submitting is the form's own handler, and a click that
+    // ran it as well would run it twice.
+    $dom_attribute(element, "type", "submit");
+    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
+    $tree_styles(element, node[2]);
+    $tree_text(node[1], element, null);
+    return;
+  }
+  if (tag === 16) {
+    const element = $tree_element(parent, "dialog", anchor);
+    // The label is the accessible name however the panel is drawn, the rule a
+    // button's label follows: a reader is announced into the dialog by what it
+    // is for, and the heading inside it may not be there yet.
+    $tree_bind(node[2], (label) => $dom_attribute(element, "aria-label", label));
+    $tree_styles(element, node[3]);
+    for (const child of node[4]) $tree_render(ctx, child, element, null);
+    const cell = node[1][0];
+    // Whether the shutting is ours or the reader's. `close()` fires the same
+    // event either way, and only the reader's is news to the signal.
+    let ours = false;
+    $tree_bind([1, node[1]], (on) => {
+      ours = true;
+      $dom_modal(element, on);
+      ours = false;
+    });
+    // Escape, and every other way a browser shuts a dialog by itself. A signal
+    // that went on saying `true` would leave the program holding a panel
+    // nobody can see.
+    $dom_listen(element, "close", () => {
+      if (!ours) $ui_flush(() => $ui_write(cell, false));
+    });
+    return;
+  }
   if ($tree_icon_hook === null) {
     // The compiler said no tree here holds artwork, so it left the renderer
     // out of the artifact. Reaching this is that decision being wrong, and
@@ -4864,6 +4943,21 @@ function $ui_theme_render(themes, scope) {
     // its own, so a later one wins the way a later value does.
     if (theme[0] === 2) {
       out += ":root{color-scheme:" + $UI_THEME_SCHEMES[theme[1]] + "}\n";
+      continue;
+    }
+    // A page's ground is the other one: the document's own two colours, on
+    // `body` rather than `:root` — a background there is what the browser
+    // paints the canvas with, so it reaches an overscroll and the whole window
+    // and not just the box the tree drew. A token is left as the `var()` a
+    // class would have held, because the properties are declared in this same
+    // text and the cascade resolves them wherever they are used.
+    if (theme[0] === 3) {
+      out +=
+        "body{background-color:" +
+        $tree_color(theme[1]) +
+        ";color:" +
+        $tree_color(theme[2]) +
+        "}\n";
       continue;
     }
     const body = [];
@@ -5080,8 +5174,27 @@ function $tree_labelled(self, name, label) {
 // assertion, and one that meant otherwise fails on the state it expected.
 function $ui_testing_Rendered_press(self, label) {
   const button = $tree_labelled(self, "button", label);
-  if ($dom_reachable(button)) $dom_fire(button, "click");
+  // Out of reach when the pointer passes through it, or when a `dialog` has
+  // taken it out of the page — behind an open modal, or inside a shut one.
+  if (!$dom_reachable(button) || $dom_inert(button)) return 0;
+  $dom_fire(button, "click");
+  // A submit button has no handler of its own: submitting is the form's, and
+  // reaching it is the browser's default action for the press. Nothing here
+  // listens for a click, so the default action is dispatched here.
+  if (button.attributes["type"] === "submit" && !button.disabled) {
+    const form = $dom_enclosing(button, "form");
+    if (form !== null) $dom_fire(form, "submit");
+  }
   return 0;
+}
+
+// The nearest element of this name at or above `node`, or null where there is
+// none.
+function $dom_enclosing(node, name) {
+  for (let at = node; at !== null && at !== undefined; at = at.parent) {
+    if (at.kind === 0 && at.name === name) return at;
+  }
+  return null;
 }
 
 // Whether the pointer reaches this element rather than passing through it.
@@ -5122,7 +5235,7 @@ function $ui_testing_Rendered_fill(self, label, value) {
   if (field === null) $abort('the label "' + label + '" is not a field');
   // Nothing is typed into a disabled field, so nothing is written and nothing
   // is dispatched.
-  if (field.disabled) return 0;
+  if (field.disabled || $dom_inert(field)) return 0;
   field.value = value;
   $dom_fire(field, "input");
   return 0;
@@ -5131,17 +5244,54 @@ function $ui_testing_Rendered_fill(self, label, value) {
 function $ui_testing_Rendered_flip(self, label) {
   const box = $dom_first($tree_labelled(self, "label", label), ["input"]);
   if (box === null) $abort('the label "' + label + '" is not a toggle');
-  if (box.disabled) return 0;
+  if (box.disabled || $dom_inert(box)) return 0;
   box.checked = !box.checked;
   $dom_fire(box, "change");
   return 0;
 }
 
+// The input types that block implicit submission, which is the HTML Standard's
+// own list: the kinds a reader types a line into. A `range` is dragged and a
+// `textarea` holds newlines, so neither blocks and neither counts.
+const $DOM_BLOCKING = {
+  text: true,
+  password: true,
+  email: true,
+  number: true,
+  search: true,
+};
+
+// Pressing Enter in a field, which is implicit submission — and implicit
+// submission is the platform's rule, not this double's. A form is submitted
+// through its submit button; a form with none is submitted only while exactly
+// one of its fields blocks implicit submission, and one with two fields and no
+// submit button discards the keypress.
+//
+// So this discards it too. A double more permissive than the platform is a
+// suite that goes green on markup a browser will not submit, which is a form
+// nobody can send and a test that cannot say so.
 function $ui_testing_Rendered_submit(self, at) {
   const forms = $dom_elements($slot(self), "form", []);
   const index = Number(at);
   if (index < 0 || index >= forms.length) $abort("this tree has no form " + index);
-  $dom_fire(forms[index], "submit");
+  const form = forms[index];
+  // A form a `dialog` has taken out of reach submits nothing.
+  if ($dom_inert(form)) return 0;
+  for (const button of $dom_elements(form, "button", [])) {
+    if (button.attributes["type"] === "submit") {
+      // A disabled submit button is no default action at all, so the form has
+      // none and the single-field rule below is what is left.
+      if (!button.disabled) {
+        $dom_fire(form, "submit");
+        return 0;
+      }
+    }
+  }
+  let blocking = 0;
+  for (const field of $dom_elements(form, "input", [])) {
+    if ($DOM_BLOCKING[field.attributes["type"]]) blocking++;
+  }
+  if (blocking === 1) $dom_fire(form, "submit");
   return 0;
 }
 
@@ -6577,6 +6727,16 @@ function $ui_web_state(ctx) {
   // state is what a page builds its tree out of and the tree is what it
   // resumes with.
   return $ui_web_embedded();
+}
+
+// The tab's name. `ui/web`'s `title` runs this inside a watch, so a title built
+// out of the route is rewritten every time the reader navigates. Nowhere to
+// write it is not a failure: a JavaScript host that is not a browser has no
+// document, and a page's name is not something a program reads back.
+function $ui_web_setTitle(text) {
+  if (typeof document === "undefined" || document === null) return 0;
+  document.title = text;
+  return 0;
 }
 
 // The address bar, as one cell of the graph. Made on first ask, so a page that

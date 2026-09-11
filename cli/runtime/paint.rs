@@ -4503,6 +4503,20 @@ mod tests {
         assert_eq!(at(&image, 6, 6), [255, 255, 255, 255], "the box's own corner");
     }
 
+    /// The same rule with a blur and an offset instead of a spread, which is
+    /// the lift a design system ships: the fringe below the box is shadow and
+    /// the box's own pixels are the page behind it.
+    #[test]
+    fn a_blurred_offset_shadow_paints_outside_the_box_it_was_cast_from() {
+        let scene = "buri-scene 1\nviewport 24 24\n\
+                     e 0 padding:6px;background-color:rgb(220,60,60)\n\
+                     e 1 width:12px;height:12px;box-shadow:0px 1px 2px 0px rgb(0,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 12, 12), [220, 60, 60, 255], "a lift flooded the box");
+        assert_eq!(at(&image, 12, 6), [220, 60, 60, 255], "the box's own top row");
+        assert!(at(&image, 12, 19)[0] < 220, "the fringe below the box is the lift");
+    }
+
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the
     /// corner pixel a child would have squared off stays the canvas.
     #[test]

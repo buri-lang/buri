@@ -425,26 +425,8 @@ pub struct Binary {
     pub dependencies: Vec<Spanned<String>>,
     pub tags: Vec<Spanned<String>>,
     pub outputs: Vec<Output>,
-    /// What the entry shell of a WEB output says about the document it loads.
-    /// A binary that declares no `web` block and one that declares an empty
-    /// one mean the same thing, which is why this is a value rather than an
-    /// option.
-    pub web: Web,
     pub test: Option<TestSuite>,
     pub span: Span,
-}
-
-/// The `<head>` of the `.html` a WEB output writes.
-///
-/// A block on the binary rather than fields on `outputs`, because a binary's
-/// outputs are one site said several ways — a page and the worker that renders
-/// it — and they name one document between them.
-#[derive(Clone, Debug, Default)]
-pub struct Web {
-    /// The `<title>`. `None` is the artifact's own name.
-    pub title: Option<String>,
-    /// The BCP 47 tag on `<html lang="…">`. `None` is `en`.
-    pub lang: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -841,16 +823,6 @@ impl Reader {
         })
     }
 
-    /// `web`, parsed. An absent block reads as an empty one: both mean the
-    /// entry shell keeps every default it has.
-    fn web(&mut self, parent: &Message) -> Web {
-        let Some((m, _span)) = self.sub_message(parent, "web") else {
-            return Web::default();
-        };
-        self.check_known(m, textproto::schema_order("web"), &[], "a `web` block");
-        Web { title: self.string(m, "title"), lang: self.string(m, "lang") }
-    }
-
     fn testing_surface(&mut self, parent: &Message) -> Option<TestingSurface> {
         let (m, span) = self.sub_message(parent, "testing")?;
         self.check_known(m, textproto::schema_order("testing"), &[], "a `testing` block");
@@ -1185,7 +1157,6 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
             dependencies: reader.strings(m, "dependencies"),
             tags: reader.strings(m, "tags"),
             outputs: reader.outputs(m),
-            web: reader.web(m),
             test: reader.test_suite(m),
             span,
         }
@@ -1351,25 +1322,13 @@ library {
         assert_eq!(b.outputs[1].dir(), "js");
     }
 
-    /// The `web` block, and what a rule that does not write one means. Both
-    /// fields are optional, and an absent one is the default the entry shell
-    /// has always had rather than an empty string in the page.
+    /// A page names its own tab from code, so a binary rule has no `web` block
+    /// at all: the block and both fields it held are unknown now.
     #[test]
-    fn reads_the_web_block() {
-        let src = "binary {\n  web {\n    title: \"Buri Design\"\n    lang: \"en-GB\"\n  }\n}\n";
+    fn a_binary_has_no_web_block() {
+        let src = "binary {\n  web {\n    title: \"Buri Design\"\n  }\n}\n";
         let read = read_build_file(src, FileId(0));
-        assert!(read.errors.is_empty(), "{:#?}", read.errors);
-        let b = read.value.binary.unwrap();
-        assert_eq!(b.web.title.as_deref(), Some("Buri Design"));
-        assert_eq!(b.web.lang.as_deref(), Some("en-GB"));
-
-        let bare = read_build_file("binary {\n}\n", FileId(0)).value.binary.unwrap();
-        assert_eq!(bare.web.title, None);
-        assert_eq!(bare.web.lang, None);
-
-        // And a field the block does not have is a diagnostic, not a silence.
-        let wrong = read_build_file("binary {\n  web {\n    name: \"x\"\n  }\n}\n", FileId(0));
-        assert!(!wrong.errors.is_empty());
+        assert!(!read.errors.is_empty(), "a `web` block must be refused");
     }
 
     /// Every platform round-trips through its schema spelling, and the two

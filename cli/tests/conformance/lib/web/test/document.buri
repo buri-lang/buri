@@ -315,6 +315,28 @@ test "every kind of node renders" {
         ),
         "<button type=\"button\" aria-label=\"Overview\">* Overview</button>",
     );
+    // A form's action, and the one button in this vocabulary that carries
+    // `type="submit"`. The markup is what makes Enter in a field submit the
+    // form the worker sent, before any of this program's code has run on the
+    // page.
+    assert.equal(
+        web.render(
+            ui.form(fn(_c, _e) => (), [], [
+                ui.field(
+                    .Const("Email"),
+                    .Email,
+                    .Const(""),
+                    [],
+                    [],
+                    typed,
+                    .Const(false),
+                    .Const(false),
+                ),
+                ui.submit(.Const("Send"), []),
+            ]),
+        ),
+        "<form><label><span>Email</span><input type=\"email\" value=\"ada\" /></label><button type=\"submit\" aria-label=\"Send\">Send</button></form>",
+    );
     // The three that decide what to render resolve rather than register: a
     // condition is read once, a computation is run once, and a list renders the
     // rows it has.
@@ -370,6 +392,29 @@ test "a worker writes an icon's artwork into the page it sends" {
         ),
         "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" aria-hidden=\"true\" class=\"w-16\"><path d=\"M20 6 9 17l-5-5\"></path></svg>",
     );
+}
+
+test "a dialog crosses the worker open, and shut" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    let shut = signal(ctx, false);
+    // The panel the worker writes is the panel the page resumes on: one
+    // `<dialog>` either way, and the flag says which. So a reader whose
+    // JavaScript has not arrived is looking at the panel the program opened,
+    // and the resume promotes it into the top layer rather than building it.
+    assert.equal(
+        web.render(ui.dialog(open, .Const("Confirm"), [], [ui.text(.Const("sure?"))])),
+        "<dialog aria-label=\"Confirm\" open>sure?</dialog>",
+    );
+    assert.equal(
+        web.render(ui.dialog(shut, .Const("Confirm"), [], [ui.text(.Const("sure?"))])),
+        "<dialog aria-label=\"Confirm\">sure?</dialog>",
+    );
+    // One renderer, not two.
+    let panel = ui.dialog(open, .Const("Confirm"), [.Padding(.Px(8))], []);
+    assert.equal(web.render(panel), render(ctx, panel).markup());
 }
 
 test "a heading's level clamps to the range a document has" {

@@ -1,0 +1,1 @@
+from "//lib/panels/scenes.buri" export { page };

@@ -92,8 +92,10 @@ export fn address<C: Ui>(ctx: C, at: Str): Address {
 /// - **Layout and painting.** A test asserts a style as the declaration it
 ///   became, not as pixels.
 /// - **The browser's own dispatch.** That Enter and Space on a button produce a
-///   press, that Enter in a field submits the form around it, and that a press
-///   inside a label reaches the input it wraps.
+///   press, that the keystroke reaching a form is Enter in one of its fields,
+///   and that a press inside a label reaches the input it wraps. What `submit`
+///   models is the rule that decides *whether* the keypress submits, not the
+///   keypress.
 /// - **Focus and selection.** That a moved row keeps the focus and the caret.
 ///   What a test asserts here is the identity that makes it possible.
 /// - **What assistive technology announces.** A test asserts a role as the
@@ -127,20 +129,37 @@ impl Rendered {
     /// what the pass-through is for. A disabled button does nothing either: it
     /// is not dispatched to, so the handler behind it cannot run. Both are a
     /// control this found and refused, not a control it could not find.
+    ///
+    /// Pressing a `ui.submit` submits the form around it, which is the
+    /// browser's own default action for the press rather than a handler the
+    /// button carries.
+    ///
+    /// A `dialog` refuses one the same way, both ways round: what is behind an
+    /// open modal is inert, and what is inside a shut one is drawn nowhere.
+    /// `fill`, `flip` and `submit` follow the same rule.
     export fn press(self, label: Str): ();
 
     /// Types `value` into the field labelled `label`, the way a reader replacing
     /// what was there would.
     ///
-    /// Nothing is typed into a disabled field, so the signal behind one stays
-    /// where it was.
+    /// Nothing is typed into a disabled field, or into one a `dialog` has taken
+    /// out of reach, so the signal behind one stays where it was.
     export fn fill(self, label: Str, value: Str): ();
 
-    /// Flips the toggle labelled `label`, unless it is disabled.
+    /// Flips the toggle labelled `label`, unless it is disabled or a `dialog`
+    /// has taken it out of reach.
     export fn flip(self, label: Str): ();
 
     /// Submits the `index`th form, oldest first — what pressing Enter in one of
     /// its fields does.
+    ///
+    /// Implicit submission is the platform's rule, so this follows it: a form
+    /// is submitted through its `ui.submit`, and a form with none is submitted
+    /// only while exactly one of its fields blocks implicit submission. A form
+    /// of two fields ending in an ordinary `button` is left alone, because that
+    /// is what a browser does with the keypress. A double that submitted it
+    /// anyway would pass a suite whose form nobody can send. A form a `dialog`
+    /// has taken out of reach submits nothing.
     export fn submit(self, index: Int): ();
 
     /// How many elements of this kind the tree holds. The name is the one
