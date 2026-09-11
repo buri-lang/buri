@@ -1,0 +1,5 @@
+FAIL //lib/panels  test/pictures.buri  "an open dialog is a scrim over the page and a panel centred on it"
+  the snapshot "dialog-open" changed: see test/__snapshots__/dialog-open.diff.png
+  --> lib/panels/test/pictures.buri:26:1
+
+1 passed, 1 failed, 0 skipped (0.0s)

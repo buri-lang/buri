@@ -1,0 +1,38 @@
+// One picture per state a dialog is in, over the same page.
+//
+// The `describe` assertion beside each picture is what says the scrim and the
+// panel are in the document and not only in the pixels: a shut dialog writes no
+// lines at all, and an open one writes the scrim pinned to the viewport with
+// the panel as its one child.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/panels" import { page };
+
+test "a shut dialog draws nothing over the page" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, page(ctx, false), .Hover);
+    assert.isFalse(scene.contains("pos-viewport"));
+    snapshot(ctx, "dialog-shut", page(ctx, false), .Hover, []);
+}
+
+test "an open dialog is a scrim over the page and a panel centred on it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, page(ctx, true), .Hover);
+    // Pinned to the viewport, held to all four of its edges, and centring what
+    // it holds — which is the panel, and nothing else.
+    assert.containsText(scene, "pos-viewport pin-out");
+    assert.containsText(scene, "am-center ac-center");
+    assert.containsText(scene, "bg-000000a0_5");
+    snapshot(ctx, "dialog-open", page(ctx, true), .Hover, []);
+}
