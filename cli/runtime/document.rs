@@ -189,17 +189,48 @@ fn escape_run(content: &str) -> String {
 // call them from inside a computation — the rule that keeps a Buri reconciler
 // out of the graph does not reach a builder.
 
-/// `newDocument()` — a fresh, empty document, and the handle a builder carries.
+/// A fresh, empty document, and the handle a builder carries.
+fn open() -> i64 {
+    let mut all = documents();
+    all.push(Document::new());
+    (all.len() as i64) - 1
+}
+
+/// `newDocument()` — a fresh, empty document, exposed for the C driver.
 ///
 /// # Safety
 /// `out` is writable and aligned for eight bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_doc_open(out: *mut i64) {
-    let mut all = documents();
-    all.push(Document::new());
-    let handle = (all.len() as i64) - 1;
+    let handle = open();
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) };
+}
+
+/// `render(ctx, root)` on the native backend — the mount `render`'s thin body
+/// reaches: open a document, walk `root` into it with the `renderInto` closure
+/// the caller passed, and answer the handle a `Rendered` carries.
+///
+/// The context is dropped as a step drops one; `root` crosses by reference, a
+/// pointer to the one `Node` the walk destructures and this side never reads;
+/// and the walk is the closure `render` handed over, invoked once through the
+/// same trampoline [`crate::ui::buri_rt_ui_render_walk`] is. Static: the walk
+/// reads each `Prop` once and builds each region once, so this is the initial
+/// render and nothing re-runs.
+///
+/// # Safety
+/// `root` points at one whole `Node`; `entry` is the thunk the backend
+/// generated for the walk and `state` the record it was generated against.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_mount(
+    root: *const u8,
+    entry: crate::ui::ComputeEntry,
+    state: *mut u8,
+) -> i64 {
+    let handle = open();
+    // SAFETY: forwarded to the caller's promise; `handle` is a live document.
+    unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, root) };
+    handle
 }
 
 /// `emitElement(builder, name, body)` — an element record, and everything
@@ -211,7 +242,7 @@ pub unsafe extern "C" fn buri_rt_ui_doc_open(out: *mut i64) {
 /// # Safety
 /// `name`/`body` are readable UTF-8 ranges, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_doc_element(
+pub unsafe extern "C" fn buri_rt_ui_node_emit_element(
     handle: i64,
     _name_base: *mut u8,
     name_ptr: *const u8,
@@ -239,7 +270,7 @@ pub unsafe extern "C" fn buri_rt_ui_doc_element(
 /// The host is never closed: a walk that is balanced leaves it open, and one
 /// that is not stops emptying the stack here rather than removing it.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_ui_doc_exit(handle: i64) {
+pub extern "C" fn buri_rt_ui_node_exit_element(handle: i64) {
     let mut all = documents();
     let Some(doc) = usize::try_from(handle).ok().and_then(|i| all.get_mut(i)) else {
         return;
@@ -255,7 +286,7 @@ pub extern "C" fn buri_rt_ui_doc_exit(handle: i64) {
 /// # Safety
 /// `content` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_doc_text(
+pub unsafe extern "C" fn buri_rt_ui_node_emit_text(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -283,7 +314,7 @@ pub unsafe extern "C" fn buri_rt_ui_doc_text(
 /// # Safety
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_doc_markup(handle: i64, out: *mut BuriStr) {
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_markup(handle: i64, out: *mut BuriStr) {
     let all = documents();
     let text = usize::try_from(handle)
         .ok()
@@ -317,7 +348,7 @@ fn markup_of(doc: &Document) -> String {
 /// # Safety
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_doc_text_runs(handle: i64, out: *mut BuriStr) {
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_text(handle: i64, out: *mut BuriStr) {
     let all = documents();
     let text = usize::try_from(handle)
         .ok()
@@ -345,7 +376,7 @@ pub unsafe extern "C" fn buri_rt_ui_doc_text_runs(handle: i64, out: *mut BuriStr
 /// # Safety
 /// `name` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_doc_count(
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_count(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -372,7 +403,7 @@ pub unsafe extern "C" fn buri_rt_ui_doc_count(
 /// # Safety
 /// `name` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_doc_identity(
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_identity(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
