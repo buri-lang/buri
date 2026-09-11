@@ -695,8 +695,8 @@ box at all, corners included, and it makes no scroll container doing it —
 a pinned toaster dock asks for it so the page under it still answers a press,
 and each toast in the dock takes the pointer back.
 
-`heading`, `button`, `link`, `image`, `field`, `toggle` and `icon` take a
-`[Style]` like every container does, and it lands on the element itself — so a
+`heading`, `button`, `submit`, `link`, `image`, `field`, `toggle` and `icon`
+take a `[Style]` like every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or
 disabled, a picture is sized, shaped and rounded rather than the box around it,
 and a heading is the size its styles say rather than the size a browser picked.
@@ -725,7 +725,18 @@ side.
 `button(label, styles, children, onPress)` holds children the way `link` does,
 and one with none shows its label. The label stays a parameter and rides in
 `aria-label`, so a button of an icon and a word is one focusable, hoverable
-element with the name the program gave it.
+element with the name the program gave it. It never submits the form it is
+inside — a Cancel that quietly sent the form would be worse than a form that
+did not send at all.
+
+`submit(label, styles)` is the button that does, and the only one that lowers
+to `type="submit"`. It carries no handler, because the form's `onSubmit` is its
+handler: pressing it and pressing Enter in a field arrive at the same place. A
+form needs one — HTML submits a form implicitly through its submit button, and
+a form with none is submitted only while it holds exactly one field, so a name
+and an email with no `submit` discard the keypress. `ui/testing`'s `submit`
+refuses the same forms a browser does, so a suite cannot go green on markup
+nobody can send.
 
 `field(label, kind, styles, around, value, invalid)` and
 `toggle(label, kind, styles, around, value, invalid)` take two style lists,
