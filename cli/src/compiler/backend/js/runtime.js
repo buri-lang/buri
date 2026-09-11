@@ -3843,6 +3843,7 @@ function $dom_click(node, modified) {
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
 //  14 Icon     15 Submit   16 Dialog  17 OnPressOutside  18 RouteLink
+//  19 RadioGroup
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -3940,6 +3941,13 @@ const $TREE_FONTS = [
   "ui-serif,Georgia,serif",
   "ui-monospace,SFMono-Regular,monospace",
 ];
+
+// One `name` per radio group rendered, so two groups on a page never share a
+// selection. It has to be unique rather than meaningful — a browser groups the
+// radios that carry one `name`, and only a group's own radios may — so a
+// counter is the whole of it. It never resets, which is what keeps a group
+// rendered after a reconcile from colliding with one rendered before it.
+let $tree_radio_groups = 0;
 
 // The stylesheet the compiler extracted, assigned by one statement the backend
 // emits ahead of the program and empty in a program that styles nothing.
@@ -4992,6 +5000,44 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     });
     return;
   }
+  if (tag === 19) {
+    // The group carries `role="radiogroup"` and its own accessible name; the
+    // caller's styles land on it, the box a surrounding row lays out. Its
+    // options are the real inputs — the whole point, since a stack of buttons
+    // gets none of the browser's model.
+    const group = $tree_element(parent, "div", anchor);
+    $dom_attribute(group, "role", "radiogroup");
+    $tree_bind(node[1], (label) => $dom_attribute(group, "aria-label", label));
+    $tree_styles(group, node[3]);
+    // One `name` for the group is the whole of what hands the browser the
+    // model: the roving `tabindex`, the arrow keys that move and select, Space
+    // to select, and `aria-checked`. It has to be unique, so a counter is it.
+    const name = "buri-radio-" + $tree_radio_groups++;
+    const cell = node[4][0];
+    for (const option of node[2]) {
+      const key = option[0];
+      const wrapper = $tree_element(group, "label", null);
+      const input = $tree_element(wrapper, "input", null);
+      $dom_attribute(input, "type", "radio");
+      $dom_attribute(input, "name", name);
+      // The key is the input's `value`, and what the signal holds when this is
+      // the one picked.
+      $dom_attribute(input, "value", key);
+      $tree_text(option[1], $tree_element(wrapper, "span", null), null);
+      // Checked is the signal: the input whose key equals what it holds. A key
+      // no option carries checks none of them, which is an unset group.
+      $tree_bind([1, node[4]], (selected) => {
+        input.checked = selected === key;
+      });
+      // Picking one writes its key back. A radio fires `change` only on its way
+      // to checked, so this reads the key rather than a boolean, and never
+      // writes the signal back to what it already is.
+      $dom_listen(input, "change", () => {
+        if (input.checked) $ui_flush(() => $ui_write(cell, key));
+      });
+    }
+    return;
+  }
   if ($tree_icon_hook === null) {
     // The compiler said no tree here holds artwork, so it left the renderer
     // out of the artifact. Reaching this is that decision being wrong, and
@@ -5295,6 +5341,10 @@ function $ui_testing_Recorder_noted(self) {
 // one: a test asks what was rendered, and only the substitute can answer.
 
 function $ui_testing_render(ctx, root) {
+  // Each rendered tree is its own document, so its radio groups number from
+  // zero — a test's markup is what this tree wrote, not what a test before it
+  // left the counter at.
+  $tree_radio_groups = 0;
   const host = $dom_make(0, "root");
   $tree_render(ctx, root, host, null);
   return $handle(host);
@@ -6833,6 +6883,10 @@ function $ui_web_render(root) {
   // with the answer, and a worker's module state outlives the request. So the
   // cells this made go with it.
   const before = $ui.nodes.length;
+  // The document this request answers with numbers its radio groups from zero,
+  // the way a fresh page does — so the client, resuming into a fresh page,
+  // names them the same.
+  $tree_radio_groups = 0;
   const host = $dom_make(0, "root");
   // No context. A handler is never called here — what this answers is text —
   // and every constructor that receives one is unbounded in it, so nothing on

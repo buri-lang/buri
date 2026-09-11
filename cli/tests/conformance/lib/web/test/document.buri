@@ -301,6 +301,22 @@ test "every kind of node renders" {
         ),
         "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
     );
+    // A radio group is a working radio group before a byte of this program's
+    // code runs on the page: real `<input type="radio">` sharing one `name`
+    // inside a `role="radiogroup"`, so the browser's roving tabindex, arrow
+    // keys and `aria-checked` are the markup the worker sent. The checked one is
+    // the input whose key is the signal.
+    assert.equal(
+        web.render(
+            ui.radioGroup(
+                .Const("Plan"),
+                [("free", .Const("Free")), ("pro", .Const("Pro"))],
+                [],
+                signal(ctx, "pro"),
+            ),
+        ),
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
+    );
     // A button holding a mark and a word is one element, and the label the
     // markup carries is what a reader is announced rather than the glyphs.
     assert.equal(

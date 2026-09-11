@@ -1156,6 +1156,105 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     );
 }
 
+test "a radio group is a radiogroup of real radios sharing one name" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, "m");
+    let page = render(
+        ctx,
+        ui.radioGroup(
+            .Const("Size"),
+            [("s", .Const("Small")), ("m", .Const("Medium")), ("l", .Const("Large"))],
+            [],
+            size,
+        ),
+    );
+    // A `role="radiogroup"` labelled by the group's name, one real
+    // `<input type="radio">` per option all sharing the group's `name`, each
+    // option a `(key, caption)`, and the input whose key is the signal checked.
+    // The browser owns the roving tabindex, the arrow keys, `aria-checked` and
+    // Space from there.
+    assert.equal(
+        page.markup(),
+        "<div role=\"radiogroup\" aria-label=\"Size\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"s\" /><span>Small</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"m\" checked /><span>Medium</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"l\" /><span>Large</span></label></div>",
+    );
+    // One input per option, and nothing shared with a second group: a page of
+    // two groups numbers them apart, which is what makes the browser's model
+    // right.
+    assert.equal(page.count("input"), 3);
+    let two = render(
+        ctx,
+        ui.stack([], [
+            ui.radioGroup(.Const("A"), [("x", .Const("X"))], [], size),
+            ui.radioGroup(.Const("B"), [("y", .Const("Y"))], [], signal(ctx, "y")),
+        ]),
+    );
+    assert.containsText(two.markup(), "name=\"buri-radio-0\"");
+    assert.containsText(two.markup(), "name=\"buri-radio-1\"");
+}
+
+test "picking a radio writes its key, and the checked one follows the signal" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let choice = signal(ctx, "a");
+    let page = render(
+        ctx,
+        ui.radioGroup(
+            .Const("Pick"),
+            [("a", .Const("Apple")), ("b", .Const("Banana"))],
+            [],
+            choice,
+        ),
+    );
+    // Picking an option is the browser's `change` on its input, and what it
+    // does is write the option's key. The checked input then follows the
+    // signal, so the one that was on goes off without a handler saying so.
+    page.flip("Banana");
+    assert.equal(
+        page.markup(),
+        "<div role=\"radiogroup\" aria-label=\"Pick\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"a\" /><span>Apple</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"b\" checked /><span>Banana</span></label></div>",
+    );
+    // Writing the signal from elsewhere checks the matching input too.
+    let _ = choice.set(ctx, "a");
+    assert.containsText(
+        page.markup(),
+        "<label><input type=\"radio\" name=\"buri-radio-0\" value=\"a\" checked />",
+    );
+}
+
+test "a radio group's scene is a box of options, the checked one holding the dot" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let size = signal(ctx, "m");
+    let tree = ui.radioGroup(
+        .Const("Size"),
+        [("s", .Const("Small")), ("m", .Const("Medium"))],
+        [],
+        size,
+    );
+    let scene = ui.describe(ctx, tree, .Hover);
+    // One option answers `:checked` and holds the dot the reset draws with
+    // `:checked::before`; the other answers false and holds none. The captions
+    // are the runs of text beside them.
+    assert.containsText(scene, "checked:true");
+    assert.containsText(scene, "checked:false");
+    assert.containsText(scene, "mark:dot");
+    assert.containsText(scene, "Small");
+    assert.containsText(scene, "Medium");
+    // A key no option carries checks nothing, which is what an unset group is:
+    // no option answers checked, and no dot is drawn.
+    let _ = size.set(ctx, "none");
+    let unset = ui.describe(ctx, tree, .Hover);
+    assert.isFalse(unset.contains("checked:true"));
+    assert.isFalse(unset.contains("mark:dot"));
+}
+
 test "the invalid state is a state like the other five" {
     let ctx = context {
         Allocator: alloc(),

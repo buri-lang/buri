@@ -1,0 +1,12 @@
+error: `FieldKind` has no variant `Radio` [no-such-variant]
+  --> cmd/ui_field_kind_has_no_radio/main.buri:15:27
+   |
+15 |   ui.field(.Const("Pro"), .Radio, .Const(""), [], [], value, .Const(false), .Const(false))
+   |                           ^^^^^^
+   |
+   = its variants are `Text`, `Multiline`, `Password`, `Email`, `Number`, `Search` and `Range`
+   = fix: name a variant the enum declares
+
+     Where the name is a near miss the fix names it; otherwise the enum's own
+     declaration is the list, and the diagnostic prints it.
+

@@ -1,0 +1,9 @@
+# One library and one test source: the dot a checked radio draws, the option it
+# sits on and the colour it takes, and a snapshot per axis.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
