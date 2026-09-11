@@ -1,0 +1,5 @@
+FAIL //lib/radio  test/pictures.buri  "a radio's dot takes the foreground"
+  the snapshot "radio-colour" changed: see test/__snapshots__/radio-colour.diff.png
+  --> lib/radio/test/pictures.buri:50:1
+
+1 passed, 1 failed, 0 skipped (0.0s)

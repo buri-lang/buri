@@ -1,0 +1,16 @@
+// EXPECT: has no variant `RadioGroup`
+//
+// A radio group is the widget `radioGroup`, not a `Role`. A bare
+// `role="radiogroup"` around a stack would leave its options something other
+// than radios, so the role on its own reaches none of the browser's model —
+// which is why it does not exist and the widget is the way in.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.region(.RadioGroup, [], []), [])
+}

@@ -1,0 +1,56 @@
+// One picture per axis: the dot following the selection, and the dot taking
+// the foreground.
+//
+// The `describe` assertion beside each picture is what says the dot is in the
+// document and not only in the pixels: a checked option carries `mark:dot` and
+// the answer `checked:true`, an unchecked one carries neither, and a key no
+// option holds carries no dot at all.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, snapshot };
+from "//lib/radio" import { colourPage, selectionPage };
+
+test "a radio's dot follows the selection" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let on = ui.describe(
+        ctx,
+        ui.radioGroup(
+            .Const("x"),
+            [("a", .Const("A")), ("b", .Const("B"))],
+            [],
+            signal(ctx, "a"),
+        ),
+        .Hover,
+    );
+    let none = ui.describe(
+        ctx,
+        ui.radioGroup(
+            .Const("x"),
+            [("a", .Const("A")), ("b", .Const("B"))],
+            [],
+            signal(ctx, "z"),
+        ),
+        .Hover,
+    );
+    assert.containsText(on, "mark:dot");
+    assert.containsText(on, "checked:true");
+    assert.isFalse(none.contains("mark:dot"));
+    assert.isFalse(none.contains("checked:true"));
+    snapshot(ctx, "radio-selection", selectionPage(ctx), .Hover, []);
+}
+
+test "a radio's dot takes the foreground" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "radio-colour", colourPage(ctx), .Hover, []);
+}

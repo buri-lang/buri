@@ -175,6 +175,11 @@ ui.submit(label: Prop<Str>, styles): Node<C>
 // a modal panel. The signal is writable because the platform writes it:
 // Escape shuts the dialog without asking.
 ui.dialog(open: Signal<Bool>, label: Prop<Str>, styles, children): Node<C>
+// a single choice, as one real radio per option inside a role="radiogroup".
+// options are (key, caption); value holds the selected key, so the input whose
+// key matches it is checked and picking another writes its key back.
+ui.radioGroup(label: Prop<Str>, options: [(Str, Prop<Str>)], styles,
+              value: Signal<Str>): Node<C>
 
 // reactivity in the tree
 ui.computed(build: fn(Scope) => Node<C>): Node<C>
@@ -208,6 +213,18 @@ stay inside — three things no style says and no `Role` can name. A `<dialog>`
 opened with `showModal()` has all three, plus the `::backdrop` and Escape. The
 `open` is a `Signal` and not a `Prop` because the platform writes it back:
 Escape shuts the panel without asking the program first.
+
+**`radioGroup` is a widget and neither a `Role` nor a `FieldKind`.** A radio
+group is the browser's own model — one tab stop for the group, the arrow keys
+that move *and* select, Space, `aria-checked` and the roving `tabindex` — free
+the moment the options are `<input type="radio">` inside a `role="radiogroup"`,
+and out of reach otherwise: a stack of buttons has none of it. A bare
+`Role.RadioGroup` would leave the options something other than radios, and a
+`FieldKind.Radio` does not fit because `field` binds its `Signal<Str>` to one
+input where a radio's value is the group's — so the fix is the widget over the
+whole choice, the shape `each` and `form` already take. The signal holds the
+selected key and picking an option writes its key back, the two-way binding that
+replaces a change event here.
 
 `Node<C>` keeps its one type parameter because handlers are open-ended. A press
 may legitimately need `Network`, and `main` chose the effect budget. Everything else
@@ -629,7 +646,7 @@ repositories land, `ui/...` can migrate out wholesale.
 | `core/host` (WEB, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
-| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `choose`, `computed`, `each`, `icon`, `mount` |
+| `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `radioGroup`, `choose`, `computed`, `each`, `icon`, `mount` |
 | `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
 | `ui/theme` | library | `Theme`, `Scheme`, `themed`, `switching`, `scheme`, `page` |
 | `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |
