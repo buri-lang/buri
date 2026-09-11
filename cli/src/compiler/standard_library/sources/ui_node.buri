@@ -45,10 +45,11 @@ from "ui/theme" import { Theme };
 /// What a region *is*, as against what it looks like.
 ///
 /// Eighteen names, all from the accessibility taxonomy rather than from HTML.
-/// Some are missing because they need behaviour and not just a name: a dialog
-/// needs focus trapping and a modal stack, tabs and menus need a roving focus
-/// and a key model. There is no `Grid` role: visual arrangement is
-/// `Style::Layout`, and a data table is the four table roles below.
+/// Some are missing because they need behaviour and not just a name: tabs and
+/// menus need a roving focus and a key model, and a dialog needs a focus trap
+/// and a scroll lock, which is why it is the `dialog` widget below. There is
+/// no `Grid` role: visual arrangement is `Style::Layout`, and a data table is
+/// the four table roles below.
 export enum Role {
     /// A set of links to elsewhere. `nav`.
     Navigation,
@@ -171,6 +172,8 @@ enum NodeKind<C> {
     // `Node<C>`'s one type parameter. The runtime asks by index. See `each`.
     Each(fn(Scope) => Int, fn(Scope, Int) => Str, fn(C, Scope, Int) => Node<C>),
     Icon([Style], Str),
+    Submit(Prop<Str>, [Style]),
+    Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
 }
 
 /// Nothing at all.
@@ -263,6 +266,10 @@ export fn heading<C>(level: Int, styles: [Style], content: Prop<Str>): Node<C> {
 /// press before the handler is reached, and tells a reader the button is
 /// unavailable rather than absent. `.Const(false)` is a button that is always
 /// pressable.
+///
+/// **A button never submits the form it happens to be inside.** `onPress` is
+/// the whole of what it does, so a Cancel beside a Send stays a Cancel. The
+/// button that submits is `submit`, and a form needs one.
 export fn button<C>(
     label: Prop<Str>,
     styles: [Style],
@@ -408,12 +415,76 @@ export fn toggle<C>(
 ///
 /// A widget rather than a role, because submitting is behaviour: pressing Enter
 /// in a field inside one runs `onSubmit`. That is why `Role` has no `Form`.
+///
+/// **Put a `submit` in it.** Enter is the platform's own dispatch and the
+/// platform's own rule comes with it: a form is submitted implicitly through
+/// its submit button, and a form with none is submitted only while it holds
+/// exactly one field. So a form of one field works either way, and a form of
+/// two that ends in an ordinary `button` discards the keypress — which is why
+/// `submit` exists and why `ui/testing`'s `submit` refuses the same forms a
+/// browser does.
 export fn form<C>(
     onSubmit: fn(C, Event) => (),
     styles: [Style],
     children: [Node<C>],
 ): Node<C> {
     Node(.Form(onSubmit, styles, children))
+}
+
+/// The button that submits the form it is in.
+///
+/// It takes no handler, because the form's `onSubmit` *is* its handler: one
+/// place says what submitting does, and pressing this and pressing Enter in a
+/// field both arrive there. A `button` beside it with a handler of its own is
+/// the Cancel, and stays one.
+///
+/// The label is a parameter for `button`'s reason and is the button's text as
+/// well as its accessible name — there are no children, because what a form's
+/// action is called is the one thing about it a reader has to be told.
+export fn submit<C>(label: Prop<Str>, styles: [Style]): Node<C> {
+    Node(.Submit(label, styles))
+}
+
+/// A panel over the page, and the signal that opens and shuts it.
+///
+/// ```text
+/// ui.dialog(open, .Const("Delete this?"), [.Padding(.Rem(1.0))], [
+///     ui.text(.Const("This cannot be undone.")),
+///     ui.button(.Const("Cancel"), [], [], fn(c, _e) => open.set(c, false), .Const(false)),
+/// ])
+/// ```
+///
+/// A widget rather than a stack with a pin, because a modal needs three things
+/// from the platform that no style can say: the page behind it must stop
+/// scrolling, what is behind must go inert, and the focus must stay inside. A
+/// browser gives all three to a `<dialog>` opened with `showModal`, along with
+/// the backdrop and the Escape key, and gives a `<div>` none of them.
+///
+/// **The signal is writable because the platform writes it.** Escape shuts the
+/// dialog without asking, so a `Prop` would leave the program holding a panel
+/// the reader can no longer see. Write `true` to open it and `false` to shut
+/// it; the browser writes `false` back when it shuts one itself.
+///
+/// The label is the accessible name, the rule `button`'s label follows: a
+/// reader is announced into the dialog by what it is for, and the heading
+/// inside it may not be there yet.
+///
+/// The styles land on the panel, so `Padding`, `Radius` and `Background` are
+/// the panel's own. The scrim behind it is the widget's own drawing, like a
+/// toggle's mark: `::backdrop` in a browser and the same black at half
+/// strength in a picture, and there is no property that names it.
+///
+/// Shut, it draws nothing at all and what is inside it is out of reach. Open,
+/// it is pinned to the viewport — so, like every other pin, it never decides
+/// how tall a page is: a picture of a dialog is a picture of the page it is
+/// over.
+export fn dialog<C>(
+    open: Signal<Bool>,
+    label: Prop<Str>,
+    styles: [Style],
+    children: [Node<C>],
+): Node<C> {
+    Node(.Dialog(open, label, styles, children))
 }
 
 /// One subtree or the other, decided by a condition that may vary.
@@ -580,6 +651,12 @@ fn rootScope(): Scope;
 /// drawing rather than anything a program wrote: `mark:thumb` for a switch,
 /// always, and `mark:tick` for a checkbox that is on. Both are painted in the
 /// box's own foreground.
+///
+/// A shut `dialog` writes no lines at all, because a browser draws none of
+/// one. An open one writes two boxes: the scrim it sits on, pinned to the
+/// viewport and centring what it holds, and the panel inside that. The scrim
+/// is the widget's own drawing too — the `::backdrop` a browser paints, said
+/// in the vocabulary the painter reads.
 export fn describe<C: Allocator>(ctx: C, root: Node<C>, state: State): Str {
     describeWide(ctx, root, state, 800)
 }
@@ -708,6 +785,15 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         .Form(_onSubmit, styles, children) => {
             container(ctx, state, styles, children, depth)
         },
+        // A form's action is a button with its label drawn in it, which is a
+        // childless button's own shape: the accessible name and the glyphs are
+        // the same string.
+        .Submit(label, styles) => {
+            [
+                styledLine(ctx, plain(state), styles, depth),
+                textLine(ctx, depth + 1, label.read(scope)),
+            ]
+        },
         .When(cond, then, otherwise) => {
             if (cond.read(scope)) {
                 nodeLines(ctx, state, then, depth)
@@ -719,7 +805,44 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         .Each(count, _keyAt, rowAt) => {
             rowLines(ctx, state, rowAt, count(scope), depth, 0, [])
         },
+        // Shut, a browser draws none of it, so neither does this. Open, it is
+        // the two things a browser draws: the scrim over the page, and the
+        // panel centred on it.
+        .Dialog(open, _label, styles, children) => {
+            if (open.get(scope)) {
+                container(ctx, state, scrim(), [], depth).concat(
+                    ctx,
+                    container(ctx, state, styles, children, depth + 1),
+                )
+            } else {
+                []
+            }
+        },
     }
+}
+
+/// The scrim an open dialog sits on: the `::backdrop` a browser paints, and
+/// the arrangement that centres the panel on it.
+///
+/// The widget's own drawing rather than anything a program wrote, the way a
+/// toggle's mark is — there is no property that names a backdrop. It is pinned
+/// to the viewport and holds the panel as its one child, which is how the
+/// painter centres what a browser centres with the automatic margins its own
+/// stylesheet gives a `<dialog>`. The black at half strength is the same
+/// colour the sheet writes for `::backdrop`, so the two renderers draw one
+/// scrim.
+fn scrim(): [Style] {
+    [
+        .Position(.PinViewport),
+        .Pin(.Top, .Px(0)),
+        .Pin(.Bottom, .Px(0)),
+        .Pin(.Start, .Px(0)),
+        .Pin(.End, .Px(0)),
+        .Layout(.Row),
+        .AlignMain(.Center),
+        .AlignCross(.Center),
+        .Background(.Rgba(0, 0, 0, 0.5)),
+    ]
 }
 
 /// The `<label>` a field and a toggle are wrapped in: the arrangement the

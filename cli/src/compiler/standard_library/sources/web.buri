@@ -53,9 +53,9 @@
 //! what a link cannot do.
 //!
 //! The document half is JavaScript's. A native artifact has nothing to render
-//! into, so a native build that reaches `render`, `shell`, `resume` or `state`
-//! stops at code generation naming the operation. `path`, `route`, `navigate`
-//! and `replace` are ordinary Buri over the graph, and run wherever a
+//! into, so a native build that reaches `render`, `shell`, `resume`, `state` or
+//! `title` stops at code generation naming the operation. `path`, `route`,
+//! `navigate` and `replace` are ordinary Buri over the graph, and run wherever a
 //! `Location` does.
 
 from "core/effect" import { Allocator };
@@ -220,6 +220,43 @@ export fn resume<C: Ui>(ctx: C, root: Node<C>): Result<(), Str>;
 /// `json.decode`, which is the same pair the worker encoded it with, and build
 /// the tree `resume` takes out of what comes back.
 export fn state<C: Ui>(ctx: C): Option<Str>;
+
+/// Names the tab, and renames it whenever the reader navigates.
+///
+/// This is the page's half of `Document.title`. A worker names the tab in the
+/// document it sends; a page that mounts arrives at an `.html` carrying the
+/// artifact's name and nothing about the route, so it says its own.
+///
+/// `text` is a `Prop<Str>`, so it follows the route the way the tree does: a
+/// `.Const` names the tab once, and a computation over `route` renames it on
+/// every navigation. Routing is a match, so a title is a match too.
+///
+/// ```buri role=std
+/// # from "ui/effect" import { Location, Ui };
+/// # from "ui/web" import * as web;
+///
+/// export fn name<C: Location + Ui>(ctx: C): () {
+///     let path = web.route(ctx);
+///     web.title(
+///         ctx,
+///         .Computed(fn(scope) => {
+///             match (path.read(scope)) {
+///                 "/about" => "About — Buri",
+///                 _other => "Buri",
+///             }
+///         }),
+///     )
+/// }
+/// ```
+export fn title<C: Ui>(ctx: C, text: Prop<Str>): () {
+    ctx.watch(fn(scope) => setTitle(text.read(scope)))
+}
+
+/// Writes the document's title, once, with no reactivity of its own.
+///
+/// Private: `title` is the door, because the watch around this is what keeps
+/// the tab named after the route rather than after the mount.
+fn setTitle(text: Str): ();
 
 /// The path of the page's address now, as `/guide/routing`.
 ///
