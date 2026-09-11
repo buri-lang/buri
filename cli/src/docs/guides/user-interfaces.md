@@ -193,7 +193,7 @@ export fn contact<C: Ui>(
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 53 properties and five ways of composing them. Every property is
+`ui/style` is 54 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -248,6 +248,13 @@ container while it does — that is the whole of what separates it from
 `Scroll(Axis)`. `Passthrough(Bool)` says the pointer goes to whatever is behind
 this element instead. Both inherit the way the platform does, so a subtree opts
 out and a child opts back in.
+
+`BackdropBlur(Length)` blurs the page behind an element, so a modal scrim
+separates its panel from the page by softening it rather than by hiding it under
+a heavy wash — a tenth of black over a blurred page, the way Basecoat's dialog
+does it, instead of a half of black over a sharp one. The length is the blur
+radius, so `.Px(0)` blurs nothing. It is `backdrop-filter: blur()`: only the
+page is blurred, and the element's own background paints over the blur.
 
 ```buri
 from "ui/node" import * as ui;

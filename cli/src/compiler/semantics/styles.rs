@@ -1500,6 +1500,12 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let css = if on { "none" } else { "auto" };
             Some(("pass", css.into(), one("pointer-events", css)))
         }
+        // The blur that separates a modal's panel from the page behind it. Only
+        // what is painted behind the box is blurred; the box paints over it.
+        59 => {
+            let (css, key) = length(first?)?;
+            Some(("bdblur", key, one("backdrop-filter", &format!("blur({css})"))))
+        }
         _ => None,
     }
 }

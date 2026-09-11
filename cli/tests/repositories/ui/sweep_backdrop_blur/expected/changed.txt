@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/blur.buri  "a scrim's blur softens the page more the wider its radius"
+  the snapshot "blur-radii" changed: see test/__snapshots__/blur-radii.diff.png
+  --> lib/scenes/test/blur.buri:10:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

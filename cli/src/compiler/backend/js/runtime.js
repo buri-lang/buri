@@ -4152,8 +4152,11 @@ function $tree_declare(style, out) {
     // `clip` rather than `hidden`: both stop the paint, and only `hidden` also
     // makes a scroll container a keyboard can land in.
     out.set("overflow", value ? "clip" : "visible");
-  } else {
+  } else if (tag === 58) {
     out.set("pointer-events", value ? "none" : "auto");
+  } else {
+    // Only the page behind the box is blurred; the box paints over the blur.
+    out.set("backdrop-filter", "blur(" + $tree_length(value) + ")");
   }
 }
 

@@ -319,6 +319,23 @@ export enum Style {
     /// question: an element can refuse the pointer and still name a cursor,
     /// and the cursor is then whatever is behind it.
     Passthrough(Bool),
+
+    /// How far the page behind this element is blurred, so a modal scrim
+    /// separates its panel from the page by softening it rather than by hiding
+    /// it under a heavy wash. A tenth of black over a blurred page is the
+    /// separation a dialog wants; a half of black over a sharp one is the
+    /// heavier thing a scrim reaches for without this.
+    ///
+    /// It is `backdrop-filter: blur()`: only what is already painted behind the
+    /// box is blurred, and the box's own background and content paint over the
+    /// blur untouched. Blur is the whole of it — a backdrop that also shifts
+    /// hue or drops saturation is a picture, not a property, so there is no
+    /// general filter here.
+    ///
+    /// The length is the blur radius, so `.Px(0)` blurs nothing. A length that
+    /// follows the reader — `.Rem` or `.Em` — makes a radius that grows with
+    /// the text; `.Percent`, `.Auto` and `.Full` name no radius a blur can use.
+    BackdropBlur(Length),
 }
 
 /// How a container arranges its children.

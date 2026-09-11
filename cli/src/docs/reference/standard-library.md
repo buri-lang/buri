@@ -695,6 +695,11 @@ box at all, corners included, and it makes no scroll container doing it —
 a pinned toaster dock asks for it so the page under it still answers a press,
 and each toast in the dock takes the pointer back.
 
+`BackdropBlur(Length)` blurs the page behind an element — `backdrop-filter:
+blur()` — so a modal scrim separates its panel by softening the page rather than
+by hiding it under a heavy wash. The length is the blur radius, and the
+element's own background paints over the blur.
+
 `heading`, `button`, `submit`, `link`, `image`, `field`, `toggle` and `icon`
 take a `[Style]` like every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or

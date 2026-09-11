@@ -1,0 +1,5 @@
+FAIL //lib/scenes  test/blur.buri  "a tenth of black separates the panel once the page behind it is blurred"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/scenes/test/blur.buri:18:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

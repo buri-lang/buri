@@ -1571,6 +1571,12 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
             let css = if (on) { "none" } else { "auto" };
             [decl(ctx, "pointer-events", css)]
         },
+        // Only what is painted behind the box is blurred; the box paints over
+        // the blur.
+        .BackdropBlur(length) => {
+            let css = str.format(ctx, "blur(${lengthCss(ctx, length)})");
+            [decl(ctx, "backdrop-filter", css)]
+        },
         _ => [],
     }
 }
