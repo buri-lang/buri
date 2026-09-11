@@ -87,8 +87,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-eighteen functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the nineteenth function, puts a tree on the
+nineteen functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twentieth function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** `region(.List, ...)` says
@@ -146,6 +146,32 @@ the very context the tree was mounted with. Everything one press writes is one
 update: the handler runs inside a transaction, so three writes cause one pass
 over the watchers rather than three. A field and a toggle have no change event
 at all — they are bound to a `Signal`, and what the reader typed is in it.
+
+**A form ends in a `submit`.** Enter in a field is the browser's own dispatch,
+and the browser's own rule comes with it: a form is submitted implicitly
+through its submit button, and a form with none is submitted only while it
+holds exactly one field. So `submit` is the button that carries no handler —
+the form's `onSubmit` is its handler — and an ordinary `button` beside it stays
+the Cancel it was written as.
+
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn contact<C: Ui>(
+    name: Signal<Str>,
+    email: Signal<Str>,
+    sent: Signal<Str>,
+): Node<C> {
+    ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
+        ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
+        ui.field(.Const("Email"), .Email, [], [], email, .Const(false), .Const(false)),
+        ui.submit(.Const("Send"), []),
+    ])
+}
+```
 
 ## Styling, and the two tiers a style can be in
 
@@ -372,8 +398,8 @@ export fn card<C>(label: Str): Node<C> {
 }
 ```
 
-**A control carries its own styles.** `button`, `link`, `image`, `field` and
-`toggle` take a `[Style]`, and it lands on the element itself — so
+**A control carries its own styles.** `button`, `submit`, `link`, `image`,
+`field` and `toggle` take a `[Style]`, and it lands on the element itself — so
 `On(.Hover, ...)`, `On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper
 around a button is none of those things. A field's and a toggle's styles go on
 the input rather than on the label around it, for the same reason, and a
