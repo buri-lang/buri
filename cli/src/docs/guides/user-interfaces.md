@@ -166,8 +166,26 @@ export fn contact<C: Ui>(
     sent: Signal<Str>,
 ): Node<C> {
     ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
-        ui.field(.Const("Name"), .Text, [], [], name, .Const(false), .Const(false)),
-        ui.field(.Const("Email"), .Email, [], [], email, .Const(false), .Const(false)),
+        ui.field(
+            .Const("Name"),
+            .Text,
+            .Const(""),
+            [],
+            [],
+            name,
+            .Const(false),
+            .Const(false),
+        ),
+        ui.field(
+            .Const("Email"),
+            .Email,
+            .Const(""),
+            [],
+            [],
+            email,
+            .Const(false),
+            .Const(false),
+        ),
         ui.submit(.Const("Send"), []),
     ])
 }
