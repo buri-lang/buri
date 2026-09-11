@@ -937,6 +937,13 @@ impl Reset {
             // initial `content-box` would hang a padded, bordered child out of
             // its parent by exactly its padding.
             out.push_str("*,*::before,*::after{box-sizing:border-box}\n");
+            // The document is what the tree is mounted into, and a browser's
+            // own sheet puts eight pixels around it. Nothing a program writes
+            // can reach that: this vocabulary has no margin, a margin is not
+            // inherited, and `mount` renders into `<body>` rather than into a
+            // box the program made. Left alone it frames every page, on every
+            // route, in a band of the browser's white.
+            out.push_str(":where(body){margin:0}\n");
             // `Layout`'s documented default: a container that names none
             // stacks its children downwards, because a document is a column.
             // Without this a container is CSS's `display:block`, where
