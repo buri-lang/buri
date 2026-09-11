@@ -1,0 +1,82 @@
+# `BackdropBlur`, the blur a modal scrim casts on the page behind it — three
+# pictures on the eight-hundred-wide page the viewport is.
+#
+# Every demo lays a scrim over a field split hard down the middle, dark on the
+# start and light on the end, so a picture reads as that middle boundary: with
+# no blur it is a sharp line under the wash, and a wider radius smears it into a
+# grey ramp that grows with the radius, which is what `backdrop-filter: blur`
+# means.
+#
+# `blur-radii` is the one to read first: the boundary is sharp at `.Px(0)` and a
+# broader grey ramp at every step up to `.Px(16)`, which is the whole of what the
+# property does. `blur-wash` is the issue's own picture — a tenth of black
+# barely marks the panel until the page behind it is blurred, and the half of
+# black beside it is the heavier wash a scrim reaches for without a blur; its
+# last row clips the blur to a rounded scrim's corners. `blur-primitives` is the
+# same blur on stack, region, link and form, all painting it the same, because
+# the blur is a style and lands on whatever element carries it.
+#
+# The scrim's edge where it meets the canvas fades, where CSS clamps the edge
+# sample — the approximation `design/native/DECISIONS.md` records. The field is
+# kept off the page's edge so the boundary, not the rim, is what a picture reads.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the blur a scrim casts on the page behind it — the sweep of radii, the tenth-of-black wash the issue is about beside the heavier half of black, and the same blur on every primitive that holds children"
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A run that matched leaves no difference behind.
+path { path: "lib/scenes/test/__snapshots__/blur-radii.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet fails, and the report says how to record
+# one rather than showing a difference against nothing.
+edit {
+  file: "lib/scenes/test/blur.buri"
+  replace: "\"blur-wash\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/scenes", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: one radius in one row of one picture, and only that picture
+# moves.
+edit {
+  file: "lib/scenes/scenes.buri"
+  replace: "band(\"BackdropBlur(.Px(8))\", over(scrim([tenth(), .BackdropBlur(.Px(8))]))),"
+  with: "band(\"BackdropBlur(.Px(8))\", over(scrim([tenth(), .BackdropBlur(.Px(3))]))),"
+}
+
+run {
+  args: ["test", "//lib/scenes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/scenes/test/__snapshots__/blur-radii.diff.png"  exists: true }
+# Still being compared under its own name, and still matching.
+path { path: "lib/scenes/test/__snapshots__/blur-primitives.diff.png"  exists: false }

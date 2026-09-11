@@ -139,6 +139,27 @@ impl Rendered {
     /// `fill`, `flip` and `submit` follow the same rule.
     export fn press(self, label: Str): ();
 
+    /// Follows the `web.routeLink` labelled `label` with a plain left-click.
+    ///
+    /// Addressed by the text it shows, the way a reader addresses a link, and it
+    /// aborts when no anchor carries that text. A route link answers a plain
+    /// click in place — the address moves and the tree stays — so this is how a
+    /// test drives an in-app navigation. An ordinary `ui.link` lets the browser
+    /// follow the anchor, which a headless document cannot do, so following one
+    /// changes nothing and a test says so by what stayed the same.
+    ///
+    /// A link under a `Passthrough(true)`, or one a `dialog` has taken out of
+    /// reach, is not followed, the same rule `press` keeps.
+    export fn follow(self, label: Str): ();
+
+    /// Clicks the anchor labelled `label` with ⌘/Ctrl held — what a reader does
+    /// to open a link in a new tab.
+    ///
+    /// A `web.routeLink` leaves a modified click to the browser, so the address
+    /// bar does not move: this is the other half of what `follow` asserts, the
+    /// click a route does *not* answer. The reachability rules are `follow`'s.
+    export fn openInNewTab(self, label: Str): ();
+
     /// Types `value` into the field labelled `label`, the way a reader replacing
     /// what was there would.
     ///

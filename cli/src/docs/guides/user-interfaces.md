@@ -87,8 +87,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-twenty functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the twenty-first function, puts a tree on the
+twenty-two functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twenty-third function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** `region(.List, ...)` says
@@ -193,7 +193,7 @@ export fn contact<C: Ui>(
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 53 properties and five ways of composing them. Every property is
+`ui/style` is 54 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -248,6 +248,13 @@ container while it does — that is the whole of what separates it from
 `Scroll(Axis)`. `Passthrough(Bool)` says the pointer goes to whatever is behind
 this element instead. Both inherit the way the platform does, so a subtree opts
 out and a child opts back in.
+
+`BackdropBlur(Length)` blurs the page behind an element, so a modal scrim
+separates its panel from the page by softening it rather than by hiding it under
+a heavy wash — a tenth of black over a blurred page, the way Basecoat's dialog
+does it, instead of a half of black over a sharp one. The length is the blur
+radius, so `.Px(0)` blurs nothing. It is `backdrop-filter: blur()`: only the
+page is blurred, and the element's own background paints over the blur.
 
 ```buri
 from "ui/node" import * as ui;
@@ -674,6 +681,34 @@ it is the widget's own drawing, the way a toggle's mark is — `::backdrop` in a
 browser, and the same black at half strength in a picture. A shut dialog draws
 nothing at all; an open one is pinned to the viewport, so like every other pin
 it never decides how tall a page is.
+
+**An overlay that is not modal dismisses itself with `onPressOutside`.** A
+dialog gets Escape and a backdrop press from the platform, but a menu, a popover
+or a select does not — nothing watches for a press that lands elsewhere. Wrap
+the panel in `onPressOutside` and write it shut in the handler:
+
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn dismissable<C: Ui>(open: Signal<Bool>, panel: Node<C>): Node<C> {
+    ui.onPressOutside(fn(c, _e) => open.set(c, false), [], [panel])
+}
+```
+
+It leads with its handler rather than its styles, the way `button` and `form`
+do, because the behaviour is the point. On the web it lowers to one
+document-level pointer listener, registered while the subtree is mounted and
+taken away with it — so a wrapper inside a `choose` that shuts leaves no listener
+behind. A press *inside* the subtree is not one it fires on: the reader presses
+once, and that press both dismisses the overlay and acts on whatever it landed
+on, which is what the full-viewport scrim you might reach for instead cannot do —
+it swallows the press and costs a focusable element in the tab order besides. It
+adds no visible element beyond its own wrapper, so a picture of it is a picture
+of its children, and a native painter, having no pointer to press with, leaves
+it inert.
 
 **A single choice is `radioGroup`, not a stack of buttons.** A radio group is
 the browser's own model — one tab stop for the group, the arrow keys that move

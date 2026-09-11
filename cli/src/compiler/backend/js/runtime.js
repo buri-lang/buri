@@ -3196,10 +3196,38 @@ function $ui_unsubscribe(id, n) {
   n.deps = [];
 }
 
+// A computation may own something outside the graph — a document-level listener
+// an `onPressOutside` registered is the one there is — and that thing has to be
+// let go when the computation is. `cleanups` is where such a release is parked,
+// and both a re-run and a disposal run it: a subtree torn down and a subtree
+// rebuilt both mean the listener the last run put on the document is no longer
+// the reader's, so it goes. The field is absent until something needs it,
+// because almost nothing does.
+function $ui_cleanups(n) {
+  const cleanups = n.cleanups;
+  if (cleanups === undefined) return;
+  n.cleanups = undefined;
+  for (const release of cleanups) release();
+}
+
+// Parks a release against the computation running now, so it fires when that
+// computation re-runs or is disposed. Outside any computation — a mount's own
+// top level — there is nothing to hang it on and nothing that would ever
+// dispose it, which is the page's listeners going on running, so it is kept
+// alive by the document it was put on.
+function $ui_dispose_with(release) {
+  const owner = $ui.current;
+  if (owner < 0) return;
+  const n = $ui.nodes[owner];
+  if (n === undefined) return;
+  (n.cleanups === undefined ? (n.cleanups = []) : n.cleanups).push(release);
+}
+
 function $ui_dispose(id) {
   const n = $ui.nodes[id];
   if (n === undefined || n.disposed) return;
   n.disposed = true;
+  $ui_cleanups(n);
   for (const c of n.children) $ui_dispose(c);
   n.children = [];
   $ui_unsubscribe(id, n);
@@ -3210,7 +3238,9 @@ function $ui_dispose(id) {
 function $ui_run(id) {
   const n = $ui_at(id);
   if (n.disposed) return;
-  // Everything the previous run created belongs to the previous run.
+  // Everything the previous run created belongs to the previous run — its
+  // child computations, and the listeners it parked on the document.
+  $ui_cleanups(n);
   for (const c of n.children) $ui_dispose(c);
   n.children = [];
   // Per-run dependency re-collection: the edges are dropped before the body
@@ -3600,6 +3630,58 @@ function $dom_listen(element, type, handler) {
   element.addEventListener(type, handler);
 }
 
+// The top of the tree an element hangs off. In a real document that is the
+// `document` the listener a dismissable overlay registers goes on; in the
+// substitute it is the host `render` built, which is where a test's press is
+// dispatched from, so the two documents answer the same question the same way.
+function $dom_root(node) {
+  if (!node.$shim) return node.ownerDocument || document;
+  let at = node;
+  while (at.parent !== null) at = at.parent;
+  return at;
+}
+
+// Whether `target` is `element` or sits inside it. This is the whole of what an
+// outside press is: a press whose target this answers `false` for is one that
+// landed outside the subtree.
+function $dom_within(element, target) {
+  if (!element.$shim) return element === target || element.contains(target);
+  for (let at = target; at !== null && at !== undefined; at = at.parent) {
+    if (at === element) return true;
+  }
+  return false;
+}
+
+// Registers `onDown` to see every press on the document `element` is in, and
+// answers the release that takes it away again. A browser hears the press
+// through a capturing `pointerdown`, so an overlay shuts before the press it
+// landed on is acted on — the way Basecoat closes a dropdown, a popover or a
+// select. The substitute keeps the same listeners in a list on its host, which
+// a test's press walks.
+function $dom_outside(element, onDown) {
+  const root = $dom_root(element);
+  if (!element.$shim) {
+    root.addEventListener("pointerdown", onDown, true);
+    return () => root.removeEventListener("pointerdown", onDown, true);
+  }
+  const listeners = root.outside === undefined ? (root.outside = []) : root.outside;
+  listeners.push(onDown);
+  return () => {
+    const at = listeners.indexOf(onDown);
+    if (at >= 0) listeners.splice(at, 1);
+  };
+}
+
+// A press dispatched to every outside-listener the substitute holds, the way a
+// browser's `pointerdown` reaches the document. The copy is taken first because
+// a listener may dismiss its overlay, which disposes the subtree and mutates
+// the list mid-walk.
+function $dom_outside_fire(root, target) {
+  const listeners = root.outside;
+  if (listeners === undefined) return;
+  for (const onDown of listeners.slice()) onDown({ target });
+}
+
 // Where `mount` puts a tree. A program built for a browser and run under `bun`
 // mounts into the substitute rather than failing: what it is being asked is
 // whether the tree builds and reacts, and that question has an answer without
@@ -3728,6 +3810,30 @@ function $dom_fire(node, type) {
   if (handler !== undefined) handler({ preventDefault() {}, target: node });
 }
 
+// A click the headless harness can tell apart: a plain left-click, or a
+// modified one — ⌘/Ctrl held, which is what a reader does to open a link in a
+// new tab. The event carries the flags a real `MouseEvent` does and a
+// `preventDefault` that records, so a listener that intercepts the plain click
+// is *seen* to have done so and one that leaves the modified click alone leaves
+// `defaultPrevented` false — which is a route link falling through to the
+// browser.
+function $dom_click(node, modified) {
+  const handler = node.listeners["click"];
+  if (handler === undefined) return;
+  handler({
+    button: 0,
+    metaKey: modified,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    target: node,
+  });
+}
+
 // --- The tree ---------------------------------------------------------------
 //
 // `ui/node`'s vocabulary, lowered. A `Node` is the one-field struct that keeps
@@ -3736,7 +3842,8 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon     15 Submit   16 Dialog  17 RadioGroup
+//  14 Icon     15 Submit   16 Dialog  17 OnPressOutside  18 RouteLink
+//  19 RadioGroup
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -4159,8 +4266,11 @@ function $tree_declare(style, out) {
     // `clip` rather than `hidden`: both stop the paint, and only `hidden` also
     // makes a scroll container a keyboard can land in.
     out.set("overflow", value ? "clip" : "visible");
-  } else {
+  } else if (tag === 58) {
     out.set("pointer-events", value ? "none" : "auto");
+  } else {
+    // Only the page behind the box is blurred; the box paints over the blur.
+    out.set("backdrop-filter", "blur(" + $tree_length(value) + ")");
   }
 }
 
@@ -4842,6 +4952,55 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     return;
   }
   if (tag === 17) {
+    // A bare wrapper, so its element and its children are a stack's. What it
+    // adds is a document-level listener: a press whose target is not inside
+    // this element is a press outside the subtree, and the handler runs on one.
+    const element = $tree_element(parent, "div", anchor);
+    $tree_children(ctx, element, node[2], node[3]);
+    const handler = node[1];
+    const onDown = (event) => {
+      const target = event ? event.target : null;
+      if (target !== null && target !== undefined && $dom_within(element, target)) return;
+      // One transaction, the rule every handler runs under: a dismissal that
+      // writes three signals is one pass over the watchers.
+      $ui_flush(() => handler(ctx, [0]));
+    };
+    // Registered while the subtree is mounted and let go when it is disposed,
+    // so a wrapper inside a `choose` that shuts leaves no listener on the
+    // document. Outside any region — a top-level mount — there is nothing to
+    // dispose it, which is the page's own listeners going on running.
+    $ui_dispose_with($dom_outside(element, onDown));
+    return;
+  }
+  if (tag === 18) {
+    const element = $tree_element(parent, "a", anchor);
+    // The href a browser follows, kept so the plain-click handler can navigate
+    // to the same address the reader sees in the status bar. `.Cell` and
+    // `.Computed` re-run this, so it is always what the anchor points at now.
+    let dest = "";
+    $tree_bind(node[1], (to) => {
+      dest = to;
+      $dom_attribute(element, "href", to);
+    });
+    $tree_children(ctx, element, node[2], node[3]);
+    const onFollow = node[4];
+    // A real anchor, so the browser keeps middle-click, ⌘-click, "open in new
+    // tab", the status bar and the reader's "link". Only a plain left-click is
+    // the app's: a modified click — the middle button, or ⌘/Ctrl/Shift/Alt with
+    // the left one — falls through to the anchor the browser already has, and
+    // one another listener already handled is left alone.
+    $dom_listen(element, "click", (event) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== undefined && event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      // One transaction, the way a press is, so a handler that writes three
+      // signals causes one pass over the watchers rather than three.
+      $ui_flush(() => onFollow(ctx, dest));
+    });
+    return;
+  }
+  if (tag === 19) {
     // The group carries `role="radiogroup"` and its own accessible name; the
     // caller's styles land on it, the box a surrounding row lays out. Its
     // options are the real inputs — the whole point, since a stack of buttons
@@ -5226,6 +5385,11 @@ function $ui_testing_Rendered_press(self, label) {
   // Out of reach when the pointer passes through it, or when a `dialog` has
   // taken it out of the page — behind an open modal, or inside a shut one.
   if (!$dom_reachable(button) || $dom_inert(button)) return 0;
+  // The press reaches the document before it reaches the button, the way a
+  // browser's `pointerdown` does: an overlay watching for a press outside
+  // itself sees this one and decides by where it landed. A press inside the
+  // overlay is not outside it, so its own contents still work.
+  $dom_outside_fire($dom_root($slot(self)), button);
   $dom_fire(button, "click");
   // A submit button has no handler of its own: submitting is the form's, and
   // reaching it is the browser's default action for the press. Nothing here
@@ -5234,6 +5398,28 @@ function $ui_testing_Rendered_press(self, label) {
     const form = $dom_enclosing(button, "form");
     if (form !== null) $dom_fire(form, "submit");
   }
+  return 0;
+}
+
+// A plain left-click on the anchor a reader sees as `label`. A route link
+// answers it in place — the address moves and the tree stays; an ordinary
+// `link` lets the browser follow it, which this headless document cannot do, so
+// nothing observable happens and a test says so by what did not change.
+// Addressed by the text it shows, the way a reader addresses a link.
+function $ui_testing_Rendered_follow(self, label) {
+  const anchor = $tree_labelled(self, "a", label);
+  if (!$dom_reachable(anchor) || $dom_inert(anchor)) return 0;
+  $dom_click(anchor, false);
+  return 0;
+}
+
+// A ⌘/Ctrl-click on that anchor: what a reader does to open the link beside the
+// page they are on. A route link leaves this to the browser, so the address bar
+// does not move — which is the whole of what a test here asserts.
+function $ui_testing_Rendered_openInNewTab(self, label) {
+  const anchor = $tree_labelled(self, "a", label);
+  if (!$dom_reachable(anchor) || $dom_inert(anchor)) return 0;
+  $dom_click(anchor, true);
   return 0;
 }
 

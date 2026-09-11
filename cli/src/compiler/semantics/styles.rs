@@ -108,9 +108,13 @@ const NODE_ICON: usize = 14;
 /// reset. Declared before `Dialog`, because the variant order is append-only.
 const NODE_SUBMIT: usize = 15;
 const NODE_DIALOG: usize = 16;
+/// An `<a>` like `Link`'s, so it takes the same anchor reset. Appended after
+/// `OnPressOutside`, because the variant order is append-only.
+const NODE_ROUTE_LINK: usize = 18;
 /// A radio group, whose options are `<input type="radio">` drawing a dot of
-/// their own. Declared after `Dialog`, because the variant order is append-only.
-const NODE_RADIOGROUP: usize = 17;
+/// their own. Appended after `RouteLink`, because the variant order is
+/// append-only.
+const NODE_RADIOGROUP: usize = 19;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -959,6 +963,16 @@ impl Reset {
             // initial `content-box` would hang a padded, bordered child out of
             // its parent by exactly its padding.
             out.push_str("*,*::before,*::after{box-sizing:border-box}\n");
+            // A word too long for its box breaks mid-word rather than running
+            // past the edge. The headless painter has broken one that way all
+            // along — it shapes with a glyph-level fallback once a word will
+            // not fit — where CSS's own initial `overflow-wrap: normal` lets
+            // the word overflow, so the two renderers drew a long word two
+            // different ways. `break-word` rather than `anywhere` because the
+            // min-content width stays the longest word, not the widest letter:
+            // the painter measures the same, so an `fr` track holds open to its
+            // widest word rather than collapsing to a letter.
+            out.push_str("*{overflow-wrap:break-word}\n");
             // The document is what the tree is mounted into, and a browser's
             // own sheet puts eight pixels around it. Nothing a program writes
             // can reach that: this vocabulary has no margin, a margin is not
@@ -1152,7 +1166,7 @@ pub fn reset_in(
             match *variant {
                 NODE_HEADING => out.heading = true,
                 NODE_BUTTON => out.button = true,
-                NODE_LINK => out.link = true,
+                NODE_LINK | NODE_ROUTE_LINK => out.link = true,
                 NODE_FIELD => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
                 NODE_IMAGE | NODE_ICON => out.image = true,
@@ -1248,11 +1262,11 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             Some(("am", key.into(), one("justify-content", css)))
         }
         8 => {
-            let (css, key) = align(first?)?;
+            let (css, key) = cross_align(first?)?;
             Some(("ac", key.into(), one("align-items", css)))
         }
         9 => {
-            let (css, key) = align(first?)?;
+            let (css, key) = cross_align(first?)?;
             Some(("as", key.into(), one("align-self", css)))
         }
         10 => {
@@ -1350,10 +1364,13 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let css = ["none", "solid", "dashed"].get(which)?;
             Some(("bs", (*css).into(), one("border-style", css)))
         }
-        37 => spacing("r", "border-radius", first?),
+        37 => {
+            let (css, key) = radius_length(first?)?;
+            Some(("r", key, one("border-radius", &css)))
+        }
         38 => {
             let (property, corner) = corner_property(first?)?;
-            let (css, key) = length(args.get(1)?)?;
+            let (css, key) = radius_length(args.get(1)?)?;
             Some(("rc", format!("{corner}-{key}"), one(property, &css)))
         }
         39 => {
@@ -1531,6 +1548,12 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let css = if on { "none" } else { "auto" };
             Some(("pass", css.into(), one("pointer-events", css)))
         }
+        // The blur that separates a modal's panel from the page behind it. Only
+        // what is painted behind the box is blurred; the box paints over it.
+        59 => {
+            let (css, key) = length(first?)?;
+            Some(("bdblur", key, one("backdrop-filter", &format!("blur({css})"))))
+        }
         _ => None,
     }
 }
@@ -1624,6 +1647,21 @@ fn corner_property(value: &Value) -> Option<(&'static str, &'static str)> {
     ]
     .get(which)
     .copied()
+}
+
+/// A `Length` as the radius it names.
+///
+/// `.Full` is a pill on every box — `9999px`, the way Tailwind's `rounded-full`
+/// is — rather than the `100%` a length would otherwise lower to. A percentage
+/// radius resolves per axis, so `100%` is an ellipse of the box on anything not
+/// square, which is never what a caller reaching for a pill means. Every other
+/// length is the radius it is, so `Percent(50)` stays the ellipse for a caller
+/// who wants one.
+fn radius_length(value: &Value) -> Option<(String, String)> {
+    if value.as_variant()?.0 == 5 {
+        return Some(("9999px".into(), "full".into()));
+    }
+    length(value)
 }
 
 fn length(value: &Value) -> Option<(String, String)> {
@@ -1731,6 +1769,22 @@ fn align(value: &Value) -> Option<(&'static str, &'static str)> {
     ]
     .get(which)
     .copied()
+}
+
+/// The cross-axis reading of an `Align`, for `AlignCross` and `AlignSelf`.
+///
+/// The three distributions — `space-between`, `space-around`, `space-evenly` —
+/// have no cross-axis meaning: `align-items:space-between` is not a legal
+/// declaration, so a browser drops it and `align-items` stays `normal`, which
+/// for a flex container is stretch. The extractor writes the stretch a browser
+/// lands on rather than a declaration a browser will throw away, so the sheet,
+/// the scene document and the painter all agree by construction. The four that
+/// do have a cross-axis meaning are themselves.
+fn cross_align(value: &Value) -> Option<(&'static str, &'static str)> {
+    match align(value)? {
+        ("space-between" | "space-around" | "space-evenly", _) => Some(("stretch", "stretch")),
+        pair => Some(pair),
+    }
 }
 
 fn track_value(value: &Value) -> Option<String> {

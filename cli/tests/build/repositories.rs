@@ -365,6 +365,20 @@ fn serving_a_page() {
 /// than itself. It is what closes the gap between the painter's border box and
 /// CSS's initial `content-box`.
 ///
+/// `sweep_backdrop_blur` is the scrim a modal lays over the page, in three
+/// pictures. Every demo is a field split hard down the middle laid under a
+/// scrim, so the reading is that boundary: sharp under a wash at `.Px(0)`, and
+/// a grey ramp that widens with the radius, which is what `backdrop-filter:
+/// blur` means. The first picture is the sweep of radii; the second is the
+/// issue's own case, a tenth of black that separates the panel only once the
+/// page is blurred, beside the half of black a scrim reaches for without one,
+/// and a rounded scrim that clips the blur to its corners; the third is the
+/// blur on every primitive that holds children, all painting it the same. Its
+/// last step widens one radius so only the radii picture moves. The edge of a
+/// scrim that meets the canvas fades where CSS clamps, which
+/// `design/native/DECISIONS.md` records; the pictures keep the field off the
+/// edge so the boundary is the read.
+///
 /// The `sweep_states_*` cases are the states sweep: every `State` against every
 /// interactive primitive, six pictures to a case — the resting one and one per
 /// state — each a labelled grid of `Background`, `Foreground`, `Border`,
@@ -423,7 +437,7 @@ fn serving_a_page() {
 /// colour.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 60);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 61);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

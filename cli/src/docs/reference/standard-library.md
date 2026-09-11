@@ -695,6 +695,11 @@ box at all, corners included, and it makes no scroll container doing it —
 a pinned toaster dock asks for it so the page under it still answers a press,
 and each toast in the dock takes the pointer back.
 
+`BackdropBlur(Length)` blurs the page behind an element — `backdrop-filter:
+blur()` — so a modal scrim separates its panel by softening the page rather than
+by hiding it under a heavy wash. The length is the blur radius, and the
+element's own background paints over the blur.
+
 `heading`, `button`, `submit`, `link`, `image`, `field`, `toggle` and `icon`
 take a `[Style]` like every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or
@@ -799,6 +804,17 @@ is unavailable rather than absent. It is also what makes `On(.Disabled, ...)`
 fire. `On(.Checked, ...)` needs no flag — a toggle's own signal says whether it
 is checked, so one page holds one toggle that is on and one that is off.
 
+`onPressOutside(handler, styles, children)` is a bare wrapper whose `handler`
+fires when a press lands outside its subtree, so a non-modal overlay — a menu, a
+popover, a select — can dismiss itself the way a `dialog` does with Escape and
+its backdrop. It leads with its handler, the way `button` and `form` do; on the
+web it lowers to one document-level pointer listener, registered while the
+subtree is mounted and disposed with it, so an overlay that shuts leaves nothing
+on the document. A press inside the subtree does not fire it, which is what lets
+the one press that dismisses the overlay also act on what it landed on. It adds
+no visible element beyond its own wrapper — the `styles` and `children` are a
+`stack`'s — and a native painter, having no pointer, leaves it inert.
+
 `radioGroup(label, options, styles, value)` is a single choice among a few, as
 one real `<input type="radio">` per option inside a `role="radiogroup"`. It is a
 widget rather than a `Role` and a `FieldKind` because a radio group is the
@@ -889,6 +905,14 @@ signals survives the navigation, which a `ui.link` cannot manage.
 `web.replace(ctx, path)` writes the same address over the entry the reader is on
 instead of beside it, so Back does not return to it: that is a redirect. Both
 need `Location` and `Ui`, one for the address bar and one for the cell.
+
+`web.routeLink(dest, styles, children)` is that navigation as a link. It renders
+a real `<a href>`, so a reader keeps middle-click, ⌘-click, "open in new tab",
+the status bar and the "link" a screen reader announces — everything a
+`ui.button` calling `navigate` throws away. A plain left-click does what
+`navigate` does instead of loading the document; a middle-click or a ⌘/Ctrl-click
+is left to the browser as an ordinary anchor. It needs `Location` and `Ui` for
+the same reason `navigate` does.
 [Build a website](../guides/websites.md) walks both halves end to end.
 
 ## The platform

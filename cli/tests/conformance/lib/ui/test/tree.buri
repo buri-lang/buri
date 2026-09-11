@@ -531,6 +531,50 @@ test "radius named corner by corner composes, and a joined group is spellable" {
     assert.isTrue(sheet.contains(".rc-bottomend-4{border-end-end-radius:4px}"));
 }
 
+test "a full radius is a pill on every box, where a percentage is an ellipse" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // buri#144: `Radius(.Full)` lowers to `9999px`, the way Tailwind's
+    // `rounded-full` does — a pill on any box, where `border-radius:100%`
+    // resolves per axis to an ellipse on anything that is not square. A corner
+    // takes the same pill, and `Percent` keeps the ellipse a caller asks for by
+    // writing one.
+    let pill = ui.stack([.Radius(.Full), .RadiusCorner(.TopEnd, .Full)], []);
+    assert.equal(
+        render(ctx, pill).markup(),
+        "<div class=\"r-full rc-topend-full\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".r-full{border-radius:9999px}"));
+    assert.isTrue(sheet.contains(".rc-topend-full{border-start-end-radius:9999px}"));
+    // A percentage radius is left alone: `Percent(50)` is the ellipse.
+    let ellipse = ui.stack([.Radius(.Percent(50.0))], []);
+    assert.equal(render(ctx, ellipse).markup(), "<div class=\"r-pc50\"></div>");
+    assert.isTrue(stylesheet().contains(".r-pc50{border-radius:50%}"));
+}
+
+test "a full radius and a square corner compose, whole radius first" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A pill welded onto its neighbour: rounded but for the one corner squared
+    // where it meets the box beside it. The whole radius is written before the
+    // corner that overrides it, exactly as a numeric radius is.
+    let welded: [Style] = [.Radius(.Full), .RadiusCorner(.TopStart, .Px(0))];
+    assert.equal(
+        render(ctx, ui.stack(welded, [])).markup(),
+        "<div class=\"r-full rc-topstart-0\"></div>",
+    );
+    let sheet = stylesheet();
+    let whole = sheet.indexOf(".r-full{border-radius:9999px}").withDefault(-1);
+    let corner = sheet
+        .indexOf(".rc-topstart-0{border-start-start-radius:0px}")
+        .withDefault(-1);
+    assert.isTrue(whole >= 0);
+    assert.isTrue(whole < corner);
+}
+
 test "a corner squares the side that meets its neighbour, and the shorthand loses" {
     let ctx = context {
         Ui: headless(),
@@ -935,6 +979,95 @@ test "a pass-through takes a state and degrades to an inline style" {
     assert.equal(
         render(ctx, ui.stack([.Passthrough(through.get(ctx) > 0)], [])).markup(),
         "<div style=\"pointer-events: none\"></div>",
+    );
+}
+
+test "a scrim blurs the page behind it, at a pixel radius and a rem one" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The modal scrim: a tenth of black over the page, separated from it by the
+    // blur rather than by a heavier wash.
+    let scrim: [Style] = [.Background(.Rgba(0, 0, 0, 0.1)), .BackdropBlur(.Px(4))];
+    assert.equal(
+        render(ctx, ui.stack(scrim, [])).markup(),
+        "<div class=\"bg-000000a0_1 bdblur-4\"></div>",
+    );
+    // A radius that follows the reader's text size.
+    assert.equal(
+        render(ctx, ui.stack([.BackdropBlur(.Rem(0.125))], [])).markup(),
+        "<div class=\"bdblur-r0_125\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bdblur-4{backdrop-filter:blur(4px)}"));
+    assert.isTrue(sheet.contains(".bdblur-r0_125{backdrop-filter:blur(0.125rem)}"));
+}
+
+test "a backdrop blur is its own slot: last wins, and a background beside it stays" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Same property, last wins.
+    assert.equal(
+        render(
+            ctx,
+            ui.stack([.BackdropBlur(.Px(2)), .BackdropBlur(.Px(8))], []),
+        ).markup(),
+        "<div class=\"bdblur-8\"></div>",
+    );
+    // A different property, so both classes land — the blur touches no
+    // declaration a background does.
+    assert.equal(
+        render(
+            ctx,
+            ui.stack([.BackdropBlur(.Px(4)), .Background(.Rgb(0, 0, 0))], []),
+        ).markup(),
+        "<div class=\"bdblur-4 bg-000000\"></div>",
+    );
+}
+
+test "a backdrop blur takes a state and a breakpoint, and degrades to an inline style" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let stated: [Style] = [
+        .BackdropBlur(.Px(4)),
+        .On(.Hover, [.BackdropBlur(.Px(8))]),
+        .At(.Medium, [.BackdropBlur(.Px(2))]),
+    ];
+    assert.equal(
+        render(ctx, ui.stack(stated, [])).markup(),
+        "<div class=\"bdblur-4 hover_bdblur-8 md_bdblur-2\"></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".hover_bdblur-8:hover{backdrop-filter:blur(8px)}"));
+    assert.isTrue(sheet.contains(".md_bdblur-2{backdrop-filter:blur(2px)}"));
+    // A radius the folder cannot reach lands in the tier `Computed` lives in.
+    let radius = signal(ctx, 4);
+    assert.equal(
+        render(ctx, ui.stack([.BackdropBlur(.Px(radius.get(ctx)))], [])).markup(),
+        "<div style=\"backdrop-filter: blur(4px)\"></div>",
+    );
+}
+
+test "the scene document writes the backdrop blur the browser was given" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let radius = signal(ctx, 0);
+    let tree = ui.stack(
+        [.Background(.Rgba(0, 0, 0, 0.1)), .BackdropBlur(.Px(radius.get(ctx) + 4))],
+        [],
+    );
+    // The background folded and the blur did not, so the element carries one of
+    // each tier — and the scene says both, in the order the browser was given
+    // them.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:bg-000000a0_1;backdrop-filter:blur(4px)",
     );
 }
 
@@ -1462,6 +1595,10 @@ test "the remaining alignments and weights and cursors each have a name" {
     let ctx = context {
         Ui: headless(),
     };
+    // `AlignCross(.SpaceAround)` is not a legal `align-items` value, so it
+    // resolves to the stretch a browser falls back to — the class is
+    // `ac-stretch`, the same one `AlignCross(.Stretch)` earns. On the main
+    // axis a distribution is legal, so `AlignMain(.SpaceEvenly)` keeps `am-evenly`.
     let tree = ui.stack([], [
         ui.stack([.AlignMain(.Start), .AlignCross(.End), .FontWeight(.Regular)], []),
         ui.stack(
@@ -1474,8 +1611,43 @@ test "the remaining alignments and weights and cursors each have a name" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"am-start ac-end fw-regular\"></div><div class=\"am-stretch ac-around fw-medium\"></div><div class=\"am-evenly fw-bold cur-default\"></div><div class=\"cur-text\"></div><div class=\"cur-notallowed\"></div></div>",
+        "<div><div class=\"am-start ac-end fw-regular\"></div><div class=\"am-stretch ac-stretch fw-medium\"></div><div class=\"am-evenly fw-bold cur-default\"></div><div class=\"cur-text\"></div><div class=\"cur-notallowed\"></div></div>",
     );
+}
+
+test "a cross-axis distribution is the stretch a browser falls back to" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // buri#80: `align-items:space-between` is not a legal declaration, so a
+    // browser drops it and `align-items` stays `normal`, which for a flex
+    // container is stretch. `AlignCross` and `AlignSelf` take the whole `Align`
+    // enum, so the three distributions resolve to the stretch a browser lands
+    // on — one class, shared with the `.Stretch` that means it outright — while
+    // `AlignMain`, where a distribution is legal, keeps it.
+    let tree = ui.stack([], [
+        ui.stack([.AlignCross(.SpaceBetween)], []),
+        ui.stack([.AlignCross(.SpaceAround)], []),
+        ui.stack([.AlignCross(.SpaceEvenly)], []),
+        ui.stack([.AlignCross(.Stretch)], []),
+        ui.stack([.AlignSelf(.SpaceEvenly)], []),
+        ui.stack([.AlignSelf(.Stretch)], []),
+        ui.stack([.AlignMain(.SpaceBetween)], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"as-stretch\"></div><div class=\"as-stretch\"></div><div class=\"am-between\"></div></div>",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".ac-stretch{align-items:stretch}"));
+    assert.isTrue(sheet.contains(".as-stretch{align-self:stretch}"));
+    // A distribution on the main axis is legal and untouched.
+    assert.isTrue(sheet.contains(".am-between{justify-content:space-between}"));
+    // The sheet never carries the declaration a browser would throw away.
+    assert.isFalse(sheet.contains("align-items:space-between"));
+    assert.isFalse(sheet.contains("align-items:space-around"));
+    assert.isFalse(sheet.contains("align-items:space-evenly"));
+    assert.isFalse(sheet.contains("align-self:space-evenly"));
 }
 
 test "two elements asking for one padding are given one class" {
@@ -3281,6 +3453,26 @@ test "a size is the whole box, so padding and a border sit inside it" {
     assert.isTrue(sheet.contains(".p-16{padding:16px}"));
 }
 
+test "the reset breaks a word too long for its box the way the painter does" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // buri#79: the headless painter breaks a word wider than its box mid-word,
+    // where CSS's own initial `overflow-wrap: normal` lets it overflow. The
+    // reset says `overflow-wrap: break-word` once for every element, so a
+    // browser breaks the same word the same way — `break-word` rather than
+    // `anywhere` because the min-content width stays the longest word, which is
+    // what the painter measures.
+    let tree = ui.stack([.Width(.Px(180))], [ui.text(.Const("x"))]);
+    let _ = render(ctx, tree);
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains("*{overflow-wrap:break-word}"));
+    // It sits with the box model, ahead of the element resets and the classes.
+    let wrap = assert.some(sheet.indexOf("overflow-wrap"));
+    let chrome = assert.some(sheet.indexOf(":where("));
+    assert.isTrue(wrap < chrome);
+}
+
 test "a list has no marker until one is asked for" {
     let ctx = context {
         Ui: headless(),
@@ -3862,6 +4054,94 @@ test "an open dialog is a scrim and a panel, and a shut one is nothing at all" {
             "buri-scene 1\nviewport 800 fit\ne 0 ${scrim}\ne 1 class:p-8\nt 2 here",
         ),
     );
+}
+
+// --- an outside press ------------------------------------------------------------------
+
+test "an outside-press wrapper is a bare div around its children" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // It adds no visible element beyond its own wrapper: the styles and the
+    // children are a stack's, and the press it watches for is the document's,
+    // which no markup carries.
+    let tree = ui.onPressOutside(
+        fn(c, _e) => {
+        },
+        [.Padding(.Px(8))],
+        [ui.text(.Const("panel"))],
+    );
+    assert.equal(render(ctx, tree).markup(), "<div class=\"p-8\">panel</div>");
+    // And a picture of it is a picture of its children — the same `e` line and
+    // the same child a stack of the same styles writes.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-8\nt 1 panel",
+    );
+}
+
+test "an unstyled outside-press wrapper is exactly a stack" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.onPressOutside(
+        fn(c, _e) => {
+        },
+        [],
+        [ui.text(.Const("x"))],
+    );
+    // No styles is no class, the way a bare stack has none.
+    assert.equal(render(ctx, tree).markup(), "<div>x</div>");
+}
+
+test "a press inside does not fire, a press outside does, and disposal takes the listener" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let fired = signal(ctx, 0);
+    let open = signal(ctx, true);
+    // A dismissable overlay: the wrapper watches for a press outside the panel,
+    // and the panel holds a control of its own. An `outside` button stands in
+    // for the rest of the page.
+    let tree = ui.stack([], [
+        ui.button(
+            .Const("outside"),
+            [],
+            [],
+            fn(c, _e) => {
+            },
+            .Const(false),
+        ),
+        ui.choose(
+            .Cell(open),
+            ui.onPressOutside(fn(c, _e) => fired.update(c, fn(n) => n + 1), [], [
+                ui.button(
+                    .Const("inside"),
+                    [],
+                    [],
+                    fn(c, _e) => {
+                    },
+                    .Const(false),
+                ),
+            ]),
+            ui.nothing(),
+        ),
+    ]);
+    let page = render(ctx, tree);
+    // A press inside the subtree is not a press outside it, so the reader's
+    // press on the panel's own control does not dismiss it.
+    let _ = page.press("inside");
+    assert.equal(fired.get(ctx), 0);
+    // A press anywhere else fires the handler once.
+    let _ = page.press("outside");
+    assert.equal(fired.get(ctx), 1);
+    // Shutting the `choose` disposes the subtree, and the document listener goes
+    // with it: a press outside now reaches nothing, so the handler stays put.
+    open.set(ctx, false);
+    let _ = page.press("outside");
+    assert.equal(fired.get(ctx), 1);
 }
 
 // --- the page a scene is painted on ----------------------------------------------------
