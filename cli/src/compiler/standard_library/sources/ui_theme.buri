@@ -52,6 +52,9 @@ enum ThemeKind {
     Switching(Prop<Bool>, [Theme], [Theme]),
     /// Which scheme the page is in while this theme applies.
     Scheme(Scheme),
+    /// The page's own ground and text colour: a background and a foreground,
+    /// landing on the document rather than on any box inside it.
+    Page(Color, Color),
 }
 
 /// Whether a page is dark or light.
@@ -107,6 +110,32 @@ export fn scheme(which: Scheme): Theme {
     Theme(.Scheme(which))
 }
 
+/// A theme that binds no token and says what the page itself is painted in.
+///
+/// ```buri
+/// from "ui/theme" import * as theme;
+/// from "ui/theme" import { Theme };
+///
+/// export fn night(): Theme {
+///     theme.page(.Rgb(10, 10, 10), .Rgb(250, 250, 250))
+/// }
+/// ```
+///
+/// The ground of a page belongs to the page. A box inside one paints only as
+/// far as it reaches, so a root box leaves the browser's own white behind an
+/// overscroll and anywhere it does not cover, and no program can reach `<body>`
+/// to say otherwise. This lands there: `background-color` and `color` on the
+/// document, in the block `mount` rewrites, so the window is the ground colour
+/// to its edges and every box inherits the text colour.
+///
+/// Either colour may be a token, read the way a class reads one: the value
+/// comes from the themes beside it, so what switches those switches the page.
+/// It goes in `mount`'s list beside a package's own themes, and `switching`
+/// takes one on either side.
+export fn page(background: Color, foreground: Color): Theme {
+    Theme(.Page(background, foreground))
+}
+
 // --- The flattened document --------------------------------------------------
 //
 // A theme holds closures and a closure cannot cross the C boundary as data, so
@@ -153,6 +182,11 @@ fn blocks<C: Allocator>(ctx: C, themes: [Theme], at: Int, acc: [Str]): [Str] {
                     }
                 },
                 .Scheme(which) => [str.format(ctx, "scheme ${schemeName(which)}")],
+                .Page(background, foreground) => {
+                    let ground = colorText(ctx, background);
+                    let ink = colorText(ctx, foreground);
+                    [str.format(ctx, "page ${ground} ${ink}")]
+                },
             };
             blocks(ctx, themes, at + 1, acc.concat(ctx, lines))
         },
@@ -198,6 +232,22 @@ fn bindLine<C: Allocator>(ctx: C, left: Color, right: Color): [Str] {
             }
         },
         _ => [],
+    }
+}
+
+/// A colour as CSS, a token included.
+///
+/// `bindLine` answers a token before `valueText` is reached, because the left
+/// half of a binding *is* the property being defined. A page's ground is the
+/// other side of that: it is a use, so a token there is the same `var()` a
+/// class would have held.
+fn colorText<C: Allocator>(ctx: C, color: Color): Str {
+    match (color) {
+        .Token(reference) => {
+            let name = propertyName(ctx, reference);
+            str.format(ctx, "var(--${name})")
+        },
+        _ => valueText(ctx, color),
     }
 }
 

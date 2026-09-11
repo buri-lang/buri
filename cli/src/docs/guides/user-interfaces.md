@@ -569,7 +569,7 @@ labelled control's `<label>` out as a wrapping row, give a checkbox its box and
 its mark, and give a range its track, its bar and its thumb, and a class on any
 of them beats them.
 
-Two of the opening rules are about every element rather than about one:
+Three of the opening rules are about the page rather than about one element:
 
 - **A size is the whole box.** `box-sizing: border-box`, so a `Width` beside a
   `Padding` or a `BorderWidth` counts them inside it and a full-width padded
@@ -578,6 +578,10 @@ Two of the opening rules are about every element rather than about one:
   says it is. `AlignMain` and `AlignCross` therefore mean something on a bare
   `stack`. The four table elements keep a browser's own table layout, because
   that is what the scene document mirrors for them.
+- **The document carries no margin.** A browser puts eight pixels around
+  `<body>`, which is where `mount` renders, so without this every page sits in a
+  band of the browser's white. Nothing a program writes could reach it: this
+  vocabulary has no margin at all.
 
 **A designed focus ring replaces the platform's.** A browser paints its own
 `outline` over anything you put on the focused element, so the sheet takes it
@@ -723,6 +727,25 @@ export fn schemeFor(dark: Prop<Bool>): Theme {
     theme.switching(dark, theme.scheme(.Dark), theme.scheme(.Light))
 }
 ```
+
+`theme.page(background, foreground)` is the other one, and it says what the page
+itself is painted in:
+
+```buri
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+export fn ground(): Theme {
+    theme.page(.Rgb(10, 10, 10), .Rgb(250, 250, 250))
+}
+```
+
+That lands on the document — `background-color` and `color` on `body`, in the
+same block — so the window is the ground colour to its edges and every box
+inherits the text colour. A box inside the page cannot do this: it paints only
+as far as it reaches, leaving the browser's white behind an overscroll and
+anywhere the root box does not cover. Either colour may be a token, read the way
+a class reads one, so switching the values switches the page.
 
 ## Snapshots
 
