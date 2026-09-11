@@ -1,0 +1,5 @@
+FAIL //lib/sections  test/pictures.buri  "an open disclosure shows the summary and the body"
+  the snapshot "disclosure-open" changed: see test/__snapshots__/disclosure-open.diff.png
+  --> lib/sections/test/pictures.buri:28:1
+
+1 passed, 1 failed, 0 skipped (0.0s)

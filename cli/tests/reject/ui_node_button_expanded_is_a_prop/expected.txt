@@ -1,0 +1,36 @@
+error: expected `Prop<Bool>`, found `Bool` [type-mismatch]
+  --> cmd/ui_node_button_expanded_is_a_prop/main.buri:16:84
+   |
+16 |   ui.mount(ctx, ui.button(.Const("Menu"), [], [], fn(_c, _e) => (), .Const(false), true), [])
+   |                                                                                    ^^^^ the parameter type is `Prop<Bool>`
+   |
+   = expected: `Prop<Bool>`
+   = actual: `Bool`
+
+     Those two lines are the whole story: what the position wanted, and what is
+     there. Only a conversion with a name earns a fix line beside them.
+
+     Numbers do not convert on their own
+     ───────────────────────────────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     A bare numeric literal is reported as Int or Float, the type it takes when
+     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+     let x: U8 = 1 — and it becomes any type of the same kind.
+
+     There is no promotion of any kind, in either direction. A language that
+     widened silently would make the width of an arithmetic result depend on the
+     shape of the expression rather than on what you wrote.
+
+     A .Variant is a variant
+     ───────────────────────
+
+     A leading dot takes its enum from the position it is written in, so a
+     position that is not an enum has nothing to give it, and expected is the
+     type to write instead. What is reported as found is a variant rather than a
+     type, because .Const on its own is not one — and guessing an enum from the
+     payload would put a type in front of you that nothing in your program says.
+

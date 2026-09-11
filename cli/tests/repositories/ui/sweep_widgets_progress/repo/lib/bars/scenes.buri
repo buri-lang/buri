@@ -1,0 +1,72 @@
+//! Progress bars at every quarter, each a track and a fill.
+//!
+//! One picture, five bars: empty, a quarter, half, three quarters and full. The
+//! track is the box the styles land on — a rounded, clipped, grey rail — and the
+//! fill is the caller's own child, a rounded blue box as wide as the value. So
+//! the picture reads left to right as the value climbs, and the fill of the full
+//! bar reaches the end of the rail while the empty one draws nothing.
+//!
+//! The `role="progressbar"` and the three `aria-value*` the widget adds are what
+//! a reader is told, not what the painter draws, so they are nowhere in the
+//! pixels — a nested pair of boxes drew this same picture before, announcing
+//! nothing. That is the point of the widget, and `test/pictures.buri` asserts it
+//! beside the snapshot.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// The page: a title, and one labelled bar per quarter.
+export fn page<C>(): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(16)),
+            .Gap(.Px(12)),
+            .Width(.Px(340)),
+            .FontSize(.Px(12)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        [
+            ui.text(.Const("Uploading — the fill climbs with the value")),
+            bar("empty", 0.0),
+            bar("a quarter", 0.25),
+            bar("half", 0.5),
+            bar("three quarters", 0.75),
+            bar("full", 1.0),
+        ],
+    )
+}
+
+/// One labelled bar: the name over it, and the progress bar under it. The label
+/// is the accessible name as well, so a reader hears what is loading.
+fn bar<C>(label: Str, value: Float): Node<C> {
+    ui.column([.Gap(.Px(4))], [
+        ui.text(.Const(label)),
+        ui.progress(.Const(label), .Const(value), track(), [fill(value)]),
+    ])
+}
+
+/// The track the styles land on: a rounded grey rail, one line tall, that clips
+/// its fill to its own rounded corners.
+fn track(): [Style] {
+    [
+        .Width(.Px(280)),
+        .Height(.Px(10)),
+        .Radius(.Px(9999)),
+        .Background(.Rgb(228, 232, 240)),
+        .Clip(true),
+    ]
+}
+
+/// The fill: a rounded blue box as wide as the value, drawn inside the track.
+fn fill<C>(value: Float): Node<C> {
+    ui.stack(
+        [
+            .Width(.Percent(value * 100.0)),
+            .Height(.Full),
+            .Radius(.Px(9999)),
+            .Background(.Rgb(48, 120, 240)),
+        ],
+        [],
+    )
+}

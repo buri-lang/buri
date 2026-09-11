@@ -160,7 +160,7 @@ enum NodeKind<C> {
     Heading(Int, [Style], Prop<Str>),
     Stack([Style], [Node<C>]),
     Region(Role, [Style], [Node<C>]),
-    Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>),
+    Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>, Prop<Bool>),
     Link(Prop<Str>, [Style], [Node<C>]),
     Image(Prop<Str>, Prop<Str>, [Style]),
     Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>),
@@ -174,6 +174,8 @@ enum NodeKind<C> {
     Icon([Style], Str),
     Submit(Prop<Str>, [Style]),
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
+    Progress(Prop<Str>, Prop<Float>, [Style], [Node<C>]),
+    Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>]),
 }
 
 /// Nothing at all.
@@ -267,6 +269,16 @@ export fn heading<C>(level: Int, styles: [Style], content: Prop<Str>): Node<C> {
 /// unavailable rather than absent. `.Const(false)` is a button that is always
 /// pressable.
 ///
+/// `expanded` is a button that opens something that is not its own child — a
+/// menu, a submenu, a popover, a select. It carries `aria-expanded`, which is
+/// how a reader is told the button expands a region and whether that region is
+/// open, so a press announces a change rather than nothing. It is a parameter
+/// for the reason `disabled` is: a reader has to be *told*, and no style says
+/// it. Like `aria-invalid` it is written only when it is `true`, so an
+/// ordinary button carries none of it — `.Const(false)` is a button that
+/// expands nothing. A section that opens *its own* child announces itself and
+/// needs no attribute: that is `disclosure`.
+///
 /// **A button never submits the form it happens to be inside.** `onPress` is
 /// the whole of what it does, so a Cancel beside a Send stays a Cancel. The
 /// button that submits is `submit`, and a form needs one.
@@ -276,8 +288,9 @@ export fn button<C>(
     children: [Node<C>],
     onPress: fn(C, Event) => (),
     disabled: Prop<Bool>,
+    expanded: Prop<Bool>,
 ): Node<C> {
-    Node(.Button(label, styles, children, onPress, disabled))
+    Node(.Button(label, styles, children, onPress, disabled, expanded))
 }
 
 /// Somewhere to go.
@@ -450,7 +463,7 @@ export fn submit<C>(label: Prop<Str>, styles: [Style]): Node<C> {
 /// ```text
 /// ui.dialog(open, .Const("Delete this?"), [.Padding(.Rem(1.0))], [
 ///     ui.text(.Const("This cannot be undone.")),
-///     ui.button(.Const("Cancel"), [], [], fn(c, _e) => open.set(c, false), .Const(false)),
+///     ui.button(.Const("Cancel"), [], [], fn(c, _e) => open.set(c, false), .Const(false), .Const(false)),
 /// ])
 /// ```
 ///
@@ -485,6 +498,67 @@ export fn dialog<C>(
     children: [Node<C>],
 ): Node<C> {
     Node(.Dialog(open, label, styles, children))
+}
+
+/// How far along a task has come, announced as well as drawn.
+///
+/// A widget rather than a role, because the value is what the role is for: a
+/// bar that says `role="progressbar"` and nothing else is announced as a
+/// progress bar with no progress, which is the lie a pair of nested `stack`s
+/// tells now. So the value is a parameter — the module's own rule, that
+/// whatever an assistive technology cannot do without is a parameter and not an
+/// attribute somebody may remember to set.
+///
+/// `value` runs from `0.0` to `1.0`, and it is what a reader hears: it lowers
+/// to `aria-valuenow` as a whole number of hundredths — `value` times a
+/// hundred, rounded — beside the `aria-valuemin="0"` and `aria-valuemax="100"`
+/// that say what that number is out of. `label` is the accessible name, the
+/// rule a `button`'s label follows: a reader is told what is loading, not only
+/// that something is.
+///
+/// **The fill is the caller's.** `children` are what is drawn inside the bar —
+/// the filled part is a child styled to `Width(.Percent(...))`, or a track and
+/// a fill, whatever the design draws — and `styles` land on the bar itself. The
+/// widget adds the announcement and nothing to the picture, so the same tree
+/// that painted before still paints, and now it is heard as well as seen.
+///
+/// Determinate only. A bar that does not know how far along it is — HTML's
+/// `aria-valuenow` left off — is a second shape this does not carry, because no
+/// caller has needed one yet.
+export fn progress<C>(
+    label: Prop<Str>,
+    value: Prop<Float>,
+    styles: [Style],
+    children: [Node<C>],
+): Node<C> {
+    Node(.Progress(label, value, styles, children))
+}
+
+/// A section that opens and shuts, and the summary that opens it.
+///
+/// A widget rather than a role, and the reason is the same as `dialog`'s: the
+/// element carries behaviour no style and no `Role` can name. A `<details>`
+/// with a `<summary>` is the open-and-shut state, the Enter and Space that
+/// toggle it, and what a reader is told about all of it — the browser's own,
+/// for nothing, where a `button` beside a `choose` announces a press that
+/// changes nothing a reader can hear. An accordion is an `each` of these.
+///
+/// `summary` is the always-visible label — the row a reader presses, and the
+/// one thing shown when the section is shut. `children` are what it hides and
+/// shows. `styles` land on the `<details>` itself.
+///
+/// **The signal is writable because the platform writes it.** A reader opens
+/// and shuts a `<details>` without asking the program, so a `Prop` would leave
+/// the program's idea of the state behind the reader's. Write `true` to open
+/// it and `false` to shut it; the browser writes back whichever the reader
+/// chose. This is the rule `dialog`'s `open` follows, and for the same reason.
+export fn disclosure<C>(
+    summary: Prop<Str>,
+    open: Signal<Bool>,
+    styles: [Style],
+    children: [Node<C>],
+): Node<C> {
+    Node(.Disclosure(summary, open, styles, children))
 }
 
 /// One subtree or the other, decided by a condition that may vary.
@@ -712,7 +786,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The children are what is drawn, and a button with none draws its
         // label — which is the one place the accessible name and the glyphs
         // are the same string.
-        .Button(label, styles, children, _onPress, disabled) => {
+        .Button(label, styles, children, _onPress, disabled, _expanded) => {
             let painted = refusing(state, disabled.read(scope));
             if (children.isEmpty()) {
                 [
@@ -816,6 +890,28 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 )
             } else {
                 []
+            }
+        },
+        // A bar and whatever fills it. The role and the three `aria-value*` are
+        // what a reader is told, not what a painter draws, so the scene is the
+        // caller's own boxes — the same picture the nested `stack`s painted
+        // before, now announced.
+        .Progress(_label, _value, styles, children) => {
+            container(ctx, state, styles, children, depth)
+        },
+        // The summary is always drawn; the children only when it is open. A
+        // browser draws a shut `<details>` as its `<summary>` alone, so this
+        // reads the signal and leaves the rest out when it is shut.
+        .Disclosure(summary, open, styles, children) => {
+            let head = [
+                styledLine(ctx, plain(state), styles, depth),
+                styledLine(ctx, plain(state), [], depth + 1),
+                textLine(ctx, depth + 2, summary.read(scope)),
+            ];
+            if (open.get(scope)) {
+                head.concat(ctx, childLines(ctx, state, children, depth + 1, 0, []))
+            } else {
+                head
             }
         },
     }

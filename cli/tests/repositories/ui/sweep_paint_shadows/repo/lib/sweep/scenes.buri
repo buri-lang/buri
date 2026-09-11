@@ -132,6 +132,7 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
                     [],
                     fn(_c, _e) => (),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
         ]),

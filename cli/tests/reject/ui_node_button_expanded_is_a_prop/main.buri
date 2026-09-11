@@ -1,0 +1,17 @@
+// EXPECT: expected `Prop<Bool>`
+//
+// Whether the region a button controls is open is a thing that changes as the
+// reader opens and shuts it, so `expanded` is a `Prop<Bool>` and not a bare
+// `Bool`. A button told once would announce the same `aria-expanded` open and
+// shut, which is the silence this parameter exists to end. `.Const(false)` is a
+// button that expands nothing.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.button(.Const("Menu"), [], [], fn(_c, _e) => (), .Const(false), true), [])
+}

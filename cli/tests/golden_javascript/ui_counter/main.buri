@@ -80,6 +80,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
             [],
             fn(c, e) => count.update(c, fn(n) => n + 1),
             .Const(false),
+            .Const(false),
         ),
         badge(.Const(label), .Cell(count)),
         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),

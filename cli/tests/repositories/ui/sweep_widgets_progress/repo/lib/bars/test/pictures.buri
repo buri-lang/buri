@@ -1,0 +1,28 @@
+// The track and the fill a progress bar is, at every value.
+//
+// The `describe` assertion beside the picture is the widget's whole point: the
+// role and the three `aria-value*` a reader needs are in the markup and not in
+// the scene, so the pixels are the same a pair of nested boxes drew — and now
+// they are announced. A snapshot cannot read an attribute, so the assertion is
+// what says the announcement is there while the picture says the fill is.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/bars" import { page };
+
+test "a progress bar is a track and a fill at every value" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, page(), .Hover);
+    // Announced, not painted: the role and the values are in the markup a
+    // browser reads, never in the scene the painter does.
+    assert.isFalse(scene.contains("progressbar"));
+    assert.isFalse(scene.contains("valuenow"));
+    snapshot(ctx, "progress-values", page(), .Hover, []);
+}

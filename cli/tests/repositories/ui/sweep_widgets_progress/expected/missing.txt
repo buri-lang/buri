@@ -1,0 +1,5 @@
+FAIL //lib/bars  test/pictures.buri  "a progress bar is a track and a fill at every value"
+  no snapshot for "never-recorded": run buri test --update to record one
+  --> lib/bars/test/pictures.buri:17:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

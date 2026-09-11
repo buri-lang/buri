@@ -13,7 +13,7 @@ from "ui/node" import { Node };
 from "ui/signal" import { signal };
 
 fn entry<C>(): Node<C> {
-  ui.button(.Const("Overview"), [], ui.text(.Const("Overview")), fn(_c, _e) => (), .Const(false))
+  ui.button(.Const("Overview"), [], ui.text(.Const("Overview")), fn(_c, _e) => (), .Const(false), .Const(false))
 }
 
 export fn main(): Result<(), Str> {

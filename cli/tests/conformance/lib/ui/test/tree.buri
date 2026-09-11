@@ -874,6 +874,7 @@ test "a press does not reach an element the pointer passes through" {
                 [],
                 fn(c, _e) => { presses.set(c, presses.get(c) + 1) },
                 .Const(false),
+                .Const(false),
             ),
             ui.stack([.Passthrough(true)], []),
         ]),
@@ -893,6 +894,7 @@ test "a press does not reach an element the pointer passes through" {
                 [],
                 fn(c, _e) => { ignored.set(c, ignored.get(c) + 1) },
                 .Const(false),
+                .Const(false),
             ),
             ui.stack([.Passthrough(false)], [
                 ui.button(
@@ -900,6 +902,7 @@ test "a press does not reach an element the pointer passes through" {
                     [],
                     [],
                     fn(c, _e) => { ignored.set(c, ignored.get(c) + 10) },
+                    .Const(false),
                     .Const(false),
                 ),
             ]),
@@ -1553,6 +1556,7 @@ test "a translate shifts the painted box and moves no sibling" {
         [],
         fn(_c, _e) => (),
         .Const(false),
+        .Const(false),
     );
     assert.equal(
         render(ctx, save).markup(),
@@ -1786,6 +1790,7 @@ test "a button carries its label, and a press runs its handler" {
         [],
         fn(c, e) => { count.update(c, fn(n) => n + 1) },
         .Const(false),
+        .Const(false),
     );
     let page = render(ctx, tree);
     // The label is the accessible name, so it is an attribute; a button with no
@@ -1814,6 +1819,7 @@ test "a button holds children, and its label stays its name" {
         [.Padding(.Px(4))],
         [ui.text(.Const("*")), ui.text(.Const("Overview"))],
         fn(c, e) => count.update(c, fn(n) => n + 1),
+        .Const(false),
         .Const(false),
     );
     let page = render(ctx, tree);
@@ -1849,6 +1855,7 @@ test "a handler is handed the context the tree was rendered with" {
             [],
             [],
             fn(c, e) => seen.set(c, "pressed"),
+            .Const(false),
             .Const(false),
         ),
     );
@@ -2643,7 +2650,14 @@ test "a disabled control says so in its markup" {
     let name = signal(ctx, "ada");
     let done = signal(ctx, false);
     let tree = ui.stack([], [
-        ui.button(.Const("save"), [], [], fn(_c, _e) => (), .Const(true)),
+        ui.button(
+            .Const("save"),
+            [],
+            [],
+            fn(_c, _e) => (),
+            .Const(true),
+            .Const(false),
+        ),
         ui.field(
             .Const("name"),
             .Text,
@@ -2691,6 +2705,7 @@ test "a disabled control refuses a press, a fill and a flip" {
                 [],
                 fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
                 .Const(true),
+                .Const(false),
             ),
             ui.field(
                 .Const("name"),
@@ -2736,6 +2751,7 @@ test "whether a control refuses input may vary" {
             [],
             fn(c, _e) => { pressed.update(c, fn(n) => n + 1) },
             .Cell(busy),
+            .Const(false),
         ),
     );
     assert.containsText(page.markup(), "disabled");
@@ -2756,8 +2772,22 @@ test "On(.Disabled) fires from the control's own flag, in every state" {
     // set is unavailable whatever the snapshot was taken in, and a control
     // whose flag is clear is still what a `.Disabled` snapshot is asking about.
     let dim: [Style] = [.On(.Disabled, [.Opacity(0.5)])];
-    let refusing = ui.button(.Const("save"), dim, [], fn(_c, _e) => (), .Const(true));
-    let pressable = ui.button(.Const("save"), dim, [], fn(_c, _e) => (), .Const(false));
+    let refusing = ui.button(
+        .Const("save"),
+        dim,
+        [],
+        fn(_c, _e) => (),
+        .Const(true),
+        .Const(false),
+    );
+    let pressable = ui.button(
+        .Const("save"),
+        dim,
+        [],
+        fn(_c, _e) => (),
+        .Const(false),
+        .Const(false),
+    );
     assert.equal(
         ui.describe(ctx, refusing, .Hover),
         "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5;disabled:true\nt 1 save",
@@ -3051,6 +3081,7 @@ test "a control takes styles of its own, and they land on the control" {
             [],
             fn(_c, _e) => (),
             .Const(false),
+            .Const(false),
         ),
         ui.link(.Const("/prices"), [.Foreground(.Rgb(9, 9, 9))], []),
         ui.field(
@@ -3327,6 +3358,7 @@ test "a designed focus ring replaces the platform's rather than joining it" {
         [],
         fn(_c, _e) => (),
         .Const(false),
+        .Const(false),
     );
     assert.equal(
         render(ctx, ringed).markup(),
@@ -3342,12 +3374,14 @@ test "a designed focus ring replaces the platform's rather than joining it" {
         [],
         fn(_c, _e) => (),
         .Const(false),
+        .Const(false),
     );
     let wide = ui.button(
         .Const("wide"),
         [.At(.Small, [.On(.Focus, [.BorderWidth(.Px(2))])])],
         [],
         fn(_c, _e) => (),
+        .Const(false),
         .Const(false),
     );
     assert.equal(
@@ -3532,7 +3566,14 @@ test "a form of two fields with no submit button is not submitted at all" {
                 .Const(false),
                 .Const(false),
             ),
-            ui.button(.Const("Send"), [], [], fn(_c, _e) => (), .Const(false)),
+            ui.button(
+                .Const("Send"),
+                [],
+                [],
+                fn(_c, _e) => (),
+                .Const(false),
+                .Const(false),
+            ),
         ]),
     );
     // An ordinary button is not a form's action, so this is the markup a
@@ -3646,6 +3687,7 @@ test "an open dialog takes the rest of the page out of reach" {
                 [],
                 fn(c, e) => pressed.set(c, "behind"),
                 .Const(false),
+                .Const(false),
             ),
             ui.dialog(open, .Const("Confirm"), [], [
                 ui.button(
@@ -3653,6 +3695,7 @@ test "an open dialog takes the rest of the page out of reach" {
                     [],
                     [],
                     fn(c, e) => pressed.set(c, "inside"),
+                    .Const(false),
                     .Const(false),
                 ),
             ]),
@@ -3762,6 +3805,175 @@ test "an open dialog is a scrim and a panel, and a shut one is nothing at all" {
             ctx,
             "buri-scene 1\nviewport 800 fit\ne 0 ${scrim}\ne 1 class:p-8\nt 2 here",
         ),
+    );
+}
+
+// --- a button that expands something -------------------------------------------------
+
+test "a button that expands something says so, and whether it is open" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let open = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.button(.Const("Menu"), [], [], fn(_c, _e) => (), .Const(false), .Cell(open)),
+    );
+    // Collapsed, it announces the same as any button, because `aria-expanded`
+    // is written only when it is `true` — the way `aria-invalid` is, so an
+    // ordinary button carries no markup it did not ask for.
+    assert.equal(
+        page.markup(),
+        "<button type=\"button\" aria-label=\"Menu\">Menu</button>",
+    );
+    open.set(ctx, true);
+    // Open, the button says a region it controls is expanded, which is what a
+    // reader is never told when the trigger is a plain button beside a `choose`.
+    assert.equal(
+        page.markup(),
+        "<button type=\"button\" aria-label=\"Menu\" aria-expanded=\"true\">Menu</button>",
+    );
+}
+
+test "aria-expanded is announced and not painted, so the scene carries none of it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tree = ui.button(
+        .Const("Menu"),
+        [.Padding(.Px(4))],
+        [],
+        fn(_c, _e) => (),
+        .Const(false),
+        .Const(true),
+    );
+    // What a reader hears is not what a painter draws: the scene is the button's
+    // own styles and its label, the same lines an unexpanded button writes.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-4\nt 1 Menu",
+    );
+}
+
+// --- a progress bar --------------------------------------------------------------------
+
+test "a progress bar announces the role, the bounds and how far along it is" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The fill is the caller's own child; the widget adds the role and the
+    // three `aria-value*` a reader needs, which a pair of nested `stack`s never
+    // told anyone.
+    let tree = ui.progress(.Const("Loading"), .Const(0.66), [.Width(.Full)], [
+        ui.stack([.Width(.Percent(40.0))], []),
+    ]);
+    assert.equal(
+        render(ctx, tree).markup(),
+        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"66\" aria-valuemin=\"0\" aria-valuemax=\"100\" class=\"w-full\"><div class=\"w-pc40\"></div></div>",
+    );
+}
+
+test "a progress value is a fraction, lowered to a whole number of hundredths" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Nought is nought, one is a hundred, and everything between is `value`
+    // times a hundred, rounded: two thirds is 67, not 66.6.
+    assert.containsText(
+        render(ctx, ui.progress(.Const("a"), .Const(0.0), [], [])).markup(),
+        "aria-valuenow=\"0\"",
+    );
+    assert.containsText(
+        render(ctx, ui.progress(.Const("b"), .Const(0.666), [], [])).markup(),
+        "aria-valuenow=\"67\"",
+    );
+    assert.containsText(
+        render(ctx, ui.progress(.Const("c"), .Const(1.0), [], [])).markup(),
+        "aria-valuenow=\"100\"",
+    );
+}
+
+test "a progress bar follows its value when it changes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let done = signal(ctx, 0.4);
+    let page = render(ctx, ui.progress(.Const("Upload"), .Cell(done), [], []));
+    assert.equal(
+        page.markup(),
+        "<div role=\"progressbar\" aria-label=\"Upload\" aria-valuenow=\"40\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+    );
+    let _ = done.set(ctx, 0.9);
+    assert.containsText(page.markup(), "aria-valuenow=\"90\"");
+}
+
+test "a progress bar paints its children and announces the rest" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // The role and the values are what a reader hears, not what a painter draws,
+    // so the scene is the bar's own styles and the fill child inside it — the
+    // same picture the nested boxes drew before the announcement was added.
+    let tree = ui.progress(.Const("Loading"), .Const(0.4), [.Width(.Full)], [
+        ui.stack([.Width(.Percent(40.0))], []),
+    ]);
+    let scene = ui.describe(ctx, tree, .Hover);
+    assert.equal(
+        scene,
+        "buri-scene 1\nviewport 800 fit\ne 0 class:w-full\ne 1 class:w-pc40",
+    );
+    assert.isFalse(scene.contains("progressbar"));
+    assert.isFalse(scene.contains("valuenow"));
+}
+
+// --- a disclosure ----------------------------------------------------------------------
+
+test "a disclosure is a details its summary opens and shuts" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    let tree = ui.disclosure(.Const("Details"), open, [], [ui.text(.Const("body"))]);
+    let page = render(ctx, tree);
+    // A `<details>` with a `<summary>`, because the open-and-shut state, the
+    // Enter and Space that toggle it, and what a reader is told are all the
+    // browser's own — where a button beside a `choose` announces nothing.
+    assert.equal(
+        page.markup(),
+        "<details open><summary>Details</summary>body</details>",
+    );
+    // Shut is the same element without the flag, so opening it again is not
+    // rebuilding it: the summary is one element either way.
+    open.set(ctx, false);
+    assert.equal(page.markup(), "<details><summary>Details</summary>body</details>");
+    assert.equal(page.count("details"), 1);
+    let identity = page.identity("details", 0);
+    open.set(ctx, true);
+    assert.equal(page.identity("details", 0), identity);
+}
+
+test "a disclosure's styles land on the details, and the scene hides what is shut" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    let tree = ui.disclosure(.Const("More"), open, [.Padding(.Px(8))], [
+        ui.text(.Const("hidden")),
+    ]);
+    // Open: the summary is drawn, then the children, inside the details' own
+    // box — the styles land on the `<details>`.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-8\ne 1 \nt 2 More\nt 1 hidden",
+    );
+    // Shut: a browser draws the summary alone, so the scene leaves the rest out.
+    open.set(ctx, false);
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-8\ne 1 \nt 2 More",
     );
 }
 
@@ -4142,7 +4354,7 @@ fn appendRow<C: Allocator + Ui + Watch>(ctx: C, xs: Signal<[Str]>): () {
 
 fn growable<C>(xs: Signal<[Str]>, add: fn(C, Event) => ()): Node<C> {
     ui.column([], [
-        ui.button(.Const("go"), [], [], add, .Const(false)),
+        ui.button(.Const("go"), [], [], add, .Const(false), .Const(false)),
         ui.region(.List, [], [ui.each(.Cell(xs), itself, labelRow)]),
     ])
 }
@@ -4186,6 +4398,7 @@ test "one press is one update, however many signals it writes" {
             [],
             [],
             fn(c, e) => writeBoth(c, first, second),
+            .Const(false),
             .Const(false),
         ),
     );
@@ -4232,6 +4445,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
             [],
             [],
             fn(c, e) => count.update(c, fn(n) => n + 1),
+            .Const(false),
             .Const(false),
         ),
         badge(.Const(label), .Cell(count)),

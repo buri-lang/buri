@@ -1,0 +1,18 @@
+// EXPECT: expected `Signal<Bool>`
+//
+// A reader opens and shuts a `<details>` without asking the program, so the
+// state is a `Signal<Bool>` the platform writes back and not a `Prop` the
+// program alone controls. This is `dialog`'s rule for the same reason: a `Prop`
+// would leave the program's idea of the section behind the reader's.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/prop" import { Prop };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let open: Prop<Bool> = .Const(true);
+  ui.mount(ctx, ui.disclosure(.Const("Details"), open, [], []), [])
+}

@@ -1,0 +1,16 @@
+// EXPECT: expected `Prop<F64>`
+//
+// How far along a task has come is a thing that changes — that is the whole
+// point of a bar — so `value` is a `Prop<Float>` and not a bare `Float`. A bar
+// told once would have to be torn down and rebuilt to move, and `aria-valuenow`
+// would never change under a reader. `.Const(0.5)` is the one that never moves.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.progress(.Const("Loading"), 0.5, [], []), [])
+}

@@ -31,6 +31,7 @@ export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
         [],
         fn(c, _event) => { clicks.update(c, fn(n) => n + 1) },
         .Const(false),
+        .Const(false),
     )
 }
 ```
@@ -87,8 +88,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-nineteen functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the twentieth function, puts a tree on the
+twenty-one functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twenty-second function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** `region(.List, ...)` says
@@ -363,6 +364,7 @@ export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<
         [],
         onPress,
         .Const(false),
+        .Const(false),
     )
 }
 ```
@@ -449,6 +451,7 @@ export fn primary<C>(
         [],
         onPress,
         busy,
+        .Const(false),
     )
 }
 
@@ -495,6 +498,7 @@ export fn entry<C>(mark: Node<C>, onPress: fn(C, Event) => ()): Node<C> {
         [mark, ui.text(.Const("Overview"))],
         onPress,
         .Const(false),
+        .Const(false),
     )
 }
 ```
@@ -504,6 +508,21 @@ input inside a `<label>`, and the label is the box a surrounding `row` lays out.
 `styles` lands on the input, `around` lands on the label — so `Grow`, `Shrink`,
 `AlignSelf`, `Span` and `Width` belong in `around`, and everything the input is
 belongs in `styles`.
+
+**`progress` and `disclosure` are widgets, because the semantics are the
+component.** A `progress(label, value, styles, children)` is a bar that says how
+far along a task has come: `value` runs from `0.0` to `1.0` and lowers to
+`aria-valuenow`, a whole number of hundredths, beside `aria-valuemin="0"` and
+`aria-valuemax="100"`, with `label` the accessible name. The fill is the
+caller's own `children` — the widget adds the announcement a pair of nested
+`stack`s never made and nothing to the picture. A `disclosure(summary, open,
+styles, children)` is a section that opens and shuts: it lowers to
+`<details><summary>`, so the open state, the Enter and Space that toggle it, and
+what a reader is told are the browser's own, and `open` is a `Signal` because
+the reader opens and shuts it without asking. Where a trigger opens something
+that is *not* its own child — a menu, a popover, a select — the button carries
+`expanded`, which lowers to `aria-expanded` and, like `aria-invalid`, is written
+only when it is `true`.
 
 ```buri
 from "ui/node" import * as ui;
@@ -657,6 +676,7 @@ export fn confirm<C: Ui>(open: Signal<Bool>, question: Str): Node<C> {
                 [],
                 [],
                 fn(c, _e) => open.set(c, false),
+                .Const(false),
                 .Const(false),
             ),
         ],

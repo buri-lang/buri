@@ -13,5 +13,5 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.button(.Const("save"), [], [], fn(_c, _e) => (), true), [])
+  ui.mount(ctx, ui.button(.Const("save"), [], [], fn(_c, _e) => (), true, .Const(false)), [])
 }

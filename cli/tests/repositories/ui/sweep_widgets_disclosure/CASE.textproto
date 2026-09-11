@@ -1,0 +1,90 @@
+# A disclosure on a page, open and shut, as the two pictures the difference
+# between them is the whole subject of.
+#
+# The page is the same in both: a heading, a line of text and one `<details>`
+# card. Shut, a browser draws the `<summary>` alone, so the card is one line and
+# the body is nowhere. Open, the `<summary>` and the body are both drawn, in the
+# card's own box — which is what a reader gets from `<details>` for nothing, and
+# what a button beside a `choose` never announced.
+#
+# The card carries every style that shapes it: a width, padding, a gap, a
+# radius, a border and a background. So the pair also reads that the styles land
+# on the `<details>` and nowhere else, and that the sheet's reset takes away the
+# triangle marker and the block layout a browser draws a `<details>`/`<summary>`
+# as — a card that kept them would show a disclosure triangle this vocabulary
+# has no property for.
+#
+# What no picture can show is the half of a disclosure that is not pixels: the
+# Enter and Space that toggle it, and the `aria-expanded`-shaped announcement of
+# open and shut. Those come from `<details>` for free, and
+# `conformance/lib/ui/test/tree.buri` is where the open binding is asserted.
+#
+# Beside each picture is a `describe` assertion naming what the scene carries,
+# which is what says the body is in the document and not only in the pixels.
+#
+# The lifecycle is the sweeps': every golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the
+# run after that compares against what it wrote, and an edit that moves one
+# number fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a disclosure on a page, open and shut, as 2 pictures with the whole record-and-fail lifecycle over them"
+
+run {
+  args: ["test", "//lib/sections", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/sections/test/__snapshots__/disclosure-open.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/sections/test/pictures.buri"
+  replace: "\"disclosure-shut\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/sections", "--force", "--filter=shut"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/sections/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/sections", "--update", "--force", "--filter=shut"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/sections/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/sections", "--force", "--filter=shut"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: six more pixels of gap on the card, which moves the open
+# picture — where a summary and a body sit apart — and nothing in the shut one,
+# which holds only the summary and so has nothing the gap can space.
+edit {
+  file: "lib/sections/scenes.buri"
+  replace: ".Gap(.Px(8))"
+  with: ".Gap(.Px(14))"
+}
+
+run {
+  args: ["test", "//lib/sections", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/sections/test/__snapshots__/disclosure-open.diff.png"  exists: true }
+# The shut picture, under the name the rename above gave it, did not move: a
+# card with one child has nothing a gap can push apart.
+path { path: "lib/sections/test/__snapshots__/never-recorded.diff.png"  exists: false }
