@@ -610,6 +610,7 @@ export fn bleedPrimitives<C: Ui>(ctx: C): Node<C> {
                     [],
                     fn(_c, _e) => (),
                     .Const(false),
+                    .Const(false),
                 ),
             ]),
         ),

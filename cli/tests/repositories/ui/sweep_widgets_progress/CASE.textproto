@@ -1,0 +1,79 @@
+# A progress bar's track and fill, at every value, as one labelled picture.
+#
+# Five bars down the page — empty, a quarter, half, three quarters and full. The
+# track is the box the styles land on, a rounded clipped grey rail; the fill is
+# the caller's own child, a rounded blue box as wide as the value. So the
+# picture reads as the value climbs: the empty bar draws only the rail, and the
+# full one's fill reaches the end of it.
+#
+# What no picture can show is the whole reason the widget exists: the
+# `role="progressbar"` and the three `aria-value*` a reader is told. Those are in
+# the markup a browser reads and nowhere in the scene the painter does — a nested
+# pair of boxes drew this exact picture before, announcing nothing — so the
+# `describe` assertion beside the snapshot is what says the announcement is there
+# while the picture says the fill is. `conformance/lib/ui/test/tree.buri` is
+# where the markup and the rounding of `aria-valuenow` are pinned.
+#
+# The lifecycle is the sweeps': the golden compares, a renamed snapshot is
+# reported as missing rather than as a difference, `--update` records it, the run
+# after that compares against what it wrote, and an edit that moves the fill's
+# colour fails the comparison.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a progress bar's track and fill at every value, as 1 picture with the whole record-and-fail lifecycle over it"
+
+run {
+  args: ["test", "//lib/bars", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/bars/test/__snapshots__/progress-values.diff.png"  exists: false }
+
+# A snapshot nobody has recorded yet is reported as missing, with the command
+# that records one, rather than as a difference against nothing.
+edit {
+  file: "lib/bars/test/pictures.buri"
+  replace: "\"progress-values\""
+  with: "\"never-recorded\""
+}
+
+run {
+  args: ["test", "//lib/bars", "--force", "--filter=track"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+path { path: "lib/bars/test/__snapshots__/never-recorded.png"  exists: false }
+
+run {
+  args: ["test", "//lib/bars", "--update", "--force", "--filter=track"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/bars/test/__snapshots__/never-recorded.png"  exists: true }
+
+run {
+  args: ["test", "//lib/bars", "--force", "--filter=track"]
+  exit: 0
+  golden: "again.txt"
+}
+
+# The negative twin: three counts of blue on the fill, the smallest edit that
+# has to fail. The empty bar's fill is nothing, so it does not move; every other
+# fill does.
+edit {
+  file: "lib/bars/scenes.buri"
+  replace: ".Background(.Rgb(48, 120, 240))"
+  with: ".Background(.Rgb(48, 120, 243))"
+}
+
+run {
+  args: ["test", "//lib/bars", "--force", "--filter=track"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/bars/test/__snapshots__/never-recorded.diff.png"  exists: true }

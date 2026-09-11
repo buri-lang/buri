@@ -3736,7 +3736,7 @@ function $dom_fire(node, type) {
 //
 //   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon     15 Submit   16 Dialog
+//  14 Icon     15 Submit   16 Dialog 17 Progress  18 Disclosure
 //
 // A component runs once. What re-runs is what the last three tags stand for,
 // and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
@@ -4679,6 +4679,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     if (children.length === 0) $tree_text(node[1], element, null);
     else for (const child of children) $tree_render(ctx, child, element, null);
     $tree_disabled(element, node[5]);
+    // A button that opens a menu, a popover or a select says so, and says
+    // whether it is open. Written only when it is `true`, the way `aria-invalid`
+    // is: an ordinary button expands nothing and carries none of it.
+    $tree_bind(node[6], (expanded) => $dom_flag(element, "aria-expanded", expanded));
     const onPress = node[4];
     $dom_listen(element, "click", () =>
       // One transaction, so that a handler which writes three signals causes
@@ -4831,6 +4835,50 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // nobody can see.
     $dom_listen(element, "close", () => {
       if (!ours) $ui_flush(() => $ui_write(cell, false));
+    });
+    return;
+  }
+  if (tag === 17) {
+    // A progress bar. The role and the three `aria-value*` are the whole of
+    // what a widget adds over the nested boxes a program drew before: a reader
+    // is told it is a progress bar, what it measures, and how far along it is.
+    const element = $tree_element(parent, "div", anchor);
+    $dom_attribute(element, "role", "progressbar");
+    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
+    // `value` is a fraction; `aria-valuenow` is the whole number of hundredths
+    // it stands for, out of the hundred `min` and `max` name.
+    $tree_bind(node[2], (value) =>
+      $dom_attribute(element, "aria-valuenow", String(Math.round(value * 100))),
+    );
+    $dom_attribute(element, "aria-valuemin", "0");
+    $dom_attribute(element, "aria-valuemax", "100");
+    // The fill is the caller's own children, drawn inside the bar.
+    $tree_children(ctx, element, node[3], node[4]);
+    return;
+  }
+  if (tag === 18) {
+    // A disclosure. `<details>` is the open-and-shut state, the toggle keys and
+    // the announcement, all the browser's own; `<summary>` is the row that
+    // opens it and the one thing shown when it is shut.
+    const element = $tree_element(parent, "details", anchor);
+    $tree_styles(element, node[3]);
+    const summary = $tree_element(element, "summary", null);
+    $tree_text(node[1], summary, null);
+    for (const child of node[4]) $tree_render(ctx, child, element, null);
+    const cell = node[2][0];
+    // Whether the opening is ours or the reader's, the way a dialog's close is:
+    // `toggle` fires for both, and only the reader's is news to the signal.
+    let ours = false;
+    $tree_bind([1, node[2]], (on) => {
+      ours = true;
+      element.open = on;
+      ours = false;
+    });
+    // A reader opens and shuts a `<details>` without asking, so the signal
+    // follows what the reader chose rather than staying where the program left
+    // it.
+    $dom_listen(element, "toggle", () => {
+      if (!ours) $ui_flush(() => $ui_write(cell, element.open));
     });
     return;
   }

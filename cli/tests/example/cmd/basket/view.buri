@@ -213,6 +213,7 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
             [],
             fn(c, pressed) => { load(c, state) },
             .Const(false),
+            .Const(false),
         ),
     ])
 }
@@ -291,6 +292,7 @@ fn line<C: Allocator + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
             [buttonStyle],
             [],
             fn(c, pressed) => tick(c, state, item.memo),
+            .Const(false),
             .Const(false),
         ),
         ui.stack([.Grow(1), .When(settled, settledStyle, [])], [

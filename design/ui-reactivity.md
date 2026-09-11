@@ -153,8 +153,12 @@ ui.heading(level: Int, styles, content: Prop<Str>): Node<C>
 // takes the control out of the tab order, and fires On(.Disabled, ...).
 // The styles land on the control itself, so a state rule fires on it;
 // `around` is the second box a labelled control has, and the one a row lays
-// out. A button with no children shows its label.
-ui.button(label, styles, children, onPress: fn(C, Event) => (), disabled: Prop<Bool>): Node<C>
+// out. A button with no children shows its label. `expanded` carries
+// `aria-expanded` for a button that opens a menu, a popover or a select —
+// written only when true, the way aria-invalid is, so an ordinary button
+// carries none of it.
+ui.button(label, styles, children, onPress: fn(C, Event) => (), disabled: Prop<Bool>,
+          expanded: Prop<Bool>): Node<C>
 ui.link(dest: Prop<Str>, styles, children: [Node<C>]): Node<C>
 ui.image(source: Prop<Str>, alt: Prop<Str>, styles): Node<C>
 // artwork in the tree, so `currentColor` in it is the element's own Foreground.
@@ -175,6 +179,14 @@ ui.submit(label: Prop<Str>, styles): Node<C>
 // a modal panel. The signal is writable because the platform writes it:
 // Escape shuts the dialog without asking.
 ui.dialog(open: Signal<Bool>, label: Prop<Str>, styles, children): Node<C>
+// a progress bar. `value` runs 0.0–1.0 and lowers to aria-valuenow — value
+// times a hundred, rounded — beside aria-valuemin/max and the label as the
+// accessible name. Determinate only; the fill is the caller's children.
+ui.progress(label: Prop<Str>, value: Prop<Float>, styles, children): Node<C>
+// a section that opens and shuts. <details>/<summary>, so the state, the Enter
+// and Space that toggle it, and what a reader is told are the browser's own;
+// `open` is a Signal because the reader opens and shuts it without asking.
+ui.disclosure(summary: Prop<Str>, open: Signal<Bool>, styles, children): Node<C>
 
 // reactivity in the tree
 ui.computed(build: fn(Scope) => Node<C>): Node<C>
@@ -208,6 +220,24 @@ stay inside — three things no style says and no `Role` can name. A `<dialog>`
 opened with `showModal()` has all three, plus the `::backdrop` and Escape. The
 `open` is a `Signal` and not a `Prop` because the platform writes it back:
 Escape shuts the panel without asking the program first.
+
+**`progress` is a widget because the value is what the role is for.** A bar that
+carried `role="progressbar"` and nothing else would announce a progress bar with
+no progress, so `value` is a parameter and lowers to `aria-valuenow`, `min` and
+`max` — the module's rule that whatever an assistive technology cannot do without
+is a parameter. There is deliberately no `Role.ProgressBar`, for the reason there
+is no `Role.Slider`: a name a reader cannot read a value off is the lie the issue
+was filed about. Determinate only; the indeterminate bar is a shape nobody has
+needed.
+
+**`disclosure` is a widget for `dialog`'s reason, once.** A `<details>` with a
+`<summary>` is the open-and-shut state, the Enter and Space that toggle it, and
+what a reader is told — the browser's own, where a button beside a `choose`
+announces a press that changes nothing. `open` is a `Signal` because the reader
+opens and shuts it without asking. Its counterpart on `button` is `expanded`, for
+a trigger that opens something that is *not* its own child — a menu, a popover, a
+select — which announces itself through `aria-expanded` rather than through an
+element of its own.
 
 `Node<C>` keeps its one type parameter because handlers are open-ended. A press
 may legitimately need `Network`, and `main` chose the effect budget. Everything else
@@ -512,7 +542,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
   let count = signal(ctx, 0);
 
   ui.column([], [
-    ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1), .Const(false)),
+    ui.button(.Const(label), [], [], fn(c, e) => count.update(c, fn(n) => n + 1), .Const(false), .Const(false)),
     badge(.Const(label), .Cell(count)),
     badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
   ])

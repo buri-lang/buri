@@ -35,6 +35,7 @@ fn badge<C>(): Node<C> {
             [],
             fn(_c, _e) => (),
             .Const(false),
+            .Const(false),
         ),
         ui.text(.Const("beside it")),
     ])

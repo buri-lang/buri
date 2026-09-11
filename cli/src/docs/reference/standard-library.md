@@ -799,6 +799,26 @@ is unavailable rather than absent. It is also what makes `On(.Disabled, ...)`
 fire. `On(.Checked, ...)` needs no flag — a toggle's own signal says whether it
 is checked, so one page holds one toggle that is on and one that is off.
 
+`button` takes an `expanded: Prop<Bool>` too, for a button that opens a menu, a
+popover or a select rather than showing its own child. It writes `aria-expanded`
+and, like `invalid`, only when it is `true`, so an ordinary button carries none
+of it and a trigger announces whether the region it controls is open.
+
+`progress(label, value, styles, children)` is a bar that announces how far along
+a task has come. `value` runs from `0.0` to `1.0` and lowers to `aria-valuenow`
+as a whole number of hundredths — `value` times a hundred, rounded — beside
+`aria-valuemin="0"` and `aria-valuemax="100"`, with `label` the accessible name;
+the fill is the caller's own `children`. It is a widget rather than a `Role`
+because a bar that carried the role and no value would announce a progress bar
+with no progress, which is why there is no `Role.ProgressBar`.
+
+`disclosure(summary, open, styles, children)` is a section that opens and shuts.
+It lowers to `<details><summary>`, so the open state, the Enter and Space that
+toggle it, and what a reader is told are the browser's own — where a button
+beside a `choose` announces a press that changes nothing. `open` is a
+`Signal<Bool>`, not a `Prop`, because a reader opens and shuts it without asking,
+the rule `dialog`'s `open` follows; an accordion is an `each` of these.
+
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it

@@ -1,0 +1,61 @@
+//! One page, and a disclosure on it that is open or is shut.
+//!
+//! The page is the same in both pictures — a heading, a line of text and one
+//! `<details>` card — so the whole difference between the two goldens is what
+//! the disclosure does. Shut, a browser draws its `<summary>` alone, so the
+//! card is one line. Open, the `<summary>` and the body are both drawn, in the
+//! card's own box.
+//!
+//! The card carries every style that shapes it — a width, padding, a gap, a
+//! radius, a border and a background — because the styles land on the
+//! `<details>` and nowhere else. So the picture also reads that a disclosure is
+//! a card the caller drew, with the browser's own marker and block layout taken
+//! away by the sheet's reset.
+
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// The page, with its disclosure bound to `open`.
+export fn page<C: Ui>(ctx: C, open: Bool): Node<C> {
+    let shown = signal(ctx, open);
+    ui.column(
+        [
+            .Padding(.Px(16)),
+            .Gap(.Px(12)),
+            .Width(.Px(360)),
+            .FontSize(.Px(13)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        [
+            ui.heading(
+                1,
+                [.FontSize(.Px(18)), .FontWeight(.Bold)],
+                .Const("Shipping & returns"),
+            ),
+            ui.text(.Const("Two questions, and the answer to one of them showing.")),
+            ui.disclosure(.Const("When will my order arrive?"), shown, card(), [
+                ui.text(
+                    .Const(
+                        "Three to five business days, tracked from the moment it leaves the warehouse.",
+                    ),
+                ),
+            ]),
+        ],
+    )
+}
+
+/// The card the styles land on: a bordered, padded box, with a gap where a
+/// browser would have drawn a triangle beside the summary.
+fn card(): [Style] {
+    [
+        .Padding(.Px(12)),
+        .Gap(.Px(8)),
+        .Radius(.Px(8)),
+        .Background(.Rgb(246, 247, 250)),
+        .BorderWidth(.Px(1)),
+        .BorderColor(.Rgb(220, 224, 232)),
+    ]
+}

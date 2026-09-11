@@ -56,7 +56,14 @@ fn base(extra: [Style]): [Style] {
 }
 
 fn pressable<C>(off: Bool, extra: [Style]): Node<C> {
-    ui.button(.Const("save"), base(extra), [], fn(_c, _e) => (), .Const(off))
+    ui.button(
+        .Const("save"),
+        base(extra),
+        [],
+        fn(_c, _e) => (),
+        .Const(off),
+        .Const(false),
+    )
 }
 
 fn typing<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {

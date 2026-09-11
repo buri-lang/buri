@@ -415,10 +415,17 @@ fn serving_a_page() {
 /// kind that takes one and the range that takes none, beside the same box with
 /// something typed into it, and under everything that paints the words — the
 /// element's own foreground at half strength, which is the one number the
-/// sheet's `::placeholder` rule and the painter both carry.
+/// sheet's `::placeholder` rule and the painter both carry. `progress` is the
+/// fifth: a track and a fill at every quarter, so the picture reads as the value
+/// climbs — and a `describe` assertion that the role and the three `aria-value*`
+/// are in the markup and nowhere in the scene, which is the whole of what the
+/// widget adds over the boxes that drew the same picture before. `disclosure` is
+/// the sixth: one `<details>` card open and shut, so the pair is the summary
+/// alone against the summary and the body both, with the browser's marker and
+/// block layout taken away by the reset.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 59);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 61);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

@@ -90,7 +90,14 @@ export fn page<C: Ui>(ctx: C): Node<C> {
         ),
         labelled(
             "button",
-            ui.button(.Const("press"), painted, [], fn(_c, _e) => (), .Const(false)),
+            ui.button(
+                .Const("press"),
+                painted,
+                [],
+                fn(_c, _e) => (),
+                .Const(false),
+                .Const(false),
+            ),
         ),
         labelled(
             "field",

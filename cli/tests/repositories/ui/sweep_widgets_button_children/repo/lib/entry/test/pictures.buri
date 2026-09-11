@@ -28,6 +28,7 @@ test "what a button holds" {
             [ui.text(.Const("*"))],
             fn(_c, _e) => (),
             .Const(false),
+            .Const(false),
         ),
         .Hover,
     );

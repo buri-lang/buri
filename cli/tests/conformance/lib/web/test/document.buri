@@ -135,7 +135,16 @@ test "an element that holds nothing still writes its closing tag" {
     // match. Every element that is not one of HTML's own empty ones closes.
     assert.equal(web.render(ui.region(.Main, [], [])), "<main></main>");
     assert.equal(
-        web.render(ui.button(.Const(""), [], [], fn(_c, _e) => (), .Const(false))),
+        web.render(
+            ui.button(
+                .Const(""),
+                [],
+                [],
+                fn(_c, _e) => (),
+                .Const(false),
+                .Const(false),
+            ),
+        ),
         "<button type=\"button\" aria-label=\"\"></button>",
     );
     assert.equal(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
@@ -310,6 +319,7 @@ test "every kind of node renders" {
                 [],
                 [ui.text(.Const("* Overview"))],
                 fn(_c, _e) => (),
+                .Const(false),
                 .Const(false),
             ),
         ),

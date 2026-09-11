@@ -22,6 +22,7 @@ fn view<C: Ui>(ctx: C, count: Signal<Int>): Node<C> {
                 [],
                 fn(c, e) => { count.update(c, fn(n) => n + 1) },
                 .Const(false),
+                .Const(false),
             ),
         ],
     )

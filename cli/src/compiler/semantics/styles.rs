@@ -108,6 +108,11 @@ const NODE_ICON: usize = 14;
 /// reset. Declared before `Dialog`, because the variant order is append-only.
 const NODE_SUBMIT: usize = 15;
 const NODE_DIALOG: usize = 16;
+/// `progress` lowers to a plain `<div>`, which the container reset already
+/// reaches, so it needs no chrome cleared and is not named here. `disclosure`
+/// lowers to `<details>`/`<summary>`, which a browser paints a marker and a
+/// block layout on by itself.
+const NODE_DISCLOSURE: usize = 18;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -895,6 +900,7 @@ pub struct Reset {
     pub separator: bool,
     pub image: bool,
     pub dialog: bool,
+    pub disclosure: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -1092,6 +1098,18 @@ impl Reset {
             // one backdrop.
             out.push_str(":where(dialog)::backdrop{background-color:rgba(0,0,0,0.5)}\n");
         }
+        if self.disclosure {
+            // A `<details>` is a block and a `<summary>` is a `list-item` with
+            // a triangle a browser draws for itself — none of which the scene
+            // document has a counterpart for. So both become containers like
+            // every other one, and the marker is taken away in the two spellings
+            // a browser has for it: `list-style` reaches one engine and the
+            // pseudo-element the other. What is left is the summary's text and
+            // the caller's own children, which is what the painter draws.
+            out.push_str(":where(details,summary){display:flex;flex-direction:column}\n");
+            out.push_str(":where(summary){list-style:none}\n");
+            out.push_str(":where(summary)::-webkit-details-marker{display:none}\n");
+        }
         if self.image {
             // A picture and an inlined `<svg>` are the two leaves a browser
             // leaves inline, so each sits on the text baseline with a descender
@@ -1128,6 +1146,7 @@ pub fn reset_in(
                 NODE_IMAGE | NODE_ICON => out.image = true,
                 NODE_SUBMIT => out.button = true,
                 NODE_DIALOG => out.dialog = true,
+                NODE_DISCLOSURE => out.disclosure = true,
                 _ => {}
             }
         }

@@ -1,0 +1,9 @@
+# One library and one test source: a page of progress bars, and the picture of
+# the track and the fill at every value.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

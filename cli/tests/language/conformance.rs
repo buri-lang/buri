@@ -2176,6 +2176,9 @@ function node(nodeType, nodeName) {
       const held = this.attributes[name];
       return held === undefined ? null : held;
     },
+    removeAttribute(name) {
+      delete this.attributes[name];
+    },
     addEventListener(type, handler) {
       this.listeners[type] = handler;
     },
@@ -2747,7 +2750,7 @@ fn page<C>(
                             ),
                         ],
                     ),
-                    ui.button(label, [], [], onPress, .Const(false)),
+                    ui.button(label, [], [], onPress, .Const(false), .Const(false)),
                 ],
             ),
             ui.computed(fn(scope) => at(path.read(scope))),
@@ -2999,7 +3002,7 @@ fn page<C: Allocator + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<S
                 ()
             });
             ()
-        }, .Const(false)),
+        }, .Const(false), .Const(false)),
         ui.text(.Cell(status)),
     ])
 }
@@ -3074,6 +3077,9 @@ class Element_ {
   }
   setAttribute(name, value) {
     this.attributes[name] = value;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
   }
   addEventListener(type, handler) {
     this.listeners[type] = handler;

@@ -1,0 +1,37 @@
+// One picture per state a disclosure is in, over the same page.
+//
+// The `describe` assertion beside each picture is what says the body is in the
+// document and not only in the pixels: a shut disclosure writes its summary and
+// nothing under it, and an open one writes the summary and the body both, in the
+// card's own box.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/sections" import { page };
+
+test "a shut disclosure shows its summary and nothing under it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, page(ctx, false), .Hover);
+    // The summary is always drawn; the body is not, because the section is shut.
+    assert.containsText(scene, "When will my order arrive?");
+    assert.isFalse(scene.contains("business days"));
+    snapshot(ctx, "disclosure-shut", page(ctx, false), .Hover, []);
+}
+
+test "an open disclosure shows the summary and the body" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, page(ctx, true), .Hover);
+    assert.containsText(scene, "When will my order arrive?");
+    assert.containsText(scene, "business days");
+    snapshot(ctx, "disclosure-open", page(ctx, true), .Hover, []);
+}

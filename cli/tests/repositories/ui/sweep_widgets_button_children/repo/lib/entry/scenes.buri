@@ -21,7 +21,14 @@ export fn contentPage<C>(): Node<C> {
         band("no children — the label is what it shows", [
             cell(
                 "label only",
-                ui.button(.Const("Save"), chip([]), [], press(), .Const(false)),
+                ui.button(
+                    .Const("Save"),
+                    chip([]),
+                    [],
+                    press(),
+                    .Const(false),
+                    .Const(false),
+                ),
             ),
         ]),
         band("one child", [
@@ -33,6 +40,7 @@ export fn contentPage<C>(): Node<C> {
                     [ui.text(.Const("Save"))],
                     press(),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell(
@@ -42,6 +50,7 @@ export fn contentPage<C>(): Node<C> {
                     chip([]),
                     [mark(.Rgb(24, 24, 40))],
                     press(),
+                    .Const(false),
                     .Const(false),
                 ),
             ),
@@ -55,6 +64,7 @@ export fn contentPage<C>(): Node<C> {
                     [mark(.Rgb(24, 24, 40)), ui.text(.Const("Overview"))],
                     press(),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell(
@@ -64,6 +74,7 @@ export fn contentPage<C>(): Node<C> {
                     chip([]),
                     [ui.text(.Const("Details")), mark(.Rgb(120, 120, 140))],
                     press(),
+                    .Const(false),
                     .Const(false),
                 ),
             ),
@@ -78,6 +89,7 @@ export fn contentPage<C>(): Node<C> {
                         mark(.Rgb(120, 120, 140)),
                     ],
                     press(),
+                    .Const(false),
                     .Const(false),
                 ),
             ),
@@ -96,6 +108,7 @@ export fn contentPage<C>(): Node<C> {
                     ],
                     press(),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell(
@@ -105,6 +118,7 @@ export fn contentPage<C>(): Node<C> {
                     chip([.Width(.Px(140))]),
                     [ui.text(.Const("Ada")), ui.spacer(), mark(.Rgb(120, 120, 140))],
                     press(),
+                    .Const(false),
                     .Const(false),
                 ),
             ),
@@ -151,6 +165,7 @@ fn item<C>(name: Str, current: Bool): Node<C> {
             ],
             [mark(.Rgb(90, 100, 130)), ui.text(.Const(name))],
             press(),
+            .Const(false),
             .Const(false),
         ),
     ])

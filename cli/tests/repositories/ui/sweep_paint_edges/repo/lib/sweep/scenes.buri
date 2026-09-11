@@ -249,6 +249,7 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                     [],
                     fn(_c, _e) => (),
                     .Const(false),
+                    .Const(false),
                 ),
             ),
             cell("link", ui.link(.Const("/ada"), chrome([]), [leaf("Ada")])),
@@ -296,6 +297,7 @@ export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
                     chrome(framed()),
                     [],
                     fn(_c, _e) => (),
+                    .Const(false),
                     .Const(false),
                 ),
             ),
@@ -462,6 +464,7 @@ fn joined<C>(label: Str, first: Bool, last: Bool): Node<C> {
         [],
         fn(_c, _e) => (),
         .Const(false),
+        .Const(false),
     )
 }
 
@@ -489,6 +492,7 @@ fn stacked<C>(label: Str, first: Bool, last: Bool): Node<C> {
         ],
         [],
         fn(_c, _e) => (),
+        .Const(false),
         .Const(false),
     )
 }
