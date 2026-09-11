@@ -243,6 +243,25 @@ extern void buri_rt_ui_row_at(ComputeEntry entry, uint8_t *state, int64_t at, ui
 extern void buri_rt_ui_fire_press(ComputeEntry entry, uint8_t *state, int64_t event);
 extern void buri_rt_ui_event(int64_t *out);
 
+/* The element document (issue #53, phase 2). The Buri `renderInto` walk drives
+ * the three builders; a `Rendered` answers the four readers from what they
+ * built. */
+extern void buri_rt_ui_doc_open(int64_t *out);
+extern void buri_rt_ui_doc_element(int64_t handle, uint8_t *name_base,
+                                   const uint8_t *name_ptr, uint64_t name_len,
+                                   uint8_t *body_base, const uint8_t *body_ptr,
+                                   uint64_t body_len);
+extern void buri_rt_ui_doc_exit(int64_t handle);
+extern void buri_rt_ui_doc_text(int64_t handle, uint8_t *base,
+                                const uint8_t *ptr, uint64_t len);
+extern void buri_rt_ui_doc_markup(int64_t handle, BuriStr *out);
+extern void buri_rt_ui_doc_text_runs(int64_t handle, BuriStr *out);
+extern int64_t buri_rt_ui_doc_count(int64_t handle, uint8_t *base,
+                                    const uint8_t *ptr, uint64_t len);
+extern int64_t buri_rt_ui_doc_identity(int64_t handle, uint8_t *base,
+                                       const uint8_t *ptr, uint64_t len,
+                                       int64_t index);
+
 /* --- Helpers ------------------------------------------------------------ */
 
 /* A borrowed `Str` argument, flattened to the three parameters the contract
@@ -319,6 +338,64 @@ static void press_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8
   g_press_field = *(const int64_t *)arg;
   int64_t written = 7;
   buri_rt_ui_write(g_signal, (const uint8_t *)&written, 8);
+}
+
+/* The element document, driven the way the Buri `renderInto` walk drives it:
+ * an element is opened, its children emitted, and it is closed, so the records
+ * come out in document order and each carries the depth of its nesting.
+ *
+ * The tree is a two-item list with classes on its box and empty-bodied items,
+ * beside a heading with its own classes — which is enough to pin the three
+ * things this side owns: the depth (`e 1 ` on an item, `t 2 a` on its run),
+ * the empty body (the trailing space), and the classes verbatim. */
+static void doc_element(int64_t d, const char *name, const char *body) {
+  buri_rt_ui_doc_element(d, NULL, (const uint8_t *)name, strlen(name), NULL,
+                         (const uint8_t *)body, strlen(body));
+}
+
+static void doc_text(int64_t d, const char *content) {
+  buri_rt_ui_doc_text(d, NULL, (const uint8_t *)content, strlen(content));
+}
+
+static int64_t doc_count(int64_t d, const char *name) {
+  return buri_rt_ui_doc_count(d, NULL, (const uint8_t *)name, strlen(name));
+}
+
+static int64_t doc_identity(int64_t d, const char *name, int64_t at) {
+  return buri_rt_ui_doc_identity(d, NULL, (const uint8_t *)name, strlen(name), at);
+}
+
+static int mode_ui_doc(void) {
+  int64_t d = -1;
+  buri_rt_ui_doc_open(&d);
+  doc_element(d, "ul", "class:lay-col");
+  doc_element(d, "li", "");
+  doc_text(d, "a");
+  buri_rt_ui_doc_exit(d);
+  doc_element(d, "li", "");
+  doc_text(d, "b");
+  buri_rt_ui_doc_exit(d);
+  buri_rt_ui_doc_exit(d);
+  doc_element(d, "h2", "class:fs-28 fw-bold");
+  doc_text(d, "Prices");
+  buri_rt_ui_doc_exit(d);
+
+  BuriStr markup = {0, 0, 0};
+  buri_rt_ui_doc_markup(d, &markup);
+  BuriStr runs = {0, 0, 0};
+  buri_rt_ui_doc_text_runs(d, &runs);
+  /* The identities are stamped from zero in this fresh process: the host is 0,
+   * so the first `li` is 2 and the second 4, and the heading is 6. A second
+   * read of the first `li` is the same number — a read mints nothing. */
+  printf("%.*s\n", bytes_of(markup), (const char *)markup.ptr);
+  printf("::text=%.*s\n", bytes_of(runs), (const char *)runs.ptr);
+  printf("::count ul=%lld li=%lld h2=%lld x=%lld\n", (long long)doc_count(d, "ul"),
+         (long long)doc_count(d, "li"), (long long)doc_count(d, "h2"),
+         (long long)doc_count(d, "x"));
+  printf("::id li0=%lld li1=%lld h2=%lld li0again=%lld\n",
+         (long long)doc_identity(d, "li", 0), (long long)doc_identity(d, "li", 1),
+         (long long)doc_identity(d, "h2", 0), (long long)doc_identity(d, "li", 0));
+  return 0;
 }
 
 /* shape 1: a minted scope in, a `Node` stride out. */
@@ -1060,6 +1137,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "ui-row") == 0) {
     return mode_ui_row();
+  }
+  if (strcmp(mode, "ui-doc") == 0) {
+    return mode_ui_doc();
   }
   if (strcmp(mode, "ui-press") == 0) {
     return mode_ui_press();
