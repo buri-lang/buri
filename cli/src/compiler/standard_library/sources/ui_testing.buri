@@ -123,7 +123,7 @@ export fn render<C: Ui>(ctx: C, root: Node<C>): Rendered {
 /// by reference to the one `Node` the walk destructures, and `walk` crosses as
 /// the closure `render` handed over, which the native side invokes once and the
 /// JavaScript side ignores.
-fn mount<C: Ui>(ctx: C, root: Node<C>, walk: fn(Builder, Node<C>) => ()): I64;
+fn mount<C: Ui>(ctx: C, root: Node<C>, walk: fn(C, Builder, Node<C>) => ()): I64;
 
 impl Rendered {
     /// The tree as markup: elements, their attributes, their styles and their

@@ -1057,18 +1057,18 @@ impl Jit<'_> {
         let Ty::Fn(params, ret) = ty else {
             return Err(format!("{}: a walk that is not a function", entry.key));
         };
-        if params.len() != 2 {
+        if params.len() != 3 {
             return Err(format!("{}: a walk taking {} arguments", entry.key, params.len()));
         }
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
-        let (_, _bytes) = super::glue::state_shape(&widths, Some(0));
+        let (_, _bytes) = super::glue::state_shape(&widths, Some(1));
         let state = st.frame.size;
         self.mv(state, fslot, 16);
         let thunk = self.helper(super::glue::Helper::Entry {
             params,
             ret: *ret,
-            index: Some(0),
+            index: Some(1),
         });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));

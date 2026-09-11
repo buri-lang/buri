@@ -31,6 +31,7 @@
 //! there rather than rebuilding it. Everything else runs once — a component is
 //! an ordinary function, and it is called once.
 
+from "core/alloc" import * as alloc;
 from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "ui/effect" import { Event, Scope, Ui };
@@ -870,50 +871,373 @@ export struct Builder(I64);
 ///
 /// The split `design/native` calls for: the *destructuring* of a `Node` stays
 /// here, in Buri, where `describe` already does it and where it is legal, and
-/// the mutable document stays in the runtime. Only the runtime invokes this —
-/// through the walk trampoline `render` reaches — so `C` is unbounded, which is
-/// what lets a handler need any effect.
+/// the mutable document stays in the runtime. `render` reaches this through the
+/// walk trampoline, handing over its own `ctx` — dropped at the boundary as a
+/// step drops one, and reconstructed here as the zero-sized context it is, so
+/// an `each`'s `rowAt` can be handed it. `C` is unbounded, which is what lets a
+/// handler need any effect.
 ///
 /// **Static, and only static.** A `Prop` is read once through the untracked
-/// `rootScope`, and a region is built once; the watcher that re-reads and the
-/// reconciler that re-walks are a later phase. It mirrors `nodeLines` arm for
-/// arm, minus the styles a scene line carries — those are the next slice, and
-/// an element is emitted with an empty declaration list until then.
-export fn renderInto<C>(builder: Builder, node: Node<C>): () {
+/// `rootScope`, and `when`/`computed`/`each` are built once; the watcher that
+/// re-reads and the reconciler that re-walks are a later phase. It mirrors
+/// `nodeLines` arm for arm, and every element carries the same scene
+/// declarations its line does — the allocator that builds them is minted from
+/// `core/alloc` where it is needed, because those bytes are the runtime's and
+/// need no capability from `render`'s context.
+export fn renderInto<C>(ctx: C, builder: Builder, node: Node<C>): () {
+    emitNode(ctx, builder, node, .Hover)
+}
+
+/// One node's records, and everything under it — `nodeLines`, emitting to the
+/// document instead of building `[Str]`.
+fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
+    let mem = alloc.generalPurpose();
     let scope = rootScope();
     match (node.0) {
         .Nothing => {
         },
         .Text(content) => emitText(builder, content.read(scope)),
-        .Heading(level, _styles, content) => {
-            let _ = emitElement(builder, headingName(level), "");
+        .Heading(level, styles, content) => {
+            let _ = emitElement(
+                builder,
+                headingName(level),
+                widgetBody(mem, plain(state), [], styles),
+            );
             let _ = emitText(builder, content.read(scope));
             exitElement(builder)
         },
-        .Stack(_styles, children) => {
-            let _ = emitElement(builder, "div", "");
-            let _ = renderChildren(builder, children, 0);
+        .Stack(styles, children) => {
+            emitBox(ctx, builder, "div", plain(state), styles, children, state)
+        },
+        .Region(role, styles, children) => {
+            emitBox(
+                ctx,
+                builder,
+                roleName(role),
+                plain(state),
+                roleStyles(mem, role, styles, children),
+                children,
+                state,
+            )
+        },
+        .Button(label, styles, children, _onPress, disabled, _expanded) => {
+            let painted = refusing(state, disabled.read(scope));
+            if (children.isEmpty()) {
+                let _ = emitElement(
+                    builder,
+                    "button",
+                    widgetBody(mem, painted, [], styles),
+                );
+                let _ = emitText(builder, label.read(scope));
+                exitElement(builder)
+            } else {
+                emitBox(ctx, builder, "button", painted, styles, children, state)
+            }
+        },
+        .Link(_dest, styles, children) => {
+            emitBox(ctx, builder, "a", plain(state), styles, children, state)
+        },
+        .RouteLink(_dest, styles, children, _onFollow) => {
+            emitBox(ctx, builder, "a", plain(state), styles, children, state)
+        },
+        .Image(source, _alt, styles) => {
+            let declaration = decl(mem, "image", escapeValue(mem, source.read(scope)));
+            emitLeaf(
+                builder,
+                "img",
+                widgetBody(mem, plain(state), [declaration], styles),
+            )
+        },
+        .Icon(styles, source) => {
+            let artwork = decl(mem, "icon", escapeInline(mem, source));
+            emitLeaf(builder, "svg", widgetBody(mem, plain(state), [artwork], styles))
+        },
+        .Field(label, kind, hint, styles, around, value, _invalid, disabled) => {
+            let _ = emitElement(
+                builder,
+                "label",
+                widgetBody(mem, plain(state), [], wrapper(around)),
+            );
+            let _ = emitText(builder, label.read(scope));
+            let _ = emitFieldControl(
+                builder,
+                refusing(state, disabled.read(scope)),
+                kind,
+                hint.read(scope),
+                styles,
+                value.get(scope),
+            );
             exitElement(builder)
         },
-        .Region(role, _styles, children) => {
-            let _ = emitElement(builder, roleName(role), "");
-            let _ = renderChildren(builder, children, 0);
+        .Toggle(label, kind, styles, around, value, _invalid, disabled) => {
+            let on = value.get(scope);
+            let painted = Painted {
+                state: state,
+                checked: .Some(on),
+                disabled: disabled.read(scope),
+            };
+            let _ = emitElement(
+                builder,
+                "label",
+                widgetBody(mem, plain(state), [], wrapper(around)),
+            );
+            let _ = emitElement(
+                builder,
+                "input",
+                widgetBody(mem, painted, [], boxStyles(on, styles)),
+            );
+            let _ = emitMark(builder, kind, on);
+            let _ = exitElement(builder);
+            let _ = emitText(builder, label.read(scope));
             exitElement(builder)
         },
-        _ => {
+        .Form(_onSubmit, styles, children) => {
+            emitBox(ctx, builder, "form", plain(state), styles, children, state)
+        },
+        .Submit(label, styles) => {
+            let _ = emitElement(
+                builder,
+                "button",
+                widgetBody(mem, plain(state), [], styles),
+            );
+            let _ = emitText(builder, label.read(scope));
+            exitElement(builder)
+        },
+        .When(cond, then, otherwise) => {
+            if (cond.read(scope)) {
+                emitNode(ctx, builder, then, state)
+            } else {
+                emitNode(ctx, builder, otherwise, state)
+            }
+        },
+        .Computed(build) => emitNode(ctx, builder, build(scope), state),
+        .Each(count, _keyAt, rowAt) => {
+            emitRows(ctx, builder, rowAt, count(scope), state, 0)
+        },
+        .Dialog(open, _label, styles, children) => {
+            if (open.get(scope)) {
+                let _ = emitElement(
+                    builder,
+                    "div",
+                    widgetBody(mem, plain(state), [], scrim()),
+                );
+                let _ = emitElement(
+                    builder,
+                    "dialog",
+                    widgetBody(mem, plain(state), [], styles),
+                );
+                let _ = emitChildren(ctx, builder, children, state, 0);
+                let _ = exitElement(builder);
+                exitElement(builder)
+            } else {
+            }
+        },
+        .OnPressOutside(_handler, styles, children) => {
+            emitBox(ctx, builder, "div", plain(state), styles, children, state)
+        },
+        .RadioGroup(_label, options, styles, value) => {
+            let _ = emitElement(
+                builder,
+                "div",
+                widgetBody(mem, plain(state), [], styles),
+            );
+            let _ = emitRadioOptions(builder, state, options, value.get(scope), 0);
+            exitElement(builder)
+        },
+        .Progress(_label, _value, styles, children) => {
+            emitBox(ctx, builder, "div", plain(state), styles, children, state)
+        },
+        .Disclosure(summary, open, styles, children) => {
+            let _ = emitElement(
+                builder,
+                "details",
+                widgetBody(mem, plain(state), [], styles),
+            );
+            let _ = emitElement(
+                builder,
+                "summary",
+                widgetBody(mem, plain(state), [], []),
+            );
+            let _ = emitText(builder, summary.read(scope));
+            let _ = exitElement(builder);
+            let _ = if (open.get(scope)) {
+                emitChildren(ctx, builder, children, state, 0)
+            } else {
+            };
+            exitElement(builder)
         },
     }
 }
 
+/// A box: its element, then every child one level in.
+fn emitBox<C>(
+    ctx: C,
+    builder: Builder,
+    name: Str,
+    painted: Painted,
+    styles: [Style],
+    children: [Node<C>],
+    state: State,
+): () {
+    let mem = alloc.generalPurpose();
+    let _ = emitElement(builder, name, widgetBody(mem, painted, [], styles));
+    let _ = emitChildren(ctx, builder, children, state, 0);
+    exitElement(builder)
+}
+
 /// Every child, in order.
-fn renderChildren<C>(builder: Builder, children: [Node<C>], at: Int): () {
+fn emitChildren<C>(
+    ctx: C,
+    builder: Builder,
+    children: [Node<C>],
+    state: State,
+    at: Int,
+): () {
     match (children.get(at)) {
         .None => {
         },
         .Some(child) => {
-            let _ = renderInto(builder, child);
-            renderChildren(builder, children, at + 1)
+            let _ = emitNode(ctx, builder, child, state);
+            emitChildren(ctx, builder, children, state, at + 1)
         },
+    }
+}
+
+/// A leaf element — one line, no children.
+fn emitLeaf(builder: Builder, name: Str, body: Str): () {
+    let _ = emitElement(builder, name, body);
+    exitElement(builder)
+}
+
+/// Each row's subtree, in index order. The row closure takes its context as a
+/// parameter, so there is nothing to capture and no computation to run it under.
+fn emitRows<C>(
+    ctx: C,
+    builder: Builder,
+    rowAt: fn(C, Scope, Int) => Node<C>,
+    count: Int,
+    state: State,
+    at: Int,
+): () {
+    if (at >= count) {
+    } else {
+        let scope = rootScope();
+        let _ = emitNode(ctx, builder, rowAt(ctx, scope, at), state);
+        emitRows(ctx, builder, rowAt, count, state, at + 1)
+    }
+}
+
+/// A field's control and the run of text it holds — `fieldLines`, emitting.
+fn emitFieldControl(
+    builder: Builder,
+    painted: Painted,
+    kind: FieldKind,
+    hint: Str,
+    styles: [Style],
+    value: Str,
+): () {
+    let mem = alloc.generalPurpose();
+    let leading = [decl(mem, "field", kindName(kind))]
+        .concat(mem, bounds(mem, kind, value))
+        .concat(mem, placeholder(mem, kind, hint));
+    let _ = emitElement(
+        builder,
+        fieldName(kind),
+        widgetBody(mem, painted, leading, trackStyles(kind, styles)),
+    );
+    let _ = match (kind) {
+        .Range(_min, _max, _step) => {
+        },
+        _ => emitText(builder, value),
+    };
+    exitElement(builder)
+}
+
+/// A toggle's mark — `markLines`, emitting. A synthetic element the widget
+/// draws, so it carries no element name.
+fn emitMark(builder: Builder, kind: ToggleKind, on: Bool): () {
+    let mem = alloc.generalPurpose();
+    match (kind) {
+        .Switch => {
+            emitLeaf(
+                builder,
+                "",
+                elementBody(mem, [], ["mark:thumb", "height:100%", "aspect-ratio:1"]),
+            )
+        },
+        .Checkbox => {
+            if (on) {
+                emitLeaf(
+                    builder,
+                    "",
+                    elementBody(mem, [], ["mark:tick", "width:100%", "height:100%"]),
+                )
+            } else {
+            }
+        },
+    }
+}
+
+/// A radio's dot when it is the checked one — `dotLines`, emitting.
+fn emitDot(builder: Builder, on: Bool): () {
+    let mem = alloc.generalPurpose();
+    if (on) {
+        emitLeaf(
+            builder,
+            "",
+            elementBody(mem, [], ["mark:dot", "width:50%", "height:50%"]),
+        )
+    } else {
+    }
+}
+
+/// Every radio option, in order — `radioOptions`, emitting.
+fn emitRadioOptions(
+    builder: Builder,
+    state: State,
+    options: [(Str, Prop<Str>)],
+    selected: Str,
+    at: Int,
+): () {
+    match (options.get(at)) {
+        .None => {
+        },
+        .Some(option) => {
+            let mem = alloc.generalPurpose();
+            let scope = rootScope();
+            let key = option.0;
+            let on = key == selected;
+            let painted = Painted { state: state, checked: .Some(on), disabled: false };
+            let _ = emitElement(
+                builder,
+                "label",
+                widgetBody(mem, plain(state), [], wrapper([])),
+            );
+            let _ = emitElement(
+                builder,
+                "input",
+                widgetBody(mem, painted, [], radioBox()),
+            );
+            let _ = emitDot(builder, on);
+            let _ = exitElement(builder);
+            let _ = emitText(builder, option.1.read(scope));
+            let _ = exitElement(builder);
+            emitRadioOptions(builder, state, options, selected, at + 1)
+        },
+    }
+}
+
+/// What a `FieldKind`'s control element is called — `textarea` for the one kind
+/// that wraps, and `input` for the rest.
+fn fieldName(kind: FieldKind): Str {
+    match (kind) {
+        .Multiline => "textarea",
+        .Text => "input",
+        .Password => "input",
+        .Email => "input",
+        .Number => "input",
+        .Search => "input",
+        .Range(_min, _max, _step) => "input",
     }
 }
 
@@ -1469,9 +1793,20 @@ fn widgetLine<C: Allocator>(
     styles: [Style],
     depth: Int,
 ): Str {
-    elementLine(
+    str.format(ctx, "e ${depth} ${widgetBody(ctx, painted, leading, styles)}")
+}
+
+/// The declarations half of a widget's `e` line, without the depth: the classes,
+/// then the scene-only declarations `leading` names, then the styles written
+/// out. What `renderInto` hands the runtime for one element.
+fn widgetBody<C: Allocator>(
+    ctx: C,
+    painted: Painted,
+    leading: [Str],
+    styles: [Style],
+): Str {
+    elementBody(
         ctx,
-        depth,
         classNames(ctx, painted, styles),
         leading
             .concat(ctx, answers(ctx, painted))
@@ -1576,14 +1911,21 @@ fn elementLine<C: Allocator>(
     classes: [Str],
     declarations: [Str],
 ): Str {
+    str.format(ctx, "e ${depth} ${elementBody(ctx, classes, declarations)}")
+}
+
+/// The declarations half of an `e` line — the classes the styles chose, then
+/// what they wrote out, joined — without the depth in front. `elementLine`
+/// prepends the depth; `renderInto` hands this to the runtime and lets the
+/// document count the depth off the nesting instead.
+fn elementBody<C: Allocator>(ctx: C, classes: [Str], declarations: [Str]): Str {
     let all = if (classes.isEmpty()) {
         declarations
     } else {
         let named = classes.join(ctx, " ");
         [str.format(ctx, "class:${named}")].concat(ctx, declarations)
     };
-    let body = all.join(ctx, ";");
-    str.format(ctx, "e ${depth} ${body}")
+    all.join(ctx, ";")
 }
 
 /// What a role adds to an element's own styles.
@@ -1594,11 +1936,11 @@ fn elementLine<C: Allocator>(
 /// cells line up under the first's, and a header cell is bold and centred, which
 /// is what every browser's own stylesheet does to a `<th>`. The caller's styles
 /// come after, so a caller who sets their own still wins.
-fn roleStyles<C: Allocator>(
+fn roleStyles<C: Allocator, N>(
     ctx: C,
     role: Role,
     styles: [Style],
-    children: [Node<C>],
+    children: [Node<N>],
 ): [Style] {
     match (role) {
         .TableRow => {
