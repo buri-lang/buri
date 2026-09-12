@@ -161,6 +161,23 @@ pub enum Arg {
     /// handle as its index and the node as its element. `frame_at` rides along
     /// for the frame-threaded backend and is `-1` here, as `Arg::Compute`'s is.
     Walk,
+    /// A **kept handler**: five parameters, from one Buri closure argument — a
+    /// `fn(C, Event) => ()` the runtime keeps on an element and fires later. The
+    /// other table's `Extra::Press` argues the shape.
+    ///
+    /// ```text
+    ///   entry     the generated `ccc` thunk, `void(state, index, in, out)`
+    ///   state     the record, read once and copied
+    ///   bytes     how many bytes of it there are
+    ///   frame_at  where to write a working frame, always -1 here
+    ///   body      the release glue for the record itself, or null
+    /// ```
+    ///
+    /// [`Arg::Compute`] with the value taken out — no stride and no release,
+    /// because a handler answers `()` — but kept, so the record is copied and its
+    /// environment given back at exit. The thunk drops the context and reads the
+    /// event out of `arg`.
+    Press,
 }
 
 impl Arg {
@@ -168,6 +185,7 @@ impl Arg {
     pub fn leaves(self) -> usize {
         match self {
             Arg::Compute => 7,
+            Arg::Press => 5,
             Arg::Step => 4,
             Arg::Str => 3,
             Arg::Walk => 3,
@@ -2290,6 +2308,42 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Walk],
         ret: Ret::Void,
     },
+    // The keyed list (#53 phase 4). `enterEach` is a plain handle in and out;
+    // `reconcile` takes the builder and region handles, the `[Str]` of keys, and
+    // the row body last as an `Arg::Walk` — nothing spilled, since the body
+    // builds its own node.
+    Entry {
+        key: "ui_node.enterEach",
+        symbol: "buri_rt_ui_node_enter_each",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.reconcile",
+        symbol: "buri_rt_ui_node_reconcile",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::List, Arg::Walk],
+        ret: Ret::Void,
+    },
+    // The event arms (#53 phase 4). `registerPress` keeps the handler last as an
+    // `Arg::Press`; `registerValue` and `markSubmit` are plain handles.
+    Entry {
+        key: "ui_node.registerPress",
+        symbol: "buri_rt_ui_node_register_press",
+        args: &[Arg::Scalar, Arg::Press],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.registerValue",
+        symbol: "buri_rt_ui_node_register_value",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.markSubmit",
+        symbol: "buri_rt_ui_node_mark_submit",
+        args: &[Arg::Scalar],
+        ret: Ret::Void,
+    },
     Entry {
         key: "ui_testing.Rendered.markup",
         symbol: "buri_rt_ui_testing_rendered_markup",
@@ -2313,6 +2367,31 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_ui_testing_rendered_identity",
         args: &[Arg::Scalar, Arg::Str, Arg::Scalar],
         ret: Ret::Scalar,
+    },
+    // The event dispatch (#53 phase 4).
+    Entry {
+        key: "ui_testing.Rendered.press",
+        symbol: "buri_rt_ui_testing_rendered_press",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Rendered.fill",
+        symbol: "buri_rt_ui_testing_rendered_fill",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Rendered.flip",
+        symbol: "buri_rt_ui_testing_rendered_flip",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Rendered.submit",
+        symbol: "buri_rt_ui_testing_rendered_submit",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
     },
 ];
 
@@ -2859,9 +2938,33 @@ mod tests {
             }
         }
         assert_eq!(
-            checked, 2,
-            "the renderer's mount walk and the region rebuild's, and nothing else yet"
+            checked, 3,
+            "the renderer's mount walk, the region rebuild's, and the keyed list's row body, \
+             and nothing else yet"
         );
+    }
+
+    /// A kept handler is the last argument of a key the other table marks
+    /// `Extra::Press`, the same invariant a walk keeps — one row, in two tables,
+    /// describing one C signature.
+    #[test]
+    fn a_handler_is_the_last_argument_of_a_key_the_shared_table_names() {
+        use crate::compiler::backend::runtime_table::{self, Extra};
+        let mut checked = 0usize;
+        for e in ENTRIES {
+            let at = e.args.iter().position(|a| *a == Arg::Press);
+            let shared = runtime_table::entry(e.key).map(|s| s.extra == Extra::Press);
+            match (at, shared) {
+                (Some(at), Some(true)) => {
+                    assert_eq!(at + 1, e.args.len(), "{}", e.key);
+                    checked += 1;
+                }
+                (None, Some(true)) => panic!("{} is a handler and has no `Arg::Press`", e.key),
+                (Some(_), _) => panic!("{} has a handler the other table does not name", e.key),
+                (None, _) => {}
+            }
+        }
+        assert_eq!(checked, 1, "the renderer's `registerPress`, and nothing else yet");
     }
 
     /// Every row with a step is one `backend/intrinsic_keys.rs` names, its

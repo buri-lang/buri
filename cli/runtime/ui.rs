@@ -887,6 +887,147 @@ pub unsafe extern "C" fn buri_rt_ui_fire_press(entry: ComputeEntry, state: *mut 
     unsafe { (entry)(state, 0, std::ptr::addr_of!(event).cast(), sink.as_mut_ptr()) };
 }
 
+/// Keeps a `fn(C, Event) => ()` for a press or a submit to fire later, and
+/// answers the graph node it lives on.
+///
+/// A handler is not a computation, so the node runs nothing and is never
+/// notified; it holds the closure the way a memo holds its body, so the two
+/// mechanisms that give a body back — [`Graph::dispose`] when its owner leaves,
+/// and `give_back` at exit — give the handler's environment back too, and the
+/// heap stays empty across a row's disposal. It belongs to whatever is running:
+/// a top-level control's handler is the program's, and a row's is the row
+/// owner's, disposed when the row leaves.
+///
+/// # Safety
+/// `entry` is the thunk the backend generated for the handler and `state` the
+/// record it was generated against; `body` is that record's release glue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_handler(
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) -> i64 {
+    // SAFETY: forwarded to the caller's promise.
+    let state = unsafe { keep(state, bytes) };
+    let mut g = lock();
+    g.make_releasing(
+        Kind::Owner,
+        Vec::new(),
+        0,
+        Some(Compute { entry, state, frame_at }),
+        None,
+        body,
+    )
+}
+
+/// Fires the handler on graph node `id` with a runtime-minted event.
+///
+/// A handler is not a computation — it writes signals freely — so this sets no
+/// tracking cursor and it fires outside the document lock: the record is read
+/// under the graph lock and let go before the call, because the handler's writes
+/// drain the graph on their way through. A body on the frame-threaded backend
+/// works in a frame the caller sets aside, so this acquires one at `frame_at`
+/// exactly as [`run`] does.
+pub(crate) fn fire(id: i64) {
+    let compute = {
+        let g = lock();
+        match g.get(id) {
+            Some(n) => n.compute,
+            None => None,
+        }
+    };
+    let Some(compute) = compute else { return };
+    let event: i64 = 0;
+    let frame = if compute.frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+    if let Ok(at) = usize::try_from(compute.frame_at) {
+        // SAFETY: the backend asked for the frame at this offset in a record of
+        // its own, and `keep` copied the whole of it.
+        unsafe { compute.state.add(at).cast::<*mut u8>().write(frame) };
+    }
+    let mut sink = [0u8; 8];
+    // SAFETY: `entry`/`state` are the handler's thunk and its kept record;
+    // `event` is one live word crossing as the element, and `sink` a live
+    // destination a `()`-answering thunk writes nothing to.
+    unsafe {
+        (compute.entry)(compute.state, 0, std::ptr::addr_of!(event).cast(), sink.as_mut_ptr());
+    }
+    if !frame.is_null() {
+        // SAFETY: this thread acquired it above and the thunk has returned.
+        unsafe { buri_rt_stack_release(frame) };
+    }
+}
+
+/// Writes `text` to the `Str` signal `id`, releasing the string it held — the
+/// native twin of a field's `input` listener writing the bound signal.
+///
+/// Structural equality first, as a write does: a `Str` is one value however it
+/// was built, so filling a field with what it already holds writes nothing. The
+/// fresh string owns its block (`copy_from` hands back the only reference), and
+/// the block the signal held is released through the signal's own glue — the one
+/// it was created with — so the heap does not grow a block per fill.
+pub(crate) fn set_str_signal(id: i64, text: &str) {
+    let (old, release) = {
+        let g = lock();
+        match g.get(id) {
+            Some(n) => (n.value.clone(), n.release),
+            None => return,
+        }
+    };
+    let width = std::mem::size_of::<BuriStr>();
+    if old.len() >= width {
+        // SAFETY: the signal holds one whole `Str` value, which is a `BuriStr`.
+        let held = unsafe { &*(old.as_ptr().cast::<BuriStr>()) };
+        // SAFETY: a live `Str` view built by generated code is valid UTF-8.
+        if unsafe { held.as_str() } == text {
+            return;
+        }
+    }
+    let fresh = BuriStr::copy_from(text.as_bytes());
+    // SAFETY: `fresh` is one whole `BuriStr`, `width` bytes of it.
+    let bytes = unsafe {
+        std::slice::from_raw_parts(std::ptr::addr_of!(fresh).cast::<u8>(), width)
+    }
+    .to_vec();
+    // SAFETY: `bytes` is one whole `Str` value of `width` bytes.
+    let changed = unsafe { write_changed(id, bytes.as_ptr(), width) };
+    if changed {
+        let mut old = old;
+        if !old.is_empty() {
+            // SAFETY: `old` is the copy of the whole `Str` the signal held until
+            // the write above, and the graph no longer names it.
+            unsafe { walk(release, old.as_mut_ptr()) };
+        }
+    }
+}
+
+/// Flips the `Bool` signal `id` — the native twin of a toggle's `change`
+/// listener writing the negation of the bound signal. A `Bool` holds no counted
+/// block, so this is the byte turned over with no reference to give back.
+pub(crate) fn flip_bool_signal(id: i64) {
+    let mut buf = {
+        let g = lock();
+        match g.get(id) {
+            Some(n) => n.value.clone(),
+            None => return,
+        }
+    };
+    if buf.is_empty() {
+        buf.push(0);
+    }
+    buf[0] = u8::from(buf[0] == 0);
+    // SAFETY: `buf` is the signal's own width, one whole `Bool` value.
+    unsafe { write_changed(id, buf.as_ptr(), buf.len()) };
+}
+
+/// Fires the handler on graph node `id` — the C-ABI face of [`fire`], for the
+/// event dispatch's driver test to reach a kept handler across the boundary.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_fire_handler(id: i64) {
+    fire(id);
+}
+
 /// `Event(0)` — the one event the runtime mints, matching the JavaScript
 /// renderer's `[0]`.
 ///
@@ -960,12 +1101,17 @@ pub unsafe extern "C" fn buri_rt_ui_render_walk(
 // Owners, for the keyed list
 // ---------------------------------------------------------------------------
 
-/// `$ui_under`, `$ui_forget` and the owner node they work on.
+/// `$ui_under`, `$ui_forget` and the owner node they work on — the graph half
+/// of `cli/runtime/document.rs`'s keyed reconciler (`$tree_each`/
+/// `$tree_reconcile`/`$tree_row`, issue #53 phase 4).
 ///
-/// Their one caller is `$tree_each`, which is still JavaScript, so nothing in
-/// this archive reaches them yet. They are here because the graph is one port
-/// and half a graph would be a second thing to get right later.
-#[allow(dead_code)]
+/// The reconciler builds a row under its **own** owner, so disposing that owner
+/// disposes everything the row created and nothing else; and it hangs those
+/// owners off the **list's** owner rather than off the reconciling watcher, so
+/// a row survives the watcher re-running. The document holds the mutable
+/// element tree and the row bookkeeping; these are the graph operations it
+/// reaches through, one lock at a time so the reconciler never holds this lock
+/// across the Buri walk that builds a row.
 pub(crate) mod rows {
     use super::{lock, Kind};
 
@@ -977,25 +1123,36 @@ pub(crate) mod rows {
         g.make(Kind::Owner, Vec::new(), 0, None)
     }
 
-    /// Runs `body` with everything it creates belonging to `owner`, and with
-    /// what it reads subscribing nothing.
-    ///
-    /// Both halves are needed together exactly once: a keyed list builds a row
-    /// that must outlive the run that decided to build it, and whose reads are
-    /// the list's dependencies and not the row's.
-    pub(crate) fn under<R>(owner: i64, body: impl FnOnce() -> R) -> R {
-        let saved = {
-            let mut g = lock();
-            let saved = (g.current, g.tracking);
-            g.current = owner;
-            g.tracking = -1;
-            saved
-        };
-        let answer = body();
+    /// An owner built as a child of `parent`, whatever is running — the native
+    /// `$ui_under(owner, …)` making a row's own owner. A row's owner belongs to
+    /// the list's owner and not to the reconciling watcher, so the watcher
+    /// re-running disposes none of the rows.
+    pub(crate) fn child_owner(parent: i64) -> i64 {
+        let mut g = lock();
+        let outer = g.current;
+        g.current = parent;
+        let id = g.make(Kind::Owner, Vec::new(), 0, None);
+        g.current = outer;
+        id
+    }
+
+    /// Points the graph at `owner` for what a row creates and at nothing for
+    /// what it reads, and answers the cursors to restore — the open half of
+    /// [`under`], for a caller that drives the row's walk between them and so
+    /// cannot hold the lock across it.
+    pub(crate) fn enter_row(owner: i64) -> (i64, i64) {
+        let mut g = lock();
+        let saved = (g.current, g.tracking);
+        g.current = owner;
+        g.tracking = -1;
+        saved
+    }
+
+    /// Restores the cursors [`enter_row`] answered.
+    pub(crate) fn leave_row(saved: (i64, i64)) {
         let mut g = lock();
         g.current = saved.0;
         g.tracking = saved.1;
-        answer
     }
 
     /// Drops `id` from its owner's children, so that a list which adds and
@@ -2085,7 +2242,7 @@ mod tests {
     fn disposing_a_node_disposes_its_children() {
         let _alone = alone();
         let owner = rows::owner();
-        let child = rows::under(owner, rows::owner);
+        let child = rows::child_owner(owner);
         assert_eq!(children_of(owner), vec![child]);
         rows::dispose(owner);
         assert!(is_disposed(owner));
@@ -2096,8 +2253,8 @@ mod tests {
     fn a_forgotten_child_outlives_the_owner_that_made_it() {
         let _alone = alone();
         let owner = rows::owner();
-        let kept = rows::under(owner, rows::owner);
-        let dropped = rows::under(owner, rows::owner);
+        let kept = rows::child_owner(owner);
+        let dropped = rows::child_owner(owner);
         rows::forget(owner, dropped);
         assert_eq!(children_of(owner), vec![kept]);
         rows::dispose(owner);
@@ -2115,10 +2272,11 @@ mod tests {
         let recording = Rc::clone(&made);
         let _held = watcher(move |scope| {
             let value = scope_read(scope, tracked);
-            recording.borrow_mut().push(rows::under(owner, || {
-                let _ = read_cell(untracked);
-                rows::owner()
-            }));
+            let saved = rows::enter_row(owner);
+            let _ = read_cell(untracked);
+            let child = rows::owner();
+            rows::leave_row(saved);
+            recording.borrow_mut().push(child);
             value
         });
         assert_eq!(subs_of(tracked).len(), 1, "the watcher reads this one");
