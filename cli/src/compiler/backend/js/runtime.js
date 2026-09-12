@@ -5417,6 +5417,15 @@ function $ui_testing_mount(ctx, root, walk) {
 function $ui_node_emitElement(builder, name, body) {}
 function $ui_node_exitElement(builder) {}
 function $ui_node_emitText(builder, content) {}
+// The reactive builders (#53 phase 3) are the same nothing: `renderInto` is
+// never invoked here, so the leaf `$tree_bind` and the region `$tree_dynamic`
+// this side runs are `$tree_render`'s, not these. `openText`/`enterDynamic`
+// answer a handle, so they return a number the never-taken path would use.
+function $ui_node_openText(builder) { return 0; }
+function $ui_node_patchText(builder, at, content) {}
+function $ui_node_reactive(body) {}
+function $ui_node_enterDynamic(builder) { return 0; }
+function $ui_node_rebuildRegion(builder, region, node, walk) {}
 
 function $ui_testing_Rendered_markup(self) {
   let out = "";

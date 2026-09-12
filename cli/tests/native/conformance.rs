@@ -791,6 +791,15 @@ const PACKAGES: &[Case] = &[
     // the HTML document double, which is Phase 6's to move — so it is not in the
     // package's `BUILD.buri` and `buri test` never runs it; this driver does.
     included("ui/render.buri"),
+    // The native renderer's reactive half (#53, phase 3): a leaf prop patches
+    // the element it was rendered into, and `computed`/`choose` rebuild their
+    // subtree with a fresh identity and dispose what the previous build made.
+    // Unlike its neighbour above it runs on **both** backends — every block
+    // reads the reconciled document through `identity`/`text`/`count` and an
+    // effect log, never `markup()`, whose format is phase 6's to unify — so it
+    // is in `BUILD.buri`'s `sources` for the JavaScript run and here for this
+    // one, one file asserting the same reconciler on two renderers.
+    included("ui/reactive.buri"),
     excluded(
         "ui/tree.buri",
         "`ui/node`'s `mount` and `ui/testing`'s renderer, which are a \

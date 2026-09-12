@@ -2500,6 +2500,10 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // only inside the `Node<C>` it walks and the walk closure it drives.
     "ui_effect.Scope.read",
     "ui_node.mount",
+    // The region rebuild's walk is `renderInto` once more, so its `C` is dropped
+    // for the same reason `mount`'s is — it occurs only inside the `Node<C>` it
+    // re-walks and the walk closure it drives.
+    "ui_node.rebuildRegion",
     "ui_testing.Headless.memo",
     "ui_testing.Headless.read",
     "ui_testing.Headless.signal",
@@ -2830,7 +2834,7 @@ mod tests {
         tasks.scopeEnter tasks.scopeLeave tasks.scopeOpen tasks.scopePush \
         tasks.scopeRound tasks.scopeTaskAt \
         testing_assert.failExpected testing_assert.report \
-        ui_effect.Scope.read ui_node.mount \
+        ui_effect.Scope.read ui_node.mount ui_node.rebuildRegion \
         ui_testing.Headless.memo ui_testing.Headless.read \
         ui_testing.Headless.signal ui_testing.Headless.write \
         ui_testing.Observer.read ui_testing.mount \
