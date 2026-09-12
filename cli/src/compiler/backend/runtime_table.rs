@@ -1463,8 +1463,18 @@ pub const ENTRIES: &[Entry] = &[
     // because the runtime owns the graph.
     e("ui_node.openText", "buri_rt_ui_node_open_text", Ret::Scalar),
     e("ui_node.patchText", "buri_rt_ui_node_patch_text", Ret::Void),
+    // `openElement` emits-and-enters like `emitElement` but answers the index a
+    // reactive style patches its body by; `patchBody` writes over that body,
+    // the element kept — together a `$tree_styles` bind for the scene.
+    e("ui_node.openElement", "buri_rt_ui_node_open_element", Ret::Scalar),
+    e("ui_node.patchBody", "buri_rt_ui_node_patch_body", Ret::Void),
     ec("ui_node.reactive", "buri_rt_ui_node_reactive", Ret::Void),
     e("ui_node.enterDynamic", "buri_rt_ui_node_enter_dynamic", Ret::Scalar),
+    // `beginRegion` clears a region and points the builder at its gap and
+    // `endRegion` restores it — `rebuildRegion` split open, for a reactive
+    // widget that emits inline under its own watcher rather than walking a node.
+    e("ui_node.beginRegion", "buri_rt_ui_node_begin_region", Ret::Void),
+    e("ui_node.endRegion", "buri_rt_ui_node_end_region", Ret::Void),
     ew("ui_node.rebuildRegion", "buri_rt_ui_node_rebuild_region", Ret::Void, 2),
     // The keyed list (#53 phase 4). `enterEach` opens the two markers and the
     // row owner; `reconcile` is driven from the list's watcher with the keys the
@@ -1479,7 +1489,18 @@ pub const ENTRIES: &[Entry] = &[
     // signal so `fill`/`flip` can write it; `markSubmit` flags the button whose
     // press submits its form.
     ep("ui_node.registerPress", "buri_rt_ui_node_register_press", Ret::Void),
+    // `registerOutside` keeps an `onPressOutside`'s handler on the document
+    // paired with the open element — an `ep` like `registerPress`, kept in the
+    // graph so the subtree's disposal takes the listener.
+    ep("ui_node.registerOutside", "buri_rt_ui_node_register_outside", Ret::Void),
+    // `registerFollow` keeps a route link's plain-click handler and its
+    // destination on the anchor, so `follow` fires it; a kept two-parameter
+    // handler like `registerPress`, with the destination string ahead of it.
+    ep("ui_node.registerFollow", "buri_rt_ui_node_register_follow", Ret::Void),
     e("ui_node.registerValue", "buri_rt_ui_node_register_value", Ret::Void),
+    // `registerLabel` keeps a button's accessible name on it, so `press` finds
+    // a children-button by the label a reader hears rather than its glyphs.
+    e("ui_node.registerLabel", "buri_rt_ui_node_register_label", Ret::Void),
     e("ui_node.markSubmit", "buri_rt_ui_node_mark_submit", Ret::Void),
     // The readers, over the reconciled document rather than the string:
     // `markup` and `text` answer a `Str` through an out-pointer, `count` and

@@ -152,7 +152,7 @@ test "the namespace is the package, so two packages cannot collide" {
     let _ = install([cardThemed(cardTheme), appThemed(day)]);
     assert.equal(
         render(ctx, page(card("card"))).markup(),
-        "<div class=\"bg-t_app_bg fg-t_app_fg\"><div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div></div>",
+        "e 0 class:bg-t_app_bg fg-t_app_fg\ne 1 class:bg-t_cardlib_surface fg-t_cardlib_onSurface\nt 2 card",
     );
 }
 
@@ -161,7 +161,7 @@ test "a component that uses tokens carries the same classes under any theme" {
         Ui: headless(),
     };
     let expected =
-        "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>";
+        "e 0 class:bg-t_cardlib_surface fg-t_cardlib_onSurface\nt 1 card";
 
     let _ = install([cardThemed(cardTheme), appThemed(day)]);
     assert.equal(render(ctx, card("card")).markup(), expected);
@@ -255,7 +255,7 @@ test "switching a theme swaps the values and changes no class" {
     assert.equal(tree.markup(), before);
     assert.equal(
         tree.markup(),
-        "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>",
+        "e 0 class:bg-t_cardlib_surface fg-t_cardlib_onSurface\nt 1 card",
     );
 }
 
@@ -381,6 +381,6 @@ test "a token the compiler could not fold is the same custom property inline" {
     // looks like.
     assert.equal(
         render(ctx, tinted(Card.Accent.color())).markup(),
-        "<div style=\"background-color: var(--cardlib-accent)\"></div>",
+        "e 0 background-color:var(--cardlib-accent)",
     );
 }

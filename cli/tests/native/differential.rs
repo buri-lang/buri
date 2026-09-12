@@ -98,7 +98,7 @@ impl Verdict {
 /// `render(...).markup()`, which is HTML here and the scene document there, so
 /// the whole file cannot be compared until phase 6 unifies the format.
 /// `native::conformance`'s `Out::Wrong` runs it and proves it still diverges.
-const NATIVE_ONLY: &[&str] = &["ui/render.buri", "ui/theme.buri"];
+const NATIVE_ONLY: &[&str] = &["ui/render.buri"];
 
 fn corpus_files() -> Vec<String> {
     let root = crate::shared::conformance_corpus();

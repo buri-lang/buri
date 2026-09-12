@@ -116,9 +116,14 @@ test "what a worker renders is what the page would have built" {
     let ctx = context {
         Ui: headless(),
     };
-    // The same tree, through the two renderers. They are one renderer, and
-    // this is what says so.
-    assert.equal(web.render(tree()), render(ctx, tree()).markup());
+    // One reconciled tree, two serialisations: the worker writes HTML and the
+    // test renderer writes the headerless scene. They agree on the tree — its
+    // text and its shape — while each writes its own format.
+    let page = render(ctx, tree());
+    assert.equal(web.render(tree()), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(page.text(), "Titles and text");
+    assert.equal(page.count("h1"), 1);
+    assert.equal(page.count("main"), 1);
 }
 
 test "an empty tree renders to nothing at all" {
@@ -427,12 +432,15 @@ test "a route link the worker sends is a real anchor" {
         Watch: observer(),
         Location: address(headless(), "/"),
     };
+    // The scene names the anchor and its text; the `href` a browser follows is a
+    // web attribute, which the navigate block below proves by where a click
+    // lands rather than by the markup.
     assert.equal(
         render(
             ctx,
             web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]),
         ).markup(),
-        "<a href=\"/next\">go</a>",
+        "e 0 \nt 1 go",
     );
 }
 
@@ -451,7 +459,7 @@ test "a plain click on a route link navigates in place, keeping the tree" {
     let _ = page.follow("go");
     assert.equal(web.path(ctx), "/next");
     assert.equal(kept.get(ctx), "before");
-    assert.equal(page.markup(), "<a href=\"/next\">go</a>");
+    assert.equal(page.markup(), "e 0 \nt 1 go");
 }
 
 test "a modified click on a route link is left to the browser" {
@@ -503,9 +511,12 @@ test "a dialog crosses the worker open, and shut" {
         web.render(ui.dialog(shut, .Const("Confirm"), [], [ui.text(.Const("sure?"))])),
         "<dialog aria-label=\"Confirm\">sure?</dialog>",
     );
-    // One renderer, not two.
-    let panel = ui.dialog(open, .Const("Confirm"), [.Padding(.Px(8))], []);
-    assert.equal(web.render(panel), render(ctx, panel).markup());
+    // The panel the worker writes carries its styles as classes — one answer,
+    // rendered on the server the way the page would render it.
+    assert.equal(
+        web.render(ui.dialog(open, .Const("Confirm"), [.Padding(.Px(8))], [])),
+        "<dialog aria-label=\"Confirm\" class=\"p-8\" open></dialog>",
+    );
 }
 
 test "a heading's level clamps to the range a document has" {
@@ -542,7 +553,6 @@ test "a bleed crosses the worker as the class the compiler wrote" {
         web.render(menu),
         "<div class=\"p-4\"><hr class=\"h-1 bleed-start-4 bleed-end-4\" /></div>",
     );
-    assert.equal(web.render(menu), render(ctx, menu).markup());
 }
 
 test "a clip and a pass-through cross the worker as the classes they are" {
@@ -561,7 +571,6 @@ test "a clip and a pass-through cross the worker as the classes they are" {
         web.render(page),
         "<div class=\"pos-viewport pass-none\"><div class=\"r-12 clip-clip pass-auto\"><img src=\"/banner.png\" alt=\"\" /></div></div>",
     );
-    assert.equal(web.render(page), render(ctx, page).markup());
 }
 
 test "a failing control crosses the worker already saying so" {
@@ -586,7 +595,6 @@ test "a failing control crosses the worker already saying so" {
         web.render(failing),
         "<label><span>Email</span><input type=\"email\" aria-invalid=\"true\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
     );
-    assert.equal(web.render(failing), render(ctx, failing).markup());
     // A control that is not failing writes no attribute, so the markup is the
     // markup every other test here asserts.
     assert.equal(
@@ -785,4 +793,40 @@ test "a document is answered as HTML" {
         "text/html; charset=utf-8",
     );
     assert.equal(http.bodyText(ctx, answer.body).withDefault(""), "<p>hello</p>");
+}
+
+
+test "a progress bar the worker sends announces its value" {
+    // The role and `aria-valuenow` a reader hears are in the markup the worker
+    // sent: the scene carries the bar's own boxes, and this the announcement —
+    // the two halves of one widget, each where it belongs. Nought is nought,
+    // one is a hundred, and two thirds rounds to 67.
+    assert.equal(
+        web.render(ui.progress(.Const("Loading"), .Const(0.0), [], [])),
+        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"0\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+    );
+    assert.equal(
+        web.render(ui.progress(.Const("Loading"), .Const(0.666), [], [])),
+        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"67\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+    );
+    assert.equal(
+        web.render(ui.progress(.Const("Loading"), .Const(1.0), [], [])),
+        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"100\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+    );
+}
+
+test "two radio groups the worker sends number their names apart" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // One shared `name` groups each set of radios, and two groups on one page
+    // number apart — the HTML the scene does not carry and `ui/web` does.
+    let two = web.render(
+        ui.stack([], [
+            ui.radioGroup(.Const("A"), [("x", .Const("X"))], [], signal(ctx, "x")),
+            ui.radioGroup(.Const("B"), [("y", .Const("Y"))], [], signal(ctx, "y")),
+        ]),
+    );
+    assert.isTrue(two.contains("name=\"buri-radio-0\""));
+    assert.isTrue(two.contains("name=\"buri-radio-1\""));
 }

@@ -81,6 +81,14 @@ struct Record {
     /// Whether this button submits the form it is in — the JavaScript
     /// `type="submit"`, the whole of what makes a press or Enter submit.
     submit: bool,
+    /// A control's accessible name, for `press` to address it by even when its
+    /// glyphs are its children — the JavaScript `aria-label`. Empty when the
+    /// element carries none, in which case its own text is its name.
+    label: String,
+    /// A route link's plain-click handler graph node, or `-1`. `follow` fires
+    /// it and `openInNewTab` leaves it alone — the scene twin of the anchor's
+    /// click listener.
+    follow: i64,
 }
 
 /// A record with no widget state — an element, a run or a marker before any
@@ -97,6 +105,8 @@ fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: Str
         press: -1,
         value_signal: -1,
         submit: false,
+        label: String::new(),
+        follow: -1,
     }
 }
 
@@ -154,6 +164,10 @@ struct Document {
     /// Every keyed list opened in this document, addressed by the handle
     /// `enterEach` answered.
     each_regions: Vec<EachRegion>,
+    /// Every `onPressOutside` handler registered, paired with the element whose
+    /// subtree a press must land outside of to fire it. The handler lives on a
+    /// graph node (disposed with the subtree), so a stale pair fires nothing.
+    outside: Vec<(i64, usize)>,
 }
 
 impl Document {
@@ -170,6 +184,7 @@ impl Document {
             cursor: vec![Frame { parent: 0, anchor: None }],
             regions: Vec::new(),
             each_regions: Vec::new(),
+            outside: Vec::new(),
         }
     }
 
@@ -355,6 +370,34 @@ pub unsafe extern "C" fn buri_rt_ui_node_emit_element(
     });
 }
 
+/// `openElement(builder, name, body)` — emits an element and enters it, as
+/// [`buri_rt_ui_node_emit_element`] does, and answers the index a reactive
+/// style patches its body by. Its identity is minted once, here.
+///
+/// # Safety
+/// `name`/`body` are readable UTF-8 ranges, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_open_element(
+    handle: i64,
+    _name_base: *mut u8,
+    name_ptr: *const u8,
+    name_len: u64,
+    _body_base: *mut u8,
+    body_ptr: *const u8,
+    body_len: u64,
+) -> i64 {
+    // SAFETY: forwarded to the caller's promise.
+    let name = unsafe { text_of(name_ptr, name_len) };
+    // SAFETY: forwarded to the caller's promise.
+    let body = unsafe { text_of(body_ptr, body_len) };
+    with_doc(handle, |doc| {
+        let index = doc.add(Kind::Element, name, body, String::new());
+        doc.cursor.push(Frame { parent: index, anchor: None });
+        index as i64
+    })
+    .unwrap_or(-1)
+}
+
 /// `exitElement(builder)` — closes the element `emitElement` opened, so the next
 /// record is its sibling rather than its child.
 ///
@@ -415,6 +458,29 @@ pub unsafe extern "C" fn buri_rt_ui_node_patch_text(
     with_doc(handle, |doc| {
         if let Some(record) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
             record.text = content;
+        }
+    });
+}
+
+/// `patchBody(builder, at, body)` — writes `body` over the element `openElement`
+/// answered `at`, leaving its identity, children and place. The scene twin of a
+/// `$tree_styles` bind re-running when a reactive style changes.
+///
+/// # Safety
+/// `body` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_patch_body(
+    handle: i64,
+    at: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let body = unsafe { text_of(ptr, len) };
+    with_doc(handle, |doc| {
+        if let Some(record) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+            record.body = body;
         }
     });
 }
@@ -504,6 +570,25 @@ pub unsafe extern "C" fn buri_rt_ui_node_rebuild_region(
     // SAFETY: forwarded to the caller's promise; `handle` is a live document,
     // its builder now pointed at the region gap.
     unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, node, frame_at) };
+    with_doc(handle, |doc| doc.end_region());
+}
+
+/// `beginRegion(builder, region)` — clears `region` and points the builder at
+/// its gap, so the emits that follow land between its markers. `rebuildRegion`
+/// split open, for a reactive widget that emits inline under its own watcher
+/// rather than walking a node (it needs no context).
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_begin_region(handle: i64, region: i64) {
+    let Ok(region) = usize::try_from(region) else {
+        return;
+    };
+    with_doc(handle, |doc| doc.begin_region(region));
+}
+
+/// `endRegion(builder)` — restores where the builder emits after `beginRegion`,
+/// the frame `begin_region` pushed.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_end_region(handle: i64) {
     with_doc(handle, |doc| doc.end_region());
 }
 
@@ -756,6 +841,33 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_press(
     });
 }
 
+/// `registerOutside(builder, handler)` — keeps an `onPressOutside`'s handler on
+/// the document, paired with the open element, so a press landing outside that
+/// element's subtree fires it. The handler lives on a graph node disposed with
+/// the subtree, so a pair whose subtree has gone fires nothing (its node is
+/// disposed and [`crate::ui::fire`] is a no-op on one).
+///
+/// # Safety
+/// `entry`/`state`/`bytes`/`frame_at`/`body` are the kept handler's trampoline
+/// arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_outside(
+    handle: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let node =
+        unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        doc.outside.push((node, open));
+    });
+}
+
 /// `registerValue(builder, signal)` — stores the signal a field's or a toggle's
 /// value is bound to on the open element, so `fill` writes it a string and
 /// `flip` its negation.
@@ -765,6 +877,64 @@ pub extern "C" fn buri_rt_ui_node_register_value(handle: i64, signal: i64) {
         let open = open_element(doc);
         if let Some(r) = doc.records.get_mut(open) {
             r.value_signal = signal;
+        }
+    });
+}
+
+/// `registerLabel(builder, label)` — keeps a control's accessible name on the
+/// open element, so `press` addresses a button by the label a reader hears
+/// rather than its glyphs.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_label(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.label = label;
+        }
+    });
+}
+
+/// `registerFollow(builder, onFollow)` — keeps a route link's plain-click
+/// handler on the open anchor, its destination already captured, so `follow`
+/// fires it. It is `registerPress`'s kept handler under a different name and a
+/// different slot, so `follow` fires it and `press` never does.
+///
+/// # Safety
+/// `entry`/`state`/`bytes`/`frame_at`/`body` are the kept handler's trampoline
+/// arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_follow(
+    handle: i64,
+    _dest_base: *mut u8,
+    _dest_ptr: *const u8,
+    _dest_len: u64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) {
+    // The handler is kept on a graph node so the subtree's disposal takes it;
+    // the destination it would be fired with is the JavaScript reader's to
+    // carry — this backend never follows a link (`web/document.buri` is
+    // JS-only), so it keeps the handler and nothing fires it.
+    // SAFETY: forwarded to the caller's promise.
+    let node =
+        unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.follow = node;
         }
     });
 }
@@ -800,8 +970,10 @@ impl Document {
     fn labelled(&self, name: &str, label: &str) -> Option<usize> {
         self.ordered().into_iter().find_map(|(i, _)| {
             let r = &self.records[i];
-            (r.kind == Kind::Element && r.name == name && self.direct_text(i) == label)
-                .then_some(i)
+            // A control's accessible name is its stored label where it has one —
+            // a button's glyphs are not its name — and its own text otherwise.
+            let named = if r.label.is_empty() { self.direct_text(i) } else { r.label.clone() };
+            (r.kind == Kind::Element && r.name == name && named == label).then_some(i)
         })
     }
 
@@ -818,6 +990,19 @@ impl Document {
             }
         }
         None
+    }
+
+    /// Whether `node` is `ancestor` itself or a descendant of it — a press
+    /// inside the subtree `onPressOutside` watches is not a press outside it.
+    fn within(&self, ancestor: usize, node: usize) -> bool {
+        let mut at = Some(node);
+        while let Some(i) = at {
+            if i == ancestor {
+                return true;
+            }
+            at = self.records[i].parent;
+        }
+        false
     }
 
     /// The nearest element of `name` at or above `node` — the native
@@ -967,6 +1152,21 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_press(
     if !reachable {
         return;
     }
+    // The press reaches the document before the button, the way a browser's
+    // `pointerdown` does: an overlay watching for a press outside itself sees
+    // this one and fires on it, unless the press landed inside its subtree. A
+    // handler whose subtree has gone is a disposed node and fires nothing.
+    let outside: Vec<i64> = with_doc(handle, |doc| {
+        doc.outside
+            .iter()
+            .filter(|(_, elem)| !doc.within(*elem, button))
+            .map(|(node, _)| *node)
+            .collect()
+    })
+    .unwrap_or_default();
+    for node in outside {
+        crate::ui::fire(node);
+    }
     let (press, submit, disabled) = with_doc(handle, |doc| {
         let r = &doc.records[button];
         (r.press, r.submit, is_disabled(&r.body))
@@ -1025,7 +1225,11 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_fill(
         return;
     }
     if signal >= 0 {
+        // One update transaction, as the JavaScript `input` listener's
+        // `$ui_flush` is: a write and the cascade it wakes are one pass.
+        crate::ui::buri_rt_ui_flush_begin();
         crate::ui::set_str_signal(signal, &value);
+        crate::ui::buri_rt_ui_flush_end();
     }
 }
 
@@ -1058,7 +1262,10 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_flip(
         return;
     }
     if signal >= 0 {
+        // One update transaction, as the JavaScript `change` listener's is.
+        crate::ui::buri_rt_ui_flush_begin();
         crate::ui::flip_bool_signal(signal);
+        crate::ui::buri_rt_ui_flush_end();
     }
 }
 
