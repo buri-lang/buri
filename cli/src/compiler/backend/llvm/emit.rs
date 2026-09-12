@@ -2563,6 +2563,54 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // stack, so there is nothing for the runtime to fill in.
                     argv.push(word.const_all_ones().into());
                 }
+                runtime::Arg::Press => {
+                    let body = self.type_of(ir_ty);
+                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                        self.error(
+                            span,
+                            format!("internal error: `{key}`'s handler is not a function"),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    };
+                    if ps.len() != 2 {
+                        self.error(
+                            span,
+                            format!(
+                                "internal error: `{key}` was given a handler taking {} arguments",
+                                ps.len()
+                            ),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    }
+                    // The context is dropped and the event is the element, so
+                    // there is no index the runtime supplies: `index = None`.
+                    let bytes = self.step_state_bytes(&ps, None);
+                    let record = self.scratch(state, bytes, 8);
+                    self.store_slots(record, &slots, 8, &pieces);
+                    // The runtime keeps the handler, so the graph owes its
+                    // environment a reference — taken here, given back at exit.
+                    if let Some(glue) = body.as_ref().and_then(|ty| self.retain_glue(ty)) {
+                        let _ = self.builder.build_call(glue, &[record.into()], "");
+                    }
+                    let thunk = self.entry_thunk(&ps, &r, None);
+                    let word = self.ctx.i64_type();
+                    argv.push(function_pointer(thunk).into());
+                    argv.push(record.into());
+                    argv.push(word.const_int(u64::from(bytes), false).into());
+                    // No frame word: this backend's thunk works on the machine
+                    // stack.
+                    argv.push(word.const_all_ones().into());
+                    // The record's own walk: what gives back the reference taken
+                    // above, at exit, when the graph lets the handler go.
+                    let give_back = body
+                        .as_ref()
+                        .and_then(|ty| self.release_glue(ty))
+                        .map(function_pointer)
+                        .unwrap_or_else(|| self.ptr_ty().const_null());
+                    argv.push(give_back.into());
+                }
                 runtime::Arg::Spilled => {
                     let (size, align) = match &element {
                         Some(t) => {
