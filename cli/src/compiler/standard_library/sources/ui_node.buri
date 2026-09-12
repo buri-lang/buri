@@ -888,6 +888,45 @@ export fn renderInto<C>(ctx: C, builder: Builder, node: Node<C>): () {
     emitNode(ctx, builder, node, .Hover)
 }
 
+/// A run of text that follows its prop — the native `$tree_bind`.
+///
+/// A `Const` registers nothing, which is the whole reason it is a visible
+/// variant: a static interface holds no computations at all, so it is emitted
+/// once and never watched. Anything that can change opens the run once, minting
+/// its identity, and registers a watcher that re-reads the prop and patches
+/// that same record — the element and its identity are never remade, so a write
+/// moves the text and not the node.
+fn emitReactiveText(builder: Builder, content: Prop<Str>): () {
+    match (content) {
+        .Const(v) => {
+            let _ = emitText(builder, v);
+        },
+        _ => {
+            let at = openText(builder);
+            reactive(fn(scope) => patchText(builder, at, content.read(scope)))
+        },
+    }
+}
+
+/// A region whose contents are decided by something that can change — the
+/// native `$tree_dynamic`. Two markers hold the place; a watcher removes
+/// everything between them and re-walks `build(scope)`, so every element the
+/// region shows is built again and minted again. Everything that run created
+/// belongs to the run, so the watchers a subtree registered are disposed with
+/// it when the region is rebuilt — the graph's `run` disposes the previous
+/// run's children (`cli/runtime/ui.rs`), which is what a departed subtree needs
+/// and what this reuses rather than rebuilds.
+///
+/// The watcher captures no context — a lambda may not (SPEC 10.6) — so it hands
+/// the re-walk to `rebuildRegion` as `renderInto` itself, a walk that *takes*
+/// its context as a parameter the runtime supplies and drops, exactly as
+/// `render` hands `renderInto` to `mount`. `build` and the region handle carry
+/// no effect, so the watcher captures those.
+fn bindDynamic<C>(builder: Builder, build: fn(Scope) => Node<C>): () {
+    let region = enterDynamic(builder);
+    reactive(fn(scope) => rebuildRegion(builder, region, build(scope), renderInto))
+}
+
 /// One node's records, and everything under it — `nodeLines`, emitting to the
 /// document instead of building `[Str]`.
 fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
@@ -896,14 +935,14 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
     match (node.0) {
         .Nothing => {
         },
-        .Text(content) => emitText(builder, content.read(scope)),
+        .Text(content) => emitReactiveText(builder, content),
         .Heading(level, styles, content) => {
             let _ = emitElement(
                 builder,
                 headingName(level),
                 widgetBody(mem, plain(state), [], styles),
             );
-            let _ = emitText(builder, content.read(scope));
+            let _ = emitReactiveText(builder, content);
             exitElement(builder)
         },
         .Stack(styles, children) => {
@@ -1004,13 +1043,25 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             exitElement(builder)
         },
         .When(cond, then, otherwise) => {
-            if (cond.read(scope)) {
-                emitNode(ctx, builder, then, state)
-            } else {
-                emitNode(ctx, builder, otherwise, state)
+            match (cond) {
+                // A constant condition never changes, so the branch it chooses
+                // is built once with no markers and no watcher, exactly as
+                // `describe` expands it.
+                .Const(pick) => {
+                    if (pick) {
+                        emitNode(ctx, builder, then, state)
+                    } else {
+                        emitNode(ctx, builder, otherwise, state)
+                    }
+                },
+                _ => {
+                    bindDynamic(builder, fn(dynamicScope) => {
+                        if (cond.read(dynamicScope)) { then } else { otherwise }
+                    })
+                },
             }
         },
-        .Computed(build) => emitNode(ctx, builder, build(scope), state),
+        .Computed(build) => bindDynamic(builder, build),
         .Each(count, _keyAt, rowAt) => {
             emitRows(ctx, builder, rowAt, count(scope), state, 0)
         },
@@ -1293,6 +1344,36 @@ fn exitElement(builder: Builder): ();
 
 /// Emits a run of text under the open element.
 fn emitText(builder: Builder, content: Str): ();
+
+/// Opens an empty run of text under the open element and answers the handle a
+/// reactive leaf patches it by. Its identity is minted here, once, and the
+/// watcher `emitReactiveText` registers writes over its text and never its
+/// identity.
+fn openText(builder: Builder): I64;
+
+/// Writes `content` over the run `openText` answered `at`.
+fn patchText(builder: Builder, at: I64, content: Str): ();
+
+/// Registers `body` to run now and again on every change to what it reads —
+/// the renderer's own `watch`, reached with no `Ui` in hand because the runtime
+/// owns the graph the reconciler builds. Everything the run creates belongs to
+/// the run, so a rebuilt region disposes the watchers its last build left.
+fn reactive(body: fn(Scope) => ()): ();
+
+/// Opens a changeable region: two markers holding a place that emits nothing,
+/// and the handle `rebuildRegion` names it by.
+fn enterDynamic(builder: Builder): I64;
+
+/// Rebuilds `region`: removes everything between its markers, points the builder
+/// at the gap, walks `node` there with `walk`, and restores the builder. `walk`
+/// is `renderInto`, handed over rather than captured so the runtime supplies and
+/// drops its context — the native `$tree_dynamic`'s remove-and-re-render.
+fn rebuildRegion<C>(
+    builder: Builder,
+    region: I64,
+    node: Node<C>,
+    walk: fn(C, Builder, Node<C>) => (),
+): ();
 
 /// The lines one node contributes, and the lines of everything under it.
 ///

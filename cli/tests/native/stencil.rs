@@ -2004,6 +2004,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "text/hex.buri",
     "text/json.buri",
     "text/path.buri",
+    "ui/reactive.buri",
     "ui/reactivity.buri",
     "ui/render.buri",
     "url/url.buri",
