@@ -188,6 +188,18 @@ enum NodeKind<C> {
     // and append-only.
     Progress(Prop<Str>, Prop<Float>, [Style], [Node<C>]),
     Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>]),
+    // An element of an arbitrary name with its own styles and children, the
+    // renderer's own — never a program's, so no `ui.*` builds one. It is how a
+    // reactive widget whose presence or structure changes (a dialog, a
+    // disclosure) rebuilds through `bindDynamic`: the build answers the open
+    // state as a plain element tree the reconciler walks and mints afresh.
+    // Appended last, because the variant order is load-bearing and append-only.
+    Raw(Str, [Style], [Node<C>]),
+    // A list of children with no element of their own — the renderer's own, for
+    // a reactive region that shows several children directly under their parent
+    // (a disclosure's body). Appended last, the variant order being load-bearing
+    // and append-only.
+    Fragment([Node<C>]),
 }
 
 /// Nothing at all.
@@ -957,33 +969,39 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 state,
             )
         },
-        .Button(label, styles, children, onPress, disabled, _expanded) => {
-            let painted = refusing(state, disabled.read(scope));
-            if (children.isEmpty()) {
-                let _ = emitElement(
-                    builder,
-                    "button",
-                    widgetBody(mem, painted, [], styles),
-                );
-                let _ = registerPress(builder, onPress);
-                let _ = emitText(builder, label.read(scope));
-                exitElement(builder)
+        // A reactive `disabled` (or, for a label-only button, a reactive label)
+        // rebuilds the button in place through `bindDynamic`: the build reads
+        // the props under its scope — subscribing — and answers the button with
+        // them snapshotted to `.Const`, so the rebuilt node takes the static arm
+        // and never re-wraps. An all-`Const` button is emitted once, with no
+        // watcher, exactly as `describe` expands it.
+        .Button(label, styles, children, onPress, disabled, expanded) => {
+            if (constProp(label) && constProp(disabled)) {
+                emitButton(ctx, builder, label, styles, children, onPress, disabled, state)
             } else {
-                let _ = emitElement(
-                    builder,
-                    "button",
-                    widgetBody(mem, painted, [], styles),
-                );
-                let _ = registerPress(builder, onPress);
-                let _ = emitChildren(ctx, builder, children, state, 0);
-                exitElement(builder)
+                bindDynamic(builder, fn(scope) =>
+                    Node(.Button(
+                        .Const(label.read(scope)),
+                        styles,
+                        children,
+                        onPress,
+                        .Const(disabled.read(scope)),
+                        expanded,
+                    )))
             }
         },
         .Link(_dest, styles, children) => {
             emitBox(ctx, builder, "a", plain(state), styles, children, state)
         },
-        .RouteLink(_dest, styles, children, _onFollow) => {
-            emitBox(ctx, builder, "a", plain(state), styles, children, state)
+        .RouteLink(dest, styles, children, onFollow) => {
+            // The handler crosses whole — `renderInto` never calls it, so its
+            // `Location` requirement never reaches this unbounded walk — and the
+            // runtime fires it with the destination on a `follow`. `describe`
+            // drops it the same way.
+            let _ = emitElement(builder, "a", widgetBody(mem, plain(state), [], styles));
+            let _ = registerFollow(builder, dest.read(scope), onFollow);
+            let _ = emitChildren(ctx, builder, children, state, 0);
+            exitElement(builder)
         },
         .Image(source, _alt, styles) => {
             let declaration = decl(mem, "image", escapeValue(mem, source.read(scope)));
@@ -997,46 +1015,32 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let artwork = decl(mem, "icon", escapeInline(mem, source));
             emitLeaf(builder, "svg", widgetBody(mem, plain(state), [artwork], styles))
         },
-        .Field(label, kind, hint, styles, around, value, _invalid, disabled) => {
-            let _ = emitElement(
-                builder,
-                "label",
-                widgetBody(mem, plain(state), [], wrapper(around)),
-            );
-            let _ = emitText(builder, label.read(scope));
-            let _ = emitFieldControl(
-                builder,
-                refusing(state, disabled.read(scope)),
-                kind,
-                hint.read(scope),
-                styles,
-                value.get(scope),
-                value.index(),
-            );
-            exitElement(builder)
+        // A field's value, hint and `disabled` all change its scene, so a write
+        // to any of them rebuilds it in place: a region holds its spot and the
+        // watcher re-reads the three — subscribing — and re-emits. The control's
+        // own element is ctx-free, so the watcher emits it inline between the
+        // region's markers rather than walking a node.
+        .Field(label, kind, hint, styles, around, value, invalid, disabled) => {
+            let region = enterDynamic(builder);
+            let _ = invalid;
+            reactive(fn(scope) => {
+                let _ = beginRegion(builder, region);
+                let _ = emitField(scope, builder, label, kind, hint, styles, around, value, disabled, state);
+                endRegion(builder)
+            })
         },
-        .Toggle(label, kind, styles, around, value, _invalid, disabled) => {
-            let on = value.get(scope);
-            let painted = Painted {
-                state: state,
-                checked: .Some(on),
-                disabled: disabled.read(scope),
-            };
-            let _ = emitElement(
-                builder,
-                "label",
-                widgetBody(mem, plain(state), [], wrapper(around)),
-            );
-            let _ = emitElement(
-                builder,
-                "input",
-                widgetBody(mem, painted, [], boxStyles(on, styles)),
-            );
-            let _ = registerValue(builder, value.index());
-            let _ = emitMark(builder, kind, on);
-            let _ = exitElement(builder);
-            let _ = emitText(builder, label.read(scope));
-            exitElement(builder)
+        // A toggle's `checked` (its mark and its `checked:` line) and `disabled`
+        // change its scene, so a flip rebuilds it in place. Its element and its
+        // mark are ctx-free, so the watcher emits them inline between the
+        // region's markers.
+        .Toggle(label, kind, styles, around, value, invalid, disabled) => {
+            let region = enterDynamic(builder);
+            let _ = invalid;
+            reactive(fn(scope) => {
+                let _ = beginRegion(builder, region);
+                let _ = emitToggle(scope, builder, label, kind, styles, around, value, disabled, state);
+                endRegion(builder)
+            })
         },
         .Form(onSubmit, styles, children) => {
             let _ = emitElement(
@@ -1079,59 +1083,184 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         },
         .Computed(build) => bindDynamic(builder, build),
         .Each(count, keyAt, rowAt) => emitEach(builder, count, keyAt, rowAt),
+        // Shut, a browser draws none of a dialog, so the scene holds none either;
+        // open, it is the scrim and the panel. `open` is a signal, so the dialog
+        // appears and vanishes with it: a region holds its place and the build
+        // answers the open content — a scrim `div` holding a `dialog` element,
+        // as `.Raw` trees the reconciler walks and mints — or nothing. Closing
+        // it unlinks the panel, so the page behind is reachable again.
         .Dialog(open, _label, styles, children) => {
-            if (open.get(scope)) {
-                let _ = emitElement(
-                    builder,
-                    "div",
-                    widgetBody(mem, plain(state), [], scrim()),
-                );
-                let _ = emitElement(
-                    builder,
-                    "dialog",
-                    widgetBody(mem, plain(state), [], styles),
-                );
-                let _ = emitChildren(ctx, builder, children, state, 0);
-                let _ = exitElement(builder);
-                exitElement(builder)
-            } else {
-            }
+            bindDynamic(builder, fn(scope) =>
+                if (open.get(scope)) {
+                    Node(.Raw("div", scrim(), [Node(.Raw("dialog", styles, children))]))
+                } else {
+                    Node(.Nothing)
+                })
         },
-        .OnPressOutside(_handler, styles, children) => {
-            emitBox(ctx, builder, "div", plain(state), styles, children, state)
-        },
-        .RadioGroup(_label, options, styles, value) => {
+        // A bare wrapper around its children, plus the document listener a press
+        // outside the subtree fires. `registerOutside` keeps the handler on the
+        // open element; disposing the subtree takes it with it.
+        .OnPressOutside(handler, styles, children) => {
             let _ = emitElement(
                 builder,
                 "div",
                 widgetBody(mem, plain(state), [], styles),
             );
-            let _ = emitRadioOptions(builder, state, options, value.get(scope), 0);
+            let _ = registerOutside(builder, handler);
+            let _ = emitChildren(ctx, builder, children, state, 0);
             exitElement(builder)
+        },
+        // The checked option follows the signal, so picking one rebuilds the
+        // group in place — the options are ctx-free, emitted inline between the
+        // region's markers.
+        .RadioGroup(label, options, styles, value) => {
+            let region = enterDynamic(builder);
+            let _ = label;
+            reactive(fn(scope) => {
+                let _ = beginRegion(builder, region);
+                let _ = emitRadio(scope, builder, options, styles, value, state);
+                endRegion(builder)
+            })
         },
         .Progress(_label, _value, styles, children) => {
             emitBox(ctx, builder, "div", plain(state), styles, children, state)
         },
+        // The summary is always drawn; the children only when open. `open` is a
+        // signal, so the group rebuilds in place on a toggle: the build answers
+        // a `details` element holding the summary, and the children after it
+        // only while open, as a `.Raw` tree the reconciler walks.
         .Disclosure(summary, open, styles, children) => {
-            let _ = emitElement(
-                builder,
-                "details",
-                widgetBody(mem, plain(state), [], styles),
-            );
-            let _ = emitElement(
-                builder,
-                "summary",
-                widgetBody(mem, plain(state), [], []),
-            );
-            let _ = emitText(builder, summary.read(scope));
+            // The `details` and its `summary` are always drawn, so they are
+            // emitted once and kept — the element and its identity survive a
+            // toggle, the way a browser's `<details>` does. Only the body comes
+            // and goes, in a region of its own inside the `details`.
+            let _ = emitElement(builder, "details", widgetBody(mem, plain(state), [], styles));
+            let _ = emitElement(builder, "summary", widgetBody(mem, plain(state), [], []));
+            let _ = emitReactiveText(builder, summary);
             let _ = exitElement(builder);
-            let _ = if (open.get(scope)) {
-                emitChildren(ctx, builder, children, state, 0)
-            } else {
-            };
+            let _ = bindDynamic(builder, fn(scope) =>
+                if (open.get(scope)) {
+                    Node(.Fragment(children))
+                } else {
+                    Node(.Nothing)
+                });
             exitElement(builder)
         },
+        .Raw(name, styles, children) => {
+            emitBox(ctx, builder, name, plain(state), styles, children, state)
+        },
+        .Fragment(children) => {
+            emitChildren(ctx, builder, children, state, 0)
+        },
     }
+}
+
+/// Whether a prop is a constant — one that never changes, so the widget holding
+/// it needs no watcher for it.
+fn constProp<T>(prop: Prop<T>): Bool {
+    match (prop) {
+        .Const(_) => true,
+        _ => false,
+    }
+}
+
+/// A button's static emit: its element, the kept press, and its label or its
+/// children. `disabled` is read untracked because the watcher that re-reads it
+/// is the `bindDynamic` the reactive arm wraps this in — here every prop is
+/// already a constant.
+fn emitButton<C>(
+    ctx: C,
+    builder: Builder,
+    label: Prop<Str>,
+    styles: [Style],
+    children: [Node<C>],
+    onPress: fn(C, Event) => (),
+    disabled: Prop<Bool>,
+    state: State,
+): () {
+    let mem = alloc.generalPurpose();
+    let painted = refusing(state, disabled.read(rootScope()));
+    let _ = emitElement(builder, "button", widgetBody(mem, painted, [], styles));
+    let _ = registerPress(builder, onPress);
+    let _ = registerLabel(builder, label.read(rootScope()));
+    let _ = if (children.isEmpty()) {
+        emitReactiveText(builder, label)
+    } else {
+        emitChildren(ctx, builder, children, state, 0)
+    };
+    exitElement(builder)
+}
+
+/// A toggle's static emit, reading its signal and `disabled` under `scope` so
+/// the watcher that drives it subscribes to both. No node crosses, so it needs
+/// no context: a toggle holds a control and a caption and no program children.
+fn emitToggle(
+    ctx: Scope,
+    builder: Builder,
+    label: Prop<Str>,
+    kind: ToggleKind,
+    styles: [Style],
+    around: [Style],
+    value: Signal<Bool>,
+    disabled: Prop<Bool>,
+    state: State,
+): () {
+    let mem = alloc.generalPurpose();
+    let on = value.get(ctx);
+    let painted = Painted { state: state, checked: .Some(on), disabled: disabled.read(ctx) };
+    let _ = emitElement(builder, "label", widgetBody(mem, plain(state), [], wrapper(around)));
+    let _ = emitElement(builder, "input", widgetBody(mem, painted, [], boxStyles(on, styles)));
+    let _ = registerValue(builder, value.index());
+    let _ = emitMark(builder, kind, on);
+    let _ = exitElement(builder);
+    let _ = emitReactiveText(builder, label);
+    exitElement(builder)
+}
+
+/// A field's static emit, reading its signal, hint and `disabled` under `scope`
+/// so the watcher subscribes to each. It holds no program children, so no
+/// context crosses.
+fn emitField(
+    ctx: Scope,
+    builder: Builder,
+    label: Prop<Str>,
+    kind: FieldKind,
+    hint: Prop<Str>,
+    styles: [Style],
+    around: [Style],
+    value: Signal<Str>,
+    disabled: Prop<Bool>,
+    state: State,
+): () {
+    let mem = alloc.generalPurpose();
+    let _ = emitElement(builder, "label", widgetBody(mem, plain(state), [], wrapper(around)));
+    let _ = emitReactiveText(builder, label);
+    let _ = emitFieldControl(
+        builder,
+        refusing(state, disabled.read(ctx)),
+        kind,
+        hint.read(ctx),
+        styles,
+        value.get(ctx),
+        value.index(),
+    );
+    exitElement(builder)
+}
+
+/// A radio group's static emit, reading the selection under `scope` so the
+/// watcher subscribes to it.
+fn emitRadio(
+    ctx: Scope,
+    builder: Builder,
+    options: [(Str, Prop<Str>)],
+    styles: [Style],
+    value: Signal<Str>,
+    state: State,
+): () {
+    let mem = alloc.generalPurpose();
+    let _ = emitElement(builder, "div", widgetBody(mem, plain(state), [], styles));
+    let _ = emitRadioOptions(builder, state, options, value.get(ctx), 0);
+    exitElement(builder)
 }
 
 /// A box: its element, then every child one level in.
@@ -1145,9 +1274,52 @@ fn emitBox<C>(
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
-    let _ = emitElement(builder, name, widgetBody(mem, painted, [], styles));
-    let _ = emitChildren(ctx, builder, children, state, 0);
-    exitElement(builder)
+    // A box whose styles hold a computation opens the element once and patches
+    // its body from a watcher, so a write to what a `Computed`/`When` style
+    // reads re-serialises the line in place — the scene's `$tree_styles` bind.
+    // Its children are emitted once and kept, as are the element and its
+    // identity. A box of constant styles registers nothing.
+    if (stylesReactive(styles)) {
+        let at = openElement(builder, name, "");
+        let _ = reactive(fn(scope) => patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles)));
+        let _ = emitChildren(ctx, builder, children, state, 0);
+        exitElement(builder)
+    } else {
+        let _ = emitElement(builder, name, widgetBody(mem, painted, [], styles));
+        let _ = emitChildren(ctx, builder, children, state, 0);
+        exitElement(builder)
+    }
+}
+
+/// Whether a style list holds a computation — a `Computed`, or a `When` whose
+/// condition can change — so the element carrying it needs a watcher. A list
+/// of constants registers none, which is what lets a static interface hold no
+/// computations at all.
+fn stylesReactive(styles: [Style]): Bool {
+    stylesReactiveAt(styles, 0)
+}
+
+fn stylesReactiveAt(styles: [Style], at: Int): Bool {
+    match (styles.get(at)) {
+        .None => false,
+        .Some(style) => {
+            let here = match (style) {
+                .Computed(_build) => true,
+                .When(cond, then, otherwise) => {
+                    !constProp(cond) || stylesReactiveAt(then, 0) || stylesReactiveAt(otherwise, 0)
+                },
+                .Group(inner) => stylesReactiveAt(inner, 0),
+                .On(_on, inner) => stylesReactiveAt(inner, 0),
+                .At(_screen, inner) => stylesReactiveAt(inner, 0),
+                _ => false,
+            };
+            if (here) {
+                true
+            } else {
+                stylesReactiveAt(styles, at + 1)
+            }
+        },
+    }
 }
 
 /// Every child, in order.
@@ -1407,6 +1579,16 @@ fn openText(builder: Builder): I64;
 /// Writes `content` over the run `openText` answered `at`.
 fn patchText(builder: Builder, at: I64, content: Str): ();
 
+/// Emits an element with `name` and `body` and enters it, the way `emitElement`
+/// does, and answers the index a reactive style patches its body by. Its
+/// identity is minted once; the watcher `emitReactiveBox` registers writes over
+/// its `body` and never its identity, so a style that changes moves no element.
+fn openElement(builder: Builder, name: Str, body: Str): I64;
+
+/// Writes `body` over the element `openElement` answered `at`, leaving its
+/// identity, its children and its place as they were.
+fn patchBody(builder: Builder, at: I64, body: Str): ();
+
 /// Registers `body` to run now and again on every change to what it reads —
 /// the renderer's own `watch`, reached with no `Ui` in hand because the runtime
 /// owns the graph the reconciler builds. Everything the run creates belongs to
@@ -1416,6 +1598,14 @@ fn reactive(body: fn(Scope) => ()): ();
 /// Opens a changeable region: two markers holding a place that emits nothing,
 /// and the handle `rebuildRegion` names it by.
 fn enterDynamic(builder: Builder): I64;
+
+/// Clears `region` and points the builder at the gap, so the emits that follow
+/// land between its markers — `rebuildRegion` split open, for a reactive widget
+/// whose body builds no `Node` and needs no context. `endRegion` closes it.
+fn beginRegion(builder: Builder, region: I64): ();
+
+/// Restores where the builder emits after `beginRegion`.
+fn endRegion(builder: Builder): ();
 
 /// Rebuilds `region`: removes everything between its markers, points the builder
 /// at the gap, walks `node` there with `walk`, and restores the builder. `walk`
@@ -1451,9 +1641,26 @@ fn reconcile<C>(
 /// handler lives in the graph, so disposing the row it is in disposes it.
 fn registerPress<C>(builder: Builder, onPress: fn(C, Event) => ()): ();
 
+/// Keeps an `onPressOutside`'s `fn(C, Event) => ()` on the document, paired with
+/// the open element, so a press whose target is not inside that element fires
+/// it. The handler lives in the graph, so disposing the subtree it is in takes
+/// the listener with it — the native twin of `$dom_outside`.
+fn registerOutside<C>(builder: Builder, handler: fn(C, Event) => ()): ();
+
 /// Stores the signal a field's or a toggle's value is bound to on the open
 /// element, so `fill` writes it a string and `flip` its negation.
 fn registerValue(builder: Builder, signal: Int): ();
+
+/// Keeps a control's accessible name on the open element, so `press` can
+/// address a button by the label a reader hears even when its glyphs are its
+/// children — the scene twin of the `aria-label` a button carries.
+fn registerLabel(builder: Builder, label: Str): ();
+
+/// Keeps a route link's `fn(C, Str) => ()` and its destination on the open
+/// anchor, so `follow` fires it with that destination — a plain left-click that
+/// navigates in place — while `openInNewTab` leaves it to the browser and fires
+/// nothing. The handler lives in the graph, disposed with the subtree.
+fn registerFollow<C>(builder: Builder, dest: Str, onFollow: fn(C, Str) => ()): ();
 
 /// Flags the open button as the one whose press submits its form — the native
 /// `type="submit"`, the whole of what makes a press or Enter submit.
@@ -1643,6 +1850,13 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 head
             }
         },
+        // The renderer's own element, nameless here as every box is: `describe`
+        // draws no program tree into one, so this arm exists for the match and
+        // mirrors a stack's lines.
+        .Raw(_name, styles, children) => container(ctx, state, styles, children, depth),
+        // A fragment draws its children at the depth it sits, with no box of its
+        // own — `describe` never builds one, so this is for the match.
+        .Fragment(children) => childLines(ctx, state, children, depth, 0, []),
     }
 }
 
@@ -1964,18 +2178,69 @@ fn widgetLine<C: Allocator>(
 /// The declarations half of a widget's `e` line, without the depth: the classes,
 /// then the scene-only declarations `leading` names, then the styles written
 /// out. What `renderInto` hands the runtime for one element.
+/// The style list flattened to the concrete declarations and extracted classes
+/// an element carries, with every `Computed`/`When`/`On`/`At`/`Group` resolved
+/// **once**. `classNames` and `inlineIn` then walk a list that holds no
+/// computation, so a `Computed` style's body runs a single time per render
+/// rather than once for the classes and once for the inline tier.
+fn resolve(ctx: Scope, painted: Painted, styles: [Style], at: Int, acc: [Style]): [Style] {
+    match (styles.get(at)) {
+        .None => acc,
+        .Some(style) => {
+            let more: [Style] = match (style) {
+                .Group(inner) => resolve(ctx, painted, inner, 0, []),
+                .On(on, inner) => {
+                    if (applies(stateRank(on), painted)) {
+                        resolve(ctx, painted, inner, 0, [])
+                    } else {
+                        []
+                    }
+                },
+                .When(cond, then, otherwise) => {
+                    if (cond.read(ctx)) {
+                        resolve(ctx, painted, then, 0, [])
+                    } else {
+                        resolve(ctx, painted, otherwise, 0, [])
+                    }
+                },
+                .Computed(build) => resolve(ctx, painted, build(ctx), 0, []),
+                // A breakpoint lives in the stylesheet; both tiers here drop it.
+                .At(_screen, _inner) => [],
+                _ => [style],
+            };
+            resolve(ctx, painted, styles, at + 1, acc.concat(ctx, more))
+        },
+    }
+}
+
 fn widgetBody<C: Allocator>(
     ctx: C,
     painted: Painted,
     leading: [Str],
     styles: [Style],
 ): Str {
+    let flat = resolve(rootScope(), painted, styles, 0, []);
     elementBody(
         ctx,
-        classNames(ctx, painted, styles),
+        classNames(ctx, painted, flat),
         leading
             .concat(ctx, answers(ctx, painted))
-            .concat(ctx, inlineIn(ctx, painted, styles, 0, [])),
+            .concat(ctx, inlineIn(ctx, painted, flat, 0, [])),
+    )
+}
+
+/// `widgetBody`, read under a watcher's `scope` rather than the untracked root:
+/// a reactive element's watcher computes its body this way so the styles it
+/// reads subscribe it, and a write to one re-runs the watcher and patches the
+/// body in place. A `Scope` is an allocator, so it builds the strings too.
+fn widgetBodyUnder(ctx: Scope, painted: Painted, leading: [Str], styles: [Style]): Str {
+    let flat = resolve(ctx, painted, styles, 0, []);
+    elementBody(
+        ctx,
+        classNames(ctx, painted, flat),
+        leading
+            .concat(ctx, answers(ctx, painted))
+            .concat(ctx, inlineIn(ctx, painted, flat, 0, [])),
     )
 }
 

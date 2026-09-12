@@ -1,0 +1,16 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/mount.buri"]
+
+        # JS only, and for the one reason left after #53 phase 6 moved the render
+        # suite to both backends: `ui/node`'s `mount` is the real page mount, a
+        # live document a browser owns, and no native backend has one. Everything
+        # the render suite shares is `render`, the test-only renderer that builds
+        # the scene document both backends do have; this block is the exception
+        # that reaches `mount` itself. `native::conformance` records
+        # `ui_mount/mount.buri` as excluded, with that reason.
+        platforms: [JS]
+    }
+}

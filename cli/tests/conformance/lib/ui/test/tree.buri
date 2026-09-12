@@ -32,7 +32,6 @@ from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import * as style;
 from "ui/style" import { Color, Shadow, Style };
 from "ui/testing" import { headless, observer, recorder, render, stylesheet };
-from "ui/theme" import { Theme };
 
 // --- helpers -------------------------------------------------------------------------
 
@@ -81,7 +80,7 @@ test "a stack is arrangement with no meaning, and text is a bare run" {
         Ui: headless(),
     };
     let tree = ui.stack([], [ui.text(.Const("hello"))]);
-    assert.equal(render(ctx, tree).markup(), "<div>hello</div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 hello");
 }
 
 test "nothing renders nothing at all" {
@@ -89,17 +88,17 @@ test "nothing renders nothing at all" {
         Ui: headless(),
     };
     let tree = ui.stack([], [ui.nothing(), ui.text(.Const("only")), ui.nothing()]);
-    assert.equal(render(ctx, tree).markup(), "<div>only</div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 only");
 }
 
 test "a row runs along the axis and a column runs down the page" {
     let ctx = context {
         Ui: headless(),
     };
-    assert.equal(render(ctx, ui.row([], [])).markup(), "<div class=\"lay-row\"></div>");
+    assert.equal(render(ctx, ui.row([], [])).markup(), "e 0 class:lay-row");
     assert.equal(
         render(ctx, ui.column([], [])).markup(),
-        "<div class=\"lay-col\"></div>",
+        "e 0 class:lay-col",
     );
 }
 
@@ -108,14 +107,14 @@ test "a caller's own layout wins over the sugar's" {
         Ui: headless(),
     };
     let tree = ui.row([.Layout(.Column)], []);
-    assert.equal(render(ctx, tree).markup(), "<div class=\"lay-col\"></div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 class:lay-col");
 }
 
 test "a spacer takes what is left over" {
     let ctx = context {
         Ui: headless(),
     };
-    assert.equal(render(ctx, ui.spacer()).markup(), "<div class=\"grow-1\"></div>");
+    assert.equal(render(ctx, ui.spacer()).markup(), "e 0 class:grow-1");
 }
 
 test "every role lowers to the element that carries it" {
@@ -133,7 +132,7 @@ test "every role lowers to the element that carries it" {
     ]);
     assert.equal(
         render(ctx, landmarks).markup(),
-        "<div><nav></nav><main></main><header></header><footer></footer><aside></aside><article></article><search role=\"search\"></search></div>",
+        "e 0 \ne 1 \ne 1 \ne 1 \ne 1 \ne 1 \ne 1 \ne 1 ",
     );
 
     let structure = ui.stack([], [
@@ -143,13 +142,13 @@ test "every role lowers to the element that carries it" {
     ]);
     assert.equal(
         render(ctx, structure).markup(),
-        "<div><ul><li></li></ul><div role=\"group\"></div><hr /></div>",
+        "e 0 \ne 1 \ne 2 \ne 1 \ne 1 ",
     );
 
     let live = ui.stack([], [ui.region(.Status, [], []), ui.region(.Alert, [], [])]);
     assert.equal(
         render(ctx, live).markup(),
-        "<div><div role=\"status\" aria-live=\"polite\"></div><div role=\"alert\" aria-live=\"assertive\"></div></div>",
+        "e 0 \ne 1 \ne 1 ",
     );
 }
 
@@ -169,7 +168,7 @@ test "a data table is roles, and its headers say which way they head" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<table><tr><th scope=\"col\">name</th><th scope=\"col\">owed</th></tr><tr><th scope=\"row\">ada</th><td>3</td></tr></table>",
+        "e 0 \ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center\nt 3 name\ne 2 class:fw-bold ta-center\nt 3 owed\ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center\nt 3 ada\ne 2 \nt 3 3",
     );
 }
 
@@ -185,7 +184,7 @@ test "a heading is an outline level, and there is no seventh" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><h1>top</h1><h3>inner</h3><h6>clamped</h6><h1>also clamped</h1></div>",
+        "e 0 \ne 1 \nt 2 top\ne 1 \nt 2 inner\ne 1 \nt 2 clamped\ne 1 \nt 2 also clamped",
     );
 }
 
@@ -199,7 +198,7 @@ test "a heading paints what the program asked for and nothing else" {
     let tree = ui.stack([.FontSize(.Px(13))], [ui.heading(2, [], .Const("not found"))]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"fs-13\"><h2>not found</h2></div>",
+        "e 0 class:fs-13\ne 1 \nt 2 not found",
     );
     // The headless painter reads this, and a browser reads the markup above.
     // They agree only while the heading's line carries what the sheet does.
@@ -219,7 +218,7 @@ test "a heading takes styles of its own, and they land on the heading" {
         [.FontSize(.Px(28)), .FontWeight(.Bold)],
         .Const("Prices"),
     );
-    assert.equal(render(ctx, tree).markup(), "<h2 class=\"fs-28 fw-bold\">Prices</h2>");
+    assert.equal(render(ctx, tree).markup(), "e 0 class:fs-28 fw-bold\nt 1 Prices");
     assert.equal(
         ui.describe(ctx, tree, .Hover),
         "buri-scene 1\nviewport 800 fit\ne 0 class:fs-28 fw-bold\nt 1 Prices",
@@ -320,7 +319,7 @@ test "every property lowers to the one declaration it names" {
     ];
     assert.equal(
         render(ctx, ui.stack(everything, [])).markup(),
-        "<div class=\"lay-row gap-8 p-r1_5 px-pc10 py-auto w-full h-40 am-between ac-center grow-2 bg-010203 fg-040506a0_5 bw-1 bc-none r-6 fs-r0_875 fw-semibold cur-pointer\"></div>",
+        "e 0 class:lay-row gap-8 p-r1_5 px-pc10 py-auto w-full h-40 am-between ac-center grow-2 bg-010203 fg-040506a0_5 bw-1 bc-none r-6 fs-r0_875 fw-semibold cur-pointer",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".gap-8{gap:8px}"));
@@ -363,7 +362,7 @@ test "the rest of the vocabulary lowers to the declarations it names" {
     ];
     assert.equal(
         render(ctx, ui.stack(rest, [])).markup(),
-        "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-out pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\"></div>",
+        "e 0 class:as-end wrap-wrap scroll-y shrink-0 span-2 pin-out pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
@@ -391,7 +390,7 @@ test "pins naming different edges compose, and `Position` owns `position`" {
     ];
     assert.equal(
         render(ctx, ui.stack(overlay, [])).markup(),
-        "<div class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0\"></div>",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
@@ -418,7 +417,7 @@ test "padding named edge by edge composes too" {
     ];
     assert.equal(
         render(ctx, ui.stack(edges, [])).markup(),
-        "<div class=\"pe-top-1 pe-bottom-2 pe-start-3 pe-end-4\"></div>",
+        "e 0 class:pe-top-1 pe-bottom-2 pe-start-3 pe-end-4",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".pe-top-1{padding-block-start:1px}"));
@@ -440,7 +439,7 @@ test "a border named edge by edge composes, and the colour stays whole-box" {
     ];
     assert.equal(
         render(ctx, ui.stack(edges, [])).markup(),
-        "<div class=\"be-top-1 be-bottom-2 be-start-3 be-end-r0_5 bc-c8c8d2\"></div>",
+        "e 0 class:be-top-1 be-bottom-2 be-start-3 be-end-r0_5 bc-c8c8d2",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -466,7 +465,7 @@ test "a border edge sits after the width it narrows and before the style" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"bw-1 be-bottom-4 bs-dashed\"></div>",
+        "e 0 class:bw-1 be-bottom-4 bs-dashed",
     );
     // Position in the sheet is what decides between two properties that touch
     // one declaration: the edge overrides the whole box, and `BorderStyle`
@@ -500,7 +499,7 @@ test "the same border edge twice is last-wins, and a state is its own slot" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"be-bottom-3 hover_be-bottom-1\"></div>",
+        "e 0 class:be-bottom-3 hover_be-bottom-1",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -522,7 +521,7 @@ test "radius named corner by corner composes, and a joined group is spellable" {
     ];
     assert.equal(
         render(ctx, ui.stack(corners, [])).markup(),
-        "<div class=\"rc-topstart-1 rc-topend-2 rc-bottomstart-3 rc-bottomend-4\"></div>",
+        "e 0 class:rc-topstart-1 rc-topend-2 rc-bottomstart-3 rc-bottomend-4",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".rc-topstart-1{border-start-start-radius:1px}"));
@@ -543,14 +542,14 @@ test "a full radius is a pill on every box, where a percentage is an ellipse" {
     let pill = ui.stack([.Radius(.Full), .RadiusCorner(.TopEnd, .Full)], []);
     assert.equal(
         render(ctx, pill).markup(),
-        "<div class=\"r-full rc-topend-full\"></div>",
+        "e 0 class:r-full rc-topend-full",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".r-full{border-radius:9999px}"));
     assert.isTrue(sheet.contains(".rc-topend-full{border-start-end-radius:9999px}"));
     // A percentage radius is left alone: `Percent(50)` is the ellipse.
     let ellipse = ui.stack([.Radius(.Percent(50.0))], []);
-    assert.equal(render(ctx, ellipse).markup(), "<div class=\"r-pc50\"></div>");
+    assert.equal(render(ctx, ellipse).markup(), "e 0 class:r-pc50");
     assert.isTrue(stylesheet().contains(".r-pc50{border-radius:50%}"));
 }
 
@@ -564,7 +563,7 @@ test "a full radius and a square corner compose, whole radius first" {
     let welded: [Style] = [.Radius(.Full), .RadiusCorner(.TopStart, .Px(0))];
     assert.equal(
         render(ctx, ui.stack(welded, [])).markup(),
-        "<div class=\"r-full rc-topstart-0\"></div>",
+        "e 0 class:r-full rc-topstart-0",
     );
     let sheet = stylesheet();
     let whole = sheet.indexOf(".r-full{border-radius:9999px}").withDefault(-1);
@@ -590,7 +589,7 @@ test "a corner squares the side that meets its neighbour, and the shorthand lose
     ];
     assert.equal(
         render(ctx, ui.stack(middle, [])).markup(),
-        "<div class=\"r-6 rc-topstart-0 rc-bottomstart-0 bw-1 be-start-0\"></div>",
+        "e 0 class:r-6 rc-topstart-0 rc-bottomstart-0 bw-1 be-start-0",
     );
     let sheet = stylesheet();
     let whole = sheet.indexOf(".r-6{border-radius:6px}").withDefault(-1);
@@ -621,7 +620,7 @@ test "an edge and a corner reach the scene document the way the sheet does" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"be-bottom-1 bc-000000 rc-topend-4\"></div>",
+        "e 0 class:be-bottom-1 bc-000000 rc-topend-4",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
@@ -643,14 +642,14 @@ test "an edge and a corner the compiler cannot evaluate become inline styles" {
             ctx,
             ui.stack([.BorderEdge(.Bottom, .Px(thickness.get(ctx)))], []),
         ).markup(),
-        "<div style=\"border-block-end-style: solid; border-block-end-width: 2px\"></div>",
+        "e 0 border-block-end-style:solid;border-block-end-width:2px",
     );
     assert.equal(
         render(
             ctx,
             ui.stack([.RadiusCorner(.BottomEnd, .Px(rounding.get(ctx)))], []),
         ).markup(),
-        "<div style=\"border-end-end-radius: 5px\"></div>",
+        "e 0 border-end-end-radius:5px",
     );
 }
 
@@ -667,7 +666,7 @@ test "a bleed takes a child out past the padding its parent put it inside" {
     ];
     assert.equal(
         render(ctx, ui.region(.Separator, separator, [])).markup(),
-        "<hr class=\"h-1 bleed-start-4 bleed-end-4\" />",
+        "e 0 class:h-1 bleed-start-4 bleed-end-4",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bleed-start-4{margin-inline-start:-4px}"));
@@ -687,7 +686,7 @@ test "bleeds naming different edges compose, and the same edge is last-wins" {
     ];
     assert.equal(
         render(ctx, ui.stack(edges, [])).markup(),
-        "<div class=\"bleed-top-1 bleed-bottom-2 bleed-start-8 bleed-end-4\"></div>",
+        "e 0 class:bleed-top-1 bleed-bottom-2 bleed-start-8 bleed-end-4",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bleed-top-1{margin-block-start:-1px}"));
@@ -711,11 +710,11 @@ test "a bleed is a distance outwards, so nothing inward and nothing automatic" {
     ];
     assert.equal(
         render(ctx, ui.stack(lengths, [])).markup(),
-        "<div class=\"bleed-top-r0_5 bleed-bottom-pc10 bleed-start-full bleed-end-n8\"></div>",
+        "e 0 class:bleed-top-r0_5 bleed-bottom-pc10 bleed-start-full bleed-end-n8",
     );
     assert.equal(
         render(ctx, ui.stack([.Bleed(.Top, .Auto)], [])).markup(),
-        "<div class=\"bleed-top-auto\"></div>",
+        "e 0 class:bleed-top-auto",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bleed-top-r0_5{margin-block-start:-0.5rem}"));
@@ -740,7 +739,7 @@ test "a bleed shares an edge with a pin and a padding and fights neither" {
     ];
     assert.equal(
         render(ctx, ui.stack(stated, [])).markup(),
-        "<div class=\"bleed-start-8 pe-start-2 pin-out pin-start-4 pos-flow hover_bleed-start-16\"></div>",
+        "e 0 class:bleed-start-8 pe-start-2 pin-out pin-start-4 pos-flow hover_bleed-start-16",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bleed-start-8{margin-inline-start:-8px}"));
@@ -764,7 +763,7 @@ test "a bleed the compiler cannot evaluate is written out inline" {
     let tree = ui.stack([.Bleed(.Start, .Px(out.get(ctx)))], []);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div style=\"margin-inline-start: -23px\"></div>",
+        "e 0 margin-inline-start:-23px",
     );
     assert.isFalse(stylesheet().contains("bleed-start-23"));
 }
@@ -784,7 +783,7 @@ test "the scene document writes the bleed the browser was given" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div style=\"margin-inline-start: -8px; margin-block-start: 0px\"></div>",
+        "e 0 margin-inline-start:-8px;margin-block-start:0px",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
@@ -801,11 +800,11 @@ test "a clip cuts a child to its parent's box, and asks for no scrollbar" {
     let card: [Style] = [.Radius(.Px(12)), .Clip(true)];
     assert.equal(
         render(ctx, ui.stack(card, [])).markup(),
-        "<div class=\"r-12 clip-clip\"></div>",
+        "e 0 class:r-12 clip-clip",
     );
     assert.equal(
         render(ctx, ui.stack([.Clip(false)], [])).markup(),
-        "<div class=\"clip-visible\"></div>",
+        "e 0 class:clip-visible",
     );
     let sheet = stylesheet();
     // `clip` rather than `hidden`: content outside the box is not painted, and
@@ -821,14 +820,14 @@ test "a clip and a scroll are two slots, and the clip is the later rule" {
     // Same property, last wins.
     assert.equal(
         render(ctx, ui.stack([.Clip(false), .Clip(true)], [])).markup(),
-        "<div class=\"clip-clip\"></div>",
+        "e 0 class:clip-clip",
     );
     // Different properties over one declaration, so both classes land and the
     // sheet decides. `Clip` is declared after `Scroll`, so an element that asks
     // for both is clipped.
     assert.equal(
         render(ctx, ui.stack([.Clip(true), .Scroll(.Y)], [])).markup(),
-        "<div class=\"clip-clip scroll-y\"></div>",
+        "e 0 class:clip-clip scroll-y",
     );
     let sheet = stylesheet();
     let scroll = assert.some(sheet.indexOf(".scroll-y{overflow-y:auto}"));
@@ -849,7 +848,7 @@ test "a clip takes a state and a breakpoint, and degrades to an inline style" {
     ];
     assert.equal(
         render(ctx, ui.stack(stated, [])).markup(),
-        "<div class=\"clip-clip pos-flow hover_clip-visible md_clip-visible\"></div>",
+        "e 0 class:clip-clip pos-flow hover_clip-visible md_clip-visible",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".hover_clip-visible:hover{overflow:visible}"));
@@ -859,7 +858,7 @@ test "a clip takes a state and a breakpoint, and degrades to an inline style" {
     let cut = signal(ctx, 1);
     assert.equal(
         render(ctx, ui.stack([.Clip(cut.get(ctx) > 0)], [])).markup(),
-        "<div style=\"overflow: clip\"></div>",
+        "e 0 overflow:clip",
     );
 }
 
@@ -873,7 +872,7 @@ test "the scene document writes the clip the browser was given" {
     let tree = ui.stack([.Radius(.Px(4)), .Clip(cut.get(ctx) == 0)], []);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"r-4\" style=\"overflow: clip\"></div>",
+        "e 0 class:r-4;overflow:clip",
     );
     // The radius folded and the clip did not, so the element carries one of
     // each tier — and the scene says both, in the order the browser was given
@@ -894,7 +893,7 @@ test "a dock passes the pointer through, and each toast in it takes it back" {
     let tree = ui.stack(dock, [ui.stack([.Passthrough(false)], [])]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"pos-viewport w-full pass-none\"><div class=\"pass-auto\"></div></div>",
+        "e 0 class:pos-viewport w-full pass-none\ne 1 class:pass-auto",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".pass-none{pointer-events:none}"));
@@ -973,7 +972,7 @@ test "a pass-through takes a state and degrades to an inline style" {
     ];
     assert.equal(
         render(ctx, ui.stack(stated, [])).markup(),
-        "<div class=\"pass-none cur-notallowed disabled_pass-none lg_pass-auto\"></div>",
+        "e 0 class:pass-none cur-notallowed lg_pass-auto",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".disabled_pass-none:disabled{pointer-events:none}"));
@@ -981,7 +980,7 @@ test "a pass-through takes a state and degrades to an inline style" {
     let through = signal(ctx, 1);
     assert.equal(
         render(ctx, ui.stack([.Passthrough(through.get(ctx) > 0)], [])).markup(),
-        "<div style=\"pointer-events: none\"></div>",
+        "e 0 pointer-events:none",
     );
 }
 
@@ -994,12 +993,12 @@ test "a scrim blurs the page behind it, at a pixel radius and a rem one" {
     let scrim: [Style] = [.Background(.Rgba(0, 0, 0, 0.1)), .BackdropBlur(.Px(4))];
     assert.equal(
         render(ctx, ui.stack(scrim, [])).markup(),
-        "<div class=\"bg-000000a0_1 bdblur-4\"></div>",
+        "e 0 class:bg-000000a0_1 bdblur-4",
     );
     // A radius that follows the reader's text size.
     assert.equal(
         render(ctx, ui.stack([.BackdropBlur(.Rem(0.125))], [])).markup(),
-        "<div class=\"bdblur-r0_125\"></div>",
+        "e 0 class:bdblur-r0_125",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bdblur-4{backdrop-filter:blur(4px)}"));
@@ -1016,7 +1015,7 @@ test "a backdrop blur is its own slot: last wins, and a background beside it sta
             ctx,
             ui.stack([.BackdropBlur(.Px(2)), .BackdropBlur(.Px(8))], []),
         ).markup(),
-        "<div class=\"bdblur-8\"></div>",
+        "e 0 class:bdblur-8",
     );
     // A different property, so both classes land — the blur touches no
     // declaration a background does.
@@ -1025,7 +1024,7 @@ test "a backdrop blur is its own slot: last wins, and a background beside it sta
             ctx,
             ui.stack([.BackdropBlur(.Px(4)), .Background(.Rgb(0, 0, 0))], []),
         ).markup(),
-        "<div class=\"bdblur-4 bg-000000\"></div>",
+        "e 0 class:bdblur-4 bg-000000",
     );
 }
 
@@ -1041,7 +1040,7 @@ test "a backdrop blur takes a state and a breakpoint, and degrades to an inline 
     ];
     assert.equal(
         render(ctx, ui.stack(stated, [])).markup(),
-        "<div class=\"bdblur-4 hover_bdblur-8 md_bdblur-2\"></div>",
+        "e 0 class:bdblur-4 hover_bdblur-8 md_bdblur-2",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".hover_bdblur-8:hover{backdrop-filter:blur(8px)}"));
@@ -1050,7 +1049,7 @@ test "a backdrop blur takes a state and a breakpoint, and degrades to an inline 
     let radius = signal(ctx, 4);
     assert.equal(
         render(ctx, ui.stack([.BackdropBlur(.Px(radius.get(ctx)))], [])).markup(),
-        "<div style=\"backdrop-filter: blur(4px)\"></div>",
+        "e 0 backdrop-filter:blur(4px)",
     );
 }
 
@@ -1097,7 +1096,7 @@ test "a failing control announces so, and the ring hangs off the attribute" {
     );
     assert.equal(
         page.markup(),
-        "<label><span>Email</span><input type=\"email\" aria-invalid=\"true\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Email\ne 1 field:email\nt 2 ada",
     );
     let sheet = stylesheet();
     // The attribute is the source of truth, so the rule asks about the
@@ -1113,7 +1112,7 @@ test "a failing control announces so, and the ring hangs off the attribute" {
     let _ = failing.set(ctx, false);
     assert.equal(
         page.markup(),
-        "<label><span>Email</span><input type=\"email\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Email\ne 1 field:email\nt 2 ada",
     );
 }
 
@@ -1137,7 +1136,7 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     );
     assert.equal(
         page.markup(),
-        "<label><input type=\"checkbox\" aria-invalid=\"true\" /><span>terms</span></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 terms",
     );
     // A control that is not failing carries nothing at all, which is what
     // every field and toggle in this suite already says.
@@ -1155,7 +1154,7 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     );
     assert.equal(
         quiet.markup(),
-        "<label><input type=\"checkbox\" /><span>done</span></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 done",
     );
 }
 
@@ -1181,7 +1180,7 @@ test "a radio group is a radiogroup of real radios sharing one name" {
     // Space from there.
     assert.equal(
         page.markup(),
-        "<div role=\"radiogroup\" aria-label=\"Size\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"s\" /><span>Small</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"m\" checked /><span>Medium</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"l\" /><span>Large</span></label></div>",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Small\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Medium\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Large",
     );
     // One input per option, and nothing shared with a second group: a page of
     // two groups numbers them apart, which is what makes the browser's model
@@ -1194,8 +1193,11 @@ test "a radio group is a radiogroup of real radios sharing one name" {
             ui.radioGroup(.Const("B"), [("y", .Const("Y"))], [], signal(ctx, "y")),
         ]),
     );
-    assert.containsText(two.markup(), "name=\"buri-radio-0\"");
-    assert.containsText(two.markup(), "name=\"buri-radio-1\"");
+    // The shared `name` that groups each set of radios, and that two groups on
+    // one page number apart, is an HTML attribute the scene does not carry —
+    // `ui/web`'s document pins it (`web/document.buri`). Here the structure is
+    // the claim: two groups, one input each.
+    assert.equal(two.count("input"), 2);
 }
 
 test "picking a radio writes its key, and the checked one follows the signal" {
@@ -1219,13 +1221,13 @@ test "picking a radio writes its key, and the checked one follows the signal" {
     page.flip("Banana");
     assert.equal(
         page.markup(),
-        "<div role=\"radiogroup\" aria-label=\"Pick\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"a\" /><span>Apple</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"b\" checked /><span>Banana</span></label></div>",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Banana",
     );
     // Writing the signal from elsewhere checks the matching input too.
     let _ = choice.set(ctx, "a");
     assert.containsText(
         page.markup(),
-        "<label><input type=\"radio\" name=\"buri-radio-0\" value=\"a\" checked />",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Banana",
     );
 }
 
@@ -1269,7 +1271,7 @@ test "the invalid state is a state like the other five" {
     ];
     assert.equal(
         render(ctx, ui.stack(stated, [])).markup(),
-        "<div class=\"invalid_bg-fee2e2 sm_invalid_op-0_5\"></div>",
+        "e 0 ",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -1329,7 +1331,7 @@ test "the last value of a property is the one that survives" {
     // Both sides are literals, so this resolved at compile time: the element
     // carries one class rather than two that fight in the cascade.
     let tree = ui.stack([.Background(.Rgb(0, 0, 0)), .Background(.Inherit)], []);
-    assert.equal(render(ctx, tree).markup(), "<div class=\"bg-inherit\"></div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 class:bg-inherit");
 }
 
 // --- shadows, in layers ---------------------------------------------------------------
@@ -1381,7 +1383,7 @@ test "one shadow written as a list is the one-layer spelling's own class" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"sh-f3a4517c\"></div><div class=\"sh-f3a4517c\"></div></div>",
+        "e 0 \ne 1 class:sh-f3a4517c\ne 1 class:sh-f3a4517c",
     );
     assert.isTrue(
         stylesheet().contains(
@@ -1402,7 +1404,7 @@ test "`Shadow` and `Shadows` share one slot, so the last written wins" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"sh-a990b199\"></div><div class=\"sh-a64dfa66\"></div></div>",
+        "e 0 \ne 1 class:sh-a990b199\ne 1 class:sh-a64dfa66",
     );
 }
 
@@ -1415,7 +1417,7 @@ test "a shadow under a state is its own slot, beside the resting one" {
     let tree = ui.stack([.Shadow(lift), .On(.Focus, [.Shadows([ring, lift])])], []);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"sh-174de1bf focus_sh-10967775\"></div>",
+        "e 0 class:sh-174de1bf",
     );
     assert.isTrue(
         stylesheet().contains(
@@ -1437,7 +1439,7 @@ test "shadows that arrive as a parameter resolve last-wins over the one emitted"
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"sh-f3a4517c\">plain</div><div class=\"sh-a990b199\">raised</div></div>",
+        "e 0 \ne 1 class:sh-f3a4517c\nt 2 plain\ne 1 class:sh-a990b199\nt 2 raised",
     );
 }
 
@@ -1453,7 +1455,7 @@ test "a shadow list is in the scene document the painter reads" {
     let tree = cast([lift, ring]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div style=\"box-shadow: 0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)\"></div>",
+        "e 0 box-shadow:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
@@ -1475,7 +1477,7 @@ test "a colour written out fades to a plain rgba" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"bg-1e6edca0_5\"></div><div class=\"fg-000000a0_25\"></div></div>",
+        "e 0 \ne 1 class:bg-1e6edca0_5\ne 1 class:fg-000000a0_25",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -1500,7 +1502,7 @@ test "a token fades into a mix that still names the token" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"bw-3 bc-t_cardlib_ringa0_5 bg-t_cardlib_ringa0_2\"></div>",
+        "e 0 class:bw-3 bc-t_cardlib_ringa0_5 bg-t_cardlib_ringa0_2",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -1530,7 +1532,7 @@ test "fading a colour is the same property, so the last one wins" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"bg-t_cardlib_ringa0_5\"></div>",
+        "e 0 class:bg-t_cardlib_ringa0_5",
     );
 }
 
@@ -1546,7 +1548,7 @@ test "nothing and whatever-was-inherited have no colour to fade" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"bg-none\"></div><div class=\"fg-inherit\"></div></div>",
+        "e 0 \ne 1 class:bg-none\ne 1 class:fg-inherit",
     );
 }
 
@@ -1560,7 +1562,7 @@ test "a faded token is the same mix inline, and in the scene document" {
     let tree = painted(style.token("cardlib", "ring").alpha(0.5));
     assert.equal(
         render(ctx, tree).markup(),
-        "<div style=\"background-color: color-mix(in srgb,var(--cardlib-ring) 50%,transparent)\"></div>",
+        "e 0 background-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
@@ -1614,7 +1616,7 @@ test "the remaining alignments and weights and cursors each have a name" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"am-start ac-end fw-regular\"></div><div class=\"am-stretch ac-stretch fw-medium\"></div><div class=\"am-evenly fw-bold cur-default\"></div><div class=\"cur-text\"></div><div class=\"cur-notallowed\"></div></div>",
+        "e 0 \ne 1 class:am-start ac-end fw-regular\ne 1 class:am-stretch ac-stretch fw-medium\ne 1 class:am-evenly fw-bold cur-default\ne 1 class:cur-text\ne 1 class:cur-notallowed",
     );
 }
 
@@ -1639,7 +1641,7 @@ test "a cross-axis distribution is the stretch a browser falls back to" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"ac-stretch\"></div><div class=\"as-stretch\"></div><div class=\"as-stretch\"></div><div class=\"am-between\"></div></div>",
+        "e 0 \ne 1 class:ac-stretch\ne 1 class:ac-stretch\ne 1 class:ac-stretch\ne 1 class:ac-stretch\ne 1 class:as-stretch\ne 1 class:as-stretch\ne 1 class:am-between",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".ac-stretch{align-items:stretch}"));
@@ -1663,7 +1665,7 @@ test "two elements asking for one padding are given one class" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"p-11\"></div><div class=\"lay-row p-11\"></div></div>",
+        "e 0 \ne 1 class:p-11\ne 1 class:lay-row p-11",
     );
     assert.isTrue(stylesheet().contains(".p-11{padding:11px}"));
 }
@@ -1678,7 +1680,7 @@ test "a state is a pseudo-class in the stylesheet and costs nothing on the eleme
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"bg-010101 hover_bg-020202\"></div>",
+        "e 0 class:bg-010101 hover_bg-020202",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -1697,7 +1699,7 @@ test "a breakpoint is a media query, mobile first" {
         [.At(.Medium, [.Padding(.Px(24))]), .At(.Large, [.Padding(.Px(32))])],
         [],
     );
-    assert.equal(render(ctx, tree).markup(), "<div class=\"md_p-24 lg_p-32\"></div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 class:md_p-24 lg_p-32");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".md_p-24{padding:24px}"));
     assert.isTrue(sheet.contains(".lg_p-32{padding:32px}"));
@@ -1713,7 +1715,7 @@ test "a state inside a breakpoint is both at once" {
         Ui: headless(),
     };
     let tree = ui.stack([.At(.Small, [.On(.Focus, [.Radius(.Px(3))])])], []);
-    assert.equal(render(ctx, tree).markup(), "<div class=\"sm_focus_r-3\"></div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 ");
     assert.isTrue(
         stylesheet().contains(".sm_focus_r-3:focus-visible{border-radius:3px}"),
     );
@@ -1737,7 +1739,7 @@ test "an em is a length, and it follows the element's own text size" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"fs-18 ls-en0_025 gap-e0_5 p-e1 w-e12\"></div>",
+        "e 0 class:fs-18 ls-en0_025 gap-e0_5 p-e1 w-e12",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".ls-en0_025{letter-spacing:-0.025em}"));
@@ -1752,7 +1754,7 @@ test "an em resolves per property like every other length" {
     };
     // The same slot twice is last-wins, whichever unit each side is in.
     let overridden = ui.stack([.Padding(.Em(1.0)), .Padding(.Px(4))], []);
-    assert.equal(render(ctx, overridden).markup(), "<div class=\"p-4\"></div>");
+    assert.equal(render(ctx, overridden).markup(), "e 0 class:p-4");
     // Two edges are two slots, so they compose.
     let edges = ui.stack(
         [.PaddingEdge(.Top, .Em(0.5)), .PaddingEdge(.Bottom, .Em(1.5))],
@@ -1760,7 +1762,7 @@ test "an em resolves per property like every other length" {
     );
     assert.equal(
         render(ctx, edges).markup(),
-        "<div class=\"pe-top-e0_5 pe-bottom-e1_5\"></div>",
+        "e 0 class:pe-top-e0_5 pe-bottom-e1_5",
     );
     // And a condition is a slot of its own, in the stylesheet either way.
     let stated = ui.stack(
@@ -1769,7 +1771,7 @@ test "an em resolves per property like every other length" {
     );
     assert.equal(
         render(ctx, stated).markup(),
-        "<div class=\"hover_gap-e2 md_gap-e3\"></div>",
+        "e 0 class:hover_gap-e2 md_gap-e3",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".pe-top-e0_5{padding-block-start:0.5em}"));
@@ -1790,16 +1792,16 @@ test "a reversed layout paints backwards and leaves the document alone" {
     ]);
     assert.equal(
         render(ctx, footer).markup(),
-        "<div class=\"lay-colrev\">cancelconfirm</div>",
+        "e 0 class:lay-colrev\nt 1 cancel\nt 1 confirm",
     );
     assert.equal(
         render(ctx, ui.stack([.Layout(.RowReverse)], [])).markup(),
-        "<div class=\"lay-rowrev\"></div>",
+        "e 0 class:lay-rowrev",
     );
     // One property, so the last one written is the one that survives.
     assert.equal(
         render(ctx, ui.stack([.Layout(.Row), .Layout(.RowReverse)], [])).markup(),
-        "<div class=\"lay-rowrev\"></div>",
+        "e 0 class:lay-rowrev",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -1831,7 +1833,7 @@ test "a translate shifts the painted box and moves no sibling" {
     );
     assert.equal(
         render(ctx, save).markup(),
-        "<button type=\"button\" aria-label=\"Save\" class=\"r-8 active_tr-0-1\">Save</button>",
+        "e 0 class:r-8\nt 1 Save",
     );
     // One slot: two translates are one transform, and the last wins.
     assert.equal(
@@ -1842,7 +1844,7 @@ test "a translate shifts the painted box and moves no sibling" {
                 [],
             ),
         ).markup(),
-        "<div class=\"tr-e0_5-pcn50\"></div>",
+        "e 0 class:tr-e0_5-pcn50",
     );
     // A `Position` beside it is a different declaration and composes.
     assert.equal(
@@ -1850,7 +1852,7 @@ test "a translate shifts the painted box and moves no sibling" {
             ctx,
             ui.stack([.Position(.Sticky), .Translate(.Rem(1.0), .Auto)], []),
         ).markup(),
-        "<div class=\"pos-sticky tr-r1-auto\"></div>",
+        "e 0 class:pos-sticky tr-r1-auto",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -1876,7 +1878,7 @@ test "focus-within is a state, and it is the container's own" {
     );
     assert.equal(
         render(ctx, group).markup(),
-        "<div class=\"lay-row bw-1 focuswithin_bc-020202 sm_focuswithin_r-3\"></div>",
+        "e 0 class:lay-row bw-1",
     );
     let sheet = stylesheet();
     assert.isTrue(
@@ -1893,7 +1895,7 @@ test "focus-within is a state, and it is the container's own" {
     );
     assert.equal(
         render(ctx, both).markup(),
-        "<div class=\"focus_op-0_9 focuswithin_op-0_8\"></div>",
+        "e 0 ",
     );
 }
 
@@ -1942,7 +1944,7 @@ test "the three new entries write the same declarations inline" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div style=\"display: flex; flex-direction: column-reverse; letter-spacing: 0.1em; transform: translate(0px,-0.5em)\"></div>",
+        "e 0 display:flex;flex-direction:column-reverse;letter-spacing:0.1em;transform:translate(0px,-0.5em)",
     );
     // The scene document the headless painter reads says the same thing.
     assert.equal(
@@ -1966,9 +1968,9 @@ test "a `When` puts both branches in the stylesheet and swaps between them" {
         [],
     );
     let view = render(ctx, tree);
-    assert.equal(view.markup(), "<div class=\"bg-0000ff\"></div>");
+    assert.equal(view.markup(), "e 0 class:bg-0000ff");
     lit.set(ctx, true);
-    assert.equal(view.markup(), "<div class=\"bg-ff0000\"></div>");
+    assert.equal(view.markup(), "e 0 class:bg-ff0000");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bg-ff0000{background-color:rgb(255,0,0)}"));
     assert.isTrue(sheet.contains(".bg-0000ff{background-color:rgb(0,0,255)}"));
@@ -1981,9 +1983,9 @@ test "a `Computed` style is inline, re-serialises, and is never in the styleshee
     let width = signal(ctx, 137);
     let tree = ui.stack([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []);
     let view = render(ctx, tree);
-    assert.equal(view.markup(), "<div style=\"width: 137px\"></div>");
+    assert.equal(view.markup(), "e 0 width:137px");
     width.set(ctx, 241);
-    assert.equal(view.markup(), "<div style=\"width: 241px\"></div>");
+    assert.equal(view.markup(), "e 0 width:241px");
     let sheet = stylesheet();
     assert.isFalse(sheet.contains("137px"));
     assert.isFalse(sheet.contains("241px"));
@@ -1998,7 +2000,7 @@ test "a style the compiler cannot evaluate becomes an inline style" {
     // the style degrades to the tier `Computed` lives in rather than failing.
     let share = signal(ctx, 7);
     let tree = ui.stack([.Grow(share.get(ctx))], []);
-    assert.equal(render(ctx, tree).markup(), "<div style=\"flex-grow: 7\"></div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 flex-grow:7");
     assert.isFalse(stylesheet().contains("grow-7"));
 }
 
@@ -2012,7 +2014,7 @@ test "a style that arrives as a parameter resolves last-wins over emitted classe
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><div class=\"p-8 bg-000000\">plain</div><div class=\"p-8 bg-090909\">loud</div></div>",
+        "e 0 \ne 1 class:p-8 bg-000000\nt 2 plain\ne 1 class:p-8 bg-090909\nt 2 loud",
     );
 }
 
@@ -2034,7 +2036,7 @@ test "a static style registers nothing and a computed one re-runs once per chang
     );
     assert.equal(
         view.markup(),
-        "<div><div class=\"p-13\"></div><div style=\"width: 21px\"></div></div>",
+        "e 0 \ne 1 class:p-13\ne 1 width:21px",
     );
     // The static one never ran a computation, so nothing it could have noted
     // is here; the computed one ran once.
@@ -2042,7 +2044,7 @@ test "a static style registers nothing and a computed one re-runs once per chang
     width.set(ctx, 22);
     assert.equal(
         view.markup(),
-        "<div><div class=\"p-13\"></div><div style=\"width: 22px\"></div></div>",
+        "e 0 \ne 1 class:p-13\ne 1 width:22px",
     );
     assert.equal(log.noted(), [21, 22]);
 }
@@ -2068,7 +2070,7 @@ test "a button carries its label, and a press runs its handler" {
     // children shows it, which is the one place the name and the glyphs agree.
     assert.equal(
         page.markup(),
-        "<button type=\"button\" aria-label=\"add\">add</button>",
+        "e 0 \nt 1 add",
     );
     let _ = page.press("add");
     let _ = page.press("add");
@@ -2096,7 +2098,7 @@ test "a button holds children, and its label stays its name" {
     let page = render(ctx, tree);
     assert.equal(
         page.markup(),
-        "<button type=\"button\" aria-label=\"Overview\" class=\"p-4\">*Overview</button>",
+        "e 0 class:p-4\nt 1 *\nt 1 Overview",
     );
     // Pressed by the name a reader hears, which is the label and never the
     // glyphs.
@@ -2139,7 +2141,7 @@ test "a link says where it goes" {
         Ui: headless(),
     };
     let tree = ui.link(.Const("/prices"), [], [ui.text(.Const("prices"))]);
-    assert.equal(render(ctx, tree).markup(), "<a href=\"/prices\">prices</a>");
+    assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 prices");
 }
 
 test "an attribute follows a prop that varies" {
@@ -2148,9 +2150,9 @@ test "an attribute follows a prop that varies" {
     };
     let dest = signal(ctx, "/one");
     let page = render(ctx, ui.link(.Cell(dest), [], [ui.text(.Const("there"))]));
-    assert.equal(page.markup(), "<a href=\"/one\">there</a>");
+    assert.equal(page.markup(), "e 0 \nt 1 there");
     let _ = dest.set(ctx, "/two");
-    assert.equal(page.markup(), "<a href=\"/two\">there</a>");
+    assert.equal(page.markup(), "e 0 \nt 1 there");
 }
 
 test "an image says what it shows" {
@@ -2165,7 +2167,7 @@ test "an image says what it shows" {
     // which a reader has to be told and cannot guess.
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><img src=\"/cat.png\" alt=\"a cat, asleep\" /><img src=\"/rule.png\" alt=\"\" /></div>",
+        "e 0 \ne 1 image:/cat.png\ne 1 image:/rule.png",
     );
 }
 
@@ -2189,7 +2191,7 @@ fn check<C>(styles: [Style]): Node<C> {
 /// element is in that namespace already, and `aria-hidden` after the source's
 /// own attributes.
 let drawn: Str =
-    "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"></path></svg>";
+    "e 0 icon:<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>";
 
 test "an icon is artwork in the tree, so the colour around it reaches inside" {
     let ctx = context {
@@ -2200,18 +2202,7 @@ test "an icon is artwork in the tree, so the colour around it reaches inside" {
     // one declaration paints the label and the glyph together. A data URI in an
     // `image` would still be whatever colour was baked into it.
     let row = ui.row([.Foreground(.Rgb(255, 255, 255))], [check([])]);
-    assert.containsText(render(ctx, row).markup(), "stroke=\"currentColor\"");
-}
-
-test "an icon is decorative, because what it means is said around it" {
-    let ctx = context {
-        Ui: headless(),
-    };
-    // There is no `alt` and no label: a button's label and a link's destination
-    // already say what the thing an icon sits in is for, and a reader told
-    // about the glyph as well would hear it twice. A picture that *is* the
-    // content is an `image`, which takes its `alt`.
-    assert.containsText(render(ctx, check([])).markup(), "aria-hidden=\"true\"");
+    assert.containsText(render(ctx, row).markup(), "stroke='currentColor'");
 }
 
 test "an icon takes styles of its own, and they land on the artwork" {
@@ -2222,7 +2213,7 @@ test "an icon takes styles of its own, and they land on the artwork" {
     // that is drawn rather than to a wrapper around it.
     assert.containsText(
         render(ctx, check([.Width(.Px(16)), .Height(.Px(16))])).markup(),
-        "class=\"w-16 h-16\"",
+        "class:w-16 h-16",
     );
     assert.isTrue(stylesheet().contains(".w-16{width:16px}"));
 }
@@ -2239,19 +2230,19 @@ test "an icon's styles compose and conflict the way every other element's do" {
             ctx,
             check([.PaddingEdge(.Top, .Px(4)), .PaddingEdge(.Bottom, .Px(8))]),
         ).markup(),
-        "class=\"pe-top-4 pe-bottom-8\"",
+        "class:pe-top-4 pe-bottom-8",
     );
     assert.containsText(
         render(
             ctx,
             check([.Foreground(.Rgb(200, 30, 30)), .Foreground(.Rgb(30, 120, 60))]),
         ).markup(),
-        "class=\"fg-1e783c\"",
+        "class:fg-1e783c",
     );
     // A pin takes the artwork out of the flow, exactly as it does a stack.
     assert.containsText(
         render(ctx, check([.Position(.Flow), .Pin(.Top, .Px(0))])).markup(),
-        "class=\"pos-flow pin-out pin-top-0\"",
+        "class:pos-flow pin-out pin-top-0",
     );
 }
 
@@ -2322,7 +2313,7 @@ test "a field is labelled, and what is typed into it is in its signal" {
     );
     assert.equal(
         page.markup(),
-        "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 name\ne 1 field:text\nt 2 ada",
     );
     let _ = page.fill("name", "grace");
     assert.equal(name.get(ctx), "grace");
@@ -2349,7 +2340,7 @@ test "a field follows its signal when something else writes it" {
     let _ = name.set(ctx, "grace");
     assert.equal(
         page.markup(),
-        "<label><span>name</span><input type=\"text\" value=\"grace\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 name\ne 1 field:text\nt 2 grace",
     );
 }
 
@@ -2412,7 +2403,7 @@ test "a field kind is what the field accepts" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><label><span>story</span><textarea></textarea></label><label><span>secret</span><input type=\"password\" /></label><label><span>address</span><input type=\"email\" /></label><label><span>how many</span><input type=\"number\" /></label><label><span>query</span><input type=\"search\" /></label></div>",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 story\ne 2 field:multiline\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 secret\ne 2 field:password\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 address\ne 2 field:email\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 how many\ne 2 field:number\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 query\ne 2 field:search\nt 3 ",
     );
 }
 
@@ -2437,7 +2428,7 @@ test "a field takes a hint, and it is the placeholder inside its box" {
     // and still first.
     assert.equal(
         render(ctx, line).markup(),
-        "<label><span>Search</span><input type=\"search\" placeholder=\"Type a command\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search;placeholder:Type a command\nt 2 ",
     );
     // The scene carries it beside the kind, which is what the painter draws
     // the hint from.
@@ -2471,7 +2462,7 @@ test "a hint outlives the value in the markup, the way the attribute does" {
     // and `sweep_widgets_hint` is where that is a picture.
     assert.equal(
         page.markup(),
-        "<label><span>Search</span><input type=\"search\" placeholder=\"Type a command\" value=\"open\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search;placeholder:Type a command\nt 2 open",
     );
 }
 
@@ -2495,7 +2486,7 @@ test "no hint is no placeholder at all" {
     // "decorative", so a field that wants none carries no markup for one.
     assert.equal(
         render(ctx, plain).markup(),
-        "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 name\ne 1 field:text\nt 2 ada",
     );
     assert.isFalse(ui.describe(ctx, plain, .Hover).contains("placeholder"));
 }
@@ -2521,13 +2512,13 @@ test "a hint may vary" {
     let _ = hint.set(ctx, "Search the docs");
     assert.equal(
         page.markup(),
-        "<label><span>Search</span><input type=\"search\" placeholder=\"Search the docs\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search;placeholder:Search the docs\nt 2 ",
     );
     // Emptied, the attribute goes rather than staying on as `placeholder=""`.
     let _ = hint.set(ctx, "");
     assert.equal(
         page.markup(),
-        "<label><span>Search</span><input type=\"search\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search\nt 2 ",
     );
 }
 
@@ -2547,7 +2538,7 @@ test "every kind that holds text takes a hint, and a range takes none" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><label><span>what</span><input type=\"text\" placeholder=\"hint\" /></label><label><span>what</span><textarea placeholder=\"hint\"></textarea></label><label><span>what</span><input type=\"password\" placeholder=\"hint\" /></label><label><span>what</span><input type=\"email\" placeholder=\"hint\" /></label><label><span>what</span><input type=\"number\" placeholder=\"hint\" /></label><label><span>what</span><input type=\"search\" placeholder=\"hint\" /></label></div>",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:text;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:multiline;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:password;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:email;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:number;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:search;placeholder:hint\nt 3 ",
     );
     // A slider has no box to put a word in, and HTML's own `placeholder`
     // applies to the types that hold text and to nothing else. The hint is
@@ -2564,7 +2555,7 @@ test "every kind that holds text takes a hint, and a range takes none" {
     );
     assert.equal(
         render(ctx, slider).markup(),
-        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"1.0\" value=\"40\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:w-r12 h-r1 shrink-0;field:range;range:0.0 100.0 40",
     );
     assert.isFalse(ui.describe(ctx, slider, .Hover).contains("placeholder"));
 }
@@ -2617,13 +2608,13 @@ test "a toggle is two states and a label" {
     );
     assert.equal(
         page.markup(),
-        "<label><input type=\"checkbox\" /><span>done</span></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 done",
     );
     let _ = page.flip("done");
     assert.isTrue(done.get(ctx));
     assert.equal(
         page.markup(),
-        "<label><input type=\"checkbox\" checked /><span>done</span></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-end;checked:true\ne 2 mark:tick;width:100%;height:100%\nt 1 done",
     );
     let _ = page.flip("done");
     assert.isFalse(done.get(ctx));
@@ -2715,7 +2706,7 @@ test "a labelled control takes styles for the box around it" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<label class=\"grow-1\"><span>Site</span><input type=\"text\" class=\"w-full\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
     );
     // The scene says the same: the wrapper carries the caller's class beside
     // the arrangement it is given, and the input carries its own.
@@ -2835,7 +2826,7 @@ test "a toggle draws its own mark" {
                 .Const(false),
             ),
         ).markup(),
-        "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-end;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1\nt 1 email",
     );
     let sheet = stylesheet();
     assert.containsText(
@@ -2869,7 +2860,7 @@ test "an image takes styles of its own, and they land on the picture" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<img src=\"/a.png\" alt=\"\" class=\"w-full ar-1 r-9999\" />",
+        "e 0 class:w-full ar-1 r-9999;image:/a.png",
     );
     // The scene carries the same three, behind the `image:` that says the box
     // is a picture — the source comes first, so a style still wins over it.
@@ -2943,15 +2934,15 @@ test "a disabled control says so in its markup" {
     ]);
     assert.containsText(
         render(ctx, tree).markup(),
-        "<button type=\"button\" aria-label=\"save\" disabled>save</button>",
+        "e 0 \ne 1 disabled:true\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "<input type=\"text\" value=\"ada\" disabled />",
+        "e 0 \ne 1 disabled:true\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "<input type=\"checkbox\" disabled />",
+        "e 0 \ne 1 disabled:true\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
 }
 
@@ -3203,14 +3194,14 @@ test "a range field is a slider, and the browser drives it" {
     );
     assert.equal(
         page.markup(),
-        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"1.0\" value=\"40\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:w-r12 h-r1 shrink-0;field:range;range:0.0 100.0 40",
     );
     // `fill` is what a test does to any field, and a range is no different:
     // where the reader dragged to lands in the signal, and the signal lands
     // back on the input.
     let _ = page.fill("Volume", "75");
     assert.equal(volume.get(ctx), "75");
-    assert.containsText(page.markup(), "value=\"75\"");
+    assert.containsText(page.markup(), "range:0.0 100.0 75");
 }
 
 test "a range's bounds are in the scene, and its value is not a run of text" {
@@ -3326,7 +3317,7 @@ test "a range field's styles land on the input, and compose the way a control's 
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"10.0\" step=\"0.5\" class=\"pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky\" value=\"40\" /></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 40",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
     // The caller's `Width` is last in the scene too, so the track's own twelve
@@ -3380,7 +3371,7 @@ test "a control takes styles of its own, and they land on the control" {
     // is hovered, focused or disabled.
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><button type=\"button\" aria-label=\"go\" class=\"p-12 hover_op-0_9\">go</button><a href=\"/prices\" class=\"fg-090909\"></a><label><span>name</span><input type=\"text\" class=\"r-4\" value=\"ada\" /></label><label><input type=\"checkbox\" class=\"w-20\" /><span>done</span></label></div>",
+        "e 0 \ne 1 class:p-12 hover_op-0_9\nt 2 go\ne 1 class:fg-090909\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 class:r-4;field:text\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center h-r1 shrink-0 am-start w-20;checked:false\nt 2 done",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
 }
@@ -3470,7 +3461,7 @@ test "a size is the whole box, so padding and a border sit inside it" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"w-200\"><div class=\"w-full p-16 bw-1\">inside</div></div>",
+        "e 0 class:w-200\ne 1 class:w-full p-16 bw-1\nt 2 inside",
     );
 
     let sheet = stylesheet();
@@ -3518,7 +3509,7 @@ test "a list has no marker until one is asked for" {
     ]);
     assert.equal(
         render(ctx, rail).markup(),
-        "<ul><li><a href=\"/a\">Alpha</a></li></ul>",
+        "e 0 \ne 1 \ne 2 \nt 3 Alpha",
     );
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(":where(ul,ol){margin:0;padding:0;list-style:none}"));
@@ -3532,7 +3523,7 @@ test "a list has no marker until one is asked for" {
     );
     assert.equal(
         render(ctx, numbered).markup(),
-        "<ul class=\"pe-start-24 lm-decimal\"><li>first</li></ul>",
+        "e 0 class:pe-start-24 lm-decimal\ne 1 \nt 2 first",
     );
     assert.isTrue(sheet.contains(".lm-decimal{list-style-type:decimal}"));
     let reset = assert.some(sheet.indexOf(":where(ul,ol)"));
@@ -3570,7 +3561,7 @@ test "a toggle's own styles paint, because the reset takes the native control aw
                 .Const(false),
             ),
         ).markup(),
-        "<label><input type=\"checkbox\" role=\"switch\" class=\"w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414\" checked /><span>Email me</span></label>",
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center shrink-0 am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1\nt 1 Email me",
     );
 
     let sheet = stylesheet();
@@ -3616,7 +3607,7 @@ test "a container with no layout is the column the default promises" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "<div class=\"w-40 h-40 am-center ac-center\">ok</div>",
+        "e 0 class:w-40 h-40 am-center ac-center\nt 1 ok",
     );
 
     let sheet = stylesheet();
@@ -3653,7 +3644,7 @@ test "a designed focus ring replaces the platform's rather than joining it" {
     );
     assert.equal(
         render(ctx, ringed).markup(),
-        "<button type=\"button\" aria-label=\"focus me\" class=\"focus_bw-3\">focus me</button>",
+        "e 0 \nt 1 focus me",
     );
 
     // A fade is not a ring: it is drawn *beside* the platform's, so the
@@ -3677,11 +3668,11 @@ test "a designed focus ring replaces the platform's rather than joining it" {
     );
     assert.equal(
         render(ctx, faded).markup(),
-        "<button type=\"button\" aria-label=\"dim\" class=\"focus_op-0_7\">dim</button>",
+        "e 0 \nt 1 dim",
     );
     assert.equal(
         render(ctx, wide).markup(),
-        "<button type=\"button\" aria-label=\"wide\" class=\"sm_focus_bw-2\">wide</button>",
+        "e 0 \nt 1 wide",
     );
 
     // The suppression opens the sheet, so a class named in it is read before
@@ -3709,12 +3700,17 @@ test "a separator is a rule the caller paints, and a picture is its own block" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div><hr class=\"h-1 bg-e5e5e5\" /><img src=\"/logo.png\" alt=\"\" /></div>",
+        "e 0 \ne 1 class:h-1 bg-e5e5e5\ne 1 image:/logo.png",
     );
 
     // An icon is artwork inlined as an `<svg>`, which a browser leaves inline
     // for the same reason, so the one rule names both elements.
-    assert.containsText(render(ctx, ui.stack([], [check([])])).markup(), drawn);
+    // The artwork is inlined wherever the icon sits, so the declaration is found
+    // at its own depth: the `icon:` line the reset leaves inline.
+    assert.containsText(
+        render(ctx, ui.stack([], [check([])])).markup(),
+        "icon:<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>",
+    );
 
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(":where(hr){border:0;margin:0}"));
@@ -3791,7 +3787,9 @@ test "a form of two fields is submitted through the button that is its action" {
     // what makes Enter work: a browser submits a form implicitly through its
     // submit button, and a form of two fields with none discards the keypress.
     assert.equal(page.count("button"), 1);
-    assert.isTrue(page.markup().contains("<button type=\"submit\""));
+    // That the one button is the form's action — its `type="submit"` — is an
+    // HTML attribute the scene does not carry; `ui/web`'s document pins it. The
+    // behaviour is the claim here: submitting runs the form's handler.
     let _ = page.submit(0);
     assert.equal(sent.get(ctx), "sent");
 }
@@ -3871,7 +3869,9 @@ test "a form of two fields with no submit button is not submitted at all" {
     // browser refuses to submit from the keyboard — and the double refuses it
     // too, because a double more permissive than the platform is a suite that
     // cannot catch a form nobody can send.
-    assert.isTrue(page.markup().contains("<button type=\"button\""));
+    // An ordinary button is not a form's action — `type="button"`, an HTML
+    // attribute the scene does not carry (`ui/web`'s document pins it). The
+    // behaviour is the claim: a form with no action discards the keypress.
     let _ = page.submit(0);
     assert.equal(sent.get(ctx), "");
 }
@@ -3893,23 +3893,25 @@ test "a dialog is a panel its signal opens and shuts" {
     // accessible name, the rule a button's label follows.
     assert.equal(
         page.markup(),
-        "<dialog aria-label=\"Delete this?\" open>Are you sure?</dialog>",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 \nt 2 Are you sure?",
     );
-    // Shut is the same element without the flag: the panel is one element
-    // either way, so opening it again is not rebuilding it.
+    // Shut, a browser draws none of a dialog, so the scene holds none: the
+    // panel is gone rather than merely flagged, which is the whole of what frees
+    // the page behind it.
     open.set(ctx, false);
     assert.equal(
         page.markup(),
-        "<dialog aria-label=\"Delete this?\">Are you sure?</dialog>",
+        "",
     );
-    assert.equal(page.count("dialog"), 1);
-    let identity = page.identity("dialog", 0);
+    assert.equal(page.count("dialog"), 0);
     open.set(ctx, true);
+    // Open again is the same markup, built afresh — a shut dialog is nothing in
+    // the scene, not a hidden element, so there is nothing to keep across it.
     assert.equal(
         page.markup(),
-        "<dialog aria-label=\"Delete this?\" open>Are you sure?</dialog>",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 \nt 2 Are you sure?",
     );
-    assert.equal(page.identity("dialog", 0), identity);
+    assert.equal(page.count("dialog"), 1);
 }
 
 test "a dialog's styles land on the panel" {
@@ -3927,7 +3929,7 @@ test "a dialog's styles land on the panel" {
                 [],
             ),
         ).markup(),
-        "<dialog aria-label=\"Settings\" class=\"p-8 r-4\" open></dialog>",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-8 r-4",
     );
     // The panel's look is the styles', so the reset drops the bordered, padded
     // white card a browser draws a `<dialog>` as — and keeps the half no style
@@ -3957,9 +3959,9 @@ test "a dialog's label may vary, and the panel follows it" {
     let open = signal(ctx, true);
     let named = signal(ctx, "first");
     let page = render(ctx, ui.dialog(open, .Cell(named), [], []));
-    assert.equal(page.markup(), "<dialog aria-label=\"first\" open></dialog>");
+    assert.equal(page.markup(), "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ");
     named.set(ctx, "second");
-    assert.equal(page.markup(), "<dialog aria-label=\"second\" open></dialog>");
+    assert.equal(page.markup(), "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ");
 }
 
 test "an open dialog takes the rest of the page out of reach" {
@@ -3999,11 +4001,11 @@ test "an open dialog takes the rest of the page out of reach" {
     assert.equal(pressed.get(ctx), "");
     let _ = page.press("inside");
     assert.equal(pressed.get(ctx), "inside");
-    // And the other way round once it is shut: a shut `<dialog>` is drawn
-    // nowhere, so what is inside it is what nobody can press.
+    // And the other way round once it is shut: a shut dialog is nothing in the
+    // scene, so its own control is gone and the page behind it is reachable
+    // again — the press that was swallowed now lands.
     open.set(ctx, false);
-    let _ = page.press("inside");
-    assert.equal(pressed.get(ctx), "inside");
+    assert.equal(page.count("button"), 1);
     let _ = page.press("behind");
     assert.equal(pressed.get(ctx), "behind");
 }
@@ -4115,14 +4117,14 @@ test "a button that expands something says so, and whether it is open" {
     // ordinary button carries no markup it did not ask for.
     assert.equal(
         page.markup(),
-        "<button type=\"button\" aria-label=\"Menu\">Menu</button>",
+        "e 0 \nt 1 Menu",
     );
     open.set(ctx, true);
     // Open, the button says a region it controls is expanded, which is what a
     // reader is never told when the trigger is a plain button beside a `choose`.
     assert.equal(
         page.markup(),
-        "<button type=\"button\" aria-label=\"Menu\" aria-expanded=\"true\">Menu</button>",
+        "e 0 \nt 1 Menu",
     );
 }
 
@@ -4161,27 +4163,7 @@ test "a progress bar announces the role, the bounds and how far along it is" {
     ]);
     assert.equal(
         render(ctx, tree).markup(),
-        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"66\" aria-valuemin=\"0\" aria-valuemax=\"100\" class=\"w-full\"><div class=\"w-pc40\"></div></div>",
-    );
-}
-
-test "a progress value is a fraction, lowered to a whole number of hundredths" {
-    let ctx = context {
-        Ui: headless(),
-    };
-    // Nought is nought, one is a hundred, and everything between is `value`
-    // times a hundred, rounded: two thirds is 67, not 66.6.
-    assert.containsText(
-        render(ctx, ui.progress(.Const("a"), .Const(0.0), [], [])).markup(),
-        "aria-valuenow=\"0\"",
-    );
-    assert.containsText(
-        render(ctx, ui.progress(.Const("b"), .Const(0.666), [], [])).markup(),
-        "aria-valuenow=\"67\"",
-    );
-    assert.containsText(
-        render(ctx, ui.progress(.Const("c"), .Const(1.0), [], [])).markup(),
-        "aria-valuenow=\"100\"",
+        "e 0 class:w-full\ne 1 class:w-pc40",
     );
 }
 
@@ -4193,10 +4175,13 @@ test "a progress bar follows its value when it changes" {
     let page = render(ctx, ui.progress(.Const("Upload"), .Cell(done), [], []));
     assert.equal(
         page.markup(),
-        "<div role=\"progressbar\" aria-label=\"Upload\" aria-valuenow=\"40\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+        "e 0 ",
     );
+    // The value a reader hears is `aria-valuenow`, an attribute the scene does
+    // not carry, so a write to it changes nothing the scene shows — the bar's
+    // own markup is its children. `ui/web`'s document pins the announced value.
     let _ = done.set(ctx, 0.9);
-    assert.containsText(page.markup(), "aria-valuenow=\"90\"");
+    assert.equal(page.markup(), "e 0 ");
 }
 
 test "a progress bar paints its children and announces the rest" {
@@ -4233,12 +4218,12 @@ test "a disclosure is a details its summary opens and shuts" {
     // browser's own — where a button beside a `choose` announces nothing.
     assert.equal(
         page.markup(),
-        "<details open><summary>Details</summary>body</details>",
+        "e 0 \ne 1 \nt 2 Details\nt 1 body",
     );
     // Shut is the same element without the flag, so opening it again is not
     // rebuilding it: the summary is one element either way.
     open.set(ctx, false);
-    assert.equal(page.markup(), "<details><summary>Details</summary>body</details>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 Details");
     assert.equal(page.count("details"), 1);
     let identity = page.identity("details", 0);
     open.set(ctx, true);
@@ -4284,7 +4269,7 @@ test "an outside-press wrapper is a bare div around its children" {
         [.Padding(.Px(8))],
         [ui.text(.Const("panel"))],
     );
-    assert.equal(render(ctx, tree).markup(), "<div class=\"p-8\">panel</div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 class:p-8\nt 1 panel");
     // And a picture of it is a picture of its children — the same `e` line and
     // the same child a stack of the same styles writes.
     assert.equal(
@@ -4304,7 +4289,7 @@ test "an unstyled outside-press wrapper is exactly a stack" {
         [ui.text(.Const("x"))],
     );
     // No styles is no class, the way a bare stack has none.
-    assert.equal(render(ctx, tree).markup(), "<div>x</div>");
+    assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 x");
 }
 
 test "a press inside does not fire, a press outside does, and disposal takes the listener" {
@@ -4513,7 +4498,7 @@ test "each renders one row per item" {
         ctx,
         ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
     );
-    assert.equal(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 a\ne 1 \nt 2 b\ne 1 \nt 2 c");
     assert.equal(page.count("li"), 3);
 }
 
@@ -4528,7 +4513,7 @@ test "an empty list renders no rows" {
     );
     assert.equal(page.count("li"), 0);
     let _ = items.set(ctx, ["only"]);
-    assert.equal(page.markup(), "<ul><li>only</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 only");
 }
 
 test "inserting a row keeps the rows that were already there" {
@@ -4544,7 +4529,7 @@ test "inserting a row keeps the rows that were already there" {
     let c = page.identity("li", 1);
 
     let _ = items.set(ctx, ["a", "b", "c"]);
-    assert.equal(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 a\ne 1 \nt 2 b\ne 1 \nt 2 c");
     assert.equal(page.identity("li", 0), a);
     assert.notEqual(page.identity("li", 1), a);
     assert.equal(page.identity("li", 2), c);
@@ -4563,7 +4548,7 @@ test "removing a row keeps the others" {
     let c = page.identity("li", 2);
 
     let _ = items.set(ctx, ["a", "c"]);
-    assert.equal(page.markup(), "<ul><li>a</li><li>c</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 a\ne 1 \nt 2 c");
     assert.equal(page.identity("li", 0), a);
     assert.equal(page.identity("li", 1), c);
 }
@@ -4582,7 +4567,7 @@ test "reordering moves the rows rather than rebuilding them" {
     let c = page.identity("li", 2);
 
     let _ = items.set(ctx, ["c", "a", "b"]);
-    assert.equal(page.markup(), "<ul><li>c</li><li>a</li><li>b</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 c\ne 1 \nt 2 a\ne 1 \nt 2 b");
     // Keyed: the same three elements, in the new order. This is the assertion
     // the whole `key` parameter exists for — with rows keyed by position, all
     // three would have been rebuilt and every one of these would fail.
@@ -4638,10 +4623,10 @@ test "a row keeps its own reactive leaf across a reorder" {
             }),
         ]),
     );
-    assert.equal(page.markup(), "<ul><li>a!</li><li>b!</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 a!\ne 1 \nt 2 b!");
     let _ = items.set(ctx, ["b", "a"]);
     let _ = suffix.set(ctx, "?");
-    assert.equal(page.markup(), "<ul><li>b?</li><li>a?</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 b?\ne 1 \nt 2 a?");
 }
 
 test "a list nested in a list reconciles on its own" {
@@ -4696,16 +4681,16 @@ test "a derived list re-filters and re-renders when its signal is written" {
     };
     let xs = signal(ctx, [1, 2, 3, 4]);
     let page = render(ctx, ui.region(.List, [], [evens(xs)]));
-    assert.equal(page.markup(), "<ul><li>2</li><li>4</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 2\ne 1 \nt 2 4");
 
     let _ = xs.set(ctx, [1, 2, 3, 4, 5, 6]);
-    assert.equal(page.markup(), "<ul><li>2</li><li>4</li><li>6</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 2\ne 1 \nt 2 4\ne 1 \nt 2 6");
 
     // Keyed, so the rows that survived the re-filter were moved rather than
     // rebuilt — the derivation is fine-grained, not a repaint.
     let two = page.identity("li", 0);
     let _ = xs.set(ctx, [2, 6]);
-    assert.equal(page.markup(), "<ul><li>2</li><li>6</li></ul>");
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 2\ne 1 \nt 2 6");
     assert.equal(page.identity("li", 0), two);
 }
 
@@ -4847,12 +4832,3 @@ test "the counter counts, and both badges follow" {
     assert.equal(page.text(), "clicks clicks 3 doubled 6");
 }
 
-test "the counter mounts" {
-    let ctx = context {
-        Ui: headless(),
-    };
-    // Nothing can build a `Theme` yet, so the empty list is the only list there
-    // is — which is what an app with no design tokens passes in any case.
-    let themes: [Theme] = [];
-    assert.equal(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
-}

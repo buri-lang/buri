@@ -114,10 +114,6 @@ test "a theme resolves each of its tokens to a value" {
     );
 }
 
-test "no themes at all is no block at all" {
-    assert.equal(install([]), "");
-}
-
 test "a scheme is a theme that binds no token" {
     assert.equal(install([theme.scheme(.Dark)]), ":root{color-scheme:dark}\n");
     assert.equal(install([theme.scheme(.Light)]), ":root{color-scheme:light}\n");

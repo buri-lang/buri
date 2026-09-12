@@ -1851,8 +1851,9 @@ enum Compiled {
     Front(String),
     /// This backend refused it, with the reason.
     Refused(String),
-    /// The objects it emitted.
-    Units(Vec<Emitted>),
+    /// The objects it emitted, and the stylesheet the compiler extracted — the
+    /// string `ui/testing`'s `stylesheet()` reads, written beside the binary.
+    Units(Vec<Emitted>, String),
 }
 
 /// One corpus file, compiled as the test source of its own package.
@@ -1886,6 +1887,10 @@ fn compile_corpus(path: &str) -> Compiled {
     if diagnostics.has_errors() {
         return Compiled::Front(String::from("monomorphization failed"));
     }
+    // The extracted sheet, while it is still a value on the program, as
+    // `conformance.rs`'s `linked` takes it: it is written beside the binary,
+    // where `stylesheet()` looks for it when no runner named a file.
+    let sheet = program.stylesheet.clone();
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
     let missing = Stencil::default().missing_intrinsics(&program, &analysis.checked.tables);
@@ -1895,7 +1900,7 @@ fn compile_corpus(path: &str) -> Compiled {
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
     match Stencil::default().emit(&program, &analysis.checked.tables, &opts) {
-        Ok(units) => Compiled::Units(units),
+        Ok(units) => Compiled::Units(units, sheet),
         Err(d) => Compiled::Refused(messages(&d).join("; ")),
     }
 }
@@ -2007,6 +2012,9 @@ const CORPUS_COMPILES: &[&str] = &[
     "ui/reactive.buri",
     "ui/reactivity.buri",
     "ui/render.buri",
+    "ui/styling.buri",
+    "ui/theme.buri",
+    "ui/tree.buri",
     "url/url.buri",
     "uuid/uuid.buri",
     "vectors/convert.buri",
@@ -2331,14 +2339,14 @@ fn report_census(spec: &str) {
         match compile_corpus(path) {
             Compiled::Front(why) => say(path, "front", &[&escape(&why)]),
             Compiled::Refused(why) => say(path, "refused", &[&escape(&why)]),
-            Compiled::Units(units) => {
+            Compiled::Units(units, sheet) => {
                 say(path, "compiles", &[]);
                 // The files the ratchet lists are the ones whose programs are
                 // also asserted to pass, and they are run here so that the
                 // objects are linked where they were emitted rather than
                 // emitted twice.
                 if depth == Depth::Run && CORPUS_COMPILES.contains(&path) {
-                    let out = link_and_run(path, &units);
+                    let out = link_and_run(path, &units, &sheet);
                     say(
                         path,
                         "ran",
@@ -2477,7 +2485,7 @@ fn each<F: Fn(usize) + Sync>(len: usize, f: F) {
 /// One corpus file's objects, linked and run. The entry point is
 /// `asm::test_entry`, which calls every `test` block in order behind
 /// `buri_rt_test_enter`.
-fn link_and_run(path: &str, units: &[Emitted]) -> Ran {
+fn link_and_run(path: &str, units: &[Emitted], sheet: &str) -> Ran {
     let dir = workspace(&path.replace('/', "-"));
     let mut objects = Vec::new();
     for unit in units {
@@ -2486,6 +2494,13 @@ fn link_and_run(path: &str, units: &[Emitted]) -> Ran {
         objects.push(at);
     }
     let binary = dir.join("program");
+    // The extracted sheet beside the binary as `<binary>.css`, where the
+    // runtime's `stylesheet()` looks when no runner named one — the convention
+    // `conformance.rs`'s `linked` writes by. A program with no static styles
+    // wrote none, which reads back as the empty sheet a test asserts on.
+    if !sheet.is_empty() {
+        std::fs::write(binary.with_extension("css"), sheet).unwrap();
+    }
     // `build/link.rs::platform_flags`, for `build_with`'s reason: a harness
     // that links more permissively than the product cannot see the product's
     // bugs, and one that links *less* completely than it invents failures the

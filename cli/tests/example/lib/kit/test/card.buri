@@ -47,7 +47,7 @@ test "the card's surface is a class, and the class is in the stylesheet" {
     let markup = render(ctx, card(.Const("Coffee"), [])).markup();
     // Nothing about the card's appearance is in the element: what is there is a
     // class name, and the rules behind it were written at compile time.
-    assert.isTrue(markup.contains("class="));
+    assert.isTrue(markup.contains("class:"));
     assert.isFalse(markup.contains("style="));
 
     let sheet = stylesheet();
@@ -88,14 +88,14 @@ test "a meter's width is inline, and the sheet knows nothing about it" {
     let filled = signal(ctx, 0.25);
     let seen = render(ctx, meter(.Cell(filled)));
     // The computed tier is applied to the element and re-serialised on change.
-    assert.isTrue(seen.markup().contains("width: 25%"));
+    assert.isTrue(seen.markup().contains("width:25.0%"));
 
     let _ = filled.set(ctx, 0.75);
-    assert.isTrue(seen.markup().contains("width: 75%"));
+    assert.isTrue(seen.markup().contains("width:75.0%"));
 
     // And it is deliberately absent from the stylesheet: there is no class for
     // "however wide it is right now".
-    assert.isFalse(stylesheet().contains("width: 25%"));
+    assert.isFalse(stylesheet().contains("width:25.0%"));
 }
 
 test "a fraction outside the range is clamped rather than refused" {
@@ -103,7 +103,7 @@ test "a fraction outside the range is clamped rather than refused" {
         Ui: headless(),
     };
     let over = render(ctx, meter(.Const(1.5)));
-    assert.isTrue(over.markup().contains("width: 100%"));
+    assert.isTrue(over.markup().contains("width:100.0%"));
     let under = render(ctx, meter(.Const(-0.5)));
-    assert.isTrue(under.markup().contains("width: 0%"));
+    assert.isTrue(under.markup().contains("width:0.0%"));
 }

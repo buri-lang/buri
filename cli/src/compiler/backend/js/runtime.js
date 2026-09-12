@@ -5470,252 +5470,686 @@ function $ui_testing_Recorder_noted(self) {
   return $slot(self).values.slice();
 }
 
-// A tree rendered into a document of its own, by the renderer `mount` uses.
-// The handle holds the root, which is a substitute element and never a real
-// one: a test asks what was rendered, and only the substitute can answer.
+// --- ui/testing: the scene document (issue #53, phase 6) ----------------------
+//
+// `render(ctx, root)` is `Rendered(mount(ctx, root, renderInto))`. On this
+// backend `mount` now drives the `renderInto` walk (`ui/node`) into a scene
+// document — the element arena the native runtime (`cli/runtime/document.rs`)
+// builds — rather than the HTML document double `$tree_render` builds for a
+// real page. So `markup()` is the headerless `describe` scene on both backends,
+// byte for byte, and every `Rendered` reader below answers from the same
+// reconciled arena the native readers do. The `$dom_*`/`$tree_*` document
+// double is untouched: it is what `ui/node`'s real `mount` and `ui/web` render
+// into.
 
-function $ui_testing_render(ctx, root) {
-  // Each rendered tree is its own document, so its radio groups number from
-  // zero — a test's markup is what this tree wrote, not what a test before it
-  // left the counter at.
-  $tree_radio_groups = 0;
-  const host = $dom_make(0, "root");
-  $tree_render(ctx, root, host, null);
-  return $handle(host);
+// The identity counter, the twin of the JavaScript `$dom.identities` for the
+// scene arena: stamped once at creation, given to no other record, monotonic
+// across every document a program builds.
+let $scene_ids = 0;
+
+function $scene_mint() {
+  return $scene_ids++;
 }
 
-// `render`'s per-backend half (#53). `render` is a Buri body now,
-// `Rendered(mount(ctx, root, renderInto))`, so the walk is handed over as a
-// closure the two backends treat differently: the native runtime drives it
-// into an element arena, and this one **drops it** and builds the document
-// double from `root` exactly as before. So `$tree_render` and everything
-// `Rendered` reads are untouched, and `renderInto` is a Buri function this side
-// compiles and never calls. `mount` answers the raw handle `$handle` mints;
-// `render` wraps it in a `Rendered`, so this unwraps the one `render` used to
-// return whole.
-function $ui_testing_mount(ctx, root, walk) {
-  return $ui_testing_render(ctx, root)[0];
+// A fresh, empty scene document. `records[0]` is the host the tree hangs off,
+// never written to markup or counted. `ctx` is the render context, kept so the
+// reactive re-walk (`rebuildRegion`) and the keyed reconcile drive the closures
+// `renderInto` handed over with the context `render` was called with.
+function $scene_open(ctx) {
+  return {
+    records: [$scene_record(0, "root", "", "")],
+    cursor: [{ parent: 0, anchor: null }],
+    regions: [],
+    eachRegions: [],
+    outside: [],
+    ctx,
+  };
 }
 
-// The builders `renderInto` emits to. This side never invokes `renderInto`, so
-// they are never called; they exist because `renderInto` names them and the
-// backend emits a reference the module must resolve.
-function $ui_node_emitElement(builder, name, body) {}
-function $ui_node_exitElement(builder) {}
-function $ui_node_emitText(builder, content) {}
-// The reactive builders (#53 phase 3) are the same nothing: `renderInto` is
-// never invoked here, so the leaf `$tree_bind` and the region `$tree_dynamic`
-// this side runs are `$tree_render`'s, not these. `openText`/`enterDynamic`
-// answer a handle, so they return a number the never-taken path would use.
-function $ui_node_openText(builder) { return 0; }
-function $ui_node_patchText(builder, at, content) {}
-function $ui_node_reactive(body) {}
-function $ui_node_enterDynamic(builder) { return 0; }
-function $ui_node_rebuildRegion(builder, region, node, walk) {}
-// The keyed list (#53 phase 4): the same nothing. `renderInto` names them, so
-// the module resolves them, but this side reconciles through `$tree_each` — the
-// walk it hands `mount` is never taken. `enterEach` answers a handle a
-// never-run path would name.
-function $ui_node_enterEach(builder) { return 0; }
-function $ui_node_reconcile(builder, region, keys, build) {}
-// The event arms (#53 phase 4): the same nothing again. `renderInto` names them,
-// so the module resolves them, but this side arms its elements through
-// `$tree_render`'s own listeners, never these.
-function $ui_node_registerPress(builder, onPress) {}
-function $ui_node_registerValue(builder, signal) {}
-function $ui_node_markSubmit(builder) {}
+// kind: 0 element, 1 text, 2 marker.
+function $scene_record(kind, name, body, text) {
+  return {
+    identity: $scene_mint(),
+    kind,
+    name,
+    body,
+    text,
+    parent: null,
+    children: [],
+    // The press/submit handler thunk, the bound value signal, and whether a
+    // button submits its form — the widget state `press`/`fill`/`flip`/`submit`
+    // read, the scene twin of the JavaScript listener on an element.
+    press: null,
+    valueSignal: -1,
+    submit: false,
+    // A control's accessible name, for `press` — the `aria-label` twin. Empty
+    // means the element's own text is its name.
+    label: "",
+    // A route link's plain-click handler thunk, or null — `follow` fires it,
+    // `openInNewTab` leaves it to the browser.
+    follow: null,
+  };
+}
 
-function $ui_testing_Rendered_markup(self) {
-  let out = "";
-  for (const child of $slot(self).children) out += $dom_markup(child);
+function $scene_of(x) {
+  return $t.h[Number(x[0])];
+}
+
+// Adds a record in the current frame — under its parent, before its anchor, or
+// at the end of that parent when there is none — and answers its index. The
+// native `Document::add`.
+function $scene_add(doc, kind, name, body, text) {
+  const frame = doc.cursor[doc.cursor.length - 1];
+  const index = doc.records.length;
+  const record = $scene_record(kind, name, body, text);
+  record.parent = frame.parent;
+  doc.records.push(record);
+  const children = doc.records[frame.parent].children;
+  let pos = children.length;
+  if (frame.anchor !== null) {
+    const at = children.indexOf(frame.anchor);
+    if (at >= 0) pos = at;
+  }
+  children.splice(pos, 0, index);
+  return index;
+}
+
+// The element the walk currently has open — where an event arm attaches.
+function $scene_openElement(doc) {
+  return doc.cursor[doc.cursor.length - 1].parent;
+}
+
+// The records reachable from the host, in document order, with the tree depth
+// their scene line carries — the host's own children at depth 0.
+function $scene_ordered(doc) {
+  const out = [];
+  $scene_visit(doc, 0, 0, out);
   return out;
 }
 
-function $ui_testing_Rendered_text(self) {
-  return $dom_runs($slot(self), []).join(" ");
-}
-
-// Addressed by label, because that is what a reader addresses them by: a test
-// that says which control it meant does not quietly start pressing another one
-// when the tree changes. Not finding it is a failed test rather than a silent
-// no-op, which is the whole reason these abort.
-function $tree_labelled(self, name, label) {
-  for (const element of $dom_elements($slot(self), name, [])) {
-    // A button carries its accessible name as an attribute, because its glyphs
-    // may be an icon; everything else is addressed by the text a reader sees.
-    const named = element.attributes["aria-label"];
-    if ((named === undefined ? $dom_label(element) : named) === label) return element;
+function $scene_visit(doc, node, depth, out) {
+  for (const child of doc.records[node].children) {
+    out.push([child, depth]);
+    $scene_visit(doc, child, depth + 1, out);
   }
-  $abort("this tree has no " + name + ' labelled "' + label + '"');
-  return null;
 }
 
-// A press is the pointer's, so an element the pointer passes through does not
-// get one — the same nothing a browser does with a click on it. Silent rather
-// than an abort, because the tree *has* the button and what a test is asking is
-// whether pressing it does anything; a test that says nothing happened is the
-// assertion, and one that meant otherwise fails on the state it expected.
-function $ui_testing_Rendered_press(self, label) {
-  const button = $tree_labelled(self, "button", label);
-  // Out of reach when the pointer passes through it, or when a `dialog` has
-  // taken it out of the page — behind an open modal, or inside a shut one.
-  if (!$dom_reachable(button) || $dom_inert(button)) return 0;
-  // The press reaches the document before it reaches the button, the way a
-  // browser's `pointerdown` does: an overlay watching for a press outside
-  // itself sees this one and decides by where it landed. A press inside the
-  // overlay is not outside it, so its own contents still work.
-  $dom_outside_fire($dom_root($slot(self)), button);
-  $dom_fire(button, "click");
-  // A submit button has no handler of its own: submitting is the form's, and
-  // reaching it is the browser's default action for the press. Nothing here
-  // listens for a click, so the default action is dispatched here.
-  if (button.attributes["type"] === "submit" && !button.disabled) {
-    const form = $dom_enclosing(button, "form");
-    if (form !== null) $dom_fire(form, "submit");
-  }
-  return 0;
+// --- The builders `renderInto` emits to --------------------------------------
+
+function $ui_node_emitElement(builder, name, body) {
+  const doc = $scene_of(builder);
+  const index = $scene_add(doc, 0, name, body, "");
+  doc.cursor.push({ parent: index, anchor: null });
 }
 
-// A plain left-click on the anchor a reader sees as `label`. A route link
-// answers it in place — the address moves and the tree stays; an ordinary
-// `link` lets the browser follow it, which this headless document cannot do, so
-// nothing observable happens and a test says so by what did not change.
-// Addressed by the text it shows, the way a reader addresses a link.
-function $ui_testing_Rendered_follow(self, label) {
-  const anchor = $tree_labelled(self, "a", label);
-  if (!$dom_reachable(anchor) || $dom_inert(anchor)) return 0;
-  $dom_click(anchor, false);
-  return 0;
+function $ui_node_exitElement(builder) {
+  const doc = $scene_of(builder);
+  if (doc.cursor.length > 1) doc.cursor.pop();
 }
 
-// A ⌘/Ctrl-click on that anchor: what a reader does to open the link beside the
-// page they are on. A route link leaves this to the browser, so the address bar
-// does not move — which is the whole of what a test here asserts.
-function $ui_testing_Rendered_openInNewTab(self, label) {
-  const anchor = $tree_labelled(self, "a", label);
-  if (!$dom_reachable(anchor) || $dom_inert(anchor)) return 0;
-  $dom_click(anchor, true);
-  return 0;
+function $ui_node_emitText(builder, content) {
+  $scene_add($scene_of(builder), 1, "", "", content);
 }
 
-// The nearest element of this name at or above `node`, or null where there is
-// none.
-function $dom_enclosing(node, name) {
-  for (let at = node; at !== null && at !== undefined; at = at.parent) {
-    if (at.kind === 0 && at.name === name) return at;
-  }
-  return null;
+function $ui_node_openText(builder) {
+  return BigInt($scene_add($scene_of(builder), 1, "", "", ""));
 }
 
-// Whether the pointer reaches this element rather than passing through it.
-//
-// `pointer-events` inherits, so the answer is the nearest ancestor — this
-// element included — that declares one, and a child that declares `auto` takes
-// the pointer back. The declaration reaches an element either as a class or
-// inline, so both tiers are read: the sheet is where a static style went, and
-// only an unconditional rule counts, since a headless document is in no state.
-function $dom_reachable(node) {
-  for (let at = node; at !== null && at !== undefined; at = at.parent) {
-    const declared = at.styles["pointer-events"] ?? $ui_sheet_value(at.classes, "pointer-events");
-    if (declared !== undefined) return declared !== "none";
-  }
-  return true;
+function $ui_node_patchText(builder, at, content) {
+  const record = $scene_of(builder).records[Number(at)];
+  if (record !== undefined) record.text = content;
 }
 
-// What the extracted stylesheet says one of these classes declares for a
-// property, or undefined where none of them names it. `.<class>{` matches an
-// unconditional rule and nothing else: a stated one is written `.<class>:hover{`
-// or `.<class>[aria-invalid=true]{`, and a class name holds no `.`.
-function $ui_sheet_value(classes, property) {
-  for (const name of classes.split(" ")) {
-    const opening = "." + name + "{";
-    const at = $ui_sheet.indexOf(opening);
-    if (at < 0) continue;
-    const body = $ui_sheet.slice(at + opening.length, $ui_sheet.indexOf("}", at));
-    for (const declaration of body.split(";")) {
-      const colon = declaration.indexOf(":");
-      if (declaration.slice(0, colon) === property) return declaration.slice(colon + 1);
+// Emits an element and enters it like `$ui_node_emitElement`, answering the
+// index a reactive style patches its body by — its identity minted once.
+function $ui_node_openElement(builder, name, body) {
+  const doc = $scene_of(builder);
+  const index = $scene_add(doc, 0, name, body, "");
+  doc.cursor.push({ parent: index, anchor: null });
+  return BigInt(index);
+}
+
+// Writes `body` over the element `openElement` answered, the element kept — a
+// `$tree_styles` bind re-running for the scene.
+function $ui_node_patchBody(builder, at, body) {
+  const record = $scene_of(builder).records[Number(at)];
+  if (record !== undefined) record.body = body;
+}
+
+// The renderer's own `watch`: registers `body` in the graph and runs it once,
+// so a leaf follows its prop and a region rebuilds on every change to what its
+// build read. The graph owns the watcher and disposes it with whatever created
+// it — the native `$ui_node_reactive` / `buri_rt_ui_watch`.
+function $ui_node_reactive(body) {
+  $ui_run($ui_cell(2, undefined, body));
+}
+
+function $ui_node_enterDynamic(builder) {
+  const doc = $scene_of(builder);
+  const start = $scene_add(doc, 2, "", "", "");
+  const end = $scene_add(doc, 2, "", "", "");
+  doc.regions.push({ start, end });
+  return BigInt(doc.regions.length - 1);
+}
+
+// Clears a region and points the builder at its gap (`$scene_beginRegion`
+// pushes the frame), then `endRegion` pops it — `rebuildRegion` split open, for
+// a reactive widget that emits inline under its own watcher and needs no ctx.
+function $ui_node_beginRegion(builder, region) {
+  $scene_beginRegion($scene_of(builder), Number(region));
+}
+
+function $ui_node_endRegion(builder) {
+  const doc = $scene_of(builder);
+  if (doc.cursor.length > 1) doc.cursor.pop();
+}
+
+// Clears a region and points the builder at the gap, the native
+// `Document::begin_region`: every record between the two markers is unlinked
+// from its parent, then a frame is pushed that inserts before the end marker so
+// the re-walk lands where the last one did.
+function $scene_beginRegion(doc, region) {
+  const reg = doc.regions[region];
+  if (reg === undefined) return;
+  const start = reg.start;
+  const end = reg.end;
+  const parent = doc.records[start] !== undefined ? doc.records[start].parent : 0;
+  const children = doc.records[parent].children;
+  const si = children.indexOf(start);
+  const ei = children.indexOf(end);
+  if (si >= 0 && ei >= 0 && ei > si + 1) {
+    const removed = children.splice(si + 1, ei - si - 1);
+    for (const child of removed) {
+      if (doc.records[child] !== undefined) doc.records[child].parent = null;
     }
+  }
+  doc.cursor.push({ parent, anchor: end });
+}
+
+function $ui_node_rebuildRegion(builder, region, node, walk) {
+  const doc = $scene_of(builder);
+  $scene_beginRegion(doc, Number(region));
+  walk(doc.ctx, builder, node);
+  if (doc.cursor.length > 1) doc.cursor.pop();
+}
+
+// A marker under `parent`, inserted before the child `anchor` — the positional
+// twin of `$scene_add`, reached by the reconciler. The native
+// `Document::marker_before`.
+function $scene_markerBefore(doc, parent, anchor) {
+  const index = doc.records.length;
+  const record = $scene_record(2, "", "", "");
+  record.parent = parent;
+  doc.records.push(record);
+  const children = doc.records[parent].children;
+  let pos = children.indexOf(anchor);
+  if (pos < 0) pos = children.length;
+  children.splice(pos, 0, index);
+  return index;
+}
+
+// Moves the contiguous run of children from `start` to `end` (a row's two
+// markers and everything between them) to just before `anchor` — the native
+// `Document::move_block` / `$tree_move`.
+function $scene_moveBlock(doc, parent, start, end, anchor) {
+  const children = doc.records[parent].children;
+  const si = children.indexOf(start);
+  const ei = children.indexOf(end);
+  if (si < 0 || ei < 0 || ei < si) return;
+  const block = children.splice(si, ei - si + 1);
+  let pos = children.indexOf(anchor);
+  if (pos < 0) pos = children.length;
+  children.splice(pos, 0, ...block);
+}
+
+// Unlinks a row's run of children from `parent`, so no reader reaches it — the
+// native `Document::detach_block` / `$tree_detach`.
+function $scene_detachBlock(doc, parent, start, end) {
+  const children = doc.records[parent].children;
+  const si = children.indexOf(start);
+  const ei = children.indexOf(end);
+  if (si < 0 || ei < 0 || ei < si) return;
+  const block = children.splice(si, ei - si + 1);
+  for (const child of block) {
+    if (doc.records[child] !== undefined) doc.records[child].parent = null;
+  }
+}
+
+function $ui_node_enterEach(builder) {
+  const doc = $scene_of(builder);
+  // The rows hang off this owner rather than off the reconciling watcher, so a
+  // row survives the watcher re-running — the native `$tree_each`'s owner.
+  const listOwner = $ui_cell(3, undefined, null);
+  const start = $scene_add(doc, 2, "", "", "");
+  const end = $scene_add(doc, 2, "", "", "");
+  const parent = doc.records[start].parent;
+  doc.eachRegions.push({ start, end, parent, listOwner, rows: [] });
+  return BigInt(doc.eachRegions.length - 1);
+}
+
+// The native `$tree_reconcile`: key the prior rows, walk the new keys
+// backwards, move a surviving key's records (same records, same identities) and
+// build only genuinely new keys; a departed key's row owner is disposed and
+// forgotten, so the next write runs the computations of the rows that stayed
+// and no others.
+function $ui_node_reconcile(builder, region, keys, build) {
+  const doc = $scene_of(builder);
+  const reg = doc.eachRegions[Number(region)];
+  if (reg === undefined) return;
+  const end = reg.end;
+  const parent = reg.parent;
+  const listOwner = reg.listOwner;
+  const byKey = new Map();
+  for (const row of reg.rows) byKey.set(row.key, row);
+  const next = new Array(keys.length);
+  let anchor = end;
+  for (let i = keys.length - 1; i >= 0; i--) {
+    const key = keys[i];
+    if (byKey.has(key)) {
+      const row = byKey.get(key);
+      byKey.delete(key);
+      $scene_moveBlock(doc, parent, row.start, row.end, anchor);
+      anchor = row.start;
+      next[i] = row;
+    } else {
+      const rowOwner = $ui_under(listOwner, () => $ui_cell(3, undefined, null));
+      const start = $scene_markerBefore(doc, parent, anchor);
+      const rowEnd = $scene_markerBefore(doc, parent, anchor);
+      doc.cursor.push({ parent, anchor: rowEnd });
+      $ui_under(rowOwner, () => {
+        build(doc.ctx, 0n, BigInt(i));
+        return 0;
+      });
+      if (doc.cursor.length > 1) doc.cursor.pop();
+      anchor = start;
+      next[i] = { key, start, end: rowEnd, owner: rowOwner };
+    }
+  }
+  for (const row of byKey.values()) {
+    $scene_detachBlock(doc, parent, row.start, row.end);
+    $ui_dispose(row.owner);
+    $ui_forget(listOwner, row.owner);
+  }
+  reg.rows = next;
+}
+
+// A button's or a form's handler, kept as a thunk on the open element so a
+// press or a submit fires it in one update transaction.
+function $ui_node_registerPress(builder, onPress) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) {
+    record.press = () => $ui_flush(() => onPress(doc.ctx, [0n]));
+  }
+}
+
+// Keeps an `onPressOutside`'s handler on the document, paired with the open
+// element, so a press landing outside that element's subtree fires it. Tied to
+// the graph through `$ui_dispose_with`, so disposing the subtree (a `choose`
+// that shuts) marks the pair dead and a later press reaches nothing — the
+// native `registerOutside` / the JavaScript `$dom_outside`.
+function $ui_node_registerOutside(builder, handler) {
+  const doc = $scene_of(builder);
+  const elem = $scene_openElement(doc);
+  const entry = {
+    fire: () => $ui_flush(() => handler(doc.ctx, [0n])),
+    elem,
+    alive: true,
+  };
+  doc.outside.push(entry);
+  $ui_dispose_with(() => {
+    entry.alive = false;
+  });
+}
+
+// The signal a field's or a toggle's value is bound to, stored on the open
+// element so `fill` writes it a string and `flip` its negation.
+function $ui_node_registerValue(builder, signal) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) record.valueSignal = Number(signal);
+}
+
+// Keeps a control's accessible name on the open element, so `press` addresses a
+// button by the label a reader hears rather than its glyphs.
+function $ui_node_registerLabel(builder, label) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) record.label = label;
+}
+
+// Keeps a route link's plain-click handler (its destination captured) on the
+// open anchor, so `follow` fires it and `openInNewTab` does not.
+function $ui_node_registerFollow(builder, dest, onFollow) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) {
+    record.follow = () => $ui_flush(() => onFollow(doc.ctx, dest));
+  }
+}
+
+// Flags the open button as the one whose press submits its form.
+function $ui_node_markSubmit(builder) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) record.submit = true;
+}
+
+// `mount(ctx, root, walk)` — open a scene document, walk `root` into it with the
+// `renderInto` closure `render` passed, and answer the handle a `Rendered`
+// carries. The builder is the same one-field handle a `Rendered` is, so a
+// reader and the walk name the one document. The initial walk runs each leaf
+// and region watcher once, so what comes back is already the resting tree.
+function $ui_testing_mount(ctx, root, walk) {
+  const handle = $handle($scene_open(ctx));
+  walk(ctx, handle, root);
+  return handle[0];
+}
+
+// --- The readers a `Rendered` answers from the scene document ------------------
+
+// The value of a `prop:value` declaration in a scene `e`-line body, or
+// undefined — the native `decl_value`.
+function $scene_declValue(body, prop) {
+  for (const token of body.split(";")) {
+    const at = token.indexOf(":");
+    if (at >= 0 && token.slice(0, at) === prop) return token.slice(at + 1);
   }
   return undefined;
 }
 
+// The class names a body's `class:<names>` token carries — the native
+// `classes_of`.
+function $scene_classes(body) {
+  for (const token of body.split(";")) {
+    if (token.startsWith("class:")) {
+      return token.slice("class:".length).split(" ").filter((s) => s !== "");
+    }
+  }
+  return [];
+}
+
+// Whether a control's flag is set — the scene's `disabled:true`.
+function $scene_isDisabled(body) {
+  return $scene_declValue(body, "disabled") === "true";
+}
+
+// The input kinds that block implicit submission, read from `field:<kind>` —
+// the HTML Standard's list, the native `blocks_submission`.
+const $SCENE_BLOCKING = { text: true, password: true, email: true, number: true, search: true };
+
+function $scene_blocksSubmission(body) {
+  return $SCENE_BLOCKING[$scene_declValue(body, "field")] === true;
+}
+
+// The text runs directly under `node`, concatenated — a control's own label,
+// not descending into a nested control. The native `Document::direct_text`.
+function $scene_directText(doc, node) {
+  let out = "";
+  for (const child of doc.records[node].children) {
+    if (doc.records[child].kind === 1) out += doc.records[child].text;
+  }
+  return out;
+}
+
+// The first element of `name`, in document order, whose own label is `label` —
+// the native `labelled` / `$tree_labelled`, or `-1` where there is none.
+function $scene_labelled(doc, name, label) {
+  for (const [i] of $scene_ordered(doc)) {
+    const r = doc.records[i];
+    // A control's accessible name is its stored label where it has one, its own
+    // text otherwise — a button's glyphs are not its name.
+    const named = r.label === "" ? $scene_directText(doc, i) : r.label;
+    if (r.kind === 0 && r.name === name && named === label) return i;
+  }
+  return -1;
+}
+
+// The first descendant of `node` (itself included) whose name is one of
+// `names`, or `-1` — the native `first_named` / `$dom_first`.
+function $scene_firstNamed(doc, node, names) {
+  const r = doc.records[node];
+  if (r.kind === 0 && names.indexOf(r.name) >= 0) return node;
+  for (const child of r.children) {
+    const found = $scene_firstNamed(doc, child, names);
+    if (found >= 0) return found;
+  }
+  return -1;
+}
+
+// Whether `node` is `ancestor` itself or a descendant of it — a press inside
+// the subtree `onPressOutside` watches is not a press outside it.
+function $scene_within(doc, ancestor, node) {
+  let at = node;
+  while (at !== null && at !== undefined) {
+    if (at === ancestor) return true;
+    at = doc.records[at].parent;
+  }
+  return false;
+}
+
+// The nearest element of `name` at or above `node`, or `-1` — the native
+// `enclosing` / `$dom_enclosing`.
+function $scene_enclosing(doc, node, name) {
+  let at = node;
+  while (at !== null && at !== undefined) {
+    const r = doc.records[at];
+    if (r.kind === 0 && r.name === name) return at;
+    at = r.parent;
+  }
+  return -1;
+}
+
+// Every element of `name` reachable from the host, in document order — the
+// native `elements`.
+function $scene_elements(doc, name) {
+  const out = [];
+  for (const [i] of $scene_ordered(doc)) {
+    if (doc.records[i].kind === 0 && doc.records[i].name === name) out.push(i);
+  }
+  return out;
+}
+
+// Every element of `name` at or under `node`, in document order — the native
+// `descendants`.
+function $scene_descendants(doc, node, name) {
+  const out = [];
+  $scene_gather(doc, node, name, out);
+  return out;
+}
+
+function $scene_gather(doc, node, name, out) {
+  const r = doc.records[node];
+  if (r.kind === 0 && r.name === name) out.push(node);
+  for (const child of r.children) $scene_gather(doc, child, name, out);
+}
+
+// What this element declares for `pointer-events`, or undefined — an inline
+// declaration first, then a `pass-<value>` class. The native `pointer_events`:
+// the resolved declaration the reachability walk reads, off the element's own
+// scene body rather than the extracted sheet.
+function $scene_pointerEvents(doc, node) {
+  const body = doc.records[node].body;
+  const v = $scene_declValue(body, "pointer-events");
+  if (v !== undefined) return v !== "none";
+  for (const cls of $scene_classes(body)) {
+    if (cls.startsWith("pass-")) return cls.slice("pass-".length) !== "none";
+  }
+  return undefined;
+}
+
+// Whether the pointer reaches `node` — the native `reachable`. `pointer-events`
+// inherits, so the nearest ancestor that declares one answers.
+function $scene_reachable(doc, node) {
+  let at = node;
+  while (at !== null && at !== undefined) {
+    const reaches = $scene_pointerEvents(doc, at);
+    if (reaches !== undefined) return reaches;
+    at = doc.records[at].parent;
+  }
+  return true;
+}
+
+// Whether a dialog has taken `node` out of the page — the native `inert`. A
+// dialog is rendered only while open, so a `dialog` in the tree is an open one:
+// what is inside it is reached, and what is outside every one is inert while
+// any is present.
+function $scene_inert(doc, node) {
+  let at = node;
+  while (at !== null && at !== undefined) {
+    const r = doc.records[at];
+    if (r.kind === 0 && r.name === "dialog") return false;
+    at = r.parent;
+  }
+  return $scene_elements(doc, "dialog").length > 0;
+}
+
+// A run's content escaped for a `t` line — the native `escape_run` /
+// `ui_node.buri`'s `textLine`: a backslash first (or the next two would
+// double-escape), then a newline and a carriage return, and no fourth.
+function $scene_escapeRun(content) {
+  return content.split("\\").join("\\\\").split("\n").join("\\n").split("\r").join("\\r");
+}
+
+function $ui_testing_Rendered_markup(self) {
+  const doc = $scene_of(self);
+  const lines = [];
+  for (const pair of $scene_ordered(doc)) {
+    const record = doc.records[pair[0]];
+    if (record.kind === 0) lines.push("e " + pair[1] + " " + record.body);
+    else if (record.kind === 1) lines.push("t " + pair[1] + " " + $scene_escapeRun(record.text));
+  }
+  return lines.join("\n");
+}
+
+function $ui_testing_Rendered_text(self) {
+  const doc = $scene_of(self);
+  const runs = [];
+  for (const pair of $scene_ordered(doc)) {
+    if (doc.records[pair[0]].kind === 1) runs.push(doc.records[pair[0]].text);
+  }
+  return runs.join(" ");
+}
+
+function $ui_testing_Rendered_press(self, label) {
+  const doc = $scene_of(self);
+  const button = $scene_labelled(doc, "button", label);
+  if (button < 0) $abort('this tree has no button labelled "' + label + '"');
+  // Out of reach when the pointer passes through it, or when a `dialog` has
+  // taken it out of the page.
+  if (!$scene_reachable(doc, button) || $scene_inert(doc, button)) return 0;
+  // The press reaches the document before the button: an overlay watching for a
+  // press outside itself sees this one and fires on it, unless it landed inside
+  // its subtree. A pair whose subtree has gone is dead and fires nothing.
+  for (const entry of doc.outside) {
+    if (entry.alive && !$scene_within(doc, entry.elem, button)) entry.fire();
+  }
+  const record = doc.records[button];
+  if ($scene_isDisabled(record.body)) return 0;
+  if (record.press !== null) record.press();
+  // A submit button has no handler of its own: reaching the form is the
+  // browser's default action for the press.
+  if (record.submit) {
+    const form = $scene_enclosing(doc, button, "form");
+    if (form >= 0 && doc.records[form].press !== null) doc.records[form].press();
+  }
+  return 0;
+}
+
+// A route link's follow handler is not in the scene document — the scene drops
+// it, as `describe` does — so a headless scene does not follow one. The blocks
+// that assert following render the HTML document double and live in the JS-only
+// sibling; this resolves the anchor by its text the way a reader would and
+// otherwise does nothing, the same observable nothing an ordinary link is.
+function $ui_testing_Rendered_follow(self, label) {
+  const doc = $scene_of(self);
+  const anchor = $scene_labelled(doc, "a", label);
+  if (anchor < 0) $abort('this tree has no a labelled "' + label + '"');
+  // A plain left-click the app answers in place: a route link's handler moves
+  // the address and keeps the tree. An ordinary link carries none, so nothing
+  // observable happens — which is what a test asserts by what did not change.
+  if (!$scene_reachable(doc, anchor) || $scene_inert(doc, anchor)) return 0;
+  const record = doc.records[anchor];
+  if (record.follow !== null) record.follow();
+  return 0;
+}
+
+function $ui_testing_Rendered_openInNewTab(self, label) {
+  const doc = $scene_of(self);
+  const anchor = $scene_labelled(doc, "a", label);
+  if (anchor < 0) $abort('this tree has no a labelled "' + label + '"');
+  // A modified click — the middle button, or a held modifier — is the browser's
+  // to follow as an ordinary anchor, so a route link leaves the address where
+  // it is and its handler never runs.
+  return 0;
+}
+
 function $ui_testing_Rendered_fill(self, label, value) {
-  const field = $dom_first($tree_labelled(self, "label", label), ["input", "textarea"]);
-  if (field === null) $abort('the label "' + label + '" is not a field');
-  // Nothing is typed into a disabled field, so nothing is written and nothing
-  // is dispatched.
-  if (field.disabled || $dom_inert(field)) return 0;
-  field.value = value;
-  $dom_fire(field, "input");
+  const doc = $scene_of(self);
+  const labelNode = $scene_labelled(doc, "label", label);
+  const field = labelNode < 0 ? -1 : $scene_firstNamed(doc, labelNode, ["input", "textarea"]);
+  if (field < 0) $abort('the label "' + label + '" is not a field');
+  const record = doc.records[field];
+  // Nothing is typed into a disabled or inert field.
+  if ($scene_isDisabled(record.body) || $scene_inert(doc, field)) return 0;
+  if (record.valueSignal >= 0) {
+    const signal = record.valueSignal;
+    $ui_flush(() => $ui_write(signal, value));
+  }
   return 0;
 }
 
 function $ui_testing_Rendered_flip(self, label) {
-  const box = $dom_first($tree_labelled(self, "label", label), ["input"]);
-  if (box === null) $abort('the label "' + label + '" is not a toggle');
-  if (box.disabled || $dom_inert(box)) return 0;
-  box.checked = !box.checked;
-  $dom_fire(box, "change");
+  const doc = $scene_of(self);
+  const labelNode = $scene_labelled(doc, "label", label);
+  const box = labelNode < 0 ? -1 : $scene_firstNamed(doc, labelNode, ["input"]);
+  if (box < 0) $abort('the label "' + label + '" is not a toggle');
+  const record = doc.records[box];
+  if ($scene_isDisabled(record.body) || $scene_inert(doc, box)) return 0;
+  if (record.valueSignal >= 0) {
+    const signal = record.valueSignal;
+    $ui_flush(() => $ui_write(signal, !$ui_read(signal)));
+  }
   return 0;
 }
 
-// The input types that block implicit submission, which is the HTML Standard's
-// own list: the kinds a reader types a line into. A `range` is dragged and a
-// `textarea` holds newlines, so neither blocks and neither counts.
-const $DOM_BLOCKING = {
-  text: true,
-  password: true,
-  email: true,
-  number: true,
-  search: true,
-};
-
-// Pressing Enter in a field, which is implicit submission — and implicit
-// submission is the platform's rule, not this double's. A form is submitted
-// through its submit button; a form with none is submitted only while exactly
-// one of its fields blocks implicit submission, and one with two fields and no
-// submit button discards the keypress.
-//
-// So this discards it too. A double more permissive than the platform is a
-// suite that goes green on markup a browser will not submit, which is a form
-// nobody can send and a test that cannot say so.
+// Pressing Enter in a field, which is implicit submission — the platform's
+// rule, the native `submit`: an enabled submit button submits the form, and a
+// form with none is submitted only while exactly one of its fields blocks
+// implicit submission. A form a `dialog` has taken out of reach submits nothing.
 function $ui_testing_Rendered_submit(self, at) {
-  const forms = $dom_elements($slot(self), "form", []);
+  const doc = $scene_of(self);
+  const forms = $scene_elements(doc, "form");
   const index = Number(at);
   if (index < 0 || index >= forms.length) $abort("this tree has no form " + index);
   const form = forms[index];
-  // A form a `dialog` has taken out of reach submits nothing.
-  if ($dom_inert(form)) return 0;
-  for (const button of $dom_elements(form, "button", [])) {
-    if (button.attributes["type"] === "submit") {
-      // A disabled submit button is no default action at all, so the form has
-      // none and the single-field rule below is what is left.
-      if (!button.disabled) {
-        $dom_fire(form, "submit");
-        return 0;
-      }
-    }
+  if ($scene_inert(doc, form)) return 0;
+  let hasSubmit = false;
+  for (const b of $scene_descendants(doc, form, "button")) {
+    if (doc.records[b].submit && !$scene_isDisabled(doc.records[b].body)) hasSubmit = true;
   }
   let blocking = 0;
-  for (const field of $dom_elements(form, "input", [])) {
-    if ($DOM_BLOCKING[field.attributes["type"]]) blocking++;
+  for (const i of $scene_descendants(doc, form, "input")) {
+    if ($scene_blocksSubmission(doc.records[i].body)) blocking++;
   }
-  if (blocking === 1) $dom_fire(form, "submit");
+  if ((hasSubmit || blocking === 1) && doc.records[form].press !== null) {
+    doc.records[form].press();
+  }
   return 0;
 }
 
 function $ui_testing_Rendered_count(self, name) {
-  return BigInt($dom_elements($slot(self), name, []).length);
+  return BigInt($scene_elements($scene_of(self), name).length);
 }
 
 function $ui_testing_Rendered_identity(self, name, at) {
-  const elements = $dom_elements($slot(self), name, []);
+  const doc = $scene_of(self);
+  const elements = $scene_elements(doc, name);
   const index = Number(at);
   if (index < 0 || index >= elements.length) {
     $abort("this tree has no " + name + " " + index);
   }
-  return elements[index].identity;
+  return BigInt(doc.records[elements[index]].identity);
 }
 
 // --- The test platform ------------------------------------------------------------
