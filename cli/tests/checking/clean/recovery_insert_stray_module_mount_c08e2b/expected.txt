@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:24:47
+   |
+24 | fn badge<C>(title: Prop<Str>, count: Prop<Int>@ ): Node<C> {
+   |                                               ^
+   |
+  --> main.buri:24:12
+   |
+24 | fn badge<C>(title: Prop<Str>, count: Prop<Int>@ ): Node<C> {
+   |            ^ opened here
+   |
+   = fix: write `)` here

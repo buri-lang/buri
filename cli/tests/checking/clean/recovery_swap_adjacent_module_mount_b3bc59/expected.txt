@@ -1,0 +1,9 @@
+error: expected `let`, found `badgeStyle` [unexpected-token]
+  --> main.buri:18:1
+   |
+18 | badgeStyle let: Style = .Group([
+   | ^^^^^^^^^^
+   |
+   = expected: `let`
+   = actual: `badgeStyle`
+   = fix: write `let` first: `let badgeStyle`

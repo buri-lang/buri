@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:34:7
+   |
+34 |     ui, .column([], [
+   |       ^
+   |
+  --> main.buri:31:48
+   |
+31 | fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
+   |                                                ^ opened here
+   |
+   = fix: write `}` here

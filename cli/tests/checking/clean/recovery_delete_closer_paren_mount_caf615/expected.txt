@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:22:1
+   |
+22 | );
+   | ^
+   |
+  --> main.buri:18:32
+   |
+18 | let badgeStyle: Style = .Group([
+   |                                ^ opened here
+   |
+   = fix: write `]` here

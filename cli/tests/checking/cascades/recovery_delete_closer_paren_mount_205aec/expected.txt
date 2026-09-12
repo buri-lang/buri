@@ -1,0 +1,42 @@
+error: `button` takes 6 arguments, but 8 were given [wrong-argument-count]
+  --> main.buri:35:9
+   |
+35 |         ui.button(
+   |         ^^^^^^^^^^
+   |
+   = expected: 6
+   = actual: 8
+   = fix: pass `button` the following arguments: button<C>(label: Prop<Str>, styles: [Style], children: [Node<C>], onPress: fn(C, Event) => (), disabled: Prop<Bool>, expanded: Prop<Bool>)
+error: `.Const` needs a known expected type [unannotated-variant]
+  --> main.buri:36:13
+   |
+36 |             .Const(label),
+   |             ^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Const(...)`, or annotate what this value is being used as
+error: `.Const` needs a known expected type [unannotated-variant]
+  --> main.buri:40:13
+   |
+40 |             .Const(false),
+   |             ^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Const(...)`, or annotate what this value is being used as
+error: `.Const` needs a known expected type [unannotated-variant]
+  --> main.buri:41:13
+   |
+41 |             .Const(false,
+   |             ^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Const(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:45:5
+   |
+45 |     ])
+   |     ^
+   |
+  --> main.buri:35:18
+   |
+35 |         ui.button(
+   |                  ^ opened here
+   |
+   = fix: write `)` here

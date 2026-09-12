@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:48:1
+   |
+48 | test "the counter mounts" {
+   | ^^^^
+   |
+  --> main.buri:31:48
+   |
+31 | fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
+   |                                                ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,29 @@
+error: `row` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:25:5
+   |
+25 |     ui.row([badgeStyle] [
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass `row` the following arguments: row<C>(styles: [Style], children: [Node<C>])
+error: expected `I64`, found `Node<_2>` [type-mismatch]
+  --> main.buri:26:9
+   |
+26 |         ui.text(title),
+   |         ^^^^^^^^^^^^^^ an index is `I64`
+   |
+   = expected: `I64`
+   = actual: `Node<_2>`
+error: this index is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:26:23
+   |
+26 |         ui.text(title),
+   |                       ^
+   |
+  --> main.buri:25:25
+   |
+25 |     ui.row([badgeStyle] [
+   |                         ^ opened here
+   |
+   = fix: write `]` here

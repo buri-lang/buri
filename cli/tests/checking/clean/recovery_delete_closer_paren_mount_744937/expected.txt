@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:28:5
+   |
+28 |     ])
+   |     ^
+   |
+  --> main.buri:27:16
+   |
+27 |         ui.text(.Computed(fn(c) => "${count.read(c)}"),
+   |                ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,16 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:16:33
+   |
+16 | from "ui/theme" import { Theme }, ;
+   |                                 ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here
+error: there is no type `Theme` [unresolved-type]
+  --> main.buri:54:18
+   |
+54 |     let themes: [Theme] = [];
+   |                  ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

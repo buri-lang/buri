@@ -160,8 +160,7 @@ test "a component that uses tokens carries the same classes under any theme" {
     let ctx = context {
         Ui: headless(),
     };
-    let expected =
-        "e 0 class:bg-t_cardlib_surface fg-t_cardlib_onSurface\nt 1 card";
+    let expected = "e 0 class:bg-t_cardlib_surface fg-t_cardlib_onSurface\nt 1 card";
 
     let _ = install([cardThemed(cardTheme), appThemed(day)]);
     assert.equal(render(ctx, card("card")).markup(), expected);

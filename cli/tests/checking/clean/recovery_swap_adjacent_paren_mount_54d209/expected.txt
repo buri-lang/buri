@@ -1,0 +1,21 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:31
+   |
+27 |         ui.text(.Computed(fn(c=> ) "${count.read(c)}")),
+   |                               ^^
+   |
+  --> main.buri:27:29
+   |
+27 |         ui.text(.Computed(fn(c=> ) "${count.read(c)}")),
+   |                             ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found an interpolated string [unexpected-token]
+  --> main.buri:27:36
+   |
+27 |         ui.text(.Computed(fn(c=> ) "${count.read(c)}")),
+   |                                    ^^^
+   |
+   = expected: `=>`
+   = actual: an interpolated string
+   = fix: write `=>` here

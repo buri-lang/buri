@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:32:31
+   |
+32 |     let count = signal(ctx, 0)
+   |                               ^
+   |
+   = fix: write `;` here

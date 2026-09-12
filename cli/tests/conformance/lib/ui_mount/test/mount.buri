@@ -5,15 +5,15 @@
 // is split out so that file can, and it keeps `platforms: [JS]` for the mount
 // that still cannot cross (#53 phase 6).
 
+from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
-from "ui/style" import { Style };
 from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
+from "ui/style" import { Style };
 from "ui/testing" import { headless };
 from "ui/theme" import { Theme };
-from "core/testing/assert" import * as assert;
 
 let badgeStyle: Style = .Group([
     .PaddingX(.Rem(0.5)),

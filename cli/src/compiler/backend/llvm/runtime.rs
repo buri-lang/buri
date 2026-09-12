@@ -3029,7 +3029,11 @@ mod tests {
                 (None, _) => {}
             }
         }
-        assert_eq!(checked, 1, "the renderer's `registerPress`, and nothing else yet");
+        assert_eq!(
+            checked, 3,
+            "the renderer's kept handlers: `registerPress`, and the `registerOutside` and \
+             `registerFollow` added with `onPressOutside` and `routeLink` (#53)"
+        );
     }
 
     /// Every row with a step is one `backend/intrinsic_keys.rs` names, its
