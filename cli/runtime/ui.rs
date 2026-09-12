@@ -289,18 +289,42 @@ impl Graph {
     }
 
     /// Disposes `id` and everything hanging off it.
+    ///
+    /// A disposed node never runs again, so what it held goes back here — the
+    /// value it last computed and the environment of the closure it ran — the
+    /// way [`give_back`] gives back a live node's at exit. On the reference
+    /// backend a departed subtree's blocks are the collector's; here they are
+    /// this line's, or they are a leak, and a keyed list that adds and removes a
+    /// row a thousand times would hold a thousand environments for the price of
+    /// not writing it. `walk` is `decref`, which frees Buri blocks and never
+    /// re-enters the graph, so it is safe under the lock `run` holds across this.
     fn dispose(&mut self, id: i64) {
         let mut stack = vec![id];
         while let Some(next) = stack.pop() {
-            let children = {
+            let (children, release, mut value, body, compute) = {
                 let Some(n) = self.get_mut(next) else { continue };
                 if n.disposed {
                     continue;
                 }
                 n.disposed = true;
-                n.compute = None;
-                std::mem::take(&mut n.children)
+                (
+                    std::mem::take(&mut n.children),
+                    n.release,
+                    std::mem::take(&mut n.value),
+                    n.body,
+                    n.compute.take(),
+                )
             };
+            if !value.is_empty() {
+                // SAFETY: the node held one whole value of the type `release`
+                // was generated for, and the graph names it no more.
+                unsafe { walk(release, value.as_mut_ptr()) };
+            }
+            if let Some(compute) = compute {
+                // SAFETY: the record's first words are the closure `{ code, env }`
+                // that `body` was generated for, and it runs no more.
+                unsafe { walk(body, compute.state) };
+            }
             stack.extend(children);
             self.unsubscribe(next);
             if let Some(n) = self.get_mut(next) {

@@ -1383,6 +1383,21 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.emitElement", "buri_rt_ui_node_emit_element", Ret::Void),
     e("ui_node.exitElement", "buri_rt_ui_node_exit_element", Ret::Void),
     e("ui_node.emitText", "buri_rt_ui_node_emit_text", Ret::Void),
+    // The reactive builders (#53 phase 3). `openText` mints a run and answers
+    // its handle, `patchText` writes over that run — together the native
+    // `$tree_bind`. `enterDynamic` opens a region and answers its handle, and
+    // `rebuildRegion` clears it and re-walks a subtree into the gap — the native
+    // `$tree_dynamic`. Its last argument is the walk `renderInto`, an
+    // [`Extra::Walk`] like `mount`'s, so the runtime supplies and drops the
+    // context the watcher could not capture, with the node at index 2 by
+    // address. `reactive` is the renderer's own `watch`: the same deferred body
+    // [`Extra::Compute`] carries for `Ui.watch`, registered with no `Ui` in hand
+    // because the runtime owns the graph.
+    e("ui_node.openText", "buri_rt_ui_node_open_text", Ret::Scalar),
+    e("ui_node.patchText", "buri_rt_ui_node_patch_text", Ret::Void),
+    ec("ui_node.reactive", "buri_rt_ui_node_reactive", Ret::Void),
+    e("ui_node.enterDynamic", "buri_rt_ui_node_enter_dynamic", Ret::Scalar),
+    ew("ui_node.rebuildRegion", "buri_rt_ui_node_rebuild_region", Ret::Void, 2),
     // The readers, over the reconciled document rather than the string:
     // `markup` and `text` answer a `Str` through an out-pointer, `count` and
     // `identity` an `Int`.

@@ -2255,6 +2255,41 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
+    // The reactive builders (#53 phase 3), the shared table's group of the same
+    // name. `reactive` is a deferred body — the closure last, `Arg::Compute` —
+    // exactly as `Ui.watch` above; the rest are ordinary handles and strings.
+    Entry {
+        key: "ui_node.openText",
+        symbol: "buri_rt_ui_node_open_text",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.patchText",
+        symbol: "buri_rt_ui_node_patch_text",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.reactive",
+        symbol: "buri_rt_ui_node_reactive",
+        args: &[Arg::Compute],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.enterDynamic",
+        symbol: "buri_rt_ui_node_enter_dynamic",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    // The region rebuild's walk is last, an `Arg::Walk` like `mount`'s, with the
+    // node spilled at index 2 and the builder and region handles ahead of it.
+    Entry {
+        key: "ui_node.rebuildRegion",
+        symbol: "buri_rt_ui_node_rebuild_region",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Walk],
+        ret: Ret::Void,
+    },
     Entry {
         key: "ui_testing.Rendered.markup",
         symbol: "buri_rt_ui_testing_rendered_markup",
@@ -2797,7 +2832,10 @@ mod tests {
                 (None, _) => {}
             }
         }
-        assert_eq!(checked, 2, "the graph's two deferred bodies, and nothing else yet");
+        assert_eq!(
+            checked, 3,
+            "the graph's two deferred bodies and the renderer's `reactive`, and nothing else yet"
+        );
     }
 
     /// The walk is the last argument of a key the other table marks
@@ -2820,7 +2858,10 @@ mod tests {
                 (None, _) => {}
             }
         }
-        assert_eq!(checked, 1, "the renderer's one walk, and nothing else yet");
+        assert_eq!(
+            checked, 2,
+            "the renderer's mount walk and the region rebuild's, and nothing else yet"
+        );
     }
 
     /// Every row with a step is one `backend/intrinsic_keys.rs` names, its
