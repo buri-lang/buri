@@ -3,15 +3,19 @@ library {
 
     test {
         sources: [
+            "test/reactive.buri",
             "test/reactivity.buri",
             "test/tree.buri",
             "test/theme.buri",
         ]
 
         # JS only, and not for the usual reason: the reactive graph and the
-        # document under the tree are runtime intrinsics, and no native backend
-        # has either. `native::conformance` records all three files as
-        # excluded, with that reason.
+        # document under the tree are runtime intrinsics. `native::conformance`
+        # records `reactivity`, `tree` and `theme` as excluded, with that
+        # reason. `reactive.buri` is the exception it runs on both backends:
+        # every assertion in it reads the reconciled document — `identity`,
+        # `text`, `count`, an effect log — never `markup()`, whose format still
+        # differs until phase 6, so it is `included` there and here at once.
         #
         # There were four. `test/fetch.buri` covered `ui/effect`'s
         # callback-shaped `Fetch`, which is retired: a page grants `Network` now,

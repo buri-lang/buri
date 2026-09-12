@@ -1,0 +1,136 @@
+// The native renderer's reactive half (#53, phase 3): a leaf prop patches the
+// element it was rendered into, and `computed`/`choose` rebuild their subtree
+// with a fresh identity and dispose what the previous build created.
+//
+// This is the parity the design asks for at the reconciler level. Every claim
+// here is a claim about `identity`, `text`, `count` and an effect log — the
+// backend-agnostic readers, the ones that read the reconciled document rather
+// than its serialization. `markup()` is deliberately absent: its format still
+// differs between the backends until phase 6 (HTML on JavaScript, the scene
+// document on native), so a suite that runs on both cannot assert on it.
+//
+// It is the both-backends twin of the reactivity blocks in `tree.buri`, whose
+// own assertions stay on the JavaScript backend until that phase. The crux is
+// `tree.buri`'s "a computed subtree is rebuilt, and a leaf prop is not": the
+// coarse instrument yields a different identity, the fine one keeps it.
+
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, recorder, render };
+
+/// A heading whose text does not depend on `value`, so that what changes when
+/// `value` changes is only whether the subtree was built again — `tree.buri`'s
+/// `headingFor`, so the crux below is the same tree on both sides.
+fn headingFor<C>(value: Int): Node<C> {
+    ui.heading(1, [], .Const("head"))
+}
+
+test "a reactive leaf patches in place and follows its cell" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let label = signal(ctx, "before");
+    let page = render(ctx, ui.text(.Cell(label)));
+    assert.equal(page.text(), "before");
+    let _ = label.set(ctx, "after");
+    assert.equal(page.text(), "after");
+}
+
+test "a constant leaf registers nothing and never changes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let unrelated = signal(ctx, 0);
+    let page = render(ctx, ui.text(.Const("fixed")));
+    let _ = unrelated.set(ctx, 1);
+    assert.equal(page.text(), "fixed");
+}
+
+test "choose shows one subtree or the other" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let signedIn = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.choose(
+            .Cell(signedIn),
+            ui.text(.Const("welcome")),
+            ui.text(.Const("sign in")),
+        ),
+    );
+    assert.equal(page.text(), "sign in");
+    let _ = signedIn.set(ctx, true);
+    assert.equal(page.text(), "welcome");
+    let _ = signedIn.set(ctx, false);
+    assert.equal(page.text(), "sign in");
+}
+
+test "computed rebuilds its subtree from whatever it read" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let count = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.computed(fn(c) => {
+            ui.heading(if (count.get(c) > 1) { 2 } else { 1 }, [], .Const("head"))
+        }),
+    );
+    assert.equal(page.count("h1"), 1);
+    assert.equal(page.count("h2"), 0);
+    let _ = count.set(ctx, 5);
+    assert.equal(page.count("h1"), 0);
+    assert.equal(page.count("h2"), 1);
+}
+
+test "the subtree choose removed is disposed with it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let showing = signal(ctx, true);
+    let n = signal(ctx, 1);
+    let page = render(
+        ctx,
+        ui.choose(
+            .Cell(showing),
+            ui.text(.Computed(fn(c) => "${log.note(n.get(c))}")),
+            ui.nothing(),
+        ),
+    );
+    assert.equal(log.noted(), [1]);
+    let _ = n.set(ctx, 2);
+    assert.equal(log.noted(), [1, 2]);
+
+    // The subtree is gone, so what it created is gone: writing what it read is
+    // no longer a reason for anything to run.
+    let _ = showing.set(ctx, false);
+    let _ = n.set(ctx, 3);
+    assert.equal(log.noted(), [1, 2]);
+    assert.equal(page.text(), "");
+}
+
+test "a computed subtree is rebuilt, and a leaf prop is not" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let n = signal(ctx, 0);
+
+    // The coarse instrument: the whole subtree is built again, so the element
+    // is a different one.
+    let coarse = render(ctx, ui.computed(fn(c) => headingFor(n.get(c))));
+    let first = coarse.identity("h1", 0);
+    let _ = n.set(ctx, 1);
+    assert.notEqual(coarse.identity("h1", 0), first);
+
+    // The fine one: the same element, with one run of text changed.
+    let fine = render(ctx, ui.heading(1, [], .Computed(fn(c) => "${n.get(c)}")));
+    let kept = fine.identity("h1", 0);
+    let _ = n.set(ctx, 2);
+    assert.equal(fine.identity("h1", 0), kept);
+    assert.equal(fine.text(), "2");
+}
