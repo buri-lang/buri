@@ -161,13 +161,46 @@ fn compare(name: &str, scene: &str, state: &str) {
     }
 }
 
-/// The stylesheet, out of the file `buri test` named.
+/// `ui/testing`'s `stylesheet()` — the stylesheet the compiler extracted for
+/// this artifact, as text.
+///
+/// The sheet is a compile artifact, the same string the JavaScript backend
+/// splices in as `$ui_sheet`: every rule in it was written at compile time, so
+/// this hands it over rather than generating anything. `buri test` writes it
+/// beside the binary and names the file in [`SHEET`]; a program with no static
+/// styles wrote none, and that reads back as the empty sheet a test asserts on.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`crate::value::BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_stylesheet(out: *mut crate::value::BuriStr) {
+    let answer = crate::value::str_of(&stylesheet());
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(answer) };
+}
+
+/// The stylesheet, out of the file whoever built the artifact named.
+///
+/// `buri test` writes it beside the binary and names it in [`SHEET`] — a
+/// snapshot reads it from there. A runner that is not `buri test` — the shared
+/// conformance driver, which links a binary of its own and runs it directly —
+/// sets no environment, so the fallback is the same convention without the name:
+/// the sheet is `<executable>.css`, written there by whatever linked it. Either
+/// way the bytes are the compiler's extracted sheet, the same string the
+/// JavaScript backend splices in.
 fn stylesheet() -> String {
-    let Ok(path) = std::env::var(SHEET) else { return String::new() };
-    match std::fs::read(&path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-        Err(_) => String::new(),
+    if let Ok(path) = std::env::var(SHEET) {
+        return match std::fs::read(&path) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(_) => String::new(),
+        };
     }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Ok(bytes) = std::fs::read(exe.with_extension("css")) {
+            return String::from_utf8_lossy(&bytes).into_owned();
+        }
+    }
+    String::new()
 }
 
 /// What is wrong with `name`, or `None` when it is a file name and nothing

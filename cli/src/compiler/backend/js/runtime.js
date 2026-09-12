@@ -5263,6 +5263,97 @@ function $ui_theme_install(themes) {
   );
 }
 
+// The `:root`/`body`/scheme text a *flattened* theme document resolves to — the
+// twin of `cli/runtime/ui.rs`'s `render`, byte for byte, so `ui/testing`'s
+// `install` reads the same block on both backends. `ui/theme`'s `document`
+// flattens the switches away (through the tracked scope its reactive caller
+// passes); this follows the chains and writes the blocks. The format is that
+// file's header: `buri-theme 1`, then a `theme`/`scheme`/`page` line per applied
+// theme with `bind` lines under a `theme`.
+function $ui_theme_render_doc(doc) {
+  const lines = doc.split("\n");
+  if (lines.shift() !== "buri-theme 1") return "";
+  // A block is a theme's values ({v:[[name,kind,rest]]}), a scheme ({s:name}) or
+  // a page ({g:ground, i:ink}). Only a values block binds a token.
+  const blocks = [];
+  for (const line of lines) {
+    if (line === "theme") {
+      blocks.push({ v: [] });
+    } else if (line.startsWith("scheme ")) {
+      blocks.push({ s: line.slice(7) });
+    } else if (line.startsWith("page ")) {
+      const rest = line.slice(5);
+      const at = rest.indexOf(" ");
+      if (at >= 0) blocks.push({ g: rest.slice(0, at), i: rest.slice(at + 1) });
+    } else if (line.startsWith("bind ")) {
+      // `bind <name> token|value <rest>` — the rest keeps its own spaces.
+      const rest = line.slice(5);
+      const a = rest.indexOf(" ");
+      const b = rest.indexOf(" ", a + 1);
+      if (a < 0 || b < 0) continue;
+      const name = rest.slice(0, a);
+      const kind = rest.slice(a + 1, b);
+      const value = rest.slice(b + 1);
+      if (kind !== "token" && kind !== "value") continue;
+      const last = blocks[blocks.length - 1];
+      if (last && last.v) last.v.push([name, kind, value]);
+    }
+  }
+  // Every binding, in declaration order, a later one for the same token
+  // replacing an earlier: what a chain is followed through.
+  const bindings = new Map();
+  for (const block of blocks) {
+    if (!block.v) continue;
+    for (const [name, kind, value] of block.v) bindings.set(name, [kind, value]);
+  }
+  // One value, followed while it is a token, with a step budget of the map's
+  // size so a chain that closes on itself stops.
+  const resolve = (kind, value) => {
+    let steps = bindings.size;
+    let k = kind;
+    let v = value;
+    while (k === "token") {
+      if (steps-- <= 0) return null;
+      const next = bindings.get(v);
+      if (next === undefined) return null;
+      k = next[0];
+      v = next[1];
+    }
+    return v;
+  };
+  let out = "";
+  for (const block of blocks) {
+    if (block.v) {
+      const body = [];
+      for (const [name, kind, value] of block.v) {
+        const resolved = resolve(kind, value);
+        if (resolved !== null) body.push("--" + name + ":" + resolved);
+      }
+      if (body.length !== 0) out += ":root{" + body.join(";") + "}\n";
+    } else if (block.s !== undefined) {
+      out += ":root{color-scheme:" + block.s + "}\n";
+    } else {
+      out += "body{background-color:" + block.g + ";color:" + block.i + "}\n";
+    }
+  }
+  return out;
+}
+
+// `ui/theme`'s `installDoc(doc)` — resolve a flattened document to its block,
+// store it where `variables` reads it, and answer it. `ui/testing`'s `install`
+// is the caller, through the reactive computation `$ui_node_reactive` registers,
+// so a switching theme re-runs this with the other branch's document.
+function $ui_theme_installDoc(doc) {
+  $ui_theme_write($ui_theme_render_doc(doc));
+  return $ui_theme_text;
+}
+
+// `ui/theme`'s `variables()` — the block installed right now, which is what
+// `ui/testing`'s `variables` answers.
+function $ui_theme_variables() {
+  return $ui_theme_text;
+}
+
 function $ui_inject(sheet) {
   if (sheet === "" || typeof document === "undefined") return;
   if (document.getElementById("buri-styles") !== null) return;
@@ -5332,18 +5423,13 @@ function $ui_testing_stylesheet() {
   return $ui_sheet;
 }
 
-// Installs a theme list the way `mount` does, and answers the custom-property
-// block it resolved to. A switching theme registers its computation here too,
-// so reading `variables` again after a signal write is exactly what a page
-// would show.
-function $ui_testing_install(themes) {
-  if ($ui_theme_hook !== null) $ui_theme_hook(themes);
-  return $ui_theme_text;
-}
-
-function $ui_testing_variables() {
-  return $ui_theme_text;
-}
+// `install` and `variables` are Buri bodies now (#53 phase 5): `install`
+// flattens its themes through `ui/theme`'s `document` and installs the result
+// with `$ui_theme_installDoc`, registering the switching computation through
+// `$ui_node_reactive`; `variables` reads `$ui_theme_variables`. So the block a
+// test asserts is resolved by the same `ui/theme` Buri on both backends, and
+// there is nothing named `$ui_testing_install`/`$ui_testing_variables` for this
+// side to hold.
 
 // A snapshot is painted by the native runtime — taffy, cosmic-text and
 // tiny-skia, in `cli/runtime/paint.rs` — and there is no painter here. A suite
