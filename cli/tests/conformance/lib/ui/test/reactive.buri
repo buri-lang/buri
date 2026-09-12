@@ -15,11 +15,11 @@
 // coarse instrument yields a different identity, the fine one keeps it.
 
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui };
+from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
-from "ui/testing" import { headless, recorder, render };
+from "ui/testing" import { headless, observer, recorder, render };
 
 /// A heading whose text does not depend on `value`, so that what changes when
 /// `value` changes is only whether the subtree was built again — `tree.buri`'s
@@ -133,4 +133,450 @@ test "a computed subtree is rebuilt, and a leaf prop is not" {
     let _ = n.set(ctx, 2);
     assert.equal(fine.identity("h1", 0), kept);
     assert.equal(fine.text(), "2");
+}
+
+// --- keyed `each` reconciliation (#53, phase 4) -----------------------------
+//
+// The both-backends twin of the keyed-list blocks in `tree.buri`, whose own
+// assertions use `markup()` and stay on the JavaScript backend until phase 6.
+// Every claim here reads the reconciled document — `count`, `identity`, `text`
+// and an effect log — never `markup()`. The crux is `tree.buri`'s "a row that
+// leaves takes what it created with it": a departed row's owner is disposed, so
+// the next write runs one computation rather than two.
+
+/// The key of a row is the item itself.
+fn keyOf(item: Str): Str {
+    item
+}
+
+/// A row whose text is the item, keyed by the item.
+fn eachRow<C>(ctx: C, item: Str, index: Int): Node<C> {
+    ui.region(.ListItem, [], [ui.text(.Const(item))])
+}
+
+test "inserting a row keeps the identities of the rows already there" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let items = signal(ctx, ["a", "c"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), keyOf, eachRow)]),
+    );
+    let a = page.identity("li", 0);
+    let c = page.identity("li", 1);
+
+    let _ = items.set(ctx, ["a", "b", "c"]);
+    assert.equal(page.count("li"), 3);
+    assert.equal(page.identity("li", 0), a);
+    assert.notEqual(page.identity("li", 1), a);
+    assert.notEqual(page.identity("li", 1), c);
+    assert.equal(page.identity("li", 2), c);
+    assert.equal(page.text(), "a b c");
+}
+
+test "removing a row keeps the identities of the others" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let items = signal(ctx, ["a", "b", "c"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), keyOf, eachRow)]),
+    );
+    let a = page.identity("li", 0);
+    let c = page.identity("li", 2);
+
+    let _ = items.set(ctx, ["a", "c"]);
+    assert.equal(page.count("li"), 2);
+    assert.equal(page.identity("li", 0), a);
+    assert.equal(page.identity("li", 1), c);
+    assert.equal(page.text(), "a c");
+}
+
+test "reordering moves the rows rather than rebuilding them" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let items = signal(ctx, ["a", "b", "c"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), keyOf, eachRow)]),
+    );
+    let a = page.identity("li", 0);
+    let b = page.identity("li", 1);
+    let c = page.identity("li", 2);
+
+    let _ = items.set(ctx, ["c", "a", "b"]);
+    // Keyed: the same three elements, in the new order. With rows keyed by
+    // position all three would be rebuilt and every one of these would fail.
+    assert.equal(page.identity("li", 0), c);
+    assert.equal(page.identity("li", 1), a);
+    assert.equal(page.identity("li", 2), b);
+    assert.equal(page.text(), "c a b");
+}
+
+test "a row that leaves takes what it created with it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let items = signal(ctx, ["kept", "leaving"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [
+            ui.each(.Cell(items), keyOf, fn(c, item, index) => {
+                ui.region(.ListItem, [], [
+                    ui.text(.Computed(fn(s) => "${item} ${log.note(n.get(s))}")),
+                ])
+            }),
+        ]),
+    );
+    assert.equal(log.noted(), [1, 1]);
+
+    // Both rows read `n`, so both re-run.
+    let _ = n.set(ctx, 2);
+    assert.equal(log.noted(), [1, 1, 2, 2]);
+
+    // One row leaves. What it created is disposed with it, so the next write
+    // runs one computation rather than two, and the log stays `[1,1,2,2,3]`.
+    let _ = items.set(ctx, ["kept"]);
+    let _ = n.set(ctx, 3);
+    assert.equal(log.noted(), [1, 1, 2, 2, 3]);
+    assert.equal(page.text(), "kept 3");
+    assert.equal(page.count("li"), 1);
+}
+
+test "a row keeps its own reactive leaf across a reorder" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let suffix = signal(ctx, "!");
+    let items = signal(ctx, ["a", "b"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [
+            ui.each(.Cell(items), keyOf, fn(c, item, index) => {
+                ui.region(.ListItem, [], [
+                    ui.text(.Computed(fn(s) => "${item}${suffix.get(s)}")),
+                ])
+            }),
+        ]),
+    );
+    assert.equal(page.text(), "a! b!");
+    let _ = items.set(ctx, ["b", "a"]);
+    let _ = suffix.set(ctx, "?");
+    assert.equal(page.text(), "b? a?");
+}
+
+test "a list nested in a list reconciles on its own" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let inner = signal(ctx, ["x"]);
+    let outer = signal(ctx, ["a", "b"]);
+    let page = render(
+        ctx,
+        ui.region(.List, [], [
+            ui.each(.Cell(outer), keyOf, fn(c, item, index) => {
+                ui.region(.ListItem, [], [
+                    ui.text(.Const(item)),
+                    ui.region(.List, [], [ui.each(.Cell(inner), keyOf, eachRow)]),
+                ])
+            }),
+        ]),
+    );
+    assert.equal(page.count("li"), 4);
+    let _ = inner.set(ctx, ["x", "y"]);
+    assert.equal(page.count("li"), 6);
+    assert.equal(page.text(), "a x y b x y");
+}
+
+// --- interactive event dispatch (#53, phase 4) ------------------------------
+//
+// The both-backends twin of the event blocks in `tree.buri`. Every claim reads
+// a signal a handler wrote or a bound signal a `fill`/`flip` mutated, never
+// `markup()`: pressing a button runs its handler, filling a field and flipping a
+// toggle write the bound signal, a disabled control is dispatched nothing, a
+// pass-through passes the pointer through, an open dialog takes the rest of the
+// page out of reach, and a form is submitted through its button or its one
+// blocking field.
+
+test "a press runs the button's handler" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let count = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.button(
+            .Const("add"),
+            [],
+            [],
+            fn(c, e) => { count.update(c, fn(n) => n + 1) },
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let _ = page.press("add");
+    let _ = page.press("add");
+    assert.equal(count.get(ctx), 2);
+}
+
+test "a disabled button refuses a press" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let count = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.button(
+            .Const("save"),
+            [],
+            [],
+            fn(c, e) => { count.update(c, fn(n) => n + 1) },
+            .Const(true),
+            .Const(false),
+        ),
+    );
+    let _ = page.press("save");
+    assert.equal(count.get(ctx), 0);
+}
+
+test "filling a field writes its bound signal" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "ada");
+    let page = render(
+        ctx,
+        ui.field(
+            .Const("name"),
+            .Text,
+            .Const(""),
+            [],
+            [],
+            name,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let _ = page.fill("name", "grace");
+    assert.equal(name.get(ctx), "grace");
+}
+
+test "a disabled field is filled with nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "ada");
+    let page = render(
+        ctx,
+        ui.field(
+            .Const("name"),
+            .Text,
+            .Const(""),
+            [],
+            [],
+            name,
+            .Const(false),
+            .Const(true),
+        ),
+    );
+    let _ = page.fill("name", "grace");
+    assert.equal(name.get(ctx), "ada");
+}
+
+test "flipping a toggle flips its bound signal" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let done = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.toggle(
+            .Const("done"),
+            .Checkbox,
+            [],
+            [],
+            done,
+            .Const(false),
+            .Const(false),
+        ),
+    );
+    let _ = page.flip("done");
+    assert.isTrue(done.get(ctx));
+    let _ = page.flip("done");
+    assert.isFalse(done.get(ctx));
+}
+
+test "a press does not reach a button the pointer passes through" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let ignored = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.stack([.Passthrough(true)], [
+            ui.button(
+                .Const("dead"),
+                [],
+                [],
+                fn(c, e) => { ignored.update(c, fn(n) => n + 1) },
+                .Const(false),
+                .Const(false),
+            ),
+            ui.stack([.Passthrough(false)], [
+                ui.button(
+                    .Const("live"),
+                    [],
+                    [],
+                    fn(c, e) => { ignored.update(c, fn(n) => n + 10) },
+                    .Const(false),
+                    .Const(false),
+                ),
+            ]),
+        ]),
+    );
+    // The dock passes the pointer through, so the button under it is never
+    // pressed; a child that opts back in is.
+    let _ = page.press("dead");
+    assert.equal(ignored.get(ctx), 0);
+    let _ = page.press("live");
+    assert.equal(ignored.get(ctx), 10);
+}
+
+test "an open dialog takes the rest of the page out of reach" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let pressed = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.stack([], [
+            ui.button(
+                .Const("behind"),
+                [],
+                [],
+                fn(c, e) => { pressed.set(c, "behind") },
+                .Const(false),
+                .Const(false),
+            ),
+            ui.dialog(open, .Const("Confirm"), [], [
+                ui.button(
+                    .Const("inside"),
+                    [],
+                    [],
+                    fn(c, e) => { pressed.set(c, "inside") },
+                    .Const(false),
+                    .Const(false),
+                ),
+            ]),
+        ]),
+    );
+    // What is behind an open modal is inert, so the press reaches nothing; what
+    // is inside it is reached.
+    let _ = page.press("behind");
+    assert.equal(pressed.get(ctx), "");
+    let _ = page.press("inside");
+    assert.equal(pressed.get(ctx), "inside");
+}
+
+test "a form is submitted through its one blocking field" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let what = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(fn(c, e) => { submitted.update(c, fn(n) => n + 1) }, [], [
+            ui.field(
+                .Const("what"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                what,
+                .Const(false),
+                .Const(false),
+            ),
+        ]),
+    );
+    let _ = page.submit(0);
+    assert.equal(submitted.get(ctx), 1);
+}
+
+test "a submit button pressed submits the form it is in" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let name = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(fn(c, e) => { submitted.update(c, fn(n) => n + 1) }, [], [
+            ui.field(
+                .Const("Name"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                name,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.submit(.Const("Send"), []),
+        ]),
+    );
+    let _ = page.press("Send");
+    assert.equal(submitted.get(ctx), 1);
+}
+
+test "a form of two fields with no submit button is not submitted" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let one = signal(ctx, "");
+    let two = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form(fn(c, e) => { submitted.update(c, fn(n) => n + 1) }, [], [
+            ui.field(
+                .Const("one"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                one,
+                .Const(false),
+                .Const(false),
+            ),
+            ui.field(
+                .Const("two"),
+                .Text,
+                .Const(""),
+                [],
+                [],
+                two,
+                .Const(false),
+                .Const(false),
+            ),
+        ]),
+    );
+    let _ = page.submit(0);
+    assert.equal(submitted.get(ctx), 0);
 }

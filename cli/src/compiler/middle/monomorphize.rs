@@ -2504,6 +2504,14 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // for the same reason `mount`'s is — it occurs only inside the `Node<C>` it
     // re-walks and the walk closure it drives.
     "ui_node.rebuildRegion",
+    // The keyed list's reconcile drives the row body, a walk whose `C` is
+    // dropped exactly as `rebuildRegion`'s is: it occurs only inside the closure
+    // the runtime drives to build a row, never in a value that crosses.
+    "ui_node.reconcile",
+    // `registerPress` keeps a `fn(C, Event) => ()` on an element; its `C` is
+    // dropped exactly as a walk's is, occurring only inside the handler the
+    // runtime fires, never in a value that crosses.
+    "ui_node.registerPress",
     "ui_testing.Headless.memo",
     "ui_testing.Headless.read",
     "ui_testing.Headless.signal",
@@ -2835,6 +2843,7 @@ mod tests {
         tasks.scopeRound tasks.scopeTaskAt \
         testing_assert.failExpected testing_assert.report \
         ui_effect.Scope.read ui_node.mount ui_node.rebuildRegion \
+        ui_node.reconcile ui_node.registerPress \
         ui_testing.Headless.memo ui_testing.Headless.read \
         ui_testing.Headless.signal ui_testing.Headless.write \
         ui_testing.Observer.read ui_testing.mount \

@@ -224,6 +224,12 @@ impl Jit<'_> {
             if entry.extra == Extra::Walk && i + 1 == args.len() {
                 continue;
             }
+            // A **kept handler** is the same once more: the last argument of an
+            // [`Extra::Press`] row is the `onPress`/`onSubmit` closure, kept on
+            // an element rather than flattened.
+            if entry.extra == Extra::Press && i + 1 == args.len() {
+                continue;
+            }
             for leaf in self.leaves(prog, t)? {
                 let at = slot + leaf.offset;
                 if leaf.float {
@@ -304,6 +310,10 @@ impl Jit<'_> {
 
         if entry.extra == Extra::Walk {
             self.walk_extra(prog, st, entry, args, &mut ints)?;
+        }
+
+        if entry.extra == Extra::Press {
+            self.press_extra(prog, st, entry, args, &mut ints)?;
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
@@ -1075,6 +1085,61 @@ impl Jit<'_> {
         // This backend's record keeps a frame word, and `E_FRAME` is where the
         // runtime writes the one it acquires before it drives the walk.
         ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
+        Ok(())
+    }
+
+    /// [`Extra::Press`]'s five words: a `fn(C, Event) => ()` the runtime keeps
+    /// on an element and fires later.
+    ///
+    /// [`Self::compute_extra`] for a handler rather than a body: the record and
+    /// its retain are the same — the graph keeps the closure, so its environment
+    /// is retained here and given back at exit through the record's own walk —
+    /// but a handler answers `()`, so there is no stride and no release for a
+    /// value, and its two parameters (the dropped context and the event) mean
+    /// the thunk carries `index = None` with the event the element.
+    fn press_extra(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        entry: &Entry,
+        args: &[(u32, ir::Type)],
+        ints: &mut Vec<Src>,
+    ) -> Result<(), String> {
+        let Some((fslot, fty)) = args.last().copied() else {
+            return Err(format!("{}: no handler argument", entry.key));
+        };
+        let Some(ty) = source_ty(prog, fty) else {
+            return Err(format!("{}: a handler with no type", entry.key));
+        };
+        let Ty::Fn(params, ret) = ty.clone() else {
+            return Err(format!("{}: a handler that is not a function", entry.key));
+        };
+        if params.len() != 2 {
+            return Err(format!("{}: a handler taking {} arguments", entry.key, params.len()));
+        }
+        let widths: Vec<u32> =
+            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+        let (_, bytes) = super::glue::state_shape(&widths, None);
+        let state = st.frame.size;
+        self.mv(state, fslot, 16);
+        // The graph keeps the closure, so the graph owes it a reference — taken
+        // here, at the handler's last use, exactly as `compute_extra` takes one.
+        if self.rc_counted(&ty) {
+            self.walk_rc(st, &ty, state, true, 0)?;
+        }
+        let thunk =
+            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: None });
+        ints.push(Src::Sym(thunk));
+        ints.push(Src::Addr(state));
+        ints.push(Src::Imm(u64::from(bytes)));
+        // The frame word, as a body's: the runtime supplies one before it fires.
+        ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
+        // The record's own walk, which gives back the reference taken above when
+        // the graph lets the handler go.
+        match self.value_release(ty) {
+            Some(name) => ints.push(Src::Sym(name)),
+            None => ints.push(Src::Imm(0)),
+        }
         Ok(())
     }
 

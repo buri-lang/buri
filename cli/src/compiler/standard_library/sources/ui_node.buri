@@ -959,7 +959,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 state,
             )
         },
-        .Button(label, styles, children, _onPress, disabled, _expanded) => {
+        .Button(label, styles, children, onPress, disabled, _expanded) => {
             let painted = refusing(state, disabled.read(scope));
             if (children.isEmpty()) {
                 let _ = emitElement(
@@ -967,10 +967,18 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     "button",
                     widgetBody(mem, painted, [], styles),
                 );
+                let _ = registerPress(builder, onPress);
                 let _ = emitText(builder, label.read(scope));
                 exitElement(builder)
             } else {
-                emitBox(ctx, builder, "button", painted, styles, children, state)
+                let _ = emitElement(
+                    builder,
+                    "button",
+                    widgetBody(mem, painted, [], styles),
+                );
+                let _ = registerPress(builder, onPress);
+                let _ = emitChildren(ctx, builder, children, state, 0);
+                exitElement(builder)
             }
         },
         .Link(_dest, styles, children) => {
@@ -1005,6 +1013,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 hint.read(scope),
                 styles,
                 value.get(scope),
+                value.index(),
             );
             exitElement(builder)
         },
@@ -1025,13 +1034,21 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 "input",
                 widgetBody(mem, painted, [], boxStyles(on, styles)),
             );
+            let _ = registerValue(builder, value.index());
             let _ = emitMark(builder, kind, on);
             let _ = exitElement(builder);
             let _ = emitText(builder, label.read(scope));
             exitElement(builder)
         },
-        .Form(_onSubmit, styles, children) => {
-            emitBox(ctx, builder, "form", plain(state), styles, children, state)
+        .Form(onSubmit, styles, children) => {
+            let _ = emitElement(
+                builder,
+                "form",
+                widgetBody(mem, plain(state), [], styles),
+            );
+            let _ = registerPress(builder, onSubmit);
+            let _ = emitChildren(ctx, builder, children, state, 0);
+            exitElement(builder)
         },
         .Submit(label, styles) => {
             let _ = emitElement(
@@ -1039,6 +1056,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 "button",
                 widgetBody(mem, plain(state), [], styles),
             );
+            let _ = markSubmit(builder);
             let _ = emitText(builder, label.read(scope));
             exitElement(builder)
         },
@@ -1062,9 +1080,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             }
         },
         .Computed(build) => bindDynamic(builder, build),
-        .Each(count, _keyAt, rowAt) => {
-            emitRows(ctx, builder, rowAt, count(scope), state, 0)
-        },
+        .Each(count, keyAt, rowAt) => emitEach(builder, count, keyAt, rowAt),
         .Dialog(open, _label, styles, children) => {
             if (open.get(scope)) {
                 let _ = emitElement(
@@ -1160,21 +1176,55 @@ fn emitLeaf(builder: Builder, name: Str, body: Str): () {
     exitElement(builder)
 }
 
-/// Each row's subtree, in index order. The row closure takes its context as a
-/// parameter, so there is nothing to capture and no computation to run it under.
-fn emitRows<C>(
-    ctx: C,
+/// A keyed list — the native `$tree_each`. `enterEach` opens the two markers
+/// and the owner the rows hang off; a watcher then reconciles on every change to
+/// what the keys read.
+///
+/// The watcher body is a lambda, so it captures no context (SPEC 10.6) — which
+/// is why the row is built through `renderInto` handed to the runtime, exactly
+/// as a region rebuild is. `count` and `keyAt` take only a `Scope`, so the
+/// watcher drives them itself to compute the keys (their reads are the list's
+/// dependencies); `rowAt` takes the context, so the runtime supplies and drops
+/// one, driving `build` per new key. `build` renders the row's node under the
+/// row's own owner and untracked, so the watchers a row registers are that
+/// owner's and die with the row.
+fn emitEach<C>(
     builder: Builder,
+    count: fn(Scope) => Int,
+    keyAt: fn(Scope, Int) => Str,
     rowAt: fn(C, Scope, Int) => Node<C>,
-    count: Int,
-    state: State,
-    at: Int,
 ): () {
-    if (at >= count) {
+    let region = enterEach(builder);
+    // The row body the runtime drives per new key. Its first parameter is the
+    // context it supplies and drops; its second is the row's owner, which the
+    // runtime has already pointed the graph at, so the row reads through the
+    // untracked `rootScope` exactly as `rowLines` does and its leaves belong to
+    // the owner. The third is the row index. A lambda may take a context
+    // parameter, which is how a row is built with no context captured.
+    let build = fn(c: C, _owner: Int, index: Int) =>
+        renderInto(c, builder, rowAt(c, rootScope(), index));
+    reactive(fn(scope) => reconcile(builder, region, keysOf(scope, count, keyAt), build))
+}
+
+/// The keys of a list, in order — `keyAt` at every index up to `count`, built
+/// with the scope as the allocator (a `Scope` is one). The reads subscribe the
+/// watcher these run under, so writing what the list is derived from reconciles
+/// it.
+fn keysOf(ctx: Scope, count: fn(Scope) => Int, keyAt: fn(Scope, Int) => Str): [Str] {
+    keysUpTo(ctx, keyAt, count(ctx), 0, [])
+}
+
+fn keysUpTo(
+    ctx: Scope,
+    keyAt: fn(Scope, Int) => Str,
+    n: Int,
+    at: Int,
+    acc: [Str],
+): [Str] {
+    if (at >= n) {
+        acc
     } else {
-        let scope = rootScope();
-        let _ = emitNode(ctx, builder, rowAt(ctx, scope, at), state);
-        emitRows(ctx, builder, rowAt, count, state, at + 1)
+        keysUpTo(ctx, keyAt, n, at + 1, acc.push(ctx, keyAt(ctx, at)))
     }
 }
 
@@ -1186,6 +1236,7 @@ fn emitFieldControl(
     hint: Str,
     styles: [Style],
     value: Str,
+    signal: Int,
 ): () {
     let mem = alloc.generalPurpose();
     let leading = [decl(mem, "field", kindName(kind))]
@@ -1196,6 +1247,7 @@ fn emitFieldControl(
         fieldName(kind),
         widgetBody(mem, painted, leading, trackStyles(kind, styles)),
     );
+    let _ = registerValue(builder, signal);
     let _ = match (kind) {
         .Range(_min, _max, _step) => {
         },
@@ -1374,6 +1426,37 @@ fn rebuildRegion<C>(
     node: Node<C>,
     walk: fn(C, Builder, Node<C>) => (),
 ): ();
+
+/// Opens a keyed list: two markers holding its place and the graph owner its
+/// rows hang off, and the handle `reconcile` names it by — the native
+/// `$tree_each`'s setup.
+fn enterEach(builder: Builder): I64;
+
+/// Reconciles the list against `keys`: moves a surviving key's row, builds a new
+/// key's through `build`, and disposes a departed key's owner. `build` is the
+/// row body `renderInto(c, builder, rowAt(c, rootScope(), index))`, handed over
+/// rather than captured so the runtime supplies and drops its context; its
+/// middle parameter is the row's owner, which the runtime has already pointed
+/// the graph at before it drives one — the native `$tree_reconcile`.
+fn reconcile<C>(
+    builder: Builder,
+    region: I64,
+    keys: [Str],
+    build: fn(C, Int, Int) => (),
+): ();
+
+/// Keeps a button's or a form's `fn(C, Event) => ()` on the open element, for a
+/// press or a submit to fire — the native twin of a listener on an element. The
+/// handler lives in the graph, so disposing the row it is in disposes it.
+fn registerPress<C>(builder: Builder, onPress: fn(C, Event) => ()): ();
+
+/// Stores the signal a field's or a toggle's value is bound to on the open
+/// element, so `fill` writes it a string and `flip` its negation.
+fn registerValue(builder: Builder, signal: Int): ();
+
+/// Flags the open button as the one whose press submits its form — the native
+/// `type="submit"`, the whole of what makes a press or Enter submit.
+fn markSubmit(builder: Builder): ();
 
 /// The lines one node contributes, and the lines of everything under it.
 ///

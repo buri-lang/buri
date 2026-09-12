@@ -50,6 +50,13 @@ impl<T> Signal<T> {
     export fn update<C: Ui>(self, ctx: C, f: fn(T) => T): () {
         ctx.write(self.0, f(ctx.read(self.0)))
     }
+
+    /// The graph index this signal names. It carries no authority — holding an
+    /// index reads and writes nothing on its own — so the renderer takes it to
+    /// arm a field or a toggle, whose `fill`/`flip` writes exactly this signal.
+    export fn index(self): Int {
+        self.0
+    }
 }
 
 /// A fresh cell holding `initial`.

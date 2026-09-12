@@ -241,6 +241,9 @@ extern void buri_rt_ui_scope_read(int64_t scope, int64_t id, uint64_t stride, ui
 extern void buri_rt_ui_build_node(ComputeEntry entry, uint8_t *state, uint8_t *out);
 extern void buri_rt_ui_row_at(ComputeEntry entry, uint8_t *state, int64_t at, uint8_t *out);
 extern void buri_rt_ui_fire_press(ComputeEntry entry, uint8_t *state, int64_t event);
+extern int64_t buri_rt_ui_node_register_handler(ComputeEntry entry, const uint8_t *state,
+                                                size_t bytes, int64_t frame_at, void *body);
+extern void buri_rt_ui_node_fire_handler(int64_t id);
 extern void buri_rt_ui_event(int64_t *out);
 extern void buri_rt_ui_render_walk(ComputeEntry entry, uint8_t *state,
                                    int64_t builder, const uint8_t *node,
@@ -470,6 +473,27 @@ static int mode_ui_press(void) {
   buri_rt_ui_read(g_signal, 8, (uint8_t *)&after);
   printf("event=%lld field=%lld signal-after=%lld\n", (long long)event,
          (long long)g_press_field, (long long)after);
+  return 0;
+}
+
+/* The kept handler (#53 phase 4): a `fn(C, Event) => ()` the runtime keeps on a
+ * graph node and fires later, more than once — the ABI `registerPress` reaches.
+ * The handler is stored, fired, the signal reset, and fired again: a kept
+ * closure survives the first fire, so both writes are seen. */
+static int mode_ui_keep_press(void) {
+  int64_t initial = 5;
+  g_signal = buri_rt_ui_signal((const uint8_t *)&initial, 8);
+  int64_t node = buri_rt_ui_node_register_handler(press_thunk, NULL, 0, -1, NULL);
+  buri_rt_ui_node_fire_handler(node);
+  int64_t after1 = 0;
+  buri_rt_ui_read(g_signal, 8, (uint8_t *)&after1);
+  int64_t reset = 0;
+  buri_rt_ui_write(g_signal, (const uint8_t *)&reset, 8);
+  buri_rt_ui_node_fire_handler(node);
+  int64_t after2 = 0;
+  buri_rt_ui_read(g_signal, 8, (uint8_t *)&after2);
+  printf("kept=%s after1=%lld after2=%lld\n", node >= 0 ? "ok" : "bad",
+         (long long)after1, (long long)after2);
   return 0;
 }
 
@@ -1184,6 +1208,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "ui-press") == 0) {
     return mode_ui_press();
+  }
+  if (strcmp(mode, "ui-keep-press") == 0) {
+    return mode_ui_keep_press();
   }
   if (strcmp(mode, "streams") == 0) {
     return mode_streams();

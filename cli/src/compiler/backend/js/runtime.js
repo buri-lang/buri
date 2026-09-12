@@ -5426,6 +5426,18 @@ function $ui_node_patchText(builder, at, content) {}
 function $ui_node_reactive(body) {}
 function $ui_node_enterDynamic(builder) { return 0; }
 function $ui_node_rebuildRegion(builder, region, node, walk) {}
+// The keyed list (#53 phase 4): the same nothing. `renderInto` names them, so
+// the module resolves them, but this side reconciles through `$tree_each` — the
+// walk it hands `mount` is never taken. `enterEach` answers a handle a
+// never-run path would name.
+function $ui_node_enterEach(builder) { return 0; }
+function $ui_node_reconcile(builder, region, keys, build) {}
+// The event arms (#53 phase 4): the same nothing again. `renderInto` names them,
+// so the module resolves them, but this side arms its elements through
+// `$tree_render`'s own listeners, never these.
+function $ui_node_registerPress(builder, onPress) {}
+function $ui_node_registerValue(builder, signal) {}
+function $ui_node_markSubmit(builder) {}
 
 function $ui_testing_Rendered_markup(self) {
   let out = "";
