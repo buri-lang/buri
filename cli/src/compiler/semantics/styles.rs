@@ -1359,7 +1359,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             Some(("fg", key, one("color", &css)))
         }
         33 => {
-            let (css, key) = length(first?)?;
+            let (css, key) = border_width_length(first?)?;
             // A width on its own draws a solid border; `BorderStyle` is
             // declared later and overrides this.
             Some(("bw", key, one("border-style", &format!("solid;border-width:{css}"))))
@@ -1368,7 +1368,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         // is written later and overrides it, exactly as it does for `bw`.
         34 => {
             let (property, edge) = edge_property("border", first?)?;
-            let (css, key) = length(args.get(1)?)?;
+            let (css, key) = border_width_length(args.get(1)?)?;
             Some((
                 "be",
                 format!("{edge}-{key}"),
@@ -1682,6 +1682,21 @@ fn radius_length(value: &Value) -> Option<(String, String)> {
         return Some(("9999px".into(), "full".into()));
     }
     length(value)
+}
+
+/// A border width accepts only an absolute length. A percentage, `.Auto` or
+/// `.Full` is not a width a browser keeps: it drops the declaration but leaves
+/// the `border-style: solid` beside it, so the box draws the CSS `medium`
+/// default — a 3px line nobody asked for — where the painter drew nothing. So a
+/// border given a length that is not a width is no border at all, on both
+/// renderers.
+fn border_width_length(value: &Value) -> Option<(String, String)> {
+    match value.as_variant()?.0 {
+        // Px, Rem, Em — the absolute lengths a border width is measured in.
+        0 | 1 | 2 => length(value),
+        // Percent, Auto, Full — not a width; the whole border is dropped.
+        _ => None,
+    }
 }
 
 fn length(value: &Value) -> Option<(String, String)> {
