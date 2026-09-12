@@ -224,6 +224,27 @@ pub enum Extra {
     /// body and the frame-threaded backend runs one in a frame the caller sets
     /// aside; the LLVM twin passes `-1`.
     Walk,
+    /// The five words a **kept handler** crosses on: a `fn(C, Event) => ()` the
+    /// runtime keeps on an element and fires later, when a press or a submit
+    /// reaches it (`cli/runtime/document.rs`, issue #53 phase 4).
+    ///
+    /// ```text
+    ///   entry     the generated C-ABI thunk, `void(state, index, in, out)`
+    ///   state     the record this backend built, read once and copied
+    ///   bytes     how many bytes of it there are
+    ///   frame_at  where in the copy to write a working frame, or -1
+    ///   body      the release glue for the record itself, or null
+    /// ```
+    ///
+    /// [`Extra::Compute`] with the value taken out: a handler answers `()`, so
+    /// there is no stride and no release for what it writes — but it is **kept**,
+    /// like a body and unlike a walk, so the record is copied (`bytes`), the
+    /// frame is supplied (`frame_at`) and the closure's environment is given back
+    /// at exit (`body`). The thunk is [`crate::compiler::backend::stencil::glue::Helper::Entry`]
+    /// with the context dropped and the event the element — `onPress(ctx, event)`
+    /// with `index = None`, the two-parameter shape [`Extra::Compute`]'s
+    /// one-parameter body cannot spell.
+    Press,
 }
 
 /// Where a generic row's `T` is — the question [`Extra::Element`]'s stride and
@@ -467,6 +488,36 @@ const fn ew(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) ->
         carrier: Carrier::Element,
         ret,
         by_ref: Some(by_ref),
+        ctx: None,
+    }
+}
+
+/// A kept handler ([`Extra::Press`]): the closure is the last argument, the
+/// runtime keeps it on an element, and `ctx` names the context the runtime drops.
+const fn ep(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Press,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: None,
+        ctx: None,
+    }
+}
+
+/// A walk with **no node passed by address** — the row body of `reconcile`,
+/// whose builder handle and row index are scalars and whose element is the index
+/// the trampoline supplies. It builds its own node from `rowAt` rather than
+/// being handed one, so nothing is spilled.
+const fn ewn(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Walk,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: None,
         ctx: None,
     }
 }
@@ -1398,6 +1449,21 @@ pub const ENTRIES: &[Entry] = &[
     ec("ui_node.reactive", "buri_rt_ui_node_reactive", Ret::Void),
     e("ui_node.enterDynamic", "buri_rt_ui_node_enter_dynamic", Ret::Scalar),
     ew("ui_node.rebuildRegion", "buri_rt_ui_node_rebuild_region", Ret::Void, 2),
+    // The keyed list (#53 phase 4). `enterEach` opens the two markers and the
+    // row owner; `reconcile` is driven from the list's watcher with the keys the
+    // watcher computed and the row body last, an [`Extra::Walk`] like a region
+    // rebuild's — but with nothing spilled, because the body builds its own node
+    // from `rowAt` rather than being handed one.
+    e("ui_node.enterEach", "buri_rt_ui_node_enter_each", Ret::Scalar),
+    ewn("ui_node.reconcile", "buri_rt_ui_node_reconcile", Ret::Void),
+    // The event arms (#53 phase 4). `registerPress` keeps a button's or a form's
+    // `fn(C, Event) => ()` on the open element — an [`Extra::Press`], the kept
+    // two-parameter handler; `registerValue` stores a field's or a toggle's bound
+    // signal so `fill`/`flip` can write it; `markSubmit` flags the button whose
+    // press submits its form.
+    ep("ui_node.registerPress", "buri_rt_ui_node_register_press", Ret::Void),
+    e("ui_node.registerValue", "buri_rt_ui_node_register_value", Ret::Void),
+    e("ui_node.markSubmit", "buri_rt_ui_node_mark_submit", Ret::Void),
     // The readers, over the reconciled document rather than the string:
     // `markup` and `text` answer a `Str` through an out-pointer, `count` and
     // `identity` an `Int`.
@@ -1405,6 +1471,15 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_testing.Rendered.text", "buri_rt_ui_testing_rendered_text", Ret::Out),
     e("ui_testing.Rendered.count", "buri_rt_ui_testing_rendered_count", Ret::Scalar),
     e("ui_testing.Rendered.identity", "buri_rt_ui_testing_rendered_identity", Ret::Scalar),
+    // The event dispatch (#53 phase 4), each addressing the reconciled document
+    // by label or index and mutating a signal a watcher then sees: `press` fires
+    // the stored handler (and submits an enclosing form for a submit button),
+    // `fill` and `flip` write the bound signal, `submit` fires the form's handler
+    // under the implicit-submission rule. All answer `()`.
+    e("ui_testing.Rendered.press", "buri_rt_ui_testing_rendered_press", Ret::Void),
+    e("ui_testing.Rendered.fill", "buri_rt_ui_testing_rendered_fill", Ret::Void),
+    e("ui_testing.Rendered.flip", "buri_rt_ui_testing_rendered_flip", Ret::Void),
+    e("ui_testing.Rendered.submit", "buri_rt_ui_testing_rendered_submit", Ret::Void),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.

@@ -408,6 +408,31 @@ fn a_press_closure_fires_with_a_minted_event() {
     assert!(out.status.success());
 }
 
+/// The **kept** handler (issue #53, phase 4): the ABI `registerPress` reaches,
+/// which the three shapes above did not — a `fn(C, Event) => ()` the runtime
+/// holds on a graph node and fires more than once.
+///
+/// The driver registers a handler, fires it, resets the signal, and fires it
+/// again: a closure the graph kept survives the first fire, so both writes land.
+/// `kept=ok` is the node it was given, `after1=7` and `after2=7` the two writes.
+/// This is the new-arity, kept-closure row the design's §1 said the renderer
+/// would add the Phase-1 way — a runtime trampoline over the one thunk shape,
+/// no SPEC change.
+#[test]
+fn a_kept_handler_is_registered_and_fired_more_than_once() {
+    if skip() {
+        return;
+    }
+    let out = run(&["ui-keep-press"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "kept=ok after1=7 after2=7",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
 /// The element document (issue #53, phase 2): the builder the `renderInto`
 /// walk drives, and the readers a `Rendered` answers from it.
 ///
