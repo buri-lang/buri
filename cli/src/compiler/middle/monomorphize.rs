@@ -2508,6 +2508,13 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // dropped exactly as `rebuildRegion`'s is: it occurs only inside the closure
     // the runtime drives to build a row, never in a value that crosses.
     "ui_node.reconcile",
+    // `registerFollow` keeps a route link's `fn(C, Str) => ()` on the anchor,
+    // its `C` dropped the same way a walk's is — the runtime fires it, never a
+    // value that crosses.
+    "ui_node.registerFollow",
+    // `registerOutside` keeps an `onPressOutside`'s `fn(C, Event) => ()` on the
+    // document, its `C` dropped the same way `registerPress`'s is.
+    "ui_node.registerOutside",
     // `registerPress` keeps a `fn(C, Event) => ()` on an element; its `C` is
     // dropped exactly as a walk's is, occurring only inside the handler the
     // runtime fires, never in a value that crosses.
@@ -2843,7 +2850,8 @@ mod tests {
         tasks.scopeRound tasks.scopeTaskAt \
         testing_assert.failExpected testing_assert.report \
         ui_effect.Scope.read ui_node.mount ui_node.rebuildRegion \
-        ui_node.reconcile ui_node.registerPress \
+        ui_node.reconcile ui_node.registerFollow ui_node.registerOutside \
+        ui_node.registerPress \
         ui_testing.Headless.memo ui_testing.Headless.read \
         ui_testing.Headless.signal ui_testing.Headless.write \
         ui_testing.Observer.read ui_testing.mount \

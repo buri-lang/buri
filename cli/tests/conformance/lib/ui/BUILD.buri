@@ -10,19 +10,26 @@ library {
             "test/theme.buri",
         ]
 
-        # JS only, and not for the usual reason: the reactive graph and the
-        # document under the tree are runtime intrinsics. `native::conformance`
-        # records `reactivity`, `tree` and `theme` as excluded, with that
-        # reason. Two files are the exception it runs on both backends:
-        # `reactive.buri`, whose every assertion reads the reconciled document —
-        # `identity`, `text`, `count`, an effect log — and `styling.buri`, whose
-        # every assertion reads the CSS/theme artifacts `stylesheet`, `install`
-        # and `variables` produce. Neither reads `markup()`, whose format still
-        # differs until phase 6, so both are `included` there and here at once.
+        # Both backends, the way `lib/web`'s router is: `buri test` runs these on
+        # JavaScript, `native::conformance` drives the same files through the
+        # native backend, and `native::differential` compares the two verdict by
+        # verdict. #53 phase 6 earned that — the reactive graph, the reconciled
+        # document and the CSS/theme artifacts are all native (phases 1–5), and
+        # `markup()` is now the headerless scene document both backends write, so
+        # every block agrees byte for byte.
         #
-        # There were four. `test/fetch.buri` covered `ui/effect`'s
-        # callback-shaped `Fetch`, which is retired: a page grants `Network` now,
-        # and `semantics/test/http.buri` is where a request is pinned.
+        # JavaScript and not the host default because the render suite otherwise
+        # asks for a native test binary in every profile, and a release native
+        # binary needs a code generator this toolchain does not carry on every
+        # host (`language::release_and_debug_agree`). The native coverage is the
+        # driver's, which has no such need.
+        #
+        # The one block that reached `ui/node`'s real page `mount` is split into
+        # `lib/ui_mount`, which keeps `platforms: [JS]` for the mount that cannot
+        # cross. `test/render.buri` is not listed — it is the native renderer's
+        # own parity file, driven by `native::conformance` alone. The retired
+        # `test/fetch.buri` covered `ui/effect`'s callback-shaped `Fetch`; a page
+        # grants `Network` now and `semantics/test/http.buri` pins a request.
         platforms: [JS]
     }
 }

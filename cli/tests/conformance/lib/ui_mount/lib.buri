@@ -1,0 +1,5 @@
+// The one render-suite block that reaches `ui/node`'s real page `mount` — a
+// live document a browser owns, WEB-only. The rest of the suite is `lib/ui`,
+// which runs on both backends through the scene renderer; this sibling keeps
+// `platforms: [JS]` for the mount that cannot cross (#53 phase 6). The library
+// itself has no exports: what is under test lives in `test/`.

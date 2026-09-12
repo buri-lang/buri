@@ -2312,6 +2312,18 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Void,
     },
     Entry {
+        key: "ui_node.openElement",
+        symbol: "buri_rt_ui_node_open_element",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.patchBody",
+        symbol: "buri_rt_ui_node_patch_body",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
         key: "ui_node.reactive",
         symbol: "buri_rt_ui_node_reactive",
         args: &[Arg::Compute],
@@ -2322,6 +2334,18 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_ui_node_enter_dynamic",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.beginRegion",
+        symbol: "buri_rt_ui_node_begin_region",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.endRegion",
+        symbol: "buri_rt_ui_node_end_region",
+        args: &[Arg::Scalar],
+        ret: Ret::Void,
     },
     // The region rebuild's walk is last, an `Arg::Walk` like `mount`'s, with the
     // node spilled at index 2 and the builder and region handles ahead of it.
@@ -2356,9 +2380,27 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Void,
     },
     Entry {
+        key: "ui_node.registerOutside",
+        symbol: "buri_rt_ui_node_register_outside",
+        args: &[Arg::Scalar, Arg::Press],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.registerFollow",
+        symbol: "buri_rt_ui_node_register_follow",
+        args: &[Arg::Scalar, Arg::Str, Arg::Press],
+        ret: Ret::Void,
+    },
+    Entry {
         key: "ui_node.registerValue",
         symbol: "buri_rt_ui_node_register_value",
         args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.registerLabel",
+        symbol: "buri_rt_ui_node_register_label",
+        args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
     Entry {
