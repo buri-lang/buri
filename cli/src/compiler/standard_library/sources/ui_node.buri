@@ -898,9 +898,7 @@ export fn renderInto<C>(ctx: C, builder: Builder, node: Node<C>): () {
 /// moves the text and not the node.
 fn emitReactiveText(builder: Builder, content: Prop<Str>): () {
     match (content) {
-        .Const(v) => {
-            let _ = emitText(builder, v);
-        },
+        .Const(v) => { let _ = emitText(builder, v); },
         _ => {
             let at = openText(builder);
             reactive(fn(scope) => patchText(builder, at, content.read(scope)))
@@ -1201,9 +1199,12 @@ fn emitEach<C>(
     // untracked `rootScope` exactly as `rowLines` does and its leaves belong to
     // the owner. The third is the row index. A lambda may take a context
     // parameter, which is how a row is built with no context captured.
-    let build = fn(c: C, _owner: Int, index: Int) =>
-        renderInto(c, builder, rowAt(c, rootScope(), index));
-    reactive(fn(scope) => reconcile(builder, region, keysOf(scope, count, keyAt), build))
+    let build = fn(c: C, _owner: Int, index: Int) => {
+        renderInto(c, builder, rowAt(c, rootScope(), index))
+    };
+    reactive(fn(scope) => {
+        reconcile(builder, region, keysOf(scope, count, keyAt), build)
+    })
 }
 
 /// The keys of a list, in order — `keyAt` at every index up to `count`, built
