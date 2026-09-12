@@ -1,0 +1,17 @@
+error: expected `:`, found `,` [unexpected-token]
+  --> main.buri:31:22
+   |
+31 | fn counter<C: Ui>(ctx, : C, label: Str): Node<C> {
+   |                      ^
+   |
+   = expected: `:`
+   = actual: `,`
+   = fix: write `:` here
+error: there is nothing named `counter` in scope [unresolved-name]
+  --> main.buri:55:32
+   |
+55 |     assert.equal(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
+   |                                ^^^^^^^
+   |
+   = did you mean `Bounded`?
+   = fix: if you meant `Bounded`, use that; if not, a name is in scope only from this module's own declarations and its imports

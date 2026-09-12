@@ -1,0 +1,35 @@
+error: `badge` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:43:9
+   |
+43 |         badge(.Const(label), .Cell(count),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `badge` the following arguments: badge<C>(title: Prop<Str>, count: Prop<Int>)
+error: `.Const` needs a known expected type [unannotated-variant]
+  --> main.buri:43:15
+   |
+43 |         badge(.Const(label), .Cell(count),
+   |               ^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Const(...)`, or annotate what this value is being used as
+error: `.Cell` needs a known expected type [unannotated-variant]
+  --> main.buri:43:30
+   |
+43 |         badge(.Const(label), .Cell(count),
+   |                              ^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Cell(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:45:5
+   |
+45 |     ])
+   |     ^
+   |
+  --> main.buri:43:14
+   |
+43 |         badge(.Const(label), .Cell(count),
+   |              ^ opened here
+   |
+   = fix: write `)` here

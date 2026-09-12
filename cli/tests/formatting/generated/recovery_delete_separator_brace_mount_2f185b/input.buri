@@ -1,0 +1,56 @@
+// The one block of the render suite that reaches `ui/node`'s real `mount` — the
+// live page mount a browser owns, WEB-only, with no native document to render
+// into. The rest of the suite (`lib/ui`'s `tree.buri`) runs on both backends
+// through `render`, the test-only renderer that builds the scene document; this
+// is split out so that file can, and it keeps `platforms: [JS]` for the mount
+// that still cannot cross (#53 phase 6).
+
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+from "ui/testing" import { headless };
+from "ui/theme" import { Theme };
+
+let badgeStyle: Style = .Group([
+    .PaddingX(.Rem(0.5)),
+    .Radius(.Px(6)),
+    .Background(.Rgb(240, 240, 245)),
+]);
+
+fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
+    ui.row([badgeStyle], [
+        ui.text(title),
+        ui.text(.Computed(fn(c) => "${count.read(c)}")),
+    ])
+}
+
+fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
+    let count = signal(ctx, 0)
+
+    ui.column([], [
+        ui.button(
+            .Const(label),
+            [],
+            [],
+            fn(c, e) => count.update(c, fn(n) => n + 1),
+            .Const(false),
+            .Const(false),
+        ),
+        badge(.Const(label), .Cell(count)),
+        badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
+    ])
+}
+
+test "the counter mounts" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // Nothing can build a `Theme` yet, so the empty list is the only list there
+    // is — which is what an app with no design tokens passes in any case.
+    let themes: [Theme] = [];
+    assert.equal(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
+}

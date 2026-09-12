@@ -96,10 +96,7 @@ test "a row runs along the axis and a column runs down the page" {
         Ui: headless(),
     };
     assert.equal(render(ctx, ui.row([], [])).markup(), "e 0 class:lay-row");
-    assert.equal(
-        render(ctx, ui.column([], [])).markup(),
-        "e 0 class:lay-col",
-    );
+    assert.equal(render(ctx, ui.column([], [])).markup(), "e 0 class:lay-col");
 }
 
 test "a caller's own layout wins over the sugar's" {
@@ -140,16 +137,10 @@ test "every role lowers to the element that carries it" {
         ui.region(.Group, [], []),
         ui.region(.Separator, [], []),
     ]);
-    assert.equal(
-        render(ctx, structure).markup(),
-        "e 0 \ne 1 \ne 2 \ne 1 \ne 1 ",
-    );
+    assert.equal(render(ctx, structure).markup(), "e 0 \ne 1 \ne 2 \ne 1 \ne 1 ");
 
     let live = ui.stack([], [ui.region(.Status, [], []), ui.region(.Alert, [], [])]);
-    assert.equal(
-        render(ctx, live).markup(),
-        "e 0 \ne 1 \ne 1 ",
-    );
+    assert.equal(render(ctx, live).markup(), "e 0 \ne 1 \ne 1 ");
 }
 
 test "a data table is roles, and its headers say which way they head" {
@@ -196,10 +187,7 @@ test "a heading paints what the program asked for and nothing else" {
     // The size the stack asks for is the size the heading is: nothing in the
     // sheet sets one on the element, so it inherits like any other run of text.
     let tree = ui.stack([.FontSize(.Px(13))], [ui.heading(2, [], .Const("not found"))]);
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:fs-13\ne 1 \nt 2 not found",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:fs-13\ne 1 \nt 2 not found");
     // The headless painter reads this, and a browser reads the markup above.
     // They agree only while the heading's line carries what the sheet does.
     assert.equal(
@@ -463,10 +451,7 @@ test "a border edge sits after the width it narrows and before the style" {
         [.BorderWidth(.Px(1)), .BorderEdge(.Bottom, .Px(4)), .BorderStyle(.Dashed)],
         [],
     );
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:bw-1 be-bottom-4 bs-dashed",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:bw-1 be-bottom-4 bs-dashed");
     // Position in the sheet is what decides between two properties that touch
     // one declaration: the edge overrides the whole box, and `BorderStyle`
     // overrides the solid both of them implied.
@@ -497,10 +482,7 @@ test "the same border edge twice is last-wins, and a state is its own slot" {
         ],
         [],
     );
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:be-bottom-3 hover_be-bottom-1",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:be-bottom-3 hover_be-bottom-1");
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
@@ -540,10 +522,7 @@ test "a full radius is a pill on every box, where a percentage is an ellipse" {
     // takes the same pill, and `Percent` keeps the ellipse a caller asks for by
     // writing one.
     let pill = ui.stack([.Radius(.Full), .RadiusCorner(.TopEnd, .Full)], []);
-    assert.equal(
-        render(ctx, pill).markup(),
-        "e 0 class:r-full rc-topend-full",
-    );
+    assert.equal(render(ctx, pill).markup(), "e 0 class:r-full rc-topend-full");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".r-full{border-radius:9999px}"));
     assert.isTrue(sheet.contains(".rc-topend-full{border-start-end-radius:9999px}"));
@@ -761,10 +740,7 @@ test "a bleed the compiler cannot evaluate is written out inline" {
     // the tier `Computed` lives in.
     let out = signal(ctx, 23);
     let tree = ui.stack([.Bleed(.Start, .Px(out.get(ctx)))], []);
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 margin-inline-start:-23px",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 margin-inline-start:-23px");
     assert.isFalse(stylesheet().contains("bleed-start-23"));
 }
 
@@ -798,10 +774,7 @@ test "a clip cuts a child to its parent's box, and asks for no scrollbar" {
     // The card with a full-bleed banner: the radius rounds the card, and the
     // clip is what stops the picture squaring the corner off again.
     let card: [Style] = [.Radius(.Px(12)), .Clip(true)];
-    assert.equal(
-        render(ctx, ui.stack(card, [])).markup(),
-        "e 0 class:r-12 clip-clip",
-    );
+    assert.equal(render(ctx, ui.stack(card, [])).markup(), "e 0 class:r-12 clip-clip");
     assert.equal(
         render(ctx, ui.stack([.Clip(false)], [])).markup(),
         "e 0 class:clip-visible",
@@ -870,10 +843,7 @@ test "the scene document writes the clip the browser was given" {
     };
     let cut = signal(ctx, 0);
     let tree = ui.stack([.Radius(.Px(4)), .Clip(cut.get(ctx) == 0)], []);
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:r-4;overflow:clip",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:r-4;overflow:clip");
     // The radius folded and the clip did not, so the element carries one of
     // each tier — and the scene says both, in the order the browser was given
     // them.
@@ -1269,10 +1239,7 @@ test "the invalid state is a state like the other five" {
         .On(.Invalid, [.Background(.Rgb(254, 226, 226))]),
         .At(.Small, [.On(.Invalid, [.Opacity(0.5)])]),
     ];
-    assert.equal(
-        render(ctx, ui.stack(stated, [])).markup(),
-        "e 0 ",
-    );
+    assert.equal(render(ctx, ui.stack(stated, [])).markup(), "e 0 ");
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
@@ -1415,10 +1382,7 @@ test "a shadow under a state is its own slot, beside the resting one" {
     // A pseudo-class and the resting value are different slots, so a card that
     // is raised keeps its elevation and gains the ring on focus.
     let tree = ui.stack([.Shadow(lift), .On(.Focus, [.Shadows([ring, lift])])], []);
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:sh-174de1bf",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:sh-174de1bf");
     assert.isTrue(
         stylesheet().contains(
             ".focus_sh-10967775:focus-visible{box-shadow:0px 0px 0px 3px rgba(59,130,246,0.5),0px 2px 4px 0px rgba(0,0,0,0.2)}",
@@ -1530,10 +1494,7 @@ test "fading a colour is the same property, so the last one wins" {
         ],
         [],
     );
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:bg-t_cardlib_ringa0_5",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:bg-t_cardlib_ringa0_5");
 }
 
 test "nothing and whatever-was-inherited have no colour to fade" {
@@ -1678,10 +1639,7 @@ test "a state is a pseudo-class in the stylesheet and costs nothing on the eleme
         [.Background(.Rgb(1, 1, 1)), .On(.Hover, [.Background(.Rgb(2, 2, 2))])],
         [],
     );
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:bg-010101 hover_bg-020202",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:bg-010101 hover_bg-020202");
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(".hover_bg-020202:hover{background-color:rgb(2,2,2)}"),
@@ -1760,19 +1718,13 @@ test "an em resolves per property like every other length" {
         [.PaddingEdge(.Top, .Em(0.5)), .PaddingEdge(.Bottom, .Em(1.5))],
         [],
     );
-    assert.equal(
-        render(ctx, edges).markup(),
-        "e 0 class:pe-top-e0_5 pe-bottom-e1_5",
-    );
+    assert.equal(render(ctx, edges).markup(), "e 0 class:pe-top-e0_5 pe-bottom-e1_5");
     // And a condition is a slot of its own, in the stylesheet either way.
     let stated = ui.stack(
         [.On(.Hover, [.Gap(.Em(2.0))]), .At(.Medium, [.Gap(.Em(3.0))])],
         [],
     );
-    assert.equal(
-        render(ctx, stated).markup(),
-        "e 0 class:hover_gap-e2 md_gap-e3",
-    );
+    assert.equal(render(ctx, stated).markup(), "e 0 class:hover_gap-e2 md_gap-e3");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".pe-top-e0_5{padding-block-start:0.5em}"));
     assert.isTrue(sheet.contains(".pe-bottom-e1_5{padding-block-end:1.5em}"));
@@ -1831,10 +1783,7 @@ test "a translate shifts the painted box and moves no sibling" {
         .Const(false),
         .Const(false),
     );
-    assert.equal(
-        render(ctx, save).markup(),
-        "e 0 class:r-8\nt 1 Save",
-    );
+    assert.equal(render(ctx, save).markup(), "e 0 class:r-8\nt 1 Save");
     // One slot: two translates are one transform, and the last wins.
     assert.equal(
         render(
@@ -1876,10 +1825,7 @@ test "focus-within is a state, and it is the container's own" {
         ],
         [],
     );
-    assert.equal(
-        render(ctx, group).markup(),
-        "e 0 class:lay-row bw-1",
-    );
+    assert.equal(render(ctx, group).markup(), "e 0 class:lay-row bw-1");
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(".focuswithin_bc-020202:focus-within{border-color:rgb(2,2,2)}"),
@@ -1893,10 +1839,7 @@ test "focus-within is a state, and it is the container's own" {
         [.On(.Focus, [.Opacity(0.9)]), .On(.FocusWithin, [.Opacity(0.8)])],
         [],
     );
-    assert.equal(
-        render(ctx, both).markup(),
-        "e 0 ",
-    );
+    assert.equal(render(ctx, both).markup(), "e 0 ");
 }
 
 test "a document is taken in one state, and carries only that state's classes" {
@@ -2034,18 +1977,12 @@ test "a static style registers nothing and a computed one re-runs once per chang
             ),
         ]),
     );
-    assert.equal(
-        view.markup(),
-        "e 0 \ne 1 class:p-13\ne 1 width:21px",
-    );
+    assert.equal(view.markup(), "e 0 \ne 1 class:p-13\ne 1 width:21px");
     // The static one never ran a computation, so nothing it could have noted
     // is here; the computed one ran once.
     assert.equal(log.noted(), [21]);
     width.set(ctx, 22);
-    assert.equal(
-        view.markup(),
-        "e 0 \ne 1 class:p-13\ne 1 width:22px",
-    );
+    assert.equal(view.markup(), "e 0 \ne 1 class:p-13\ne 1 width:22px");
     assert.equal(log.noted(), [21, 22]);
 }
 
@@ -2068,10 +2005,7 @@ test "a button carries its label, and a press runs its handler" {
     let page = render(ctx, tree);
     // The label is the accessible name, so it is an attribute; a button with no
     // children shows it, which is the one place the name and the glyphs agree.
-    assert.equal(
-        page.markup(),
-        "e 0 \nt 1 add",
-    );
+    assert.equal(page.markup(), "e 0 \nt 1 add");
     let _ = page.press("add");
     let _ = page.press("add");
     assert.equal(count.get(ctx), 2);
@@ -2096,10 +2030,7 @@ test "a button holds children, and its label stays its name" {
         .Const(false),
     );
     let page = render(ctx, tree);
-    assert.equal(
-        page.markup(),
-        "e 0 class:p-4\nt 1 *\nt 1 Overview",
-    );
+    assert.equal(page.markup(), "e 0 class:p-4\nt 1 *\nt 1 Overview");
     // Pressed by the name a reader hears, which is the label and never the
     // glyphs.
     let _ = page.press("Overview");
@@ -3507,10 +3438,7 @@ test "a list has no marker until one is asked for" {
             ui.link(.Const("/a"), [], [ui.text(.Const("Alpha"))]),
         ]),
     ]);
-    assert.equal(
-        render(ctx, rail).markup(),
-        "e 0 \ne 1 \ne 2 \nt 3 Alpha",
-    );
+    assert.equal(render(ctx, rail).markup(), "e 0 \ne 1 \ne 2 \nt 3 Alpha");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(":where(ul,ol){margin:0;padding:0;list-style:none}"));
 
@@ -3642,10 +3570,7 @@ test "a designed focus ring replaces the platform's rather than joining it" {
         .Const(false),
         .Const(false),
     );
-    assert.equal(
-        render(ctx, ringed).markup(),
-        "e 0 \nt 1 focus me",
-    );
+    assert.equal(render(ctx, ringed).markup(), "e 0 \nt 1 focus me");
 
     // A fade is not a ring: it is drawn *beside* the platform's, so the
     // platform's stays. So does a ring that only applies from a breakpoint
@@ -3666,14 +3591,8 @@ test "a designed focus ring replaces the platform's rather than joining it" {
         .Const(false),
         .Const(false),
     );
-    assert.equal(
-        render(ctx, faded).markup(),
-        "e 0 \nt 1 dim",
-    );
-    assert.equal(
-        render(ctx, wide).markup(),
-        "e 0 \nt 1 wide",
-    );
+    assert.equal(render(ctx, faded).markup(), "e 0 \nt 1 dim");
+    assert.equal(render(ctx, wide).markup(), "e 0 \nt 1 wide");
 
     // The suppression opens the sheet, so a class named in it is read before
     // the rule that draws it and a class left out of it is read after.
@@ -3899,10 +3818,7 @@ test "a dialog is a panel its signal opens and shuts" {
     // panel is gone rather than merely flagged, which is the whole of what frees
     // the page behind it.
     open.set(ctx, false);
-    assert.equal(
-        page.markup(),
-        "",
-    );
+    assert.equal(page.markup(), "");
     assert.equal(page.count("dialog"), 0);
     open.set(ctx, true);
     // Open again is the same markup, built afresh — a shut dialog is nothing in
@@ -3959,9 +3875,15 @@ test "a dialog's label may vary, and the panel follows it" {
     let open = signal(ctx, true);
     let named = signal(ctx, "first");
     let page = render(ctx, ui.dialog(open, .Cell(named), [], []));
-    assert.equal(page.markup(), "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ");
+    assert.equal(
+        page.markup(),
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ",
+    );
     named.set(ctx, "second");
-    assert.equal(page.markup(), "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ");
+    assert.equal(
+        page.markup(),
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ",
+    );
 }
 
 test "an open dialog takes the rest of the page out of reach" {
@@ -4115,17 +4037,11 @@ test "a button that expands something says so, and whether it is open" {
     // Collapsed, it announces the same as any button, because `aria-expanded`
     // is written only when it is `true` — the way `aria-invalid` is, so an
     // ordinary button carries no markup it did not ask for.
-    assert.equal(
-        page.markup(),
-        "e 0 \nt 1 Menu",
-    );
+    assert.equal(page.markup(), "e 0 \nt 1 Menu");
     open.set(ctx, true);
     // Open, the button says a region it controls is expanded, which is what a
     // reader is never told when the trigger is a plain button beside a `choose`.
-    assert.equal(
-        page.markup(),
-        "e 0 \nt 1 Menu",
-    );
+    assert.equal(page.markup(), "e 0 \nt 1 Menu");
 }
 
 test "aria-expanded is announced and not painted, so the scene carries none of it" {
@@ -4161,10 +4077,7 @@ test "a progress bar announces the role, the bounds and how far along it is" {
     let tree = ui.progress(.Const("Loading"), .Const(0.66), [.Width(.Full)], [
         ui.stack([.Width(.Percent(40.0))], []),
     ]);
-    assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 class:w-full\ne 1 class:w-pc40",
-    );
+    assert.equal(render(ctx, tree).markup(), "e 0 class:w-full\ne 1 class:w-pc40");
 }
 
 test "a progress bar follows its value when it changes" {
@@ -4173,10 +4086,7 @@ test "a progress bar follows its value when it changes" {
     };
     let done = signal(ctx, 0.4);
     let page = render(ctx, ui.progress(.Const("Upload"), .Cell(done), [], []));
-    assert.equal(
-        page.markup(),
-        "e 0 ",
-    );
+    assert.equal(page.markup(), "e 0 ");
     // The value a reader hears is `aria-valuenow`, an attribute the scene does
     // not carry, so a write to it changes nothing the scene shows — the bar's
     // own markup is its children. `ui/web`'s document pins the announced value.
@@ -4216,10 +4126,7 @@ test "a disclosure is a details its summary opens and shuts" {
     // A `<details>` with a `<summary>`, because the open-and-shut state, the
     // Enter and Space that toggle it, and what a reader is told are all the
     // browser's own — where a button beside a `choose` announces nothing.
-    assert.equal(
-        page.markup(),
-        "e 0 \ne 1 \nt 2 Details\nt 1 body",
-    );
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 Details\nt 1 body");
     // Shut is the same element without the flag, so opening it again is not
     // rebuilding it: the summary is one element either way.
     open.set(ctx, false);
@@ -4831,4 +4738,3 @@ test "the counter counts, and both badges follow" {
     let _ = page.press("clicks");
     assert.equal(page.text(), "clicks clicks 3 doubled 6");
 }
-

@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:44:44
+   |
+44 |         badge(.Const("doubled"), .Computed(@ fn(c) => count.get(c) * 2)),
+   |                                            ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

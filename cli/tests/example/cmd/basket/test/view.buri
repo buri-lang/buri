@@ -327,7 +327,8 @@ test "dark mode rewrites the values and changes no class" {
     // The one thing in the document that did change is the box the reader
     // ticked. Take that back out and the page is character for character what it
     // was: no class was recomputed, no rule was written, and no element moved.
-    let normalized = seen.markup()
+    let normalized = seen
+        .markup()
         .replace(ctx, "am-end", "am-start")
         .replace(ctx, "checked:true", "checked:false")
         .replace(ctx, "\ne 4 mark:tick;width:100%;height:100%", "");

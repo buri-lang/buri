@@ -1,0 +1,33 @@
+error: expected a pattern, found `=` [unexpected-token]
+  --> main.buri:32:9
+   |
+32 |     let = count signal(ctx, 0);
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `count` in scope [unresolved-name]
+  --> main.buri:39:25
+   |
+39 |             fn(c, e) => count.update(c, fn(n) => n + 1),
+   |                         ^^^^^
+   |
+   = did you mean `counter`?
+   = fix: if you meant `counter`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `count` in scope [unresolved-name]
+  --> main.buri:43:36
+   |
+43 |         badge(.Const(label), .Cell(count)),
+   |                                    ^^^^^
+   |
+   = did you mean `counter`?
+   = fix: if you meant `counter`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `count` in scope [unresolved-name]
+  --> main.buri:44:53
+   |
+44 |         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
+   |                                                     ^^^^^
+   |
+   = did you mean `counter`?
+   = fix: if you meant `counter`, use that; if not, a name is in scope only from this module's own declarations and its imports

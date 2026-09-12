@@ -1,0 +1,21 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:55:5
+   |
+55 |     assert.equal(ui.mount@ (ctx, counter(ctx, "clicks"), themes), .Ok(()));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:55:26
+   |
+55 |     assert.equal(ui.mount@ (ctx, counter(ctx, "clicks"), themes), .Ok(()));
+   |                          ^
+   |
+  --> main.buri:55:17
+   |
+55 |     assert.equal(ui.mount@ (ctx, counter(ctx, "clicks"), themes), .Ok(()));
+   |                 ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,33 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:32
+   |
+27 |         ui.text(.Computed(fn(c => "${count.read(c)}")),
+   |                                ^^
+   |
+  --> main.buri:27:29
+   |
+27 |         ui.text(.Computed(fn(c => "${count.read(c)}")),
+   |                             ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `)` [unexpected-token]
+  --> main.buri:27:54
+   |
+27 |         ui.text(.Computed(fn(c => "${count.read(c)}")),
+   |                                                      ^
+   |
+   = expected: `=>`
+   = actual: `)`
+   = fix: write `=>` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:57:1
+   |
+57 | 
+   | ^
+   |
+  --> main.buri:24:58
+   |
+24 | fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
+   |                                                          ^ opened here
+   |
+   = fix: write `}` here

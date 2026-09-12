@@ -977,17 +977,29 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // watcher, exactly as `describe` expands it.
         .Button(label, styles, children, onPress, disabled, expanded) => {
             if (constProp(label) && constProp(disabled)) {
-                emitButton(ctx, builder, label, styles, children, onPress, disabled, state)
+                emitButton(
+                    ctx,
+                    builder,
+                    label,
+                    styles,
+                    children,
+                    onPress,
+                    disabled,
+                    state,
+                )
             } else {
-                bindDynamic(builder, fn(scope) =>
-                    Node(.Button(
-                        .Const(label.read(scope)),
-                        styles,
-                        children,
-                        onPress,
-                        .Const(disabled.read(scope)),
-                        expanded,
-                    )))
+                bindDynamic(builder, fn(scope) => {
+                    Node(
+                        .Button(
+                            .Const(label.read(scope)),
+                            styles,
+                            children,
+                            onPress,
+                            .Const(disabled.read(scope)),
+                            expanded,
+                        ),
+                    )
+                })
             }
         },
         .Link(_dest, styles, children) => {
@@ -998,7 +1010,11 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             // `Location` requirement never reaches this unbounded walk — and the
             // runtime fires it with the destination on a `follow`. `describe`
             // drops it the same way.
-            let _ = emitElement(builder, "a", widgetBody(mem, plain(state), [], styles));
+            let _ = emitElement(
+                builder,
+                "a",
+                widgetBody(mem, plain(state), [], styles),
+            );
             let _ = registerFollow(builder, dest.read(scope), onFollow);
             let _ = emitChildren(ctx, builder, children, state, 0);
             exitElement(builder)
@@ -1025,7 +1041,18 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = invalid;
             reactive(fn(scope) => {
                 let _ = beginRegion(builder, region);
-                let _ = emitField(scope, builder, label, kind, hint, styles, around, value, disabled, state);
+                let _ = emitField(
+                    scope,
+                    builder,
+                    label,
+                    kind,
+                    hint,
+                    styles,
+                    around,
+                    value,
+                    disabled,
+                    state,
+                );
                 endRegion(builder)
             })
         },
@@ -1038,7 +1065,17 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = invalid;
             reactive(fn(scope) => {
                 let _ = beginRegion(builder, region);
-                let _ = emitToggle(scope, builder, label, kind, styles, around, value, disabled, state);
+                let _ = emitToggle(
+                    scope,
+                    builder,
+                    label,
+                    kind,
+                    styles,
+                    around,
+                    value,
+                    disabled,
+                    state,
+                );
                 endRegion(builder)
             })
         },
@@ -1090,12 +1127,13 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // as `.Raw` trees the reconciler walks and mints — or nothing. Closing
         // it unlinks the panel, so the page behind is reachable again.
         .Dialog(open, _label, styles, children) => {
-            bindDynamic(builder, fn(scope) =>
+            bindDynamic(builder, fn(scope) => {
                 if (open.get(scope)) {
                     Node(.Raw("div", scrim(), [Node(.Raw("dialog", styles, children))]))
                 } else {
                     Node(.Nothing)
-                })
+                }
+            })
         },
         // A bare wrapper around its children, plus the document listener a press
         // outside the subtree fires. `registerOutside` keeps the handler on the
@@ -1134,24 +1172,31 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             // emitted once and kept — the element and its identity survive a
             // toggle, the way a browser's `<details>` does. Only the body comes
             // and goes, in a region of its own inside the `details`.
-            let _ = emitElement(builder, "details", widgetBody(mem, plain(state), [], styles));
-            let _ = emitElement(builder, "summary", widgetBody(mem, plain(state), [], []));
+            let _ = emitElement(
+                builder,
+                "details",
+                widgetBody(mem, plain(state), [], styles),
+            );
+            let _ = emitElement(
+                builder,
+                "summary",
+                widgetBody(mem, plain(state), [], []),
+            );
             let _ = emitReactiveText(builder, summary);
             let _ = exitElement(builder);
-            let _ = bindDynamic(builder, fn(scope) =>
+            let _ = bindDynamic(builder, fn(scope) => {
                 if (open.get(scope)) {
                     Node(.Fragment(children))
                 } else {
                     Node(.Nothing)
-                });
+                }
+            });
             exitElement(builder)
         },
         .Raw(name, styles, children) => {
             emitBox(ctx, builder, name, plain(state), styles, children, state)
         },
-        .Fragment(children) => {
-            emitChildren(ctx, builder, children, state, 0)
-        },
+        .Fragment(children) => { emitChildren(ctx, builder, children, state, 0) },
     }
 }
 
@@ -1207,9 +1252,21 @@ fn emitToggle(
 ): () {
     let mem = alloc.generalPurpose();
     let on = value.get(ctx);
-    let painted = Painted { state: state, checked: .Some(on), disabled: disabled.read(ctx) };
-    let _ = emitElement(builder, "label", widgetBody(mem, plain(state), [], wrapper(around)));
-    let _ = emitElement(builder, "input", widgetBody(mem, painted, [], boxStyles(on, styles)));
+    let painted = Painted {
+        state: state,
+        checked: .Some(on),
+        disabled: disabled.read(ctx),
+    };
+    let _ = emitElement(
+        builder,
+        "label",
+        widgetBody(mem, plain(state), [], wrapper(around)),
+    );
+    let _ = emitElement(
+        builder,
+        "input",
+        widgetBody(mem, painted, [], boxStyles(on, styles)),
+    );
     let _ = registerValue(builder, value.index());
     let _ = emitMark(builder, kind, on);
     let _ = exitElement(builder);
@@ -1233,7 +1290,11 @@ fn emitField(
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
-    let _ = emitElement(builder, "label", widgetBody(mem, plain(state), [], wrapper(around)));
+    let _ = emitElement(
+        builder,
+        "label",
+        widgetBody(mem, plain(state), [], wrapper(around)),
+    );
     let _ = emitReactiveText(builder, label);
     let _ = emitFieldControl(
         builder,
@@ -1281,7 +1342,9 @@ fn emitBox<C>(
     // identity. A box of constant styles registers nothing.
     if (stylesReactive(styles)) {
         let at = openElement(builder, name, "");
-        let _ = reactive(fn(scope) => patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles)));
+        let _ = reactive(fn(scope) => {
+            patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles))
+        });
         let _ = emitChildren(ctx, builder, children, state, 0);
         exitElement(builder)
     } else {
@@ -1306,18 +1369,16 @@ fn stylesReactiveAt(styles: [Style], at: Int): Bool {
             let here = match (style) {
                 .Computed(_build) => true,
                 .When(cond, then, otherwise) => {
-                    !constProp(cond) || stylesReactiveAt(then, 0) || stylesReactiveAt(otherwise, 0)
+                    !constProp(cond)
+                        || stylesReactiveAt(then, 0)
+                        || stylesReactiveAt(otherwise, 0)
                 },
                 .Group(inner) => stylesReactiveAt(inner, 0),
                 .On(_on, inner) => stylesReactiveAt(inner, 0),
                 .At(_screen, inner) => stylesReactiveAt(inner, 0),
                 _ => false,
             };
-            if (here) {
-                true
-            } else {
-                stylesReactiveAt(styles, at + 1)
-            }
+            if (here) { true } else { stylesReactiveAt(styles, at + 1) }
         },
     }
 }
@@ -2183,7 +2244,13 @@ fn widgetLine<C: Allocator>(
 /// **once**. `classNames` and `inlineIn` then walk a list that holds no
 /// computation, so a `Computed` style's body runs a single time per render
 /// rather than once for the classes and once for the inline tier.
-fn resolve(ctx: Scope, painted: Painted, styles: [Style], at: Int, acc: [Style]): [Style] {
+fn resolve(
+    ctx: Scope,
+    painted: Painted,
+    styles: [Style],
+    at: Int,
+    acc: [Style],
+): [Style] {
     match (styles.get(at)) {
         .None => acc,
         .Some(style) => {

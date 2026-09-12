@@ -795,7 +795,6 @@ test "a document is answered as HTML" {
     assert.equal(http.bodyText(ctx, answer.body).withDefault(""), "<p>hello</p>");
 }
 
-
 test "a progress bar the worker sends announces its value" {
     // The role and `aria-valuenow` a reader hears are in the markup the worker
     // sent: the scene carries the bar's own boxes, and this the announcement —

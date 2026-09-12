@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:45:5
+   |
+45 |     )
+   |     ^
+   |
+  --> main.buri:34:19
+   |
+34 |     ui.column([], [
+   |                   ^ opened here
+   |
+   = fix: write `]` here
