@@ -2120,6 +2120,21 @@ pub const ENTRIES: &[Entry] = &[
         args: &[],
         ret: Ret::Out,
     },
+    // The theme artifact `ui/testing` reads (#53 phase 5) — `runtime_table.rs`'s
+    // group of the same name argues both. `installDoc` takes the flattened
+    // document and answers the block; `variables` answers the last install's.
+    Entry {
+        key: "ui_theme.installDoc",
+        symbol: "buri_rt_ui_theme_install_doc",
+        args: &[Arg::Str],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_theme.variables",
+        symbol: "buri_rt_ui_theme_variables",
+        args: &[],
+        ret: Ret::Out,
+    },
     Entry {
         key: "ui_effect.Scope.read",
         symbol: "buri_rt_ui_effect_scope_read",
@@ -2206,6 +2221,14 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_ui_testing_install_themes",
         args: &[Arg::Str],
         ret: Ret::Void,
+    },
+    // The extracted sheet, a compile artifact (#53 phase 5) — no argument, a
+    // `Str` out.
+    Entry {
+        key: "ui_testing.stylesheet",
+        symbol: "buri_rt_ui_testing_stylesheet",
+        args: &[],
+        ret: Ret::Out,
     },
     Entry {
         key: "ui_testing.paint",

@@ -1354,12 +1354,14 @@ pub const ENTRIES: &[Entry] = &[
     // still reaches neither — `ui/node`'s `describe` reads props under
     // `rootScope`, and an untracked read subscribes nothing.
     //
-    // What is **not** here is `ui/testing`'s renderer: `render`, `Rendered`'s
-    // methods, `install`, `variables` and `stylesheet` are a *document*, and
-    // there is nothing on this side to render into. That is what still holds
-    // `ui/tree.buri` and `ui/theme.buri` out of the native conformance set.
+    // `ui/testing`'s renderer is here now — `render`, `Rendered`'s methods, and,
+    // since #53 phase 5, `install`, `variables` and `stylesheet`. The last three
+    // are not a document to build but two artifacts to surface: `stylesheet` is
+    // the compiler's extracted sheet, and `install`/`variables` are the `:root`
+    // block `ui/theme` resolves, both handed over as text. Their rows sit with
+    // `ui_theme.installDoc`/`ui_theme.variables` and `ui_testing.stylesheet`.
     //
-    // A snapshot's **themes** are here, though, and they are not a document:
+    // A snapshot's **themes** are here too, and they are not a document:
     // `ui/theme`'s `document` flattens the list to text under its own
     // `rootScope`, and `installThemes` hands that text over for the paint that
     // follows. Two rows, both monomorphic, and a `Theme` never crosses.
@@ -1395,6 +1397,16 @@ pub const ENTRIES: &[Entry] = &[
     // what keeps a `Scope`, which grants reading the graph, out of any public
     // signature.
     e("ui_theme.rootScope", "buri_rt_ui_theme_root_scope", Ret::Out),
+    // The theme artifact `ui/testing` reads (#53 phase 5). `installDoc` resolves
+    // a theme list the caller has flattened to the document `ui/theme`'s
+    // `document` builds — the chain following and the `:root`/`body`/scheme
+    // blocks are `cli/runtime/ui.rs`'s, unchanged — stores it, and answers the
+    // block. `variables` answers whatever the last install left. A switching
+    // theme is the caller's business: `ui/testing`'s `install` registers a
+    // watcher that flattens through the tracked scope and installs again, so no
+    // closure crosses here. Both answer a `Str`.
+    e("ui_theme.installDoc", "buri_rt_ui_theme_install_doc", Ret::Out),
+    e("ui_theme.variables", "buri_rt_ui_theme_variables", Ret::Out),
     v(el("ui_effect.Scope.read", "buri_rt_ui_effect_scope_read", Ret::Out)),
     e("ui_testing.headless", "buri_rt_ui_testing_headless", Ret::Out),
     v(eo("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1)),
@@ -1405,6 +1417,11 @@ pub const ENTRIES: &[Entry] = &[
     ec("ui_testing.Headless.memo", "buri_rt_ui_testing_headless_memo", Ret::Scalar),
     ec("ui_testing.Headless.watch", "buri_rt_ui_testing_headless_watch", Ret::Void),
     e("ui_testing.installThemes", "buri_rt_ui_testing_install_themes", Ret::Void),
+    // `stylesheet()` — the extracted sheet, a compile artifact `buri test`
+    // writes beside the binary and hands over the way it hands over the snapshot
+    // directory (#53 phase 5). The same string the JavaScript backend splices in
+    // as `$ui_sheet`, so a suite asserting what a class means shares.
+    e("ui_testing.stylesheet", "buri_rt_ui_testing_stylesheet", Ret::Out),
     e("ui_testing.paint", "buri_rt_ui_testing_paint", Ret::Void),
     // The recorder: how a computation says that it ran. A reactive body holds
     // a `Scope`, which grants reading the graph and nothing else, so it cannot
