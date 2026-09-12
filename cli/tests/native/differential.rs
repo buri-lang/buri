@@ -91,7 +91,14 @@ impl Verdict {
 /// the scene document on the native backend and still the HTML document double
 /// on JavaScript, so the two disagree until Phase 6 moves JavaScript to the
 /// scene document. It is driven on the native backend by `native::conformance`.
-const NATIVE_ONLY: &[&str] = &["ui/render.buri"];
+///
+/// `ui/theme.buri` compiles and runs on both backends since #53 phase 5 — its
+/// `install`/`variables`/`stylesheet` blocks *agree*, and `ui/styling.buri`
+/// carries that parity in this sweep — but four of its blocks assert
+/// `render(...).markup()`, which is HTML here and the scene document there, so
+/// the whole file cannot be compared until phase 6 unifies the format.
+/// `native::conformance`'s `Out::Wrong` runs it and proves it still diverges.
+const NATIVE_ONLY: &[&str] = &["ui/render.buri", "ui/theme.buri"];
 
 fn corpus_files() -> Vec<String> {
     let root = crate::shared::conformance_corpus();

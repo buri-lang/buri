@@ -1,0 +1,176 @@
+// The native renderer's CSS/theme artifacts (#53, phase 5): `stylesheet()`,
+// `install()` and `variables()` on both backends.
+//
+// These three are not a document to build but strings the compiler and
+// `ui/theme` already produce: `stylesheet()` is the extracted sheet, a compile
+// artifact; `install()`/`variables()` are the `:root` block a theme list
+// resolves to, resolved by `ui/theme` — ordinary Buri that runs on every
+// backend. So a native run surfaces the same bytes a JavaScript run splices in,
+// and every assertion here is on those strings — never `markup()`, whose format
+// is phase 6's to unify — so this file runs on both backends at once.
+//
+// It is the both-backends twin of the CSS and theme blocks in `tree.buri` and
+// `theme.buri`, whose own assertions stay on the JavaScript backend until phase
+// 6. The crux is the last two blocks: a `switching` theme's condition is read
+// through the install computation's scope, so writing that signal re-resolves
+// the block and `variables()` reads the other branch — the same claim dark mode
+// rests on, on the native graph as on the web one.
+
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/testing" import { headless, install, render, stylesheet, variables };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+
+// --- a vocabulary, and the themes that give it values --------------------------------
+//
+// A closed enum of tokens, its constructor, and one function per theme. The
+// namespace is this file's own, so the classes and variables it names are
+// distinctive in the package's one extracted sheet.
+
+/// The tokens this file styles itself against.
+enum Kit {
+    Panel,
+    Ink,
+    Accent,
+}
+
+impl Kit {
+    fn color(self): Color {
+        match (self) {
+            .Panel => style.token("kit", "panel"),
+            .Ink => style.token("kit", "ink"),
+            .Accent => style.token("kit", "accent"),
+        }
+    }
+}
+
+/// A mapping in, a theme out — the one function only this file can write.
+fn kitThemed(f: fn(Kit) => Color): Theme {
+    theme.themed([
+        (Kit.Panel.color(), f(.Panel)),
+        (Kit.Ink.color(), f(.Ink)),
+        (Kit.Accent.color(), f(.Accent)),
+    ])
+}
+
+fn day(t: Kit): Color {
+    match (t) {
+        .Panel => .Rgb(255, 255, 255),
+        .Ink => .Rgb(24, 24, 27),
+        .Accent => .Rgb(29, 78, 216),
+    }
+}
+
+fn night(t: Kit): Color {
+    match (t) {
+        .Panel => .Rgb(24, 24, 27),
+        .Ink => .Rgb(240, 240, 245),
+        .Accent => .Rgb(29, 78, 216),
+    }
+}
+
+/// A component styled against the kit's tokens and nothing else. Rendering it is
+/// what puts `bg-t_kit_panel` and `fg-t_kit_ink` in the package's sheet.
+fn panel<C>(label: Str): Node<C> {
+    ui.stack([.Background(Kit.Panel.color()), .Foreground(Kit.Ink.color())], [
+        ui.text(.Const(label)),
+    ])
+}
+
+// --- the stylesheet: a compile artifact, the same bytes on both backends -------------
+
+/// Renders `panel` so its static token styles reach the extracted sheet — the
+/// class names are settled at compile time, so this reaches the sheet whether or
+/// not a theme is installed. `text()` is a backend-agnostic reader, so the
+/// assertion is shared; `markup()` is not asserted, because its format is phase
+/// 6's to unify.
+test "a component styled against tokens renders its text" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(render(ctx, panel("hi")).text(), "hi");
+}
+
+test "a token becomes a custom-property class in the extracted sheet" {
+    // The class an element carries is decided at compile time and reads a
+    // `var()`; what the token is worth is a theme's business, not the sheet's.
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".bg-t_kit_panel{background-color:var(--kit-panel)}"));
+    assert.isTrue(sheet.contains(".fg-t_kit_ink{color:var(--kit-ink)}"));
+}
+
+// --- install / variables: the :root block ui/theme resolves --------------------------
+
+test "a theme resolves each of its tokens to a value" {
+    assert.equal(
+        install([kitThemed(day)]),
+        ":root{--kit-panel:rgb(255,255,255);--kit-ink:rgb(24,24,27);--kit-accent:rgb(29,78,216)}\n",
+    );
+}
+
+test "no themes at all is no block at all" {
+    assert.equal(install([]), "");
+}
+
+test "a scheme is a theme that binds no token" {
+    assert.equal(install([theme.scheme(.Dark)]), ":root{color-scheme:dark}\n");
+    assert.equal(install([theme.scheme(.Light)]), ":root{color-scheme:light}\n");
+}
+
+test "a page ground is a theme that binds no token" {
+    assert.equal(
+        install([theme.page(.Rgb(10, 10, 10), .Rgb(250, 250, 250))]),
+        "body{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n",
+    );
+}
+
+test "a scheme sits beside a package's values, in the order they were passed" {
+    assert.equal(
+        install([theme.scheme(.Dark), kitThemed(night)]),
+        ":root{color-scheme:dark}\n:root{--kit-panel:rgb(24,24,27);--kit-ink:rgb(240,240,245);--kit-accent:rgb(29,78,216)}\n",
+    );
+}
+
+test "variables answers the block installed right now" {
+    let _ = install([kitThemed(day)]);
+    assert.isTrue(variables().contains("--kit-panel:rgb(255,255,255)"));
+    assert.isTrue(variables().contains("--kit-ink:rgb(24,24,27)"));
+}
+
+// --- the pinned case: variables re-reads after a switching signal flips ---------------
+
+test "switching a theme swaps the values variables reads" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let dark = signal(ctx, false);
+    let _ = install([theme.switching(.Cell(dark), kitThemed(night), kitThemed(day))]);
+
+    assert.isTrue(variables().contains("--kit-panel:rgb(255,255,255)"));
+    assert.isFalse(variables().contains("--kit-panel:rgb(24,24,27)"));
+
+    dark.set(ctx, true);
+    assert.isTrue(variables().contains("--kit-panel:rgb(24,24,27)"));
+    assert.isFalse(variables().contains("--kit-panel:rgb(255,255,255)"));
+}
+
+test "switching back restores the values it had" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let dark = signal(ctx, false);
+    let _ = install([theme.switching(.Cell(dark), kitThemed(night), kitThemed(day))]);
+    let light = variables();
+
+    dark.set(ctx, true);
+    assert.isFalse(variables() == light);
+
+    dark.set(ctx, false);
+    assert.equal(variables(), light);
+}

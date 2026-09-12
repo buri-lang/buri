@@ -75,6 +75,11 @@
 //!   `namespace-name`, the custom property without its dashes, and `<text>` is
 //!   the rest of the line — `rgb(1,2,3)`, `transparent`, whatever the caller
 //!   rendered.
+//! * `scheme <name>` is a theme that binds no token and says only which scheme
+//!   the page is in; it renders to `:root{color-scheme:<name>}`.
+//! * `page <ground> <ink>` is the document's own two colours; it renders to
+//!   `body{background-color:<ground>;color:<ink>}`, a `var(--…)` token left as
+//!   it stands. Each colour is a single token, so one space parts them.
 //! * Any other line is skipped.
 //!
 //! Resolution is `runtime.js`'s, unchanged: every binding of every theme in one
@@ -1183,9 +1188,14 @@ enum Bound {
     Value(String),
 }
 
-/// One theme's bindings, in declaration order.
-struct Block {
-    bindings: Vec<(String, Bound)>,
+/// One theme that applies, in the order it was passed. A `theme` line opens a
+/// `Values`; a `scheme` line is a `Scheme`; a `page` line is a `Page`. Only a
+/// `Values` holds bindings, and only its bindings feed the chain — a scheme and
+/// a page name no token.
+enum Block {
+    Values(Vec<(String, Bound)>),
+    Scheme(String),
+    Page(String, String),
 }
 
 /// The document, as blocks. Anything the format does not name is skipped, and a
@@ -1198,7 +1208,19 @@ fn parse(doc: &str) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
     for line in lines {
         if line == "theme" {
-            blocks.push(Block { bindings: Vec::new() });
+            blocks.push(Block::Values(Vec::new()));
+            continue;
+        }
+        if let Some(name) = line.strip_prefix("scheme ") {
+            blocks.push(Block::Scheme(name.to_owned()));
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("page ") {
+            // `page <ground> <ink>` — the document's own two colours, each a
+            // single token (`rgb(...)`, `var(--…)`), so one space parts them.
+            if let Some((ground, ink)) = rest.split_once(' ') {
+                blocks.push(Block::Page(ground.to_owned(), ink.to_owned()));
+            }
             continue;
         }
         let mut parts = line.splitn(4, ' ');
@@ -1214,8 +1236,8 @@ fn parse(doc: &str) -> Vec<Block> {
             "value" => Bound::Value(rest.to_owned()),
             _ => continue,
         };
-        if let Some(block) = blocks.last_mut() {
-            block.bindings.push((name.to_owned(), bound));
+        if let Some(Block::Values(bindings)) = blocks.last_mut() {
+            bindings.push((name.to_owned(), bound));
         }
     }
     blocks
@@ -1252,10 +1274,12 @@ fn resolve<'a>(bindings: &'a [(String, Bound)], start: &'a Bound) -> Option<Stri
 pub(crate) fn render(doc: &str) -> String {
     let blocks = parse(doc);
     // Every binding, in declaration order, a later one for the same token
-    // replacing an earlier one. This is what a chain is followed through.
+    // replacing an earlier one. This is what a chain is followed through. Only a
+    // `Values` block binds a token; a scheme and a page name none.
     let mut bindings: Vec<(String, Bound)> = Vec::new();
     for block in &blocks {
-        for (name, bound) in &block.bindings {
+        let Block::Values(block_bindings) = block else { continue };
+        for (name, bound) in block_bindings {
             match bindings.iter().position(|(k, _)| k == name) {
                 Some(at) => {
                     if let Some(slot) = bindings.get_mut(at) {
@@ -1268,40 +1292,60 @@ pub(crate) fn render(doc: &str) -> String {
     }
     let mut out = String::new();
     for block in &blocks {
-        let mut body: Vec<String> = Vec::new();
-        for (name, bound) in &block.bindings {
-            if let Some(value) = resolve(&bindings, bound) {
-                body.push(format!("--{name}:{value}"));
+        match block {
+            // A theme's values, each resolved through the chain and left out
+            // where the chain names nothing.
+            Block::Values(block_bindings) => {
+                let mut body: Vec<String> = Vec::new();
+                for (name, bound) in block_bindings {
+                    if let Some(value) = resolve(&bindings, bound) {
+                        body.push(format!("--{name}:{value}"));
+                    }
+                }
+                if !body.is_empty() {
+                    out.push_str(":root{");
+                    out.push_str(&body.join(";"));
+                    out.push_str("}\n");
+                }
             }
-        }
-        if !body.is_empty() {
-            out.push_str(":root{");
-            out.push_str(&body.join(";"));
-            out.push_str("}\n");
+            // A scheme is one declaration in a block of its own, so a later one
+            // wins the way a later value does.
+            Block::Scheme(name) => {
+                out.push_str(&format!(":root{{color-scheme:{name}}}\n"));
+            }
+            // A page's ground is the document's own two colours, on `body`
+            // rather than `:root` — a background there reaches the whole window.
+            // A token is left as the `var()` a class would have held.
+            Block::Page(ground, ink) => {
+                out.push_str(&format!("body{{background-color:{ground};color:{ink}}}\n"));
+            }
         }
     }
     out
 }
 
-/// Installs a theme list the caller has already flattened, and answers the
-/// custom-property block it resolved to.
+/// `ui/theme`'s `installDoc(doc)` — installs a theme list the caller has
+/// already flattened to the document above, and answers the custom-property
+/// block it resolved to.
 ///
 /// The header of this file is the document's format. A switching theme is the
 /// caller's business: it registers the watcher and installs again, which is why
-/// nothing here holds a closure.
+/// nothing here holds a closure. `ui/testing`'s `install` is that caller, and
+/// its `variables` reads back what the last install left in [`theme_lock`].
 ///
 /// # Safety
-/// `doc` points at `len` readable bytes, or is null with a zero length; `out`
+/// `ptr` points at `len` readable bytes, or is null with a zero length; `out`
 /// is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_theme_install(doc: *const u8, len: usize, out: *mut BuriStr) {
-    let bytes = if doc.is_null() || len == 0 {
-        &[][..]
-    } else {
-        // SAFETY: the caller promises `len` readable bytes.
-        unsafe { std::slice::from_raw_parts(doc, len) }
-    };
-    let text = render(&String::from_utf8_lossy(bytes));
+pub unsafe extern "C" fn buri_rt_ui_theme_install_doc(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) {
+    // SAFETY: the caller promises the pointer addresses its length.
+    let document = unsafe { crate::host::text(ptr, len) };
+    let text = render(&document);
     let answer = str_of(&text);
     *theme_lock() = text;
     // SAFETY: the caller promises a writable, aligned destination.
@@ -1947,7 +1991,14 @@ mod tests {
     fn install(doc: &str) -> String {
         let mut answer = BuriStr { base: std::ptr::null_mut(), ptr: std::ptr::null(), len: 0 };
         // SAFETY: `doc` is a live view and `answer` a live local.
-        unsafe { buri_rt_ui_theme_install(doc.as_ptr(), doc.len(), &raw mut answer) };
+        unsafe {
+            buri_rt_ui_theme_install_doc(
+                std::ptr::null_mut(),
+                doc.as_ptr(),
+                doc.len() as u64,
+                &raw mut answer,
+            );
+        };
         taken(answer)
     }
 
@@ -2434,5 +2485,40 @@ mod tests {
         assert_eq!(variables(), "", "nothing is installed yet");
         let block = install(&document(&[DAY]));
         assert_eq!(variables(), block);
+    }
+
+    #[test]
+    fn a_scheme_is_a_block_that_binds_no_token() {
+        let _alone = alone();
+        assert_eq!(install(&document(&["scheme dark\n"])), ":root{color-scheme:dark}\n");
+        assert_eq!(install(&document(&["scheme light\n"])), ":root{color-scheme:light}\n");
+    }
+
+    #[test]
+    fn a_scheme_sits_beside_a_packages_values_in_order() {
+        let _alone = alone();
+        assert_eq!(
+            install(&document(&["scheme dark\n", NIGHT])),
+            ":root{color-scheme:dark}\n:root{--app-bg:rgb(24,24,27);--app-fg:rgb(240,240,245)}\n"
+        );
+    }
+
+    #[test]
+    fn a_page_ground_is_the_documents_own_two_colours() {
+        let _alone = alone();
+        assert_eq!(
+            install(&document(&["page rgb(10,10,10) rgb(250,250,250)\n"])),
+            "body{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n"
+        );
+    }
+
+    #[test]
+    fn a_page_ground_leaves_a_token_as_the_var_it_stands_for() {
+        let _alone = alone();
+        assert_eq!(
+            install(&document(&["page var(--app-bg) var(--app-fg)\n", NIGHT])),
+            "body{background-color:var(--app-bg);color:var(--app-fg)}\n\
+             :root{--app-bg:rgb(24,24,27);--app-fg:rgb(240,240,245)}\n"
+        );
     }
 }

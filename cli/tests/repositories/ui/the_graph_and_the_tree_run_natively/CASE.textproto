@@ -21,10 +21,11 @@
 # changes, the row that should have been left out is in the scene, and the
 # report names the block and the line.
 #
-# **And the facility that is missing.** `install` has no native implementation,
-# and what a suite reaching it gets is a diagnostic naming it — `buri test`
-# refuses the run and says which key it cannot compile, rather than linking a
-# binary that aborts when it arrives there (buri-lang/buri#54's "Expected").
+# **And the facility that is missing.** `ui/node`'s `mount` renders a live page
+# into a document and is WEB-only, so it has no native body; what a suite
+# reaching it gets is a diagnostic naming it — `buri test` refuses the run and
+# says which key it cannot compile, rather than linking a binary that aborts when
+# it arrives there (buri-lang/buri#54's "Expected").
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
@@ -57,18 +58,12 @@ edit {
   with: "options([\"a\", \"b\", \"c\"], \"b\")"
 }
 
-# `install` is `ui/testing`'s theme installer and there is no native body for
-# it. A suite that reaches it is refused by name.
-edit {
-  file: "lib/graph/test/graph.buri"
-  replace: "from \"ui/testing\" import { headless, observer, recorder };"
-  with: "from \"ui/testing\" import { headless, install, observer, recorder };"
-}
-
+# `ui/node`'s `mount` renders a live page and is WEB-only, so there is no native
+# body for it. A suite that reaches it is refused by name.
 edit {
   file: "lib/graph/test/graph.buri"
   replace: "    let cell = signal(ctx, 1);"
-  with: "    let _ = install([]);\n    let cell = signal(ctx, 1);"
+  with: "    assert.equal(ui.mount(ctx, ui.text(.Const(\"x\")), []), .Ok(()));\n    let cell = signal(ctx, 1);"
 }
 
 run {
