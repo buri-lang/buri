@@ -1338,7 +1338,21 @@ fn the_runtime_archive_is_real() {
     // 23 218 810 bytes on x86_64 with `net-h3` (run 34160576351), 75 KB over
     // the estimate. 24 MiB is the re-statement, from a measurement this time,
     // and leaves 7.7 % of the margin — the same headroom the macOS line keeps.
-    let budget = if cfg!(target_os = "macos") { 15_728_640 } else { 25_165_824 };
+    // **The native renderer (#53) is the biggest single addition since the
+    // painter.** `ui/testing`'s `render`/`Rendered.*` gained a native
+    // implementation — the element document (`cli/runtime/document.rs`), the
+    // reconciler and event dispatch (`render.rs`), and the closure trampolines
+    // in `ui.rs` — so a program that only paints now also carries a second
+    // renderer's worth of runtime. On aarch64-apple-darwin the archive this
+    // toolchain ships went from 12 575 816 to **15 772 784**, +3 196 968. 17 MiB
+    // is the re-statement and leaves 11.5 % of the margin, a little wider than
+    // this file's usual 7.7 % because the painter-fidelity work beside it is
+    // still adding to the same runtime. The Linux number is unmeasured here for
+    // the reason the paragraphs above give (no macOS host links musl `ring`) and
+    // is scaled from the Darwin delta at ELF's 1.43x — about +4.57 MB on the
+    // ~23.2 MB the last container measured, so ~27.8 MB. 29 MiB is the derived
+    // re-statement; a container measurement replaces it with one number.
+    let budget = if cfg!(target_os = "macos") { 17_825_792 } else { 30_408_704 };
     assert!(
         rt::ARCHIVE.len() <= budget,
         "libburi_rt.a is {} bytes, over the {budget}-byte budget for this platform. Every buri \
