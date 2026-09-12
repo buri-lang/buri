@@ -952,6 +952,10 @@ pub(crate) fn fire(id: i64) {
         unsafe { compute.state.add(at).cast::<*mut u8>().write(frame) };
     }
     let mut sink = [0u8; 8];
+    // One update transaction, the rule every handler runs under: a press that
+    // writes three signals is one pass over the watchers, not three. The
+    // JavaScript `$ui_flush` around an event listener, here around the fire.
+    buri_rt_ui_flush_begin();
     // SAFETY: `entry`/`state` are the handler's thunk and its kept record;
     // `event` is one live word crossing as the element, and `sink` a live
     // destination a `()`-answering thunk writes nothing to.
@@ -962,6 +966,7 @@ pub(crate) fn fire(id: i64) {
         // SAFETY: this thread acquired it above and the thunk has returned.
         unsafe { buri_rt_stack_release(frame) };
     }
+    buri_rt_ui_flush_end();
 }
 
 /// Writes `text` to the `Str` signal `id`, releasing the string it held — the
