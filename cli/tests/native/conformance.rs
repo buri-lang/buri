@@ -74,13 +74,16 @@
 //!     than through the derive.
 //!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
-//!  4. **The document.** `ui/tree.buri` is the tree vocabulary and the keyed
-//!     reconciler under it, and `ui/theme.buri` is the block of custom
-//!     properties a document reads. Both want a document to render into and
-//!     there is none on this side. The *graph* was here too until
-//!     `cli/runtime/ui.rs` ported it and `runtime_table.rs`'s `Extra::Compute`
-//!     gave a memo's body a way to cross the C boundary;
-//!     `ui/reactivity.buri` is in the set now.
+//!  4. **The document, and its serialization.** The *graph* came in when
+//!     `cli/runtime/ui.rs` ported it (`ui/reactivity.buri`), the *reconciler*
+//!     when the renderer landed (`ui/reactive.buri`), and the *CSS/theme
+//!     artifacts* — `stylesheet`, `install`, `variables` — when #53 phase 5
+//!     surfaced them (`ui/styling.buri`). Two files are still out.
+//!     `ui/tree.buri` is `Refused`: it calls `ui/node`'s `mount`, the real page
+//!     mount, WEB-only with no native document to render a live page into.
+//!     `ui/theme.buri` is `Wrong`: it compiles and runs, but asserts
+//!     `render(...).markup()`, which is HTML on the JavaScript backend and the
+//!     scene document on the native one — phase 6's to unify.
 //!
 //! `semantics/generics.buri` was a fourth until a type parameter a program
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
@@ -152,10 +155,12 @@
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run and
 //! every one of the nine still names what it named. One refusal did get
 //! shorter: `ui/theme.buri` no longer reaches `ui_testing.observer`, because
-//! none of its five contexts binds `Watch` any more. It is still out for
-//! `install`, `variables`, `render` and `stylesheet` — the document, which is
-//! the half of `lib/ui` no wave of this backend retires. The other half, the
-//! graph, is in the set now.
+//! none of its five contexts binds `Watch` any more. It is still out, but the
+//! reason narrowed with #53: `install`, `variables` and `stylesheet` are native
+//! now (phase 5, `ui/styling.buri` shares them), so `theme.buri` compiles and
+//! runs — it is `Wrong` for `render(...).markup()`'s HTML-vs-scene format, phase
+//! 6's to unify. `tree.buri` stays `Refused` for `ui/node`'s WEB-only `mount`.
+//! The graph, the reconciler and the CSS/theme artifacts are all in the set now.
 //!
 //! The half of this the corpus keeps for itself is
 //! `language::conformance::no_conformance_context_asks_for_a_bound_it_does_not_use`:
@@ -219,12 +224,18 @@ struct Case {
 
 /// Why a file stays out.
 ///
-/// There was a second variant, `Wrong`, for the one file the backend compiled
-/// and got wrong, and `a_wrong_answer_is_still_wrong` ran it and asserted it
-/// still failed. `collections/queue.buri` was that file; the three defects
-/// behind it are fixed (`middle/rc.rs`'s deferred drops and `middle/layout.rs`'s
-/// list niche) and it is in the set above. The category comes back the day
-/// another file needs it, and not before.
+/// A second variant, `Wrong`, is for a file the backend compiles and *runs* but
+/// gets a wrong answer, and [`a_wrong_answer_is_still_wrong`] runs it and asserts
+/// it still fails. `collections/queue.buri` was the first — its three defects
+/// are fixed (`middle/rc.rs`'s deferred drops and `middle/layout.rs`'s list
+/// niche) and it is in the set above — and the category came back with #53 phase
+/// 5. `ui/tree.buri` and `ui/theme.buri` compile and run natively now (their
+/// renderer, reconciler and CSS/theme artifacts are all here), but they assert
+/// `render(...).markup()`, which is HTML on the JavaScript backend and the scene
+/// document on the native one — phase 6's to unify. So they get a *wrong answer*
+/// natively today, and this is the seam that proves it, rather than hoping it:
+/// the day phase 6 rewrites those assertions the run passes, the test flips, and
+/// it is the reminder to move them into the shared set.
 ///
 /// There was a third, `Costly`, for the one file the backend compiled and got
 /// *right* at a price this suite would not pay: `proto/binary.buri` cost about
@@ -239,12 +250,17 @@ enum Out {
     /// [`the_excluded_packages_are_excluded_for_the_stated_reason`] compiles
     /// each and asserts the refusal is still there.
     Refused(&'static str),
+    /// **The backend compiles and runs it, and gets a wrong answer**, and names
+    /// why. [`a_wrong_answer_is_still_wrong`] runs each and asserts it still
+    /// fails — so a file whose divergence is fixed shows up as a passing run
+    /// that this test then flags, rather than as a silent exclusion.
+    Wrong(&'static str),
 }
 
 impl Out {
     fn why(&self) -> &'static str {
         match self {
-            Out::Refused(why) => why,
+            Out::Refused(why) | Out::Wrong(why) => why,
         }
     }
 }
@@ -255,6 +271,12 @@ const fn included(path: &'static str) -> Case {
 
 const fn excluded(path: &'static str, why: &'static str) -> Case {
     Case { path, out: Some(Out::Refused(why)) }
+}
+
+/// A file the backend compiles and runs but answers wrong — held out of the
+/// shared set until the divergence it names is closed. See [`Out::Wrong`].
+const fn wrong(path: &'static str, why: &'static str) -> Case {
+    Case { path, out: Some(Out::Wrong(why)) }
 }
 
 /// Every file in `cli/tests/conformance/lib`, in or out, with the reason.
@@ -800,22 +822,29 @@ const PACKAGES: &[Case] = &[
     // is in `BUILD.buri`'s `sources` for the JavaScript run and here for this
     // one, one file asserting the same reconciler on two renderers.
     included("ui/reactive.buri"),
+    // The native renderer's CSS/theme artifacts (#53, phase 5): `stylesheet` is
+    // the compiler's extracted sheet, and `install`/`variables` are the `:root`
+    // block `ui/theme` resolves — a switching theme re-read after its signal
+    // flips. Like its neighbour it runs on **both** backends: every assertion
+    // reads one of those strings, never `markup()`, so it is in `BUILD.buri`'s
+    // `sources` for the JavaScript run and here for this one.
+    included("ui/styling.buri"),
     excluded(
         "ui/tree.buri",
-        "`ui/node`'s `mount` and `ui/testing`'s renderer, which are a \
-             *document* — an element tree, its listeners and a keyed \
-             reconciler over it. There is nothing on this side to render to, \
-             and a native backend that grew one would be rendering to \
-             something else",
+        "`ui/node`'s `mount` — the real page mount, WEB-only, with no native \
+             document to render a live page into (`the counter mounts` calls it). \
+             Its test-only sibling `ui/testing`'s `render` is native, and \
+             `ui/reactive.buri` shares the reconciler; what still refuses this \
+             file is `mount` itself, and once that block goes (#53 phase 6) what \
+             is left is `markup()`'s HTML-vs-scene format",
     ),
-    excluded(
+    wrong(
         "ui/theme.buri",
-        "`ui/testing`'s `install`, `variables` and `render`, which are the \
-             custom properties a document reads. A theme is ordinary Buri — \
-             the enums, the mappings and the exhaustiveness that is the whole \
-             contract are all checked on every platform — but what a resolved \
-             theme *is* on the other side is a `:root` block, and there is no \
-             document here to put one in",
+        "`render(...).markup()`, HTML here and the scene document there — phase \
+             6's to unify. Its other half is shared already: `install`, \
+             `variables` and `stylesheet` are native (#53 phase 5, \
+             `ui/styling.buri`), because a theme is ordinary Buri and the `:root` \
+             block it resolves to is a string both backends surface",
     ),
     excluded(
         "web/document.buri",
@@ -1008,6 +1037,10 @@ fn build(name: &str, source: &str) -> Built {
     if diagnostics.has_errors() {
         return Built::Unsupported(String::from("monomorphization failed"));
     }
+    // The extracted sheet, taken here where it is still a value on the program,
+    // the way `commands::test` takes it before the link. It is written beside
+    // the binary below, where the runtime's `stylesheet()` looks for it.
+    let sheet = program.stylesheet.clone();
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
     let blocks = program.roots.tests().len();
@@ -1037,6 +1070,13 @@ fn build(name: &str, source: &str) -> Built {
         objects.push(path);
     }
     let binary = dir.join("program");
+    // The extracted sheet, beside the binary as `<binary>.css`, which is where
+    // the runtime's `stylesheet()` looks when no `buri test` named it in the
+    // environment (`cli/runtime/snapshot.rs`). A program with no static styles
+    // wrote none, and that reads back as the empty sheet a test asserts on.
+    if !sheet.is_empty() {
+        std::fs::write(binary.with_extension("css"), &sheet).unwrap();
+    }
     // `build/link.rs`'s driver and its trailing arguments — the product's link
     // line and not a second idea of it (`shared::product_cc`). On Linux it is
     // a static-PIE musl link, which is not something a harness can spell out
@@ -1273,6 +1313,45 @@ fn the_excluded_packages_are_excluded_for_the_stated_reason() {
                 case.out.as_ref().map(Out::why).unwrap_or_default()
             ),
         }
+    }
+}
+
+/// A `Wrong` file compiles, runs, and still fails.
+///
+/// It is held out of the shared set not because the backend cannot run it but
+/// because it gets the wrong answer — `ui/tree.buri` and `ui/theme.buri` assert
+/// `render(...).markup()`, whose format the two backends do not yet spell the
+/// same way (#53 phase 6). Running it and asserting a non-zero exit is what
+/// keeps that reason honest: the day phase 6 unifies the format, the run passes,
+/// this fails, and the reason has to give way to moving the file into the set.
+#[test]
+fn a_wrong_answer_is_still_wrong() {
+    if !supported() {
+        return;
+    }
+    for case in PACKAGES.iter().filter(|c| matches!(c.out, Some(Out::Wrong(_)))) {
+        let source = read(case);
+        // A front-end error means the corpus is mid-change, not this file's
+        // business to fail over.
+        match missing_for(case.path, &source) {
+            Err(_) => continue,
+            Ok(missing) => assert!(
+                missing.is_empty(),
+                "`{}` is listed as a wrong answer but the backend is missing \
+                     {missing:?} — it does not compile, so it is `Refused`, not `Wrong`",
+                case.path
+            ),
+        }
+        let Some((status, _out, _err, _blocks)) = run(case.path, &source) else {
+            continue;
+        };
+        assert_ne!(
+            status, 0,
+            "`{}` is listed as a wrong answer ({}), but it ran and passed — \
+                 move it into the set",
+            case.path,
+            case.out.as_ref().map(Out::why).unwrap_or_default()
+        );
     }
 }
 

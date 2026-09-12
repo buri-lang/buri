@@ -158,24 +158,55 @@ fn rootScope(): Scope;
 /// with no runtime to install into — a snapshot — says the same thing. The text
 /// is UTF-8 and line-oriented, `buri-theme 1` first, then a `theme` line per
 /// applying theme with its bindings under it.
-export fn document<C: Allocator>(ctx: C, themes: [Theme]): Str {
+export fn document(themes: [Theme]): Str {
+    documentUnder(rootScope(), themes)
+}
+
+/// `document`, run under a `Scope` rather than a plain allocator, so a
+/// `switching` theme's condition is read through *that* scope.
+///
+/// A reactive caller — `ui/testing`'s `install` — hands its computation's scope
+/// here, so following a switch to its branch subscribes the computation to the
+/// condition's signal. Writing that signal then re-runs the flatten, and the
+/// block installed changes to the other branch's. The scope is the allocator
+/// too, because a `Scope` is one, so the whole flatten runs under it — which is
+/// why `document` reaches it with the untracked `rootScope`, whose reads
+/// subscribe nothing.
+export fn documentUnder(ctx: Scope, themes: [Theme]): Str {
     ["buri-theme 1"].concat(ctx, blocks(ctx, themes, 0, [])).join(ctx, "\n")
 }
 
+/// Resolves the flattened `document` `doc` to its custom-property block —
+/// following each chain and writing one `:root`/`body`/scheme block per applied
+/// theme — installs it as the block `variables` reads, and answers it.
+///
+/// The resolution is `cli/runtime/ui.rs`'s on the native backend and
+/// `$ui_theme_render_doc`'s on the JavaScript one, the two written to agree byte
+/// for byte. A switching theme is the caller's business: `ui/testing`'s
+/// `install` re-flattens through a tracked scope and installs again, so no
+/// closure crosses here.
+export fn installDoc(doc: Str): Str;
+
+/// The custom-property block installed right now.
+///
+/// `ui/testing`'s `variables` answers this, and reading it again after a
+/// `switching` condition's signal is written is how a test sees a theme switch.
+export fn variables(): Str;
+
 /// The lines of every theme that applies, in the order they were passed.
 ///
-/// A switch is followed to whichever branch its condition picks, and deciding
-/// that in one place is what keeps the block that is written and the map it is
-/// resolved through from ever disagreeing about which side of a switch the
-/// program is on.
-fn blocks<C: Allocator>(ctx: C, themes: [Theme], at: Int, acc: [Str]): [Str] {
+/// A switch is followed to whichever branch its condition picks — read through
+/// `ctx`, the scope this runs under — and deciding that in one place is what
+/// keeps the block that is written and the map it is resolved through from ever
+/// disagreeing about which side of a switch the program is on.
+fn blocks(ctx: Scope, themes: [Theme], at: Int, acc: [Str]): [Str] {
     match (themes.get(at)) {
         .None => acc,
         .Some(theme) => {
             let lines = match (theme.0) {
                 .Values(bindings) => ["theme"].concat(ctx, binds(ctx, bindings, 0, [])),
                 .Switching(condition, whenTrue, whenFalse) => {
-                    if (condition.read(rootScope())) {
+                    if (condition.read(ctx)) {
                         blocks(ctx, whenTrue, 0, [])
                     } else {
                         blocks(ctx, whenFalse, 0, [])
