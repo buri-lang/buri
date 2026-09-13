@@ -65,9 +65,10 @@ Diff the two lists: the first key that changed names the action whose inputs
 changed.
 
 If nothing you edited explains a key that moved, the input is one of the others
-in it: the toolchain version, the build mode, or the platform. A release
-invalidates every entry in every repository, because an artifact built by a
-different compiler is a different artifact.
+in it: the toolchain (a hash of the `buri` binary), the build mode, or the
+platform. A different compiler invalidates every entry in every repository,
+because an artifact built by a different compiler is a different artifact — and
+rebuilding `buri`, even at the same version, is a different compiler.
 
 ## When the cache is the suspect
 
@@ -86,13 +87,13 @@ dropped .buri/out and .buri/cache
 Needing either is worth reporting: the cache is keyed on the content of every
 input, never on a timestamp, so a stale entry is a bug.
 
-## The one trap, and it is not yours
+## Rebuilding the compiler
 
-If you **build the compiler from source**, two `buri` binaries built from
-different code at the same version compute the same keys, so the first build
-after you rebuild the compiler mixes both compilers' output. It is the only
-build that does, which makes it easy to dismiss as noise. Compare on a fresh
-tree, pass `--force`, or run `buri clean` in between.
+If you **build `buri` from source**, the new binary hashes differently from the
+old one, so its keys change and it cannot be served the previous build's output.
+On its first run it drops what the old binary left in `.buri/cache/` and marks
+the cache as its own. Nothing to remember: no fresh tree, no `--force`, no
+`buri clean` in between.
 
 ---
 
