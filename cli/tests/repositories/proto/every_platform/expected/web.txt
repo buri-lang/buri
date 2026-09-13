@@ -1,5 +1,5 @@
-keyed  compile //cmd/app web 8a6cb78c5652
-keyed  generate //lib/wire web 6d91d98ea983
-keyed  compile //lib/wire web 08d900ec2724
-run    link //cmd/app web fa42b71186d9
+keyed  compile //cmd/app web <key>
+keyed  generate //lib/wire web <key>
+keyed  compile //lib/wire web <key>
+run    link //cmd/app web <key>
 .buri/out/web/cmd/app/app.mjs (N bytes)

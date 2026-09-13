@@ -9,9 +9,13 @@
 //! An action key hashes everything that can affect the output:
 //!
 //! ```text
-//! key = H(action_kind, toolchain_version, build_mode,
+//! key = H(action_kind, toolchain_identity, build_mode,
 //!         platform, arch, rule_identity, H(content of each input file),
 //!         key(each input action))
+//!
+//! `toolchain_identity` is the hash of the running executable, not its version:
+//! a rebuilt `buri` at the same version is a different compiler, and hashing the
+//! binary is what stops it from being served the previous build's artifacts.
 //! ```
 //!
 //! Four properties, each ruling out a class of stale-cache bug: content rather
@@ -25,6 +29,7 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::build::buildfile::{self, Platform};
 
@@ -48,6 +53,40 @@ use crate::build::buildfile::{self, Platform};
 /// and `runtime_native::the_hash_is_of_the_bytes` between them say that the
 /// digest baked at build time is the digest [`hash_bytes`] computes.
 pub use super::sha256::{hash_bytes, Sha256};
+
+// ---------------------------------------------------------------------------
+// The toolchain's identity
+// ---------------------------------------------------------------------------
+
+/// The SHA-256 of the running executable, read and hashed **once**. `None` when
+/// `current_exe` or the read of it fails — nothing a build should die of, and
+/// the two callers each fall back their own way.
+///
+/// One implementation, shared by the cache key and `buri version --verbose`,
+/// because reading and hashing the whole binary on every action key would be
+/// wasteful and computing it two different ways would be a bug waiting to
+/// diverge.
+pub fn running_exe_hash() -> Option<&'static str> {
+    static HASH: OnceLock<Option<String>> = OnceLock::new();
+    HASH.get_or_init(|| {
+        let exe = std::env::current_exe().ok()?;
+        Some(hash_bytes(&std::fs::read(exe).ok()?))
+    })
+    .as_deref()
+}
+
+/// The toolchain's identity for a cache key: the running executable's hash, or
+/// the version string when the binary can't be read.
+///
+/// The hash is what tells two builds of one version apart — the version stays
+/// `0.3.0` across a rebuild, the bytes do not — so it strictly subsumes the
+/// version and folding it is what keeps a rebuilt `buri` from being served the
+/// previous build's entries. The fallback keeps a build that cannot read its
+/// own binary from panicking; it degrades to the version-only key the cache
+/// used to have, which is a hazard but not a crash.
+pub fn toolchain_identity() -> &'static str {
+    running_exe_hash().unwrap_or(crate::commands::arguments::VERSION)
+}
 
 // ---------------------------------------------------------------------------
 // The cache
@@ -144,7 +183,7 @@ impl Status {
 /// so it is both greppable and recordable. Only the first twelve characters of
 /// the key are printed: enough to compare two runs of one tree, and short
 /// enough that nobody is tempted to check a whole key into a golden file, which
-/// would break on every toolchain version (the key includes `arguments::VERSION`).
+/// would break on every rebuild (the key includes the running binary's hash).
 pub fn explain(
     on: bool,
     status: Status,
@@ -236,6 +275,7 @@ impl Cache {
     pub fn open(root: &Path) -> Cache {
         let dir = root.join(".buri/cache");
         let _ = std::fs::create_dir_all(&dir);
+        reconcile_toolchain(&dir);
         Cache { dir }
     }
 
@@ -351,6 +391,56 @@ impl Cache {
     }
 }
 
+/// The current toolchain's name for the cache, kept beside the lock so it is
+/// never mistaken for one of the `<prefix>/<rest>` entries.
+const TOOLCHAIN_MARKER: &str = ".toolchain";
+
+/// Drops what a different toolchain left behind, before the cache is used.
+///
+/// The key folds the running binary's hash ([`toolchain_identity`]), so a
+/// rebuilt `buri` computes different keys and can never be *served* an old
+/// build's entry — but those entries still sit on disk taking room, and reaching
+/// for `rm -rf .buri` after every rebuild is what this replaces. The marker
+/// records which toolchain last wrote here; when it is absent (a cache from
+/// before this marker existed, or a fresh one) or names another toolchain, the
+/// cache is emptied and re-marked. The compare is a lock-free read on the common
+/// path, so only the first open of a process — or one after a real change —
+/// pays for the lock.
+fn reconcile_toolchain(dir: &Path) {
+    let marker = dir.join(TOOLCHAIN_MARKER);
+    let identity = toolchain_identity();
+    if std::fs::read_to_string(&marker).ok().as_deref() == Some(identity) {
+        return;
+    }
+    // Wipe under the write lock, so a concurrent build cannot read an entry out
+    // from under the wipe. The double-check covers another process reconciling
+    // while this one waited.
+    let _guard = match Lock::acquire(dir) {
+        LockOutcome::Held(lock) => Some(lock),
+        LockOutcome::ProceedUnlocked => None,
+    };
+    if std::fs::read_to_string(&marker).ok().as_deref() == Some(identity) {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            // Everything but the lock this holds and the marker it is about to
+            // rewrite.
+            let name = entry.file_name();
+            if name == TOOLCHAIN_MARKER || name == ".lock" {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    let _ = std::fs::write(&marker, identity);
+}
+
 /// The file lock that serializes cache writes.
 ///
 /// `create_new` on a lock file, which is one atomic operation on every
@@ -434,23 +524,22 @@ impl KeyBuilder {
         // `--release` and `--debug` are part of the cache key.
         hasher.text(mode.name());
         // The compiler's own identity: an artifact built by a different
-        // compiler is a different artifact, so a release moves every key in
+        // compiler is a different artifact, so a rebuild moves every key in
         // every repository at once.
         //
-        // It is `CARGO_PKG_VERSION` — a version, not a hash of the running
-        // executable. Two `buri` binaries built from different source at the
-        // same version therefore compute the same keys and share a cache, and
-        // nothing here can tell them apart. That is a hazard for whoever
-        // rebuilds this toolchain and then compares one repository's artifacts
-        // across the rebuild; `buri docs build/hermeticity`, "The toolchain in
-        // the key", says what to do about it. Closing it would mean hashing the
-        // binary on every key — or a build-script fingerprint over `cli/src`,
-        // which `cli/build.rs` deliberately keeps out of its rerun set so that
-        // an edit to the compiler does not re-invoke `rustc` on the runtime.
-        // What a *user* can vary is caught: `Backend::identity` carries the
-        // LLVM the binary was linked against, and `Linker::version` the linker
-        // it found.
-        hasher.text(crate::commands::arguments::VERSION);
+        // It is the hash of the running executable, not `CARGO_PKG_VERSION`.
+        // The version stays `0.3.0` across a rebuild, so two `buri` binaries
+        // built from different source at the same version used to compute the
+        // same keys and share a cache — behaviour changed under a key that did
+        // not, and whoever rebuilt the toolchain had to `rm -rf .buri` by hand.
+        // Hashing the binary catches it: a rebuild hashes differently and can
+        // never be served the old build's entries. The pass over the binary is
+        // paid once per process ([`toolchain_identity`], memoized), and it falls
+        // back to the version string when the binary can't be read so a build
+        // never dies for want of its own hash. What a *user* can vary is caught
+        // besides: `Backend::identity` carries the LLVM the binary was linked
+        // against, and `Linker::version` the linker it found.
+        hasher.text(toolchain_identity());
         KeyBuilder { hasher }
     }
 
@@ -563,32 +652,33 @@ mod tests {
         assert_ne!(debug, release);
     }
 
-    /// The toolchain's identity is in every key, and since `REPO.buri` stopped
-    /// naming a toolchain it is `arguments::VERSION` and nothing else. A
-    /// release moves every key in every repository, which is the row
-    /// `buri docs build/hermeticity` promises and what the pin used to carry.
+    /// The toolchain's identity is in every key, and it is the running
+    /// executable's hash ([`toolchain_identity`]) and nothing else. A rebuild
+    /// moves every key in every repository, which is the row
+    /// `buri docs build/hermeticity` promises and what the version alone used
+    /// to carry only across a release.
     ///
     /// It is asserted by rebuilding the key field by field rather than by
-    /// moving the version, because there is nothing left in a repository to
-    /// move: the version is a constant compiled into this binary, so varying it
-    /// would take a second binary to compare against. What can be held is that
-    /// it is in there, in a key that holds nothing else — a version dropped
-    /// from the key, or a fourth field slipped in beside it, fails here.
+    /// varying the identity, because the identity is a fact about this process:
+    /// the hash of the binary running the test, so varying it would take a
+    /// second binary to compare against. What can be held is that it is in
+    /// there, in a key that holds nothing else — an identity dropped from the
+    /// key, or a fourth field slipped in beside it, fails here.
     #[test]
-    fn the_toolchain_version_is_in_every_key() {
+    fn the_toolchain_identity_is_in_every_key() {
         let mut expected = Sha256::new();
         expected.text("compile");
         expected.text("debug");
-        expected.text(crate::commands::arguments::VERSION);
+        expected.text(toolchain_identity());
         assert_eq!(
             KeyBuilder::new(Action::Compile, BuildMode::Debug).finish(),
             ActionKey(expected.finish()),
-            "the key a build starts from is no longer the action, the mode and the version"
+            "the key a build starts from is no longer the action, the mode and the toolchain identity"
         );
 
-        // The negative twin: the same key with any other version in it is a
-        // different key, so a release cannot be served a cache entry another
-        // toolchain wrote.
+        // The negative twin: the same key with any other toolchain in it is a
+        // different key, so a rebuilt binary cannot be served a cache entry the
+        // previous one wrote.
         let mut other = Sha256::new();
         other.text("compile");
         other.text("debug");
@@ -597,6 +687,35 @@ mod tests {
             KeyBuilder::new(Action::Compile, BuildMode::Debug).finish(),
             ActionKey(other.finish())
         );
+    }
+
+    /// Two opens with the same toolchain identity share their entries; an open
+    /// after the marker records a different toolchain starts empty. This is the
+    /// cleanup that keeps a rebuilt `buri` from being served — or crowded by —
+    /// the previous build's work.
+    #[test]
+    fn a_changed_toolchain_wipes_the_cache() {
+        let root = std::env::temp_dir().join(format!("buri-toolchain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let key = ActionKey::of(b"an entry");
+
+        let cache = Cache::open(&root);
+        cache.put(&key, b"an entry");
+        // A second open with the same toolchain keeps it.
+        assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
+
+        // Record a different toolchain, as a rebuilt binary would, and the next
+        // open finds the entry gone.
+        std::fs::write(root.join(".buri/cache").join(TOOLCHAIN_MARKER), "a-different-toolchain")
+            .unwrap();
+        let reopened = Cache::open(&root);
+        assert_eq!(reopened.get(&key), None, "a changed toolchain did not wipe the cache");
+
+        // And the marker now names this toolchain again, so what this open
+        // writes survives the next.
+        reopened.put(&key, b"an entry");
+        assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // -----------------------------------------------------------------------

@@ -95,6 +95,32 @@ fn the_cache_cannot_serve_a_stale_answer() {
     eprintln!("cache: invalidates on edit, hits on revert, never stale");
 }
 
+/// A rebuilt `buri` — a new binary at the same version — must not be served the
+/// previous build's artifacts. The key folds the running executable's hash, and
+/// a `.buri/cache/.toolchain` marker records it, so a build whose marker names a
+/// different toolchain wipes the cache and redoes the work instead of trusting
+/// an entry another binary wrote. The stale marker stands in for that rebuild.
+#[test]
+fn a_rebuilt_toolchain_does_not_serve_the_previous_build() {
+    let scratch = Scratch::repo("toolchain-change");
+    scratch.binary_package("cmd/c", &program(1));
+
+    scratch.run(&["build", "//cmd/c"]).ok();
+    assert_eq!(scratch.exec_js("cmd/c").stdout, "answer=1\n");
+    scratch.run(&["build", "//cmd/c"]).says("cached");
+
+    // A different binary last wrote here. The next build must find its entries
+    // gone and redo them rather than serve what the previous toolchain left.
+    scratch.write(".buri/cache/.toolchain", "a-different-toolchain");
+    scratch.run(&["build", "//cmd/c"]).silent_about("cached");
+    assert_eq!(scratch.exec_js("cmd/c").stdout, "answer=1\n");
+
+    // And now the cache belongs to this toolchain again, so an unedited rebuild
+    // is served from it.
+    scratch.run(&["build", "//cmd/c"]).says("cached");
+    eprintln!("toolchain change: wipes the cache, then caches again");
+}
+
 /// Keys are over content, not timestamps. Rewriting a file with the bytes it
 /// already held is what checking a branch out and back looks like to the
 /// filesystem, and it must rebuild nothing.

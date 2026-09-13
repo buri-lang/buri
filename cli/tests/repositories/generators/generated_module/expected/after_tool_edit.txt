@@ -1,7 +1,7 @@
-keyed  compile //cmd/gen js 1ae446f73277
-run    link //cmd/gen js c8799fa0678b
-keyed  compile //cmd/app js cff46d22db10
-keyed  generate //lib/wire js 2be2e1d78d81
-keyed  compile //lib/wire js 2f8dae9126da
-run    link //cmd/app js 5ae4f5716054
+keyed  compile //cmd/gen js <key>
+run    link //cmd/gen js <key>
+keyed  compile //cmd/app js <key>
+keyed  generate //lib/wire js <key>
+keyed  compile //lib/wire js <key>
+run    link //cmd/app js <key>
 .buri/out/js/cmd/app/app.mjs (N bytes)

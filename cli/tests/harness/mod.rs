@@ -374,7 +374,33 @@ pub fn normalise(text: &str, root: &Path) -> String {
     // scratch path carries this process's id.
     s = replace_between(&s, "answered in ", "ms;", "answered in 0ms;");
     s = replace_between(&s, "bytes written ", "\"", "bytes written N\"");
+    s = scrub_explain_keys(&s);
     s
+}
+
+/// Blanks the key column of every `--explain` line. The key folds the running
+/// binary's hash, so it moves on every rebuild of `buri`; `incrementality`
+/// compares real keys between two runs of one binary, but a recorded transcript
+/// cannot and must not try. What is left — status, action, label, platform — is
+/// what a golden is actually about.
+fn scrub_explain_keys(s: &str) -> String {
+    let lines: Vec<String> = s.split('\n').map(blank_explain_key).collect();
+    lines.join("\n")
+}
+
+/// One `--explain` line with its trailing 12-hex key replaced by `<key>`, or the
+/// line unchanged when it is not one. The status prefix and the exact 12 hex
+/// digits together are what mark the column, so nothing else is touched.
+fn blank_explain_key(line: &str) -> String {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    let is_explain = fields.len() == 5
+        && matches!(fields[0], "run" | "cached" | "keyed")
+        && fields[4].len() == 12
+        && fields[4].bytes().all(|b| b.is_ascii_hexdigit());
+    match is_explain.then(|| line.rfind(fields[4])).flatten() {
+        Some(pos) => format!("{}<key>", &line[..pos]),
+        None => line.to_string(),
+    }
 }
 
 /// Replaces `(<digits and dots>s)` and `(<digits> bytes)` — elapsed time and
