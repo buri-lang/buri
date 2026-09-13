@@ -249,9 +249,10 @@ visibility, and not a boolean expression language.
 
 ## Caching and hermeticity
 
-An action's key is the toolchain version, the build mode, the platform, and the
-content of every input, so the same commit hits the same entries on another
-machine. **Tags never enter a cache key.** Actions run with an empty
+An action's key is a hash of the `buri` binary, the build mode, the platform,
+and the content of every input, so the same commit built by the same binary hits
+the same entries on another machine. A rebuilt `buri` hashes differently and
+starts clean. **Tags never enter a cache key.** Actions run with an empty
 environment. A file lock serializes cache writes, so any number of `buri`
 processes can work in one repository at once. Two builds of one commit in one
 configuration produce byte-identical artifacts, and

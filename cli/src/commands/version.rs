@@ -11,15 +11,8 @@
               exists to emit them through"
 )]
 
-use crate::build::cache::hash_bytes;
+use crate::build::cache::running_exe_hash;
 use crate::commands::arguments;
-
-/// The SHA-256 of the running executable. Two builds of one version are two
-/// compilers, and this is the only way to tell which one is here.
-fn running_sha256() -> Option<String> {
-    let exe = std::env::current_exe().ok()?;
-    Some(hash_bytes(&std::fs::read(exe).ok()?))
-}
 
 /// Answered entirely from the binary. It opens no repository: the version is a
 /// fact about the executable, and a command that reported one only where a
@@ -29,10 +22,10 @@ fn running_sha256() -> Option<String> {
 pub fn command_version(args: &arguments::Args) -> i32 {
     println!("buri {}", arguments::VERSION);
     if args.flags.verbose {
-        println!(
-            "this executable: sha256 {}",
-            running_sha256().unwrap_or_else(|| "unreadable".into())
-        );
+        // The same hash the cache key folds in ([`build::cache`]), which is
+        // what tells two builds of one version apart. `unreadable` where the
+        // binary can't be read, so the report says so rather than a lie.
+        println!("this executable: sha256 {}", running_exe_hash().unwrap_or("unreadable"));
     }
     if args.flags.self_check {
         let mut map = crate::diagnostics::SourceMap::new();

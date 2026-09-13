@@ -98,7 +98,7 @@ output:
 ```
 key = H(
   action_kind,             // interface | compile | codegen | link | test
-  toolchain_version,       // this compiler's own version
+  toolchain_identity,      // a hash of this compiler's own binary
   build_mode,              // --release / --debug
   platform, arch, entry,   // the only things a build varies along
   rule_identity,           // label, rule kind, and the ordered sources paths
@@ -153,7 +153,7 @@ Given `//cmd/server` → `//lib/ledger` → `//lib/money`:
 | A signature in `lib/money/lib.buri` | `interface(//lib/money)`, then `compile` of `//lib/money`, `//lib/ledger`, `//cmd/server`, then `link`. |
 | Adding a file to `sources` | `compile(//lib/money)` and downstream links. The interface stays put unless `lib.buri` re-exports from that file. |
 | Adding a `tag` to `//lib/store` | No compilation at all. The tag check is a graph pass over cached facts, and it either passes or fails a link. |
-| A new toolchain version | Everything. An artifact built by a different compiler is a different artifact. |
+| A rebuilt toolchain | Everything. An artifact built by a different compiler is a different artifact, and rebuilding `buri` — even at the same version — is a different compiler. |
 | A test file | That suite's `compile` and `test`. Nothing else, ever, because nothing depends on a test. |
 | A file in a library named by `test { dependencies }` | The `test` of every suite that names it, plus the `compile` and `link` of anything that depends on it in production. A test dependency sits outside the production closure, so being one moves no artifact's key. |
 
@@ -195,25 +195,20 @@ how to read `--explain` when a rebuild does more work than an edit implies.
 
 ## The toolchain in the key
 
-Every action key holds the compiler's own version, so a release invalidates
-every entry in every repository. An artifact built by a different compiler is a
-different artifact, and a cache that served the old one would serve a stale
-answer nothing else could catch.
+Every action key holds a hash of the running `buri` binary, so a different
+compiler invalidates every entry in every repository. An artifact built by a
+different compiler is a different artifact, and a cache that served the old one
+would serve a stale answer nothing else could catch.
 
-### What "version" means here, and the one trap it leaves
-
-The key holds the version string, not a hash of the `buri` binary. The backend's
-identity carries the LLVM the binary was linked against, and the linker's
-identity carries the linker it found. For anyone running a released toolchain,
-the version is the whole answer.
-
-It is not the whole answer if you **build this compiler from source**. Two
-`buri` binaries built from different code at the same version compute the same
-keys, so the first build after you rebuild the compiler mixes both compilers'
-output. It is the only build that does, which is what makes the trap easy to
-dismiss as noise. [The
-guide](../../guides/reproducibility.md#the-one-trap-and-it-is-not-yours) has the
-way around it.
+The hash, not the version, is what goes in. A version stays `0.3.0` across a
+rebuild while the bytes change, so hashing the binary catches a compiler built
+from source, not only a released one. A rebuilt `buri` computes different keys
+and can never be served the previous build's entries. On its first open it also
+drops what the old binary left in `.buri/cache/` and records its own hash in a
+`.buri/cache/.toolchain` marker, so rebuilding the compiler needs no `rm -rf
+.buri` and no `--force` — the cache reconciles itself and reclaims the disk. The
+backend's identity still carries the LLVM the binary was linked against, and the
+linker's identity the linker it found.
 
 ## The cache is local, for now
 
