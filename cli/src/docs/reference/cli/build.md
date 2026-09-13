@@ -32,8 +32,8 @@ is never quiet for a reason nothing on the screen gives.
 
 ## Caching
 
-A build is a set of actions. Each action's key covers the toolchain version, the
-build mode, the platform, the entry, and the content of every input. A build reads back any
+A build is a set of actions. Each action's key covers a hash of the `buri`
+binary, the build mode, the platform, the entry, and the content of every input. A build reads back any
 action whose key is already in the cache rather than running it, so a second
 build of an unchanged tree does no work. Keys are content-addressed, so moving
 the checkout, or building the same commit on another machine, hits the same
