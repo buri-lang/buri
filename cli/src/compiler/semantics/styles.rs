@@ -970,6 +970,17 @@ impl Reset {
             // initial `content-box` would hang a padded, bordered child out of
             // its parent by exactly its padding.
             out.push_str("*,*::before,*::after{box-sizing:border-box}\n");
+            // A border is off until a program gives an edge a width. CSS's
+            // initial `border-width: medium` is 3px, held back only by the
+            // initial `border-style: none`, so the moment a program sets a
+            // style — a whole-box `BorderStyle(.Dashed)` beside a single
+            // `BorderEdge`, say — every edge that was never given a width draws
+            // a 3px line the caller never asked for, where the headless painter
+            // draws a border only on the edge that has a width. Zeroing the
+            // width here is what Tailwind's Preflight does for the same reason:
+            // a style alone is nothing, and only a `Width`/`BorderEdge` draws a
+            // line, on both renderers.
+            out.push_str("*,*::before,*::after{border-width:0}\n");
             // A word too long for its box breaks mid-word rather than running
             // past the edge. The headless painter has broken one that way all
             // along — it shapes with a glyph-level fallback once a word will
