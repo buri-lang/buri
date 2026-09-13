@@ -1985,6 +1985,11 @@ mod tests {
     const RED: [u8; 4] = [255, 0, 0, 255];
     const WHITE: [u8; 4] = [255, 255, 255, 255];
 
+    /// The device pixels per CSS pixel a whole-scene render is read back at, for
+    /// the one test below that goes through `paint::render` rather than drawing
+    /// into a canvas of its own.
+    const S: u32 = super::super::DEVICE_SCALE as u32;
+
     /// A `viewBox` of ten in a canvas of twenty, so one user unit is two
     /// pixels and every assertion below is in the middle of a cell.
     fn box10(body: &str) -> Pixmap {
@@ -2235,12 +2240,12 @@ mod tests {
         let pixel = |x, y| image.pixel(x, y).expect("a pixel inside the page");
 
         // The PNG sits at its own eight pixels in the corner of its box.
-        assert_eq!(pixel(20, 20), RED);
-        assert_eq!(pixel(30, 30), WHITE);
+        assert_eq!(pixel(20 * S, 20 * S), RED);
+        assert_eq!(pixel(30 * S, 30 * S), WHITE);
         // The plus is two strokes in its own colour, with page between them.
-        assert_eq!(pixel(64, 28), [231, 0, 0, 255]);
-        assert_eq!(pixel(64, 22), [231, 0, 0, 255]);
-        assert_eq!(pixel(58, 22), WHITE);
-        assert_eq!(pixel(46, 28), WHITE);
+        assert_eq!(pixel(64 * S, 28 * S), [231, 0, 0, 255]);
+        assert_eq!(pixel(64 * S, 22 * S), [231, 0, 0, 255]);
+        assert_eq!(pixel(58 * S, 22 * S), WHITE);
+        assert_eq!(pixel(46 * S, 28 * S), WHITE);
     }
 }

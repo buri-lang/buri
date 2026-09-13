@@ -1,6 +1,10 @@
 # Where the painter puts a border and a shadow, in four pictures a person can
 # read. Each one is a rule CSS states and the painter used to get wrong, and
-# each was a bug of its own:
+# each was a bug of its own.
+#
+# The goldens are recorded at a 2.0 device scale, so the PNG is twice the CSS
+# layout it holds. Every coordinate below is in CSS px; a reader measuring the
+# golden itself doubles it.
 #
 #   * **A border is inside the box** (buri#76). `edges-border-widths.png` is
 #     five boxes, one to a width, all thirty tall with their top edge at y=20.

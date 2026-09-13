@@ -279,6 +279,27 @@ const PLACEHOLDER_FADE: f32 = 0.5;
 /// The largest viewport the painter will allocate a canvas for.
 const MAX_VIEWPORT: u32 = 8192;
 
+/// The device pixels a snapshot paints per CSS pixel. The layout runs in CSS
+/// pixels — an 800-wide page is 800 wide to `taffy` — and the raster is this
+/// many times larger, so an 800-CSS-px page is a 1600px PNG. A browser paints
+/// the same page the same way at `devicePixelRatio` 2, and the goldens are then
+/// crisp on a high-DPI display rather than a 1x picture the viewer blurs up.
+///
+/// Vectors stay crisp because the paths are built in CSS pixels and drawn
+/// through [`to_device`] — `tiny_skia` rasterizes the transformed path at the
+/// target resolution — and box edges, rounded here to whole CSS pixels, land on
+/// even device pixels. Text stays crisp because it is *rasterized* at the CSS
+/// size times this, not a 1x glyph bitmap scaled up: [`Painter::text`] shapes
+/// with the font size and the wrapping width both multiplied through.
+const DEVICE_SCALE: f32 = 2.0;
+
+/// The transform every vector fill and stroke is drawn through: the paths are
+/// built in CSS pixels and this maps them to the device pixels the canvas is
+/// sized in.
+fn to_device() -> Transform {
+    Transform::from_scale(DEVICE_SCALE, DEVICE_SCALE)
+}
+
 // ---------------------------------------------------------------------------
 // The public surface
 // ---------------------------------------------------------------------------
@@ -1183,6 +1204,18 @@ impl Computed {
         // transparent box is half transparent.
         child.opacity = self.opacity;
         child
+    }
+
+    /// The same style with every text metric multiplied, so a run shaped from
+    /// it is rasterized at the device resolution rather than a 1x bitmap scaled
+    /// up. The size scales the glyphs and the leading; the letter spacing
+    /// scales with it because [`shape`] passes it as a fraction of the size,
+    /// which the larger em then reads back at the larger absolute width.
+    fn scaled(&self, scale: f32) -> Self {
+        let mut out = self.clone();
+        out.font_size *= scale;
+        out.letter_spacing *= scale;
+        out
     }
 }
 
@@ -2217,8 +2250,12 @@ fn paint_with(
         tall = tall.max(all.b.max(0) as u32).min(MAX_VIEWPORT);
     }
 
-    let mut canvas = Pixmap::new(wide, tall)
-        .ok_or_else(|| format!("the viewport {wide}x{tall} has no canvas"))?;
+    // The CSS extent is whole pixels, so the device canvas is exactly twice it:
+    // the raster doubles and the layout it holds does not.
+    let device = |n: u32| ((n as f32) * DEVICE_SCALE).round() as u32;
+    let (dw, dh) = (device(wide), device(tall));
+    let mut canvas = Pixmap::new(dw, dh)
+        .ok_or_else(|| format!("the viewport {dw}x{dh} has no canvas"))?;
     canvas.fill(tiny_skia::Color::WHITE);
 
     let mut painter =
@@ -2638,7 +2675,7 @@ impl Painter<'_> {
             Art::Artwork(_) => style.colour,
             Art::Source(_) => Rgba::BLACK,
         };
-        picture.draw(canvas, box_, style.opacity, colour, clip);
+        picture.draw(canvas, box_.scale(DEVICE_SCALE), style.opacity, colour, clip);
     }
 
     /// A slider: a bar across the middle of its box, and a round thumb on it
@@ -2743,7 +2780,7 @@ impl Painter<'_> {
             line_join: LineJoin::Round,
             ..Stroke::default()
         };
-        canvas.stroke_path(&path, &paint, &stroke, Transform::identity(), clip);
+        canvas.stroke_path(&path, &paint, &stroke, to_device(), clip);
     }
 
     /// The mark beside one item of a list, in the item's own colour and size.
@@ -2818,7 +2855,12 @@ impl Painter<'_> {
         width: f32,
         clip: Option<&Mask>,
     ) {
-        let mut buffer = shape(self.fonts, text, style, Some(width), Wrap::WordOrGlyph);
+        // Shaped at the device resolution: the size and the wrapping width are
+        // both scaled, so the glyphs are rasterized at their target size and
+        // the lines break exactly where the CSS layout broke them.
+        let scaled = style.scaled(DEVICE_SCALE);
+        let mut buffer =
+            shape(self.fonts, text, &scaled, Some(width * DEVICE_SCALE), Wrap::WordOrGlyph);
         // A hint is the element's own foreground, faded — the fraction the
         // sheet's `::placeholder` rule writes, so a browser and this painter
         // draw the same grey.
@@ -2829,7 +2871,9 @@ impl Painter<'_> {
         }
         let alpha = colour[3];
         let ink = cosmic_text::Color::rgba(colour[0], colour[1], colour[2], colour[3]);
-        let (ox, oy) = (box_.l, box_.t);
+        // The origin is the box's top-left in device pixels; the glyph offsets
+        // the shaper hands back are already at the scaled size.
+        let (ox, oy) = (px(box_.l as f32 * DEVICE_SCALE), px(box_.t as f32 * DEVICE_SCALE));
         let (cw, ch) = (canvas.width(), canvas.height());
         let clipped = clip;
         let pixels = canvas.pixels_mut();
@@ -2883,6 +2927,10 @@ impl Painter<'_> {
     ) {
         let thickness = (style.font_size / 14.0).max(1.0);
         for run in buffer.layout_runs() {
+            // The buffer is shaped at `DEVICE_SCALE`, so its glyph metrics are
+            // device pixels; the box and the fill below are in CSS pixels, so
+            // bring them back before the scaled fill lands them at 2x.
+            //
             // The glyphs' own extent, not the line's: a centred or right
             // aligned line does not start at the box's left edge, and a
             // right-to-left run stores its glyphs the other way round.
@@ -2895,9 +2943,11 @@ impl Painter<'_> {
             if to <= from {
                 continue;
             }
+            let (from, to) = (from / DEVICE_SCALE, to / DEVICE_SCALE);
+            let line_y = run.line_y / DEVICE_SCALE;
             let offset = match style.decoration {
-                Decoration::Underline => run.line_y + style.font_size * 0.12,
-                _ => run.line_y - style.font_size * 0.3,
+                Decoration::Underline => line_y + style.font_size * 0.12,
+                _ => line_y - style.font_size * 0.3,
             };
             let top = box_.t.saturating_add(px(offset));
             let bar = Box2 {
@@ -2948,6 +2998,18 @@ impl Box2 {
             t: self.t.saturating_sub(n),
             r: self.r.saturating_add(n),
             b: self.b.saturating_add(n),
+        }
+    }
+
+    /// The same box in device pixels. A picture paints straight onto the canvas
+    /// rather than through [`to_device`], so the box it is given has to be
+    /// scaled first.
+    fn scale(self, by: f32) -> Self {
+        Self {
+            l: px(self.l as f32 * by),
+            t: px(self.t as f32 * by),
+            r: px(self.r as f32 * by),
+            b: px(self.b as f32 * by),
         }
     }
 
@@ -3114,7 +3176,7 @@ fn fill(
     let Some(path) = box_.path(radii) else { return };
     let paint =
         Paint { anti_alias: true, shader: shade(colour, opacity), ..Paint::default() };
-    canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), clip);
+    canvas.fill_path(&path, &paint, FillRule::Winding, to_device(), clip);
 }
 
 fn stroke(
@@ -3139,7 +3201,7 @@ fn stroke(
     if style.border_style.first() == Some(&Border::Dashed) {
         pen.dash = StrokeDash::new(vec![width * 3.0, width * 2.0], 0.0);
     }
-    canvas.stroke_path(&path, &paint, &pen, Transform::identity(), clip);
+    canvas.stroke_path(&path, &paint, &pen, to_device(), clip);
 }
 
 /// A border whose edges are not all the same, painted as the region between
@@ -3166,7 +3228,7 @@ fn stroke_edges(
     let (Some(outer), Some(mut ring)) = (box_.path(radii), Mask::new(width, height)) else {
         return;
     };
-    ring.fill_path(&outer, FillRule::Winding, true, Transform::identity());
+    ring.fill_path(&outer, FillRule::Winding, true, to_device());
     let [l, t, r, b] = [box_.l as f32, box_.t as f32, box_.r as f32, box_.b as f32];
     // Each corner pulls in by the mean of the two edges that meet at it, on
     // both of its axes, so the ring keeps an even thickness round a corner
@@ -3180,7 +3242,7 @@ fn stroke_edges(
     ];
     let inner = rounded(l + widths[0], t + widths[2], r - widths[1], b - widths[3], inner_radii);
     if let (Some(inner), Some(mut hole)) = (inner, Mask::new(width, height)) {
-        hole.fill_path(&inner, FillRule::Winding, true, Transform::identity());
+        hole.fill_path(&inner, FillRule::Winding, true, to_device());
         for coverage in hole.data_mut() {
             *coverage = 255 - *coverage;
         }
@@ -3225,11 +3287,11 @@ fn stroke_edges(
             if dashed(edge) {
                 pen.dash = StrokeDash::new(vec![pen_width * 3.0, pen_width * 2.0], 0.0);
             }
-            canvas.stroke_path(&line, &paint, &pen, Transform::identity(), Some(&ring));
+            canvas.stroke_path(&line, &paint, &pen, to_device(), Some(&ring));
         }
         return;
     }
-    canvas.fill_path(&outer, &paint, FillRule::Winding, Transform::identity(), Some(&ring));
+    canvas.fill_path(&outer, &paint, FillRule::Winding, to_device(), Some(&ring));
 }
 
 /// The frame around a picture the painter could not read.
@@ -3277,7 +3339,7 @@ fn full_mask(width: u32, height: u32) -> Option<Mask> {
 /// not square off a corner its parent rounded.
 fn intersect(mask: &mut Mask, box_: Box2, radii: Radii) {
     if let Some(path) = box_.path(radii) {
-        mask.intersect_path(&path, FillRule::Winding, true, Transform::identity());
+        mask.intersect_path(&path, FillRule::Winding, true, to_device());
     } else {
         mask.clear();
     }
@@ -3301,8 +3363,10 @@ fn cast_blurred(
     let (Some(mut mask), Some(path)) = (Mask::new(width, height), cast.path(radii)) else {
         return;
     };
-    mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
-    blur(&mut mask, shadow.blur);
+    mask.fill_path(&path, FillRule::Winding, true, to_device());
+    // The mask is at device resolution, so the blur radius is too: a CSS blur
+    // of `n` softens `n` CSS pixels, which is `n * DEVICE_SCALE` device pixels.
+    blur(&mut mask, shadow.blur * DEVICE_SCALE);
     if let Some(outer) = clip {
         narrow(&mut mask, outer);
     }
@@ -3334,7 +3398,7 @@ fn outside_the_box(
     let mut mask = clip.cloned().or_else(|| full_mask(width, height))?;
     let Some(path) = box_.path(radii) else { return Some(mask) };
     let mut hole = Mask::new(width, height)?;
-    hole.fill_path(&path, FillRule::Winding, true, Transform::identity());
+    hole.fill_path(&path, FillRule::Winding, true, to_device());
     for coverage in hole.data_mut() {
         *coverage = 255 - *coverage;
     }
@@ -3422,7 +3486,8 @@ fn blur_passes(radius: f32) -> Option<[(usize, usize); 3]> {
 /// from the page's edge never meets it; a full-bleed one fades by a few pixels
 /// at the very rim.
 fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, clip: Option<&Mask>) {
-    let Some(passes) = blur_passes(radius) else { return };
+    // The canvas is at device resolution, so the blur radius is too.
+    let Some(passes) = blur_passes(radius * DEVICE_SCALE) else { return };
     let (w, h) = (canvas.width() as usize, canvas.height() as usize);
     let n = w.saturating_mul(h);
     if n == 0 {
@@ -3434,7 +3499,7 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
     else {
         return;
     };
-    mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
+    mask.fill_path(&path, FillRule::Winding, true, to_device());
     if let Some(outer) = clip {
         narrow(&mut mask, outer);
     }
@@ -4019,6 +4084,13 @@ mod tests {
     /// A scene with a viewport and nothing in it.
     const EMPTY: &str = "buri-scene 1\nviewport 4 3\n";
 
+    /// The raster is `DEVICE_SCALE` device pixels to the CSS pixel, so a scene
+    /// written in CSS pixels is read back at a coordinate multiplied by this.
+    /// The scenes and the reasoning below stay in CSS pixels; every fixed
+    /// coordinate and every canvas size is scaled by `S` where it meets the
+    /// raster.
+    const S: u32 = DEVICE_SCALE as u32;
+
     fn render_ok(scene: &str, sheet: &str, state: &str) -> Image {
         let png = render(&Request { scene, stylesheet: sheet, state, variables: "" }).unwrap();
         decode(&png).unwrap()
@@ -4031,9 +4103,9 @@ mod tests {
     #[test]
     fn an_empty_scene_is_a_white_canvas_of_the_viewport() {
         let image = render_ok(EMPTY, "", "rest");
-        assert_eq!((image.width, image.height), (4, 3));
-        for y in 0..3 {
-            for x in 0..4 {
+        assert_eq!((image.width, image.height), (4 * S, 3 * S));
+        for y in 0..3 * S {
+            for x in 0..4 * S {
                 assert_eq!(at(&image, x, y), [255, 255, 255, 255]);
             }
         }
@@ -4071,8 +4143,8 @@ mod tests {
         let scene = "buri-scene 1\nviewport 800 fit\n\
                      e 0 width:40px;height:40px;background-color:rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (800, 40));
-        assert_eq!(at(&image, 0, 39), [0, 0, 255, 255]);
+        assert_eq!((image.width, image.height), (800 * S, 40 * S));
+        assert_eq!(at(&image, 0, 39 * S), [0, 0, 255, 255]);
     }
 
     /// And a tree taller than the page used to be is painted whole rather than
@@ -4083,10 +4155,10 @@ mod tests {
                      e 0 padding:24px\n\
                      e 1 width:40px;height:2000px;background-color:rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (800, 2048));
+        assert_eq!((image.width, image.height), (800 * S, 2048 * S));
         // The last row of the box, and the padding under it.
-        assert_eq!(at(&image, 24, 2023), [0, 0, 255, 255]);
-        assert_eq!(at(&image, 24, 2024), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 24 * S, 2023 * S), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 24 * S, 2024 * S), [255, 255, 255, 255]);
     }
 
     /// A page with nothing on it is still a page: one line at the root's own
@@ -4094,7 +4166,7 @@ mod tests {
     #[test]
     fn a_fitting_page_with_nothing_on_it_is_one_line() {
         let image = render_ok("buri-scene 1\nviewport 800 fit\n", "", "rest");
-        assert_eq!((image.width, image.height), (800, 19));
+        assert_eq!((image.width, image.height), (800 * S, 19 * S));
     }
 
     /// The inline size is the page's whatever the paint does, because a
@@ -4106,13 +4178,13 @@ mod tests {
                      e 0 width:900px;height:10px;background-color:rgb(0,0,255)\n\
                      e 0 width:100%;height:10px;background-color:rgb(255,0,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (900, 20));
+        assert_eq!((image.width, image.height), (900 * S, 20 * S));
         // The wide box reaches its own last column.
-        assert_eq!(at(&image, 899, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 899 * S, 0), [0, 0, 255, 255]);
         // The full-width box is 800 wide: the layout ran against the page, not
         // against the canvas.
-        assert_eq!(at(&image, 799, 10), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 800, 10), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 799 * S, 10 * S), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 800 * S, 10 * S), [255, 255, 255, 255]);
     }
 
     /// A translate is applied after the layout, so it moves nothing else — and
@@ -4123,8 +4195,8 @@ mod tests {
                      e 0 width:10px;height:10px;background-color:rgb(0,0,255);\
                      transform:translate(830px,50px)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (840, 60));
-        assert_eq!(at(&image, 839, 59), [0, 0, 255, 255]);
+        assert_eq!((image.width, image.height), (840 * S, 60 * S));
+        assert_eq!(at(&image, 839 * S, 59 * S), [0, 0, 255, 255]);
     }
 
     /// A scroll container clips its own overflow, so the page is measured at
@@ -4135,7 +4207,7 @@ mod tests {
                      e 0 height:40px;overflow:auto\n\
                      e 1 width:10px;height:500px;background-color:rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (800, 40));
+        assert_eq!((image.width, image.height), (800 * S, 40 * S));
     }
 
     /// A pin is measured against the page — 800 across and the content's
@@ -4148,10 +4220,10 @@ mod tests {
                      e 0 position:fixed;inset-block-end:0px;inset-inline-end:0px;\
                      width:20px;height:20px;background-color:rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (800, 200));
-        assert_eq!(at(&image, 799, 199), [0, 0, 255, 255]);
-        assert_eq!(at(&image, 780, 180), [0, 0, 255, 255]);
-        assert_eq!(at(&image, 779, 179), [255, 255, 255, 255]);
+        assert_eq!((image.width, image.height), (800 * S, 200 * S));
+        assert_eq!(at(&image, 799 * S, 199 * S), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 780 * S, 180 * S), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 779 * S, 179 * S), [255, 255, 255, 255]);
     }
 
     /// A shadow is paint like any other, so the page holds what it casts below
@@ -4162,8 +4234,8 @@ mod tests {
                      e 0 width:40px;height:40px;background-color:rgb(255,255,255);\
                      box-shadow:0px 8px 0px 0px rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (800, 48));
-        assert_eq!(at(&image, 0, 47), [0, 0, 255, 255]);
+        assert_eq!((image.width, image.height), (800 * S, 48 * S));
+        assert_eq!(at(&image, 0, 47 * S), [0, 0, 255, 255]);
     }
 
     /// **The two layouts a `fit` page runs land where one layout would.** It
@@ -4183,7 +4255,7 @@ mod tests {
                     e 1 height:80px;overflow:auto\n\
                     t 2 the quick brown fox jumps over the lazy dog\n";
         let fit = render_ok(&format!("buri-scene 1\nviewport 800 fit\n{body}"), "", "rest");
-        assert_eq!((fit.width, fit.height), (800, 172));
+        assert_eq!((fit.width, fit.height), (800 * S, 172 * S));
         let stated = render_ok(&format!("buri-scene 1\nviewport 800 172\n{body}"), "", "rest");
         for y in 0..fit.height {
             for x in 0..fit.width {
@@ -4200,7 +4272,7 @@ mod tests {
         let scene = "buri-scene 1\nviewport 40 30\n\
                      e 0 width:80px;height:900px;background-color:rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (40, 30));
+        assert_eq!((image.width, image.height), (40 * S, 30 * S));
     }
 
     /// `fit` is a height and nothing else: a width has to be a number, because
@@ -4262,9 +4334,9 @@ mod tests {
                      background-color:rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 0, 0), [0, 0, 255, 255]);
-        assert_eq!(at(&image, 3, 1), [0, 0, 255, 255]);
-        assert_eq!(at(&image, 4, 0), [255, 255, 255, 255]);
-        assert_eq!(at(&image, 0, 2), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 3 * S, 1 * S), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 4 * S, 0), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 0, 2 * S), [255, 255, 255, 255]);
     }
 
     /// A radius rounds a corner, so the corner pixel is not the fill.
@@ -4273,9 +4345,9 @@ mod tests {
         let scene = "buri-scene 1\nviewport 12 12\ne 0 width:12px;height:12px;\
                      border-radius:6px;background-color:rgb(0,0,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 6, 6), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 6 * S, 6 * S), [0, 0, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
-        assert_eq!(at(&image, 11, 11), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 11 * S, 11 * S), [255, 255, 255, 255]);
     }
 
     /// CSS resolves a percentage radius against the box's width across and its
@@ -4289,13 +4361,13 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         // The middle is the fill, and the ellipse meets each edge at that
         // edge's own middle: the top at x=100, the left at y=20.
-        assert_eq!(at(&image, 100, 20), [0, 0, 0, 255]);
-        assert_eq!(at(&image, 100, 1), [0, 0, 0, 255]);
-        assert_eq!(at(&image, 1, 20), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 100 * S, 20 * S), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 100 * S, 1 * S), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 1 * S, 20 * S), [0, 0, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
         // Fourteen in and four down is inside a twenty-pixel circle and
         // outside the ellipse, which is the whole of the difference.
-        assert_eq!(at(&image, 14, 4), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 14 * S, 4 * S), [255, 255, 255, 255]);
     }
 
     /// One corner resolves the same way: `RadiusCorner` is `Radius` on a single
@@ -4307,13 +4379,13 @@ mod tests {
                      border-start-start-radius:50%;background-color:rgb(0,0,0)\n";
         let image = render_ok(scene, "", "rest");
         // The other three corners are square.
-        assert_eq!(at(&image, 199, 39), [0, 0, 0, 255]);
-        assert_eq!(at(&image, 0, 39), [0, 0, 0, 255]);
-        assert_eq!(at(&image, 199, 0), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 199 * S, 39 * S), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 0, 39 * S), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 199 * S, 0), [0, 0, 0, 255]);
         // The bite is a hundred wide and twenty deep, so it is still eating the
         // top edge at x=45 and has finished with the left edge by y=15.
-        assert_eq!(at(&image, 45, 1), [255, 255, 255, 255]);
-        assert_eq!(at(&image, 5, 15), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 45 * S, 1 * S), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 5 * S, 15 * S), [0, 0, 0, 255]);
     }
 
     /// Padding indents the child; a column gap separates two of them.
@@ -4325,11 +4397,11 @@ mod tests {
                      e 1 width:4px;height:4px;background-color:rgb(0,255,0)\n";
         let image = render_ok(scene, "", "rest");
         // The first child starts at the padding.
-        assert_eq!(at(&image, 2, 2), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 5, 5), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 2 * S, 2 * S), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 5 * S, 5 * S), [255, 0, 0, 255]);
         // Then four of it, then three of gap, then the second.
-        assert_eq!(at(&image, 2, 8), [255, 255, 255, 255]);
-        assert_eq!(at(&image, 2, 9), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 2 * S, 8 * S), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 2 * S, 9 * S), [0, 255, 0, 255]);
     }
 
     /// A bleed is a negative margin, so the child starts outside the padding
@@ -4342,9 +4414,9 @@ mod tests {
                      background-color:rgb(255,0,0)\n";
         let image = render_ok(scene, "", "rest");
         // Four of padding, taken back by four: the child starts at the edge.
-        assert_eq!(at(&image, 0, 4), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 3, 4), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 4, 4), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 0, 4 * S), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 3 * S, 4 * S), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 4 * S, 4 * S), [255, 255, 255, 255]);
     }
 
     /// Two siblings that overlap paint the way the document orders them: the
@@ -4360,10 +4432,10 @@ mod tests {
         // The first four columns are the first box, and the four it lost are
         // the second one over it.
         assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 3, 0), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 4, 0), [0, 255, 0, 255]);
-        assert_eq!(at(&image, 11, 0), [0, 255, 0, 255]);
-        assert_eq!(at(&image, 12, 0), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 3 * S, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 4 * S, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 11 * S, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 12 * S, 0), [255, 255, 255, 255]);
     }
 
     #[test]
@@ -4374,9 +4446,9 @@ mod tests {
                      e 1 width:4px;height:4px;background-color:rgb(0,255,0)\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 3, 0), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 4, 0), [255, 255, 255, 255]);
-        assert_eq!(at(&image, 7, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 3 * S, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 4 * S, 0), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 7 * S, 0), [0, 255, 0, 255]);
     }
 
     /// buri#80: `align-items:space-between` is not a legal declaration, so a
@@ -4392,7 +4464,7 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         // No height of its own; stretched, it fills the container top to bottom.
         assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 0, 19), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 0, 19 * S), [255, 0, 0, 255]);
     }
 
     /// The glyphs land inside the box the shaper measured, and nowhere else.
@@ -4403,10 +4475,10 @@ mod tests {
                      t 1 Ada\n";
         let image = render_ok(scene, "", "rest");
         let ink = |x0: u32, x1: u32| {
-            (x0..x1).any(|x| (0..40).any(|y| at(&image, x, y) != [255, 255, 255, 255]))
+            (x0..x1).any(|x| (0..40 * S).any(|y| at(&image, x, y) != [255, 255, 255, 255]))
         };
-        assert!(ink(0, 45), "the run should have drawn near the left edge");
-        assert!(!ink(60, 120), "the run should not reach the right half");
+        assert!(ink(0, 45 * S), "the run should have drawn near the left edge");
+        assert!(!ink(60 * S, 120 * S), "the run should not reach the right half");
     }
 
     /// The same scene with one declaration-less box wrapped around everything,
@@ -4526,8 +4598,8 @@ mod tests {
                    e 0 font-size:20px;width:200px;text-align:center\nt 1 Ada\n";
         let left = first_inked_column(&render_ok(one, "", "rest")).unwrap();
         let centre = first_inked_column(&render_ok(two, "", "rest")).unwrap();
-        assert!(left < 4, "a start-aligned run begins at the box's edge, not {left}");
-        assert!(centre > 60, "a centred run begins in the middle, not at {centre}");
+        assert!(left < 4 * S, "a start-aligned run begins at the box's edge, not {left}");
+        assert!(centre > 60 * S, "a centred run begins in the middle, not at {centre}");
     }
 
     /// Three faces are bundled, and the weight picks between two of them.
@@ -4555,12 +4627,12 @@ mod tests {
         let soft = render_ok(soft, "", "rest");
         // Four pixels out from the box's left edge: outside the cast shape, so
         // only a blur puts ink there.
-        assert_eq!(at(&sharp, 12, 20), [255, 255, 255, 255]);
-        let spread = at(&soft, 12, 20);
+        assert_eq!(at(&sharp, 12 * S, 20 * S), [255, 255, 255, 255]);
+        let spread = at(&soft, 12 * S, 20 * S);
         assert!(spread[0] < 255, "a blurred shadow reaches four pixels out, not {spread:?}");
         // And it fades: further out is lighter than nearer in.
-        let near = at(&soft, 14, 20)[0];
-        let far = at(&soft, 10, 20)[0];
+        let near = at(&soft, 14 * S, 20 * S)[0];
+        let far = at(&soft, 10 * S, 20 * S)[0];
         assert!(near < far, "a blur fades outward: {near} at 14 against {far} at 10");
     }
 
@@ -4584,8 +4656,8 @@ mod tests {
                      e 1 width:8px;height:8px;background-color:rgb(255,255,255);\
                      box-shadow:0px 0px 0px 0px rgb(0,0,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 3, 10), [255, 255, 255, 255]);
-        assert_eq!(at(&image, 5, 10), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 3 * S, 10 * S), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 5 * S, 10 * S), [255, 255, 255, 255]);
     }
 
     /// A border sits inside the box, whatever its width: a one-pixel border is
@@ -4596,20 +4668,20 @@ mod tests {
                      e 1 width:12px;height:12px;border-style:solid;border-width:1px;\
                      border-color:rgb(0,0,0)\n";
         let one = render_ok(scene, "", "rest");
-        assert_eq!(at(&one, 10, 3), [255, 255, 255, 255], "a border paints outside its box");
-        assert_eq!(at(&one, 10, 4), [0, 0, 0, 255], "a one-pixel border is one solid row");
-        assert_eq!(at(&one, 10, 5), [255, 255, 255, 255]);
-        assert_eq!(at(&one, 10, 15), [0, 0, 0, 255], "the box's last row is the border's");
+        assert_eq!(at(&one, 10 * S, 3 * S), [255, 255, 255, 255], "a border paints outside its box");
+        assert_eq!(at(&one, 10 * S, 4 * S), [0, 0, 0, 255], "a one-pixel border is one solid row");
+        assert_eq!(at(&one, 10 * S, 5 * S), [255, 255, 255, 255]);
+        assert_eq!(at(&one, 10 * S, 15 * S), [0, 0, 0, 255], "the box's last row is the border's");
 
         // Three is the same rule, three rows in: the row above the box is
         // untouched and the three inside it are solid.
         let scene = scene.replace("border-width:1px", "border-width:3px");
         let three = render_ok(&scene, "", "rest");
-        assert_eq!(at(&three, 10, 3), [255, 255, 255, 255]);
-        for y in 4..7 {
-            assert_eq!(at(&three, 10, y), [0, 0, 0, 255], "row {y} of a three-pixel border");
+        assert_eq!(at(&three, 10 * S, 3 * S), [255, 255, 255, 255]);
+        for y in 4 * S..7 * S {
+            assert_eq!(at(&three, 10 * S, y), [0, 0, 0, 255], "row {y} of a three-pixel border");
         }
-        assert_eq!(at(&three, 10, 7), [255, 255, 255, 255]);
+        assert_eq!(at(&three, 10 * S, 7 * S), [255, 255, 255, 255]);
     }
 
     /// A border with no colour of its own draws in the element's foreground,
@@ -4620,7 +4692,7 @@ mod tests {
         let scene = "buri-scene 1\nviewport 20 20\ne 0 padding:4px\n\
                      e 1 width:12px;height:12px;border-style:solid;border-width:4px;\
                      color:rgb(18,18,28)\n";
-        assert_eq!(at(&render_ok(scene, "", "rest"), 5, 10), [18, 18, 28, 255]);
+        assert_eq!(at(&render_ok(scene, "", "rest"), 5 * S, 10 * S), [18, 18, 28, 255]);
     }
 
     /// An outer shadow paints outside the border box only, so a spread-only
@@ -4630,9 +4702,9 @@ mod tests {
         let scene = "buri-scene 1\nviewport 24 24\ne 0 padding:6px\n\
                      e 1 width:12px;height:12px;box-shadow:0px 0px 0px 3px rgb(150,150,150)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 4, 12), [150, 150, 150, 255], "the ring is three pixels out");
-        assert_eq!(at(&image, 12, 12), [255, 255, 255, 255], "a ring flooded the control");
-        assert_eq!(at(&image, 6, 6), [255, 255, 255, 255], "the box's own corner");
+        assert_eq!(at(&image, 4 * S, 12 * S), [150, 150, 150, 255], "the ring is three pixels out");
+        assert_eq!(at(&image, 12 * S, 12 * S), [255, 255, 255, 255], "a ring flooded the control");
+        assert_eq!(at(&image, 6 * S, 6 * S), [255, 255, 255, 255], "the box's own corner");
     }
 
     /// The same rule with a blur and an offset instead of a spread, which is
@@ -4644,9 +4716,9 @@ mod tests {
                      e 0 padding:6px;background-color:rgb(220,60,60)\n\
                      e 1 width:12px;height:12px;box-shadow:0px 1px 2px 0px rgb(0,0,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 12, 12), [220, 60, 60, 255], "a lift flooded the box");
-        assert_eq!(at(&image, 12, 6), [220, 60, 60, 255], "the box's own top row");
-        assert!(at(&image, 12, 19)[0] < 220, "the fringe below the box is the lift");
+        assert_eq!(at(&image, 12 * S, 12 * S), [220, 60, 60, 255], "a lift flooded the box");
+        assert_eq!(at(&image, 12 * S, 6 * S), [220, 60, 60, 255], "the box's own top row");
+        assert!(at(&image, 12 * S, 19 * S)[0] < 220, "the fringe below the box is the lift");
     }
 
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the
@@ -4679,7 +4751,7 @@ mod tests {
         // the middle of the box is still the child.
         let clipped = render_ok(round, "", "rest");
         assert_eq!(at(&clipped, 0, 0), [255, 255, 255, 255]);
-        assert_eq!(at(&clipped, 8, 8), [255, 0, 0, 255]);
+        assert_eq!(at(&clipped, 8 * S, 8 * S), [255, 0, 0, 255]);
         // `Clip(false)` is `visible`, and it paints the corner over.
         assert_eq!(at(&render_ok(visible, "", "rest"), 0, 0), [255, 0, 0, 255]);
     }
@@ -4694,9 +4766,9 @@ mod tests {
         let sheet = ".invalid_bg-ff0000[aria-invalid=true]{background-color:rgb(255,0,0)}\n";
         let scene =
             "buri-scene 1\nviewport 8 8\ne 0 class:invalid_bg-ff0000;width:8px;height:8px\n";
-        assert_eq!(at(&render_ok(scene, sheet, "invalid"), 4, 4), [255, 0, 0, 255]);
-        assert_eq!(at(&render_ok(scene, sheet, "hover"), 4, 4), [255, 255, 255, 255]);
-        assert_eq!(at(&render_ok(scene, sheet, "rest"), 4, 4), [255, 255, 255, 255]);
+        assert_eq!(at(&render_ok(scene, sheet, "invalid"), 4 * S, 4 * S), [255, 0, 0, 255]);
+        assert_eq!(at(&render_ok(scene, sheet, "hover"), 4 * S, 4 * S), [255, 255, 255, 255]);
+        assert_eq!(at(&render_ok(scene, sheet, "rest"), 4 * S, 4 * S), [255, 255, 255, 255]);
     }
 
     /// `pointer-events` reaches the painter and paints nothing, which is the
@@ -4717,8 +4789,8 @@ mod tests {
                      e 0 width:10px;height:4px;overflow:hidden\n\
                      e 1 width:10px;height:10px;background-color:rgb(255,0,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 0, 3), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 0, 4), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 0, 3 * S), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 0, 4 * S), [255, 255, 255, 255]);
     }
 
     #[test]
@@ -4727,7 +4799,9 @@ mod tests {
         let large = "buri-scene 1\nviewport 80 60\ne 0 font-size:32px\nt 1 Ada\n";
         let rows = |scene: &str| {
             let image = render_ok(scene, "", "rest");
-            (0..60).filter(|&y| (0..80).any(|x| at(&image, x, y) != [255, 255, 255, 255])).count()
+            (0..60 * S)
+                .filter(|&y| (0..80 * S).any(|x| at(&image, x, y) != [255, 255, 255, 255]))
+                .count()
         };
         assert!(rows(small) < rows(large));
     }
@@ -4750,7 +4824,7 @@ mod tests {
     fn a_font_size_of_zero_still_paints_a_page() {
         let scene = "buri-scene 1\nviewport 60 40\ne 0 font-size:0px\nt 1 Ada\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!((image.width, image.height), (60, 40));
+        assert_eq!((image.width, image.height), (60 * S, 40 * S));
     }
 
     /// **The alpha a colour carries reaches the glyphs, not only the boxes.**
@@ -4818,7 +4892,7 @@ mod tests {
                      width:2px;height:2px;background-color:rgb(0,128,0)\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 0, 0), [0, 128, 0, 255]);
-        assert_eq!(at(&image, 5, 5), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 5 * S, 5 * S), [255, 255, 255, 255]);
     }
 
     /// A `relative` box beside it, which is the answer `sticky` used to give,
@@ -4830,7 +4904,7 @@ mod tests {
                      e 1 position:relative;inset-block-start:4px;inset-inline-start:4px;\
                      width:2px;height:2px;background-color:rgb(0,128,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 4, 4), [0, 128, 0, 255]);
+        assert_eq!(at(&image, 4 * S, 4 * S), [0, 128, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
     }
 
@@ -4943,9 +5017,9 @@ mod tests {
                      e 1 image:https://example.com/logo.svg\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 0, 0), [153, 153, 153, 255]);
-        assert_eq!(at(&image, 3, 3), [224, 224, 224, 255]);
+        assert_eq!(at(&image, 3 * S, 3 * S), [224, 224, 224, 255]);
         // The box the scene declared, and not a pixel past it.
-        assert_eq!(at(&image, 6, 6), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 6 * S, 6 * S), [255, 255, 255, 255]);
     }
 
     /// One base64 alphabet, one PNG reader, and the pixels come back where the
@@ -4963,8 +5037,8 @@ mod tests {
         let image = render_ok(&scene, "", "rest");
         // Its own size, since nothing declared one.
         assert_eq!(at(&image, 0, 0), red);
-        assert_eq!(at(&image, 1, 0), blue);
-        assert_eq!(at(&image, 0, 1), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 1 * S, 0), blue);
+        assert_eq!(at(&image, 0, 1 * S), [255, 255, 255, 255]);
     }
 
     /// The box wins over the pixels: a source that was read is scaled into
@@ -4978,8 +5052,8 @@ mod tests {
         let scene =
             format!("buri-scene 1\nviewport 8 8\ne 0 width:8px;height:2px;image:{source}\n");
         let image = render_ok(&scene, "", "rest");
-        assert_eq!(at(&image, 0, 1), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 7, 1), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 0, 1 * S), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 7 * S, 1 * S), [0, 0, 255, 255]);
     }
 
     /// A data URI is full of semicolons, and a semicolon separates two
@@ -5007,7 +5081,7 @@ mod tests {
                      e 1 position:fixed;inset-block-end:0px;inset-inline-end:0px;\
                      width:2px;height:2px;background-color:rgb(0,128,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 9, 9), [0, 128, 0, 255]);
+        assert_eq!(at(&image, 9 * S, 9 * S), [0, 128, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
     }
 
@@ -5024,7 +5098,7 @@ mod tests {
                     e 1 position:fixed;width:2px;height:9px\n";
         let rows = |scene: &str| {
             let image = render_ok(scene, "", "rest");
-            (0..10).filter(|&y| at(&image, 9, y) == [255, 0, 0, 255]).count()
+            (0..10 * S).filter(|&y| at(&image, 9 * S, y) == [255, 0, 0, 255]).count()
         };
         assert_eq!(rows(without), rows(with));
     }
@@ -5059,7 +5133,7 @@ mod tests {
         let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n";
         let image = render_ok(scene, sheet, "rest");
         assert_eq!(at(&image, 0, 0), [0, 0, 255, 255]);
-        assert_eq!(at(&image, 4, 0), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 4 * S, 0), [255, 255, 255, 255]);
     }
 
     #[test]
@@ -5093,7 +5167,7 @@ mod tests {
         // The named corner is the page behind it; the opposite one is the
         // placeholder.
         assert_eq!(at(&picture, 0, 0), [255, 255, 255, 255]);
-        assert_eq!(at(&picture, 7, 7), [153, 153, 153, 255]);
+        assert_eq!(at(&picture, 7 * S, 7 * S), [153, 153, 153, 255]);
         // And with no radius at all every corner is the placeholder.
         let square = "buri-scene 1\nviewport 8 8\ne 0 width:8px;height:8px;image:/a.png\n";
         assert_eq!(at(&render_ok(square, "", "rest"), 0, 0), [153, 153, 153, 255]);
@@ -5112,7 +5186,7 @@ mod tests {
         for state in ["rest", "hover", "checked"] {
             let image = render_ok(scene, sheet, state);
             assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
-            assert_eq!(at(&image, 0, 2), [0, 0, 255, 255]);
+            assert_eq!(at(&image, 0, 2 * S), [0, 0, 255, 255]);
         }
         // A box that answers for nothing is still the request's to decide.
         let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box tick\n";
@@ -5153,7 +5227,7 @@ mod tests {
         let image = render_ok(scene, sheet, "rest");
         // The child took the rule; the box that carries the class did not.
         assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 3, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 3 * S, 0), [0, 0, 255, 255]);
     }
 
     #[test]
@@ -5180,10 +5254,10 @@ mod tests {
         // One origin, and the order they were written in is the order they
         // stack in: the smallest is whole, the largest is only what shows.
         assert_eq!(at(&image, 0, 0), [40, 40, 200, 255]);
-        assert_eq!(at(&image, 15, 7), [40, 150, 40, 255]);
-        assert_eq!(at(&image, 25, 12), [200, 40, 40, 255]);
+        assert_eq!(at(&image, 15 * S, 7 * S), [40, 150, 40, 255]);
+        assert_eq!(at(&image, 25 * S, 12 * S), [200, 40, 40, 255]);
         // 15 tall, not 30: three boxes in one cell, never one under another.
-        assert_eq!(at(&image, 0, 16), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 0, 16 * S), [255, 255, 255, 255]);
     }
 
     /// buri#89: a snapshot of a password field used to hold the secret as
@@ -5255,19 +5329,19 @@ mod tests {
         // stops it so a slider at nought is still a whole disc. Row two is
         // above the bar, so only the thumb can reach it.
         for (image, near, at_all) in
-            [(&low, 8, 96), (&middle, 96, 184), (&high, 184, 8)]
+            [(&low, 8 * S, 96 * S), (&middle, 96 * S, 184 * S), (&high, 184 * S, 8 * S)]
         {
-            assert!(inked(image, near, 2), "the thumb is not where the value is");
-            assert!(!inked(image, at_all, 2), "the thumb is where the value is not");
+            assert!(inked(image, near, 2 * S), "the thumb is not where the value is");
+            assert!(!inked(image, at_all, 2 * S), "the thumb is where the value is not");
         }
         // The track is there whatever the value: the middle row is inked end to
         // end in all three, and the bar is a quarter of the sixteen pixels, so
         // one either side of the middle is ink and four is not. Column forty is
         // clear of the thumb in every one of them.
         for image in [&low, &middle, &high] {
-            assert!(inked(image, 0, 8) && inked(image, 191, 8));
-            assert!(inked(image, 40, 6) && inked(image, 40, 9));
-            assert!(!inked(image, 40, 5) && !inked(image, 40, 10));
+            assert!(inked(image, 0, 8 * S) && inked(image, 191 * S, 8 * S));
+            assert!(inked(image, 40 * S, 6 * S) && inked(image, 40 * S, 9 * S));
+            assert!(!inked(image, 40 * S, 5 * S) && !inked(image, 40 * S, 10 * S));
         }
     }
 
@@ -5646,19 +5720,22 @@ mod tests {
         const BLUE: [u8; 4] = [0, 0, 255, 255];
 
         let after_a_fixed_track = render_ok(&three_cells("80px 1fr 2fr"), "", "rest");
-        assert_eq!(bands(&after_a_fixed_track, 1), [(0, RED), (80, GREEN), (320, BLUE)]);
+        assert_eq!(
+            bands(&after_a_fixed_track, 1 * S),
+            [(0, RED), (80 * S, GREEN), (320 * S, BLUE)]
+        );
 
         // Nothing taken out first, so the two tracks are a third and two
         // thirds of the whole page. The third cell wraps onto a row of its own
         // and is nothing to do with the row read here.
         let whole_page = render_ok(&three_cells("1fr 2fr"), "", "rest");
-        assert_eq!(bands(&whole_page, 1), [(0, RED), (267, GREEN)]);
+        assert_eq!(bands(&whole_page, 1 * S), [(0, RED), (267 * S, GREEN)]);
 
         // The `auto` twin of the line above: the same two cells, sized by what
         // is in them rather than by a share, which puts the edge in the middle
         // instead. A painter that read every `fr` as an `auto` painted these
         // two byte for byte.
         let content_sized = render_ok(&three_cells("auto auto"), "", "rest");
-        assert_eq!(bands(&content_sized, 1), [(0, RED), (400, GREEN)]);
+        assert_eq!(bands(&content_sized, 1 * S), [(0, RED), (400 * S, GREEN)]);
     }
 }
