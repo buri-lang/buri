@@ -139,10 +139,12 @@
 //! number behind one. It paints a bar a quarter of the box's height across the
 //! middle, and a round thumb one line across whose centre runs between half a
 //! thumb inside either end — the same two shapes, at the same sizes, that the
-//! sheet's reset paints with a gradient and a `::-webkit-slider-thumb`. Both
-//! take the element's own colour. The value is sanitized the way HTML says a
-//! `value` attribute is: clamped into the bounds, and the middle when it is not
-//! a number at all.
+//! sheet's reset paints with a gradient and a `::-webkit-slider-thumb`. The
+//! track is two colours: the run up to the thumb is the element's `Foreground`
+//! and the remainder is its `Background`, so a slider shows how far along it is
+//! and not only where its knob sits; the thumb is the `Foreground`. The value
+//! is sanitized the way HTML says a `value` attribute is: clamped into the
+//! bounds, and the middle when it is not a number at all.
 //!
 //! An `e` line may also carry `placeholder:<hint>`, which is the sample value
 //! a field shows inside its own box. It is drawn by the run under the input
@@ -373,9 +375,10 @@ pub fn raster(request: &Request) -> Result<Pixmap, String> {
     let state = State::parse(request.state)?;
     let sheet = parse_stylesheet(request.stylesheet);
     let variables = parse_variables(request.variables);
+    let page = parse_page(request.variables, &variables);
 
-    let styles = resolve(&scene, &sheet, state, &variables);
-    paint(&scene, &styles)
+    let styles = resolve(&scene, &sheet, state, &variables, page.ink);
+    paint(&scene, &styles, page.background)
 }
 
 /// The PNG bytes of a raster [`raster`] handed back. The one place the encoder
@@ -444,6 +447,61 @@ fn parse_variables(text: &str) -> Vec<(String, String)> {
         }
     }
     out
+}
+
+/// A page theme's own two colours: the ground the canvas takes and the ink the
+/// text starts at.
+///
+/// `ui/theme.page` renders to a `body{background-color:<ground>;color:<ink>}`
+/// block, which the snapshot installs beside the `:root{...}` token blocks — so
+/// it arrives in the same string [`parse_variables`] reads, and names the
+/// document's own ground rather than a token any element carries. Empty is a
+/// program with no page theme, which paints on white with black text the way it
+/// always did.
+#[derive(Clone, Copy, Default)]
+struct Page {
+    background: Option<Rgba>,
+    ink: Option<Rgba>,
+}
+
+/// The page theme's colours, out of the `body{...}` block `ui/theme.page`
+/// renders. A `var()` inside one is followed through the same tokens an
+/// element's declaration would, so a page whose ground is a token still lands.
+///
+/// A later block wins, the order the themes were passed in — the rule
+/// [`parse_variables`] follows for the token blocks beside it.
+fn parse_page(text: &str, variables: &[(String, String)]) -> Page {
+    let mut page = Page::default();
+    for block in text.split("body{").skip(1) {
+        let Some((body, _)) = block.split_once('}') else { continue };
+        for entry in body.split(';') {
+            let Some((name, value)) = entry.split_once(':') else { continue };
+            let resolved = substitute(value.trim(), variables);
+            let parsed = match colour(&resolved) {
+                Some(Spec::Value(c)) => Some(c),
+                Some(Spec::Transparent) => Some(Rgba::CLEAR),
+                // An unbound token or an unreadable value leaves the colour as
+                // it stood, which is white and black where nothing set it.
+                _ => None,
+            };
+            match name.trim() {
+                "background-color" if parsed.is_some() => page.background = parsed,
+                "color" if parsed.is_some() => page.ink = parsed,
+                _ => {}
+            }
+        }
+    }
+    page
+}
+
+/// A colour composited over opaque white, as a `tiny_skia` colour. A page whose
+/// ground is translucent lands on the white a canvas is before anything paints,
+/// which is what a browser shows for a translucent `body` background.
+fn over_white(colour: Rgba) -> tiny_skia::Color {
+    let a = colour.a.clamp(0.0, 1.0);
+    let blend = |channel: u8| (f32::from(channel) * a + 255.0 * (1.0 - a)) / 255.0;
+    tiny_skia::Color::from_rgba(blend(colour.r), blend(colour.g), blend(colour.b), 1.0)
+        .unwrap_or(tiny_skia::Color::WHITE)
 }
 
 /// A declaration's value with every `var(--name)` in it replaced by what the
@@ -1319,8 +1377,15 @@ fn resolve(
     sheet: &[Rule],
     state: State,
     variables: &[(String, String)],
+    ink: Option<Rgba>,
 ) -> Vec<Computed> {
-    let root = Computed::root();
+    // A page theme's `color` is the ink text starts at, so the canvas seeds the
+    // inheritance with it rather than black — the way a browser's `body{color:}`
+    // reaches every run under it that did not name its own colour.
+    let mut root = Computed::root();
+    if let Some(ink) = ink {
+        root.colour = ink;
+    }
     let mut styles = vec![root.clone(); scene.nodes.len()];
     let mut stack: Vec<(usize, Option<usize>, Computed)> =
         scene.roots.iter().rev().map(|&i| (i, None, root.clone())).collect();
@@ -1884,7 +1949,21 @@ fn taffy_style(c: &Computed) -> Style {
             (false, false) => FlexDirection::Row,
             (false, true) => FlexDirection::RowReverse,
         },
-        flex_wrap: if c.wrap { FlexWrap::Wrap } else { FlexWrap::NoWrap },
+        // A `flex-direction:column;flex-wrap:wrap` box breaks into side-by-side
+        // tracks only when its height is *definite* and too small for its
+        // content; a browser keeps a grown or content-sized column's height
+        // indefinite and lays its children out in one track. The painter lays a
+        // page out against a settled height, so a column grown by the label
+        // reset used to resolve to a definite figure smaller than its content
+        // and wrap where Chrome does not (buri#162). So a column wraps only when
+        // a pixel height was set on it; a row wraps as it always did, which is
+        // the wrap the label reset is there for — a wide control below its
+        // words.
+        flex_wrap: if c.wrap && (!c.column || matches!(c.size[1], Len::Px(_))) {
+            FlexWrap::Wrap
+        } else {
+            FlexWrap::NoWrap
+        },
         justify_content: c.justify,
         align_items: c.align_items,
         align_self: c.align_self,
@@ -2334,14 +2413,15 @@ fn extent(buffer: &Buffer) -> (f32, f32) {
 ///
 /// White rather than transparent because a snapshot is a picture of a page, and
 /// a page has a colour before anything is drawn on it.
-fn paint(scene: &Scene, styles: &[Computed]) -> Result<Pixmap, String> {
-    FACES.with_borrow_mut(|(fonts, cache)| paint_with(scene, styles, fonts, cache))
+fn paint(scene: &Scene, styles: &[Computed], ground: Option<Rgba>) -> Result<Pixmap, String> {
+    FACES.with_borrow_mut(|(fonts, cache)| paint_with(scene, styles, ground, fonts, cache))
 }
 
 /// [`paint`], with the shaper and the glyph cache handed in.
 fn paint_with(
     scene: &Scene,
     styles: &[Computed],
+    ground: Option<Rgba>,
     fonts: &mut FontSystem,
     cache: &mut SwashCache,
 ) -> Result<Pixmap, String> {
@@ -2431,7 +2511,15 @@ fn paint_with(
     let (dw, dh) = (device(wide), device(tall));
     let mut canvas = Pixmap::new(dw, dh)
         .ok_or_else(|| format!("the viewport {dw}x{dh} has no canvas"))?;
-    canvas.fill(tiny_skia::Color::WHITE);
+    // A page has a colour before anything is drawn on it: the page theme's own
+    // ground where one was installed, and white where none was — a translucent
+    // ground landing on that white, the way a browser paints a `body`
+    // background over the canvas.
+    let base = match ground {
+        Some(colour) if colour.visible() => over_white(colour),
+        _ => tiny_skia::Color::WHITE,
+    };
+    canvas.fill(base);
 
     let mut painter =
         Painter { scene, styles, pictures: &pictures, tree: &tree, ids: &ids, fonts, cache };
@@ -2856,9 +2944,11 @@ impl Painter<'_> {
     /// A slider: a bar across the middle of its box, and a round thumb on it
     /// at the value.
     ///
-    /// Both are the box's own colour, which is the sheet's `currentColor` — so
-    /// `Foreground` is the one property that paints a slider, and a
-    /// `Background` on it is the box behind the bar. The bar is a quarter of
+    /// The track is two colours, the way a browser and every design system
+    /// paint one: the run from the start to the thumb takes the element's
+    /// `Foreground` and the remainder after it takes the element's
+    /// `Background`, so a slider shows how far along it is beyond where the
+    /// knob sits. The thumb is the `Foreground` too. The bar is a quarter of
     /// the box's height and has no corners, because a browser paints it with a
     /// gradient and a gradient has none. The thumb is one line across, and its
     /// **centre** runs from half a thumb inside the near end to half a thumb
@@ -2887,17 +2977,34 @@ impl Painter<'_> {
         }
         let bar = height * TRACK_HEIGHT;
         let middle = top + height / 2.0;
+        let bar_top = px(middle - bar / 2.0);
+        let bar_bottom = px(middle + bar / 2.0);
+        let size = ROOT_FONT_SIZE.min(height).min(width);
+        let travel = (width - size).max(0.0);
+        let centre = left + size / 2.0 + travel * slider.fraction().clamp(0.0, 1.0);
+        // The unfilled remainder of the track, in the element's `Background`:
+        // the part after the thumb, which a browser and every design system
+        // paint a different colour from the run up to it. Drawn across the whole
+        // bar first, so the fill below covers the start of it.
         fill(
             canvas,
-            Box2 { l: box_.l, t: px(middle - bar / 2.0), r: box_.r, b: px(middle + bar / 2.0) },
+            Box2 { l: box_.l, t: bar_top, r: box_.r, b: bar_bottom },
+            circular(0.0),
+            style.background,
+            style.opacity,
+            clip,
+        );
+        // The filled part of the track, in the element's `Foreground`: the run
+        // from the start to the thumb, which is the "how far along" cue a slider
+        // with one colour cannot give beyond where its knob sits.
+        fill(
+            canvas,
+            Box2 { l: box_.l, t: bar_top, r: px(centre), b: bar_bottom },
             circular(0.0),
             style.colour,
             style.opacity,
             clip,
         );
-        let size = ROOT_FONT_SIZE.min(height).min(width);
-        let travel = (width - size).max(0.0);
-        let centre = left + size / 2.0 + travel * slider.fraction().clamp(0.0, 1.0);
         fill(
             canvas,
             Box2 {
@@ -5630,15 +5737,43 @@ mod tests {
             assert!(inked(image, near, 2 * S), "the thumb is not where the value is");
             assert!(!inked(image, at_all, 2 * S), "the thumb is where the value is not");
         }
-        // The track is there whatever the value: the middle row is inked end to
-        // end in all three, and the bar is a quarter of the sixteen pixels, so
-        // one either side of the middle is ink and four is not. Column forty is
-        // clear of the thumb in every one of them.
-        for image in [&low, &middle, &high] {
-            assert!(inked(image, 0, 8 * S) && inked(image, 191 * S, 8 * S));
-            assert!(inked(image, 40 * S, 6 * S) && inked(image, 40 * S, 9 * S));
-            assert!(!inked(image, 40 * S, 5 * S) && !inked(image, 40 * S, 10 * S));
-        }
+        // The bar is a quarter of the sixteen pixels: along the filled run, well
+        // clear of the thumb, one either side of the middle is ink and four is
+        // not. Column forty is filled and thumb-free on the slider at a hundred.
+        assert!(inked(&high, 40 * S, 6 * S) && inked(&high, 40 * S, 9 * S));
+        assert!(!inked(&high, 40 * S, 5 * S) && !inked(&high, 40 * S, 10 * S));
+    }
+
+    /// buri#157: the track is two colours — the run up to the thumb is filled
+    /// and the remainder is not — so a slider reads how far along it is beyond
+    /// where its knob sits. With no `Background` the unfilled remainder is the
+    /// page, so the filled length alone grows with the value.
+    #[test]
+    fn a_range_fills_the_track_up_to_the_thumb_and_no_further() {
+        let low = render_ok(&slider("0.0 100.0 10"), "", "rest");
+        let high = render_ok(&slider("0.0 100.0 90"), "", "rest");
+        // A point well past the low slider's thumb but under the high one's:
+        // filled for the slider at ninety, bare page for the one at ten. So the
+        // two differ beyond the knob, which is the whole of the fix.
+        assert!(!inked(&low, 150 * S, 8 * S), "the low slider's track is filled past its thumb");
+        assert!(inked(&high, 150 * S, 8 * S), "the high slider's track is not filled to its thumb");
+        // And both are filled at the very start, whatever the value.
+        assert!(inked(&low, 2 * S, 8 * S) && inked(&high, 2 * S, 8 * S));
+    }
+
+    /// buri#157: a `Background` names the unfilled remainder of the track, so
+    /// the part after the thumb is that colour rather than the fill's — the two
+    /// halves a browser and every design system paint differently.
+    #[test]
+    fn a_range_paints_its_unfilled_track_in_the_background() {
+        let scene = "buri-scene 1\nviewport 200 40\n\
+             e 0 field:range;range:0.0 100.0 50;width:192px;height:16px;\
+             color:rgb(0,0,0);background-color:rgb(200,30,30)\n";
+        let image = render_ok(scene, "", "rest");
+        // Before the thumb: the fill, in the foreground (near black).
+        assert_eq!(at(&image, 4 * S, 8 * S), [0, 0, 0, 255]);
+        // After the thumb: the unfilled track, in the background (red).
+        assert_eq!(at(&image, 180 * S, 8 * S), [200, 30, 30, 255]);
     }
 
     /// HTML's own sanitization of a `value` attribute, which is what a browser
@@ -5933,9 +6068,103 @@ mod tests {
                      e 0 color:rgb(1,2,3)\n\
                      e 1 background-color:var(--x);color:var(--y);width:4px;height:2px\n";
         let scene = Scene::parse(scene).unwrap();
-        let styles = resolve(&scene, &[], State::Rest, &[]);
+        let styles = resolve(&scene, &[], State::Rest, &[], None);
         assert_eq!(styles.get(1).map(|s| s.background), Some(Rgba::CLEAR));
         assert_eq!(styles.get(1).map(|s| s.colour.r), Some(1));
+    }
+
+    /// A scene with a run of text on it, rendered under the theme string a
+    /// snapshot installs.
+    fn themed(scene: &str, variables: &str) -> Image {
+        let png = render(&Request { scene, stylesheet: "", state: "rest", variables }).unwrap();
+        decode(&png).unwrap()
+    }
+
+    /// The brightest and the darkest red channel anywhere in the image — enough
+    /// to tell a near-white ink on a near-black ground from the reverse.
+    fn brightness_span(image: &Image) -> (u8, u8) {
+        let reds = image.rgba.chunks_exact(4).map(|p| p[0]);
+        (reds.clone().max().unwrap_or(0), reds.min().unwrap_or(255))
+    }
+
+    /// buri#155: a `ui/theme.page` theme's `body{...}` block paints the canvas
+    /// and seeds the text colour, where the snapshot used to ignore it and paint
+    /// black text on a white canvas whatever the page theme said.
+    #[test]
+    fn a_page_theme_paints_its_ground_and_seeds_the_ink() {
+        let scene = "buri-scene 1\nviewport 40 20\n\
+                     e 0 font-size:12px\n\
+                     t 1 hi\n";
+        let plain = themed(scene, "");
+        let dark = themed(scene, "body{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n");
+        // The page theme changed the picture, where before it changed nothing.
+        assert_ne!(plain.rgba, dark.rgba);
+        // The canvas is the page's near-black ground, read at a corner the text
+        // does not reach.
+        assert_eq!(at(&dark, 0, 0), [10, 10, 10, 255]);
+        // And the text is the page's near-white ink: the brightest pixel is the
+        // ink and the darkest is the ground, which is the reverse of the plain
+        // snapshot — black ink on a white canvas.
+        let (brightest, darkest) = brightness_span(&dark);
+        assert!(brightest > 200 && darkest < 40, "dark page: {brightest} over {darkest}");
+        assert_eq!(at(&plain, 0, 0), [255, 255, 255, 255]);
+        let (plain_brightest, plain_darkest) = brightness_span(&plain);
+        assert!(plain_brightest > 200 && plain_darkest < 40, "plain: {plain_brightest} over {plain_darkest}");
+    }
+
+    /// buri#162: a `flex-direction:column;flex-wrap:wrap` box wraps into two
+    /// side-by-side tracks only when its height is *definite* — a browser keeps
+    /// a grown or content-sized column's height indefinite and lays its children
+    /// out in one track. The painter lays a page out against a settled height,
+    /// so a field's `<label>` grown by the label reset used to resolve to a
+    /// definite figure smaller than its content and wrap where Chrome shows one
+    /// column. So a column wraps only when a pixel height was set on it; a row
+    /// wraps as it always did — the wrap the label reset is there for.
+    #[test]
+    fn a_wrapping_column_wraps_only_with_a_height_of_its_own() {
+        let mut base = Computed::root();
+        base.wrap = true;
+
+        // A wrapping column with no height of its own does not wrap: its grown
+        // or content height is indefinite, so its children stay in one track.
+        let mut auto_column = base.clone();
+        auto_column.column = true;
+        assert_eq!(taffy_style(&auto_column).flex_wrap, FlexWrap::NoWrap);
+
+        // A wrapping column given a pixel height does wrap, the way a browser
+        // wraps one whose height is definite.
+        let mut sized_column = base.clone();
+        sized_column.column = true;
+        sized_column.size[1] = Len::Px(40.0);
+        assert_eq!(taffy_style(&sized_column).flex_wrap, FlexWrap::Wrap);
+
+        // A wrapping row wraps whatever its height — a wide control below its
+        // words is what the label reset's wrap is for.
+        let mut row = base;
+        row.column = false;
+        assert_eq!(taffy_style(&row).flex_wrap, FlexWrap::Wrap);
+    }
+
+    /// An element that names its own `color` still wins over the page theme's
+    /// ink, and a `background-color` token the page's ground reads resolves.
+    #[test]
+    fn a_page_theme_is_the_default_and_a_token_ground_resolves() {
+        let scene = "buri-scene 1\nviewport 40 20\n\
+                     e 0 color:rgb(200,0,0);font-size:12px\n\
+                     t 1 hi\n";
+        // The page ground is a token the theme's `:root` block binds.
+        let variables = ":root{--page-bg:rgb(0,0,40)}\n\
+                         body{background-color:var(--page-bg);color:rgb(250,250,250)}\n";
+        let image = themed(scene, variables);
+        // The ground followed the token to near-black-blue.
+        assert_eq!(at(&image, 0, 0), [0, 0, 40, 255]);
+        // The run kept its own red, not the page ink: some pixel is strongly
+        // red and weakly blue.
+        let reddest = image
+            .rgba
+            .chunks_exact(4)
+            .any(|p| p[0] > 150 && p[1] < 80 && p[2] < 80);
+        assert!(reddest, "the element's own colour did not win over the page ink");
     }
 
     #[test]

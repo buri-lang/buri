@@ -7,9 +7,10 @@
 # bounds is clamped into them, and text that is not a number at all is the
 # middle. **How big the track is** — the twelve lines by one a browser gives an
 # unsized slider, four widths, four heights, and the narrow tracks that say a
-# thumb never leaves its own box. **What paints it** — one `Foreground` for both
-# shapes, a `Background` behind rather than instead of the bar, and the border,
-# radius and opacity of the box around them.
+# thumb never leaves its own box. **What paints it** — `Foreground` fills the
+# track up to the thumb and `Background` is the unfilled remainder behind it,
+# the thumb takes the `Foreground` too, and the border, radius and opacity are
+# the box around them.
 #
 # The slider is drawn by the widget in all three renderers, which is the whole
 # reason this case exists: the sheet's `:where(input[type=range])` gradient and
