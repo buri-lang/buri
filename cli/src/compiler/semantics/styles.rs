@@ -131,6 +131,13 @@ const NODE_DISCLOSURE: usize = 16;
 /// looks for.
 const ROLE_LIST: usize = 7;
 const ROLE_SEPARATOR: usize = 10;
+/// `ui/node`'s `Role::Table`, which lowers to a real `<table>`. A browser's own
+/// sheet leaves `border-collapse: separate; border-spacing: 2px` standing, so a
+/// 1px border on each box paints two pixels from its neighbour's and the rule a
+/// design system draws across a row comes out broken. The reset collapses the
+/// borders, which is the continuous line the headless painter already draws and
+/// what every design system's base layer does.
+const ROLE_TABLE: usize = 13;
 
 /// One rule in the emitted stylesheet.
 ///
@@ -913,6 +920,7 @@ pub struct Reset {
     pub dialog: bool,
     pub radiogroup: bool,
     pub disclosure: bool,
+    pub table: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -1169,6 +1177,16 @@ impl Reset {
             out.push_str(":where(summary){list-style:none}\n");
             out.push_str(":where(summary)::-webkit-details-marker{display:none}\n");
         }
+        if self.table {
+            // A browser's own sheet rules a table `border-collapse: separate`
+            // with a 2px `border-spacing`, so a 1px border on each box sits two
+            // pixels from its neighbour's and a rule drawn across a row comes
+            // out broken. Collapsing the borders joins each box's edge to the
+            // next, which is the continuous line the headless painter draws
+            // edge to edge. There is no way back: a collapsed table is what a
+            // data table is, and no style names `border-spacing`.
+            out.push_str(":where(table){border-collapse:collapse}\n");
+        }
         if self.image {
             // A picture and an inlined `<svg>` are the two leaves a browser
             // leaves inline, so each sits on the text baseline with a descender
@@ -1217,6 +1235,7 @@ pub fn reset_in(
             match *variant {
                 ROLE_LIST => out.list = true,
                 ROLE_SEPARATOR => out.separator = true,
+                ROLE_TABLE => out.table = true,
                 _ => {}
             }
         }
