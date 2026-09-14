@@ -1244,6 +1244,13 @@ struct Computed {
     /// A password's text: painted as bullets, never as itself. Inherited, so
     /// that the run inside the input carries it.
     masked: bool,
+    /// Whether this box is a field control — an `<input>` or a `<textarea>`.
+    /// Not inherited: it is the control's own box that centres its line, not
+    /// the run under it. A single-line field (`nowrap`) distributes the height
+    /// of its box above and below its one line the way a browser centres an
+    /// `<input>`'s editor, which no `justify-content` in the vocabulary reaches
+    /// (#165).
+    field: bool,
     /// A field's hint, which the run inside an empty input draws instead of
     /// nothing. Inherited for the reason the mask is: the declaration is on
     /// the input and the run is a line under it.
@@ -1304,6 +1311,7 @@ impl Computed {
             balance: false,
             clamp: None,
             masked: false,
+            field: false,
             placeholder: None,
         }
     }
@@ -1670,6 +1678,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         // and a `textarea` is the one kind that is not, so the rest is the
         // difference the sheet's own reset leaves — which is none.
         "field" => {
+            style.field = true;
             style.masked = value == "password";
             style.nowrap = value != "multiline";
         }
@@ -1971,7 +1980,18 @@ fn taffy_style(c: &Computed) -> Style {
         } else {
             FlexWrap::NoWrap
         },
-        justify_content: c.justify,
+        // A single-line field centres its one line down its box: a browser
+        // distributes an `<input>`'s content-box height above and below the
+        // editor whatever the box's height, which is why a 36px control with no
+        // block padding reads centred. The control lowers to a flex column, so
+        // its main axis is the block one and `justify-content: center` is where
+        // that centring lives — a lever the `ui/style` vocabulary does not
+        // expose, so the painter supplies it for the control it recognises
+        // (#165). A multiline field keeps its lines at the top, and an author's
+        // own `justify-content` still wins.
+        justify_content: c
+            .justify
+            .or((c.field && c.nowrap && c.column).then_some(AlignContent::CENTER)),
         align_items: c.align_items,
         align_self: c.align_self,
         flex_grow: c.grow,
@@ -5776,6 +5796,39 @@ mod tests {
         // The single line runs past the forty pixels the box was given; the
         // wrapped one does not reach the bottom of the viewport on one line.
         assert!(inked_pixels(&wrapped) > inked_pixels(&one_line));
+    }
+
+    /// buri#165: a single-line field centres its value down its box, the way a
+    /// browser distributes an `<input>`'s content-box height above and below
+    /// the editor — not flush against the top with all the leftover room below
+    /// it. The box is 60 tall with a 20px line and no block padding, so a
+    /// centred line has about 20px of daylight above its ink and about 20 below;
+    /// a top-hugging one has a few pixels above and forty below.
+    #[test]
+    fn a_single_line_field_centres_its_value_down_its_box() {
+        let scene = "buri-scene 1\nviewport 200 60\n\
+                     e 0 field:text;width:200px;height:60px;\
+                     background-color:rgb(255,255,255);color:rgb(0,0,0);\
+                     font-size:14px;line-height:1.4285714285714286\n\
+                     t 1 Email\n";
+        let image = render_ok(scene, "", "rest");
+        // No border and a white ground, so every non-white row is the value's
+        // own ink.
+        let rows: Vec<u32> =
+            (0..image.height).filter(|&y| (0..image.width).any(|x| inked(&image, x, y))).collect();
+        let (&top, &bottom) = (rows.first().unwrap(), rows.last().unwrap());
+        let above = top;
+        let below = image.height - 1 - bottom;
+        // The line sits in the middle: the room above its ink and the room
+        // below it are within a line of each other, where a top-hugging line
+        // leaves tens of pixels between the two.
+        let line = px(14.0 * 1.4285714285714286 * DEVICE_SCALE) as u32;
+        assert!(
+            above.abs_diff(below) < line,
+            "the field's value is not centred: {above} above the ink, {below} below"
+        );
+        // And it is nowhere near the top edge, which is where it used to hug.
+        assert!(above > line, "the value hugs the top: only {above} above it");
     }
 
     /// One slider, at a width and height a browser's own reset gives it.
