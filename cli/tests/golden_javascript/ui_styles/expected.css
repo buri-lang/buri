@@ -3,9 +3,11 @@
 *{overflow-wrap:break-word}
 :where(body){margin:0}
 :where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}
+:where(h1,h2,h3,h4,h5,h6){font-size:inherit;font-weight:inherit;margin:0}
 .lay-col{display:flex;flex-direction:column}
 .lay-row{display:flex;flex-direction:row}
 .grow-1{flex-grow:1}
+.shrink-0{flex-shrink:0}
 .gap-8{gap:8px}
 .p-r1{padding:1rem}
 .px-r0_5{padding-inline:0.5rem}

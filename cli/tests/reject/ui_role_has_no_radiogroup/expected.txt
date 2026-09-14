@@ -1,8 +1,8 @@
 error: `Role` has no variant `RadioGroup` [no-such-variant]
-  --> cmd/ui_role_has_no_radiogroup/main.buri:15:27
+  --> cmd/ui_role_has_no_radiogroup/main.buri:15:66
    |
-15 |   ui.mount(ctx, ui.region(.RadioGroup, [], []), [])
-   |                           ^^^^^^^^^^^
+15 |   ui.mount(ctx, ui.stack({ styles: [], children: [], role: .Some(.RadioGroup) }), [])
+   |                                                                  ^^^^^^^^^^^
    |
    = its variants are `Navigation`, `Main`, `Banner`, `ContentInfo`, `Complementary`, `Article`, `Search`, `List`, `ListItem`, `Group`, `Separator`, `Status`, `Alert`, `Table`, `TableRow`, `RowHeader`, `ColumnHeader` and `Cell`
    = fix: name a variant the enum declares

@@ -700,15 +700,15 @@ blur()` — so a modal scrim separates its panel by softening the page rather th
 by hiding it under a heavy wash. The length is the blur radius, and the
 element's own background paints over the blur.
 
-`heading`, `button`, `submit`, `link`, `image`, `field`, `toggle` and `icon`
-take a `[Style]` like every container does, and it lands on the element itself — so a
+`text`, `button`, `link`, `image`, `field` and `toggle` take a `[Style]` like
+every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or
 disabled, a picture is sized, shaped and rounded rather than the box around it,
-and a heading is the size its styles say rather than the size a browser picked.
-The
+and a heading — a `text` given a `headingLevel` — is the size its styles say
+rather than the size a browser picked. The
 stylesheet opens by dropping the chrome a browser paints on one of those — and
 the marker and indent it paints on a list, the inset border on a separator and
-the baseline a picture or an icon sits on — so what is left is what the styles
+the baseline a picture sits on — so what is left is what the styles
 say. `ListMarker` puts a list's marks back.
 
 The same opening rules make a size the whole box (`box-sizing: border-box`, so
@@ -733,29 +733,38 @@ colours: `background-color` and `color` on the document, so the ground reaches
 the window's edges and an overscroll rather than stopping where the root box
 does. Either colour may be a token.
 
-`button(label, styles, children, onPress)` holds children the way `link` does,
-and one with none shows its label. The label stays a parameter and rides in
-`aria-label`, so a button of an icon and a word is one focusable, hoverable
-element with the name the program gave it. It never submits the form it is
-inside — a Cancel that quietly sent the form would be worse than a form that
-did not send at all.
+Every constructor takes one config struct, so a call reads
+`button({ label: .Const("Save"), onPress: .Some(handler) })`: type elision reads
+the literal's type off the parameter, so no type name is written, and an
+`Option` field left out of the literal is `.None`, which the constructor reads as
+that field's default. Required fields — a `label`, an `alt`, a `dest`, a `kind`,
+a slider's `min` and `max` — are plain and non-`Option`, which is where the
+accessibility guarantee lives: you cannot leave one out.
 
-`submit(label, styles)` is the button that does, and the only one that lowers
-to `type="submit"`. It carries no handler, because the form's `onSubmit` is its
-handler: pressing it and pressing Enter in a field arrive at the same place. A
-form needs one — HTML submits a form implicitly through its submit button, and
-a form with none is submitted only while it holds exactly one field, so a name
-and an email with no `submit` discard the keypress. `ui/testing`'s `submit`
-refuses the same forms a browser does, so a suite cannot go green on markup
-nobody can send.
+`button({ label, styles, children, onPress })` holds children the way `link` does,
+and one with none shows its label. The label stays a required field and rides in
+`aria-label`, so a button of a mark and a word is one focusable, hoverable
+element with the name the program gave it. An ordinary button never submits the
+form it is inside — a Cancel that quietly sent the form would be worse than a
+form that did not send at all.
 
-`field(label, kind, hint, styles, around, value, invalid)` and
-`toggle(label, kind, styles, around, value, invalid)` take two style lists,
-because a labelled control is two boxes: `styles` is the input's, `around` is
-the `<label>`'s — the box a surrounding row lays out, and the only place `Grow`,
-`Shrink`, `AlignSelf` and `Span` do anything. A toggle's `ToggleKind` picks the
-mark it draws inside itself: `Checkbox` has a tick when it is on, `Switch` has a
-thumb that travels. Both take the box's `Foreground`.
+A button given `kind: .Some(.Submit)` is the one that does, and the only one that
+lowers to `type="submit"`. It carries no `onPress`, because the form's `onSubmit`
+is its handler: pressing it and pressing Enter in a field arrive at the same
+place. A form needs one — HTML submits a form implicitly through its submit
+button, and a form with none is submitted only while it holds exactly one field,
+so a name and an email with no submit button discard the keypress.
+`ui/testing`'s `submit` refuses the same forms a browser does, so a suite cannot
+go green on markup nobody can send.
+
+`field({ label, kind, value, styles, hint, around, isInvalid, isDisabled })` and
+`toggle({ label, kind, isOn, styles, around, isInvalid, isDisabled })` take two
+style lists, because a labelled control is two boxes: `styles` is the input's,
+`around` is the `<label>`'s — the box a surrounding row lays out, and the only
+place `Grow`, `Shrink`, `AlignSelf` and `Span` do anything. A toggle binds its
+`isOn` to a `Signal<Bool>`, and its `ToggleKind` picks the mark it draws inside
+itself: `Checkbox` has a tick when it is on, `Switch` has a thumb that travels.
+Both take the box's `Foreground`.
 
 A field's `hint` is the sample value inside its own empty box, and it is a
 parameter rather than a `Style` because it is content: what a field is for, not
@@ -763,24 +772,26 @@ what it looks like. It is `aria-placeholder`-shaped — a screen reader announce
 it after the accessible name rather than instead of it, so the label stays
 required beside it, and it is gone the moment there is a value. It writes the
 `placeholder` attribute the kinds that hold text take, and the painter draws it
-inside the box at half the element's own foreground while the box is empty. The
-empty string is no hint, the way an `image`'s `alt` spells "decorative", and a
-`.Range` ignores one because a slider has no box to put a word in.
+inside the box at half the element's own foreground while the box is empty.
+Leaving `hint` out is no hint, the way an `image`'s `.Decorative` alt names
+nothing, and a slider takes none because it has no box to put a word in.
 
-`invalid` is a parameter for the reason the label is: a control failing
+`isInvalid` is a field for the reason the label is: a control failing
 validation has to be *announced*. It writes `aria-invalid` and it is the only
 way into `State::Invalid`, so `On(.Invalid, ...)` paints the ring on the same
-fact a reader is told, and a control that never fails passes `.Const(false)`
+fact a reader is told, and a control that never fails leaves it out
 and carries no markup it did not ask for.
 
-A field's `FieldKind.Range(min, max, step)` is a slider, and it carries the
-three numbers on the kind because a reader is told what one runs between. It
-lowers to `<input type="range">`, so the thumb, the drag, the arrow and Home/End
-keys, `role="slider"` and the three `aria-value*` all come from the one
-attribute. The sheet paints the track, the bar and the thumb in `currentColor`,
-and the painter draws the same two shapes at the same sizes. The value stays a
-`Signal<Str>` like every other kind's — it is what the control holds, not what
-it means — and a value outside the bounds reads as the nearer one.
+`slider({ label, value, min, max, styles, step, isDisabled })` is the numeric
+control split out of the old `FieldKind.Range` — a number picked off a track, not
+a run of text, so it binds a `Signal<Float>` rather than dressing a field up as
+something it is not. `min` and `max` are required because a reader is told what
+one runs between; `step` is what an arrow key moves by, and a continuous track is
+the default. It lowers to `<input type="range">`, so the thumb, the drag, the
+arrow and Home/End keys, `role="slider"` and the three `aria-value*` all come
+from the one attribute. The sheet paints the track, the bar and the thumb in
+`currentColor`, and the painter draws the same two shapes at the same sizes. A
+value outside the bounds reads as the nearer one.
 
 `Shadow` is one shadow and `Shadows` is a list of them, painted first over last,
 because every elevation is two layers and a focus ring is a third beside them.
@@ -789,65 +800,72 @@ They are one conflict slot, so the last written is the element's shadow.
 colour written out, and a `color-mix` around the `var()` for a design token, so
 a translucent shade needs no token of its own.
 
-`icon` is the one that takes artwork rather than an address. The SVG is written
-into the document, so `currentColor` in it is the element's own `Foreground` —
-an icon follows the text beside it and turns over with a theme, which an
-`image` cannot do, its source being a document of its own. It is decorative by
-construction and carries no name. The source is written out at the call site
-and the compiler reads it: an `<svg>` and the shapes inside it, and anything
-else is `icon-not-drawable`.
+`image` takes an `alt` that is either `.AccessibilityText(name)` — a picture the
+browser fetches, carrying the name a reader hears in its place — or `.Decorative`,
+which is what used to be `icon`: artwork the compiler reads and writes into the
+document as an `<svg>`, so `currentColor` in it is the element's own `Foreground`
+and a decorative picture follows the text beside it and turns over with a theme.
+A decorative source is written out at the call site and the compiler reads it: an
+`<svg>` and the shapes inside it, and anything else is `icon-not-drawable`.
 
-`button`, `field` and `toggle` take a `disabled: Prop<Bool>` as well — beside
-`invalid` on the two that have one. It is an attribute rather than a style: it takes the control out of the tab order,
+`button`, `field` and `toggle` take an `isDisabled: Prop<Bool>` as well — beside
+`isInvalid` on the two that have one. It is an attribute rather than a style: it takes the control out of the tab order,
 refuses the press before the handler is reached, and tells a reader the control
 is unavailable rather than absent. It is also what makes `On(.Disabled, ...)`
 fire. `On(.Checked, ...)` needs no flag — a toggle's own signal says whether it
 is checked, so one page holds one toggle that is on and one that is off.
 
-`button` takes an `expanded: Prop<Bool>` too, for a button that opens a menu, a
-popover or a select rather than showing its own child. It writes `aria-expanded`
-and, like `invalid`, only when it is `true`, so an ordinary button carries none
-of it and a trigger announces whether the region it controls is open.
+`button` takes an `isExpanded: Prop<Bool>` too, for a button that opens a menu, a
+popover or a select rather than showing its own child, and an `isCurrent` for the
+one in a set that is the current page. Each writes its `aria-*` attribute — like
+`isInvalid` — only when it is `true`, so an ordinary button carries none of them
+and a trigger announces whether the region it controls is open.
 
-`progress(label, value, styles, children)` is a bar that announces how far along
-a task has come. `value` runs from `0.0` to `1.0` and lowers to `aria-valuenow`
-as a whole number of hundredths — `value` times a hundred, rounded — beside
-`aria-valuemin="0"` and `aria-valuemax="100"`, with `label` the accessible name;
-the fill is the caller's own `children`. It is a widget rather than a `Role`
-because a bar that carried the role and no value would announce a progress bar
-with no progress, which is why there is no `Role.ProgressBar`.
+`progress({ label, styles, value, children })` is a bar that announces how far along
+a task has come. Set `value` and it runs from `0.0` to `1.0` and lowers to
+`aria-valuenow` as a whole number of hundredths — `value` times a hundred,
+rounded — beside `aria-valuemin="0"` and `aria-valuemax="100"`, with `label` the
+accessible name; the fill is the caller's own `children`. **Leave `value` out and
+the bar is indeterminate** — no `aria-valuenow`, the shape a spinner takes. It is
+a widget rather than a `Role` because a bar that carried the role and no value
+would announce a progress bar with no progress, which is why there is no
+`Role.ProgressBar`.
 
-`disclosure(summary, open, styles, children)` is a section that opens and shuts.
+`disclosure({ summary, isOpen, children, styles })` is a section that opens and shuts.
 It lowers to `<details><summary>`, so the open state, the Enter and Space that
 toggle it, and what a reader is told are the browser's own — where a button
-beside a `choose` announces a press that changes nothing. `open` is a
+beside a `choose` announces a press that changes nothing. `isOpen` is a
 `Signal<Bool>`, not a `Prop`, because a reader opens and shuts it without asking,
-the rule `dialog`'s `open` follows; an accordion is an `each` of these.
+the rule `dialog`'s `isOpen` follows; an accordion is an `each` of these.
 
-`onPressOutside(handler, styles, children)` is a bare wrapper whose `handler`
-fires when a press lands outside its subtree, so a non-modal overlay — a menu, a
-popover, a select — can dismiss itself the way a `dialog` does with Escape and
-its backdrop. It leads with its handler, the way `button` and `form` do; on the
-web it lowers to one document-level pointer listener, registered while the
-subtree is mounted and disposed with it, so an overlay that shuts leaves nothing
-on the document. A press inside the subtree does not fire it, which is what lets
+`onPressOutside` is one of the five generic handlers every element node carries —
+`onHover`, `onFocus`, `onScroll`, `onKey` and it — each an omittable `onX` field
+of the config. It fires when a press lands outside that element, so a non-modal
+overlay — a menu, a popover, a select — dismisses itself the way a `dialog` does
+with Escape and its backdrop: set it on the panel, or on a `stack` around it. On
+the web it lowers to one document-level pointer listener, registered while the
+element is mounted and disposed with it, so an overlay that shuts leaves nothing
+on the document. A press inside the element does not fire it, which is what lets
 the one press that dismisses the overlay also act on what it landed on. It adds
-no visible element beyond its own wrapper — the `styles` and `children` are a
-`stack`'s — and a native painter, having no pointer, leaves it inert.
+no element of its own, and a native painter, having no pointer, leaves it inert.
+There is deliberately no generic `onTap`: activating something is a `button`'s or
+a `link`'s job.
 
-`radioGroup(label, options, styles, value)` is a single choice among a few, as
-one real `<input type="radio">` per option inside a `role="radiogroup"`. It is a
-widget rather than a `Role` and a `FieldKind` because a radio group is the
-browser's own model — one tab stop for the group, the arrow keys that move *and*
-select, Space, `aria-checked` and the roving `tabindex` — reachable only when
-the options are radios, which a stack of buttons is not and a bare role cannot
-make. `options` is one `(key, caption)` per choice: the key is the input's value
-and what `value` holds when it is picked, and the input whose key matches the
-signal is the checked one — so picking another writes its key back, the two-way
-binding a `field` has. A key no option carries checks nothing. The `styles` land
-on the group, and the options share one `name` and draw their own dot — the
-reset's `:checked::before` in the group's `Foreground`, the disc the painter
-draws from the scene's `mark:dot` — so there is no per-option style list.
+`picker({ label, options, value, styles, style, isDisabled })` is a single choice
+among a few, and it absorbs the old `radioGroup`. Its `ChoiceStyle` picks the
+shape — `.Radio` (the default), `.Segmented`, `.Menu` or `.Dropdown` — without
+changing the accessible model, the way `field`'s `kind` picks an input's shape.
+`.Radio` lands one real `<input type="radio">` per option inside a
+`role="radiogroup"`, the browser's own model — one tab stop for the group, the
+arrow keys that move *and* select, Space, `aria-checked` and the roving
+`tabindex` — reachable only when the options are radios, which a stack of buttons
+is not and a bare role cannot make. `options` is one `(key, content)` per choice:
+the key is what `value` holds when it is picked, and the content is any node
+drawn beside it — a `ui.text` for a plain caption, or something richer. The
+option whose key matches the signal is the checked one, so picking another writes
+its key back, the two-way binding a `field` has. A key no option carries checks
+nothing. The `styles` land on the group, and the options share one `name` and
+draw their own dot — the reset's `:checked::before` in the group's `Foreground`.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
@@ -875,7 +893,11 @@ from "ui/prop" import { Prop };
 from "ui/web" import * as web;
 
 fn page<C>(path: Prop<Str>): Node<C> {
-    ui.region(.Main, [], [ui.heading(1, [], path)])
+    ui.stack({
+        styles: [],
+        children: [ui.text({ content: path, headingLevel: .Some(1) })],
+        role: .Some(.Main),
+    })
 }
 
 fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
@@ -926,7 +948,9 @@ signals survives the navigation, which a `ui.link` cannot manage.
 instead of beside it, so Back does not return to it: that is a redirect. Both
 need `Location` and `Ui`, one for the address bar and one for the cell.
 
-`web.routeLink(dest, styles, children)` is that navigation as a link. It renders
+`web.routeLink(dest, styles, children)` is that navigation as a link, and its
+signature is unchanged: it wraps `ui.link` with an `onFollow` that calls
+`navigate`. It renders
 a real `<a href>`, so a reader keeps middle-click, ⌘-click, "open in new tab",
 the status bar and the "link" a screen reader announces — everything a
 `ui.button` calling `navigate` throws away. A plain left-click does what

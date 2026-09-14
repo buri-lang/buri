@@ -35,22 +35,35 @@ export fn of<C: Ui>(ctx: C): Board {
 
 /// One labelled row: the label in a fixed track, the sample in the rest.
 fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
-    ui.stack([.Layout(.Grid([.Fixed(.Px(190)), .Fraction(1)])), .Gap(.Px(12))], [
-        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
-        sample,
-    ])
+    ui.stack({
+        styles: [.Layout(.Grid([.Fixed(.Px(190)), .Fraction(1)])), .Gap(.Px(12))],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(12))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            sample,
+        ],
+    })
 }
 
 /// A page of labelled rows.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.Padding(.Px(16)), .Gap(.Px(10)), .FontSize(.Px(14))], rows)
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Padding(.Px(16)), .Gap(.Px(10)), .FontSize(.Px(14))]),
+        ],
+        children: rows,
+    })
 }
 
 /// A block of colour with a word in it.
 fn block<C>(styles: [Style], words: Str): Node<C> {
-    ui.stack([.Group(styles), .Padding(.Px(8)), .Foreground(.Rgb(255, 255, 255))], [
-        ui.text(.Const(words)),
-    ])
+    ui.stack({
+        styles: [.Group(styles), .Padding(.Px(8)), .Foreground(.Rgb(255, 255, 255))],
+        children: [ui.text({ content: .Const(words) })],
+    })
 }
 
 /// The ramp `tone` walks. A colour out of a parameter is one the compiler
@@ -121,13 +134,13 @@ export fn board<C>(b: Board): Node<C> {
         ),
         labelled(
             "ui.text(.Computed)",
-            ui.text(
-                .Computed(fn(s) => {
+            ui.text({
+                content: .Computed(fn(s) => {
                     let grouped = str.fromIntGrouped(s, b.count.get(s) * 1000, ",");
                     let fixed = str.fromFloatFixed(s, b.ratio.get(s), 3);
                     str.format(s, "${grouped} rows at ${fixed}")
                 }),
-            ),
+            }),
         ),
     ])
 }
@@ -142,11 +155,14 @@ export fn rows<C>(b: Board): Node<C> {
     page([
         labelled(
             "ui.each",
-            ui.row([.Gap(.Px(8))], [
-                ui.each(.Cell(b.rows), fn(row) => row, fn(_c, row, _at) => {
-                    block([.Background(tint(row))], row)
-                }),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(8))])],
+                children: [
+                    ui.each(.Cell(b.rows), fn(row) => row, fn(_c, row, _at) => {
+                        block([.Background(tint(row))], row)
+                    }),
+                ],
+            }),
         ),
     ])
 }

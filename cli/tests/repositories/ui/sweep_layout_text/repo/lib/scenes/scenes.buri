@@ -5,17 +5,27 @@ from "ui/node" import { Node };
 /// either side, so a boundary in a picture is a number off the viewport's own
 /// edge.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))], rows)
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))]),
+        ],
+        children: rows,
+    })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.column([.Gap(.Px(2))], [
-        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
-            ui.text(.Const(label)),
-        ]),
-        demo,
-    ])
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Gap(.Px(2))])],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            demo,
+        ],
+    })
 }
 
 /// How narrow a run can be *made* is not how wide it wants to be. A
@@ -26,49 +36,85 @@ export fn wrapping<C>(): Node<C> {
     page([
         band(
             "a sentence in a hundred and eighty",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Width(.Px(180))], [
-                ui.text(
-                    .Const(
-                        "A sentence long enough that it has to break somewhere, twice over.",
-                    ),
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Width(.Px(180))],
+                children: [
+                    ui.text({
+                        content: .Const(
+                            "A sentence long enough that it has to break somewhere, twice over.",
+                        ),
+                    }),
+                ],
+            }),
         ),
         band(
             "one long word in a hundred and eighty",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Width(.Px(180))], [
-                ui.text(.Const("Donaudampfschiffahrtsgesellschaftskapitaenswitwe")),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Width(.Px(180))],
+                children: [
+                    ui.text({
+                        content: .Const(
+                            "Donaudampfschiffahrtsgesellschaftskapitaenswitwe",
+                        ),
+                    }),
+                ],
+            }),
         ),
         band(
             "Fraction(1), Fraction(1) — a sentence beside the long word",
-            ui.stack([.Layout(.Grid([.Fraction(1), .Fraction(1)])), .Gap(.Px(8))], [
-                ui.stack([.Background(.Rgb(232, 232, 238))], [
-                    ui.text(
-                        .Const(
-                            "A sentence long enough that it has to break somewhere, twice over.",
-                        ),
-                    ),
-                ]),
-                ui.stack([.Background(.Rgb(230, 160, 20))], [
-                    ui.text(.Const("Donaudampfschiffahrtsgesellschaftskapitaenswitwe")),
-                ]),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Grid([.Fraction(1), .Fraction(1)])), .Gap(.Px(8))],
+                children: [
+                    ui.stack({
+                        styles: [.Background(.Rgb(232, 232, 238))],
+                        children: [
+                            ui.text({
+                                content: .Const(
+                                    "A sentence long enough that it has to break somewhere, twice over.",
+                                ),
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Background(.Rgb(230, 160, 20))],
+                        children: [
+                            ui.text({
+                                content: .Const(
+                                    "Donaudampfschiffahrtsgesellschaftskapitaenswitwe",
+                                ),
+                            }),
+                        ],
+                    }),
+                ],
+            }),
         ),
         band(
             "Auto, Auto — the same two",
-            ui.stack([.Layout(.Grid([.Auto, .Auto])), .Gap(.Px(8))], [
-                ui.stack([.Background(.Rgb(232, 232, 238))], [
-                    ui.text(
-                        .Const(
-                            "A sentence long enough that it has to break somewhere, twice over.",
-                        ),
-                    ),
-                ]),
-                ui.stack([.Background(.Rgb(230, 160, 20))], [
-                    ui.text(.Const("Donaudampfschiffahrtsgesellschaftskapitaenswitwe")),
-                ]),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Grid([.Auto, .Auto])), .Gap(.Px(8))],
+                children: [
+                    ui.stack({
+                        styles: [.Background(.Rgb(232, 232, 238))],
+                        children: [
+                            ui.text({
+                                content: .Const(
+                                    "A sentence long enough that it has to break somewhere, twice over.",
+                                ),
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Background(.Rgb(230, 160, 20))],
+                        children: [
+                            ui.text({
+                                content: .Const(
+                                    "Donaudampfschiffahrtsgesellschaftskapitaenswitwe",
+                                ),
+                            }),
+                        ],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -80,118 +126,122 @@ export fn textAlign<C>(): Node<C> {
     page([
         band(
             "TextAlign(.Start)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(300)),
                     .TextAlign(.Start),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextAlign(.Center)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(300)),
                     .TextAlign(.Center),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextAlign(.End)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(300)), .TextAlign(.End)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(300)),
+                    .TextAlign(.End),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextAlign(.Stretch)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(300)),
                     .TextAlign(.Stretch),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextAlign(.SpaceBetween)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(300)),
                     .TextAlign(.SpaceBetween),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextAlign(.SpaceAround)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(300)),
                     .TextAlign(.SpaceAround),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextAlign(.SpaceEvenly)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(300)),
                     .TextAlign(.SpaceEvenly),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
     ])
 }
@@ -202,52 +252,67 @@ export fn lineHeight<C>(): Node<C> {
     page([
         band(
             "no LineHeight at all",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Width(.Px(180))], [
-                ui.text(
-                    .Const(
-                        "A sentence long enough that it has to break somewhere, twice over.",
-                    ),
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Width(.Px(180))],
+                children: [
+                    ui.text({
+                        content: .Const(
+                            "A sentence long enough that it has to break somewhere, twice over.",
+                        ),
+                    }),
+                ],
+            }),
         ),
         band(
             "LineHeight(1.0)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .LineHeight(1.0)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .LineHeight(1.0),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "LineHeight(1.5)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .LineHeight(1.5)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .LineHeight(1.5),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "LineHeight(2.5)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .LineHeight(2.5)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .LineHeight(2.5),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
     ])
 }
@@ -263,62 +328,86 @@ export fn truncate<C>(): Node<C> {
     page([
         band(
             "Truncate(0)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .Truncate(0)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .Truncate(0),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over. A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Truncate(1)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .Truncate(1)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .Truncate(1),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over. A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Truncate(2)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .Truncate(2)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .Truncate(2),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over. A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Truncate(3)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .Truncate(3)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .Truncate(3),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over. A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Truncate(2) on a run that already fits",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .Truncate(2)],
-                [ui.text(.Const("A sentence that breaks once, and no more."))],
-            ),
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .Truncate(2),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const("A sentence that breaks once, and no more."),
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -329,50 +418,54 @@ export fn textWrap<C>(): Node<C> {
     page([
         band(
             "TextWrap(.Wrap)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Width(.Px(180)), .TextWrap(.Wrap)],
-                [
-                    ui.text(
-                        .Const(
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Width(.Px(180)),
+                    .TextWrap(.Wrap),
+                ],
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextWrap(.NoWrap)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(180)),
                     .TextWrap(.NoWrap),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "TextWrap(.Balance)",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Width(.Px(180)),
                     .TextWrap(.Balance),
                 ],
-                [
-                    ui.text(
-                        .Const(
+                children: [
+                    ui.text({
+                        content: .Const(
                             "A sentence long enough that it has to break somewhere, twice over.",
                         ),
-                    ),
+                    }),
                 ],
-            ),
+            }),
         ),
     ])
 }

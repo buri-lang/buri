@@ -42,8 +42,8 @@ edit {
 
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "    snapshot(ctx, \"price\", ui.text(.Const(\"150c\")), .Hover, []);"
-  with: "    let _ = render(ctx, ui.text(.Const(\"150c\")));"
+  replace: "    snapshot(ctx, \"price\", ui.text({ content: .Const(\"150c\") }), .Hover, []);"
+  with: "    let _ = render(ctx, ui.text({ content: .Const(\"150c\") }));"
 }
 
 run {

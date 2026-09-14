@@ -79,8 +79,8 @@ run {
 # pictures it does not reach stay clean.
 edit {
   file: "lib/pictures/pictures.buri"
-  replace: ".BorderWidth(.Px(2)), .BorderColor(.Rgb(120, 120, 130))"
-  with: ".BorderWidth(.Px(2)), .BorderColor(.Rgb(200, 40, 40))"
+  replace: ".BorderColor(.Rgb(120, 120, 130))"
+  with: ".BorderColor(.Rgb(200, 40, 40))"
 }
 
 run {

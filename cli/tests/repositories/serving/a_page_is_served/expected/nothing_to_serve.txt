@@ -1,8 +1,8 @@
 error: there is nothing named `theFrontPage` in scope [unresolved-name]
-  --> cmd/site/main.buri:17:69
+  --> cmd/site/main.buri:20:54
    |
-17 |             ui.region(.Main, [.Padding(.Rem(1.0))], [ui.text(.Const(theFrontPage))])
-   |                                                                     ^^^^^^^^^^^^
+20 |                 children: [ui.text({ content: .Const(theFrontPage) })],
+   |                                                      ^^^^^^^^^^^^
    |
    = fix: declare `theFrontPage`, or import it — a name is in scope only from this module's own declarations and its imports
 

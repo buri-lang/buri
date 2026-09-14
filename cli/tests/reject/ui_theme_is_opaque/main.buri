@@ -19,5 +19,5 @@ fn rewrap(t: Theme): Theme {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([], []), [rewrap(themed([]))])
+  ui.mount(ctx, ui.stack({ styles: [], children: [] }), [rewrap(themed([]))])
 }

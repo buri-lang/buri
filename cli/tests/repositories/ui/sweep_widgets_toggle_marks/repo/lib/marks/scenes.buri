@@ -14,7 +14,7 @@ from "ui/style" import { Length, Style };
 /// A checkbox: the tick, at every size and colour the box can be.
 export fn checkboxPage<C: Ui>(ctx: C): Node<C> {
     page([
-        ui.text(.Const("checkbox — the tick is there when it is on")),
+        ui.text({ content: .Const("checkbox — the tick is there when it is on") }),
         band("size — the tick is the largest square the box holds", [
             pair(ctx, "12px", .Checkbox, box([.Width(.Px(12)), .Height(.Px(12))])),
             pair(ctx, "16px", .Checkbox, box([])),
@@ -71,7 +71,7 @@ export fn checkboxPage<C: Ui>(ctx: C): Node<C> {
 /// A switch: the thumb, and the end of the track it sits at.
 export fn switchPage<C: Ui>(ctx: C): Node<C> {
     page([
-        ui.text(.Const("switch — the thumb travels")),
+        ui.text({ content: .Const("switch — the thumb travels") }),
         band("size", [
             pair(ctx, "32 by 18", .Switch, track(.Px(32), .Px(18), [])),
             pair(ctx, "44 by 24", .Switch, track(.Px(44), .Px(24), [])),
@@ -153,46 +153,58 @@ fn track(width: Length, height: Length, styles: [Style]): [Style] {
 
 /// One value: its name, and the same toggle off and then on.
 fn pair<C: Ui>(ctx: C, name: Str, kind: ToggleKind, styles: [Style]): Node<C> {
-    ui.column([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)], [
-        ui.text(.Const(name)),
-        ui.toggle(
-            .Const("off"),
-            kind,
-            styles,
-            [],
-            signal(ctx, false),
-            .Const(false),
-            .Const(false),
-        ),
-        ui.toggle(
-            .Const("on"),
-            kind,
-            styles,
-            [],
-            signal(ctx, true),
-            .Const(false),
-            .Const(false),
-        ),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.toggle({
+                label: .Const("off"),
+                kind: kind,
+                isOn: signal(ctx, false),
+                styles: styles,
+            }),
+            ui.toggle({
+                label: .Const("on"),
+                kind: kind,
+                isOn: signal(ctx, true),
+                styles: styles,
+            }),
+        ],
+    })
 }
 
 /// One band: its name, then a cell per value.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.column([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
-        ui.text(.Const(name)),
-        ui.row([.Gap(.Px(8)), .AlignCross(.Start)], cells),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page: a title and the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }

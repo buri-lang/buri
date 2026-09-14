@@ -55,7 +55,7 @@ fn cast(colour: Color): Shadow {
 /// A colour written out, faded, in each of the four slots that take one.
 export fn literalPage<C>(): Node<C> {
     page([
-        ui.text(.Const("written out")),
+        ui.text({ content: .Const("written out") }),
         header(),
         band("Background", [
             subject([.Background(written(0.0))]),
@@ -92,7 +92,7 @@ export fn literalPage<C>(): Node<C> {
 /// token to is the only difference between this page's four goldens.
 export fn tokenPage<C>(): Node<C> {
     page([
-        ui.text(.Const("a design token")),
+        ui.text({ content: .Const("a design token") }),
         header(),
         band("Background", [
             subject([.Background(ring(0.0))]),
@@ -127,46 +127,67 @@ export fn tokenPage<C>(): Node<C> {
 
 /// One picture: the title, the fractions named once, and a band per slot.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Gap(.Px(6)),
-            .Padding(.Px(14)),
-            .Background(.Rgb(255, 255, 255)),
-            .Foreground(.Rgb(20, 20, 20)),
-            .FontSize(.Px(12)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Gap(.Px(6)),
+                .Padding(.Px(14)),
+                .Background(.Rgb(255, 255, 255)),
+                .Foreground(.Rgb(20, 20, 20)),
+                .FontSize(.Px(12)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }
 
 /// The fractions, named once at the top rather than under every band.
 fn header<C>(): Node<C> {
-    ui.row([.Gap(.Px(14)), .PaddingEdge(.Start, .Px(96))], [
-        label("0.0"),
-        label("0.2"),
-        label("0.5"),
-        label("0.8"),
-        label("1.0"),
-    ])
+    ui.stack({
+        styles: [.Layout(.Row), .Group([.Gap(.Px(14)), .PaddingEdge(.Start, .Px(96))])],
+        children: [
+            label("0.0"),
+            label("0.2"),
+            label("0.5"),
+            label("0.8"),
+            label("1.0"),
+        ],
+    })
 }
 
 fn label<C>(text: Str): Node<C> {
-    ui.stack([.Width(.Px(82))], [ui.text(.Const(text))])
+    ui.stack({
+        styles: [.Width(.Px(82))],
+        children: [ui.text({ content: .Const(text) })],
+    })
 }
 
 /// One slot's band: its name in a fixed track, its cells in the rest.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.row([.Gap(.Px(14)), .AlignCross(.Center), .Height(.Px(100))], [
-        ui.stack([.Width(.Px(82))], [ui.text(.Const(name))]),
-        ui.row([.Gap(.Px(14)), .AlignCross(.Center)], cells),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Row),
+            .Group([.Gap(.Px(14)), .AlignCross(.Center), .Height(.Px(100))]),
+        ],
+        children: [
+            ui.stack({
+                styles: [.Width(.Px(82))],
+                children: [ui.text({ content: .Const(name) })],
+            }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(14)), .AlignCross(.Center)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The subject every cell holds: one box of text, on a ground pale enough that
 /// a fifth of a colour is still visible on it.
 fn subject<C>(styles: [Style]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Width(.Px(82)),
             .Padding(.Px(8)),
             .Radius(.Px(4)),
@@ -174,6 +195,6 @@ fn subject<C>(styles: [Style]): Node<C> {
             .Foreground(.Rgb(24, 24, 27)),
             .Group(styles),
         ],
-        [ui.text(.Const("Ada"))],
-    )
+        children: [ui.text({ content: .Const("Ada") })],
+    })
 }

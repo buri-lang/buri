@@ -16,7 +16,7 @@ test "an empty tree is a page with nothing on it" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "empty", ui.nothing(), .Hover, []);
+    snapshot(ctx, "empty", ui.empty(), .Hover, []);
 }
 
 test "a tree of one run of text" {
@@ -24,7 +24,7 @@ test "a tree of one run of text" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "one-run-of-text", ui.text(.Const("Ada")), .Hover, []);
+    snapshot(ctx, "one-run-of-text", ui.text({ content: .Const("Ada") }), .Hover, []);
 }
 
 test "a hundred stacks deep" {
@@ -51,11 +51,27 @@ fn marked<C>(marker: ListMarker): Node<C> {
         .Gap(.Px(4)),
         .ListMarker(marker),
     ];
-    ui.region(.List, styles, [
-        ui.region(.ListItem, [], [ui.text(.Const("Alpha"))]),
-        ui.region(.ListItem, [], [ui.text(.Const("Beta"))]),
-        ui.region(.ListItem, [], [ui.text(.Const("Gamma"))]),
-    ])
+    ui.stack({
+        styles: styles,
+        children: [
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Alpha") })],
+                role: .Some(.ListItem),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Beta") })],
+                role: .Some(.ListItem),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Gamma") })],
+                role: .Some(.ListItem),
+            }),
+        ],
+        role: .Some(.List),
+    })
 }
 
 test "a list is marked only where it asked to be" {
@@ -66,10 +82,14 @@ test "a list is marked only where it asked to be" {
     // Three lists of the same rows: no marks at all, discs, and numbers. A
     // list region is a `ul`, and a browser marks and indents one by itself, so
     // the leftmost of the three is the assertion that nothing here does.
-    let tree = ui.row([.Padding(.Px(24)), .Gap(.Px(48))], [
-        marked(.None),
-        marked(.Disc),
-        marked(.Decimal),
-    ]);
-    snapshot(ctx, "lists", tree, .Hover, []);
+    snapshot(
+        ctx,
+        "lists",
+        ui.stack({
+            styles: [.Layout(.Row), .Group([.Padding(.Px(24)), .Gap(.Px(48))])],
+            children: [marked(.None), marked(.Disc), marked(.Decimal)],
+        }),
+        .Hover,
+        [],
+    );
 }

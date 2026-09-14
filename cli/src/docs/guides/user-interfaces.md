@@ -4,9 +4,9 @@ The `ui/*` modules are the reactivity vocabulary. They are part of
 [the standard library](../reference/standard-library.md), ship with the
 toolchain, and are never listed in a `dependencies`.
 
-`ui/effect` declares `Watch` and `Ui`, the `Scope` a reactive closure is handed
-— which reads the graph and allocates — and the `Event` a handler is handed. Requests are not among them: a page asks
-for `core/effect`'s `Network` like every other platform. `ui/signal` is `Signal<T>` —
+`ui/effect` declares `Watch` and `Ui`, and the `Scope` a reactive closure is
+handed — which reads the graph and allocates. Requests are not among them: a page
+asks for `core/effect`'s `Network` like every other platform. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
 `memo`. `ui/testing` is a headless platform, a renderer for looking at what a
 tree became, and `snapshot`, which paints one and holds it to a golden PNG. Only
@@ -25,14 +25,11 @@ from "ui/signal" import { Signal };
 
 /// The lambda captures the handle. The authority arrives as `c`.
 export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
-    ui.button(
-        .Const("add one"),
-        [],
-        [],
-        fn(c, _event) => { clicks.update(c, fn(n) => n + 1) },
-        .Const(false),
-        .Const(false),
-    )
+    ui.button({
+        label: .Const("add one"),
+        styles: [],
+        onPress: .Some(fn(c) => { clicks.update(c, fn(n) => n + 1) }),
+    })
 }
 ```
 
@@ -72,7 +69,9 @@ export fn evens<C>(xs: Signal<[Int]>): Node<C> {
     ui.each(
         .Computed(fn(scope) => xs.get(scope).filter(scope, isEven)),
         fn(x) => "${x}",
-        fn(c, x, index) => ui.text(.Computed(fn(s) => str.format(s, "${x}"))),
+        fn(c, x, index) => {
+            ui.text({ content: .Computed(fn(s) => str.format(s, "${x}")) })
+        },
     )
 }
 ```
@@ -88,22 +87,23 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-twenty-four functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the twenty-fifth function, puts a tree on the
+eighteen functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the nineteenth function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
-**Meaning is the role and arrangement is the style.** `region(.List, ...)` says
-what a group of children *is*, so a screen reader announces a list of five
-items. `.Layout(.Row)` says only how it is arranged. No constructor is named
-after an HTML element, and there is no tag-string escape hatch.
+**Meaning is the role and arrangement is the style.** A `stack` given a
+`role: .Some(.List)` says what a group of children *is*, so a screen reader
+announces a list of five items. `.Layout(.Row)` says only how it is arranged. No
+constructor is named after an HTML element, and there is no tag-string escape
+hatch.
 
 **A parameter an assistive technology cannot do without is a parameter.**
 `image` takes its `alt`, `link` its `dest`, and `field` and `toggle` their
 `label`. A field with no label is not something this vocabulary can express,
 which is what makes the commonest accessibility failure on the web a compile
-error. `icon` is the other side of that rule: it is decoration and carries no
-name at all, because what it means is said by the button or the link it is
-inside.
+error. A decorative `image` — one whose `alt` is `.Decorative` — is the other
+side of that rule: it carries no name at all, because what it means is said by
+the button or the link it is inside.
 
 ```buri
 from "ui/node" import * as ui;
@@ -115,18 +115,22 @@ let check: Str =
 
 /// It paints in whatever colour the thing around it is painting in.
 export fn saved<C>(): Node<C> {
-    ui.icon([.Width(.Px(16)), .Height(.Px(16))], check)
+    ui.image({
+        source: .Const(check),
+        alt: .Decorative,
+        styles: [.Width(.Px(16)), .Height(.Px(16))],
+    })
 }
 ```
 
-An `icon` puts the artwork **in** the tree, as an `<svg>`, which is what lets
-`currentColor` in it be the element's own `Foreground`: the glyph follows the
-text beside it and turns over with a theme, for nothing. An `image` cannot —
-its source is a document of its own, so a data URI paints whatever colour was
-baked into it. The artwork is written out at the call site because the compiler
-reads it: an `<svg>` and the shapes inside it, and a script or a reference to
-somewhere else is `icon-not-drawable` rather than something the renderer
-quietly drops.
+A `.Decorative` `image` puts the artwork **in** the tree, as an `<svg>`, which is
+what lets `currentColor` in it be the element's own `Foreground`: the glyph
+follows the text beside it and turns over with a theme, for nothing. An
+`.AccessibilityText` image cannot — its source is a document of its own, so a
+data URI paints whatever colour was baked into it. The decorative artwork is
+written out at the call site because the compiler reads it: an `<svg>` and the
+shapes inside it, and a script or a reference to somewhere else is
+`icon-not-drawable` rather than something the renderer quietly drops.
 
 A component is an ordinary function and it runs **once**. Three constructors
 put reactivity in the tree, and each re-runs the smallest thing it can:
@@ -142,18 +146,25 @@ The conditional is `choose` rather than `when`, because `when` is a reserved
 word and no function may be called one.
 
 Handlers — `button`'s `onPress` and `form`'s `onSubmit` — take their context as
-a parameter, because a lambda may not capture one, and the runtime hands each
-the very context the tree was mounted with. Everything one press writes is one
-update: the handler runs inside a transaction, so three writes cause one pass
-over the watchers rather than three. A field and a toggle have no change event
-at all — they are bound to a `Signal`, and what the reader typed is in it.
+their one parameter, because a lambda may not capture one, and the runtime hands
+each the very context the tree was mounted with. There is no event object: a
+press handler is `fn(C) => ()`. Everything one press writes is one update: the
+handler runs inside a transaction, so three writes cause one pass over the
+watchers rather than three. A field and a toggle have no change event at all —
+they are bound to a `Signal`, and what the reader typed is in it.
 
-**A form ends in a `submit`.** Enter in a field is the browser's own dispatch,
-and the browser's own rule comes with it: a form is submitted implicitly
-through its submit button, and a form with none is submitted only while it
-holds exactly one field. So `submit` is the button that carries no handler —
-the form's `onSubmit` is its handler — and an ordinary `button` beside it stays
-the Cancel it was written as.
+Every element node carries five more handlers, each an omittable `onX`:
+`onHover`, `onFocus`, `onScroll`, `onKey` and `onPressOutside`. They are how a
+box learns about the pointer, focus, scrolling, a keypress, or a press that
+landed elsewhere, without any of them being a required parameter. There is no
+generic `onTap`: activating something is a `button`'s or a `link`'s job.
+
+**A form ends in a `.Submit` button.** Enter in a field is the browser's own
+dispatch, and the browser's own rule comes with it: a form is submitted
+implicitly through its submit button, and a form with none is submitted only
+while it holds exactly one field. So a `button` given `kind: .Some(.Submit)`
+carries no handler of its own — the form's `onSubmit` is its handler — and an
+ordinary `button` beside it stays the Cancel it was written as.
 
 ```buri
 from "ui/effect" import { Ui };
@@ -166,29 +177,20 @@ export fn contact<C: Ui>(
     email: Signal<Str>,
     sent: Signal<Str>,
 ): Node<C> {
-    ui.form(fn(c, _e) => sent.set(c, "sent"), [], [
-        ui.field(
-            .Const("Name"),
-            .Text,
-            .Const(""),
-            [],
-            [],
-            name,
-            .Const(false),
-            .Const(false),
-        ),
-        ui.field(
-            .Const("Email"),
-            .Email,
-            .Const(""),
-            [],
-            [],
-            email,
-            .Const(false),
-            .Const(false),
-        ),
-        ui.submit(.Const("Send"), []),
-    ])
+    ui.form({
+        onSubmit: fn(c) => sent.set(c, "sent"),
+        children: [
+            ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
+            ui.field({
+                label: .Const("Email"),
+                kind: .Email,
+                value: email,
+                styles: [],
+            }),
+            ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+        ],
+        styles: [],
+    })
 }
 ```
 
@@ -226,21 +228,24 @@ from "ui/node" import { Node };
 /// A rule from one edge of a menu padded by four to the other. Without the
 /// bleed it stops four short at each end.
 export fn separator<C>(): Node<C> {
-    ui.stack([.Height(.Px(1)), .Bleed(.Start, .Px(4)), .Bleed(.End, .Px(4))], [])
+    ui.stack({
+        styles: [.Height(.Px(1)), .Bleed(.Start, .Px(4)), .Bleed(.End, .Px(4))],
+        children: [],
+    })
 }
 
 /// An avatar that laps the one before it. The later one paints over the
 /// earlier, the way a document stacks them.
 export fn lapped<C>(letter: Str): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Width(.Px(32)),
             .Height(.Px(32)),
             .Radius(.Percent(50.0)),
             .Bleed(.Start, .Px(8)),
         ],
-        [ui.text(.Const(letter))],
-    )
+        children: [ui.text({ content: .Const(letter) })],
+    })
 }
 ```
 
@@ -264,25 +269,25 @@ from "ui/node" import { Node };
 /// A card whose banner runs edge to edge. Without the clip the picture squares
 /// the corner the radius rounded.
 export fn card<C>(banner: Node<C>, body: Node<C>): Node<C> {
-    ui.column([.Radius(.Px(12)), .Clip(true)], [banner, body])
+    ui.stack({ styles: [.Radius(.Px(12)), .Clip(true)], children: [banner, body] })
 }
 
 /// A toaster dock pinned across the viewport. It must not intercept a press
 /// meant for the page under it; each toast in it takes the pointer back.
 export fn dock<C>(toasts: [Node<C>]): Node<C> {
-    ui.column(
-        [
+    ui.stack({
+        styles: [
             .Position(.PinViewport),
             .Pin(.Bottom, .Px(0)),
             .Width(.Full),
             .Passthrough(true),
         ],
-        toasts,
-    )
+        children: toasts,
+    })
 }
 
 export fn toast<C>(text: Node<C>): Node<C> {
-    ui.stack([.Passthrough(false), .Padding(.Px(12))], [text])
+    ui.stack({ styles: [.Passthrough(false), .Padding(.Px(12))], children: [text] })
 }
 ```
 
@@ -345,15 +350,14 @@ squares the side that meets its neighbour — a joined button group maps over it
 own children, so the parent decides and the child carries plain styles.
 
 ```buri
-from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 
 /// One button of a group welded to the one beside it.
-export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<C> {
-    ui.button(
-        .Const(label),
-        [
+export fn joined<C>(label: Str, first: Bool, onPress: fn(C) => ()): Node<C> {
+    ui.button({
+        label: .Const(label),
+        styles: [
             .PaddingX(.Px(12)),
             .PaddingY(.Px(6)),
             .Radius(.Px(6)),
@@ -368,11 +372,8 @@ export fn joined<C>(label: Str, first: Bool, onPress: fn(C, Event) => ()): Node<
                 ]
             }),
         ],
-        [],
-        onPress,
-        .Const(false),
-        .Const(false),
-    )
+        onPress: .Some(onPress),
+    })
 }
 ```
 
@@ -414,19 +415,19 @@ let ring: Shadow = Shadow {
 };
 
 export fn card<C>(label: Str): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Radius(.Px(8)),
             .Shadows([lift, near]),
             .On(.Focus, [.Shadows([ring, lift, near])]),
         ],
-        [ui.text(.Const(label))],
-    )
+        children: [ui.text({ content: .Const(label) })],
+    })
 }
 ```
 
-**A control carries its own styles.** `button`, `submit`, `link`, `image`,
-`field` and `toggle` take a `[Style]`, and it lands on the element itself — so
+**A control carries its own styles.** `button`, `link`, `image`, `field` and
+`toggle` take a `[Style]`, and it lands on the element itself — so
 `On(.Hover, ...)`, `On(.Focus, ...)` and `On(.Disabled, ...)` fire. A wrapper
 around a button is none of those things. A field's and a toggle's styles go on
 the input rather than on the label around it, for the same reason, and a
@@ -434,19 +435,14 @@ picture's go on the picture: only the picture can be told to fill its box, to
 crop square, or to take a corner.
 
 ```buri
-from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 
-export fn primary<C>(
-    label: Str,
-    onPress: fn(C, Event) => (),
-    busy: Prop<Bool>,
-): Node<C> {
-    ui.button(
-        .Const(label),
-        [
+export fn primary<C>(label: Str, onPress: fn(C) => (), busy: Prop<Bool>): Node<C> {
+    ui.button({
+        label: .Const(label),
+        styles: [
             .PaddingX(.Px(12)),
             .PaddingY(.Px(6)),
             .Radius(.Px(6)),
@@ -455,21 +451,22 @@ export fn primary<C>(
             .On(.Hover, [.Opacity(0.9)]),
             .On(.Disabled, [.Opacity(0.5)]),
         ],
-        [],
-        onPress,
-        busy,
-        .Const(false),
-    )
+        onPress: .Some(onPress),
+        isDisabled: .Some(busy),
+    })
 }
 
 export fn avatar<C>(source: Str): Node<C> {
-    ui.stack([.Width(.Px(32)), .Height(.Px(32)), .Radius(.Full)], [
-        ui.image(.Const(source), .Const(""), [
-            .Width(.Full),
-            .AspectRatio(1.0),
-            .Radius(.Full),
-        ]),
-    ])
+    ui.stack({
+        styles: [.Width(.Px(32)), .Height(.Px(32)), .Radius(.Full)],
+        children: [
+            ui.image({
+                source: .Const(source),
+                alt: .AccessibilityText(""),
+                styles: [.Width(.Full), .AspectRatio(1.0), .Radius(.Full)],
+            }),
+        ],
+    })
 }
 ```
 
@@ -479,7 +476,7 @@ nothing around it shifts. That is what a press is:
 the row it is in alone, where a padding would reflow the row.
 
 **A state a widget holds is the widget's answer, not the snapshot's.**
-`button`, `field` and `toggle` take a `disabled: Prop<Bool>`, and it is an
+`button`, `field` and `toggle` take an `isDisabled: Prop<Bool>`, and it is an
 attribute rather than a style: it takes the control out of the tab order,
 refuses the press before the handler runs, and tells a reader the control is
 unavailable rather than absent. Dimming it is `On(.Disabled, ...)`, which the
@@ -494,42 +491,39 @@ both, because there is one thing to wash. The label stays a parameter and the
 markup carries it as `aria-label`, so what a reader hears is never the glyphs.
 
 ```buri
-from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 
-export fn entry<C>(mark: Node<C>, onPress: fn(C, Event) => ()): Node<C> {
-    ui.button(
-        .Const("Overview"),
-        [.Gap(.Px(8)), .AlignCross(.Center), .On(.Hover, [.Opacity(0.9)])],
-        [mark, ui.text(.Const("Overview"))],
-        onPress,
-        .Const(false),
-        .Const(false),
-    )
+export fn entry<C>(mark: Node<C>, onPress: fn(C) => ()): Node<C> {
+    ui.button({
+        label: .Const("Overview"),
+        styles: [.Gap(.Px(8)), .AlignCross(.Center), .On(.Hover, [.Opacity(0.9)])],
+        children: .Some([mark, ui.text({ content: .Const("Overview") })]),
+        onPress: .Some(onPress),
+    })
 }
 ```
 
 **A labelled control takes two style lists.** `field` and `toggle` render an
-input inside a `<label>`, and the label is the box a surrounding `row` lays out.
+input inside a `<label>`, and the label is the box a surrounding row lays out.
 `styles` lands on the input, `around` lands on the label — so `Grow`, `Shrink`,
 `AlignSelf`, `Span` and `Width` belong in `around`, and everything the input is
 belongs in `styles`.
 
 **`progress` and `disclosure` are widgets, because the semantics are the
-component.** A `progress(label, value, styles, children)` is a bar that says how
-far along a task has come: `value` runs from `0.0` to `1.0` and lowers to
-`aria-valuenow`, a whole number of hundredths, beside `aria-valuemin="0"` and
-`aria-valuemax="100"`, with `label` the accessible name. The fill is the
-caller's own `children` — the widget adds the announcement a pair of nested
-`stack`s never made and nothing to the picture. A `disclosure(summary, open,
-styles, children)` is a section that opens and shuts: it lowers to
+component.** A `progress` is a bar that says how far along a task has come: set
+`value` and it runs from `0.0` to `1.0` and lowers to `aria-valuenow`, a whole
+number of hundredths, beside `aria-valuemin="0"` and `aria-valuemax="100"`, with
+`label` the accessible name; **leave `value` out and the bar is indeterminate**,
+the shape a spinner takes. The fill is the caller's own `children` — the widget
+adds the announcement a pair of nested `stack`s never made and nothing to the
+picture. A `disclosure` is a section that opens and shuts: it lowers to
 `<details><summary>`, so the open state, the Enter and Space that toggle it, and
-what a reader is told are the browser's own, and `open` is a `Signal` because
+what a reader is told are the browser's own, and `isOpen` is a `Signal` because
 the reader opens and shuts it without asking. Where a trigger opens something
 that is *not* its own child — a menu, a popover, a select — the button carries
-`expanded`, which lowers to `aria-expanded` and, like `aria-invalid`, is written
-only when it is `true`.
+`isExpanded`, which lowers to `aria-expanded` and, like `aria-invalid`, is
+written only when it is `true`.
 
 ```buri
 from "ui/node" import * as ui;
@@ -538,20 +532,26 @@ from "ui/signal" import { Signal };
 
 /// The addons keep their width and the field takes the rest.
 export fn site<C>(value: Signal<Str>): Node<C> {
-    ui.row([.Width(.Full)], [
-        ui.stack([.Shrink(0)], [ui.text(.Const("https://"))]),
-        ui.field(
-            .Const("Site"),
-            .Text,
-            .Const(""),
-            [.Width(.Full)],
-            [.Grow(1)],
-            value,
-            .Const(false),
-            .Const(false),
-        ),
-        ui.stack([.Shrink(0)], [ui.text(.Const(".com"))]),
-    ])
+    ui.stack({
+        styles: [.Layout(.Row), .Width(.Full)],
+        children: [
+            ui.stack({
+                styles: [.Shrink(0)],
+                children: [ui.text({ content: .Const("https://") })],
+            }),
+            ui.field({
+                label: .Const("Site"),
+                kind: .Text,
+                value: value,
+                styles: [.Width(.Full)],
+                around: .Some([.Grow(1)]),
+            }),
+            ui.stack({
+                styles: [.Shrink(0)],
+                children: [ui.text({ content: .Const(".com") })],
+            }),
+        ],
+    })
 }
 ```
 
@@ -561,9 +561,9 @@ box — a search line's `Type a command`, a combobox's `Search the docs`. It is
 rather than instead of it, so the label stays required beside it, and it is
 gone the moment there is a value. That is why it is a parameter and not a
 `Style` — it is content, not decoration, the same rule that makes `label` and
-`alt` parameters. The empty string is no hint at all, the way an `image`'s
-`alt` spells "decorative", and a `.Range` ignores one because a slider has no
-box to put a word in.
+`alt` parameters. Leaving `hint` out is no hint at all, the way an `image`'s
+`.Decorative` alt names nothing, and a slider takes none because it has no box
+to put a word in.
 
 ```buri
 from "ui/node" import * as ui;
@@ -571,16 +571,14 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal };
 
 export fn search<C>(query: Signal<Str>): Node<C> {
-    ui.field(
-        .Const("Search"),
-        .Search,
-        .Const("Type a command"),
-        [.Width(.Full)],
-        [.Grow(1)],
-        query,
-        .Const(false),
-        .Const(false),
-    )
+    ui.field({
+        label: .Const("Search"),
+        kind: .Search,
+        value: query,
+        styles: [.Width(.Full)],
+        hint: .Some(.Const("Type a command")),
+        around: .Some([.Grow(1)]),
+    })
 }
 ```
 
@@ -595,10 +593,11 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal };
 
 export fn notify<C>(value: Signal<Bool>): Node<C> {
-    ui.toggle(
-        .Const("Email me every week"),
-        .Switch,
-        [
+    ui.toggle({
+        label: .Const("Email me every week"),
+        kind: .Switch,
+        isOn: value,
+        styles: [
             .Width(.Px(32)),
             .Height(.Px(18)),
             .Radius(.Full),
@@ -607,55 +606,55 @@ export fn notify<C>(value: Signal<Bool>): Node<C> {
             .Foreground(.Rgb(255, 255, 255)),
             .On(.Checked, [.Background(.Rgb(40, 120, 220))]),
         ],
-        [],
-        value,
-        .Const(false),
-        .Const(false),
-    )
+    })
 }
 ```
 
-**A `.Range` field is a slider**, and it carries what it runs between:
-`Range(min, max, step)`. The three are the kind's payload because a reader is
-told the range they are dragging inside, so by the rule above they are
-parameters rather than attributes somebody may remember to set — and the one
-`type="range"` they lower to buys the thumb, the drag, the arrow and Home/End
-keys and the `role="slider"` announcement without a line of your own. The bar
-and the thumb are the control's `Foreground`; a `Background` sits behind them.
+**A number picked off a track is a `slider`, not a field.** Its value is a
+number, so it binds a `Signal<Float>` and takes `min`, `max` and an optional
+`step`, rather than dressing a text field up as something it is not. `min` and
+`max` are required because a reader is told the range they are dragging inside,
+so by the rule above they are parameters rather than attributes somebody may
+remember to set — and the one `type="range"` it lowers to buys the thumb, the
+drag, the arrow and Home/End keys and the `role="slider"` announcement without a
+line of your own. The bar and the thumb are the control's `Foreground`; a
+`Background` sits behind them.
 
 ```buri
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
 
-export fn volume<C>(value: Signal<Str>): Node<C> {
-    ui.field(
-        .Const("Volume"),
-        .Range(0.0, 100.0, 1.0),
-        .Const(""),
-        [.Width(.Px(180)), .Foreground(.Rgb(40, 50, 90))],
-        [],
-        value,
-        .Const(false),
-        .Const(false),
-    )
+export fn volume<C>(value: Signal<Float>): Node<C> {
+    ui.slider({
+        label: .Const("Volume"),
+        value: value,
+        min: 0.0,
+        max: 100.0,
+        styles: [.Width(.Px(180)), .Foreground(.Rgb(40, 50, 90))],
+        step: .Some(1.0),
+    })
 }
 ```
 
-The value is a `Signal<Str>` like every other kind's, because it is what the
-control holds rather than what it means — a browser answers a range's `value` as
-the text of a number. Read it with `str.toFloat`.
+The value is a `Signal<Float>`, because a slider's value is a number and not
+text: the signal holds the number directly, and there is nothing to parse on the
+way in or out.
 
-`heading` takes one too. Its level is the document's outline, so the size and
-the weight are the styles' — an unstyled heading reads at the size of the text
-around it.
+`text` takes a `headingLevel` to become a heading. The level is the document's
+outline, so the size and the weight are the styles' — an unstyled heading reads
+at the size of the text around it.
 
 ```buri
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 
 export fn title<C>(text: Str): Node<C> {
-    ui.heading(2, [.FontSize(.Px(28)), .FontWeight(.Bold)], .Const(text))
+    ui.text({
+        content: .Const(text),
+        headingLevel: .Some(2),
+        styles: .Some([.FontSize(.Px(28)), .FontWeight(.Bold)]),
+    })
 }
 ```
 
@@ -672,40 +671,45 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal };
 
 export fn confirm<C: Ui>(open: Signal<Bool>, question: Str): Node<C> {
-    ui.dialog(
-        open,
-        .Const(question),
-        [.Width(.Px(320)), .Padding(.Px(16)), .Radius(.Px(10)), .Gap(.Px(10))],
-        [
-            ui.heading(2, [.FontWeight(.Semibold)], .Const(question)),
-            ui.button(
-                .Const("Cancel"),
-                [],
-                [],
-                fn(c, _e) => open.set(c, false),
-                .Const(false),
-                .Const(false),
-            ),
+    ui.dialog({
+        isOpen: open,
+        label: .Const(question),
+        children: [
+            ui.text({
+                content: .Const(question),
+                headingLevel: .Some(2),
+                styles: .Some([.FontWeight(.Semibold)]),
+            }),
+            ui.button({
+                label: .Const("Cancel"),
+                styles: [],
+                onPress: .Some(fn(c) => open.set(c, false)),
+            }),
         ],
-    )
+        styles: [.Width(.Px(320)), .Padding(.Px(16)), .Radius(.Px(10)), .Gap(.Px(10))],
+    })
 }
 ```
 
-The `open` is a `Signal` and not a `Prop`, because the platform writes it: the
+The `isOpen` is a `Signal` and not a `Prop`, because the platform writes it: the
 reader presses Escape and the browser shuts the panel without asking, so a
 one-way value would leave the program holding a dialog nobody can see. Write
 `true` to open it and `false` to shut it.
 
-The styles land on the panel, so a dialog is a card you drew. The scrim behind
+The `styles` land on the panel, so a dialog is a card you drew. The scrim behind
 it is the widget's own drawing, the way a toggle's mark is — `::backdrop` in a
-browser, and the same black at half strength in a picture. A shut dialog draws
-nothing at all; an open one is pinned to the viewport, so like every other pin
-it never decides how tall a page is.
+browser, and the same black at half strength in a picture — and `scrimStyles`
+land on that scrim, so a `BackdropBlur` or a tint reaches the backdrop the way
+`field`'s `around` reaches its label. A shut dialog draws nothing at all; an open
+one is pinned to the viewport, so like every other pin it never decides how tall
+a page is.
 
 **An overlay that is not modal dismisses itself with `onPressOutside`.** A
 dialog gets Escape and a backdrop press from the platform, but a menu, a popover
-or a select does not — nothing watches for a press that lands elsewhere. Wrap
-the panel in `onPressOutside` and write it shut in the handler:
+or a select does not — nothing watches for a press that lands elsewhere.
+`onPressOutside` is one of the five generic handlers every element node carries,
+so set it on the panel — or on a `stack` around it — and write the overlay shut
+there:
 
 ```buri
 from "ui/effect" import { Ui };
@@ -714,28 +718,33 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal };
 
 export fn dismissable<C: Ui>(open: Signal<Bool>, panel: Node<C>): Node<C> {
-    ui.onPressOutside(fn(c, _e) => open.set(c, false), [], [panel])
+    ui.stack({
+        styles: [],
+        children: [panel],
+        onPressOutside: .Some(fn(c) => open.set(c, false)),
+    })
 }
 ```
 
-It leads with its handler rather than its styles, the way `button` and `form`
-do, because the behaviour is the point. On the web it lowers to one
-document-level pointer listener, registered while the subtree is mounted and
-taken away with it — so a wrapper inside a `choose` that shuts leaves no listener
-behind. A press *inside* the subtree is not one it fires on: the reader presses
-once, and that press both dismisses the overlay and acts on whatever it landed
-on, which is what the full-viewport scrim you might reach for instead cannot do —
-it swallows the press and costs a focusable element in the tab order besides. It
-adds no visible element beyond its own wrapper, so a picture of it is a picture
-of its children, and a native painter, having no pointer to press with, leaves
-it inert.
+On the web it lowers to one document-level pointer listener, registered while
+the element is mounted and taken away with it — so a node inside a `choose` that
+shuts leaves no listener behind. A press *inside* the element is not one it
+fires on: the reader presses once, and that press both dismisses the overlay and
+acts on whatever it landed on, which is what the full-viewport scrim you might
+reach for instead cannot do — it swallows the press and costs a focusable
+element in the tab order besides. It adds no element of its own, so a picture is
+a picture of the node's children, and a native painter, having no pointer to
+press with, leaves the handler inert.
 
-**A single choice is `radioGroup`, not a stack of buttons.** A radio group is
+**A single choice is a `picker`, not a stack of buttons.** A radio group is
 the browser's own model — one tab stop for the group, the arrow keys that move
 *and* select, Space to select, `aria-checked` and the roving `tabindex` — and
 all of it comes free the moment the options are `<input type="radio">` inside a
 `role="radiogroup"`. A stack of buttons reaches none of it: a reader tabs
-through every option and is told they are buttons. It is a widget rather than a
+through every option and is told they are buttons. So `picker` is the one choice
+primitive, and its `ChoiceStyle` picks the shape — `.Radio` (the default),
+`.Segmented`, `.Menu` or `.Dropdown` — without changing the accessible model,
+the way `field`'s `kind` picks an input's shape. It is a widget rather than a
 `Role` and a `FieldKind` for the reason `form` and `dialog` are: a bare
 `role="radiogroup"` would leave the options something other than radios, and a
 `field` binds its `Signal<Str>` to one input, where a radio's value is the
@@ -748,24 +757,28 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal };
 
 export fn plan<C: Ui>(choice: Signal<Str>): Node<C> {
-    ui.radioGroup(
-        .Const("Plan"),
-        [("free", .Const("Free")), ("pro", .Const("Pro"))],
-        [.Gap(.Px(6))],
-        choice,
-    )
+    ui.picker({
+        label: .Const("Plan"),
+        options: [
+            ("free", ui.text({ content: .Const("Free") })),
+            ("pro", ui.text({ content: .Const("Pro") })),
+        ],
+        value: choice,
+        styles: [.Gap(.Px(6))],
+    })
 }
 ```
 
-Each option is a `(key, caption)`: the key is what the signal holds when that
-option is picked, and the caption is what the reader sees. The signal holds the
-selected key, so the input whose key matches it is checked and picking another
-writes its key back — two-way binding replaces a change event the way it does
-for a `field`. A key no option carries checks nothing, which is what an unset
-group is. The styles land on the group, the box a row lays out; the options are
-the widget's own elements sharing one `name`, and a checked one draws its dot —
-the reset's `:checked::before`, in the group's own `Foreground` — so there is no
-per-option style list.
+Each option is a `(key, content)`: the key is what the signal holds when that
+option is picked, and the content is any node drawn beside it — a `ui.text` for
+a plain caption, or something richer when a plan wants a price under its name.
+The signal holds the selected key, so the option whose key matches it is checked
+and picking another writes its key back — two-way binding replaces a change
+event the way it does for a `field`. A key no option carries checks nothing,
+which is what an unset picker is. The styles land on the group, the box a row
+lays out; the options are the widget's own elements sharing one `name`, and a
+checked radio draws its dot — the reset's `:checked::before`, in the group's own
+`Foreground`.
 
 The sheet opens by dropping what a browser paints on one of these by itself —
 the bevel on a button, the blue underline on a link, the border and the inner
@@ -800,8 +813,8 @@ A control that styles nothing keeps the platform's ring, and so does one whose
 ring only starts at a breakpoint, because there is a width at which it paints
 nothing.
 
-**A list region is reset the same way.** `region(.List, ...)` is a `ul`, and a
-browser marks and indents one by itself, so the sheet drops the disc, the
+**A list region is reset the same way.** A `stack` with a `.List` role is a
+`ul`, and a browser marks and indents one by itself, so the sheet drops the disc, the
 indent and the margin — a rail, a menu and a tab strip are all lists, and none
 of them wants a bullet. `ListMarker(.Disc)` or `ListMarker(.Decimal)` asks for
 marks back. They hang outside the item, as a browser's do, so give the list a
@@ -871,8 +884,11 @@ export fn main(): Result<(), Str> {
         Ui: host.ui,
         Watch: host.watch,
     };
-    let card = ui.stack([.Background(Token.Surface.color())], []);
-    ui.mount(ctx, card, [themed(cardTheme)])
+    ui.mount(
+        ctx,
+        ui.stack({ styles: [.Background(Token.Surface.color())], children: [] }),
+        [themed(cardTheme)],
+    )
 }
 ```
 
@@ -971,7 +987,7 @@ from "ui/prop" import { Prop };
 from "ui/testing" import { headless, snapshot };
 
 fn card<C>(name: Prop<Str>): Node<C> {
-    ui.stack([.Padding(.Px(8))], [ui.text(name)])
+    ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: name })] })
 }
 
 test "the card" {
@@ -1051,10 +1067,10 @@ The rest is short:
   the last `--update` wins.
 - `.FontSize` and `.LineHeight` bottom out at one pixel. Zero is a size a
   program may ask for and not a picture anyone can compare.
-- **An icon's `currentColor` is the colour its element paints in**, so a golden
-  shows a glyph following the `Foreground` around it and turning over between
-  two themes. An image's is black whatever the page says, because its source is
-  a document of its own.
+- **A decorative image's `currentColor` is the colour its element paints in**,
+  so a golden shows a glyph following the `Foreground` around it and turning over
+  between two themes. An `.AccessibilityText` image's is black whatever the page
+  says, because its source is a document of its own.
 - **A snapshot fetches nothing**, so an image paints from its source or not at
   all. A `data:` URI holding a PNG paints at its own pixel size, and one holding
   an SVG is drawn at whatever size the box is — shapes, paths and transforms,
@@ -1078,13 +1094,13 @@ The rest is short:
   golden holds the width of the secret and none of it. `.Multiline` is the one
   kind that wraps; the other four paint alike, because the reset takes away the
   chrome a browser would tell them apart by.
-- **A `.Range` field is painted as the slider it is**: a bar across the middle
+- **A `slider` is painted as the slider it is**: a bar across the middle
   of the track and a round thumb on it at the value, both in the control's
   `Foreground`. Its value never appears as text — a browser draws no number for
-  one either. A value outside the bounds is clamped into them and one that is
-  not a number sits in the middle, which is what HTML says a `value` attribute
-  is worth. A track shorter than one line is the one place the picture and a
-  browser differ: the thumb shrinks to fit the box here and overflows it there.
+  one either. A value outside the bounds is clamped into them, which is what HTML
+  says a `value` attribute is worth. A track shorter than one line is the one
+  place the picture and a browser differ: the thumb shrinks to fit the box here
+  and overflows it there.
 - `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.

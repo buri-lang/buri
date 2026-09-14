@@ -18,5 +18,5 @@ let wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([wide], []), [])
+  ui.mount(ctx, ui.stack({ styles: [wide], children: [] }), [])
 }

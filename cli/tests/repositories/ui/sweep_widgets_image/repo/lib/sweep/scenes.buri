@@ -15,7 +15,11 @@ from "ui/style" import { Shadow, Style };
 /// painter can fetch, so what is drawn is the placeholder at the size the
 /// styles asked for.
 fn picture<C>(styles: [Style]): Node<C> {
-    ui.image(.Const("/photo.png"), .Const("a photo"), styles)
+    ui.image({
+        source: .Const("/photo.png"),
+        alt: .AccessibilityText("a photo"),
+        styles: styles,
+    })
 }
 
 /// One cell: its name over the picture it names.
@@ -24,10 +28,13 @@ fn picture<C>(styles: [Style]): Node<C> {
 /// nothing said to it does — the painter draws the placeholder at whatever box
 /// the layout gave it.
 fn cell<C>(name: Str, styles: [Style]): Node<C> {
-    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
-        ui.text(.Const(name)),
-        picture(styles),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)]),
+        ],
+        children: [ui.text({ content: .Const(name) }), picture(styles)],
+    })
 }
 
 /// The same, with the picture in a row that starts its children rather than
@@ -37,51 +44,72 @@ fn cell<C>(name: Str, styles: [Style]): Node<C> {
 /// the room it is in has a height already, and a ratio on top of one says
 /// nothing.
 fn tight<C>(name: Str, styles: [Style]): Node<C> {
-    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
-        ui.text(.Const(name)),
-        ui.row([.AlignCross(.Start)], [picture(styles)]),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.AlignCross(.Start)])],
+                children: [picture(styles)],
+            }),
+        ],
+    })
 }
 
 /// One band: a label track, then one cell per value.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.row([.Gap(.Px(8)), .AlignCross(.Start)], [
-        ui.stack([.Width(.Px(96)), .FontWeight(.Bold)], [ui.text(.Const(name))]),
-        ui.stack(
-            [
-                .Layout(
-                    .Grid([
-                        .Fraction(1),
-                        .Fraction(1),
-                        .Fraction(1),
-                        .Fraction(1),
-                        .Fraction(1),
-                    ]),
-                ),
-                .Gap(.Px(8)),
-                .Grow(1),
-            ],
-            cells,
-        ),
-    ])
+    ui.stack({
+        styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])],
+        children: [
+            ui.stack({
+                styles: [.Width(.Px(96)), .FontWeight(.Bold)],
+                children: [ui.text({ content: .Const(name) })],
+            }),
+            ui.stack({
+                styles: [
+                    .Layout(
+                        .Grid([
+                            .Fraction(1),
+                            .Fraction(1),
+                            .Fraction(1),
+                            .Fraction(1),
+                            .Fraction(1),
+                        ]),
+                    ),
+                    .Gap(.Px(8)),
+                    .Grow(1),
+                ],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page every picture is: a title, then the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Padding(.Px(12)),
-            .Gap(.Px(10)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(10)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }
 
 /// The title one page carries.
 fn title<C>(text: Str): Node<C> {
-    ui.stack([.FontWeight(.Bold)], [ui.text(.Const(text))])
+    ui.stack({
+        styles: [.FontWeight(.Bold)],
+        children: [ui.text({ content: .Const(text) })],
+    })
 }
 
 /// How big a picture is, which is the whole of what a wrapper could not say.
@@ -230,35 +258,51 @@ export fn avatarPage<C>(): Node<C> {
 /// A picture filling a round box of `size`, which is the whole avatar: the box
 /// carries the size and the picture carries the fill, the crop and the corner.
 fn avatarIn<C>(size: Int): Node<C> {
-    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
-        ui.text(.Const("filled")),
-        ui.stack([.Width(.Px(size)), .Height(.Px(size)), .Radius(.Full)], [
-            picture([.Width(.Full), .AspectRatio(1.0), .Radius(.Full)]),
-        ]),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)]),
+        ],
+        children: [
+            ui.text({ content: .Const("filled") }),
+            ui.stack({
+                styles: [.Width(.Px(size)), .Height(.Px(size)), .Radius(.Full)],
+                children: [picture([.Width(.Full), .AspectRatio(1.0), .Radius(.Full)])],
+            }),
+        ],
+    })
 }
 
 /// The same box with the picture told nothing, which is what the workaround
 /// came to: a round box with a picture of its own size sitting inside it.
 fn boxed<C>(size: Int): Node<C> {
-    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
-        ui.text(.Const("box only")),
-        ui.stack(
-            [
-                .Width(.Px(size)),
-                .Height(.Px(size)),
-                .Radius(.Full),
-                .Background(.Rgb(220, 224, 232)),
-            ],
-            [picture([])],
-        ),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)]),
+        ],
+        children: [
+            ui.text({ content: .Const("box only") }),
+            ui.stack({
+                styles: [
+                    .Width(.Px(size)),
+                    .Height(.Px(size)),
+                    .Radius(.Full),
+                    .Background(.Rgb(220, 224, 232)),
+                ],
+                children: [picture([])],
+            }),
+        ],
+    })
 }
 
 /// And the picture on its own, with no box at all.
 fn unstyled<C>(): Node<C> {
-    ui.column([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)], [
-        ui.text(.Const("no box")),
-        picture([]),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Height(.Px(96)), .Scroll(.Y)]),
+        ],
+        children: [ui.text({ content: .Const("no box") }), picture([])],
+    })
 }

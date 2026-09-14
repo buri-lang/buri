@@ -13,6 +13,6 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  let _ = ui.describeWide(ctx, ui.stack([], []), .Hover, .Px(390));
+  let _ = ui.describeWide(ctx, ui.stack({ styles: [], children: [] }), .Hover, .Px(390));
   .Ok(())
 }

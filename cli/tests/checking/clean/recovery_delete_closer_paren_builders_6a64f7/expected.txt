@@ -1,0 +1,12 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:75:49
+   |
+75 | export fn call(callee: ast.Expr, args: [ast.Expr): ast.Expr {
+   |                                                 ^
+   |
+  --> main.buri:75:40
+   |
+75 | export fn call(callee: ast.Expr, args: [ast.Expr): ast.Expr {
+   |                                        ^ opened here
+   |
+   = fix: write `]` here

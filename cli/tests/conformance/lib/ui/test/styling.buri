@@ -78,9 +78,10 @@ fn night(t: Kit): Color {
 /// A component styled against the kit's tokens and nothing else. Rendering it is
 /// what puts `bg-t_kit_panel` and `fg-t_kit_ink` in the package's sheet.
 fn panel<C>(label: Str): Node<C> {
-    ui.stack([.Background(Kit.Panel.color()), .Foreground(Kit.Ink.color())], [
-        ui.text(.Const(label)),
-    ])
+    ui.stack({
+        styles: [.Background(Kit.Panel.color()), .Foreground(Kit.Ink.color())],
+        children: [ui.text({ content: .Const(label) })],
+    })
 }
 
 // --- the stylesheet: a compile artifact, the same bytes on both backends -------------

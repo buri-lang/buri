@@ -1,8 +1,8 @@
 .buri/out/web/cmd/site/site.mjs (N bytes)
 error: `fetch` takes one `Request` [main-signature]
-  --> cmd/site/main.buri:25:1
+  --> cmd/site/main.buri:28:1
    |
-25 | export fn fetch(request: Str): Response {
+28 | export fn fetch(request: Str): Response {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = the platform calls it once per request, so the request is the argument and there is no context to pass in — build the one it needs in its own body

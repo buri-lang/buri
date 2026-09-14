@@ -7,7 +7,13 @@ from "ui/signal" import { signal };
 /// either side, so a boundary in a picture is a number off the viewport's own
 /// edge.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))], rows)
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))]),
+        ],
+        children: rows,
+    })
 }
 
 /// The same page, two hundred wide and three hundred in from the edge. A
@@ -15,20 +21,33 @@ fn page<C>(rows: [Node<C>]): Node<C> {
 /// the box that carries it, so a narrow one is what makes `.Percent` and
 /// `.Full` land on the page at all.
 fn narrow<C>(rows: [Node<C>]): Node<C> {
-    ui.row([.PaddingY(.Px(6))], [
-        ui.stack([.Width(.Px(300))], []),
-        ui.column([.Width(.Px(200)), .Gap(.Px(8)), .FontSize(.Px(13))], rows),
-    ])
+    ui.stack({
+        styles: [.Layout(.Row), .Group([.PaddingY(.Px(6))])],
+        children: [
+            ui.stack({ styles: [.Width(.Px(300))], children: [] }),
+            ui.stack({
+                styles: [
+                    .Layout(.Column),
+                    .Group([.Width(.Px(200)), .Gap(.Px(8)), .FontSize(.Px(13))]),
+                ],
+                children: rows,
+            }),
+        ],
+    })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.column([.Gap(.Px(2))], [
-        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
-            ui.text(.Const(label)),
-        ]),
-        demo,
-    ])
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Gap(.Px(2))])],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            demo,
+        ],
+    })
 }
 
 /// Every edge a bleed can name, out of a box padded by sixteen on all four.
@@ -39,75 +58,103 @@ export fn bleedEdges<C>(): Node<C> {
     page([
         band(
             "Bleed(.Top, .Px(16))",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Top, .Px(16)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
-                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
+                    ui.stack({
+                        styles: [.Background(.Rgb(198, 198, 208)), .Height(.Px(20))],
+                        children: [],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Bleed(.Bottom, .Px(16))",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Bottom, .Px(16)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
-                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
+                    ui.stack({
+                        styles: [.Background(.Rgb(198, 198, 208)), .Height(.Px(20))],
+                        children: [],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Bleed(.Start, .Px(16))",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Start, .Px(16)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
-                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
+                    ui.stack({
+                        styles: [.Background(.Rgb(198, 198, 208)), .Height(.Px(20))],
+                        children: [],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Bleed(.End, .Px(16))",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.End, .Px(16)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
-                    ui.stack([.Background(.Rgb(198, 198, 208)), .Height(.Px(20))], []),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
+                    ui.stack({
+                        styles: [.Background(.Rgb(198, 198, 208)), .Height(.Px(20))],
+                        children: [],
+                    }),
                 ],
-            ),
+            }),
         ),
     ])
 }
@@ -122,105 +169,129 @@ export fn bleedLengths<C>(): Node<C> {
     narrow([
         band(
             ".Px(16)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Start, .Px(16)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             ".Rem(1.0)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Start, .Rem(1.0)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             ".Percent(10.0)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Start, .Percent(10.0)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             ".Full",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Start, .Full),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             ".Auto",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Start, .Auto),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             ".Px(-16)",
-            ui.stack(
-                [.Background(.Rgb(232, 232, 238)), .Padding(.Px(16)), .Gap(.Px(4))],
-                [
-                    ui.stack(
-                        [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Padding(.Px(16)),
+                    .Gap(.Px(4)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Bleed(.Start, .Px(0 - 16)),
                         ],
-                        [ui.text(.Const("bleed"))],
-                    ),
+                        children: [ui.text({ content: .Const("bleed") })],
+                    }),
                 ],
-            ),
+            }),
         ),
     ])
 }
@@ -231,8 +302,8 @@ export fn bleedDivider<C>(): Node<C> {
     page([
         band(
             "no bleed — the rule stops four short at each end",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Width(.Px(220)),
                     .Padding(.Px(4)),
                     .Gap(.Px(2)),
@@ -241,24 +312,30 @@ export fn bleedDivider<C>(): Node<C> {
                     .BorderColor(.Rgb(190, 190, 200)),
                     .Radius(.Px(6)),
                 ],
-                [
-                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
-                        ui.text(.Const("Open")),
-                    ]),
-                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
-                        ui.text(.Const("Save")),
-                    ]),
-                    ui.stack([.Height(.Px(1)), .Background(.Rgb(190, 190, 200))], []),
-                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
-                        ui.text(.Const("Delete")),
-                    ]),
+                children: [
+                    ui.stack({
+                        styles: [.PaddingX(.Px(6)), .PaddingY(.Px(4))],
+                        children: [ui.text({ content: .Const("Open") })],
+                    }),
+                    ui.stack({
+                        styles: [.PaddingX(.Px(6)), .PaddingY(.Px(4))],
+                        children: [ui.text({ content: .Const("Save") })],
+                    }),
+                    ui.stack({
+                        styles: [.Height(.Px(1)), .Background(.Rgb(190, 190, 200))],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [.PaddingX(.Px(6)), .PaddingY(.Px(4))],
+                        children: [ui.text({ content: .Const("Delete") })],
+                    }),
                 ],
-            ),
+            }),
         ),
         band(
             "Bleed(.Start, .Px(4)) and Bleed(.End, .Px(4)) — edge to edge",
-            ui.stack(
-                [
+            ui.stack({
+                styles: [
                     .Width(.Px(220)),
                     .Padding(.Px(4)),
                     .Gap(.Px(2)),
@@ -267,27 +344,30 @@ export fn bleedDivider<C>(): Node<C> {
                     .BorderColor(.Rgb(190, 190, 200)),
                     .Radius(.Px(6)),
                 ],
-                [
-                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
-                        ui.text(.Const("Open")),
-                    ]),
-                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
-                        ui.text(.Const("Save")),
-                    ]),
-                    ui.stack(
-                        [
+                children: [
+                    ui.stack({
+                        styles: [.PaddingX(.Px(6)), .PaddingY(.Px(4))],
+                        children: [ui.text({ content: .Const("Open") })],
+                    }),
+                    ui.stack({
+                        styles: [.PaddingX(.Px(6)), .PaddingY(.Px(4))],
+                        children: [ui.text({ content: .Const("Save") })],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Height(.Px(1)),
                             .Background(.Rgb(190, 190, 200)),
                             .Bleed(.Start, .Px(4)),
                             .Bleed(.End, .Px(4)),
                         ],
-                        [],
-                    ),
-                    ui.stack([.PaddingX(.Px(6)), .PaddingY(.Px(4))], [
-                        ui.text(.Const("Delete")),
-                    ]),
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [.PaddingX(.Px(6)), .PaddingY(.Px(4))],
+                        children: [ui.text({ content: .Const("Delete") })],
+                    }),
                 ],
-            ),
+            }),
         ),
     ])
 }
@@ -302,256 +382,268 @@ export fn bleedOverlap<C>(): Node<C> {
     page([
         band(
             "no bleed — they stand in a line",
-            ui.row([.AlignCross(.Center)], [
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(219, 68, 55)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                    ],
-                    [ui.text(.Const("A"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(15, 157, 88)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                    ],
-                    [ui.text(.Const("B"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(66, 133, 244)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                    ],
-                    [ui.text(.Const("C"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(244, 180, 0)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                    ],
-                    [ui.text(.Const("D"))],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.AlignCross(.Center)])],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(219, 68, 55)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                        ],
+                        children: [ui.text({ content: .Const("A") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(15, 157, 88)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                        ],
+                        children: [ui.text({ content: .Const("B") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(66, 133, 244)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                        ],
+                        children: [ui.text({ content: .Const("C") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(244, 180, 0)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                        ],
+                        children: [ui.text({ content: .Const("D") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "Bleed(.Start, .Px(8)) on every avatar but the first",
-            ui.row([.AlignCross(.Center)], [
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(219, 68, 55)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                    ],
-                    [ui.text(.Const("A"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(15, 157, 88)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.Start, .Px(8)),
-                    ],
-                    [ui.text(.Const("B"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(66, 133, 244)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.Start, .Px(8)),
-                    ],
-                    [ui.text(.Const("C"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(244, 180, 0)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.Start, .Px(8)),
-                    ],
-                    [ui.text(.Const("D"))],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.AlignCross(.Center)])],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(219, 68, 55)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                        ],
+                        children: [ui.text({ content: .Const("A") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(15, 157, 88)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.Start, .Px(8)),
+                        ],
+                        children: [ui.text({ content: .Const("B") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(66, 133, 244)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.Start, .Px(8)),
+                        ],
+                        children: [ui.text({ content: .Const("C") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(244, 180, 0)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.Start, .Px(8)),
+                        ],
+                        children: [ui.text({ content: .Const("D") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "Bleed(.Start, .Px(16)) — half of each one covered",
-            ui.row([.AlignCross(.Center)], [
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(219, 68, 55)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                    ],
-                    [ui.text(.Const("A"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(15, 157, 88)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.Start, .Px(16)),
-                    ],
-                    [ui.text(.Const("B"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(66, 133, 244)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.Start, .Px(16)),
-                    ],
-                    [ui.text(.Const("C"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(244, 180, 0)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.Start, .Px(16)),
-                    ],
-                    [ui.text(.Const("D"))],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.AlignCross(.Center)])],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(219, 68, 55)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                        ],
+                        children: [ui.text({ content: .Const("A") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(15, 157, 88)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.Start, .Px(16)),
+                        ],
+                        children: [ui.text({ content: .Const("B") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(66, 133, 244)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.Start, .Px(16)),
+                        ],
+                        children: [ui.text({ content: .Const("C") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(244, 180, 0)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.Start, .Px(16)),
+                        ],
+                        children: [ui.text({ content: .Const("D") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "Bleed(.End, .Px(8)) on every avatar but the last",
-            ui.row([.AlignCross(.Center)], [
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(219, 68, 55)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.End, .Px(8)),
-                    ],
-                    [ui.text(.Const("A"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(15, 157, 88)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.End, .Px(8)),
-                    ],
-                    [ui.text(.Const("B"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(66, 133, 244)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                        .Bleed(.End, .Px(8)),
-                    ],
-                    [ui.text(.Const("C"))],
-                ),
-                ui.stack(
-                    [
-                        .Width(.Px(32)),
-                        .Height(.Px(32)),
-                        .Radius(.Percent(50.0)),
-                        .Background(.Rgb(244, 180, 0)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .AlignMain(.Center),
-                        .AlignCross(.Center),
-                        .BorderWidth(.Px(2)),
-                        .BorderColor(.Rgb(255, 255, 255)),
-                    ],
-                    [ui.text(.Const("D"))],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.AlignCross(.Center)])],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(219, 68, 55)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.End, .Px(8)),
+                        ],
+                        children: [ui.text({ content: .Const("A") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(15, 157, 88)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.End, .Px(8)),
+                        ],
+                        children: [ui.text({ content: .Const("B") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(66, 133, 244)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                            .Bleed(.End, .Px(8)),
+                        ],
+                        children: [ui.text({ content: .Const("C") })],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(32)),
+                            .Height(.Px(32)),
+                            .Radius(.Percent(50.0)),
+                            .Background(.Rgb(244, 180, 0)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .AlignMain(.Center),
+                            .AlignCross(.Center),
+                            .BorderWidth(.Px(2)),
+                            .BorderColor(.Rgb(255, 255, 255)),
+                        ],
+                        children: [ui.text({ content: .Const("D") })],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -569,134 +661,154 @@ export fn bleedPrimitives<C: Ui>(ctx: C): Node<C> {
     page([
         band(
             "stack",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.stack(
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                    ],
-                    [ui.text(.Const("stack"))],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                        ],
+                        children: [ui.text({ content: .Const("stack") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "heading",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.heading(
-                    2,
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                    ],
-                    .Const("heading"),
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.text({
+                        content: .Const("heading"),
+                        headingLevel: .Some(2),
+                        styles: .Some([
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                        ]),
+                    }),
+                ],
+            }),
         ),
         band(
             "button",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.button(
-                    .Const("button"),
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                    ],
-                    [],
-                    fn(_c, _e) => (),
-                    .Const(false),
-                    .Const(false),
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.button({
+                        label: .Const("button"),
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                        ],
+                        onPress: .Some(fn(_c) => ()),
+                    }),
+                ],
+            }),
         ),
         band(
             "link",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.link(
-                    .Const("/there"),
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                    ],
-                    [ui.text(.Const("link"))],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.link({
+                        dest: .Const("/there"),
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                        ],
+                        children: [ui.text({ content: .Const("link") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "region",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.region(
-                    .ListItem,
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                    ],
-                    [ui.text(.Const("region"))],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                        ],
+                        children: [ui.text({ content: .Const("region") })],
+                        role: .Some(.ListItem),
+                    }),
+                ],
+            }),
         ),
         band(
             "image",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.stack(
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                        .Height(.Px(24)),
-                    ],
-                    [ui.image(.Const("/absent.png"), .Const("absent"), [])],
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                            .Height(.Px(24)),
+                        ],
+                        children: [
+                            ui.image({
+                                source: .Const("/absent.png"),
+                                alt: .AccessibilityText("absent"),
+                                styles: [],
+                            }),
+                        ],
+                    }),
+                ],
+            }),
         ),
         band(
             "field",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.field(
-                    .Const("field"),
-                    .Text,
-                    .Const(""),
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                    ],
-                    [],
-                    typed,
-                    .Const(false),
-                    .Const(false),
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.field({
+                        label: .Const("field"),
+                        kind: .Text,
+                        value: typed,
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                        ],
+                    }),
+                ],
+            }),
         ),
         band(
             "toggle",
-            ui.stack([.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))], [
-                ui.toggle(
-                    .Const("toggle"),
-                    .Checkbox,
-                    [
-                        .Background(.Rgb(40, 40, 200)),
-                        .Foreground(.Rgb(255, 255, 255)),
-                        .Padding(.Px(4)),
-                        .Bleed(.Start, .Px(12)),
-                    ],
-                    [],
-                    ticked,
-                    .Const(false),
-                    .Const(false),
-                ),
-            ]),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Padding(.Px(12))],
+                children: [
+                    ui.toggle({
+                        label: .Const("toggle"),
+                        kind: .Checkbox,
+                        isOn: ticked,
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Foreground(.Rgb(255, 255, 255)),
+                            .Padding(.Px(4)),
+                            .Bleed(.Start, .Px(12)),
+                        ],
+                    }),
+                ],
+            }),
         ),
     ])
 }

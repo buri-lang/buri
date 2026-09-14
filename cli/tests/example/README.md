@@ -214,12 +214,12 @@ from "//lib/ledger" import { Entry, total };
 /// callable from one, and `Cents.parts`, which does not, is.
 fn runningTotal<C>(lines: Signal<[Entry]>): Node<C> {
     card(.Const("Basket"), [
-        ui.text(
-            .Computed(fn(scope) => {
+        ui.text({
+            content: .Computed(fn(scope) => {
                 let both = total(lines.get(scope)).parts();
                 "\$${both.0}.${both.1}"
             }),
-        ),
+        }),
     ])
 }
 ```

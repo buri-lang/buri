@@ -87,9 +87,9 @@ fn allStates(): [Style] {
 
 /// The control, with the base under `extra`.
 fn styled<C>(extra: [Style]): Node<C> {
-    ui.button(
-        .Const("press"),
-        [
+    ui.button({
+        label: .Const("press"),
+        styles: [
             .Padding(.Px(8)),
             .Background(.Rgb(150, 170, 200)),
             .Foreground(.Rgb(24, 24, 24)),
@@ -99,34 +99,28 @@ fn styled<C>(extra: [Style]): Node<C> {
             .Width(.Full),
             .Group(extra),
         ],
-        [],
-        fn(_c, _e) => (),
-        .Const(false),
-        .Const(false),
-    )
+        onPress: .Some(fn(_c) => ()),
+    })
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C>(extra: [Style]): Node<C> {
-    ui.button(
-        .Const("press"),
-        [.Group(extra)],
-        [],
-        fn(_c, _e) => (),
-        .Const(false),
-        .Const(false),
-    )
+    ui.button({
+        label: .Const("press"),
+        styles: [.Group(extra)],
+        onPress: .Some(fn(_c) => ()),
+    })
 }
 
 /// One label cell.
 fn label<C>(text: Str): Node<C> {
-    ui.stack([], [ui.text(.Const(text))])
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(text) })] })
 }
 
 /// One row: a label track, then one cell per column.
 fn grid<C>(cells: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Layout(
                 .Grid([
                     .Fixed(.Px(74)),
@@ -142,8 +136,8 @@ fn grid<C>(cells: [Node<C>]): Node<C> {
             .Gap(.Px(8)),
             .AlignCross(.Start),
         ],
-        cells,
-    )
+        children: cells,
+    })
 }
 
 /// The column names.
@@ -162,15 +156,18 @@ fn headings<C>(): Node<C> {
 
 /// The page: a title and the rows under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }
 
 /// The styled control, answering in one property per column.
@@ -232,7 +229,7 @@ fn bareRestingRow<C>(): Node<C> {
 /// Every element answering to every state, one property to a column.
 export fn responsive<C>(): Node<C> {
     page([
-        ui.text(.Const("button, in every state")),
+        ui.text({ content: .Const("button, in every state") }),
         headings(),
         styledRow(),
         bareRow(),
@@ -243,7 +240,7 @@ export fn responsive<C>(): Node<C> {
 /// whatever state it is painted in.
 export fn resting<C>(): Node<C> {
     page([
-        ui.text(.Const("button, in every state")),
+        ui.text({ content: .Const("button, in every state") }),
         headings(),
         restingRow(),
         bareRestingRow(),

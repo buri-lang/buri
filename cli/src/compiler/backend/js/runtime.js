@@ -3840,16 +3840,21 @@ function $dom_click(node, modified) {
 // the tree opaque, so it is `[kind]`; the kind inside is `[tag, ...payload]`
 // and the tags are the order `ui/node` declares `NodeKind`'s variants in:
 //
-//   0 Nothing   1 Text     2 Heading  3 Stack   4 Region  5 Button  6 Link
-//   7 Image     8 Field    9 Toggle  10 Form   11 When   12 Computed  13 Each
-//  14 Icon     15 Submit   16 Dialog  17 OnPressOutside  18 RouteLink
-//  19 RadioGroup  20 Progress  21 Disclosure
+//   0 Empty    1 Text    2 Heading  3 Stack   4 Region  5 Button  6 Link
+//   7 Image    8 Icon    9 Field   10 Slider 11 Toggle 12 Picker 13 Form
+//  14 Submit  15 Dialog 16 Disclosure 17 Progress 18 When 19 Computed 20 Each
+//  21 Raw     22 Fragment
 //
-// A component runs once. What re-runs is what the last three tags stand for,
-// and each re-runs the smallest thing it can: a `Prop` on a leaf changes one
-// run of text or one attribute; `When` and `Computed` rebuild one subtree; and
-// `Each` moves the rows that are still there and builds only the rows that are
-// not.
+// Every element-producing node ends with an `Events` struct — five optional
+// listeners `$tree_events` wires on — and `Raw` and `Fragment` are the
+// renderer's own, minted by a reactive widget's rebuild rather than by any
+// program.
+//
+// A component runs once. What re-runs is what `When`, `Computed` and `Each`
+// stand for, and each re-runs the smallest thing it can: a `Prop` on a leaf
+// changes one run of text or one attribute; `When` and `Computed` rebuild one
+// subtree; and `Each` moves the rows that are still there and builds only the
+// rows that are not.
 
 // Meaning, lowered. Each entry is an element name followed by attribute
 // name-and-value pairs — the `role=` fallback of design/ui-reactivity.md, used
@@ -3876,8 +3881,9 @@ const $TREE_ROLES = [
 ];
 
 // `FieldKind`, lowered. `Multiline` is a `textarea` and has no type; the entry
-// keeps the arrays the same shape. `Range` carries min, max and step, so the
-// whole enum is `[tag, ...payload]` and a kind is read one unwrap in.
+// keeps the arrays the same shape. No variant carries a payload any more — a
+// number picked off a track is the `slider` widget — so the enum lowers to a
+// bare tag and a kind is read with no unwrap.
 const $TREE_FIELD_KINDS = [
   "text",
   "text",
@@ -3885,7 +3891,6 @@ const $TREE_FIELD_KINDS = [
   "email",
   "number",
   "search",
-  "range",
 ];
 
 const $TREE_WEIGHTS = ["400", "500", "600", "700"];
@@ -4708,6 +4713,8 @@ function $tree_artwork_tags(source) {
   }
 }
 
+// Answers the `<svg>` root it built, so the caller can wire a listener onto the
+// drawing itself, and `null` when the source held no drawable root at all.
 function $tree_icon(parent, styles, source, anchor) {
   const stack = [];
   let root = null;
@@ -4715,7 +4722,7 @@ function $tree_icon(parent, styles, source, anchor) {
     if (tag[2]) {
       stack.pop();
       // Everything after the root's closing tag is outside the artwork.
-      if (stack.length === 0) return;
+      if (stack.length === 0) return root;
       continue;
     }
     if ($TREE_ARTWORK.indexOf(tag[0]) < 0) continue;
@@ -4736,7 +4743,55 @@ function $tree_icon(parent, styles, source, anchor) {
       $tree_styles(element, styles);
     }
     if (!tag[3]) stack.push(element);
-    if (tag[3] && stack.length === 0) return;
+    if (tag[3] && stack.length === 0) return root;
+  }
+  return root;
+}
+
+// The five generic listeners a node may carry, wired onto its element. `events`
+// is the `Events` struct every element-producing node ends with — an array of
+// five `Option<fn>`, each the handler itself or `undefined` — so a node that
+// listens for nothing registers nothing. Every side-effecting call runs inside
+// one transaction, the rule a press already follows: a handler that writes three
+// signals causes one pass over the watchers rather than three.
+function $tree_events(ctx, element, events) {
+  const onHover = events[0];
+  if (onHover !== undefined) {
+    // Pointer enter is `true`, leave is `false` — the two edges of a hover.
+    $dom_listen(element, "mouseenter", () => $ui_flush(() => onHover(ctx, true)));
+    $dom_listen(element, "mouseleave", () => $ui_flush(() => onHover(ctx, false)));
+  }
+  const onFocus = events[1];
+  if (onFocus !== undefined) {
+    // `focusin`/`focusout` rather than `focus`/`blur`, so focus moving *within*
+    // the subtree is one thing gaining focus rather than a leave and an enter.
+    $dom_listen(element, "focusin", () => $ui_flush(() => onFocus(ctx, true)));
+    $dom_listen(element, "focusout", () => $ui_flush(() => onFocus(ctx, false)));
+  }
+  const onScroll = events[2];
+  if (onScroll !== undefined) {
+    // A `ScrollOffset` is the struct `{x, y}`, so an array of the two.
+    $dom_listen(element, "scroll", () =>
+      $ui_flush(() => onScroll(ctx, [element.scrollLeft, element.scrollTop])),
+    );
+  }
+  const onKey = events[3];
+  if (onKey !== undefined) {
+    $dom_listen(element, "keydown", (event) => $ui_flush(() => onKey(ctx, event.key)));
+  }
+  const onPressOutside = events[4];
+  if (onPressOutside !== undefined) {
+    // The mechanism the old `onPressOutside` widget used: a document-level press
+    // whose target is not inside this element fires the handler. Registered
+    // while the subtree is mounted and let go when it is disposed, so a wrapper
+    // inside a `choose` that shuts leaves no listener on the document. The
+    // handler is `fn(C)` — no event — so it takes only the context.
+    const onDown = (event) => {
+      const target = event ? event.target : null;
+      if (target !== null && target !== undefined && $dom_within(element, target)) return;
+      $ui_flush(() => onPressOutside(ctx));
+    };
+    $ui_dispose_with($dom_outside(element, onDown));
   }
 }
 
@@ -4749,8 +4804,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   const node = wrapper[0];
   const tag = node[0];
   if (tag === 0) {
-    // Nothing: no element, no text, no place held. A `when` that answers this
-    // is a `when` whose region is empty, and its own markers hold the place.
+    // Empty: no element, no text, no place held. A `when` that answers this is
+    // a `when` whose region is empty, and its own markers hold the place.
     return;
   }
   if (tag === 1) {
@@ -4769,7 +4824,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     return;
   }
   if (tag === 3) {
-    $tree_children(ctx, $tree_element(parent, "div", anchor), node[1], node[2]);
+    const element = $tree_element(parent, "div", anchor);
+    $tree_children(ctx, element, node[1], node[2]);
+    $tree_events(ctx, element, node[3]);
     return;
   }
   if (tag === 4) {
@@ -4777,6 +4834,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const element = $tree_element(parent, role[0], anchor);
     for (let i = 1; i + 1 < role.length; i += 2) $dom_attribute(element, role[i], role[i + 1]);
     $tree_children(ctx, element, node[2], node[3]);
+    $tree_events(ctx, element, node[4]);
     return;
   }
   if (tag === 5) {
@@ -4789,6 +4847,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // an attribute rather than the glyphs: a button holding an icon and a word
     // is still announced as the one thing the program named it.
     $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
+    // The styles go through `$tree_styles`, the same reactive path `stack`
+    // reaches through `$tree_children` (issue #164): a `.When`/`.Computed` class
+    // swap on a button is watched and updates live rather than being applied
+    // once.
     $tree_styles(element, node[2]);
     const children = node[3];
     // A button with no children shows its label. That is the only place the
@@ -4800,31 +4862,87 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // whether it is open. Written only when it is `true`, the way `aria-invalid`
     // is: an ordinary button expands nothing and carries none of it.
     $tree_bind(node[6], (expanded) => $dom_flag(element, "aria-expanded", expanded));
+    // A button that marks the current page, step or item says so, written only
+    // when it is `true`, the way `aria-expanded` is.
+    $tree_bind(node[7], (current) => $dom_flag(element, "aria-current", current));
     const onPress = node[4];
     $dom_listen(element, "click", () =>
       // One transaction, so that a handler which writes three signals causes
       // one pass over the watchers rather than three.
       $ui_flush(() => onPress(ctx, [0])),
     );
+    $tree_events(ctx, element, node[8]);
     return;
   }
   if (tag === 6) {
     const element = $tree_element(parent, "a", anchor);
-    $tree_bind(node[1], (dest) => $dom_attribute(element, "href", dest));
+    // `onFollow` is an `Option<fn>`: `undefined` is a plain anchor the browser
+    // owns, and a handler is a `routeLink` — the same `<a href>`, so a reader
+    // gets the middle-click, the ⌘-click, "open in new tab", the status-bar
+    // preview and the "link", but a plain left-click runs the handler in place
+    // of the browser's own navigation.
+    const onFollow = node[4];
+    if (onFollow === undefined) {
+      $tree_bind(node[1], (dest) => $dom_attribute(element, "href", dest));
+    } else {
+      // The href a browser follows, kept so the plain-click handler navigates to
+      // the same address the reader sees in the status bar. `.Cell` and
+      // `.Computed` re-run this, so it is always what the anchor points at now.
+      let dest = "";
+      $tree_bind(node[1], (to) => {
+        dest = to;
+        $dom_attribute(element, "href", to);
+      });
+      // A real anchor, so the browser keeps middle-click, ⌘-click, "open in new
+      // tab", the status bar and the reader's "link". Only a plain left-click is
+      // the app's: a modified click — the middle button, or ⌘/Ctrl/Shift/Alt
+      // with the left one — falls through to the anchor the browser already has,
+      // and one another listener already handled is left alone.
+      $dom_listen(element, "click", (event) => {
+        if (event.defaultPrevented) return;
+        if (event.button !== undefined && event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        // One transaction, the way a press is.
+        $ui_flush(() => onFollow(ctx, dest));
+      });
+    }
+    // Styles and children the reactive way `stack` does them (issue #164), so a
+    // `.When`/`.Computed` class swap on a link — plain or routing — updates live.
     $tree_children(ctx, element, node[2], node[3]);
+    // The current page, written only when it is `true`, the way a button's is.
+    $tree_bind(node[5], (current) => $dom_flag(element, "aria-current", current));
+    $tree_events(ctx, element, node[6]);
     return;
   }
   if (tag === 7) {
     const element = $tree_element(parent, "img", anchor);
     $tree_bind(node[1], (source) => $dom_attribute(element, "src", source));
-    $tree_bind(node[2], (alt) => $dom_attribute(element, "alt", alt));
+    // `alt` is a plain string here rather than a `Prop`, so it is written once:
+    // an image's text does not change under it the way a label does.
+    $dom_attribute(element, "alt", node[2]);
     // The styles are the picture's rather than a box's around it: sizing a
     // picture, cropping it and rounding it are things only the picture can be
     // told.
     $tree_styles(element, node[3]);
+    $tree_events(ctx, element, node[4]);
     return;
   }
   if (tag === 8) {
+    if ($tree_icon_hook === null) {
+      // The compiler said no tree here holds artwork, so it left the renderer
+      // out of the artifact. Reaching this is that decision being wrong, and
+      // saying so beats a `TypeError` about `null`.
+      $abort("an icon was rendered in a program that was said to have none");
+    }
+    // The artwork string and its styles, lowered through the icon hole. The
+    // hook answers the `<svg>` root it built, so a listener wires onto the
+    // drawing itself.
+    const element = $tree_icon_hook(parent, node[1], node[2], anchor);
+    if (element !== null && element !== undefined) $tree_events(ctx, element, node[3]);
+    return;
+  }
+  if (tag === 9) {
     // The label wraps the field rather than pointing at it by an identifier,
     // which is what makes the pair correct with nothing generated: there is no
     // identifier to collide, and no way to render a field whose label is
@@ -4834,25 +4952,15 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // lays out and nothing on the input can reach it.
     $tree_styles(wrapper, node[5]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
-    const kind = node[2][0];
+    // `FieldKind` carries no payload any more, so it lowers to a bare tag rather
+    // than an array — read it with no unwrap.
+    const kind = node[2];
     const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
     if (kind !== 1) $dom_attribute(element, "type", $TREE_FIELD_KINDS[kind]);
-    // A range says what it runs between and in what steps, and the browser
-    // gives back the thumb, the drag, the arrow and Home/End keys, and the
-    // `role="slider"` announcement with its three `aria-value*`. There is
-    // nothing here to draw, listen to or announce for itself.
-    if (kind === 6) {
-      $dom_attribute(element, "min", $f64(node[2][1]));
-      $dom_attribute(element, "max", $f64(node[2][2]));
-      $dom_attribute(element, "step", $f64(node[2][3]));
-    } else {
-      // The hint inside the empty box. `placeholder` is announced after the
-      // accessible name rather than instead of it, which is why the label
-      // beside it is still required — and it reaches the kinds that hold text
-      // and no others, so a slider is handed none rather than one a browser
-      // would drop.
-      $tree_bind(node[3], (hint) => $dom_optional(element, "placeholder", hint));
-    }
+    // The hint inside the empty box. `placeholder` is announced after the
+    // accessible name rather than instead of it, which is why the label beside
+    // it is still required.
+    $tree_bind(node[3], (hint) => $dom_optional(element, "placeholder", hint));
     // Failing validation is announced as well as painted, and the attribute is
     // both: a reader hears it, and `On(.Invalid, …)` is a rule about it.
     $tree_bind(node[7], (invalid) => $dom_flag(element, "aria-invalid", invalid));
@@ -4866,9 +4974,41 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       if (element.value !== value) element.value = value;
     });
     $dom_listen(element, "input", () => $ui_flush(() => $ui_write(cell, element.value)));
+    $tree_events(ctx, wrapper, node[9]);
     return;
   }
-  if (tag === 9) {
+  if (tag === 10) {
+    // A slider is a `<label>` wrapping its name and a `<input type=range>`. The
+    // browser gives back the thumb, the drag, the arrow and Home/End keys, and
+    // the `role="slider"` announcement with its `aria-valuenow`, `aria-valuemin`
+    // and `aria-valuemax` — there is nothing here to draw or announce for
+    // itself.
+    const wrapper = $tree_element(parent, "label", anchor);
+    $tree_text(node[1], $tree_element(wrapper, "span", null), null);
+    const element = $tree_element(wrapper, "input", null);
+    $dom_attribute(element, "type", "range");
+    // The track's bounds, which a reader is told it is dragging inside.
+    $dom_attribute(element, "min", $f64(node[3]));
+    $dom_attribute(element, "max", $f64(node[4]));
+    // `step` is an `Option<Float>`: `undefined` leaves the browser's default of
+    // one, and a number sets the size of a move.
+    const step = node[5];
+    if (step !== undefined) $dom_attribute(element, "step", $f64(step));
+    $tree_styles(element, node[6]);
+    $tree_disabled(element, node[7]);
+    // The signal holds a `Float`, and the control's `value` is a string, so this
+    // boundary is the one place a number is coerced across — `String` out and
+    // `Number` back in.
+    const cell = node[2][0];
+    $tree_bind([1, node[2]], (value) => {
+      const text = String(value);
+      if (element.value !== text) element.value = text;
+    });
+    $dom_listen(element, "input", () => $ui_flush(() => $ui_write(cell, Number(element.value))));
+    $tree_events(ctx, wrapper, node[8]);
+    return;
+  }
+  if (tag === 11) {
     const wrapper = $tree_element(parent, "label", anchor);
     $tree_styles(wrapper, node[4]);
     const element = $tree_element(wrapper, "input", null);
@@ -4887,9 +5027,57 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       element.checked = value;
     });
     $dom_listen(element, "change", () => $ui_flush(() => $ui_write(cell, element.checked)));
+    $tree_events(ctx, wrapper, node[8]);
     return;
   }
-  if (tag === 10) {
+  if (tag === 12) {
+    // The group carries `role="radiogroup"` and its own accessible name; the
+    // caller's styles land on it, the box a surrounding row lays out. Its
+    // options are the real inputs — the whole point, since a stack of buttons
+    // gets none of the browser's model.
+    const group = $tree_element(parent, "div", anchor);
+    $dom_attribute(group, "role", "radiogroup");
+    $tree_bind(node[1], (label) => $dom_attribute(group, "aria-label", label));
+    $tree_styles(group, node[3]);
+    // `style` (Radio, Segmented, Menu, Dropdown) is carried but not yet drawn
+    // apart: every choice style renders as the accessible radio model for now —
+    // one tab stop, one selected key, the arrow keys, Space and `aria-checked`
+    // the browser gives a `role="radiogroup"` of radios. A segmented or menu
+    // look is a later pass, not something invented here.
+    const name = "buri-radio-" + $tree_radio_groups++;
+    const cell = node[4][0];
+    const disabled = node[6];
+    for (const option of node[2]) {
+      const key = option[0];
+      const wrapper = $tree_element(group, "label", null);
+      const input = $tree_element(wrapper, "input", null);
+      $dom_attribute(input, "type", "radio");
+      $dom_attribute(input, "name", name);
+      // The key is the input's `value`, and what the signal holds when this is
+      // the one picked.
+      $dom_attribute(input, "value", key);
+      // The caption is a node now rather than a run of text, so it is rendered
+      // as one: an option may be a word, an icon and a word, or any tree.
+      $tree_render(ctx, option[1], wrapper, null);
+      // A disabled group refuses each option: the attribute takes the input out
+      // of the tab order and refuses the press, written only when it is `true`.
+      $tree_disabled(input, disabled);
+      // Checked is the signal: the input whose key equals what it holds. A key
+      // no option carries checks none of them, which is an unset group.
+      $tree_bind([1, node[4]], (selected) => {
+        input.checked = selected === key;
+      });
+      // Picking one writes its key back. A radio fires `change` only on its way
+      // to checked, so this reads the key rather than a boolean, and never
+      // writes the signal back to what it already is.
+      $dom_listen(input, "change", () => {
+        if (input.checked) $ui_flush(() => $ui_write(cell, key));
+      });
+    }
+    $tree_events(ctx, group, node[7]);
+    return;
+  }
+  if (tag === 13) {
     const element = $tree_element(parent, "form", anchor);
     const onSubmit = node[1];
     $dom_listen(element, "submit", (event) => {
@@ -4899,25 +5087,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       $ui_flush(() => onSubmit(ctx, [0]));
     });
     $tree_children(ctx, element, node[2], node[3]);
+    $tree_events(ctx, element, node[4]);
     return;
   }
-  if (tag === 11) {
-    const cond = node[1];
-    const then = node[2];
-    const otherwise = node[3];
-    $tree_dynamic(ctx, parent, anchor, (scope) => ($tree_value(cond, scope) ? then : otherwise));
-    return;
-  }
-  if (tag === 12) {
-    const build = node[1];
-    $tree_dynamic(ctx, parent, anchor, (scope) => build(scope));
-    return;
-  }
-  if (tag === 13) {
-    $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
-    return;
-  }
-  if (tag === 15) {
+  if (tag === 14) {
     const element = $tree_element(parent, "button", anchor);
     // The form's action. This attribute is the whole of what makes Enter in a
     // field submit: HTML submits a form implicitly through its submit button,
@@ -4928,9 +5101,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
     $tree_styles(element, node[2]);
     $tree_text(node[1], element, null);
+    $tree_events(ctx, element, node[3]);
     return;
   }
-  if (tag === 16) {
+  if (tag === 15) {
     const element = $tree_element(parent, "dialog", anchor);
     // The label is the accessible name however the panel is drawn, the rule a
     // button's label follows: a reader is announced into the dialog by what it
@@ -4938,6 +5112,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_bind(node[2], (label) => $dom_attribute(element, "aria-label", label));
     $tree_styles(element, node[3]);
     for (const child of node[4]) $tree_render(ctx, child, element, null);
+    // `scrimStyles` (node[5]) style the scrim behind the panel. A real
+    // `<dialog>` draws its scrim as `::backdrop`, which no inline class on the
+    // element can reach and for which this renderer mints no element of its own,
+    // so they are left unrendered here for now. The native painter and the
+    // snapshot honour them — there the scrim is the widget's own box, drawn from
+    // these styles (see `ui/node`'s `describe`).
     const cell = node[1][0];
     // Whether the shutting is ours or the reader's. `close()` fires the same
     // event either way, and only the reader's is news to the signal.
@@ -4953,114 +5133,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $dom_listen(element, "close", () => {
       if (!ours) $ui_flush(() => $ui_write(cell, false));
     });
+    $tree_events(ctx, element, node[6]);
     return;
   }
-  if (tag === 17) {
-    // A bare wrapper, so its element and its children are a stack's. What it
-    // adds is a document-level listener: a press whose target is not inside
-    // this element is a press outside the subtree, and the handler runs on one.
-    const element = $tree_element(parent, "div", anchor);
-    $tree_children(ctx, element, node[2], node[3]);
-    const handler = node[1];
-    const onDown = (event) => {
-      const target = event ? event.target : null;
-      if (target !== null && target !== undefined && $dom_within(element, target)) return;
-      // One transaction, the rule every handler runs under: a dismissal that
-      // writes three signals is one pass over the watchers.
-      $ui_flush(() => handler(ctx, [0]));
-    };
-    // Registered while the subtree is mounted and let go when it is disposed,
-    // so a wrapper inside a `choose` that shuts leaves no listener on the
-    // document. Outside any region — a top-level mount — there is nothing to
-    // dispose it, which is the page's own listeners going on running.
-    $ui_dispose_with($dom_outside(element, onDown));
-    return;
-  }
-  if (tag === 18) {
-    const element = $tree_element(parent, "a", anchor);
-    // The href a browser follows, kept so the plain-click handler can navigate
-    // to the same address the reader sees in the status bar. `.Cell` and
-    // `.Computed` re-run this, so it is always what the anchor points at now.
-    let dest = "";
-    $tree_bind(node[1], (to) => {
-      dest = to;
-      $dom_attribute(element, "href", to);
-    });
-    $tree_children(ctx, element, node[2], node[3]);
-    const onFollow = node[4];
-    // A real anchor, so the browser keeps middle-click, ⌘-click, "open in new
-    // tab", the status bar and the reader's "link". Only a plain left-click is
-    // the app's: a modified click — the middle button, or ⌘/Ctrl/Shift/Alt with
-    // the left one — falls through to the anchor the browser already has, and
-    // one another listener already handled is left alone.
-    $dom_listen(element, "click", (event) => {
-      if (event.defaultPrevented) return;
-      if (event.button !== undefined && event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      // One transaction, the way a press is, so a handler that writes three
-      // signals causes one pass over the watchers rather than three.
-      $ui_flush(() => onFollow(ctx, dest));
-    });
-    return;
-  }
-  if (tag === 19) {
-    // The group carries `role="radiogroup"` and its own accessible name; the
-    // caller's styles land on it, the box a surrounding row lays out. Its
-    // options are the real inputs — the whole point, since a stack of buttons
-    // gets none of the browser's model.
-    const group = $tree_element(parent, "div", anchor);
-    $dom_attribute(group, "role", "radiogroup");
-    $tree_bind(node[1], (label) => $dom_attribute(group, "aria-label", label));
-    $tree_styles(group, node[3]);
-    // One `name` for the group is the whole of what hands the browser the
-    // model: the roving `tabindex`, the arrow keys that move and select, Space
-    // to select, and `aria-checked`. It has to be unique, so a counter is it.
-    const name = "buri-radio-" + $tree_radio_groups++;
-    const cell = node[4][0];
-    for (const option of node[2]) {
-      const key = option[0];
-      const wrapper = $tree_element(group, "label", null);
-      const input = $tree_element(wrapper, "input", null);
-      $dom_attribute(input, "type", "radio");
-      $dom_attribute(input, "name", name);
-      // The key is the input's `value`, and what the signal holds when this is
-      // the one picked.
-      $dom_attribute(input, "value", key);
-      $tree_text(option[1], $tree_element(wrapper, "span", null), null);
-      // Checked is the signal: the input whose key equals what it holds. A key
-      // no option carries checks none of them, which is an unset group.
-      $tree_bind([1, node[4]], (selected) => {
-        input.checked = selected === key;
-      });
-      // Picking one writes its key back. A radio fires `change` only on its way
-      // to checked, so this reads the key rather than a boolean, and never
-      // writes the signal back to what it already is.
-      $dom_listen(input, "change", () => {
-        if (input.checked) $ui_flush(() => $ui_write(cell, key));
-      });
-    }
-    return;
-  }
-  if (tag === 20) {
-    // A progress bar. The role and the three `aria-value*` are the whole of
-    // what a widget adds over the nested boxes a program drew before: a reader
-    // is told it is a progress bar, what it measures, and how far along it is.
-    const element = $tree_element(parent, "div", anchor);
-    $dom_attribute(element, "role", "progressbar");
-    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
-    // `value` is a fraction; `aria-valuenow` is the whole number of hundredths
-    // it stands for, out of the hundred `min` and `max` name.
-    $tree_bind(node[2], (value) =>
-      $dom_attribute(element, "aria-valuenow", String(Math.round(value * 100))),
-    );
-    $dom_attribute(element, "aria-valuemin", "0");
-    $dom_attribute(element, "aria-valuemax", "100");
-    // The fill is the caller's own children, drawn inside the bar.
-    $tree_children(ctx, element, node[3], node[4]);
-    return;
-  }
-  if (tag === 21) {
+  if (tag === 16) {
     // A disclosure. `<details>` is the open-and-shut state, the toggle keys and
     // the announcement, all the browser's own; `<summary>` is the row that
     // opens it and the one thing shown when it is shut.
@@ -5084,15 +5160,68 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $dom_listen(element, "toggle", () => {
       if (!ours) $ui_flush(() => $ui_write(cell, element.open));
     });
+    $tree_events(ctx, element, node[5]);
     return;
   }
-  if ($tree_icon_hook === null) {
-    // The compiler said no tree here holds artwork, so it left the renderer
-    // out of the artifact. Reaching this is that decision being wrong, and
-    // saying so beats a `TypeError` about `null`.
-    $abort("an icon was rendered in a program that was said to have none");
+  if (tag === 17) {
+    // A progress bar. The role and the three `aria-value*` are the whole of
+    // what a widget adds over the nested boxes a program drew before: a reader
+    // is told it is a progress bar, what it measures, and how far along it is.
+    const element = $tree_element(parent, "div", anchor);
+    $dom_attribute(element, "role", "progressbar");
+    $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
+    $dom_attribute(element, "aria-valuemin", "0");
+    $dom_attribute(element, "aria-valuemax", "100");
+    // `value` is an `Option<Prop<Float>>`. A prop is a determinate bar whose
+    // `aria-valuenow` is the whole number of hundredths it stands for, out of
+    // the hundred `min` and `max` name. `undefined` is an indeterminate bar: it
+    // carries no `aria-valuenow` at all, which is how a reader is told the
+    // progress is not yet known — a spinner.
+    const value = node[2];
+    if (value !== undefined) {
+      $tree_bind(value, (v) =>
+        $dom_attribute(element, "aria-valuenow", String(Math.round(v * 100))),
+      );
+    }
+    // The fill is the caller's own children, drawn inside the bar.
+    $tree_children(ctx, element, node[3], node[4]);
+    $tree_events(ctx, element, node[5]);
+    return;
   }
-  $tree_icon_hook(parent, node[1], node[2], anchor);
+  if (tag === 18) {
+    const cond = node[1];
+    const then = node[2];
+    const otherwise = node[3];
+    $tree_dynamic(ctx, parent, anchor, (scope) => ($tree_value(cond, scope) ? then : otherwise));
+    return;
+  }
+  if (tag === 19) {
+    const build = node[1];
+    $tree_dynamic(ctx, parent, anchor, (scope) => build(scope));
+    return;
+  }
+  if (tag === 20) {
+    $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
+    return;
+  }
+  if (tag === 21) {
+    // Renderer-internal: an element of an arbitrary name with a stack's styles
+    // and children. Nothing a program builds is a `Raw`; a reactive widget's
+    // rebuild through `$tree_dynamic` is.
+    const element = $tree_element(parent, node[1], anchor);
+    $tree_children(ctx, element, node[2], node[3]);
+    return;
+  }
+  if (tag === 22) {
+    // Renderer-internal: several children with no element of their own, shown
+    // directly under their parent — a disclosure's body is the one that reaches
+    // here.
+    for (const child of node[1]) $tree_render(ctx, child, parent, anchor);
+    return;
+  }
+  // Every tag the vocabulary has an arm above. Reaching here is a node carrying
+  // one the renderer does not, which beats a `TypeError` about `node` shape.
+  $abort("a node carried a tag the renderer has no arm for: " + tag);
 }
 
 // `ui/node`'s one operation with a body in the runtime. Everything else in that

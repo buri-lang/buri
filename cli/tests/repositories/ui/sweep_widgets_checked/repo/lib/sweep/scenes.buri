@@ -66,31 +66,28 @@ fn base(extra: [Style]): [Style] {
 /// be read the wrong way round.
 fn switch<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
     let name = if (on) { "on" } else { "off" };
-    ui.toggle(
-        .Const(name),
-        .Switch,
-        base(extra),
-        [],
-        signal.signal(ctx, on),
-        .Const(false),
-        .Const(false),
-    )
+    ui.toggle({
+        label: .Const(name),
+        kind: .Switch,
+        isOn: signal.signal(ctx, on),
+        styles: base(extra),
+    })
 }
 
 /// A plain box carrying the same `On(.Checked, ...)`. Nothing but a toggle
 /// answers for `:checked`, so this one is still the snapshot's to decide — and
 /// that is the difference the two pictures are taken to show.
 fn box<C>(extra: [Style]): Node<C> {
-    ui.stack(base(extra), [])
+    ui.stack({ styles: base(extra), children: [] })
 }
 
 fn label<C>(text: Str): Node<C> {
-    ui.stack([], [ui.text(.Const(text))])
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(text) })] })
 }
 
 fn row<C>(cells: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Layout(
                 .Grid([
                     .Fixed(.Px(84)),
@@ -105,8 +102,8 @@ fn row<C>(cells: [Node<C>]): Node<C> {
             .Gap(.Px(8)),
             .AlignCross(.Start),
         ],
-        cells,
-    )
+        children: cells,
+    })
 }
 
 fn headings<C>(): Node<C> {
@@ -122,15 +119,18 @@ fn headings<C>(): Node<C> {
 }
 
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }
 
 /// One row of switches, all bound the same way.
@@ -163,7 +163,7 @@ fn boxes<C>(): Node<C> {
 /// by side, and a plain box under them.
 export fn mixedPage<C: Ui>(ctx: C): Node<C> {
     page([
-        ui.text(.Const("checked, from the control's own value")),
+        ui.text({ content: .Const("checked, from the control's own value") }),
         headings(),
         switches(ctx, "off", false),
         switches(ctx, "on", true),

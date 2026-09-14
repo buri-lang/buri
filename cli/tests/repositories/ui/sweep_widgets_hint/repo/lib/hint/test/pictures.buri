@@ -24,18 +24,18 @@ test "which kinds draw a hint" {
         Ui: headless(),
     };
     let typed = signal(ctx, "");
-    let line = ui.field(
-        .Const("Search"),
-        .Search,
-        .Const("Type a command"),
-        [],
-        [],
-        typed,
-        .Const(false),
-        .Const(false),
-    );
     assert.containsText(
-        ui.describe(ctx, line, .Hover),
+        ui.describe(
+            ctx,
+            ui.field({
+                label: .Const("Search"),
+                kind: .Search,
+                value: typed,
+                styles: [],
+                hint: .Some(.Const("Type a command")),
+            }),
+            .Hover,
+        ),
         "field:search;placeholder:Type a command",
     );
     // The declaration stays once there is a value, the way the attribute stays
@@ -43,21 +43,36 @@ test "which kinds draw a hint" {
     // is the second band of the picture.
     let _ = typed.set(ctx, "Ada");
     assert.containsText(
-        ui.describe(ctx, line, .Hover),
+        ui.describe(
+            ctx,
+            ui.field({
+                label: .Const("Search"),
+                kind: .Search,
+                value: typed,
+                styles: [],
+                hint: .Some(.Const("Type a command")),
+            }),
+            .Hover,
+        ),
         "field:search;placeholder:Type a command",
     );
     // A slider has no box to put a word in, so it carries none at all.
-    let slider = ui.field(
-        .Const("Volume"),
-        .Range(0.0, 100.0, 1.0),
-        .Const("Type a command"),
-        [],
-        [],
-        signal(ctx, "40"),
-        .Const(false),
-        .Const(false),
+    assert.isFalse(
+        ui
+            .describe(
+                ctx,
+                ui.slider({
+                    label: .Const("Volume"),
+                    value: signal(ctx, 40.0),
+                    min: 0.0,
+                    max: 100.0,
+                    styles: [],
+                    step: .Some(1.0),
+                }),
+                .Hover,
+            )
+            .contains("placeholder"),
     );
-    assert.isFalse(ui.describe(ctx, slider, .Hover).contains("placeholder"));
     snapshot(ctx, "hint-kinds", kindsPage(ctx), .Hover, []);
 }
 
@@ -67,17 +82,20 @@ test "what paints a hint" {
         Ui: headless(),
     };
     // No hint is no declaration, rather than a declaration saying nothing.
-    let unhinted = ui.field(
-        .Const("Search"),
-        .Text,
-        .Const(""),
-        [],
-        [],
-        signal(ctx, ""),
-        .Const(false),
-        .Const(false),
+    assert.isFalse(
+        ui
+            .describe(
+                ctx,
+                ui.field({
+                    label: .Const("Search"),
+                    kind: .Text,
+                    value: signal(ctx, ""),
+                    styles: [],
+                }),
+                .Hover,
+            )
+            .contains("placeholder"),
     );
-    assert.isFalse(ui.describe(ctx, unhinted, .Hover).contains("placeholder"));
     snapshot(ctx, "hint-paint", paintPage(ctx), .Hover, []);
 }
 

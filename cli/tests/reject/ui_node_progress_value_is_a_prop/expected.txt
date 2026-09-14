@@ -1,8 +1,8 @@
 error: expected `Prop<F64>`, found `Float` [type-mismatch]
-  --> cmd/ui_node_progress_value_is_a_prop/main.buri:15:48
+  --> cmd/ui_node_progress_value_is_a_prop/main.buri:15:82
    |
-15 |   ui.mount(ctx, ui.progress(.Const("Loading"), 0.5, [], []), [])
-   |                                                ^^^ the parameter type is `Prop<F64>`
+15 |   ui.mount(ctx, ui.progress({ label: .Const("Loading"), styles: [], value: .Some(0.5) }), [])
+   |                                                                                  ^^^ the parameter type is `Prop<F64>`
    |
    = expected: `Prop<F64>`
    = actual: `Float`

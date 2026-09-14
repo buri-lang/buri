@@ -11,5 +11,5 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([.Translate(0, 1)], []), [])
+  ui.mount(ctx, ui.stack({ styles: [.Translate(0, 1)], children: [] }), [])
 }

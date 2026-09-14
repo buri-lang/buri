@@ -147,7 +147,7 @@ impl Rendered {
     /// is not dispatched to, so the handler behind it cannot run. Both are a
     /// control this found and refused, not a control it could not find.
     ///
-    /// Pressing a `ui.submit` submits the form around it, which is the
+    /// Pressing a `.Submit` button submits the form around it, which is the
     /// browser's own default action for the press rather than a handler the
     /// button carries.
     ///
@@ -192,7 +192,7 @@ impl Rendered {
     /// its fields does.
     ///
     /// Implicit submission is the platform's rule, so this follows it: a form
-    /// is submitted through its `ui.submit`, and a form with none is submitted
+    /// is submitted through its `.Submit` button, and a form with none is submitted
     /// only while exactly one of its fields blocks implicit submission. A form
     /// of two fields ending in an ordinary `button` is left alone, because that
     /// is what a browser does with the keypress. A double that submitted it

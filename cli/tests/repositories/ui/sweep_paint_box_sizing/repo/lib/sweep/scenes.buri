@@ -90,32 +90,47 @@ export fn heightPage<C>(): Node<C> {
 
 /// One picture: a column of bands on a pale ground.
 fn page<C>(bands: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Gap(.Px(8)),
-            .Padding(.Px(12)),
-            .Background(.Rgb(238, 238, 242)),
-            .Foreground(.Rgb(20, 20, 20)),
-            .FontSize(.Px(11)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Gap(.Px(8)),
+                .Padding(.Px(12)),
+                .Background(.Rgb(238, 238, 242)),
+                .Foreground(.Rgb(20, 20, 20)),
+                .FontSize(.Px(11)),
+            ]),
         ],
-        bands,
-    )
+        children: bands,
+    })
 }
 
 /// One question's band: its name, then a cell per answer.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.stack([.Padding(.Px(4))], [
-        ui.text(.Const(name)),
-        ui.row([.Gap(.Px(14)), .AlignCross(.Start), .PaddingY(.Px(6))], cells),
-    ])
+    ui.stack({
+        styles: [.Padding(.Px(4))],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [
+                    .Layout(.Row),
+                    .Group([.Gap(.Px(14)), .AlignCross(.Start), .PaddingY(.Px(6))]),
+                ],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// One answer: its label, and the frame carrying it.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.column([.Width(.Px(184)), .Gap(.Px(4)), .AlignCross(.Start)], [
-        ui.text(.Const(label)),
-        inner,
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(184)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [ui.text({ content: .Const(label) }), inner],
+    })
 }
 
 /// The subject: a grey frame of a known width with one blue box inside it.
@@ -125,18 +140,22 @@ fn cell<C>(label: Str, inner: Node<C>): Node<C> {
 /// to the right of the grey is a box that measured its content rather than
 /// itself.
 fn framed<C>(styles: [Style]): Node<C> {
-    ui.stack(
-        [.Width(.Px(FRAME)), .PaddingY(.Px(8)), .Background(.Rgb(150, 152, 158))],
-        [
-            ui.stack(
-                [
+    ui.stack({
+        styles: [
+            .Width(.Px(FRAME)),
+            .PaddingY(.Px(8)),
+            .Background(.Rgb(150, 152, 158)),
+        ],
+        children: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(40, 90, 200)),
                     .Foreground(.Rgb(255, 255, 255)),
                     .BorderColor(.Rgb(250, 200, 40)),
                     .Group(styles),
                 ],
-                [ui.text(.Const("Ada"))],
-            ),
+                children: [ui.text({ content: .Const("Ada") })],
+            }),
         ],
-    )
+    })
 }

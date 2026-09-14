@@ -15,7 +15,11 @@ from "ui/node" import { Node };
 from "ui/web" import * as web;
 
 fn page<C>(): Node<C> {
-    ui.region(.Main, [], [ui.text(.Const("both halves, one tree"))])
+    ui.stack({
+        styles: [],
+        role: .Some(.Main),
+        children: [ui.text({ content: .Const("both halves, one tree") })],
+    })
 }
 
 export fn main(): Result<(), Str> {

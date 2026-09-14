@@ -99,28 +99,31 @@ const COLOR_FADED: usize = 5;
 // element a browser paints chrome on are named here.
 const NODE_HEADING: usize = 2;
 const NODE_BUTTON: usize = 5;
+/// An `<a>`. `link` and `routeLink` are one variant now — the anchor a route
+/// link renders is a link's — so this one index carries the anchor reset for
+/// both.
 const NODE_LINK: usize = 6;
-const NODE_FIELD: usize = 8;
-const NODE_TOGGLE: usize = 9;
 const NODE_IMAGE: usize = 7;
-const NODE_ICON: usize = 14;
+const NODE_ICON: usize = 8;
+const NODE_FIELD: usize = 9;
+/// A `<input type="range">`, which draws a track and a thumb of its own. The
+/// range chrome-reset lives inside the field reset — it is what sized the old
+/// `FieldKind.Range` — so a slider asks for the same `field` reset even where
+/// the program builds no text field.
+const NODE_SLIDER: usize = 10;
+const NODE_TOGGLE: usize = 11;
+/// A picker, whose options are `<input type="radio">` drawing a dot of their
+/// own, so it takes the same radio-group reset.
+const NODE_PICKER: usize = 12;
 /// A form's action, which is a `<button>` like `button`'s and takes the same
-/// reset. Declared before `Dialog`, because the variant order is append-only.
-const NODE_SUBMIT: usize = 15;
-const NODE_DIALOG: usize = 16;
-/// An `<a>` like `Link`'s, so it takes the same anchor reset. Appended after
-/// `OnPressOutside`, because the variant order is append-only.
-const NODE_ROUTE_LINK: usize = 18;
-/// A radio group, whose options are `<input type="radio">` drawing a dot of
-/// their own. Appended after `RouteLink`, because the variant order is
-/// append-only.
-const NODE_RADIOGROUP: usize = 19;
+/// reset.
+const NODE_SUBMIT: usize = 14;
+const NODE_DIALOG: usize = 15;
 /// `progress` lowers to a plain `<div>`, which the container reset already
 /// reaches, so it needs no chrome cleared and is not named here. `disclosure`
 /// lowers to `<details>`/`<summary>`, which a browser paints a marker and a
-/// block layout on by itself. Appended after `RadioGroup`, because the variant
-/// order is append-only.
-const NODE_DISCLOSURE: usize = 21;
+/// block layout on by itself.
+const NODE_DISCLOSURE: usize = 16;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -1196,13 +1199,16 @@ pub fn reset_in(
             match *variant {
                 NODE_HEADING => out.heading = true,
                 NODE_BUTTON => out.button = true,
-                NODE_LINK | NODE_ROUTE_LINK => out.link = true,
-                NODE_FIELD => out.field = true,
+                NODE_LINK => out.link = true,
+                // A slider is a `<input type="range">`, whose track and thumb
+                // the field reset clears and re-draws, so it asks for the same
+                // reset a field does.
+                NODE_FIELD | NODE_SLIDER => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
                 NODE_IMAGE | NODE_ICON => out.image = true,
                 NODE_SUBMIT => out.button = true,
                 NODE_DIALOG => out.dialog = true,
-                NODE_RADIOGROUP => out.radiogroup = true,
+                NODE_PICKER => out.radiogroup = true,
                 NODE_DISCLOSURE => out.disclosure = true,
                 _ => {}
             }

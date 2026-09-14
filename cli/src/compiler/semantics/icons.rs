@@ -1,14 +1,16 @@
 //! What an icon may hold: the artwork is read at compile time, or refused.
 //!
-//! `ui/node`'s `icon` puts vector artwork *in* the tree — the source is written
-//! into the document as an `<svg>`, which is what lets `currentColor` inside it
-//! be the element's own `Foreground`. Inlining is also the one thing an
-//! `<img src=...>` never had to worry about: whatever the source says lands in
-//! the document.
+//! `ui/node`'s `image` puts vector artwork *in* the tree when its `alt` is
+//! `.Decorative` — the source is written into the document as an `<svg>`, which
+//! is what lets `currentColor` inside it be the element's own `Foreground`.
+//! Inlining is also the one thing an `<img src=...>` never had to worry about:
+//! whatever the source says lands in the document. An `AccessibilityText`
+//! picture is the other case — its source is a fetched address, a document of
+//! its own — so nothing here reads it.
 //!
-//! So the source is read here, once, before anything can render it. It has to
-//! be written out at the call site — the compiler cannot read a string that
-//! does not exist until the program runs — and what it holds has to be an
+//! So a decorative source is read here, once, before anything can render it. It
+//! has to be written out at the call site — the compiler cannot read a string
+//! that does not exist until the program runs — and what it holds has to be an
 //! `<svg>` and the shapes inside it. Anything else is `icon-not-drawable`,
 //! naming what it found.
 //!
@@ -22,7 +24,7 @@ use core::iter::Peekable;
 use core::str::Chars;
 
 use crate::compiler::modules::Loaded;
-use crate::compiler::semantics::consteval::{Env, Folder};
+use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, TyConId};
@@ -69,8 +71,23 @@ const DRAWING: [&str; 26] = [
 ];
 
 /// `NodeKind::Icon`, whose variant order is load-bearing and whose module says
-/// so. Only `icon` writes one.
-const NODE_ICON: usize = 14;
+/// so. Only a decorative `image` lowers to one.
+const NODE_ICON: usize = 8;
+
+/// `Image<C>`'s fields, in declaration order — which is the order a struct
+/// literal stores them in, whatever order the call site wrote them. The two
+/// this pass reads are the source it may have to validate and the `alt` that
+/// says whether it must.
+const IMAGE_SOURCE: usize = 0;
+const IMAGE_ALT: usize = 1;
+
+/// `Alt::Decorative`, the variant that inlines an `<svg>` this pass reads. Its
+/// sibling `AccessibilityText` is a fetched address, so it is left alone.
+const ALT_DECORATIVE: usize = 0;
+
+/// `Prop::Const`, the one variant of a `Prop<Str>` that folds to a string
+/// written out at the call site.
+const PROP_CONST: usize = 0;
 
 /// Whether this program can build an icon.
 ///
@@ -90,7 +107,8 @@ pub fn builds_an_icon(e: &mut typed::Expr, node_con: TyConId) -> bool {
     found
 }
 
-/// Reads every `icon` in the compilation, and refuses one it cannot.
+/// Reads every decorative `image` in the compilation, and refuses one it
+/// cannot.
 ///
 /// A compilation that did not load `ui/node` returns immediately, which is
 /// every program that is not a user interface.
@@ -103,7 +121,7 @@ pub fn run(
     diags: &mut Diagnostics,
     only: Option<&[crate::diagnostics::FileId]>,
 ) {
-    let Some(icon) = constructor(loaded, scopes) else { return };
+    let Some(image) = constructor(loaded, scopes) else { return };
     let wanted = |file| only.is_none_or(|files: &[crate::diagnostics::FileId]| files.contains(&file));
 
     let mut ids: Vec<ConstId> = consts.keys().copied().collect();
@@ -111,7 +129,7 @@ pub fn run(
     for id in ids {
         if wanted(tables.const_(id).span.file) {
             if let Some(init) = consts.get(&id) {
-                walk(init, icon, tables, bodies, consts, diags);
+                walk(init, image, tables, bodies, consts, diags);
             }
         }
     }
@@ -120,16 +138,18 @@ pub fn run(
     for id in fns {
         if wanted(tables.fn_info(id).span.file) {
             if let Some(body) = bodies.get(&id) {
-                walk(&body.expr, icon, tables, bodies, consts, diags);
+                walk(&body.expr, image, tables, bodies, consts, diags);
             }
         }
     }
 }
 
-/// `ui/node`'s `icon`, when this compilation loaded the module.
+/// `ui/node`'s `image`, when this compilation loaded the module. A decorative
+/// one is what lowers to an inline `<svg>`, so this is the constructor whose
+/// calls the walk reads.
 fn constructor(loaded: &Loaded, scopes: &[ModuleScope]) -> Option<FnId> {
     let index = loaded.modules.iter().position(|m| m.path == "ui/node")?;
-    match scopes.get(index)?.own.get("icon")? {
+    match scopes.get(index)?.own.get("image")? {
         Sym::Fn(id) => Some(*id),
         _ => None,
     }
@@ -138,41 +158,73 @@ fn constructor(loaded: &Loaded, scopes: &[ModuleScope]) -> Option<FnId> {
 /// Every call to it, in walk order.
 fn walk(
     e: &typed::Expr,
-    icon: FnId,
+    image: FnId,
     tables: &Tables,
     bodies: &HashMap<FnId, typed::Body>,
     consts: &HashMap<ConstId, typed::Expr>,
     diags: &mut Diagnostics,
 ) {
     if let ExprKind::CallFn { func, args } = &e.kind {
-        if func.decl() == Some(icon) {
-            if let Some(source) = args.get(1) {
-                check(source, tables, bodies, consts, diags);
+        if func.decl() == Some(image) {
+            // The one argument is an `Image<C>` struct literal.
+            if let Some(arg) = args.first() {
+                check(arg, tables, bodies, consts, diags);
             }
         }
     }
-    typed::children(e, &mut |child| walk(child, icon, tables, bodies, consts, diags));
+    typed::children(e, &mut |child| walk(child, image, tables, bodies, consts, diags));
 }
 
-/// One artwork: read it, or say why it could not be.
+/// One `image` call: read a decorative one's artwork, or say why it could not
+/// be — and leave an `AccessibilityText` one, whose source is a fetched
+/// address, alone.
 fn check(
-    source: &typed::Expr,
+    arg: &typed::Expr,
     tables: &Tables,
     bodies: &HashMap<FnId, typed::Body>,
     consts: &HashMap<ConstId, typed::Expr>,
     diags: &mut Diagnostics,
 ) {
-    let folded = Folder::new(tables, bodies, consts).eval(source, &Env::default());
-    let Some(text) = folded.as_ref().and_then(|v| v.as_str()) else {
+    // A struct literal stores its fields in declaration order, so the `source`
+    // and the `alt` this pass reads are taken by position.
+    let ExprKind::StructLit { fields, .. } = &arg.kind else { return };
+    let mut folder = Folder::new(tables, bodies, consts);
+
+    // Only a decorative picture inlines an `<svg>`. An `AccessibilityText` one
+    // — and any whose `alt` cannot be reduced, since it may be either — is left
+    // for the browser to fetch, so nothing here reads its source.
+    let decorative = fields
+        .get(IMAGE_ALT)
+        .and_then(|e| folder.eval(e, &Env::default()))
+        .as_ref()
+        .and_then(Value::as_variant)
+        .is_some_and(|(variant, _)| variant == ALT_DECORATIVE);
+    if !decorative {
+        return;
+    }
+
+    let Some(source) = fields.get(IMAGE_SOURCE) else { return };
+    let folded = folder.eval(source, &Env::default());
+    let Some(text) = folded.as_ref().and_then(const_source) else {
         refuse(
             diags,
             source.span,
-            "an icon's artwork has to be written out at the call site, because the compiler reads it",
+            "a decorative picture's artwork has to be written out at the call site, because the compiler reads it",
         );
         return;
     };
     if let Some(problem) = problem(text) {
         refuse(diags, source.span, &problem);
+    }
+}
+
+/// The string a decorative `source` folds to: a `Prop`'s `.Const` holding one.
+fn const_source(v: &Value) -> Option<&str> {
+    match v {
+        Value::Variant { variant, args } if *variant == PROP_CONST => {
+            args.first().and_then(Value::as_str)
+        }
+        _ => None,
     }
 }
 

@@ -13,5 +13,5 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([.Layout(.GridReverse)], []), [])
+  ui.mount(ctx, ui.stack({ styles: [.Layout(.GridReverse)], children: [] }), [])
 }
