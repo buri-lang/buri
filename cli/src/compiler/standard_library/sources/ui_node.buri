@@ -100,6 +100,12 @@ export enum Role {
 /// `Multiline` rather than a second constructor named after a `textarea`.
 /// `Number`, `Email` and `Search` choose the keyboard on a phone as well as the
 /// validation in a browser.
+///
+/// There is no `Range`: a slider's value is a number picked off a track, not a
+/// run of text, and it shares none of a field's text-input behaviour — no
+/// placeholder, no keyboard kind, no text value. It is its own primitive,
+/// `slider`, which binds a `Signal<Float>` rather than dressing a text field up
+/// as something it is not.
 export enum FieldKind {
     /// A line of text.
     Text,
@@ -113,23 +119,6 @@ export enum FieldKind {
     Number,
     /// A query.
     Search,
-    /// A number picked off a track, between a smallest and a largest, in steps
-    /// of a size: minimum, maximum, step.
-    ///
-    /// The three are the kind's own payload because a slider cannot be built
-    /// without them — a reader is told the range it is dragging inside, so by
-    /// this module's own rule they are parameters rather than attributes
-    /// somebody may remember to set. They are what the markup spells as `min`,
-    /// `max` and `step`, and what the browser turns into the thumb, the drag,
-    /// the arrow and Home/End stepping, and the `role="slider"` announcement
-    /// with its `aria-valuenow`, `aria-valuemin` and `aria-valuemax`.
-    ///
-    /// The value is a `Str` like every other kind's, because it is what the
-    /// control holds rather than what it means. A browser answers a range's
-    /// `value` as the text of a number and clamps it into the bounds; so does
-    /// the painter, and a value that is not a number at all sits in the middle,
-    /// which is what HTML says an unreadable one is worth.
-    Range(Float, Float, Float),
 }
 
 /// What a toggle looks like, and which mark it draws inside itself.
@@ -146,6 +135,101 @@ export enum ToggleKind {
     Switch,
 }
 
+/// What a button does when it is pressed, as against what its handler does.
+///
+/// A `.Button` is an ordinary button: it runs its own `onPress` and never
+/// submits the form it happens to be inside, so a Cancel beside a Send stays a
+/// Cancel. A `.Submit` submits its enclosing form — the form's `onSubmit` is
+/// its handler, and pressing it and pressing Enter in a field both arrive
+/// there — so it takes no `onPress` of its own. This absorbs what used to be a
+/// separate `submit` node: the one irreducible capability, triggering
+/// submission from a control, is a property of a button.
+export enum ButtonKind {
+    /// Runs its `onPress`, and submits nothing.
+    Button,
+    /// Submits the enclosing form, and takes no `onPress`.
+    Submit,
+}
+
+/// What a picture is *to a reader*, which is the one thing about it that cannot
+/// be left out.
+///
+/// `.Decorative` is a picture a reader is told nothing about, because what it
+/// means is said by what it sits in — the button's label, the link's
+/// destination. It is drawn as inline artwork in the element's own colour, so
+/// `currentColor` follows the text beside it: the `source` is an `<svg>` and
+/// the shapes inside it, read at compile time. This is what used to be `icon`.
+///
+/// `.AccessibilityText(name)` is a picture that *is* the content, so it carries
+/// the name a reader hears in its place. Its `source` is an address the browser
+/// fetches. This is what used to be `image`.
+///
+/// The name is a required part of the enum either way — a decorative picture
+/// says so, and a meaningful one gives its text — so "you forgot the alt" stays
+/// impossible to write.
+export enum Alt {
+    /// Decorative: no name, drawn inline in the element's colour (was `icon`).
+    Decorative,
+    /// Meaningful: the text a reader hears in the picture's place (was `image`).
+    AccessibilityText(Str),
+}
+
+/// How a choice is drawn, as against what it *is*.
+///
+/// A `picker` is the one choice primitive, and the style picks its shape without
+/// changing its accessible model — a single selected key, bound two-way to a
+/// `Signal<Str>`. `.Radio` is a set of real radios (one tab stop, arrows that
+/// move and select); the other three are the shapes a design system reaches for
+/// when the list is long or the room is short. This is the choice axis's answer
+/// to `FieldKind`: one primitive, styled, rather than a node per style.
+export enum ChoiceStyle {
+    /// One real radio per option, in a `role="radiogroup"`.
+    Radio,
+    /// One control split into a segment per option.
+    Segmented,
+    /// A button that opens the options in a menu.
+    Menu,
+    /// A native select.
+    Dropdown,
+}
+
+/// The place a scroll came to rest, handed to an `onScroll` handler.
+export struct ScrollOffset {
+    /// How far the content has scrolled from its start along the inline axis.
+    export x: Float,
+    /// How far the content has scrolled from its start down the block axis.
+    export y: Float,
+}
+
+/// A key, as the name a browser gives one: `"Escape"`, `"ArrowDown"`, `"Enter"`.
+export type Key = Str;
+
+/// The five generic events any element carries, each an omittable handler.
+///
+/// Named handlers rather than an `on: [Event]` list — omittable, discoverable,
+/// and consistent with `onPress`/`onSubmit`. There is deliberately **no generic
+/// `onTap`**: activation is a `button`'s or a `link`'s concern (a press on a
+/// plain box is the "clickable div" anti-pattern), so it stays on those nodes.
+///
+/// A snapshot has no pointer, keyboard or scroll, so every one of these is inert
+/// in `describe`; `onPressOutside` is the one a native mount still registers,
+/// because it is a document listener rather than a paint. In a browser all five
+/// are wired.
+struct Events<C> {
+    /// True as the pointer enters this element, false as it leaves.
+    onHover: Option<fn(C, Bool) => ()>,
+    /// True as focus moves into this element, false as it leaves (blur).
+    onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
+    onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
+    onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an
+    /// overlay. Lowers to one document-level listener that lives exactly as long
+    /// as the element.
+    onPressOutside: Option<fn(C) => ()>,
+}
+
 /// A user interface, as a value.
 ///
 /// Opaque on purpose. The field is private, so the constructors below are the
@@ -154,40 +238,54 @@ export enum ToggleKind {
 export struct Node<C>(NodeKind<C>);
 
 /// What a node is, kept private so `Node` stays opaque. The variant order is
-/// load-bearing — the JavaScript runtime reads a node by its tag.
+/// load-bearing — the JavaScript runtime (`$tree_render`), the stylesheet's
+/// chrome reset (`semantics::styles`) and the icon reader (`semantics::icons`)
+/// all read a node by its tag, and the three must move together.
+///
+/// The public vocabulary is smaller than this list: one constructor per
+/// irreducible capability, several of which pick between two variants here — a
+/// `text` with a heading level is a `Heading`, a `.Decorative` `image` is an
+/// `Icon`, a `.Submit` `button` is a `Submit`, a `stack` with a role is a
+/// `Region`. The split is the renderer's, kept because each half lowers to a
+/// different element and takes a different reset.
+///
+/// Every element-producing variant ends in an `Events<C>` — the five generic
+/// handlers — which the browser wires and a snapshot ignores.
 enum NodeKind<C> {
-    Nothing,
+    Empty,
     Text(Prop<Str>),
     Heading(Int, [Style], Prop<Str>),
-    Stack([Style], [Node<C>]),
-    Region(Role, [Style], [Node<C>]),
-    Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>, Prop<Bool>),
-    Link(Prop<Str>, [Style], [Node<C>]),
-    Image(Prop<Str>, Prop<Str>, [Style]),
-    Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>),
-    Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>, Prop<Bool>),
-    Form(fn(C, Event) => (), [Style], [Node<C>]),
+    Stack([Style], [Node<C>], Events<C>),
+    Region(Role, [Style], [Node<C>], Events<C>),
+    Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>, Prop<Bool>, Prop<Bool>, Events<C>),
+    // A `<a href>`. `onFollow` set makes a same-origin dest route client-side
+    // (what used to be `routeLink`); left `.None` it is a plain anchor.
+    Link(Prop<Str>, [Style], [Node<C>], Option<fn(C, Str) => ()>, Prop<Bool>, Events<C>),
+    Image(Prop<Str>, Str, [Style], Events<C>),
+    Icon([Style], Str, Events<C>),
+    Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>, Events<C>),
+    // The numeric control split out of the old `FieldKind.Range`: label, value,
+    // min, max, step, styles, disabled, events.
+    Slider(Prop<Str>, Signal<Float>, Float, Float, Option<Float>, [Style], Prop<Bool>, Events<C>),
+    Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>, Prop<Bool>, Events<C>),
+    // The one choice primitive (was `radioGroup`), styled. Each option is a key
+    // and the node drawn beside it — any node, not just a caption.
+    Picker(Prop<Str>, [(Str, Node<C>)], [Style], Signal<Str>, ChoiceStyle, Prop<Bool>, Events<C>),
+    Form(fn(C, Event) => (), [Style], [Node<C>], Events<C>),
+    // The button that submits its form: a childless `<button type=submit>`. Its
+    // handler is the form's `onSubmit`, so it carries none of its own.
+    Submit(Prop<Str>, [Style], Events<C>),
+    // A modal. `scrimStyles` land on the scrim behind the panel, so a backdrop
+    // blur or tint can reach it; `styles` land on the panel.
+    Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>], [Style], Events<C>),
+    Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>], Events<C>),
+    // How far a task has come. `value` set → determinate; `.None` → a spinner.
+    Progress(Prop<Str>, Option<Prop<Float>>, [Style], [Node<C>], Events<C>),
     When(Prop<Bool>, Node<C>, Node<C>),
     Computed(fn(Scope) => Node<C>),
     // Three closures rather than the list itself, since the row type cannot be
     // `Node<C>`'s one type parameter. The runtime asks by index. See `each`.
     Each(fn(Scope) => Int, fn(Scope, Int) => Str, fn(C, Scope, Int) => Node<C>),
-    Icon([Style], Str),
-    Submit(Prop<Str>, [Style]),
-    Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>]),
-    OnPressOutside(fn(C, Event) => (), [Style], [Node<C>]),
-    // A `<a href>` like `Link`, plus the plain-left-click handler the runtime
-    // runs in place of the browser's own navigation. Appended after
-    // `OnPressOutside`, because the variant order is load-bearing and
-    // append-only.
-    RouteLink(Prop<Str>, [Style], [Node<C>], fn(C, Str) => ()),
-    // A single choice as one real radio per option. Appended after `RouteLink`,
-    // because the variant order is load-bearing and append-only.
-    RadioGroup(Prop<Str>, [(Str, Prop<Str>)], [Style], Signal<Str>),
-    // Appended after `RadioGroup`, because the variant order is load-bearing
-    // and append-only.
-    Progress(Prop<Str>, Prop<Float>, [Style], [Node<C>]),
-    Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>]),
     // An element of an arbitrary name with its own styles and children, the
     // renderer's own — never a program's, so no `ui.*` builds one. It is how a
     // reactive widget whose presence or structure changes (a dialog, a
@@ -202,271 +300,470 @@ enum NodeKind<C> {
     Fragment([Node<C>]),
 }
 
+// --- Building the tree -------------------------------------------------------
+//
+// Each constructor takes one config struct, so a call reads `button({ label:
+// … })`: SPEC's type elision reads the literal's type off the parameter, and an
+// `Option` field left out of the literal is `.None`, which the constructor
+// reads as that field's default. Required fields are plain, non-`Option` — a
+// label, an `alt`, a `dest`, a `kind` — and that is where the accessibility
+// guarantee lives: you cannot leave one out. Behaviour is named `onX` handlers,
+// gathered from a config's five generic ones into `Events` by `listen`.
+
+/// The five generic handlers a config carries, gathered into one `Events`.
+fn listen<C>(
+    onHover: Option<fn(C, Bool) => ()>,
+    onFocus: Option<fn(C, Bool) => ()>,
+    onScroll: Option<fn(C, ScrollOffset) => ()>,
+    onKey: Option<fn(C, Key) => ()>,
+    onPressOutside: Option<fn(C) => ()>,
+): Events<C> {
+    Events {
+        onHover: onHover,
+        onFocus: onFocus,
+        onScroll: onScroll,
+        onKey: onKey,
+        onPressOutside: onPressOutside,
+    }
+}
+
+/// The `Events` a node with no `onX` config carries — every handler unset.
+fn noEvents<C>(): Events<C> {
+    Events {
+        onHover: .None,
+        onFocus: .None,
+        onScroll: .None,
+        onKey: .None,
+        onPressOutside: .None,
+    }
+}
+
+/// A `Prop<Bool>` config field, defaulting to `false` when it was left out.
+fn orFalse(flag: Option<Prop<Bool>>): Prop<Bool> {
+    match (flag) {
+        .Some(prop) => prop,
+        .None => .Const(false),
+    }
+}
+
+/// A `Prop<Str>` config field, defaulting to the empty string — no hint at all.
+fn orBlank(text: Option<Prop<Str>>): Prop<Str> {
+    match (text) {
+        .Some(prop) => prop,
+        .None => .Const(""),
+    }
+}
+
+/// A `[Style]` config field, defaulting to none.
+fn orNoStyles(styles: Option<[Style]>): [Style] {
+    match (styles) {
+        .Some(list) => list,
+        .None => [],
+    }
+}
+
+/// A `[Node<C>]` config field, defaulting to none.
+fn orNoChildren<C>(children: Option<[Node<C>]>): [Node<C>] {
+    match (children) {
+        .Some(list) => list,
+        .None => [],
+    }
+}
+
 /// Nothing at all.
 ///
-/// The other arm of a one-armed `when`, and what a component answers when it
-/// has nothing to show. It takes up no space and produces no element.
-export fn nothing<C>(): Node<C> {
-    Node(.Nothing)
+/// The other arm of a one-armed `choose`, and what a component answers when it
+/// has nothing to show. It takes up no space and produces no element. Renamed
+/// from `nothing`.
+export fn empty<C>(): Node<C> {
+    Node(.Empty)
 }
 
-/// A container with no meaning of its own: arrangement, and nothing else.
+/// A container. Arrangement lives in `styles`; give it a `role` and it *means*
+/// something — a landmark, a list, a table row, a labelled group.
 ///
-/// Reach for `region` instead whenever the group of children *is* something —
-/// a list, a banner, a table row.
-export fn stack<C>(styles: [Style], children: [Node<C>]): Node<C> {
-    Node(.Stack(styles, children))
+/// This is the one container primitive. A column is a `stack` with a
+/// `Layout(.Column)` style, a row is `Layout(.Row)`, the layers case is
+/// `Layout(.Layers)`, and a region is a `stack` with a `role` — so `column`,
+/// `row` and `region` are gone, and the direction, the stacking and the meaning
+/// are all data.
+struct Stack<C> {
+    export styles: [Style],
+    export children: [Node<C>],
+    export role: Option<Role>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn stack<C>(config: Stack<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    match (config.role) {
+        .Some(role) => Node(.Region(role, config.styles, config.children, events)),
+        .None => Node(.Stack(config.styles, config.children, events)),
+    }
 }
 
-/// A container that means something.
-export fn region<C>(role: Role, styles: [Style], children: [Node<C>]): Node<C> {
-    Node(.Region(role, styles, children))
-}
-
-/// A stack whose children run along the text direction.
+/// Empty space between two things. Left flexible it grows to push its siblings
+/// apart; given a `size` it is a fixed gap.
 ///
-/// Sugar. The layout goes in front of the caller's styles rather than replacing
-/// them, so a caller who passes their own `Layout` still wins.
-export fn row<C>(styles: [Style], children: [Node<C>]): Node<C> {
-    Node(.Stack([.Layout(.Row), .Group(styles)], children))
+/// A grown or fixed empty box, so it is a child's share of the main axis rather
+/// than a margin — this vocabulary has no margins.
+struct Spacer {
+    export size: Option<Length>,
+}
+export fn spacer<C>(config: Spacer): Node<C> {
+    match (config.size) {
+        .Some(length) => {
+            Node(.Stack([.Width(length), .Height(length), .Shrink(0)], [], noEvents()))
+        },
+        .None => Node(.Stack([.Grow(1)], [], noEvents())),
+    }
 }
 
-/// A stack whose children run down the page.
-export fn column<C>(styles: [Style], children: [Node<C>]): Node<C> {
-    Node(.Stack([.Layout(.Column), .Group(styles)], children))
+/// Text. A run of characters with no element of its own; give it a
+/// `headingLevel` and it becomes a heading in the document's outline, an
+/// `<h1>`–`<h6>` a reader navigates by.
+///
+/// The level is not a size: an unstyled heading is the size and weight of the
+/// text around it, and `styles` — which apply only when it is a heading — say
+/// the rest, the sheet dropping the size, weight and margins a browser paints on
+/// a heading by itself. Levels below one and above six clamp. This absorbs the
+/// old `heading` node.
+struct Text {
+    export content: Prop<Str>,
+    export headingLevel: Option<Int>,
+    export styles: Option<[Style]>,
 }
-
-/// Empty, and takes whatever room is left over.
-///
-/// What sits between two things that should push apart. Sugar for a grown empty
-/// stack, so it is a child's share of the main axis rather than a margin — this
-/// vocabulary has no margins.
-export fn spacer<C>(): Node<C> {
-    Node(.Stack([.Grow(1)], []))
-}
-
-/// Text.
-///
-/// A bare run of characters with no element around it. Styling text means
-/// styling the container it sits in.
-export fn text<C>(content: Prop<Str>): Node<C> {
-    Node(.Text(content))
-}
-
-/// A heading, at a level.
-///
-/// The level is the document's outline, not a size — a reader navigates by
-/// it. Levels below one and above six clamp to that range, because there is no
-/// seventh level to lower to.
-///
-/// Because the level is not a size, the styles are: an unstyled heading is the
-/// size and the weight of the text around it, and the sheet drops the size, the
-/// weight and the margins a browser would paint on an `<h1>`–`<h6>` by itself.
-export fn heading<C>(level: Int, styles: [Style], content: Prop<Str>): Node<C> {
-    Node(.Heading(level, styles, content))
+export fn text<C>(config: Text): Node<C> {
+    match (config.headingLevel) {
+        .Some(level) => Node(.Heading(level, orNoStyles(config.styles), config.content)),
+        .None => Node(.Text(config.content)),
+    }
 }
 
 /// Something to press, and what is drawn inside it.
 ///
-/// The label is a parameter because a screen reader announces a button with no
-/// accessible name as "button", and it stays the name however the children are
-/// drawn — the markup carries it as `aria-label`, so what a reader hears is
-/// never the glyphs. `onPress` takes its context as a parameter, since a lambda
-/// may not capture one, and the runtime hands it the very context `mount` was
-/// given.
+/// The label is required because a reader announces a button with no accessible
+/// name as "button", and it stays the name however the children are drawn — the
+/// markup carries it as `aria-label`, so what a reader hears is never the
+/// glyphs. **A button with no children shows its label**, which is what makes a
+/// mark and a word one element rather than a row of two.
 ///
-/// A press, not a click: the same handler runs for a tap, for Enter and for
-/// Space.
-///
-/// The children are what the button shows, and **a button with none shows its
-/// label**. That is what makes a mark and a word one element rather than a row
-/// of two: a wash for a hover or for the current page covers the icon and the
-/// text together, because there is one thing to wash.
+/// `onPress` runs for a tap, for Enter and for Space, and takes its context as a
+/// parameter since a lambda may not capture one. A `.Submit` button omits it —
+/// the enclosing form's `onSubmit` is its handler, and pressing this and Enter
+/// in a field both arrive there — and submits that form; every other button
+/// submits nothing, so a Cancel beside a Send stays a Cancel. This absorbs the
+/// old `submit` node.
 ///
 /// The styles land on the button itself, which is what makes `On(.Hover, ...)`,
-/// `On(.Focus, ...)` and `On(.Disabled, ...)` fire — a wrapper around it is
-/// none of those things.
-///
-/// `disabled` is what puts it in `State::Disabled`, and it is an attribute
-/// rather than a style: it takes the button out of the tab order, refuses the
-/// press before the handler is reached, and tells a reader the button is
-/// unavailable rather than absent. `.Const(false)` is a button that is always
-/// pressable.
-///
-/// `expanded` is a button that opens something that is not its own child — a
-/// menu, a submenu, a popover, a select. It carries `aria-expanded`, which is
-/// how a reader is told the button expands a region and whether that region is
-/// open, so a press announces a change rather than nothing. It is a parameter
-/// for the reason `disabled` is: a reader has to be *told*, and no style says
-/// it. Like `aria-invalid` it is written only when it is `true`, so an
-/// ordinary button carries none of it — `.Const(false)` is a button that
-/// expands nothing. A section that opens *its own* child announces itself and
-/// needs no attribute: that is `disclosure`.
-///
-/// **A button never submits the form it happens to be inside.** `onPress` is
-/// the whole of what it does, so a Cancel beside a Send stays a Cancel. The
-/// button that submits is `submit`, and a form needs one.
-export fn button<C>(
-    label: Prop<Str>,
-    styles: [Style],
-    children: [Node<C>],
-    onPress: fn(C, Event) => (),
-    disabled: Prop<Bool>,
-    expanded: Prop<Bool>,
-): Node<C> {
-    Node(.Button(label, styles, children, onPress, disabled, expanded))
+/// `On(.Focus, ...)` and `On(.Disabled, ...)` fire. `isDisabled` takes the
+/// button out of the tab order and refuses the press before the handler is
+/// reached; `isExpanded` carries `aria-expanded` for a button that opens a menu
+/// or popover; `isCurrent` carries `aria-current` for the one in a set that is
+/// the current page. Each is announced, which is why it is a parameter and not
+/// a style, and each is written only when it is `true`.
+struct Button<C> {
+    export label: Prop<Str>,
+    export styles: [Style],
+    export children: Option<[Node<C>]>,
+    export onPress: Option<fn(C) => ()>,
+    export kind: Option<ButtonKind>,
+    export isDisabled: Option<Prop<Bool>>,
+    export isExpanded: Option<Prop<Bool>>,
+    export isCurrent: Option<Prop<Bool>>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn button<C>(config: Button<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    match (config.kind) {
+        .Some(.Submit) => Node(.Submit(config.label, config.styles, events)),
+        _ => {
+            Node(
+                .Button(
+                    config.label,
+                    config.styles,
+                    orNoChildren(config.children),
+                    pressHandler(config.onPress),
+                    orFalse(config.isDisabled),
+                    orFalse(config.isExpanded),
+                    orFalse(config.isCurrent),
+                    events,
+                ),
+            )
+        },
+    }
 }
 
-/// Somewhere to go.
-///
-/// The destination is a parameter for the same reason a button's label is: a
-/// reader announces a link by where it goes.
-export fn link<C>(dest: Prop<Str>, styles: [Style], children: [Node<C>]): Node<C> {
-    Node(.Link(dest, styles, children))
+/// A public `onPress: fn(C) => ()` adapted to the runtime's `fn(C, Event) => ()`,
+/// which ignores the event. A button with no `onPress` gets one that does
+/// nothing, which is what a `.Submit`'s form-driven press wants.
+fn pressHandler<C>(onPress: Option<fn(C) => ()>): fn(C, Event) => () {
+    match (onPress) {
+        .Some(handler) => fn(c, _event) => handler(c),
+        .None => fn(_c, _event) => {
+        },
+    }
 }
 
-/// An anchor that answers a plain left-click itself.
+/// Somewhere to go. The destination is required — a reader announces a link by
+/// where it goes.
 ///
-/// The same `<a href>` `link` renders — so a reader gets the middle-click, the
-/// ⌘-click, the "open in new tab", the status-bar preview and the "link" a
-/// browser gives an anchor — but a plain left-click runs `onFollow` in place of
-/// the browser's own navigation, and every modified click is left to the
-/// browser as an ordinary anchor. `onFollow` is handed the context `mount` was
-/// given and the destination the click was on.
-///
-/// This is the mechanism; `ui/web`'s `routeLink` is the one to reach for, which
-/// fills `onFollow` with a client-side `navigate` and asks for the `Location`
-/// that needs.
-export fn routeLink<C>(
-    dest: Prop<Str>,
-    styles: [Style],
-    children: [Node<C>],
-    onFollow: fn(C, Str) => (),
-): Node<C> {
-    Node(.RouteLink(dest, styles, children, onFollow))
+/// Set `onFollow` and a same-origin `dest` routes client-side: the anchor is a
+/// real `<a href>` (middle-click, ⌘-click, "open in new tab" and the status-bar
+/// preview all work), but a plain left-click runs `onFollow` in place of the
+/// browser's own navigation, and every modified click is left to the browser.
+/// Left out, it is a plain anchor. This absorbs the old `routeLink`; `ui/web`'s
+/// `routeLink` is the wrapper that fills `onFollow` with a client-side
+/// `navigate`. `isCurrent` carries `aria-current` for the link to the page you
+/// are on.
+struct Link<C> {
+    export dest: Prop<Str>,
+    export children: [Node<C>],
+    export styles: [Style],
+    export isCurrent: Option<Prop<Bool>>,
+    export onFollow: Option<fn(C, Str) => ()>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn link<C>(config: Link<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(
+        .Link(
+            config.dest,
+            config.styles,
+            config.children,
+            config.onFollow,
+            orFalse(config.isCurrent),
+            events,
+        ),
+    )
 }
 
-/// A picture, and what it says.
+/// A picture, and what it is to a reader. `alt` is required — `.Decorative` for
+/// artwork a reader is told nothing about, or `.AccessibilityText(name)` for a
+/// picture that is the content and carries the name a reader hears in its place.
 ///
-/// `alt` is required and may be the empty string, which is how a decorative
-/// image says it is decorative. A reader has to be told that; it cannot
-/// guess.
+/// `.Decorative` is what used to be `icon`: the `source` is inline `<svg>`
+/// artwork, read at compile time and drawn in the element's own `Foreground`,
+/// so `currentColor` follows the text beside it and a theme switch recolours it
+/// for nothing. `.AccessibilityText` is what used to be `image`: the `source`
+/// is an address the browser fetches.
 ///
-/// The styles land on the picture itself rather than on a box around it, the
-/// same rule `button` and `field` follow. Sizing a picture, giving it a shape
-/// with `AspectRatio`, and rounding its corners with `Radius` are all things
-/// only the picture can be told: a wrapper's own width is the wrapper's.
-export fn image<C>(source: Prop<Str>, alt: Prop<Str>, styles: [Style]): Node<C> {
-    Node(.Image(source, alt, styles))
+/// The styles land on the picture itself, the rule `button` and `field` follow:
+/// sizing it, shaping it with `AspectRatio` and rounding it with `Radius` are
+/// things only the picture can be told.
+struct Image<C> {
+    export source: Prop<Str>,
+    export alt: Alt,
+    export styles: [Style],
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn image<C>(config: Image<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    match (config.alt) {
+        .Decorative => Node(.Icon(config.styles, artworkOf(config.source), events)),
+        .AccessibilityText(name) => Node(.Image(config.source, name, config.styles, events)),
+    }
 }
 
-/// Vector artwork, in the colour of whatever it sits in.
-///
-/// The source is the drawing itself rather than an address, and it is written
-/// into the document as an `<svg>`. So `currentColor` inside it is the
-/// element's own `Foreground`: an icon follows the text beside it, and a theme
-/// switch recolours every icon in the tree for nothing. An `image` cannot do
-/// that — its source is a document of its own, which reads neither the page's
-/// colour nor a custom property, so the stroke has to be baked in.
-///
-/// The styles land on the `<svg>`, which is what makes a size, a colour and an
-/// `On(.Hover, ...)` apply to the thing that is drawn.
-///
-/// **Decorative, always.** There is no `alt` and no label, because what an icon
-/// means is said by what it is inside — a button's label, a link's destination
-/// — and a reader told about the glyph as well hears it twice. A picture that
-/// *is* the content is an `image`, which takes its `alt`.
-///
-/// The artwork is written out at the call site, because the compiler reads it:
-/// what it can draw is an `<svg>` and the shapes inside it, and a source that
-/// holds anything else — a script, a reference to somewhere else — is refused
-/// rather than quietly dropped.
-///
-/// ```text
-/// ui.icon([.Width(.Px(16))], "<svg viewBox='0 0 24 24'><path d='M20 6 9 17l-5-5'/></svg>")
-/// ```
-export fn icon<C>(styles: [Style], source: Str): Node<C> {
-    Node(.Icon(styles, source))
+/// A decorative picture's source is inline artwork the compiler reads, so it is
+/// written out as a constant `<svg>`. A source that is not a constant is refused
+/// by `semantics::icons` before this runs, so the fallback is unreachable for a
+/// program that compiles.
+fn artworkOf(source: Prop<Str>): Str {
+    match (source) {
+        .Const(svg) => svg,
+        _ => "",
+    }
 }
 
-/// Somewhere to type, and what it is for.
+/// Somewhere to type, and what it is for. The one text-input primitive: a line,
+/// several lines, a secret, an address, a number or a query, picked by `kind`.
+/// A slider is not one of these — its value is a number, not text — so it is its
+/// own node, `slider`.
 ///
 /// The label is required: an unlabelled input is the commonest accessibility
-/// failure there is, and unlike a missing `alt` it has no visual fallback.
+/// failure there is, and unlike a missing `alt` it has no visual fallback. There
+/// is no change event — the field binds to a `Signal`, so what the reader types
+/// lands in the signal and whatever writes the signal lands in the field.
 ///
-/// There is no change event. The field binds to a `Signal`, so what the reader
-/// types lands in the signal, and whatever writes the signal lands in the
-/// field.
+/// **Two style lists, because a labelled control is two boxes.** `styles` land
+/// on the input — the thing a reader focuses and a browser disables. `around`
+/// lands on the label the input and its text are wrapped in, the box a
+/// surrounding stack lays out: `Grow`, `Shrink`, `AlignSelf` and `Width` belong
+/// there.
 ///
-/// **Two style lists, because a labelled control is two boxes.** `styles` lands
-/// on the input — the thing a reader focuses and a browser disables, which is
-/// what makes `On(.Focus, ...)` and `On(.Disabled, ...)` fire. `around` lands
-/// on the label the input and its text are wrapped in, which is the box a
-/// surrounding `row` or `column` lays out: `Grow`, `Shrink`, `AlignSelf`,
-/// `Span` and `Width` belong there, because nothing the input carries can reach
-/// the box its parent is measuring.
+/// `isInvalid` carries `aria-invalid` and puts the input in `State::Invalid`;
+/// `isDisabled` refuses what a reader types and puts it in `State::Disabled`.
+/// `hint` is the sample value inside the empty box — `aria-placeholder`-shaped,
+/// announced after the name, gone the moment there is a value — never a
+/// substitute for the required label.
+struct Field<C> {
+    export label: Prop<Str>,
+    export kind: FieldKind,
+    export value: Signal<Str>,
+    export styles: [Style],
+    export hint: Option<Prop<Str>>,
+    export around: Option<[Style]>,
+    export isInvalid: Option<Prop<Bool>>,
+    export isDisabled: Option<Prop<Bool>>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn field<C>(config: Field<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(
+        .Field(
+            config.label,
+            config.kind,
+            orBlank(config.hint),
+            config.styles,
+            orNoStyles(config.around),
+            config.value,
+            orFalse(config.isInvalid),
+            orFalse(config.isDisabled),
+            events,
+        ),
+    )
+}
+
+/// A number picked off a track, between a smallest and a largest, in steps of a
+/// size. The numeric control split out of the old `FieldKind.Range`.
 ///
-/// `invalid` is the field failing validation, and it is a parameter for the
-/// reason the label is one: a reader has to be *told*. It carries
-/// `aria-invalid` and it is what puts the input in `State::Invalid`, so the
-/// ring a design system paints and the word a screen reader says are one fact.
-/// A field that never fails passes `.Const(false)` and carries nothing.
-///
-/// `disabled` is beside it and is the other half of the same idea: it is what
-/// refuses what a reader types rather than what dims it, and it is what puts
-/// the input in `State::Disabled`.
-///
-/// **`hint` is the sample value inside the empty box**, and it is a parameter
-/// rather than a `Style` because it is content: the module's rule is that a
-/// property says how a thing looks and a parameter says what it holds. It is
-/// `aria-placeholder`-shaped — announced *after* the accessible name, gone the
-/// moment there is a value, never a substitute for the name — which is why the
-/// label stays required beside it. The empty string is no hint at all, the way
-/// an `image`'s `alt` already spells "decorative".
-///
-/// A `.Range` ignores it, because HTML's `placeholder` reaches the kinds that
-/// hold text and a slider is not one.
-export fn field<C>(
-    label: Prop<Str>,
-    kind: FieldKind,
-    hint: Prop<Str>,
-    styles: [Style],
-    around: [Style],
-    value: Signal<Str>,
-    invalid: Prop<Bool>,
-    disabled: Prop<Bool>,
-): Node<C> {
-    Node(.Field(label, kind, hint, styles, around, value, invalid, disabled))
+/// A slider shares no text-input behaviour — no placeholder, no keyboard kind,
+/// no text value — so it binds a `Signal<Float>` rather than dressing a `field`
+/// up as something it is not. `min` and `max` are required because a reader is
+/// told the range it is dragging inside; `step` is what an arrow key moves by,
+/// and defaults to a continuous track when left out. The label is required for a
+/// `field`'s reason.
+struct Slider<C> {
+    export label: Prop<Str>,
+    export value: Signal<Float>,
+    export min: Float,
+    export max: Float,
+    export styles: [Style],
+    export step: Option<Float>,
+    export isDisabled: Option<Prop<Bool>>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn slider<C>(config: Slider<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(
+        .Slider(
+            config.label,
+            config.value,
+            config.min,
+            config.max,
+            config.step,
+            config.styles,
+            orFalse(config.isDisabled),
+            events,
+        ),
+    )
 }
 
 /// Something with two states, what it looks like, and what it is for.
 ///
-/// Binds to a `Signal<Bool>`, for the reason a field binds to a signal. The
-/// kind picks the mark the control draws inside itself — a tick for a
-/// `Checkbox`, a thumb that moves for a `Switch` — so a toggle needs no
-/// children and there is no way to leave one unmarked.
+/// Binds to a `Signal<Bool>`, for the reason a field binds to a signal. The kind
+/// picks the mark the control draws inside itself — a tick for a `Checkbox`, a
+/// thumb that moves for a `Switch` — so a toggle needs no children and there is
+/// no way to leave one unmarked.
 ///
-/// The two style lists are a field's, for a field's reason: `styles` lands on
-/// the box, so `On(.Checked, ...)` is the box being on, and `around` lands on
-/// the label the box and its text are wrapped in. The mark is drawn in the
-/// box's `Foreground`, so that is the one colour that paints it.
-///
-/// `On(.Checked, ...)` is *this* box being on, because the value is what says
-/// whether it is — the same thing the mark is drawn from. A page holding one
-/// toggle that is on and one that is off paints two answers, not one.
-///
-/// `invalid` is a field's, and means the same thing: the terms nobody agreed
-/// to, announced as well as painted. `disabled` is a field's too.
-export fn toggle<C>(
-    label: Prop<Str>,
-    kind: ToggleKind,
-    styles: [Style],
-    around: [Style],
-    value: Signal<Bool>,
-    invalid: Prop<Bool>,
-    disabled: Prop<Bool>,
-): Node<C> {
-    Node(.Toggle(label, kind, styles, around, value, invalid, disabled))
+/// The two style lists are a field's: `styles` land on the box, so
+/// `On(.Checked, ...)` is the box being on, and `around` lands on the label the
+/// box and its text are wrapped in. The mark is drawn in the box's `Foreground`.
+/// `isInvalid` and `isDisabled` mean what a field's do.
+struct Toggle<C> {
+    export label: Prop<Str>,
+    export kind: ToggleKind,
+    export isOn: Signal<Bool>,
+    export styles: [Style],
+    export around: Option<[Style]>,
+    export isInvalid: Option<Prop<Bool>>,
+    export isDisabled: Option<Prop<Bool>>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn toggle<C>(config: Toggle<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(
+        .Toggle(
+            config.label,
+            config.kind,
+            config.styles,
+            orNoStyles(config.around),
+            config.isOn,
+            orFalse(config.isInvalid),
+            orFalse(config.isDisabled),
+            events,
+        ),
+    )
 }
 
 /// A group of controls you submit.
@@ -474,43 +771,39 @@ export fn toggle<C>(
 /// A widget rather than a role, because submitting is behaviour: pressing Enter
 /// in a field inside one runs `onSubmit`. That is why `Role` has no `Form`.
 ///
-/// **Put a `submit` in it.** Enter is the platform's own dispatch and the
-/// platform's own rule comes with it: a form is submitted implicitly through
-/// its submit button, and a form with none is submitted only while it holds
-/// exactly one field. So a form of one field works either way, and a form of
-/// two that ends in an ordinary `button` discards the keypress — which is why
-/// `submit` exists and why `ui/testing`'s `submit` refuses the same forms a
-/// browser does.
-export fn form<C>(
-    onSubmit: fn(C, Event) => (),
-    styles: [Style],
-    children: [Node<C>],
-): Node<C> {
-    Node(.Form(onSubmit, styles, children))
+/// **Put a `.Submit` button in it.** Enter is the platform's own dispatch, and
+/// its rule comes with it: a form is submitted implicitly through its submit
+/// button, and a form with none is submitted only while it holds exactly one
+/// field. So a form of one field works either way, and a form of two that ends
+/// in an ordinary `button` discards the keypress.
+struct Form<C> {
+    export onSubmit: fn(C) => (),
+    export children: [Node<C>],
+    export styles: [Style],
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn form<C>(config: Form<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(.Form(submitHandler(config.onSubmit), config.styles, config.children, events))
 }
 
-/// The button that submits the form it is in.
-///
-/// It takes no handler, because the form's `onSubmit` *is* its handler: one
-/// place says what submitting does, and pressing this and pressing Enter in a
-/// field both arrive there. A `button` beside it with a handler of its own is
-/// the Cancel, and stays one.
-///
-/// The label is a parameter for `button`'s reason and is the button's text as
-/// well as its accessible name — there are no children, because what a form's
-/// action is called is the one thing about it a reader has to be told.
-export fn submit<C>(label: Prop<Str>, styles: [Style]): Node<C> {
-    Node(.Submit(label, styles))
+/// A public `onSubmit: fn(C) => ()` adapted to the runtime's `fn(C, Event) => ()`,
+/// which ignores the event.
+fn submitHandler<C>(onSubmit: fn(C) => ()): fn(C, Event) => () {
+    fn(c, _event) => onSubmit(c)
 }
 
 /// A panel over the page, and the signal that opens and shuts it.
-///
-/// ```text
-/// ui.dialog(open, .Const("Delete this?"), [.Padding(.Rem(1.0))], [
-///     ui.text(.Const("This cannot be undone.")),
-///     ui.button(.Const("Cancel"), [], [], fn(c, _e) => open.set(c, false), .Const(false), .Const(false)),
-/// ])
-/// ```
 ///
 /// A widget rather than a stack with a pin, because a modal needs three things
 /// from the platform that no style can say: the page behind it must stop
@@ -518,165 +811,181 @@ export fn submit<C>(label: Prop<Str>, styles: [Style]): Node<C> {
 /// browser gives all three to a `<dialog>` opened with `showModal`, along with
 /// the backdrop and the Escape key, and gives a `<div>` none of them.
 ///
-/// **The signal is writable because the platform writes it.** Escape shuts the
+/// **`isOpen` is writable because the platform writes it.** Escape shuts the
 /// dialog without asking, so a `Prop` would leave the program holding a panel
-/// the reader can no longer see. Write `true` to open it and `false` to shut
-/// it; the browser writes `false` back when it shuts one itself.
+/// the reader can no longer see. Write `true` to open it and `false` to shut it;
+/// the browser writes `false` back when it shuts one itself. To dismiss it on a
+/// press outside the panel, set `onPressOutside` and write it shut there.
 ///
-/// The label is the accessible name, the rule `button`'s label follows: a
-/// reader is announced into the dialog by what it is for, and the heading
-/// inside it may not be there yet.
+/// The label is the accessible name, the rule `button`'s label follows. `styles`
+/// land on the panel; **`scrimStyles` land on the scrim behind it**, so a
+/// `BackdropBlur` or a tint can reach the backdrop the way `field`'s `around`
+/// reaches its label. The scrim is the widget's own drawing — a black at half
+/// strength by default — and `scrimStyles` compose on top of it.
 ///
-/// The styles land on the panel, so `Padding`, `Radius` and `Background` are
-/// the panel's own. The scrim behind it is the widget's own drawing, like a
-/// toggle's mark: `::backdrop` in a browser and the same black at half
-/// strength in a picture, and there is no property that names it.
-///
-/// Shut, it draws nothing at all and what is inside it is out of reach. Open,
-/// it is pinned to the viewport — so, like every other pin, it never decides
-/// how tall a page is: a picture of a dialog is a picture of the page it is
-/// over.
-export fn dialog<C>(
-    open: Signal<Bool>,
-    label: Prop<Str>,
-    styles: [Style],
-    children: [Node<C>],
-): Node<C> {
-    Node(.Dialog(open, label, styles, children))
+/// Shut, it draws nothing and what is inside it is out of reach. Open, it is
+/// pinned to the viewport, so like every pin it never decides how tall a page
+/// is.
+struct Dialog<C> {
+    export isOpen: Signal<Bool>,
+    export label: Prop<Str>,
+    export children: [Node<C>],
+    export styles: [Style],
+    export scrimStyles: Option<[Style]>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn dialog<C>(config: Dialog<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(
+        .Dialog(
+            config.isOpen,
+            config.label,
+            config.styles,
+            config.children,
+            orNoStyles(config.scrimStyles),
+            events,
+        ),
+    )
 }
 
-/// A wrapper whose `handler` runs when a press lands *outside* the subtree.
+/// One choice among a few, styled. The one choice primitive (was `radioGroup`).
 ///
-/// ```text
-/// ui.onPressOutside(fn(c, _e) => open.set(c, false), [], [panel])
-/// ```
-///
-/// It is what lets an overlay dismiss itself: a menu, a popover or a select
-/// closes the moment the reader presses anywhere that is not inside it, the way
-/// every overlay on the web does. Wrap it around the panel that is showing, and
-/// write the panel shut in the handler.
-///
-/// The handler takes its context as a parameter for `button`'s reason — a
-/// lambda may not capture one, and the runtime hands it the very context
-/// `mount` was given — and the same press dispatches it however it arrives: a
-/// tap or a mouse press. A press that lands *inside* the subtree is not one it
-/// fires on, which is what keeps it from swallowing the press that chose the
-/// next thing: the reader presses once, and that press both dismisses this and
-/// acts on what it landed on.
-///
-/// **The listener lives exactly as long as the subtree.** On the web it lowers
-/// to one document-level pointer listener, registered while the wrapper is
-/// mounted and taken away with it — so a wrapper inside a `choose` that shuts
-/// leaves nothing behind. It adds no visible element beyond its own wrapper: the
-/// `styles` and `children` are a `stack`'s, and a picture of it is a picture of
-/// its children. A native painter has no pointer to press with, so there it is
-/// inert.
-export fn onPressOutside<C>(
-    handler: fn(C, Event) => (),
-    styles: [Style],
-    children: [Node<C>],
-): Node<C> {
-    Node(.OnPressOutside(handler, styles, children))
-}
-
-/// One choice among a few, as a real radio per option.
-///
-/// A widget rather than a `Role` and a `FieldKind`, because a radio group is
-/// the browser's own model and unreachable any other way. One tab stop for the
-/// group, the arrow keys that *move and select*, Space to select, `aria-checked`
-/// and the roving `tabindex` all come free the moment the options are
-/// `<input type="radio">` inside a `role="radiogroup"`. A stack of `button`s
-/// reaches none of it — a reader tabs through every option and is told they are
-/// buttons. Neither a bare `Role.RadioGroup` nor a `FieldKind.Radio` would
-/// reach it either: a bare role leaves the options something other than radios,
-/// and `field` binds a `Signal<Str>` to *one* input, where a radio's value is
-/// the group's and not the input's.
+/// `.Radio` lands real radios — one tab stop, the arrow keys that *move and
+/// select*, `aria-checked` and the roving `tabindex`, all the browser's own the
+/// moment the options are `<input type="radio">` in a `role="radiogroup"`. The
+/// other `ChoiceStyle`s draw the same accessible model as a segmented control, a
+/// menu or a native select. One primitive on the choice axis, styled — the way
+/// `field(kind)` is one input primitive — rather than a node per style.
 ///
 /// `label` is the group's accessible name, required for the reason every
-/// widget's label is: a reader is announced into the group by what it is for. It
-/// lands as `aria-label` on the `role="radiogroup"` element.
+/// widget's label is. `options` is one `(key, content)` per choice: the key is
+/// what the signal holds when that option is picked, and the content is any node
+/// drawn beside it, not just a caption. `value` holds the selected key — the
+/// option whose key equals it is the checked one, and picking another writes its
+/// key back, so two-way binding replaces a change event. A key the signal holds
+/// that no option carries checks nothing, which is an unset choice.
 ///
-/// `options` is one `(key, caption)` per choice. The key is what the signal
-/// holds when that option is picked — the input's `value` — and the caption is
-/// the run of text the reader sees beside it. `value` holds the selected key:
-/// the input whose key equals it is the checked one, and picking another writes
-/// its key back, so two-way binding replaces a change event here the way it does
-/// for a `field`. A key the signal holds that no option carries checks nothing,
-/// which is what an unset group is.
-///
-/// `styles` land on the group, the box a surrounding row or column lays out. The
-/// options are the widget's own elements sharing one `name`, and the dot a
-/// checked one draws is the widget's own drawing — the reset's `:checked::before`
-/// in the group's own `Foreground` — so there is no per-option style list, the
-/// way a toggle needs no child for its mark.
-export fn radioGroup<C>(
-    label: Prop<Str>,
-    options: [(Str, Prop<Str>)],
-    styles: [Style],
-    value: Signal<Str>,
-): Node<C> {
-    Node(.RadioGroup(label, options, styles, value))
+/// `styles` land on the group, the box a surrounding stack lays out. `style`
+/// picks the shape and defaults to `.Radio`.
+struct Picker<C> {
+    export label: Prop<Str>,
+    export options: [(Str, Node<C>)],
+    export value: Signal<Str>,
+    export styles: [Style],
+    export style: Option<ChoiceStyle>,
+    export isDisabled: Option<Prop<Bool>>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn picker<C>(config: Picker<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    let style = match (config.style) {
+        .Some(chosen) => chosen,
+        .None => .Radio,
+    };
+    Node(
+        .Picker(
+            config.label,
+            config.options,
+            config.styles,
+            config.value,
+            style,
+            orFalse(config.isDisabled),
+            events,
+        ),
+    )
 }
 
 /// How far along a task has come, announced as well as drawn.
 ///
-/// A widget rather than a role, because the value is what the role is for: a
-/// bar that says `role="progressbar"` and nothing else is announced as a
-/// progress bar with no progress, which is the lie a pair of nested `stack`s
-/// tells now. So the value is a parameter — the module's own rule, that
-/// whatever an assistive technology cannot do without is a parameter and not an
-/// attribute somebody may remember to set.
+/// A widget rather than a role, because the value is what the role is for: a bar
+/// that says `role="progressbar"` and nothing else is announced as a progress
+/// bar with no progress. So the value is a parameter — the module's own rule,
+/// that whatever an assistive technology cannot do without is a parameter.
 ///
-/// `value` runs from `0.0` to `1.0`, and it is what a reader hears: it lowers
-/// to `aria-valuenow` as a whole number of hundredths — `value` times a
-/// hundred, rounded — beside the `aria-valuemin="0"` and `aria-valuemax="100"`
-/// that say what that number is out of. `label` is the accessible name, the
-/// rule a `button`'s label follows: a reader is told what is loading, not only
-/// that something is.
+/// **Set `value` for a determinate bar, leave it out for a spinner.** A value
+/// from `0.0` to `1.0` lowers to `aria-valuenow` as a whole number of hundredths
+/// beside `aria-valuemin="0"` and `aria-valuemax="100"`. Left out, the bar is
+/// indeterminate — no `aria-valuenow`, which is how a reader is told a task is
+/// running without a figure for how far — the shape a spinner takes. `label` is
+/// the accessible name: a reader is told what is loading, not only that
+/// something is.
 ///
-/// **The fill is the caller's.** `children` are what is drawn inside the bar —
-/// the filled part is a child styled to `Width(.Percent(...))`, or a track and
-/// a fill, whatever the design draws — and `styles` land on the bar itself. The
-/// widget adds the announcement and nothing to the picture, so the same tree
-/// that painted before still paints, and now it is heard as well as seen.
-///
-/// Determinate only. A bar that does not know how far along it is — HTML's
-/// `aria-valuenow` left off — is a second shape this does not carry, because no
-/// caller has needed one yet.
-export fn progress<C>(
-    label: Prop<Str>,
-    value: Prop<Float>,
-    styles: [Style],
-    children: [Node<C>],
-): Node<C> {
-    Node(.Progress(label, value, styles, children))
+/// **The fill is the caller's.** `children` are what is drawn inside the bar and
+/// `styles` land on the bar itself; the widget adds the announcement and nothing
+/// to the picture.
+struct Progress<C> {
+    export label: Prop<Str>,
+    export styles: [Style],
+    export value: Option<Prop<Float>>,
+    export children: Option<[Node<C>]>,
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn progress<C>(config: Progress<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(.Progress(config.label, config.value, config.styles, orNoChildren(config.children), events))
 }
 
 /// A section that opens and shuts, and the summary that opens it.
 ///
-/// A widget rather than a role, and the reason is the same as `dialog`'s: the
-/// element carries behaviour no style and no `Role` can name. A `<details>`
-/// with a `<summary>` is the open-and-shut state, the Enter and Space that
-/// toggle it, and what a reader is told about all of it — the browser's own,
-/// for nothing, where a `button` beside a `choose` announces a press that
-/// changes nothing a reader can hear. An accordion is an `each` of these.
+/// A widget rather than a role, and the reason is `dialog`'s: the element
+/// carries behaviour no style and no `Role` can name. A `<details>` with a
+/// `<summary>` is the open-and-shut state, the Enter and Space that toggle it,
+/// and what a reader is told about all of it. An accordion is an `each` of these.
 ///
-/// `summary` is the always-visible label — the row a reader presses, and the
-/// one thing shown when the section is shut. `children` are what it hides and
-/// shows. `styles` land on the `<details>` itself.
-///
-/// **The signal is writable because the platform writes it.** A reader opens
-/// and shuts a `<details>` without asking the program, so a `Prop` would leave
-/// the program's idea of the state behind the reader's. Write `true` to open
-/// it and `false` to shut it; the browser writes back whichever the reader
-/// chose. This is the rule `dialog`'s `open` follows, and for the same reason.
-export fn disclosure<C>(
-    summary: Prop<Str>,
-    open: Signal<Bool>,
-    styles: [Style],
-    children: [Node<C>],
-): Node<C> {
-    Node(.Disclosure(summary, open, styles, children))
+/// `summary` is the always-visible label; `children` are what it hides and
+/// shows; `styles` land on the `<details>`. **`isOpen` is writable because the
+/// platform writes it** — a reader opens and shuts a `<details>` without asking
+/// the program — the rule `dialog`'s `isOpen` follows.
+struct Disclosure<C> {
+    export summary: Prop<Str>,
+    export isOpen: Signal<Bool>,
+    export children: [Node<C>],
+    export styles: [Style],
+    export onHover: Option<fn(C, Bool) => ()>,
+    export onFocus: Option<fn(C, Bool) => ()>,
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    export onKey: Option<fn(C, Key) => ()>,
+    export onPressOutside: Option<fn(C) => ()>,
+}
+export fn disclosure<C>(config: Disclosure<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    Node(.Disclosure(config.summary, config.isOpen, config.styles, config.children, events))
 }
 
 /// One subtree or the other, decided by a condition that may vary.
@@ -734,7 +1043,7 @@ export fn each<C, T: Equal>(
             fn(c, scope, index) => {
                 match (items.read(scope).get(index)) {
                     .Some(item) => row(c, item, index),
-                    .None => Node(.Nothing),
+                    .None => Node(.Empty),
                 }
             },
         ),
@@ -943,7 +1252,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
     let mem = alloc.generalPurpose();
     let scope = rootScope();
     match (node.0) {
-        .Nothing => {
+        .Empty => {
         },
         .Text(content) => emitReactiveText(builder, content),
         .Heading(level, styles, content) => {
@@ -955,10 +1264,10 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitReactiveText(builder, content);
             exitElement(builder)
         },
-        .Stack(styles, children) => {
+        .Stack(styles, children, _events) => {
             emitBox(ctx, builder, "div", plain(state), styles, children, state)
         },
-        .Region(role, styles, children) => {
+        .Region(role, styles, children, _events) => {
             emitBox(
                 ctx,
                 builder,
@@ -975,7 +1284,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // them snapshotted to `.Const`, so the rebuilt node takes the static arm
         // and never re-wraps. An all-`Const` button is emitted once, with no
         // watcher, exactly as `describe` expands it.
-        .Button(label, styles, children, onPress, disabled, expanded) => {
+        .Button(label, styles, children, onPress, disabled, expanded, current, events) => {
             if (constProp(label) && constProp(disabled)) {
                 emitButton(
                     ctx,
@@ -997,29 +1306,35 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                             onPress,
                             .Const(disabled.read(scope)),
                             expanded,
+                            current,
+                            events,
                         ),
                     )
                 })
             }
         },
-        .Link(_dest, styles, children) => {
-            emitBox(ctx, builder, "a", plain(state), styles, children, state)
+        // A plain anchor, or — when `onFollow` is set — one whose plain
+        // left-click routes client-side. The handler crosses whole (`renderInto`
+        // never calls it, so its `Location` requirement never reaches this
+        // unbounded walk); the runtime fires it with the destination on a
+        // `follow`. A plain link with no handler is a box like any other, so it
+        // keeps `emitBox`'s reactive-style path.
+        .Link(dest, styles, children, onFollow, _current, _events) => {
+            match (onFollow) {
+                .None => emitBox(ctx, builder, "a", plain(state), styles, children, state),
+                .Some(handler) => {
+                    let _ = emitElement(
+                        builder,
+                        "a",
+                        widgetBody(mem, plain(state), [], styles),
+                    );
+                    let _ = registerFollow(builder, dest.read(scope), handler);
+                    let _ = emitChildren(ctx, builder, children, state, 0);
+                    exitElement(builder)
+                },
+            }
         },
-        .RouteLink(dest, styles, children, onFollow) => {
-            // The handler crosses whole — `renderInto` never calls it, so its
-            // `Location` requirement never reaches this unbounded walk — and the
-            // runtime fires it with the destination on a `follow`. `describe`
-            // drops it the same way.
-            let _ = emitElement(
-                builder,
-                "a",
-                widgetBody(mem, plain(state), [], styles),
-            );
-            let _ = registerFollow(builder, dest.read(scope), onFollow);
-            let _ = emitChildren(ctx, builder, children, state, 0);
-            exitElement(builder)
-        },
-        .Image(source, _alt, styles) => {
+        .Image(source, _alt, styles, _events) => {
             let declaration = decl(mem, "image", escapeValue(mem, source.read(scope)));
             emitLeaf(
                 builder,
@@ -1027,7 +1342,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 widgetBody(mem, plain(state), [declaration], styles),
             )
         },
-        .Icon(styles, source) => {
+        .Icon(styles, source, _events) => {
             let artwork = decl(mem, "icon", escapeInline(mem, source));
             emitLeaf(builder, "svg", widgetBody(mem, plain(state), [artwork], styles))
         },
@@ -1036,7 +1351,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // watcher re-reads the three — subscribing — and re-emits. The control's
         // own element is ctx-free, so the watcher emits it inline between the
         // region's markers rather than walking a node.
-        .Field(label, kind, hint, styles, around, value, invalid, disabled) => {
+        .Field(label, kind, hint, styles, around, value, invalid, disabled, _events) => {
             let region = enterDynamic(builder);
             let _ = invalid;
             reactive(fn(scope) => {
@@ -1056,11 +1371,33 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 endRegion(builder)
             })
         },
+        // A slider's value and `disabled` change its scene, so a write rebuilds
+        // it in place, the way a field does. The control is ctx-free, so the
+        // watcher emits it inline between the region's markers.
+        .Slider(label, value, min, max, step, styles, disabled, _events) => {
+            let region = enterDynamic(builder);
+            let _ = step;
+            reactive(fn(scope) => {
+                let _ = beginRegion(builder, region);
+                let _ = emitSlider(
+                    scope,
+                    builder,
+                    label,
+                    value,
+                    min,
+                    max,
+                    styles,
+                    disabled,
+                    state,
+                );
+                endRegion(builder)
+            })
+        },
         // A toggle's `checked` (its mark and its `checked:` line) and `disabled`
         // change its scene, so a flip rebuilds it in place. Its element and its
         // mark are ctx-free, so the watcher emits them inline between the
         // region's markers.
-        .Toggle(label, kind, styles, around, value, invalid, disabled) => {
+        .Toggle(label, kind, styles, around, value, invalid, disabled, _events) => {
             let region = enterDynamic(builder);
             let _ = invalid;
             reactive(fn(scope) => {
@@ -1079,7 +1416,16 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 endRegion(builder)
             })
         },
-        .Form(onSubmit, styles, children) => {
+        // The group's box is emitted once with the caller's context, since an
+        // option's content is any node; each option's input and dot follow the
+        // selection in a reactive region of their own, so picking one re-checks
+        // and re-dots without rebuilding the content beside it. `style` picks
+        // the shape and does not change the scene the painter reads.
+        .Picker(label, options, styles, value, _style, _disabled, _events) => {
+            let _ = label;
+            emitPicker(ctx, builder, options, styles, value, state)
+        },
+        .Form(onSubmit, styles, children, _events) => {
             let _ = emitElement(
                 builder,
                 "form",
@@ -1089,7 +1435,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitChildren(ctx, builder, children, state, 0);
             exitElement(builder)
         },
-        .Submit(label, styles) => {
+        .Submit(label, styles, _events) => {
             let _ = emitElement(
                 builder,
                 "button",
@@ -1123,51 +1469,30 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // Shut, a browser draws none of a dialog, so the scene holds none either;
         // open, it is the scrim and the panel. `open` is a signal, so the dialog
         // appears and vanishes with it: a region holds its place and the build
-        // answers the open content — a scrim `div` holding a `dialog` element,
-        // as `.Raw` trees the reconciler walks and mints — or nothing. Closing
-        // it unlinks the panel, so the page behind is reachable again.
-        .Dialog(open, _label, styles, children) => {
+        // answers the open content — a scrim `div` (the caller's `scrimStyles`
+        // over the default) holding a `dialog` element, as `.Raw` trees the
+        // reconciler walks and mints — or nothing. Closing it unlinks the panel,
+        // so the page behind is reachable again.
+        .Dialog(open, _label, styles, children, scrimStyles, _events) => {
             bindDynamic(builder, fn(scope) => {
                 if (open.get(scope)) {
-                    Node(.Raw("div", scrim(), [Node(.Raw("dialog", styles, children))]))
+                    Node(
+                        .Raw(
+                            "div",
+                            scrimWith(scrimStyles),
+                            [Node(.Raw("dialog", styles, children))],
+                        ),
+                    )
                 } else {
-                    Node(.Nothing)
+                    Node(.Empty)
                 }
             })
-        },
-        // A bare wrapper around its children, plus the document listener a press
-        // outside the subtree fires. `registerOutside` keeps the handler on the
-        // open element; disposing the subtree takes it with it.
-        .OnPressOutside(handler, styles, children) => {
-            let _ = emitElement(
-                builder,
-                "div",
-                widgetBody(mem, plain(state), [], styles),
-            );
-            let _ = registerOutside(builder, handler);
-            let _ = emitChildren(ctx, builder, children, state, 0);
-            exitElement(builder)
-        },
-        // The checked option follows the signal, so picking one rebuilds the
-        // group in place — the options are ctx-free, emitted inline between the
-        // region's markers.
-        .RadioGroup(label, options, styles, value) => {
-            let region = enterDynamic(builder);
-            let _ = label;
-            reactive(fn(scope) => {
-                let _ = beginRegion(builder, region);
-                let _ = emitRadio(scope, builder, options, styles, value, state);
-                endRegion(builder)
-            })
-        },
-        .Progress(_label, _value, styles, children) => {
-            emitBox(ctx, builder, "div", plain(state), styles, children, state)
         },
         // The summary is always drawn; the children only when open. `open` is a
         // signal, so the group rebuilds in place on a toggle: the build answers
         // a `details` element holding the summary, and the children after it
         // only while open, as a `.Raw` tree the reconciler walks.
-        .Disclosure(summary, open, styles, children) => {
+        .Disclosure(summary, open, styles, children, _events) => {
             // The `details` and its `summary` are always drawn, so they are
             // emitted once and kept — the element and its identity survive a
             // toggle, the way a browser's `<details>` does. Only the body comes
@@ -1188,10 +1513,15 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 if (open.get(scope)) {
                     Node(.Fragment(children))
                 } else {
-                    Node(.Nothing)
+                    Node(.Empty)
                 }
             });
             exitElement(builder)
+        },
+        // A bar and whatever fills it. The role and the `aria-value*` are a
+        // reader's, not a painter's, so the scene is the caller's own boxes.
+        .Progress(_label, _value, styles, children, _events) => {
+            emitBox(ctx, builder, "div", plain(state), styles, children, state)
         },
         .Raw(name, styles, children) => {
             emitBox(ctx, builder, name, plain(state), styles, children, state)
@@ -1308,19 +1638,113 @@ fn emitField(
     exitElement(builder)
 }
 
-/// A radio group's static emit, reading the selection under `scope` so the
-/// watcher subscribes to it.
-fn emitRadio(
-    ctx: Scope,
+/// A picker's emit. The group's box is emitted once with the caller's context,
+/// since an option's content is any node; each option's input and dot follow the
+/// selection in a reactive region of their own.
+fn emitPicker<C>(
+    ctx: C,
     builder: Builder,
-    options: [(Str, Prop<Str>)],
+    options: [(Str, Node<C>)],
     styles: [Style],
     value: Signal<Str>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
     let _ = emitElement(builder, "div", widgetBody(mem, plain(state), [], styles));
-    let _ = emitRadioOptions(builder, state, options, value.get(ctx), 0);
+    let _ = emitPickerOptions(ctx, builder, options, value, state, 0);
+    exitElement(builder)
+}
+
+/// Every option, in order: a `<label>` wrapping a reactive input-and-dot region
+/// and the option's content node. The region re-reads the selection, so picking
+/// one re-checks and re-dots it without touching the content beside it.
+fn emitPickerOptions<C>(
+    ctx: C,
+    builder: Builder,
+    options: [(Str, Node<C>)],
+    value: Signal<Str>,
+    state: State,
+    at: Int,
+): () {
+    match (options.get(at)) {
+        .None => {
+        },
+        .Some(option) => {
+            let mem = alloc.generalPurpose();
+            let key = option.0;
+            let content = option.1;
+            let _ = emitElement(
+                builder,
+                "label",
+                widgetBody(mem, plain(state), [], wrapper([])),
+            );
+            let region = enterDynamic(builder);
+            let _ = reactive(fn(scope) => {
+                let inner = alloc.generalPurpose();
+                let on = key == value.get(scope);
+                let painted = Painted { state: state, checked: .Some(on), disabled: false };
+                let _ = beginRegion(builder, region);
+                let _ = emitElement(builder, "input", widgetBody(inner, painted, [], radioBox()));
+                let _ = emitDot(builder, on);
+                let _ = exitElement(builder);
+                endRegion(builder)
+            });
+            let _ = emitNode(ctx, builder, content, state);
+            let _ = exitElement(builder);
+            emitPickerOptions(ctx, builder, options, value, state, at + 1)
+        },
+    }
+}
+
+/// A slider's static emit, reading its value and `disabled` under `scope` so the
+/// watcher subscribes to both. It holds no program children, so no context
+/// crosses.
+fn emitSlider(
+    ctx: Scope,
+    builder: Builder,
+    label: Prop<Str>,
+    value: Signal<Float>,
+    min: Float,
+    max: Float,
+    styles: [Style],
+    disabled: Prop<Bool>,
+    state: State,
+): () {
+    let mem = alloc.generalPurpose();
+    let _ = emitElement(
+        builder,
+        "label",
+        widgetBody(mem, plain(state), [], wrapper([])),
+    );
+    let _ = emitReactiveText(builder, label);
+    let _ = emitSliderControl(
+        builder,
+        refusing(state, disabled.read(ctx)),
+        min,
+        max,
+        styles,
+        value.get(ctx),
+        value.index(),
+    );
+    exitElement(builder)
+}
+
+/// A slider's control: an `<input type=range>` carrying `field:range` and the
+/// `range:<min> <max> <value>` a painter reads the thumb from, bound to the
+/// signal. Its scene is the old `FieldKind.Range`'s, so the painter is unchanged.
+fn emitSliderControl(
+    builder: Builder,
+    painted: Painted,
+    min: Float,
+    max: Float,
+    styles: [Style],
+    value: Float,
+    signal: Int,
+): () {
+    let mem = alloc.generalPurpose();
+    let leading = [decl(mem, "field", "range")].concat(mem, sliderBounds(mem, min, max, value));
+    let _ = emitElement(builder, "input", widgetBody(mem, painted, leading, sliderTrack(styles)));
+    let _ = registerValue(builder, signal);
     exitElement(builder)
 }
 
@@ -1473,20 +1897,10 @@ fn emitFieldControl(
     signal: Int,
 ): () {
     let mem = alloc.generalPurpose();
-    let leading = [decl(mem, "field", kindName(kind))]
-        .concat(mem, bounds(mem, kind, value))
-        .concat(mem, placeholder(mem, kind, hint));
-    let _ = emitElement(
-        builder,
-        fieldName(kind),
-        widgetBody(mem, painted, leading, trackStyles(kind, styles)),
-    );
+    let leading = [decl(mem, "field", kindName(kind))].concat(mem, placeholder(mem, hint));
+    let _ = emitElement(builder, fieldName(kind), widgetBody(mem, painted, leading, styles));
     let _ = registerValue(builder, signal);
-    let _ = match (kind) {
-        .Range(_min, _max, _step) => {
-        },
-        _ => emitText(builder, value),
-    };
+    let _ = emitText(builder, value);
     exitElement(builder)
 }
 
@@ -1528,40 +1942,32 @@ fn emitDot(builder: Builder, on: Bool): () {
     }
 }
 
-/// Every radio option, in order — `radioOptions`, emitting.
-fn emitRadioOptions(
-    builder: Builder,
-    state: State,
-    options: [(Str, Prop<Str>)],
-    selected: Str,
-    at: Int,
-): () {
-    match (options.get(at)) {
-        .None => {
-        },
-        .Some(option) => {
-            let mem = alloc.generalPurpose();
-            let scope = rootScope();
-            let key = option.0;
-            let on = key == selected;
-            let painted = Painted { state: state, checked: .Some(on), disabled: false };
-            let _ = emitElement(
-                builder,
-                "label",
-                widgetBody(mem, plain(state), [], wrapper([])),
-            );
-            let _ = emitElement(
-                builder,
-                "input",
-                widgetBody(mem, painted, [], radioBox()),
-            );
-            let _ = emitDot(builder, on);
-            let _ = exitElement(builder);
-            let _ = emitText(builder, option.1.read(scope));
-            let _ = exitElement(builder);
-            emitRadioOptions(builder, state, options, selected, at + 1)
-        },
-    }
+/// The `range:<min> <max> <value>` declaration a slider carries, escaped the way
+/// a declaration needs. The painter reads the three and puts the thumb where the
+/// value is. Its shape is the old `FieldKind.Range`'s, so the painter is
+/// unchanged.
+fn sliderBounds<C: Allocator>(ctx: C, min: Float, max: Float, value: Float): [Str] {
+    let lo = str.fromFloat(ctx, min);
+    let hi = str.fromFloat(ctx, max);
+    let at = str.fromFloat(ctx, value);
+    [decl(ctx, "range", str.format(ctx, "${lo} ${hi} ${at}"))]
+}
+
+/// A slider's track: the size a browser gives one, and then the caller's own.
+/// Twelve lines wide, one line tall, and it does not shrink — the sheet's reset
+/// says the same to a browser, because with the chrome cleared an unsized range
+/// is a control nobody can see or hit.
+fn sliderTrack(styles: [Style]): [Style] {
+    [.Width(.Rem(12.0)), .Height(.Rem(1.0)), .Shrink(0), .Group(styles)]
+}
+
+/// A dialog's scrim styles: the widget's own drawing, then the caller's
+/// `scrimStyles` on top — so a `BackdropBlur` or a tint reaches the backdrop and
+/// still wins. An empty list adds a `.Group([])`, which contributes nothing, so
+/// the default scrim is byte-identical when `scrimStyles` is omitted.
+fn scrimWith(extra: [Style]): [Style] {
+    let mem = alloc.generalPurpose();
+    scrim().push(mem, .Group(extra))
 }
 
 /// What a `FieldKind`'s control element is called — `textarea` for the one kind
@@ -1574,7 +1980,6 @@ fn fieldName(kind: FieldKind): Str {
         .Email => "input",
         .Number => "input",
         .Search => "input",
-        .Range(_min, _max, _step) => "input",
     }
 }
 
@@ -1735,7 +2140,7 @@ fn markSubmit(builder: Builder): ();
 fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [Str] {
     let scope = rootScope();
     match (node.0) {
-        .Nothing => [],
+        .Empty => [],
         .Text(content) => [textLine(ctx, depth, content.read(scope))],
         .Heading(_level, styles, content) => {
             [
@@ -1743,11 +2148,11 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 textLine(ctx, depth + 1, content.read(scope)),
             ]
         },
-        .Stack(styles, children) => container(ctx, state, styles, children, depth),
+        .Stack(styles, children, _events) => container(ctx, state, styles, children, depth),
         // A role paints nothing — it is what a reader is told, not what a
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
-        .Region(role, styles, children) => {
+        .Region(role, styles, children, _events) => {
             container(
                 ctx,
                 state,
@@ -1759,7 +2164,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The children are what is drawn, and a button with none draws its
         // label — which is the one place the accessible name and the glyphs
         // are the same string.
-        .Button(label, styles, children, _onPress, disabled, _expanded) => {
+        .Button(label, styles, children, _onPress, disabled, _expanded, _current, _events) => {
             let painted = refusing(state, disabled.read(scope));
             if (children.isEmpty()) {
                 [
@@ -1770,20 +2175,17 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 boxed(ctx, painted, styles, children, depth)
             }
         },
-        .Link(_dest, styles, children) => {
-            container(ctx, state, styles, children, depth)
-        },
-        // A route link paints as the anchor it is — the same box `link` is. What
-        // sets it apart is the plain-click handler, which is behaviour rather
-        // than a picture, so the scene carries nothing of it.
-        .RouteLink(_dest, styles, children, _onFollow) => {
+        // A link — plain or routing — paints as the anchor it is. The
+        // destination and the plain-click handler are behaviour, not a picture,
+        // so the scene carries neither.
+        .Link(_dest, styles, children, _onFollow, _current, _events) => {
             container(ctx, state, styles, children, depth)
         },
         // A picture is a box with a source in it. The painter reads a data URI
         // it can and paints a placeholder box at the same size for one it
         // cannot; `alt` is what a reader is *told* and never what is drawn, so
         // it is not in the scene.
-        .Image(source, _alt, styles) => {
+        .Image(source, _alt, styles, _events) => {
             let declaration = decl(ctx, "image", escapeValue(ctx, source.read(scope)));
             [widgetLine(ctx, plain(state), [declaration], styles, depth)]
         },
@@ -1791,13 +2193,13 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // is what lets the painter resolve `currentColor` against the colour
         // this element paints in. The declaration comes first, so a style still
         // wins over it.
-        .Icon(styles, source) => {
+        .Icon(styles, source, _events) => {
             let artwork = decl(ctx, "icon", escapeInline(ctx, source));
             [widgetLine(ctx, plain(state), [artwork], styles, depth)]
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the
         // control inside it.
-        .Field(label, kind, hint, styles, around, value, _invalid, disabled) => {
+        .Field(label, kind, hint, styles, around, value, _invalid, disabled, _events) => {
             [
                 styledLine(ctx, plain(state), wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -1814,13 +2216,27 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 ),
             )
         },
+        // A slider is a `<label>` around its name and a range input. The input
+        // carries `field:range` and `range:<min> <max> <value>` — the old
+        // `FieldKind.Range`'s scene, so the painter draws the thumb unchanged —
+        // and no run of text, because a browser draws a thumb and never a number.
+        .Slider(label, value, min, max, _step, styles, disabled, _events) => {
+            let painted = refusing(state, disabled.read(scope));
+            let leading = [decl(ctx, "field", "range")]
+                .concat(ctx, sliderBounds(ctx, min, max, value.get(scope)));
+            [
+                styledLine(ctx, plain(state), wrapper([]), depth),
+                textLine(ctx, depth + 1, label.read(scope)),
+                widgetLine(ctx, painted, leading, sliderTrack(styles), depth + 1),
+            ]
+        },
         // The box, its mark, and the text beside it. The mark is the widget's
         // own drawing: there is no child to supply one and no property that
         // names it.
         // The box answers for its own `:checked`, and the signal is the
         // answer — the same signal the mark is drawn from, so what a reader
         // sees and what the styles say cannot come apart.
-        .Toggle(label, kind, styles, around, value, _invalid, disabled) => {
+        .Toggle(label, kind, styles, around, value, _invalid, disabled, _events) => {
             let on = value.get(scope);
             let painted = Painted {
                 state: state,
@@ -1835,13 +2251,13 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 textLine(ctx, depth + 1, label.read(scope)),
             )
         },
-        .Form(_onSubmit, styles, children) => {
+        .Form(_onSubmit, styles, children, _events) => {
             container(ctx, state, styles, children, depth)
         },
         // A form's action is a button with its label drawn in it, which is a
         // childless button's own shape: the accessible name and the glyphs are
         // the same string.
-        .Submit(label, styles) => {
+        .Submit(label, styles, _events) => {
             [
                 styledLine(ctx, plain(state), styles, depth),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -1861,9 +2277,9 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // Shut, a browser draws none of it, so neither does this. Open, it is
         // the two things a browser draws: the scrim over the page, and the
         // panel centred on it.
-        .Dialog(open, _label, styles, children) => {
+        .Dialog(open, _label, styles, children, scrimStyles, _events) => {
             if (open.get(scope)) {
-                container(ctx, state, scrim(), [], depth).concat(
+                container(ctx, state, scrimWith(scrimStyles), [], depth).concat(
                     ctx,
                     container(ctx, state, styles, children, depth + 1),
                 )
@@ -1871,35 +2287,29 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 []
             }
         },
-        // A bare wrapper around its children: the press it watches for is the
-        // browser's own document listener and no style says it, so a picture of
-        // it is a picture of its children. The handler is dead weight here — a
-        // painter has no pointer — so it is dropped, the way a button's is.
-        .OnPressOutside(_handler, styles, children) => {
-            container(ctx, state, styles, children, depth)
-        },
         // The group is a box the caller styles; each option is a `<label>`
-        // wrapping a radio box and its caption, the shape a toggle already
-        // takes. The box answers for its own `:checked` off the signal — the
-        // input whose key equals it — and a checked one draws the dot the reset
-        // paints with `:checked::before`, in the box's own foreground.
-        .RadioGroup(_label, options, styles, value) => {
+        // wrapping a radio box and its content node. The box answers for its own
+        // `:checked` off the signal — the option whose key equals it — and a
+        // checked one draws the dot the reset paints, in the box's own
+        // foreground. `style` picks the shape and changes no line here.
+        .Picker(_label, options, styles, value, _style, _disabled, _events) => {
             [styledLine(ctx, plain(state), styles, depth)].concat(
                 ctx,
-                radioOptions(ctx, state, options, value.get(scope), depth + 1, 0, []),
+                pickerOptionLines(ctx, state, options, value.get(scope), depth + 1, 0, []),
             )
         },
-        // A bar and whatever fills it. The role and the three `aria-value*` are
-        // what a reader is told, not what a painter draws, so the scene is the
-        // caller's own boxes — the same picture the nested `stack`s painted
-        // before, now announced.
-        .Progress(_label, _value, styles, children) => {
+        // A bar and whatever fills it. The role and the `aria-value*` are what a
+        // reader is told, not what a painter draws, so the scene is the caller's
+        // own boxes — the same picture the nested `stack`s painted before, now
+        // announced. An indeterminate bar draws the same; the missing value is a
+        // fact for a reader, not the painter.
+        .Progress(_label, _value, styles, children, _events) => {
             container(ctx, state, styles, children, depth)
         },
         // The summary is always drawn; the children only when it is open. A
         // browser draws a shut `<details>` as its `<summary>` alone, so this
         // reads the signal and leaves the rest out when it is shut.
-        .Disclosure(summary, open, styles, children) => {
+        .Disclosure(summary, open, styles, children, _events) => {
             let head = [
                 styledLine(ctx, plain(state), styles, depth),
                 styledLine(ctx, plain(state), [], depth + 1),
@@ -1923,10 +2333,10 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
 
 /// Every option's lines, in order: a `<label>` wrapper, the radio box, its dot
 /// when it is the checked one, and the caption beside it.
-fn radioOptions<C: Allocator>(
+fn pickerOptionLines<C: Allocator>(
     ctx: C,
     state: State,
-    options: [(Str, Prop<Str>)],
+    options: [(Str, Node<C>)],
     selected: Str,
     depth: Int,
     at: Int,
@@ -1935,18 +2345,18 @@ fn radioOptions<C: Allocator>(
     match (options.get(at)) {
         .None => acc,
         .Some(option) => {
-            let scope = rootScope();
             let key = option.0;
+            let content = option.1;
             let on = key == selected;
             let painted = Painted { state: state, checked: .Some(on), disabled: false };
             let lines = [
                 styledLine(ctx, plain(state), wrapper([]), depth),
                 styledLine(ctx, painted, radioBox(), depth + 1),
-            ].concat(ctx, dotLines(ctx, on, depth + 2)).push(
+            ].concat(ctx, dotLines(ctx, on, depth + 2)).concat(
                 ctx,
-                textLine(ctx, depth + 1, option.1.read(scope)),
+                nodeLines(ctx, state, content, depth + 1),
             );
-            radioOptions(
+            pickerOptionLines(
                 ctx,
                 state,
                 options,
@@ -2088,10 +2498,8 @@ fn markLines<C: Allocator>(ctx: C, kind: ToggleKind, on: Bool, depth: Int): [Str
 
 /// The lines an input contributes: its own, and the run of text it holds.
 ///
-/// Every kind but a range shows what is in it, so the value is a `t` line under
-/// the input. A range shows a thumb on a track instead — a browser draws no
-/// number for one — so its value rides on the input's own line, where the
-/// painter reads it as a position rather than as something to set.
+/// A field's input line, and the run of text it holds. Every text kind shows
+/// what is in it, so the value is a `t` line under the input.
 fn fieldLines<C: Allocator>(
     ctx: C,
     painted: Painted,
@@ -2101,11 +2509,10 @@ fn fieldLines<C: Allocator>(
     value: Str,
     depth: Int,
 ): [Str] {
-    let line = fieldLine(ctx, painted, kind, hint, styles, value, depth);
-    match (kind) {
-        .Range(_min, _max, _step) => [line],
-        _ => [line, textLine(ctx, depth + 1, value)],
-    }
+    [
+        fieldLine(ctx, painted, kind, hint, styles, depth),
+        textLine(ctx, depth + 1, value),
+    ]
 }
 
 /// The `e` line an input contributes: what it accepts, then its styles.
@@ -2116,28 +2523,17 @@ fn fieldLines<C: Allocator>(
 /// masked rather than shown, and only a `textarea` wraps. It comes first, so a
 /// style still wins over it the way a later declaration wins over an earlier
 /// one.
-///
-/// A range carries one more, `range:<min> <max> <value>`, and takes the size a
-/// browser gives a slider ahead of the caller's styles. Both are the bargain
-/// the `<label>` wrapper already makes: the sheet says it to a browser as a
-/// `:where(input[type=range])` rule, and this says it to the painter in the
-/// vocabulary, so the two renderers draw one control. The **step is not there**
-/// — what an arrow key moves by is never drawn, which is the rule that keeps an
-/// image's `alt` out of a scene too.
 fn fieldLine<C: Allocator>(
     ctx: C,
     painted: Painted,
     kind: FieldKind,
     hint: Str,
     styles: [Style],
-    value: Str,
     depth: Int,
 ): Str {
     let accepts = decl(ctx, "field", kindName(kind));
-    let leading = [accepts]
-        .concat(ctx, bounds(ctx, kind, value))
-        .concat(ctx, placeholder(ctx, kind, hint));
-    widgetLine(ctx, painted, leading, trackStyles(kind, styles), depth)
+    let leading = [accepts].concat(ctx, placeholder(ctx, hint));
+    widgetLine(ctx, painted, leading, styles, depth)
 }
 
 /// The `placeholder:` declaration a hint carries, and nothing for a field that
@@ -2145,54 +2541,12 @@ fn fieldLine<C: Allocator>(
 ///
 /// It rides on the line whatever the value is, the way the attribute stays in
 /// the markup whatever is typed: the painter draws it only while the run under
-/// the input is empty, which is where "gone once there is a value" lives. A
-/// `.Range` gets none — HTML's `placeholder` reaches the kinds that hold text,
-/// and a browser drops it on a slider rather than refusing it.
-fn placeholder<C: Allocator>(ctx: C, kind: FieldKind, hint: Str): [Str] {
-    match (kind) {
-        .Range(_min, _max, _step) => [],
-        _ => {
-            if (hint.isEmpty()) {
-                []
-            } else {
-                [decl(ctx, "placeholder", escapeInline(ctx, hint))]
-            }
-        },
-    }
-}
-
-/// The `range:` declaration a slider carries, and nothing for any other kind.
-///
-/// The value is whatever the signal holds, escaped the way a declaration and a
-/// line both need — a semicolon or a newline in it would otherwise end the
-/// declaration or the line. What comes out the other side is a number or it is
-/// not, and the painter has an answer either way.
-fn bounds<C: Allocator>(ctx: C, kind: FieldKind, value: Str): [Str] {
-    match (kind) {
-        .Range(min, max, _step) => {
-            let lo = str.fromFloat(ctx, min);
-            let hi = str.fromFloat(ctx, max);
-            let at = escapeValue(ctx, value)
-                .replace(ctx, "\n", "\\n")
-                .replace(ctx, "\r", "\\r");
-            [decl(ctx, "range", str.format(ctx, "${lo} ${hi} ${at}"))]
-        },
-        _ => [],
-    }
-}
-
-/// A slider's track: the size a browser gives one, and then the caller's own.
-///
-/// Twelve lines wide, one line tall, and it does not shrink — the sheet's reset
-/// says the same three to a browser, because with the chrome cleared an unsized
-/// range is a control nobody can see or hit. Every other kind takes its styles
-/// as they were written.
-fn trackStyles(kind: FieldKind, styles: [Style]): [Style] {
-    match (kind) {
-        .Range(_min, _max, _step) => {
-            [.Width(.Rem(12.0)), .Height(.Rem(1.0)), .Shrink(0), .Group(styles)]
-        },
-        _ => styles,
+/// the input is empty, which is where "gone once there is a value" lives.
+fn placeholder<C: Allocator>(ctx: C, hint: Str): [Str] {
+    if (hint.isEmpty()) {
+        []
+    } else {
+        [decl(ctx, "placeholder", escapeInline(ctx, hint))]
     }
 }
 
@@ -2206,7 +2560,6 @@ fn kindName(kind: FieldKind): Str {
         .Email => "email",
         .Number => "number",
         .Search => "search",
-        .Range(_min, _max, _step) => "range",
     }
 }
 
