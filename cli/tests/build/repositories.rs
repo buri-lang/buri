@@ -199,7 +199,7 @@ fn lint_catalogue() {
 /// `core/buri/ast` was a suite that did not compile (buri-lang/buri#48).
 #[test]
 fn test_suites() {
-    run_corpus(&tests_dir().join("repositories/testing"), "testing", 13);
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 14);
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a

@@ -1,0 +1,15 @@
+from "core/effect" import { Allocator };
+from "core/lazy" import * as lazy;
+from "core/str" import * as str;
+
+fn wide<C: Allocator>(ctx: C, rows: Int): Str {
+    str.format(ctx, "report over ${rows} rows")
+}
+
+/// The report, having loaded what builds it. On a native build `load` is the
+/// identity, so this is `wide` reached one call along — and the suite beside
+/// it proves that answer holds here as `core/lazy`'s own header says it does.
+export fn render<C: Allocator>(ctx: C, rows: Int): Str {
+    let build = lazy.load(wide);
+    build(ctx, rows)
+}
