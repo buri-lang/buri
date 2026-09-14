@@ -11,14 +11,14 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
-from "ui/style" import { Style };
+from "ui/style" import { , Style };
 from "ui/testing" import { headless };
 from "ui/theme" import { Theme };
 
 let badgeStyle: Style = .Group([
     .PaddingX(.Rem(0.5)),
     .Radius(.Px(6)),
-    .Background(.Rgb(240 240, 245)),
+    .Background(.Rgb(240, 240, 245)),
 ]);
 
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {

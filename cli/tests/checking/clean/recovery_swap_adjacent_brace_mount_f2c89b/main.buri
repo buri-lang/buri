@@ -18,7 +18,7 @@ from "ui/theme" import { Theme };
 let badgeStyle: Style = .Group([
     .PaddingX(.Rem(0.5)),
     .Radius(.Px(6)),
-    .Background(.Rgb(240 240, 245)),
+    .Background(.Rgb(240, 240, 245)),
 ]);
 
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
@@ -49,7 +49,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
 }
 
 test "the counter mounts" {
-    let ctx = context {
+    ctx let = context {
         Ui: headless(),
     };
     // Nothing can build a `Theme` yet, so the empty list is the only list there

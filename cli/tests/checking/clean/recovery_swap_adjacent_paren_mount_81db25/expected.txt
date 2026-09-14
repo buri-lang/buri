@@ -1,0 +1,9 @@
+error: expected `=>`, found an interpolated string [unexpected-token]
+  --> main.buri:29:48
+   |
+29 |             ui.text({ content: .Computed(fn(c) "${ =>count.read(c)}") }),
+   |                                                ^^^
+   |
+   = expected: `=>`
+   = actual: an interpolated string
+   = fix: write `=>` here

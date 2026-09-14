@@ -18,7 +18,7 @@ from "ui/theme" import { Theme };
 let badgeStyle: Style = .Group([
     .PaddingX(.Rem(0.5)),
     .Radius(.Px(6)),
-    .Background(.Rgb(240 240, 245)),
+    .Background(.Rgb(240, 240, 245)),
 ]);
 
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
@@ -54,6 +54,6 @@ test "the counter mounts" {
     };
     // Nothing can build a `Theme` yet, so the empty list is the only list there
     // is — which is what an app with no design tokens passes in any case.
-    let themes: [Theme] = [];
+    let themes: [Theme] = [;
     assert.equal(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
 }

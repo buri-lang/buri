@@ -1,0 +1,9 @@
+error: expected an expression, found `}` [unexpected-token]
+  --> main.buri:28:32
+   |
+28 |             ui.text({ content: } title),
+   |                                ^
+   |
+   = expected: an expression
+   = actual: `}`
+   = fix: write a value here
