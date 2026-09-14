@@ -1027,6 +1027,7 @@ mod tests {
             name: "map".to_string(),
             signature: "fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]".to_string(),
             docs: vec!["Applies `f` to every element.".to_string()],
+            config: None,
         };
         let page = item_markdown(&item);
         assert!(page.starts_with("### map\n"), "{page}");
@@ -1044,6 +1045,7 @@ mod tests {
             name: "length".to_string(),
             signature: "fn length(self): Int".to_string(),
             docs: Vec::new(),
+            config: None,
         };
         assert!(item_markdown(&pure).contains("\nPure.\n"));
 
@@ -1052,6 +1054,7 @@ mod tests {
             name: "Stats".to_string(),
             signature: "struct Stats".to_string(),
             docs: Vec::new(),
+            config: None,
         };
         let page = item_markdown(&structure);
         assert!(!page.contains("Pure."), "{page}");
