@@ -265,15 +265,29 @@ use image::{Picture, decode, pixel_bytes};
 // The bundled family
 // ---------------------------------------------------------------------------
 
-/// The one family the painter can draw with. Every `font-family` resolves to
-/// it, including `ui-serif` and `ui-monospace`, because a face this archive
-/// does not carry is a face no snapshot may depend on.
+/// The proportional family the painter draws with. Every `font-family` but
+/// `monospace` resolves to it — `ui-serif` included — because a face this
+/// archive does not carry is a face no snapshot may depend on.
 const FAMILY: &str = "Roboto";
+
+/// The fixed-pitch family, for a `font-family` a browser sets in a monospace
+/// face — `FontFamily(.Mono)`, whose stylesheet declaration names `monospace`.
+/// A code box, a diff, a log, a table of amounts or a keyboard shortcut lines
+/// up on a constant advance, and a golden of any of them is a picture of a
+/// thing the reader never sees unless the painter has the face too (#173).
+const MONO_FAMILY: &str = "DejaVu Sans Mono";
 
 /// Roboto, Latin subset, under the SIL Open Font License — `fonts/LICENSE`.
 const REGULAR: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
 const BOLD: &[u8] = include_bytes!("fonts/Roboto-Bold.ttf");
 const ITALIC: &[u8] = include_bytes!("fonts/Roboto-Italic.ttf");
+
+/// DejaVu Sans Mono, under the DejaVu Fonts License — the same permissive
+/// licence as the fallback face below, so `fonts/DejaVu-LICENSE` covers both.
+/// A single fixed-pitch weight: a snapshot's monospace text is set in one
+/// face, and a bold or an italic run of it falls back to synthesising from
+/// this the way the proportional bold and italic do not have to.
+const MONO: &[u8] = include_bytes!("fonts/DejaVuSansMono.ttf");
 
 /// DejaVu Sans, under the DejaVu Fonts License (a permissive, Bitstream Vera
 /// derivative) — `fonts/DejaVu-LICENSE`. Broad Unicode coverage in one face:
@@ -1229,6 +1243,9 @@ struct Computed {
     font_size: f32,
     weight: u16,
     italic: bool,
+    /// `font-family: monospace`: set the run in the bundled fixed-pitch face
+    /// rather than the proportional one. Inherited, the way `font-family` is.
+    mono: bool,
     line_height: f32,
     letter_spacing: f32,
     align_text: cosmic_text::Align,
@@ -1302,6 +1319,7 @@ impl Computed {
             font_size: ROOT_FONT_SIZE,
             weight: 400,
             italic: false,
+            mono: false,
             line_height: NORMAL_LINE_HEIGHT,
             letter_spacing: 0.0,
             align_text: cosmic_text::Align::Left,
@@ -1352,6 +1370,7 @@ impl Computed {
         child.font_size = self.font_size;
         child.weight = self.weight;
         child.italic = self.italic;
+        child.mono = self.mono;
         child.line_height = self.line_height;
         child.letter_spacing = self.letter_spacing;
         child.align_text = self.align_text;
@@ -1692,8 +1711,13 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "placeholder" => {
             style.placeholder = (!value.is_empty()).then(|| value.to_string());
         }
-        // `font-family` resolves to the bundled family whatever it names, and
-        // `cursor` paints nothing. Both parse so that a scene keeps them.
+        // `font-family` picks between the two bundled families: the fixed-pitch
+        // one where a browser would set a monospace face — `FontFamily(.Mono)`,
+        // whose stack names `monospace` — and the proportional one for
+        // everything else, `ui-serif` included, since the archive carries no
+        // serif face (#173). `cursor` paints nothing. Both parse so a scene
+        // keeps them.
+        "font-family" => style.mono = value.contains("monospace"),
         _ => {}
     }
 }
@@ -2098,12 +2122,12 @@ fn grid_track(len: Len) -> GridTemplateComponent<String> {
 /// whichever host paints it.
 fn font_system() -> FontSystem {
     let mut db = fontdb::Database::new();
-    for face in [REGULAR, BOLD, ITALIC, FALLBACK] {
+    for face in [REGULAR, BOLD, ITALIC, MONO, FALLBACK] {
         db.load_font_source(fontdb::Source::Binary(Arc::new(face)));
     }
     db.set_sans_serif_family(FAMILY);
     db.set_serif_family(FAMILY);
-    db.set_monospace_family(FAMILY);
+    db.set_monospace_family(MONO_FAMILY);
     FontSystem::new_with_locale_and_db("en-US".to_string(), db)
 }
 
@@ -2241,7 +2265,7 @@ fn shape(
     buffer.set_size(width, None);
 
     let mut attrs = Attrs::new()
-        .family(Family::Name(FAMILY))
+        .family(Family::Name(if style.mono { MONO_FAMILY } else { FAMILY }))
         .weight(Weight(style.weight))
         .cache_key_flags(CacheKeyFlags::DISABLE_HINTING);
     if style.italic {
@@ -5126,6 +5150,39 @@ mod tests {
         let centre = first_inked_column(&render_ok(two, "", "rest")).unwrap();
         assert!(left < 4 * S, "a start-aligned run begins at the box's edge, not {left}");
         assert!(centre > 60 * S, "a centred run begins in the middle, not at {centre}");
+    }
+
+    /// buri#173: `font-family: monospace` sets the run in a fixed-pitch face,
+    /// so anything code-shaped lines up on a constant advance. The measurable
+    /// property of a monospace face is that every glyph takes the same width:
+    /// ten narrow `i`s and ten wide `M`s reach the same column. The
+    /// proportional face beside it does not — that is the whole difference, and
+    /// the whole of what a golden of a formula or a table depends on.
+    #[test]
+    fn a_monospace_family_sets_every_glyph_on_one_advance() {
+        let run = |family: &str, ch: char| {
+            let scene = format!(
+                "buri-scene 1\nviewport 400 40\ne 0 font-size:16px{family}\nt 1 {}\n",
+                std::iter::repeat(ch).take(10).collect::<String>()
+            );
+            last_inked_column(&render_ok(&scene, "", "rest")).unwrap()
+        };
+        let em = 16 * S;
+        // The two proportional runs end far apart: `M` is wide, `i` is narrow,
+        // and ten of each pull the right edge whole ems from one another.
+        let (sans_i, sans_m) = (run("", 'i'), run("", 'M'));
+        assert!(
+            sans_m.abs_diff(sans_i) > 2 * em,
+            "the proportional runs should end ems apart: i at {sans_i}, M at {sans_m}"
+        );
+        // The two monospace runs end within a single cell of each other,
+        // because every advance is the same width.
+        let (mono_i, mono_m) =
+            (run(";font-family:monospace", 'i'), run(";font-family:monospace", 'M'));
+        assert!(
+            mono_m.abs_diff(mono_i) < em,
+            "the monospace runs should end within a cell: i at {mono_i}, M at {mono_m}"
+        );
     }
 
     /// Three faces are bundled, and the weight picks between two of them.
