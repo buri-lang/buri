@@ -64,40 +64,86 @@ let painted: [Style] = [
 
 /// One labelled row: the label in a fixed track, the sample in the rest.
 fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Grid([.Fixed(.Px(140)), .Fraction(1)])), .Gap(.Px(12))], children: [
-        ui.stack({ styles: [.FontSize(.Px(12))], children: [ui.text({ content: .Const(label) })] }),
-        sample,
-    ] })
+    ui.stack({
+        styles: [.Layout(.Grid([.Fixed(.Px(140)), .Fraction(1)])), .Gap(.Px(12))],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(12))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            sample,
+        ],
+    })
 }
 
 /// A card, a heading, a button, a field and a list, each painted in the same
 /// four tokens — so one picture says what all four are worth on all five.
 export fn page<C: Ui>(ctx: C): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Padding(.Px(16)), .Gap(.Px(14)), .FontSize(.Px(16))])], children: [
-        labelled(
-            "card",
-            ui.stack({ styles: [.Group(painted), .Width(.Px(220))], children: [
-                ui.text({ content: .Const("every colour a token") }),
-            ] }),
-        ),
-        labelled(
-            "heading",
-            ui.text({ content: .Const("Ada"), headingLevel: .Some(2), styles: .Some([.Group(painted), .FontSize(.Px(22)), .FontWeight(.Bold)]) }),
-        ),
-        labelled(
-            "button",
-            ui.button({ label: .Const("press"), styles: painted, onPress: .Some(fn(_c) => ()) }),
-        ),
-        labelled(
-            "field",
-            ui.field({ label: .Const("name"), kind: .Text, value: signal(ctx, "Ada"), styles: painted }),
-        ),
-        labelled(
-            "list",
-            ui.stack({ styles: [.Group(painted), .PaddingEdge(.Start, .Px(28)), .ListMarker(.Disc)], children: [
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("one") })], role: .Some(.ListItem) }),
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("two") })], role: .Some(.ListItem) }),
-                ], role: .Some(.List) }),
-        ),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Padding(.Px(16)), .Gap(.Px(14)), .FontSize(.Px(16))]),
+        ],
+        children: [
+            labelled(
+                "card",
+                ui.stack({
+                    styles: [.Group(painted), .Width(.Px(220))],
+                    children: [ui.text({ content: .Const("every colour a token") })],
+                }),
+            ),
+            labelled(
+                "heading",
+                ui.text({
+                    content: .Const("Ada"),
+                    headingLevel: .Some(2),
+                    styles: .Some([
+                        .Group(painted),
+                        .FontSize(.Px(22)),
+                        .FontWeight(.Bold),
+                    ]),
+                }),
+            ),
+            labelled(
+                "button",
+                ui.button({
+                    label: .Const("press"),
+                    styles: painted,
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ),
+            labelled(
+                "field",
+                ui.field({
+                    label: .Const("name"),
+                    kind: .Text,
+                    value: signal(ctx, "Ada"),
+                    styles: painted,
+                }),
+            ),
+            labelled(
+                "list",
+                ui.stack({
+                    styles: [
+                        .Group(painted),
+                        .PaddingEdge(.Start, .Px(28)),
+                        .ListMarker(.Disc),
+                    ],
+                    children: [
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("one") })],
+                            role: .Some(.ListItem),
+                        }),
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("two") })],
+                            role: .Some(.ListItem),
+                        }),
+                    ],
+                    role: .Some(.List),
+                }),
+            ),
+        ],
+    })
 }

@@ -122,23 +122,45 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
     ];
     page([
         band("stack", [cell("raised", card(raised))]),
-        band("heading", [cell("raised", ui.text({ content: .Const("Ada"), headingLevel: .Some(2), styles: .Some(base(raised)) }))]),
+        band("heading", [
+            cell(
+                "raised",
+                ui.text({
+                    content: .Const("Ada"),
+                    headingLevel: .Some(2),
+                    styles: .Some(base(raised)),
+                }),
+            ),
+        ]),
         band("button", [
             cell(
                 "raised",
-                ui.button({ label: .Const("press"), styles: base(raised), onPress: .Some(fn(_c) => ()) }),
+                ui.button({
+                    label: .Const("press"),
+                    styles: base(raised),
+                    onPress: .Some(fn(_c) => ()),
+                }),
             ),
         ]),
         band("link", [
             cell(
                 "raised",
-                ui.link({ dest: .Const("/"), styles: base(raised), children: [ui.text({ content: .Const("home") })] }),
+                ui.link({
+                    dest: .Const("/"),
+                    styles: base(raised),
+                    children: [ui.text({ content: .Const("home") })],
+                }),
             ),
         ]),
         band("field", [
             cell(
                 "raised",
-                ui.field({ label: .Const("name"), kind: .Text, value: signal(ctx, "Ada"), styles: base(raised) }),
+                ui.field({
+                    label: .Const("name"),
+                    kind: .Text,
+                    value: signal(ctx, "Ada"),
+                    styles: base(raised),
+                }),
             ),
         ]),
     ])
@@ -146,29 +168,47 @@ export fn ringPage<C: Ui>(ctx: C): Node<C> {
 
 /// One picture: a column of bands on a grey ground.
 fn page<C>(bands: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Gap(.Px(6)),
-            .Padding(.Px(10)),
-            .Background(.Rgb(232, 234, 238)),
-            .Foreground(.Rgb(20, 20, 20)),
-            .FontSize(.Px(11)),
-        ])], children: bands })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Gap(.Px(6)),
+                .Padding(.Px(10)),
+                .Background(.Rgb(232, 234, 238)),
+                .Foreground(.Rgb(20, 20, 20)),
+                .FontSize(.Px(11)),
+            ]),
+        ],
+        children: bands,
+    })
 }
 
 /// One question's band: its name, then a cell per answer.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Height(.Px(112)), .Scroll(.Both), .Padding(.Px(4))], children: [
-        ui.text({ content: .Const(name) }),
-        ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(18)), .AlignCross(.Start), .PaddingY(.Px(8))])], children: cells }),
-    ] })
+    ui.stack({
+        styles: [.Height(.Px(112)), .Scroll(.Both), .Padding(.Px(4))],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [
+                    .Layout(.Row),
+                    .Group([.Gap(.Px(18)), .AlignCross(.Start), .PaddingY(.Px(8))]),
+                ],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// One answer: its label, and the subject carrying it.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(150)), .Gap(.Px(4)), .AlignCross(.Start)])], children: [
-        ui.text({ content: .Const(label) }),
-        inner,
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(150)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [ui.text({ content: .Const(label) }), inner],
+    })
 }
 
 /// The subject: a white card, so the only dark pixels in a cell are the

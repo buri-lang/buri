@@ -44,7 +44,11 @@ fn ignore(value: Int): () {
 /// A row of a keyed list: the item is the key and the text, so that what the
 /// document shows says which row it is.
 fn labelRow<C>(ctx: C, item: Str, index: Int): Node<C> {
-    ui.stack({ styles: [], children: [ui.text({ content: .Const(item) })], role: .Some(.ListItem) })
+    ui.stack({
+        styles: [],
+        children: [ui.text({ content: .Const(item) })],
+        role: .Some(.ListItem),
+    })
 }
 
 /// The key of a row is the item itself. Two rows with one key is a mistake the
@@ -84,7 +88,10 @@ test "a stack is arrangement with no meaning, and text is a bare run" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [ui.text({ content: .Const("hello") })] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({ styles: [], children: [ui.text({ content: .Const("hello") })] }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 hello");
 }
 
@@ -92,10 +99,13 @@ test "nothing renders nothing at all" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({
-        styles: [],
-        children: [ui.empty(), ui.text({ content: .Const("only") }), ui.empty()],
-    }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [ui.empty(), ui.text({ content: .Const("only") }), ui.empty()],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 only");
 }
 
@@ -104,11 +114,17 @@ test "a row runs along the axis and a column runs down the page" {
         Ui: headless(),
     };
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Layout(.Row), .Group([])], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Layout(.Row), .Group([])], children: [] }),
+        ).markup(),
         "e 0 class:lay-row",
     );
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Layout(.Column), .Group([])], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Layout(.Column), .Group([])], children: [] }),
+        ).markup(),
         "e 0 class:lay-col",
     );
 }
@@ -117,7 +133,10 @@ test "a caller's own layout wins over the sugar's" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [.Layout(.Row), .Group([.Layout(.Column)])], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({ styles: [.Layout(.Row), .Group([.Layout(.Column)])], children: [] }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:lay-col");
 }
 
@@ -132,44 +151,55 @@ test "every role lowers to the element that carries it" {
     let ctx = context {
         Ui: headless(),
     };
-    let landmarks = rooted(ctx, ui.stack({
-        styles: [],
-        children: [
-            ui.stack({ styles: [], children: [], role: .Some(.Navigation) }),
-            ui.stack({ styles: [], children: [], role: .Some(.Main) }),
-            ui.stack({ styles: [], children: [], role: .Some(.Banner) }),
-            ui.stack({ styles: [], children: [], role: .Some(.ContentInfo) }),
-            ui.stack({ styles: [], children: [], role: .Some(.Complementary) }),
-            ui.stack({ styles: [], children: [], role: .Some(.Article) }),
-            ui.stack({ styles: [], children: [], role: .Some(.Search) }),
-        ],
-    }));
+    let landmarks = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({ styles: [], children: [], role: .Some(.Navigation) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Main) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Banner) }),
+                ui.stack({ styles: [], children: [], role: .Some(.ContentInfo) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Complementary) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Article) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Search) }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, landmarks).markup(),
         "e 0 \ne 1 \ne 1 \ne 1 \ne 1 \ne 1 \ne 1 \ne 1 ",
     );
 
-    let structure = rooted(ctx, ui.stack({
-        styles: [],
-        children: [
-            ui.stack({
-                styles: [],
-                children: [ui.stack({ styles: [], children: [], role: .Some(.ListItem) })],
-                role: .Some(.List),
-            }),
-            ui.stack({ styles: [], children: [], role: .Some(.Group) }),
-            ui.stack({ styles: [], children: [], role: .Some(.Separator) }),
-        ],
-    }));
+    let structure = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.stack({ styles: [], children: [], role: .Some(.ListItem) }),
+                    ],
+                    role: .Some(.List),
+                }),
+                ui.stack({ styles: [], children: [], role: .Some(.Group) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Separator) }),
+            ],
+        }),
+    );
     assert.equal(render(ctx, structure).markup(), "e 0 \ne 1 \ne 2 \ne 1 \ne 1 ");
 
-    let live = rooted(ctx, ui.stack({
-        styles: [],
-        children: [
-            ui.stack({ styles: [], children: [], role: .Some(.Status) }),
-            ui.stack({ styles: [], children: [], role: .Some(.Alert) }),
-        ],
-    }));
+    let live = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({ styles: [], children: [], role: .Some(.Status) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Alert) }),
+            ],
+        }),
+    );
     assert.equal(render(ctx, live).markup(), "e 0 \ne 1 \ne 1 ");
 }
 
@@ -177,28 +207,47 @@ test "a data table is roles, and its headers say which way they head" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({
-        styles: [],
-        children: [
-            ui.stack({
-                styles: [],
-                children: [
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("name") })], role: .Some(.ColumnHeader) }),
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("owed") })], role: .Some(.ColumnHeader) }),
-                ],
-                role: .Some(.TableRow),
-            }),
-            ui.stack({
-                styles: [],
-                children: [
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("ada") })], role: .Some(.RowHeader) }),
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("3") })], role: .Some(.Cell) }),
-                ],
-                role: .Some(.TableRow),
-            }),
-        ],
-        role: .Some(.Table),
-    }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("name") })],
+                            role: .Some(.ColumnHeader),
+                        }),
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("owed") })],
+                            role: .Some(.ColumnHeader),
+                        }),
+                    ],
+                    role: .Some(.TableRow),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("ada") })],
+                            role: .Some(.RowHeader),
+                        }),
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("3") })],
+                            role: .Some(.Cell),
+                        }),
+                    ],
+                    role: .Some(.TableRow),
+                }),
+            ],
+            role: .Some(.Table),
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center\nt 3 name\ne 2 class:fw-bold ta-center\nt 3 owed\ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center\nt 3 ada\ne 2 \nt 3 3",
@@ -209,15 +258,18 @@ test "a heading is an outline level, and there is no seventh" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({
-        styles: [],
-        children: [
-            ui.text({ content: .Const("top"), headingLevel: .Some(1) }),
-            ui.text({ content: .Const("inner"), headingLevel: .Some(3) }),
-            ui.text({ content: .Const("clamped"), headingLevel: .Some(9) }),
-            ui.text({ content: .Const("also clamped"), headingLevel: .Some(0) }),
-        ],
-    }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.text({ content: .Const("top"), headingLevel: .Some(1) }),
+                ui.text({ content: .Const("inner"), headingLevel: .Some(3) }),
+                ui.text({ content: .Const("clamped"), headingLevel: .Some(9) }),
+                ui.text({ content: .Const("also clamped"), headingLevel: .Some(0) }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 \nt 2 top\ne 1 \nt 2 inner\ne 1 \nt 2 clamped\ne 1 \nt 2 also clamped",
@@ -231,10 +283,15 @@ test "a heading paints what the program asked for and nothing else" {
     };
     // The size the stack asks for is the size the heading is: nothing in the
     // sheet sets one on the element, so it inherits like any other run of text.
-    let tree = rooted(ctx, ui.stack({
-        styles: [.FontSize(.Px(13))],
-        children: [ui.text({ content: .Const("not found"), headingLevel: .Some(2) })],
-    }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.FontSize(.Px(13))],
+            children: [
+                ui.text({ content: .Const("not found"), headingLevel: .Some(2) }),
+            ],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:fs-13\ne 1 \nt 2 not found");
     // The headless painter reads this, and a browser reads the markup above.
     // They agree only while the heading's line carries what the sheet does.
@@ -249,11 +306,14 @@ test "a heading takes styles of its own, and they land on the heading" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.text({
-        content: .Const("Prices"),
-        headingLevel: .Some(2),
-        styles: .Some([.FontSize(.Px(28)), .FontWeight(.Bold)]),
-    }));
+    let tree = rooted(
+        ctx,
+        ui.text({
+            content: .Const("Prices"),
+            headingLevel: .Some(2),
+            styles: .Some([.FontSize(.Px(28)), .FontWeight(.Bold)]),
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:fs-28 fw-bold\nt 1 Prices");
     assert.equal(
         ui.describe(ctx, tree, .Hover),
@@ -316,7 +376,10 @@ let ring: Shadow = Shadow {
 /// `Shadow` and `Shadows` are one conflict slot, so a caller's two-layer
 /// elevation replaces this one rather than landing beside it.
 fn shadowed<C>(extra: [Style], label: Str): Node<C> {
-    ui.stack({ styles: [.Shadow(tight), .Group(extra)], children: [ui.text({ content: .Const(label) })] })
+    ui.stack({
+        styles: [.Shadow(tight), .Group(extra)],
+        children: [ui.text({ content: .Const(label) })],
+    })
 }
 
 /// A component whose shadow and whose background are whatever its caller asks
@@ -496,7 +559,17 @@ test "a border edge sits after the width it narrows and before the style" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [.BorderWidth(.Px(1)), .BorderEdge(.Bottom, .Px(4)), .BorderStyle(.Dashed)], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .BorderWidth(.Px(1)),
+                .BorderEdge(.Bottom, .Px(4)),
+                .BorderStyle(.Dashed),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:bw-1 be-bottom-4 bs-dashed");
     // Position in the sheet is what decides between two properties that touch
     // one declaration: the edge overrides the whole box, and `BorderStyle`
@@ -520,11 +593,17 @@ test "the same border edge twice is last-wins, and a state is its own slot" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .BorderEdge(.Bottom, .Px(1)),
-            .BorderEdge(.Bottom, .Px(3)),
-            .On(.Hover, [.BorderEdge(.Bottom, .Px(1))]),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .BorderEdge(.Bottom, .Px(1)),
+                .BorderEdge(.Bottom, .Px(3)),
+                .On(.Hover, [.BorderEdge(.Bottom, .Px(1))]),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:be-bottom-3 hover_be-bottom-1");
     let sheet = stylesheet();
     assert.isTrue(
@@ -564,13 +643,22 @@ test "a full radius is a pill on every box, where a percentage is an ellipse" {
     // resolves per axis to an ellipse on anything that is not square. A corner
     // takes the same pill, and `Percent` keeps the ellipse a caller asks for by
     // writing one.
-    let pill = rooted(ctx, ui.stack({ styles: [.Radius(.Full), .RadiusCorner(.TopEnd, .Full)], children: [] }));
+    let pill = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Radius(.Full), .RadiusCorner(.TopEnd, .Full)],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, pill).markup(), "e 0 class:r-full rc-topend-full");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".r-full{border-radius:9999px}"));
     assert.isTrue(sheet.contains(".rc-topend-full{border-start-end-radius:9999px}"));
     // A percentage radius is left alone: `Percent(50)` is the ellipse.
-    let ellipse = rooted(ctx, ui.stack({ styles: [.Radius(.Percent(50.0))], children: [] }));
+    let ellipse = rooted(
+        ctx,
+        ui.stack({ styles: [.Radius(.Percent(50.0))], children: [] }),
+    );
     assert.equal(render(ctx, ellipse).markup(), "e 0 class:r-pc50");
     assert.isTrue(stylesheet().contains(".r-pc50{border-radius:50%}"));
 }
@@ -632,11 +720,17 @@ test "an edge and a corner reach the scene document the way the sheet does" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .BorderEdge(.Bottom, .Px(1)),
-            .BorderColor(.Rgb(0, 0, 0)),
-            .RadiusCorner(.TopEnd, .Px(4)),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .BorderEdge(.Bottom, .Px(1)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .RadiusCorner(.TopEnd, .Px(4)),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:be-bottom-1 bc-000000 rc-topend-4",
@@ -659,14 +753,20 @@ test "an edge and a corner the compiler cannot evaluate become inline styles" {
     assert.equal(
         render(
             ctx,
-            ui.stack({ styles: [.BorderEdge(.Bottom, .Px(thickness.get(ctx)))], children: [] }),
+            ui.stack({
+                styles: [.BorderEdge(.Bottom, .Px(thickness.get(ctx)))],
+                children: [],
+            }),
         ).markup(),
         "e 0 border-block-end-style:solid;border-block-end-width:2px",
     );
     assert.equal(
         render(
             ctx,
-            ui.stack({ styles: [.RadiusCorner(.BottomEnd, .Px(rounding.get(ctx)))], children: [] }),
+            ui.stack({
+                styles: [.RadiusCorner(.BottomEnd, .Px(rounding.get(ctx)))],
+                children: [],
+            }),
         ).markup(),
         "e 0 border-end-end-radius:5px",
     );
@@ -684,7 +784,10 @@ test "a bleed takes a child out past the padding its parent put it inside" {
         .Bleed(.End, .Px(4)),
     ];
     assert.equal(
-        render(ctx, ui.stack({ styles: separator, children: [], role: .Some(.Separator) })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: separator, children: [], role: .Some(.Separator) }),
+        ).markup(),
         "e 0 class:h-1 bleed-start-4 bleed-end-4",
     );
     let sheet = stylesheet();
@@ -779,7 +882,10 @@ test "a bleed the compiler cannot evaluate is written out inline" {
     // `get` takes a context, so the folder stops here and the style degrades to
     // the tier `Computed` lives in.
     let out = signal(ctx, 23);
-    let tree = rooted(ctx, ui.stack({ styles: [.Bleed(.Start, .Px(out.get(ctx)))], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({ styles: [.Bleed(.Start, .Px(out.get(ctx)))], children: [] }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 margin-inline-start:-23px");
     assert.isFalse(stylesheet().contains("bleed-start-23"));
 }
@@ -793,7 +899,16 @@ test "the scene document writes the bleed the browser was given" {
     // The inline tier on both sides: the painter reads the scene, a browser
     // reads the style attribute, and the two say the same thing.
     let out = signal(ctx, 8);
-    let tree = rooted(ctx, ui.stack({ styles: [.Bleed(.Start, .Px(out.get(ctx))), .Bleed(.Top, .Px(0 - out.get(ctx)))], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Bleed(.Start, .Px(out.get(ctx))),
+                .Bleed(.Top, .Px(0 - out.get(ctx))),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 margin-inline-start:-8px;margin-block-start:0px",
@@ -811,7 +926,10 @@ test "a clip cuts a child to its parent's box, and asks for no scrollbar" {
     // The card with a full-bleed banner: the radius rounds the card, and the
     // clip is what stops the picture squaring the corner off again.
     let card: [Style] = [.Radius(.Px(12)), .Clip(true)];
-    assert.equal(render(ctx, ui.stack({ styles: card, children: [] })).markup(), "e 0 class:r-12 clip-clip");
+    assert.equal(
+        render(ctx, ui.stack({ styles: card, children: [] })).markup(),
+        "e 0 class:r-12 clip-clip",
+    );
     assert.equal(
         render(ctx, ui.stack({ styles: [.Clip(false)], children: [] })).markup(),
         "e 0 class:clip-visible",
@@ -829,14 +947,20 @@ test "a clip and a scroll are two slots, and the clip is the later rule" {
     };
     // Same property, last wins.
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Clip(false), .Clip(true)], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Clip(false), .Clip(true)], children: [] }),
+        ).markup(),
         "e 0 class:clip-clip",
     );
     // Different properties over one declaration, so both classes land and the
     // sheet decides. `Clip` is declared after `Scroll`, so an element that asks
     // for both is clipped.
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Clip(true), .Scroll(.Y)], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Clip(true), .Scroll(.Y)], children: [] }),
+        ).markup(),
         "e 0 class:clip-clip scroll-y",
     );
     let sheet = stylesheet();
@@ -867,7 +991,10 @@ test "a clip takes a state and a breakpoint, and degrades to an inline style" {
     // the tier `Computed` lives in.
     let cut = signal(ctx, 1);
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Clip(cut.get(ctx) > 0)], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Clip(cut.get(ctx) > 0)], children: [] }),
+        ).markup(),
         "e 0 overflow:clip",
     );
 }
@@ -879,7 +1006,10 @@ test "the scene document writes the clip the browser was given" {
         Watch: observer(),
     };
     let cut = signal(ctx, 0);
-    let tree = rooted(ctx, ui.stack({ styles: [.Radius(.Px(4)), .Clip(cut.get(ctx) == 0)], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({ styles: [.Radius(.Px(4)), .Clip(cut.get(ctx) == 0)], children: [] }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:r-4;overflow:clip");
     // The radius folded and the clip did not, so the element carries one of
     // each tier — and the scene says both, in the order the browser was given
@@ -897,7 +1027,13 @@ test "a dock passes the pointer through, and each toast in it takes it back" {
     // The toaster dock: a full-width band pinned across the viewport that must
     // not intercept the page under it, and a toast in it that must.
     let dock: [Style] = [.Position(.PinViewport), .Width(.Full), .Passthrough(true)];
-    let tree = rooted(ctx, ui.stack({ styles: dock, children: [ui.stack({ styles: [.Passthrough(false)], children: [] })] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: dock,
+            children: [ui.stack({ styles: [.Passthrough(false)], children: [] })],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:pos-viewport w-full pass-none\ne 1 class:pass-auto",
@@ -917,10 +1053,17 @@ test "a press does not reach an element the pointer passes through" {
     // through, so the press still lands on the control under it.
     let page = render(
         ctx,
-        ui.stack({ styles: [.Layout(.Layers)], children: [
-            ui.button({ label: .Const("flip"), styles: [], onPress: .Some(fn(c) => { presses.set(c, presses.get(c) + 1) }) }),
-            ui.stack({ styles: [.Passthrough(true)], children: [] }),
-        ] }),
+        ui.stack({
+            styles: [.Layout(.Layers)],
+            children: [
+                ui.button({
+                    label: .Const("flip"),
+                    styles: [],
+                    onPress: .Some(fn(c) => { presses.set(c, presses.get(c) + 1) }),
+                }),
+                ui.stack({ styles: [.Passthrough(true)], children: [] }),
+            ],
+        }),
     );
     let _ = page.press("flip");
     assert.equal(presses.get(ctx), 1);
@@ -930,12 +1073,28 @@ test "a press does not reach an element the pointer passes through" {
     let ignored = signal(ctx, 0);
     let dock = render(
         ctx,
-        ui.stack({ styles: [.Passthrough(true)], children: [
-            ui.button({ label: .Const("dead"), styles: [], onPress: .Some(fn(c) => { ignored.set(c, ignored.get(c) + 1) }) }),
-            ui.stack({ styles: [.Passthrough(false)], children: [
-                ui.button({ label: .Const("live"), styles: [], onPress: .Some(fn(c) => { ignored.set(c, ignored.get(c) + 10) }) }),
-            ] }),
-        ] }),
+        ui.stack({
+            styles: [.Passthrough(true)],
+            children: [
+                ui.button({
+                    label: .Const("dead"),
+                    styles: [],
+                    onPress: .Some(fn(c) => { ignored.set(c, ignored.get(c) + 1) }),
+                }),
+                ui.stack({
+                    styles: [.Passthrough(false)],
+                    children: [
+                        ui.button({
+                            label: .Const("live"),
+                            styles: [],
+                            onPress: .Some(fn(c) => {
+                                ignored.set(c, ignored.get(c) + 10)
+                            }),
+                        }),
+                    ],
+                }),
+            ],
+        }),
     );
     let _ = dock.press("dead");
     assert.equal(ignored.get(ctx), 0);
@@ -965,7 +1124,10 @@ test "a pass-through takes a state and degrades to an inline style" {
     assert.isTrue(sheet.contains(".lg_pass-auto{pointer-events:auto}"));
     let through = signal(ctx, 1);
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Passthrough(through.get(ctx) > 0)], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Passthrough(through.get(ctx) > 0)], children: [] }),
+        ).markup(),
         "e 0 pointer-events:none",
     );
 }
@@ -983,7 +1145,10 @@ test "a scrim blurs the page behind it, at a pixel radius and a rem one" {
     );
     // A radius that follows the reader's text size.
     assert.equal(
-        render(ctx, ui.stack({ styles: [.BackdropBlur(.Rem(0.125))], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.BackdropBlur(.Rem(0.125))], children: [] }),
+        ).markup(),
         "e 0 class:bdblur-r0_125",
     );
     let sheet = stylesheet();
@@ -999,7 +1164,10 @@ test "a backdrop blur is its own slot: last wins, and a background beside it sta
     assert.equal(
         render(
             ctx,
-            ui.stack({ styles: [.BackdropBlur(.Px(2)), .BackdropBlur(.Px(8))], children: [] }),
+            ui.stack({
+                styles: [.BackdropBlur(.Px(2)), .BackdropBlur(.Px(8))],
+                children: [],
+            }),
         ).markup(),
         "e 0 class:bdblur-8",
     );
@@ -1008,7 +1176,10 @@ test "a backdrop blur is its own slot: last wins, and a background beside it sta
     assert.equal(
         render(
             ctx,
-            ui.stack({ styles: [.BackdropBlur(.Px(4)), .Background(.Rgb(0, 0, 0))], children: [] }),
+            ui.stack({
+                styles: [.BackdropBlur(.Px(4)), .Background(.Rgb(0, 0, 0))],
+                children: [],
+            }),
         ).markup(),
         "e 0 class:bdblur-4 bg-000000",
     );
@@ -1034,7 +1205,10 @@ test "a backdrop blur takes a state and a breakpoint, and degrades to an inline 
     // A radius the folder cannot reach lands in the tier `Computed` lives in.
     let radius = signal(ctx, 4);
     assert.equal(
-        render(ctx, ui.stack({ styles: [.BackdropBlur(.Px(radius.get(ctx)))], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.BackdropBlur(.Px(radius.get(ctx)))], children: [] }),
+        ).markup(),
         "e 0 backdrop-filter:blur(4px)",
     );
 }
@@ -1046,7 +1220,16 @@ test "the scene document writes the backdrop blur the browser was given" {
         Watch: observer(),
     };
     let radius = signal(ctx, 0);
-    let tree = rooted(ctx, ui.stack({ styles: [.Background(.Rgba(0, 0, 0, 0.1)), .BackdropBlur(.Px(radius.get(ctx) + 4))], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Background(.Rgba(0, 0, 0, 0.1)),
+                .BackdropBlur(.Px(radius.get(ctx) + 4)),
+            ],
+            children: [],
+        }),
+    );
     // The background folded and the blur did not, so the element carries one of
     // each tier — and the scene says both, in the order the browser was given
     // them.
@@ -1066,7 +1249,13 @@ test "a failing control announces so, and the ring hangs off the attribute" {
     let ring: [Style] = [.On(.Invalid, [.BorderColor(.Rgb(220, 38, 38))])];
     let page = render(
         ctx,
-        ui.field({ label: .Const("Email"), kind: .Email, value: email, styles: ring, isInvalid: .Some(.Cell(failing)) }),
+        ui.field({
+            label: .Const("Email"),
+            kind: .Email,
+            value: email,
+            styles: ring,
+            isInvalid: .Some(.Cell(failing)),
+        }),
     );
     assert.equal(
         page.markup(),
@@ -1098,7 +1287,13 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     let agreed = signal(ctx, false);
     let page = render(
         ctx,
-        ui.toggle({ label: .Const("terms"), kind: .Checkbox, isOn: agreed, styles: [], isInvalid: .Some(.Const(true)) }),
+        ui.toggle({
+            label: .Const("terms"),
+            kind: .Checkbox,
+            isOn: agreed,
+            styles: [],
+            isInvalid: .Some(.Const(true)),
+        }),
     );
     assert.equal(
         page.markup(),
@@ -1124,7 +1319,16 @@ test "a radio group is a radiogroup of real radios sharing one name" {
     let size = signal(ctx, "m");
     let page = render(
         ctx,
-        ui.picker({ label: .Const("Size"), options: [("s", ui.text({ content: .Const("Small") })), ("m", ui.text({ content: .Const("Medium") })), ("l", ui.text({ content: .Const("Large") }))], value: size, styles: [] }),
+        ui.picker({
+            label: .Const("Size"),
+            options: [
+                ("s", ui.text({ content: .Const("Small") })),
+                ("m", ui.text({ content: .Const("Medium") })),
+                ("l", ui.text({ content: .Const("Large") })),
+            ],
+            value: size,
+            styles: [],
+        }),
     );
     // A `role="radiogroup"` labelled by the group's name, one real
     // `<input type="radio">` per option all sharing the group's `name`, each
@@ -1141,10 +1345,23 @@ test "a radio group is a radiogroup of real radios sharing one name" {
     assert.equal(page.count("input"), 3);
     let two = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.picker({ label: .Const("A"), options: [("x", ui.text({ content: .Const("X") }))], value: size, styles: [] }),
-            ui.picker({ label: .Const("B"), options: [("y", ui.text({ content: .Const("Y") }))], value: signal(ctx, "y"), styles: [] }),
-        ] }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.picker({
+                    label: .Const("A"),
+                    options: [("x", ui.text({ content: .Const("X") }))],
+                    value: size,
+                    styles: [],
+                }),
+                ui.picker({
+                    label: .Const("B"),
+                    options: [("y", ui.text({ content: .Const("Y") }))],
+                    value: signal(ctx, "y"),
+                    styles: [],
+                }),
+            ],
+        }),
     );
     // The shared `name` that groups each set of radios, and that two groups on
     // one page number apart, is an HTML attribute the scene does not carry —
@@ -1161,7 +1378,15 @@ test "picking a radio writes its key, and the checked one follows the signal" {
     let choice = signal(ctx, "a");
     let page = render(
         ctx,
-        ui.picker({ label: .Const("Pick"), options: [("a", ui.text({ content: .Const("Apple") })), ("b", ui.text({ content: .Const("Banana") }))], value: choice, styles: [] }),
+        ui.picker({
+            label: .Const("Pick"),
+            options: [
+                ("a", ui.text({ content: .Const("Apple") })),
+                ("b", ui.text({ content: .Const("Banana") })),
+            ],
+            value: choice,
+            styles: [],
+        }),
     );
     // Picking an option is the browser's `change` on its input, and what it
     // does is write the option's key. The checked input then follows the
@@ -1185,7 +1410,18 @@ test "a radio group's scene is a box of options, the checked one holding the dot
         Ui: headless(),
     };
     let size = signal(ctx, "m");
-    let tree = rooted(ctx, ui.picker({ label: .Const("Size"), options: [("s", ui.text({ content: .Const("Small") })), ("m", ui.text({ content: .Const("Medium") }))], value: size, styles: [] }));
+    let tree = rooted(
+        ctx,
+        ui.picker({
+            label: .Const("Size"),
+            options: [
+                ("s", ui.text({ content: .Const("Small") })),
+                ("m", ui.text({ content: .Const("Medium") })),
+            ],
+            value: size,
+            styles: [],
+        }),
+    );
     let scene = ui.describe(ctx, tree, .Hover);
     // One option answers `:checked` and holds the dot the reset draws with
     // `:checked::before`; the other answers false and holds none. The captions
@@ -1212,7 +1448,10 @@ test "the invalid state is a state like the other five" {
         .On(.Invalid, [.Background(.Rgb(254, 226, 226))]),
         .At(.Small, [.On(.Invalid, [.Opacity(0.5)])]),
     ];
-    assert.equal(render(ctx, ui.stack({ styles: stated, children: [] })).markup(), "e 0 ");
+    assert.equal(
+        render(ctx, ui.stack({ styles: stated, children: [] })).markup(),
+        "e 0 ",
+    );
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
@@ -1224,28 +1463,44 @@ test "the invalid state is a state like the other five" {
     // which is the whole of how a snapshot tells six documents apart.
     let scene = ui.describe(ctx, ui.stack({ styles: stated, children: [] }), .Invalid);
     assert.containsText(scene, "invalid_bg-fee2e2");
-    assert.isFalse(ui.describe(ctx, ui.stack({ styles: stated, children: [] }), .Hover).contains("invalid_"));
+    assert.isFalse(
+        ui
+            .describe(ctx, ui.stack({ styles: stated, children: [] }), .Hover)
+            .contains("invalid_"),
+    );
 }
 
 test "a value with no bounded spelling is named by what it is" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.Layout(.Grid([.Fraction(1), .Fixed(.Px(200)), .Auto]))], children: [] }),
-        ui.stack({ styles: [.Layout(.Layers)], children: [] }),
-        ui.stack({ styles: [.FontFamily(.Mono)], children: [] }),
-        ui.stack({ styles: [.FontFamily(.Named("Iosevka"))], children: [] }),
-        ui.stack({ styles: [
-                .Shadow(Shadow {
-                    x: .Px(0),
-                    y: .Px(2),
-                    blur: .Px(6),
-                    spread: .Px(0),
-                    color: .Rgba(0, 0, 0, 0.25),
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [.Layout(.Grid([.Fraction(1), .Fixed(.Px(200)), .Auto]))],
+                    children: [],
                 }),
-            ], children: [] }),
-    ] }));
+                ui.stack({ styles: [.Layout(.Layers)], children: [] }),
+                ui.stack({ styles: [.FontFamily(.Mono)], children: [] }),
+                ui.stack({ styles: [.FontFamily(.Named("Iosevka"))], children: [] }),
+                ui.stack({
+                    styles: [
+                        .Shadow(Shadow {
+                            x: .Px(0),
+                            y: .Px(2),
+                            blur: .Px(6),
+                            spread: .Px(0),
+                            color: .Rgba(0, 0, 0, 0.25),
+                        }),
+                    ],
+                    children: [],
+                }),
+            ],
+        }),
+    );
     let _ = render(ctx, tree).markup();
     let sheet = stylesheet();
     assert.isTrue(
@@ -1267,7 +1522,13 @@ test "the last value of a property is the one that survives" {
     };
     // Both sides are literals, so this resolved at compile time: the element
     // carries one class rather than two that fight in the cascade.
-    let tree = rooted(ctx, ui.stack({ styles: [.Background(.Rgb(0, 0, 0)), .Background(.Inherit)], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Background(.Rgb(0, 0, 0)), .Background(.Inherit)],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:bg-inherit");
 }
 
@@ -1279,24 +1540,30 @@ test "several shadows are one declaration, in the order they were written" {
     };
     // The elevation every design system ships: a wide soft layer, and a tight
     // one under the near edge that keeps it crisp.
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .Shadows([
-                Shadow {
-                    x: .Px(0),
-                    y: .Px(4),
-                    blur: .Px(6),
-                    spread: .Px(-1),
-                    color: .Rgba(0, 0, 0, 0.1),
-                },
-                Shadow {
-                    x: .Px(0),
-                    y: .Px(2),
-                    blur: .Px(4),
-                    spread: .Px(-2),
-                    color: .Rgba(0, 0, 0, 0.1),
-                },
-            ]),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Shadows([
+                    Shadow {
+                        x: .Px(0),
+                        y: .Px(4),
+                        blur: .Px(6),
+                        spread: .Px(-1),
+                        color: .Rgba(0, 0, 0, 0.1),
+                    },
+                    Shadow {
+                        x: .Px(0),
+                        y: .Px(2),
+                        blur: .Px(4),
+                        spread: .Px(-2),
+                        color: .Rgba(0, 0, 0, 0.1),
+                    },
+                ]),
+            ],
+            children: [],
+        }),
+    );
     let _ = render(ctx, tree).markup();
     assert.isTrue(
         stylesheet().contains(
@@ -1311,10 +1578,16 @@ test "one shadow written as a list is the one-layer spelling's own class" {
     };
     // The declaration decides the class, so a list of one and the single
     // spelling of the same shadow are one rule rather than two.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.Shadow(tight)], children: [] }),
-        ui.stack({ styles: [.Shadows([tight])], children: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({ styles: [.Shadow(tight)], children: [] }),
+                ui.stack({ styles: [.Shadows([tight])], children: [] }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:sh-f3a4517c\ne 1 class:sh-f3a4517c",
@@ -1332,10 +1605,22 @@ test "`Shadow` and `Shadows` share one slot, so the last written wins" {
     };
     // Both sides are literals, so the compiler settled this: one class each,
     // and it is the one written last.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.Shadow(ring), .Shadows([lift, ring])], children: [] }),
-        ui.stack({ styles: [.Shadows([lift, ring]), .Shadow(ring)], children: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [.Shadow(ring), .Shadows([lift, ring])],
+                    children: [],
+                }),
+                ui.stack({
+                    styles: [.Shadows([lift, ring]), .Shadow(ring)],
+                    children: [],
+                }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:sh-a990b199\ne 1 class:sh-a64dfa66",
@@ -1348,7 +1633,13 @@ test "a shadow under a state is its own slot, beside the resting one" {
     };
     // A pseudo-class and the resting value are different slots, so a card that
     // is raised keeps its elevation and gains the ring on focus.
-    let tree = rooted(ctx, ui.stack({ styles: [.Shadow(lift), .On(.Focus, [.Shadows([ring, lift])])], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Shadow(lift), .On(.Focus, [.Shadows([ring, lift])])],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:sh-174de1bf");
     assert.isTrue(
         stylesheet().contains(
@@ -1364,10 +1655,16 @@ test "shadows that arrive as a parameter resolve last-wins over the one emitted"
     // The merge is the runtime scan, and one slot for the two spellings is
     // what makes a caller's elevation replace the component's own shadow
     // rather than land beside it.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        shadowed([], "plain"),
-        shadowed([.Shadows([lift, ring])], "raised"),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                shadowed([], "plain"),
+                shadowed([.Shadows([lift, ring])], "raised"),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:sh-f3a4517c\nt 2 plain\ne 1 class:sh-a990b199\nt 2 raised",
@@ -1402,10 +1699,22 @@ test "a colour written out fades to a plain rgba" {
     };
     // Nothing is deferred: the channels are known, so the fade is arithmetic
     // the compiler does and the class is the ordinary `Rgba` one.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.Background(Color.Rgb(30, 110, 220).alpha(0.5))], children: [] }),
-        ui.stack({ styles: [.Foreground(Color.Rgba(0, 0, 0, 1.0).alpha(0.25))], children: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [.Background(Color.Rgb(30, 110, 220).alpha(0.5))],
+                    children: [],
+                }),
+                ui.stack({
+                    styles: [.Foreground(Color.Rgba(0, 0, 0, 1.0).alpha(0.25))],
+                    children: [],
+                }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:bg-1e6edca0_5\ne 1 class:fg-000000a0_25",
@@ -1423,11 +1732,17 @@ test "a token fades into a mix that still names the token" {
     };
     // The token is still what decides the hue, so a theme that changes it
     // changes this too — and no second token has to be minted to spell a fade.
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .BorderWidth(.Px(3)),
-            .BorderColor(style.token("cardlib", "ring").alpha(0.5)),
-            .Background(style.token("cardlib", "ring").alpha(0.2)),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .BorderWidth(.Px(3)),
+                .BorderColor(style.token("cardlib", "ring").alpha(0.5)),
+                .Background(style.token("cardlib", "ring").alpha(0.2)),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:bw-3 bc-t_cardlib_ringa0_5 bg-t_cardlib_ringa0_2",
@@ -1451,10 +1766,16 @@ test "fading a colour is the same property, so the last one wins" {
     };
     // A fade is not a property of its own. It is the colour, so it lands in
     // the colour's slot and the two never sit side by side.
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .Background(style.token("cardlib", "ring")),
-            .Background(style.token("cardlib", "ring").alpha(0.5)),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Background(style.token("cardlib", "ring")),
+                .Background(style.token("cardlib", "ring").alpha(0.5)),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:bg-t_cardlib_ringa0_5");
 }
 
@@ -1464,10 +1785,22 @@ test "nothing and whatever-was-inherited have no colour to fade" {
     };
     // Neither names a colour, so `alpha` answers each of them unchanged rather
     // than inventing one to fade.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.Background(Color.Transparent.alpha(0.5))], children: [] }),
-        ui.stack({ styles: [.Foreground(Color.Inherit.alpha(0.5))], children: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [.Background(Color.Transparent.alpha(0.5))],
+                    children: [],
+                }),
+                ui.stack({
+                    styles: [.Foreground(Color.Inherit.alpha(0.5))],
+                    children: [],
+                }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:bg-none\ne 1 class:fg-inherit",
@@ -1496,17 +1829,23 @@ test "a faded token inside a shadow is the ring every focus style is" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .On(.Focus, [
-                .Shadow(Shadow {
-                    x: .Px(0),
-                    y: .Px(0),
-                    blur: .Px(0),
-                    spread: .Px(3),
-                    color: style.token("cardlib", "ring").alpha(0.5),
-                }),
-            ]),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .On(.Focus, [
+                    .Shadow(Shadow {
+                        x: .Px(0),
+                        y: .Px(0),
+                        blur: .Px(0),
+                        spread: .Px(3),
+                        color: style.token("cardlib", "ring").alpha(0.5),
+                    }),
+                ]),
+            ],
+            children: [],
+        }),
+    );
     let _ = render(ctx, tree).markup();
     assert.isTrue(
         stylesheet().contains(
@@ -1523,13 +1862,40 @@ test "the remaining alignments and weights and cursors each have a name" {
     // resolves to the stretch a browser falls back to — the class is
     // `ac-stretch`, the same one `AlignCross(.Stretch)` earns. On the main
     // axis a distribution is legal, so `AlignMain(.SpaceEvenly)` keeps `am-evenly`.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.AlignMain(.Start), .AlignCross(.End), .FontWeight(.Regular)], children: [] }),
-        ui.stack({ styles: [.AlignMain(.Stretch), .AlignCross(.SpaceAround), .FontWeight(.Medium)], children: [] }),
-        ui.stack({ styles: [.AlignMain(.SpaceEvenly), .FontWeight(.Bold), .Cursor(.Default)], children: [] }),
-        ui.stack({ styles: [.Cursor(.Text)], children: [] }),
-        ui.stack({ styles: [.Cursor(.NotAllowed)], children: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [
+                        .AlignMain(.Start),
+                        .AlignCross(.End),
+                        .FontWeight(.Regular),
+                    ],
+                    children: [],
+                }),
+                ui.stack({
+                    styles: [
+                        .AlignMain(.Stretch),
+                        .AlignCross(.SpaceAround),
+                        .FontWeight(.Medium),
+                    ],
+                    children: [],
+                }),
+                ui.stack({
+                    styles: [
+                        .AlignMain(.SpaceEvenly),
+                        .FontWeight(.Bold),
+                        .Cursor(.Default),
+                    ],
+                    children: [],
+                }),
+                ui.stack({ styles: [.Cursor(.Text)], children: [] }),
+                ui.stack({ styles: [.Cursor(.NotAllowed)], children: [] }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:am-start ac-end fw-regular\ne 1 class:am-stretch ac-stretch fw-medium\ne 1 class:am-evenly fw-bold cur-default\ne 1 class:cur-text\ne 1 class:cur-notallowed",
@@ -1546,15 +1912,21 @@ test "a cross-axis distribution is the stretch a browser falls back to" {
     // enum, so the three distributions resolve to the stretch a browser lands
     // on — one class, shared with the `.Stretch` that means it outright — while
     // `AlignMain`, where a distribution is legal, keeps it.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.AlignCross(.SpaceBetween)], children: [] }),
-        ui.stack({ styles: [.AlignCross(.SpaceAround)], children: [] }),
-        ui.stack({ styles: [.AlignCross(.SpaceEvenly)], children: [] }),
-        ui.stack({ styles: [.AlignCross(.Stretch)], children: [] }),
-        ui.stack({ styles: [.AlignSelf(.SpaceEvenly)], children: [] }),
-        ui.stack({ styles: [.AlignSelf(.Stretch)], children: [] }),
-        ui.stack({ styles: [.AlignMain(.SpaceBetween)], children: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({ styles: [.AlignCross(.SpaceBetween)], children: [] }),
+                ui.stack({ styles: [.AlignCross(.SpaceAround)], children: [] }),
+                ui.stack({ styles: [.AlignCross(.SpaceEvenly)], children: [] }),
+                ui.stack({ styles: [.AlignCross(.Stretch)], children: [] }),
+                ui.stack({ styles: [.AlignSelf(.SpaceEvenly)], children: [] }),
+                ui.stack({ styles: [.AlignSelf(.Stretch)], children: [] }),
+                ui.stack({ styles: [.AlignMain(.SpaceBetween)], children: [] }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:ac-stretch\ne 1 class:ac-stretch\ne 1 class:ac-stretch\ne 1 class:ac-stretch\ne 1 class:as-stretch\ne 1 class:as-stretch\ne 1 class:am-between",
@@ -1575,10 +1947,19 @@ test "two elements asking for one padding are given one class" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.Padding(.Px(11))], children: [] }),
-        ui.stack({ styles: [.Layout(.Row), .Group([.Padding(.Px(11))])], children: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({ styles: [.Padding(.Px(11))], children: [] }),
+                ui.stack({
+                    styles: [.Layout(.Row), .Group([.Padding(.Px(11))])],
+                    children: [],
+                }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:p-11\ne 1 class:lay-row p-11",
@@ -1590,7 +1971,16 @@ test "a state is a pseudo-class in the stylesheet and costs nothing on the eleme
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [.Background(.Rgb(1, 1, 1)), .On(.Hover, [.Background(.Rgb(2, 2, 2))])], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Background(.Rgb(1, 1, 1)),
+                .On(.Hover, [.Background(.Rgb(2, 2, 2))]),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:bg-010101 hover_bg-020202");
     let sheet = stylesheet();
     assert.isTrue(
@@ -1605,7 +1995,16 @@ test "a breakpoint is a media query, mobile first" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [.At(.Medium, [.Padding(.Px(24))]), .At(.Large, [.Padding(.Px(32))])], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .At(.Medium, [.Padding(.Px(24))]),
+                .At(.Large, [.Padding(.Px(32))]),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:md_p-24 lg_p-32");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".md_p-24{padding:24px}"));
@@ -1621,7 +2020,13 @@ test "a state inside a breakpoint is both at once" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [.At(.Small, [.On(.Focus, [.Radius(.Px(3))])])], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.At(.Small, [.On(.Focus, [.Radius(.Px(3))])])],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 ");
     assert.isTrue(
         stylesheet().contains(".sm_focus_r-3:focus-visible{border-radius:3px}"),
@@ -1634,13 +2039,19 @@ test "an em is a length, and it follows the element's own text size" {
     };
     // A rem follows the root and an em follows this element, so tracking
     // written once is right at every size the title is ever set at.
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .FontSize(.Px(18)),
-            .LetterSpacing(.Em(-0.025)),
-            .Gap(.Em(0.5)),
-            .Padding(.Em(1.0)),
-            .Width(.Em(12.0)),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .FontSize(.Px(18)),
+                .LetterSpacing(.Em(-0.025)),
+                .Gap(.Em(0.5)),
+                .Padding(.Em(1.0)),
+                .Width(.Em(12.0)),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:fs-18 ls-en0_025 gap-e0_5 p-e1 w-e12",
@@ -1657,13 +2068,28 @@ test "an em resolves per property like every other length" {
         Ui: headless(),
     };
     // The same slot twice is last-wins, whichever unit each side is in.
-    let overridden = rooted(ctx, ui.stack({ styles: [.Padding(.Em(1.0)), .Padding(.Px(4))], children: [] }));
+    let overridden = rooted(
+        ctx,
+        ui.stack({ styles: [.Padding(.Em(1.0)), .Padding(.Px(4))], children: [] }),
+    );
     assert.equal(render(ctx, overridden).markup(), "e 0 class:p-4");
     // Two edges are two slots, so they compose.
-    let edges = rooted(ctx, ui.stack({ styles: [.PaddingEdge(.Top, .Em(0.5)), .PaddingEdge(.Bottom, .Em(1.5))], children: [] }));
+    let edges = rooted(
+        ctx,
+        ui.stack({
+            styles: [.PaddingEdge(.Top, .Em(0.5)), .PaddingEdge(.Bottom, .Em(1.5))],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, edges).markup(), "e 0 class:pe-top-e0_5 pe-bottom-e1_5");
     // And a condition is a slot of its own, in the stylesheet either way.
-    let stated = rooted(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Em(2.0))]), .At(.Medium, [.Gap(.Em(3.0))])], children: [] }));
+    let stated = rooted(
+        ctx,
+        ui.stack({
+            styles: [.On(.Hover, [.Gap(.Em(2.0))]), .At(.Medium, [.Gap(.Em(3.0))])],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, stated).markup(), "e 0 class:hover_gap-e2 md_gap-e3");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".pe-top-e0_5{padding-block-start:0.5em}"));
@@ -1678,21 +2104,33 @@ test "a reversed layout paints backwards and leaves the document alone" {
     };
     // The order is the caller's, and it is the order a screen reader and the
     // tab ring read. Only the paint is reversed.
-    let footer = rooted(ctx, ui.stack({ styles: [.Layout(.ColumnReverse)], children: [
-        ui.text({ content: .Const("cancel") }),
-        ui.text({ content: .Const("confirm") }),
-    ] }));
+    let footer = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Layout(.ColumnReverse)],
+            children: [
+                ui.text({ content: .Const("cancel") }),
+                ui.text({ content: .Const("confirm") }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, footer).markup(),
         "e 0 class:lay-colrev\nt 1 cancel\nt 1 confirm",
     );
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Layout(.RowReverse)], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Layout(.RowReverse)], children: [] }),
+        ).markup(),
         "e 0 class:lay-rowrev",
     );
     // One property, so the last one written is the one that survives.
     assert.equal(
-        render(ctx, ui.stack({ styles: [.Layout(.Row), .Layout(.RowReverse)], children: [] })).markup(),
+        render(
+            ctx,
+            ui.stack({ styles: [.Layout(.Row), .Layout(.RowReverse)], children: [] }),
+        ).markup(),
         "e 0 class:lay-rowrev",
     );
     let sheet = stylesheet();
@@ -1715,13 +2153,26 @@ test "a translate shifts the painted box and moves no sibling" {
     };
     // The press every design system writes: a pixel down while the pointer is
     // held, with the row around it exactly where it was.
-    let save = rooted(ctx, ui.button({ label: .Const("Save"), styles: [.Radius(.Px(8)), .On(.Active, [.Translate(.Px(0), .Px(1))])], onPress: .Some(fn(_c) => ()) }));
+    let save = rooted(
+        ctx,
+        ui.button({
+            label: .Const("Save"),
+            styles: [.Radius(.Px(8)), .On(.Active, [.Translate(.Px(0), .Px(1))])],
+            onPress: .Some(fn(_c) => ()),
+        }),
+    );
     assert.equal(render(ctx, save).markup(), "e 0 class:r-8\nt 1 Save");
     // One slot: two translates are one transform, and the last wins.
     assert.equal(
         render(
             ctx,
-            ui.stack({ styles: [.Translate(.Px(4), .Px(4)), .Translate(.Em(0.5), .Percent(-50.0))], children: [] }),
+            ui.stack({
+                styles: [
+                    .Translate(.Px(4), .Px(4)),
+                    .Translate(.Em(0.5), .Percent(-50.0)),
+                ],
+                children: [],
+            }),
         ).markup(),
         "e 0 class:tr-e0_5-pcn50",
     );
@@ -1729,7 +2180,10 @@ test "a translate shifts the painted box and moves no sibling" {
     assert.equal(
         render(
             ctx,
-            ui.stack({ styles: [.Position(.Sticky), .Translate(.Rem(1.0), .Auto)], children: [] }),
+            ui.stack({
+                styles: [.Position(.Sticky), .Translate(.Rem(1.0), .Auto)],
+                children: [],
+            }),
         ).markup(),
         "e 0 class:pos-sticky tr-r1-auto",
     );
@@ -1747,11 +2201,20 @@ test "focus-within is a state, and it is the container's own" {
     };
     // The input group: the wrapper owns the hairline and the ring, and the
     // field inside it is bare.
-    let group = rooted(ctx, ui.stack({ styles: [.Layout(.Row), .Group([
-            .BorderWidth(.Px(1)),
-            .On(.FocusWithin, [.BorderColor(.Rgb(2, 2, 2))]),
-            .At(.Small, [.On(.FocusWithin, [.Radius(.Px(3))])]),
-        ])], children: [] }));
+    let group = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Layout(.Row),
+                .Group([
+                    .BorderWidth(.Px(1)),
+                    .On(.FocusWithin, [.BorderColor(.Rgb(2, 2, 2))]),
+                    .At(.Small, [.On(.FocusWithin, [.Radius(.Px(3))])]),
+                ]),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, group).markup(), "e 0 class:lay-row bw-1");
     let sheet = stylesheet();
     assert.isTrue(
@@ -1762,7 +2225,13 @@ test "focus-within is a state, and it is the container's own" {
     );
     // `Focus` is `:focus-visible` on the element itself, so the two are
     // different conditions and different slots.
-    let both = rooted(ctx, ui.stack({ styles: [.On(.Focus, [.Opacity(0.9)]), .On(.FocusWithin, [.Opacity(0.8)])], children: [] }));
+    let both = rooted(
+        ctx,
+        ui.stack({
+            styles: [.On(.Focus, [.Opacity(0.9)]), .On(.FocusWithin, [.Opacity(0.8)])],
+            children: [],
+        }),
+    );
     assert.equal(render(ctx, both).markup(), "e 0 ");
 }
 
@@ -1771,11 +2240,17 @@ test "a document is taken in one state, and carries only that state's classes" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .Background(.Rgb(1, 1, 1)),
-            .On(.Hover, [.Background(.Rgb(2, 2, 2))]),
-            .On(.FocusWithin, [.Background(.Rgb(3, 3, 3))]),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Background(.Rgb(1, 1, 1)),
+                .On(.Hover, [.Background(.Rgb(2, 2, 2))]),
+                .On(.FocusWithin, [.Background(.Rgb(3, 3, 3))]),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(
         ui.describe(ctx, tree, .FocusWithin),
         "buri-scene 1\nviewport 800 fit\ne 0 class:bg-010101 focuswithin_bg-030303",
@@ -1798,11 +2273,17 @@ test "the three new entries write the same declarations inline" {
     let reversed = signal(ctx, true);
     let tracking = signal(ctx, 0.1);
     let sunk = signal(ctx, -0.5);
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .Layout(if (reversed.get(ctx)) { .ColumnReverse } else { .Column }),
-            .LetterSpacing(.Em(tracking.get(ctx))),
-            .Translate(.Px(0), .Em(sunk.get(ctx))),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Layout(if (reversed.get(ctx)) { .ColumnReverse } else { .Column }),
+                .LetterSpacing(.Em(tracking.get(ctx))),
+                .Translate(.Px(0), .Em(sunk.get(ctx))),
+            ],
+            children: [],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 display:flex;flex-direction:column-reverse;letter-spacing:0.1em;transform:translate(0px,-0.5em)",
@@ -1820,11 +2301,17 @@ test "a `When` puts both branches in the stylesheet and swaps between them" {
         Ui: headless(),
     };
     let lit = signal(ctx, false);
-    let tree = rooted(ctx, ui.stack({ styles: [
-            .When(.Cell(lit), [.Background(.Rgb(255, 0, 0))], [
-                .Background(.Rgb(0, 0, 255)),
-            ]),
-        ], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .When(.Cell(lit), [.Background(.Rgb(255, 0, 0))], [
+                    .Background(.Rgb(0, 0, 255)),
+                ]),
+            ],
+            children: [],
+        }),
+    );
     let view = render(ctx, tree);
     assert.equal(view.markup(), "e 0 class:bg-0000ff");
     lit.set(ctx, true);
@@ -1839,7 +2326,13 @@ test "a `Computed` style is inline, re-serialises, and is never in the styleshee
         Ui: headless(),
     };
     let width = signal(ctx, 137);
-    let tree = rooted(ctx, ui.stack({ styles: [.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], children: [] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])],
+            children: [],
+        }),
+    );
     let view = render(ctx, tree);
     assert.equal(view.markup(), "e 0 width:137px");
     width.set(ctx, 241);
@@ -1866,10 +2359,13 @@ test "a style that arrives as a parameter resolves last-wins over emitted classe
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        boxed([], "plain"),
-        boxed([.Background(.Rgb(9, 9, 9))], "loud"),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [boxed([], "plain"), boxed([.Background(.Rgb(9, 9, 9))], "loud")],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:p-8 bg-000000\nt 2 plain\ne 1 class:p-8 bg-090909\nt 2 loud",
@@ -1884,10 +2380,20 @@ test "a static style registers nothing and a computed one re-runs once per chang
     let width = signal(ctx, 21);
     let view = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.stack({ styles: [.Padding(.Px(13))], children: [] }),
-            ui.stack({ styles: [.Computed(fn(scope) => [.Width(.Px(log.note(width.get(scope))))])], children: [] }),
-        ] }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({ styles: [.Padding(.Px(13))], children: [] }),
+                ui.stack({
+                    styles: [
+                        .Computed(fn(scope) => {
+                            [.Width(.Px(log.note(width.get(scope))))]
+                        }),
+                    ],
+                    children: [],
+                }),
+            ],
+        }),
     );
     assert.equal(view.markup(), "e 0 \ne 1 class:p-13\ne 1 width:21px");
     // The static one never ran a computation, so nothing it could have noted
@@ -1906,7 +2412,14 @@ test "a button carries its label, and a press runs its handler" {
         Watch: observer(),
     };
     let count = signal(ctx, 0);
-    let tree = rooted(ctx, ui.button({ label: .Const("add"), styles: [], onPress: .Some(fn(c) => { count.update(c, fn(n) => n + 1) }) }));
+    let tree = rooted(
+        ctx,
+        ui.button({
+            label: .Const("add"),
+            styles: [],
+            onPress: .Some(fn(c) => { count.update(c, fn(n) => n + 1) }),
+        }),
+    );
     let page = render(ctx, tree);
     // The label is the accessible name, so it is an attribute; a button with no
     // children shows it, which is the one place the name and the glyphs agree.
@@ -1926,7 +2439,18 @@ test "a button holds children, and its label stays its name" {
     // A rail entry: a mark and a word, one element. Before this the two had to
     // be a row, and a wash for hovered or for the current page went on the row
     // rather than on the thing that is pressed.
-    let tree = rooted(ctx, ui.button({ label: .Const("Overview"), styles: [.Padding(.Px(4))], children: .Some([ui.text({ content: .Const("*") }), ui.text({ content: .Const("Overview") })]), onPress: .Some(fn(c) => count.update(c, fn(n) => n + 1)) }));
+    let tree = rooted(
+        ctx,
+        ui.button({
+            label: .Const("Overview"),
+            styles: [.Padding(.Px(4))],
+            children: .Some([
+                ui.text({ content: .Const("*") }),
+                ui.text({ content: .Const("Overview") }),
+            ]),
+            onPress: .Some(fn(c) => count.update(c, fn(n) => n + 1)),
+        }),
+    );
     let page = render(ctx, tree);
     assert.equal(page.markup(), "e 0 class:p-4\nt 1 *\nt 1 Overview");
     // Pressed by the name a reader hears, which is the label and never the
@@ -1952,7 +2476,11 @@ test "a handler is handed the context the tree was rendered with" {
     // `lambda-captures-effect`, which is `cli/tests/reject/`'s business.
     let page = render(
         ctx,
-        ui.button({ label: .Const("go"), styles: [], onPress: .Some(fn(c) => seen.set(c, "pressed")) }),
+        ui.button({
+            label: .Const("go"),
+            styles: [],
+            onPress: .Some(fn(c) => seen.set(c, "pressed")),
+        }),
     );
     let _ = page.press("go");
     assert.equal(seen.get(ctx), "pressed");
@@ -1962,7 +2490,14 @@ test "a link says where it goes" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.link({ dest: .Const("/prices"), children: [ui.text({ content: .Const("prices") })], styles: [] }));
+    let tree = rooted(
+        ctx,
+        ui.link({
+            dest: .Const("/prices"),
+            children: [ui.text({ content: .Const("prices") })],
+            styles: [],
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 prices");
 }
 
@@ -1971,7 +2506,14 @@ test "an attribute follows a prop that varies" {
         Ui: headless(),
     };
     let dest = signal(ctx, "/one");
-    let page = render(ctx, ui.link({ dest: .Cell(dest), children: [ui.text({ content: .Const("there") })], styles: [] }));
+    let page = render(
+        ctx,
+        ui.link({
+            dest: .Cell(dest),
+            children: [ui.text({ content: .Const("there") })],
+            styles: [],
+        }),
+    );
     assert.equal(page.markup(), "e 0 \nt 1 there");
     let _ = dest.set(ctx, "/two");
     assert.equal(page.markup(), "e 0 \nt 1 there");
@@ -1981,10 +2523,24 @@ test "an image says what it shows" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.image({ source: .Const("/cat.png"), alt: .AccessibilityText("a cat, asleep"), styles: [] }),
-        ui.image({ source: .Const("/rule.png"), alt: .AccessibilityText(""), styles: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.image({
+                    source: .Const("/cat.png"),
+                    alt: .AccessibilityText("a cat, asleep"),
+                    styles: [],
+                }),
+                ui.image({
+                    source: .Const("/rule.png"),
+                    alt: .AccessibilityText(""),
+                    styles: [],
+                }),
+            ],
+        }),
+    );
     // The empty string is how a decorative image says it is decorative,
     // which a reader has to be told and cannot guess.
     assert.equal(
@@ -2003,7 +2559,13 @@ test "an image says what it shows" {
 /// A lucide check, the way a component library ships one: `currentColor` where
 /// the stroke goes, so the colour is whatever the caller is painting in.
 fn check<C>(styles: [Style]): Node<C> {
-    ui.image({ source: .Const("<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>"), alt: .Decorative, styles: styles })
+    ui.image({
+        source: .Const(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>",
+        ),
+        alt: .Decorative,
+        styles: styles,
+    })
 }
 
 /// That artwork as the markup it becomes: the `xmlns` dropped, because the
@@ -2020,7 +2582,13 @@ test "an icon is artwork in the tree, so the colour around it reaches inside" {
     // The row asks for white text and the glyph strokes in `currentColor`, so
     // one declaration paints the label and the glyph together. A data URI in an
     // `image` would still be whatever colour was baked into it.
-    let row = rooted(ctx, ui.stack({ styles: [.Layout(.Row), .Group([.Foreground(.Rgb(255, 255, 255))])], children: [check([])] }));
+    let row = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Layout(.Row), .Group([.Foreground(.Rgb(255, 255, 255))])],
+            children: [check([])],
+        }),
+    );
     assert.containsText(render(ctx, row).markup(), "stroke='currentColor'");
 }
 
@@ -2075,7 +2643,13 @@ test "an icon's artwork is one scene line however it was written" {
     // nothing an icon may hold reads a line break as anything else.
     let scene = ui.describe(
         ctx,
-        ui.image({ source: .Const("<svg viewBox='0 0 24 24'>\n  <path d='M20 6 9 17l-5-5'/>\n</svg>"), alt: .Decorative, styles: [] }),
+        ui.image({
+            source: .Const(
+                "<svg viewBox='0 0 24 24'>\n  <path d='M20 6 9 17l-5-5'/>\n</svg>",
+            ),
+            alt: .Decorative,
+            styles: [],
+        }),
         .Hover,
     );
     assert.equal(scene.lines(ctx).length(), 3);
@@ -2150,13 +2724,44 @@ test "a field kind is what the field accepts" {
         Ui: headless(),
     };
     let value = signal(ctx, "");
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.field({ label: .Const("story"), kind: .Multiline, value: value, styles: [] }),
-        ui.field({ label: .Const("secret"), kind: .Password, value: value, styles: [] }),
-        ui.field({ label: .Const("address"), kind: .Email, value: value, styles: [] }),
-        ui.field({ label: .Const("how many"), kind: .Number, value: value, styles: [] }),
-        ui.field({ label: .Const("query"), kind: .Search, value: value, styles: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.field({
+                    label: .Const("story"),
+                    kind: .Multiline,
+                    value: value,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("secret"),
+                    kind: .Password,
+                    value: value,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("address"),
+                    kind: .Email,
+                    value: value,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("how many"),
+                    kind: .Number,
+                    value: value,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("query"),
+                    kind: .Search,
+                    value: value,
+                    styles: [],
+                }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 story\ne 2 field:multiline\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 secret\ne 2 field:password\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 address\ne 2 field:email\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 how many\ne 2 field:number\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 query\ne 2 field:search\nt 3 ",
@@ -2169,7 +2774,16 @@ test "a field takes a hint, and it is the placeholder inside its box" {
         Ui: headless(),
     };
     let query = signal(ctx, "");
-    let line = rooted(ctx, ui.field({ label: .Const("Search"), kind: .Search, value: query, styles: [], hint: .Some(.Const("Type a command")) }));
+    let line = rooted(
+        ctx,
+        ui.field({
+            label: .Const("Search"),
+            kind: .Search,
+            value: query,
+            styles: [],
+            hint: .Some(.Const("Type a command")),
+        }),
+    );
     // The hint is `aria-placeholder`-shaped: it is announced *after* the
     // accessible name rather than instead of it, so the label is still there
     // and still first.
@@ -2192,7 +2806,13 @@ test "a hint outlives the value in the markup, the way the attribute does" {
     let query = signal(ctx, "");
     let page = render(
         ctx,
-        ui.field({ label: .Const("Search"), kind: .Search, value: query, styles: [], hint: .Some(.Const("Type a command")) }),
+        ui.field({
+            label: .Const("Search"),
+            kind: .Search,
+            value: query,
+            styles: [],
+            hint: .Some(.Const("Type a command")),
+        }),
     );
     let _ = query.set(ctx, "open");
     // A browser keeps the attribute and stops drawing it, so the hint comes
@@ -2210,7 +2830,10 @@ test "no hint is no placeholder at all" {
         Ui: headless(),
     };
     let name = signal(ctx, "ada");
-    let plain = rooted(ctx, ui.field({ label: .Const("name"), kind: .Text, value: name, styles: [] }));
+    let plain = rooted(
+        ctx,
+        ui.field({ label: .Const("name"), kind: .Text, value: name, styles: [] }),
+    );
     // The empty string is "no hint", the way an image's `alt` already spells
     // "decorative", so a field that wants none carries no markup for one.
     assert.equal(
@@ -2227,7 +2850,13 @@ test "a hint may vary" {
     let hint = signal(ctx, "Type a command");
     let page = render(
         ctx,
-        ui.field({ label: .Const("Search"), kind: .Search, value: signal(ctx, ""), styles: [], hint: .Some(.Cell(hint)) }),
+        ui.field({
+            label: .Const("Search"),
+            kind: .Search,
+            value: signal(ctx, ""),
+            styles: [],
+            hint: .Some(.Cell(hint)),
+        }),
     );
     let _ = hint.set(ctx, "Search the docs");
     assert.equal(
@@ -2248,14 +2877,20 @@ test "every kind that holds text takes a hint, and a range takes none" {
         Ui: headless(),
     };
     let empty = signal(ctx, "");
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        hinted(ctx, .Text, empty),
-        hinted(ctx, .Multiline, empty),
-        hinted(ctx, .Password, empty),
-        hinted(ctx, .Email, empty),
-        hinted(ctx, .Number, empty),
-        hinted(ctx, .Search, empty),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                hinted(ctx, .Text, empty),
+                hinted(ctx, .Multiline, empty),
+                hinted(ctx, .Password, empty),
+                hinted(ctx, .Email, empty),
+                hinted(ctx, .Number, empty),
+                hinted(ctx, .Search, empty),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:text;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:multiline;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:password;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:email;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:number;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:search;placeholder:hint\nt 3 ",
@@ -2263,7 +2898,17 @@ test "every kind that holds text takes a hint, and a range takes none" {
     // A slider has no box to put a word in, and HTML's own `placeholder`
     // applies to the types that hold text and to nothing else. The hint is
     // dropped rather than refused, which is what the DOM does with one.
-    let slider = rooted(ctx, ui.slider({ label: .Const("Volume"), value: signal(ctx, 40.0), min: 0.0, max: 100.0, styles: [], step: .Some(1.0) }));
+    let slider = rooted(
+        ctx,
+        ui.slider({
+            label: .Const("Volume"),
+            value: signal(ctx, 40.0),
+            min: 0.0,
+            max: 100.0,
+            styles: [],
+            step: .Some(1.0),
+        }),
+    );
     assert.equal(
         render(ctx, slider).markup(),
         "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:w-r12 h-r1 shrink-0;field:range;range:0.0 100.0 40.0",
@@ -2281,7 +2926,13 @@ test "a hint neither ends the declaration nor the line it is on" {
     // otherwise a scene reads a word of a hint as a property of its own.
     let scene = ui.describe(
         ctx,
-        ui.field({ label: .Const("Note"), kind: .Text, value: signal(ctx, ""), styles: [], hint: .Some(.Const("a; b\nc")) }),
+        ui.field({
+            label: .Const("Note"),
+            kind: .Text,
+            value: signal(ctx, ""),
+            styles: [],
+            hint: .Some(.Const("a; b\nc")),
+        }),
         .Hover,
     );
     assert.equal(
@@ -2331,7 +2982,12 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: done, styles: [] }),
+            ui.toggle({
+                label: .Const("done"),
+                kind: .Checkbox,
+                isOn: done,
+                styles: [],
+            }),
             .Hover,
         ),
         str.format(
@@ -2371,7 +3027,16 @@ test "a labelled control takes styles for the box around it" {
     // that takes the room they leave. `Grow` has to land on the `<label>`,
     // because the label is what the row lays out and nothing on the input can
     // reach it.
-    let tree = rooted(ctx, ui.field({ label: .Const("Site"), kind: .Text, value: site, styles: [.Width(.Full)], around: .Some([.Grow(1)]) }));
+    let tree = rooted(
+        ctx,
+        ui.field({
+            label: .Const("Site"),
+            kind: .Text,
+            value: site,
+            styles: [.Width(.Full)],
+            around: .Some([.Grow(1)]),
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
@@ -2387,7 +3052,13 @@ test "a labelled control takes styles for the box around it" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.field({ label: .Const("Site"), kind: .Text, value: site, styles: [], around: .Some([.Layout(.Column)]) }),
+            ui.field({
+                label: .Const("Site"),
+                kind: .Text,
+                value: site,
+                styles: [],
+                around: .Some([.Layout(.Column)]),
+            }),
             .Hover,
         ),
         "e 0 class:wrap-wrap ac-center lay-col",
@@ -2425,7 +3096,12 @@ test "a toggle draws its own mark" {
         ui
             .describe(
                 ctx,
-                ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: off, styles: [] }),
+                ui.toggle({
+                    label: .Const("done"),
+                    kind: .Checkbox,
+                    isOn: off,
+                    styles: [],
+                }),
                 .Hover,
             )
             .contains("mark:"),
@@ -2472,11 +3148,14 @@ test "an image takes styles of its own, and they land on the picture" {
     // box's corner, and an avatar could not be built. The styles are the
     // picture's rather than a wrapper's: a wrapper's own width is the
     // wrapper's.
-    let tree = rooted(ctx, ui.image({ source: .Const("/a.png"), alt: .AccessibilityText(""), styles: [
-        .Width(.Full),
-        .AspectRatio(1.0),
-        .Radius(.Px(9999)),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.image({
+            source: .Const("/a.png"),
+            alt: .AccessibilityText(""),
+            styles: [.Width(.Full), .AspectRatio(1.0), .Radius(.Px(9999))],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:w-full ar-1 r-9999;image:/a.png",
@@ -2497,14 +3176,21 @@ test "a picture's styles take the conflict slots every other element's do" {
     // Two entries naming different edges compose; the same edge twice is
     // last-wins; and a `Position`, an `On` and an `At` beside them each land
     // where they land on any other element.
-    let tree = rooted(ctx, ui.image({ source: .Const("/a.png"), alt: .AccessibilityText("a"), styles: [
-        .PaddingEdge(.Top, .Px(4)),
-        .PaddingEdge(.Bottom, .Px(6)),
-        .PaddingEdge(.Top, .Px(8)),
-        .Position(.Sticky),
-        .On(.Hover, [.Opacity(0.5)]),
-        .At(.Medium, [.Width(.Px(40))]),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.image({
+            source: .Const("/a.png"),
+            alt: .AccessibilityText("a"),
+            styles: [
+                .PaddingEdge(.Top, .Px(4)),
+                .PaddingEdge(.Bottom, .Px(6)),
+                .PaddingEdge(.Top, .Px(8)),
+                .Position(.Sticky),
+                .On(.Hover, [.Opacity(0.5)]),
+                .At(.Medium, [.Width(.Px(40))]),
+            ],
+        }),
+    );
     let classes = "class:pe-top-8 pe-bottom-6 pos-sticky hover_op-0_5 md_w-40";
     assert.equal(
         ui.describe(ctx, tree, .Hover),
@@ -2530,11 +3216,34 @@ test "a disabled control says so in its markup" {
     // tab order and tells a reader it is unavailable rather than absent.
     let name = signal(ctx, "ada");
     let done = signal(ctx, false);
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.button({ label: .Const("save"), styles: [], onPress: .Some(fn(_c) => ()), isDisabled: .Some(.Const(true)) }),
-        ui.field({ label: .Const("name"), kind: .Text, value: name, styles: [], isDisabled: .Some(.Const(true)) }),
-        ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: done, styles: [], isDisabled: .Some(.Const(true)) }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("save"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    isDisabled: .Some(.Const(true)),
+                }),
+                ui.field({
+                    label: .Const("name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+                ui.toggle({
+                    label: .Const("done"),
+                    kind: .Checkbox,
+                    isOn: done,
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+            ],
+        }),
+    );
     assert.containsText(
         render(ctx, tree).markup(),
         "e 0 \ne 1 disabled:true\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
@@ -2563,11 +3272,31 @@ test "a disabled control refuses a press, a fill and a flip" {
     let done = signal(ctx, false);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.button({ label: .Const("save"), styles: [], onPress: .Some(fn(c) => { pressed.update(c, fn(n) => n + 1) }), isDisabled: .Some(.Const(true)) }),
-            ui.field({ label: .Const("name"), kind: .Text, value: name, styles: [], isDisabled: .Some(.Const(true)) }),
-            ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: done, styles: [], isDisabled: .Some(.Const(true)) }),
-        ] }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("save"),
+                    styles: [],
+                    onPress: .Some(fn(c) => { pressed.update(c, fn(n) => n + 1) }),
+                    isDisabled: .Some(.Const(true)),
+                }),
+                ui.field({
+                    label: .Const("name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+                ui.toggle({
+                    label: .Const("done"),
+                    kind: .Checkbox,
+                    isOn: done,
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+            ],
+        }),
     );
     let _ = page.press("save");
     let _ = page.fill("name", "grace");
@@ -2586,7 +3315,12 @@ test "whether a control refuses input may vary" {
     let pressed = signal(ctx, 0);
     let page = render(
         ctx,
-        ui.button({ label: .Const("save"), styles: [], onPress: .Some(fn(c) => { pressed.update(c, fn(n) => n + 1) }), isDisabled: .Some(.Cell(busy)) }),
+        ui.button({
+            label: .Const("save"),
+            styles: [],
+            onPress: .Some(fn(c) => { pressed.update(c, fn(n) => n + 1) }),
+            isDisabled: .Some(.Cell(busy)),
+        }),
     );
     assert.containsText(page.markup(), "disabled");
     let _ = page.press("save");
@@ -2606,8 +3340,19 @@ test "On(.Disabled) fires from the control's own flag, in every state" {
     // set is unavailable whatever the snapshot was taken in, and a control
     // whose flag is clear is still what a `.Disabled` snapshot is asking about.
     let dim: [Style] = [.On(.Disabled, [.Opacity(0.5)])];
-    let refusing = rooted(ctx, ui.button({ label: .Const("save"), styles: dim, onPress: .Some(fn(_c) => ()), isDisabled: .Some(.Const(true)) }));
-    let pressable = rooted(ctx, ui.button({ label: .Const("save"), styles: dim, onPress: .Some(fn(_c) => ()) }));
+    let refusing = rooted(
+        ctx,
+        ui.button({
+            label: .Const("save"),
+            styles: dim,
+            onPress: .Some(fn(_c) => ()),
+            isDisabled: .Some(.Const(true)),
+        }),
+    );
+    let pressable = rooted(
+        ctx,
+        ui.button({ label: .Const("save"), styles: dim, onPress: .Some(fn(_c) => ()) }),
+    );
     assert.equal(
         ui.describe(ctx, refusing, .Hover),
         "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5;disabled:true\nt 1 save",
@@ -2636,10 +3381,26 @@ test "a toggle's own value decides its checked styles" {
     let on: [Style] = [.On(.Checked, [.Background(.Rgb(40, 150, 60))])];
     let off = signal(ctx, false);
     let lit = signal(ctx, true);
-    let tree = rooted(ctx, ui.stack({ styles: [.Layout(.Column), .Group([])], children: [
-        ui.toggle({ label: .Const("off"), kind: .Switch, isOn: off, styles: on }),
-        ui.toggle({ label: .Const("on"), kind: .Switch, isOn: lit, styles: on }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Layout(.Column), .Group([])],
+            children: [
+                ui.toggle({
+                    label: .Const("off"),
+                    kind: .Switch,
+                    isOn: off,
+                    styles: on,
+                }),
+                ui.toggle({
+                    label: .Const("on"),
+                    kind: .Switch,
+                    isOn: lit,
+                    styles: on,
+                }),
+            ],
+        }),
+    );
     let hovered = ui.describe(ctx, tree, .Hover);
     assert.containsText(hovered, "checked:false");
     assert.containsText(hovered, "checked_bg-28963c;checked:true");
@@ -2657,7 +3418,10 @@ test "the snapshot's Checked reaches what holds no answer of its own" {
     };
     // Nothing but a toggle answers for `:checked`, so a box carrying
     // `On(.Checked, ...)` is still the snapshot's to decide.
-    let box = rooted(ctx, ui.stack({ styles: [.On(.Checked, [.Opacity(0.25)])], children: [] }));
+    let box = rooted(
+        ctx,
+        ui.stack({ styles: [.On(.Checked, [.Opacity(0.25)])], children: [] }),
+    );
     assert.equal(
         ui.describe(ctx, box, .Checked),
         "buri-scene 1\nviewport 800 fit\ne 0 class:checked_op-0_25",
@@ -2679,7 +3443,13 @@ test "a checked toggle answers the pointer's states as well as its own" {
     let lit = signal(ctx, true);
     let scene = ui.describe(
         ctx,
-        ui.toggle({ label: .Const("on"), kind: .Switch, isOn: lit, styles: both, isDisabled: .Some(.Const(true)) }),
+        ui.toggle({
+            label: .Const("on"),
+            kind: .Switch,
+            isOn: lit,
+            styles: both,
+            isDisabled: .Some(.Const(true)),
+        }),
         .Hover,
     );
     assert.containsText(scene, "hover_op-0_5");
@@ -2729,7 +3499,14 @@ test "a range field is a slider, and the browser drives it" {
     // vocabulary could draw for itself.
     let page = render(
         ctx,
-        ui.slider({ label: .Const("Volume"), value: volume, min: 0.0, max: 100.0, styles: [], step: .Some(1.0) }),
+        ui.slider({
+            label: .Const("Volume"),
+            value: volume,
+            min: 0.0,
+            max: 100.0,
+            styles: [],
+            step: .Some(1.0),
+        }),
     );
     assert.equal(
         page.markup(),
@@ -2763,7 +3540,14 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.slider({ label: .Const("Volume"), value: volume, min: 0.0, max: 100.0, styles: [], step: .Some(1.0) }),
+            ui.slider({
+                label: .Const("Volume"),
+                value: volume,
+                min: 0.0,
+                max: 100.0,
+                styles: [],
+                step: .Some(1.0),
+            }),
             .Hover,
         ),
         str.format(
@@ -2777,7 +3561,14 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.slider({ label: .Const("Fine"), value: signal(ctx, 9.0), min: -1.5, max: 1.5, styles: [], step: .Some(0.25) }),
+            ui.slider({
+                label: .Const("Fine"),
+                value: signal(ctx, 9.0),
+                min: -1.5,
+                max: 1.5,
+                styles: [],
+                step: .Some(0.25),
+            }),
             .Hover,
         ),
         "field:range;range:-1.5 1.5 9.0",
@@ -2806,7 +3597,17 @@ test "a range field's styles land on the input, and compose the way a control's 
         .On(.Hover, [.Opacity(0.9)]),
         .Position(.Sticky),
     ];
-    let tree = rooted(ctx, ui.slider({ label: .Const("Volume"), value: volume, min: 0.0, max: 10.0, styles: styles, step: .Some(0.5) }));
+    let tree = rooted(
+        ctx,
+        ui.slider({
+            label: .Const("Volume"),
+            value: volume,
+            min: 0.0,
+            max: 10.0,
+            styles: styles,
+            step: .Some(0.5),
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 40.0",
@@ -2828,12 +3629,36 @@ test "a control takes styles of its own, and they land on the control" {
     };
     let name = signal(ctx, "ada");
     let done = signal(ctx, false);
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.button({ label: .Const("go"), styles: [.Padding(.Px(12)), .On(.Hover, [.Opacity(0.9)])], onPress: .Some(fn(_c) => ()) }),
-        ui.link({ dest: .Const("/prices"), children: [], styles: [.Foreground(.Rgb(9, 9, 9))] }),
-        ui.field({ label: .Const("name"), kind: .Text, value: name, styles: [.Radius(.Px(4))] }),
-        ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: done, styles: [.Width(.Px(20))] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("go"),
+                    styles: [.Padding(.Px(12)), .On(.Hover, [.Opacity(0.9)])],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+                ui.link({
+                    dest: .Const("/prices"),
+                    children: [],
+                    styles: [.Foreground(.Rgb(9, 9, 9))],
+                }),
+                ui.field({
+                    label: .Const("name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [.Radius(.Px(4))],
+                }),
+                ui.toggle({
+                    label: .Const("done"),
+                    kind: .Checkbox,
+                    isOn: done,
+                    styles: [.Width(.Px(20))],
+                }),
+            ],
+        }),
+    );
     // The classes are on the button, the anchor and the two inputs, never on a
     // wrapper. That is what makes a state work: a wrapper is not the thing that
     // is hovered, focused or disabled.
@@ -2922,11 +3747,18 @@ test "a size is the whole box, so padding and a border sit inside it" {
     // hang 34 pixels of it out of the parent; the headless painter has always
     // measured the border box, and this is the declaration that makes the two
     // agree.
-    let tree = rooted(ctx, ui.stack({ styles: [.Width(.Px(200))], children: [
-        ui.stack({ styles: [.Width(.Full), .Padding(.Px(16)), .BorderWidth(.Px(1))], children: [
-            ui.text({ content: .Const("inside") }),
-        ] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Width(.Px(200))],
+            children: [
+                ui.stack({
+                    styles: [.Width(.Full), .Padding(.Px(16)), .BorderWidth(.Px(1))],
+                    children: [ui.text({ content: .Const("inside") })],
+                }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:w-200\ne 1 class:w-full p-16 bw-1\nt 2 inside",
@@ -2953,7 +3785,13 @@ test "the reset breaks a word too long for its box the way the painter does" {
     // browser breaks the same word the same way — `break-word` rather than
     // `anywhere` because the min-content width stays the longest word, which is
     // what the painter measures.
-    let tree = rooted(ctx, ui.stack({ styles: [.Width(.Px(180))], children: [ui.text({ content: .Const("x") })] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Width(.Px(180))],
+            children: [ui.text({ content: .Const("x") })],
+        }),
+    );
     let _ = render(ctx, tree);
     let sheet = stylesheet();
     assert.isTrue(sheet.contains("*{overflow-wrap:break-word}"));
@@ -2970,18 +3808,46 @@ test "a list has no marker until one is asked for" {
     // A navigation rail, written the accessible way. The role is what a reader
     // is told; the browser's disc and its forty-pixel indent are styling
     // nobody asked for, so the sheet drops both.
-    let rail = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [], children: [
-            ui.link({ dest: .Const("/a"), children: [ui.text({ content: .Const("Alpha") })], styles: [] }),
-        ], role: .Some(.ListItem) }),
-    ], role: .Some(.List) }));
+    let rail = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.link({
+                            dest: .Const("/a"),
+                            children: [ui.text({ content: .Const("Alpha") })],
+                            styles: [],
+                        }),
+                    ],
+                    role: .Some(.ListItem),
+                }),
+            ],
+            role: .Some(.List),
+        }),
+    );
     assert.equal(render(ctx, rail).markup(), "e 0 \ne 1 \ne 2 \nt 3 Alpha");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(":where(ul,ol){margin:0;padding:0;list-style:none}"));
 
     // And back again for a list that wants them, with room for them to hang
     // in. The class beats the reset, which is why the reset opens the sheet.
-    let numbered = rooted(ctx, ui.stack({ styles: [.PaddingEdge(.Start, .Px(24)), .ListMarker(.Decimal)], children: [ui.stack({ styles: [], children: [ui.text({ content: .Const("first") })], role: .Some(.ListItem) })], role: .Some(.List) }));
+    let numbered = rooted(
+        ctx,
+        ui.stack({
+            styles: [.PaddingEdge(.Start, .Px(24)), .ListMarker(.Decimal)],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("first") })],
+                    role: .Some(.ListItem),
+                }),
+            ],
+            role: .Some(.List),
+        }),
+    );
     assert.equal(
         render(ctx, numbered).markup(),
         "e 0 class:pe-start-24 lm-decimal\ne 1 \nt 2 first",
@@ -3012,7 +3878,12 @@ test "a toggle's own styles paint, because the reset takes the native control aw
     assert.equal(
         render(
             ctx,
-            ui.toggle({ label: .Const("Email me"), kind: .Switch, isOn: on, styles: styles }),
+            ui.toggle({
+                label: .Const("Email me"),
+                kind: .Switch,
+                isOn: on,
+                styles: styles,
+            }),
         ).markup(),
         "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center shrink-0 am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1\nt 1 Email me",
     );
@@ -3031,7 +3902,12 @@ test "a toggle's own styles paint, because the reset takes the native control aw
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle({ label: .Const("Email me"), kind: .Switch, isOn: on, styles: styles }),
+            ui.toggle({
+                label: .Const("Email me"),
+                kind: .Switch,
+                isOn: on,
+                styles: styles,
+            }),
             .Checked,
         ),
         "am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414",
@@ -3046,7 +3922,18 @@ test "a container with no layout is the column the default promises" {
     // downwards, and the headless painter has laid one out that way all along.
     // As CSS's `display:block` the alignments below would be computed and do
     // nothing, and the text would sit in the top-left corner of the box.
-    let tree = rooted(ctx, ui.stack({ styles: [.Width(.Px(40)), .Height(.Px(40)), .AlignMain(.Center), .AlignCross(.Center)], children: [ui.text({ content: .Const("ok") })] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Width(.Px(40)),
+                .Height(.Px(40)),
+                .AlignMain(.Center),
+                .AlignCross(.Center),
+            ],
+            children: [ui.text({ content: .Const("ok") })],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 class:w-40 h-40 am-center ac-center\nt 1 ok",
@@ -3076,14 +3963,35 @@ test "a designed focus ring replaces the platform's rather than joining it" {
     // focused element, and `ui/style` has no `Outline` to turn one off with —
     // so without this the button below wears a grey band with Chrome's blue
     // rectangle around it.
-    let ringed = rooted(ctx, ui.button({ label: .Const("focus me"), styles: [.On(.Focus, [.BorderWidth(.Px(3))])], onPress: .Some(fn(_c) => ()) }));
+    let ringed = rooted(
+        ctx,
+        ui.button({
+            label: .Const("focus me"),
+            styles: [.On(.Focus, [.BorderWidth(.Px(3))])],
+            onPress: .Some(fn(_c) => ()),
+        }),
+    );
     assert.equal(render(ctx, ringed).markup(), "e 0 \nt 1 focus me");
 
     // A fade is not a ring: it is drawn *beside* the platform's, so the
     // platform's stays. So does a ring that only applies from a breakpoint
     // upwards, because there is a width at which it paints nothing.
-    let faded = rooted(ctx, ui.button({ label: .Const("dim"), styles: [.On(.Focus, [.Opacity(0.7)])], onPress: .Some(fn(_c) => ()) }));
-    let wide = rooted(ctx, ui.button({ label: .Const("wide"), styles: [.At(.Small, [.On(.Focus, [.BorderWidth(.Px(2))])])], onPress: .Some(fn(_c) => ()) }));
+    let faded = rooted(
+        ctx,
+        ui.button({
+            label: .Const("dim"),
+            styles: [.On(.Focus, [.Opacity(0.7)])],
+            onPress: .Some(fn(_c) => ()),
+        }),
+    );
+    let wide = rooted(
+        ctx,
+        ui.button({
+            label: .Const("wide"),
+            styles: [.At(.Small, [.On(.Focus, [.BorderWidth(.Px(2))])])],
+            onPress: .Some(fn(_c) => ()),
+        }),
+    );
     assert.equal(render(ctx, faded).markup(), "e 0 \nt 1 dim");
     assert.equal(render(ctx, wide).markup(), "e 0 \nt 1 wide");
 
@@ -3106,10 +4014,24 @@ test "a separator is a rule the caller paints, and a picture is its own block" {
     // inline margin shrinks it inside a column. A picture and an inlined
     // `<svg>` are the two leaves a browser leaves inline, so each hangs on the
     // text baseline beside whatever was written before it.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.stack({ styles: [.Height(.Px(1)), .Background(.Rgb(229, 229, 229))], children: [], role: .Some(.Separator) }),
-        ui.image({ source: .Const("/logo.png"), alt: .AccessibilityText(""), styles: [] }),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [.Height(.Px(1)), .Background(.Rgb(229, 229, 229))],
+                    children: [],
+                    role: .Some(.Separator),
+                }),
+                ui.image({
+                    source: .Const("/logo.png"),
+                    alt: .AccessibilityText(""),
+                    styles: [],
+                }),
+            ],
+        }),
+    );
     assert.equal(
         render(ctx, tree).markup(),
         "e 0 \ne 1 class:h-1 bg-e5e5e5\ne 1 image:/logo.png",
@@ -3143,9 +4065,18 @@ test "a form is submitted, which is behaviour and so not a role" {
     let added = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form({ onSubmit: fn(c) => added.set(c, draft.get(c)), children: [
-            ui.field({ label: .Const("what"), kind: .Text, value: draft, styles: [] }),
-        ], styles: [] }),
+        ui.form({
+            onSubmit: fn(c) => added.set(c, draft.get(c)),
+            children: [
+                ui.field({
+                    label: .Const("what"),
+                    kind: .Text,
+                    value: draft,
+                    styles: [],
+                }),
+            ],
+            styles: [],
+        }),
     );
     let _ = page.fill("what", "milk");
     let _ = page.submit(0);
@@ -3162,11 +4093,25 @@ test "a form of two fields is submitted through the button that is its action" {
     let sent = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form({ onSubmit: fn(c) => sent.set(c, "sent"), children: [
-            ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
-            ui.field({ label: .Const("Email"), kind: .Email, value: email, styles: [] }),
-            ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
-        ], styles: [] }),
+        ui.form({
+            onSubmit: fn(c) => sent.set(c, "sent"),
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("Email"),
+                    kind: .Email,
+                    value: email,
+                    styles: [],
+                }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
     );
     // One button, and it is the form's action. That attribute is the whole of
     // what makes Enter work: a browser submits a form implicitly through its
@@ -3188,10 +4133,19 @@ test "a submit button pressed submits the form it is in" {
     let sent = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form({ onSubmit: fn(c) => sent.set(c, typed.get(c)), children: [
-            ui.field({ label: .Const("Name"), kind: .Text, value: typed, styles: [] }),
-            ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
-        ], styles: [] }),
+        ui.form({
+            onSubmit: fn(c) => sent.set(c, typed.get(c)),
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: typed,
+                    styles: [],
+                }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
     );
     let _ = page.fill("Name", "Ada");
     // No handler of its own: submitting is the form's, and pressing the button
@@ -3210,11 +4164,29 @@ test "a form of two fields with no submit button is not submitted at all" {
     let sent = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form({ onSubmit: fn(c) => sent.set(c, "sent"), children: [
-            ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
-            ui.field({ label: .Const("Email"), kind: .Email, value: email, styles: [] }),
-            ui.button({ label: .Const("Send"), styles: [], onPress: .Some(fn(_c) => ()) }),
-        ], styles: [] }),
+        ui.form({
+            onSubmit: fn(c) => sent.set(c, "sent"),
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("Email"),
+                    kind: .Email,
+                    value: email,
+                    styles: [],
+                }),
+                ui.button({
+                    label: .Const("Send"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+            styles: [],
+        }),
     );
     // An ordinary button is not a form's action, so this is the markup a
     // browser refuses to submit from the keyboard — and the double refuses it
@@ -3234,9 +4206,15 @@ test "a dialog is a panel its signal opens and shuts" {
         Ui: headless(),
     };
     let open = signal(ctx, true);
-    let panel = rooted(ctx, ui.dialog({ isOpen: open, label: .Const("Delete this?"), children: [
-        ui.text({ content: .Const("Are you sure?") }),
-    ], styles: [] }));
+    let panel = rooted(
+        ctx,
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Delete this?"),
+            children: [ui.text({ content: .Const("Are you sure?") })],
+            styles: [],
+        }),
+    );
     let page = render(ctx, panel);
     // A `<dialog>`, because the three things a modal needs from the platform —
     // the scroll lock, the inertness of what is behind, and the focus trap —
@@ -3270,7 +4248,12 @@ test "a dialog's styles land on the panel" {
     assert.equal(
         render(
             ctx,
-            ui.dialog({ isOpen: open, label: .Const("Settings"), children: [], styles: [.Padding(.Px(8)), .Radius(.Px(4))] }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Settings"),
+                children: [],
+                styles: [.Padding(.Px(8)), .Radius(.Px(4))],
+            }),
         ).markup(),
         "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-8 r-4",
     );
@@ -3301,7 +4284,10 @@ test "a dialog's label may vary, and the panel follows it" {
     };
     let open = signal(ctx, true);
     let named = signal(ctx, "first");
-    let page = render(ctx, ui.dialog({ isOpen: open, label: .Cell(named), children: [], styles: [] }));
+    let page = render(
+        ctx,
+        ui.dialog({ isOpen: open, label: .Cell(named), children: [], styles: [] }),
+    );
     assert.equal(
         page.markup(),
         "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ",
@@ -3322,12 +4308,28 @@ test "an open dialog takes the rest of the page out of reach" {
     let pressed = signal(ctx, "");
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.button({ label: .Const("behind"), styles: [], onPress: .Some(fn(c) => pressed.set(c, "behind")) }),
-            ui.dialog({ isOpen: open, label: .Const("Confirm"), children: [
-                ui.button({ label: .Const("inside"), styles: [], onPress: .Some(fn(c) => pressed.set(c, "inside")) }),
-            ], styles: [] }),
-        ] }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("behind"),
+                    styles: [],
+                    onPress: .Some(fn(c) => pressed.set(c, "behind")),
+                }),
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Confirm"),
+                    children: [
+                        ui.button({
+                            label: .Const("inside"),
+                            styles: [],
+                            onPress: .Some(fn(c) => pressed.set(c, "inside")),
+                        }),
+                    ],
+                    styles: [],
+                }),
+            ],
+        }),
     );
     // What is behind an open modal is inert — a browser's top layer takes the
     // pointer, the keyboard and the announcement away from it — so the press
@@ -3356,13 +4358,35 @@ test "an open dialog refuses a fill, a flip and a submit behind it" {
     let sent = signal(ctx, 0);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.form({ onSubmit: fn(c) => sent.set(c, sent.get(c) + 1), children: [
-                ui.field({ label: .Const("what"), kind: .Text, value: typed, styles: [] }),
-                ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: ticked, styles: [] }),
-            ], styles: [] }),
-            ui.dialog({ isOpen: open, label: .Const("Confirm"), children: [], styles: [] }),
-        ] }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.form({
+                    onSubmit: fn(c) => sent.set(c, sent.get(c) + 1),
+                    children: [
+                        ui.field({
+                            label: .Const("what"),
+                            kind: .Text,
+                            value: typed,
+                            styles: [],
+                        }),
+                        ui.toggle({
+                            label: .Const("done"),
+                            kind: .Checkbox,
+                            isOn: ticked,
+                            styles: [],
+                        }),
+                    ],
+                    styles: [],
+                }),
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Confirm"),
+                    children: [],
+                    styles: [],
+                }),
+            ],
+        }),
     );
     let _ = page.fill("what", "milk");
     let _ = page.flip("done");
@@ -3391,11 +4415,17 @@ test "an open dialog is a scrim and a panel, and a shut one is nothing at all" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.stack({ styles: [], children: [
-                ui.dialog({ isOpen: shut, label: .Const("x"), children: [
-                    ui.text({ content: .Const("gone") }),
-                ], styles: [.Padding(.Px(8))] }),
-            ] }),
+            ui.stack({
+                styles: [],
+                children: [
+                    ui.dialog({
+                        isOpen: shut,
+                        label: .Const("x"),
+                        children: [ui.text({ content: .Const("gone") })],
+                        styles: [.Padding(.Px(8))],
+                    }),
+                ],
+            }),
             .Hover,
         ),
         "buri-scene 1\nviewport 800 fit\ne 0 ",
@@ -3409,7 +4439,12 @@ test "an open dialog is a scrim and a panel, and a shut one is nothing at all" {
     assert.equal(
         ui.describe(
             ctx,
-            ui.dialog({ isOpen: open, label: .Const("x"), children: [ui.text({ content: .Const("here") })], styles: [.Padding(.Px(8))] }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("x"),
+                children: [ui.text({ content: .Const("here") })],
+                styles: [.Padding(.Px(8))],
+            }),
             .Hover,
         ),
         str.format(
@@ -3428,7 +4463,12 @@ test "a button that expands something says so, and whether it is open" {
     let open = signal(ctx, false);
     let page = render(
         ctx,
-        ui.button({ label: .Const("Menu"), styles: [], onPress: .Some(fn(_c) => ()), isExpanded: .Some(.Cell(open)) }),
+        ui.button({
+            label: .Const("Menu"),
+            styles: [],
+            onPress: .Some(fn(_c) => ()),
+            isExpanded: .Some(.Cell(open)),
+        }),
     );
     // Collapsed, it announces the same as any button, because `aria-expanded`
     // is written only when it is `true` — the way `aria-invalid` is, so an
@@ -3445,7 +4485,15 @@ test "aria-expanded is announced and not painted, so the scene carries none of i
         Allocator: alloc(),
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.button({ label: .Const("Menu"), styles: [.Padding(.Px(4))], onPress: .Some(fn(_c) => ()), isExpanded: .Some(.Const(true)) }));
+    let tree = rooted(
+        ctx,
+        ui.button({
+            label: .Const("Menu"),
+            styles: [.Padding(.Px(4))],
+            onPress: .Some(fn(_c) => ()),
+            isExpanded: .Some(.Const(true)),
+        }),
+    );
     // What a reader hears is not what a painter draws: the scene is the button's
     // own styles and its label, the same lines an unexpanded button writes.
     assert.equal(
@@ -3463,9 +4511,17 @@ test "a progress bar announces the role, the bounds and how far along it is" {
     // The fill is the caller's own child; the widget adds the role and the
     // three `aria-value*` a reader needs, which a pair of nested `stack`s never
     // told anyone.
-    let tree = rooted(ctx, ui.progress({ label: .Const("Loading"), value: .Some(.Const(0.66)), styles: [.Width(.Full)], children: .Some([
-        ui.stack({ styles: [.Width(.Percent(40.0))], children: [] }),
-    ]) }));
+    let tree = rooted(
+        ctx,
+        ui.progress({
+            label: .Const("Loading"),
+            value: .Some(.Const(0.66)),
+            styles: [.Width(.Full)],
+            children: .Some([
+                ui.stack({ styles: [.Width(.Percent(40.0))], children: [] }),
+            ]),
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:w-full\ne 1 class:w-pc40");
 }
 
@@ -3474,7 +4530,10 @@ test "a progress bar follows its value when it changes" {
         Ui: headless(),
     };
     let done = signal(ctx, 0.4);
-    let page = render(ctx, ui.progress({ label: .Const("Upload"), value: .Some(.Cell(done)), styles: [] }));
+    let page = render(
+        ctx,
+        ui.progress({ label: .Const("Upload"), value: .Some(.Cell(done)), styles: [] }),
+    );
     assert.equal(page.markup(), "e 0 ");
     // The value a reader hears is `aria-valuenow`, an attribute the scene does
     // not carry, so a write to it changes nothing the scene shows — the bar's
@@ -3491,9 +4550,17 @@ test "a progress bar paints its children and announces the rest" {
     // The role and the values are what a reader hears, not what a painter draws,
     // so the scene is the bar's own styles and the fill child inside it — the
     // same picture the nested boxes drew before the announcement was added.
-    let tree = rooted(ctx, ui.progress({ label: .Const("Loading"), value: .Some(.Const(0.4)), styles: [.Width(.Full)], children: .Some([
-        ui.stack({ styles: [.Width(.Percent(40.0))], children: [] }),
-    ]) }));
+    let tree = rooted(
+        ctx,
+        ui.progress({
+            label: .Const("Loading"),
+            value: .Some(.Const(0.4)),
+            styles: [.Width(.Full)],
+            children: .Some([
+                ui.stack({ styles: [.Width(.Percent(40.0))], children: [] }),
+            ]),
+        }),
+    );
     let scene = ui.describe(ctx, tree, .Hover);
     assert.equal(
         scene,
@@ -3510,7 +4577,15 @@ test "a disclosure is a details its summary opens and shuts" {
         Ui: headless(),
     };
     let open = signal(ctx, true);
-    let tree = rooted(ctx, ui.disclosure({ summary: .Const("Details"), isOpen: open, children: [ui.text({ content: .Const("body") })], styles: [] }));
+    let tree = rooted(
+        ctx,
+        ui.disclosure({
+            summary: .Const("Details"),
+            isOpen: open,
+            children: [ui.text({ content: .Const("body") })],
+            styles: [],
+        }),
+    );
     let page = render(ctx, tree);
     // A `<details>` with a `<summary>`, because the open-and-shut state, the
     // Enter and Space that toggle it, and what a reader is told are all the
@@ -3532,9 +4607,15 @@ test "a disclosure's styles land on the details, and the scene hides what is shu
         Ui: headless(),
     };
     let open = signal(ctx, true);
-    let tree = rooted(ctx, ui.disclosure({ summary: .Const("More"), isOpen: open, children: [
-        ui.text({ content: .Const("hidden") }),
-    ], styles: [.Padding(.Px(8))] }));
+    let tree = rooted(
+        ctx,
+        ui.disclosure({
+            summary: .Const("More"),
+            isOpen: open,
+            children: [ui.text({ content: .Const("hidden") })],
+            styles: [.Padding(.Px(8))],
+        }),
+    );
     // Open: the summary is drawn, then the children, inside the details' own
     // box — the styles land on the `<details>`.
     assert.equal(
@@ -3559,8 +4640,15 @@ test "an outside-press wrapper is a bare div around its children" {
     // It adds no visible element beyond its own wrapper: the styles and the
     // children are a stack's, and the press it watches for is the document's,
     // which no markup carries.
-    let tree = rooted(ctx, ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: .Const("panel") })], onPressOutside: .Some(fn(c) => {
-        }) }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Padding(.Px(8))],
+            children: [ui.text({ content: .Const("panel") })],
+            onPressOutside: .Some(fn(c) => {
+            }),
+        }),
+    );
     assert.equal(render(ctx, tree).markup(), "e 0 class:p-8\nt 1 panel");
     // And a picture of it is a picture of its children — the same `e` line and
     // the same child a stack of the same styles writes.
@@ -3574,8 +4662,15 @@ test "an unstyled outside-press wrapper is exactly a stack" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [ui.text({ content: .Const("x") })], onPressOutside: .Some(fn(c) => {
-        }) }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [ui.text({ content: .Const("x") })],
+            onPressOutside: .Some(fn(c) => {
+            }),
+        }),
+    );
     // No styles is no class, the way a bare stack has none.
     assert.equal(render(ctx, tree).markup(), "e 0 \nt 1 x");
 }
@@ -3590,18 +4685,36 @@ test "a press inside does not fire, a press outside does, and disposal takes the
     // A dismissable overlay: the wrapper watches for a press outside the panel,
     // and the panel holds a control of its own. An `outside` button stands in
     // for the rest of the page.
-    let tree = rooted(ctx, ui.stack({ styles: [], children: [
-        ui.button({ label: .Const("outside"), styles: [], onPress: .Some(fn(c) => {
-            }) }),
-        ui.choose(
-            .Cell(open),
-            ui.stack({ styles: [], children: [
-                ui.button({ label: .Const("inside"), styles: [], onPress: .Some(fn(c) => {
-                    }) }),
-            ], onPressOutside: .Some(fn(c) => fired.update(c, fn(n) => n + 1)) }),
-            ui.empty(),
-        ),
-    ] }));
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("outside"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                    }),
+                }),
+                ui.choose(
+                    .Cell(open),
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.button({
+                                label: .Const("inside"),
+                                styles: [],
+                                onPress: .Some(fn(c) => {
+                                }),
+                            }),
+                        ],
+                        onPressOutside: .Some(fn(c) => fired.update(c, fn(n) => n + 1)),
+                    }),
+                    ui.empty(),
+                ),
+            ],
+        }),
+    );
     let page = render(ctx, tree);
     // A press inside the subtree is not a press outside it, so the reader's
     // press on the panel's own control does not dismiss it.
@@ -3629,7 +4742,11 @@ test "a scene is a page 800 across and as tall as what it holds" {
     // which is the painter being told to take the height the paint came to —
     // so a short tree is a short picture and a tall one is not cut off.
     assert.equal(
-        ui.describe(ctx, ui.stack({ styles: [.Padding(.Px(4))], children: [] }), .Hover),
+        ui.describe(
+            ctx,
+            ui.stack({ styles: [.Padding(.Px(4))], children: [] }),
+            .Hover,
+        ),
         "buri-scene 1\nviewport 800 fit\ne 0 class:p-4",
     );
 }
@@ -3730,7 +4847,10 @@ test "computed rebuilds its subtree from whatever it read" {
     let page = render(
         ctx,
         ui.computed(fn(c) => {
-            ui.text({ content: .Const("head"), headingLevel: .Some(if (count.get(c) > 1) { 2 } else { 1 }) })
+            ui.text({
+                content: .Const("head"),
+                headingLevel: .Some(if (count.get(c) > 1) { 2 } else { 1 }),
+            })
         }),
     );
     assert.equal(page.count("h1"), 1);
@@ -3754,7 +4874,10 @@ test "a computed subtree is rebuilt, and a leaf prop is not" {
     assert.notEqual(coarse.identity("h1", 0), first);
 
     // The fine one: the same element, with one run of text changed.
-    let fine = render(ctx, ui.text({ content: .Computed(fn(c) => "${n.get(c)}"), headingLevel: .Some(1) }));
+    let fine = render(
+        ctx,
+        ui.text({ content: .Computed(fn(c) => "${n.get(c)}"), headingLevel: .Some(1) }),
+    );
     let kept = fine.identity("h1", 0);
     let _ = n.set(ctx, 2);
     assert.equal(fine.identity("h1", 0), kept);
@@ -3770,7 +4893,11 @@ test "each renders one row per item" {
     let items = signal(ctx, ["a", "b", "c"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), itself, labelRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), itself, labelRow)],
+            role: .Some(.List),
+        }),
     );
     assert.equal(page.markup(), "e 0 \ne 1 \nt 2 a\ne 1 \nt 2 b\ne 1 \nt 2 c");
     assert.equal(page.count("li"), 3);
@@ -3783,7 +4910,11 @@ test "an empty list renders no rows" {
     let items: Signal<[Str]> = signal(ctx, []);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), itself, labelRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), itself, labelRow)],
+            role: .Some(.List),
+        }),
     );
     assert.equal(page.count("li"), 0);
     let _ = items.set(ctx, ["only"]);
@@ -3797,7 +4928,11 @@ test "inserting a row keeps the rows that were already there" {
     let items = signal(ctx, ["a", "c"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), itself, labelRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), itself, labelRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let c = page.identity("li", 1);
@@ -3816,7 +4951,11 @@ test "removing a row keeps the others" {
     let items = signal(ctx, ["a", "b", "c"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), itself, labelRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), itself, labelRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let c = page.identity("li", 2);
@@ -3834,7 +4973,11 @@ test "reordering moves the rows rather than rebuilding them" {
     let items = signal(ctx, ["a", "b", "c"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), itself, labelRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), itself, labelRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let b = page.identity("li", 1);
@@ -3859,13 +5002,25 @@ test "a row that leaves takes what it created with it" {
     let items = signal(ctx, ["kept", "leaving"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.each(.Cell(items), itself, fn(c, item, index) => {
-                ui.stack({ styles: [], children: [
-                    ui.text({ content: .Computed(fn(s) => "${item} ${log.note(n.get(s))}") }),
-                ], role: .Some(.ListItem) })
-            }),
-        ], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Cell(items), itself, fn(c, item, index) => {
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.text({
+                                content: .Computed(fn(s) => {
+                                    "${item} ${log.note(n.get(s))}"
+                                }),
+                            }),
+                        ],
+                        role: .Some(.ListItem),
+                    })
+                }),
+            ],
+            role: .Some(.List),
+        }),
     );
     assert.equal(log.noted(), [1, 1]);
 
@@ -3889,13 +5044,23 @@ test "a row keeps its own reactive leaf across a reorder" {
     let items = signal(ctx, ["a", "b"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.each(.Cell(items), itself, fn(c, item, index) => {
-                ui.stack({ styles: [], children: [
-                    ui.text({ content: .Computed(fn(s) => "${item}${suffix.get(s)}") }),
-                ], role: .Some(.ListItem) })
-            }),
-        ], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Cell(items), itself, fn(c, item, index) => {
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.text({
+                                content: .Computed(fn(s) => "${item}${suffix.get(s)}"),
+                            }),
+                        ],
+                        role: .Some(.ListItem),
+                    })
+                }),
+            ],
+            role: .Some(.List),
+        }),
     );
     assert.equal(page.markup(), "e 0 \ne 1 \nt 2 a!\ne 1 \nt 2 b!");
     let _ = items.set(ctx, ["b", "a"]);
@@ -3911,14 +5076,26 @@ test "a list nested in a list reconciles on its own" {
     let outer = signal(ctx, ["a", "b"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [
-            ui.each(.Cell(outer), itself, fn(c, item, index) => {
-                ui.stack({ styles: [], children: [
-                    ui.text({ content: .Const(item) }),
-                    ui.stack({ styles: [], children: [ui.each(.Cell(inner), itself, labelRow)], role: .Some(.List) }),
-                ], role: .Some(.ListItem) })
-            }),
-        ], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Cell(outer), itself, fn(c, item, index) => {
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.text({ content: .Const(item) }),
+                            ui.stack({
+                                styles: [],
+                                children: [ui.each(.Cell(inner), itself, labelRow)],
+                                role: .Some(.List),
+                            }),
+                        ],
+                        role: .Some(.ListItem),
+                    })
+                }),
+            ],
+            role: .Some(.List),
+        }),
     );
     assert.equal(page.count("li"), 4);
     let _ = inner.set(ctx, ["x", "y"]);
@@ -3940,7 +5117,11 @@ fn isEven(value: Int): Bool {
 /// which is the second half of the issue: a number reaches a `ui.text` only if
 /// the closure rendering it can allocate.
 fn numberRow<C>(ctx: C, item: Int, index: Int): Node<C> {
-    ui.stack({ styles: [], children: [ui.text({ content: .Computed(fn(s) => str.format(s, "${item}")) })], role: .Some(.ListItem) })
+    ui.stack({
+        styles: [],
+        children: [ui.text({ content: .Computed(fn(s) => str.format(s, "${item}")) })],
+        role: .Some(.ListItem),
+    })
 }
 
 /// The issue's program, word for word: a filtered `Prop<[Int]>` handed to
@@ -3954,7 +5135,10 @@ test "a derived list re-filters and re-renders when its signal is written" {
         Ui: headless(),
     };
     let xs = signal(ctx, [1, 2, 3, 4]);
-    let page = render(ctx, ui.stack({ styles: [], children: [evens(xs)], role: .Some(.List) }));
+    let page = render(
+        ctx,
+        ui.stack({ styles: [], children: [evens(xs)], role: .Some(.List) }),
+    );
     assert.equal(page.markup(), "e 0 \ne 1 \nt 2 2\ne 1 \nt 2 4");
 
     let _ = xs.set(ctx, [1, 2, 3, 4, 5, 6]);
@@ -3993,10 +5177,17 @@ fn appendRow<C: Allocator + Ui + Watch>(ctx: C, xs: Signal<[Str]>): () {
 }
 
 fn growable<C>(xs: Signal<[Str]>, add: fn(C) => ()): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([])], children: [
-        ui.button({ label: .Const("go"), styles: [], onPress: .Some(add) }),
-        ui.stack({ styles: [], children: [ui.each(.Cell(xs), itself, labelRow)], role: .Some(.List) }),
-    ] })
+    ui.stack({
+        styles: [.Layout(.Column), .Group([])],
+        children: [
+            ui.button({ label: .Const("go"), styles: [], onPress: .Some(add) }),
+            ui.stack({
+                styles: [],
+                children: [ui.each(.Cell(xs), itself, labelRow)],
+                role: .Some(.List),
+            }),
+        ],
+    })
 }
 
 test "each follows a get-then-set append on every press" {
@@ -4033,7 +5224,11 @@ test "one press is one update, however many signals it writes" {
 
     let page = render(
         ctx,
-        ui.button({ label: .Const("both"), styles: [], onPress: .Some(fn(c) => writeBoth(c, first, second)) }),
+        ui.button({
+            label: .Const("both"),
+            styles: [],
+            onPress: .Some(fn(c) => writeBoth(c, first, second)),
+        }),
     );
     let _ = page.press("both");
 
@@ -4063,20 +5258,30 @@ let badgeStyle: Style = .Group([
 ]);
 
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
-    ui.stack({ styles: [.Layout(.Row), .Group([badgeStyle])], children: [
-        ui.text({ content: title }),
-        ui.text({ content: .Computed(fn(c) => "${count.read(c)}") }),
-    ] })
+    ui.stack({
+        styles: [.Layout(.Row), .Group([badgeStyle])],
+        children: [
+            ui.text({ content: title }),
+            ui.text({ content: .Computed(fn(c) => "${count.read(c)}") }),
+        ],
+    })
 }
 
 fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
-    ui.stack({ styles: [.Layout(.Column), .Group([])], children: [
-        ui.button({ label: .Const(label), styles: [], onPress: .Some(fn(c) => count.update(c, fn(n) => n + 1)) }),
-        badge(.Const(label), .Cell(count)),
-        badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
-    ] })
+    ui.stack({
+        styles: [.Layout(.Column), .Group([])],
+        children: [
+            ui.button({
+                label: .Const(label),
+                styles: [],
+                onPress: .Some(fn(c) => count.update(c, fn(n) => n + 1)),
+            }),
+            badge(.Const(label), .Cell(count)),
+            badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
+        ],
+    })
 }
 
 test "the counter counts, and both badges follow" {

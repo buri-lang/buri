@@ -35,8 +35,8 @@ path { path: "lib/two/test/__snapshots__/panel.diff.png"  exists: false }
 # two: one package's tree changes, and only that package's suite fails.
 edit {
   file: "lib/two/test/two.buri"
-  replace: "ui.text({ content: .Const(\"two\"), headingLevel: .Some(2), styles: .Some([]) })"
-  with: "ui.text({ content: .Const(\"three\"), headingLevel: .Some(2), styles: .Some([]) })"
+  replace: "content: .Const(\"two\")"
+  with: "content: .Const(\"three\")"
 }
 
 run {

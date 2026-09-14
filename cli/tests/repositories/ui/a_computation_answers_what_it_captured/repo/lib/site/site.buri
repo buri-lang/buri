@@ -24,5 +24,7 @@ fn pages<C: Allocator>(ctx: C, n: Int, at: Int, acc: [Node<C>]): [Node<C>] {
 /// freed memory.
 export fn site<C: Allocator>(ctx: C, n: Int): Node<C> {
     let all = pages(ctx, n, 0, []);
-    ui.computed(fn(_scope) => ui.stack({ styles: [.Layout(.Column), .Group([])], children: all }))
+    ui.computed(fn(_scope) => {
+        ui.stack({ styles: [.Layout(.Column), .Group([])], children: all })
+    })
 }

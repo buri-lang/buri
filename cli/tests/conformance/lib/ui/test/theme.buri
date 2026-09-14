@@ -110,7 +110,10 @@ fn night(t: App): Color {
 /// It cannot see a theme and does not import `ui/theme`.
 fn card<C>(label: Str): Node<C> {
     ui.stack({
-        styles: [.Background(Card.Surface.color()), .Foreground(Card.OnSurface.color())],
+        styles: [
+            .Background(Card.Surface.color()),
+            .Foreground(Card.OnSurface.color()),
+        ],
         children: [ui.text({ content: .Const(label) })],
     })
 }

@@ -153,27 +153,58 @@ fn track(width: Length, height: Length, styles: [Style]): [Style] {
 
 /// One value: its name, and the same toggle off and then on.
 fn pair<C: Ui>(ctx: C, name: Str, kind: ToggleKind, styles: [Style]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)])], children: [
-        ui.text({ content: .Const(name) }),
-        ui.toggle({ label: .Const("off"), kind: kind, isOn: signal(ctx, false), styles: styles }),
-        ui.toggle({ label: .Const("on"), kind: kind, isOn: signal(ctx, true), styles: styles }),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.toggle({
+                label: .Const("off"),
+                kind: kind,
+                isOn: signal(ctx, false),
+                styles: styles,
+            }),
+            ui.toggle({
+                label: .Const("on"),
+                kind: kind,
+                isOn: signal(ctx, true),
+                styles: styles,
+            }),
+        ],
+    })
 }
 
 /// One band: its name, then a cell per value.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))])], children: [
-        ui.text({ content: .Const(name) }),
-        ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])], children: cells }),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page: a title and the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
-        ])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: rows,
+    })
 }

@@ -55,7 +55,11 @@ fn keyOf(item: Str): Str {
 
 /// A row whose text is the item, keyed by the item.
 fn eachRow<C>(ctx: C, item: Str, index: Int): Node<C> {
-    ui.stack({ styles: [], children: [ui.text({ content: .Const(item) })], role: .Some(.ListItem) })
+    ui.stack({
+        styles: [],
+        children: [ui.text({ content: .Const(item) })],
+        role: .Some(.ListItem),
+    })
 }
 
 test "inserting a row keeps the identities of the rows already there" {
@@ -65,7 +69,11 @@ test "inserting a row keeps the identities of the rows already there" {
     let items = signal(ctx, ["a", "c"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), keyOf, eachRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), keyOf, eachRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let c = page.identity("li", 1);
@@ -86,7 +94,11 @@ test "removing a row keeps the identities of the others" {
     let items = signal(ctx, ["a", "b", "c"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), keyOf, eachRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), keyOf, eachRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let c = page.identity("li", 2);
@@ -105,7 +117,11 @@ test "reordering moves the rows rather than rebuilding them" {
     let items = signal(ctx, ["a", "b", "c"]);
     let page = render(
         ctx,
-        ui.stack({ styles: [], children: [ui.each(.Cell(items), keyOf, eachRow)], role: .Some(.List) }),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), keyOf, eachRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let b = page.identity("li", 1);
@@ -136,7 +152,11 @@ test "a row that leaves takes what it created with it" {
                     ui.stack({
                         styles: [],
                         children: [
-                            ui.text({ content: .Computed(fn(s) => "${item} ${log.note(n.get(s))}") }),
+                            ui.text({
+                                content: .Computed(fn(s) => {
+                                    "${item} ${log.note(n.get(s))}"
+                                }),
+                            }),
                         ],
                         role: .Some(.ListItem),
                     })
@@ -175,7 +195,9 @@ test "a row keeps its own reactive leaf across a reorder" {
                     ui.stack({
                         styles: [],
                         children: [
-                            ui.text({ content: .Computed(fn(s) => "${item}${suffix.get(s)}") }),
+                            ui.text({
+                                content: .Computed(fn(s) => "${item}${suffix.get(s)}"),
+                            }),
                         ],
                         role: .Some(.ListItem),
                     })
@@ -281,12 +303,7 @@ test "filling a field writes its bound signal" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field({
-            label: .Const("name"),
-            kind: .Text,
-            value: name,
-            styles: [],
-        }),
+        ui.field({ label: .Const("name"), kind: .Text, value: name, styles: [] }),
     );
     let _ = page.fill("name", "grace");
     assert.equal(name.get(ctx), "grace");
@@ -320,12 +337,7 @@ test "flipping a toggle flips its bound signal" {
     let done = signal(ctx, false);
     let page = render(
         ctx,
-        ui.toggle({
-            label: .Const("done"),
-            kind: .Checkbox,
-            isOn: done,
-            styles: [],
-        }),
+        ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: done, styles: [] }),
     );
     let _ = page.flip("done");
     assert.isTrue(done.get(ctx));
@@ -355,7 +367,9 @@ test "a press does not reach a button the pointer passes through" {
                         ui.button({
                             label: .Const("live"),
                             styles: [],
-                            onPress: .Some(fn(c) => { ignored.update(c, fn(n) => n + 10) }),
+                            onPress: .Some(fn(c) => {
+                                ignored.update(c, fn(n) => n + 10)
+                            }),
                         }),
                     ],
                 }),
@@ -476,18 +490,8 @@ test "a form of two fields with no submit button is not submitted" {
         ui.form({
             onSubmit: fn(c) => { submitted.update(c, fn(n) => n + 1) },
             children: [
-                ui.field({
-                    label: .Const("one"),
-                    kind: .Text,
-                    value: one,
-                    styles: [],
-                }),
-                ui.field({
-                    label: .Const("two"),
-                    kind: .Text,
-                    value: two,
-                    styles: [],
-                }),
+                ui.field({ label: .Const("one"), kind: .Text, value: one, styles: [] }),
+                ui.field({ label: .Const("two"), kind: .Text, value: two, styles: [] }),
             ],
             styles: [],
         }),

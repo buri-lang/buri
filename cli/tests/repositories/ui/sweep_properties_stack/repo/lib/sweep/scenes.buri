@@ -476,34 +476,49 @@ export fn sizePage<C>(): Node<C> {
 
 /// One picture: two columns of bands, one band per property.
 fn page<C>(bands: [Node<C>]): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Layout(.Grid([.Fraction(1), .Fraction(1)])),
             .Gap(.Px(2)),
             .Padding(.Px(4)),
             .Background(.Rgb(255, 255, 255)),
             .Foreground(.Rgb(20, 20, 20)),
             .FontSize(.Px(11)),
-        ], children: bands })
+        ],
+        children: bands,
+    })
 }
 
 /// One property's band: its name, then a cell per value, clipped to
 /// `height` so a value that grows stays inside its own row.
 fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Height(.Px(height)),
             .Scroll(.Both),
             .Padding(.Px(3)),
             .Background(.Rgb(243, 244, 247)),
-        ], children: [ui.text({ content: .Const(name) }), ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])], children: cells })] })
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// One value: its label, and the primitive carrying it. The cell does
 /// not stretch its children, so a box is as wide as it asked to be.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(72)), .Gap(.Px(1)), .AlignCross(.Start)])], children: [
-        ui.text({ content: .Const(label) }),
-        inner,
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(72)), .Gap(.Px(1)), .AlignCross(.Start)]),
+        ],
+        children: [ui.text({ content: .Const(label) }), inner],
+    })
 }
 
 /// The subject every cell holds: a `stack`: arrangement and nothing else, over

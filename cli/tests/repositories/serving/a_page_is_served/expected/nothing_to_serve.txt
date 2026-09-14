@@ -1,8 +1,8 @@
 error: there is nothing named `theFrontPage` in scope [unresolved-name]
-  --> cmd/site/main.buri:17:112
+  --> cmd/site/main.buri:20:54
    |
-17 |             ui.stack({ styles: [.Padding(.Rem(1.0))], role: .Some(.Main), children: [ui.text({ content: .Const(theFrontPage) })] })
-   |                                                                                                                ^^^^^^^^^^^^
+20 |                 children: [ui.text({ content: .Const(theFrontPage) })],
+   |                                                      ^^^^^^^^^^^^
    |
    = fix: declare `theFrontPage`, or import it — a name is in scope only from this module's own declarations and its imports
 

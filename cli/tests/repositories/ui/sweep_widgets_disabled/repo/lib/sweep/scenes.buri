@@ -56,15 +56,32 @@ fn base(extra: [Style]): [Style] {
 }
 
 fn pressable<C>(off: Bool, extra: [Style]): Node<C> {
-    ui.button({ label: .Const("save"), styles: base(extra), onPress: .Some(fn(_c) => ()), isDisabled: .Some(.Const(off)) })
+    ui.button({
+        label: .Const("save"),
+        styles: base(extra),
+        onPress: .Some(fn(_c) => ()),
+        isDisabled: .Some(.Const(off)),
+    })
 }
 
 fn typing<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
-    ui.field({ label: .Const("name"), kind: .Text, value: signal.signal(ctx, "ada"), styles: base(extra), isDisabled: .Some(.Const(off)) })
+    ui.field({
+        label: .Const("name"),
+        kind: .Text,
+        value: signal.signal(ctx, "ada"),
+        styles: base(extra),
+        isDisabled: .Some(.Const(off)),
+    })
 }
 
 fn ticking<C: Ui>(ctx: C, off: Bool, extra: [Style]): Node<C> {
-    ui.toggle({ label: .Const("on"), kind: .Checkbox, isOn: signal.signal(ctx, false), styles: base(extra), isDisabled: .Some(.Const(off)) })
+    ui.toggle({
+        label: .Const("on"),
+        kind: .Checkbox,
+        isOn: signal.signal(ctx, false),
+        styles: base(extra),
+        isDisabled: .Some(.Const(off)),
+    })
 }
 
 /// One label cell.
@@ -74,7 +91,8 @@ fn label<C>(text: Str): Node<C> {
 
 /// One row: a label track, then one cell per column.
 fn row<C>(cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Layout(
                 .Grid([
                     .Fixed(.Px(96)),
@@ -86,7 +104,9 @@ fn row<C>(cells: [Node<C>]): Node<C> {
             ),
             .Gap(.Px(8)),
             .AlignCross(.Start),
-        ], children: cells })
+        ],
+        children: cells,
+    })
 }
 
 fn headings<C>(): Node<C> {
@@ -94,12 +114,18 @@ fn headings<C>(): Node<C> {
 }
 
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
-        ])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: rows,
+    })
 }
 
 fn buttonRow<C>(name: Str, off: Bool): Node<C> {

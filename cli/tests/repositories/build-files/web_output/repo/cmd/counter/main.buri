@@ -13,7 +13,12 @@ from "ui/style" import { Color, Style };
 
 fn view<C: Ui>(ctx: C, count: Signal<Int>): Node<C> {
     ui.stack({
-        styles: [.Layout(.Column), .Gap(.Rem(0.5)), .Padding(.Rem(1.0)), .Background(.Rgb(240, 240, 245))],
+        styles: [
+            .Layout(.Column),
+            .Gap(.Rem(0.5)),
+            .Padding(.Rem(1.0)),
+            .Background(.Rgb(240, 240, 245)),
+        ],
         children: [
             ui.text({ content: .Computed(fn(c) => "${count.get(c)}") }),
             ui.button({
