@@ -1,0 +1,40 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite that reaches core/lazy's load runs under a plain `buri test`, which is the native backend on a host that has one"
+
+# buri-lang/buri#153. `core/lazy`'s header says a native build hands `load(f)`
+# back as `f`, and `middle::chunks` does exactly that — it replaces every call
+# to the intrinsic with its argument where there is no second file to split
+# into. But the runner's own gap prepass asked the backend of the program one
+# pass too early, before that rewrite ran, and so counted `lazy.load` as an
+# operation the native backend has no body for. Every package that reached
+# `load` anywhere was refused off the native backend and, with no platform
+# named, could not be tested at all.
+#
+# `test` and not `test --output=js`: a suite that names no platform runs
+# natively, and rerouting it would report a pass about a backend nobody chose
+# ([`buri docs build tags`](../../../src/docs/reference/build/tags.md)). That
+# rule is what makes this case worth having — with it, the only way for the
+# suite to pass is for the native backend to compile it.
+run {
+  args: ["test", "//lib/lazily", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
+
+# The failure this case owes a reader. The loaded builder answers something
+# else, so the same suite fails — which is what says the pass above is a suite
+# that ran, through `load` and out the other side, rather than one that was
+# skipped.
+edit {
+  file: "lib/lazily/report.buri"
+  replace: "report over ${rows} rows"
+  with: "report on ${rows} rows"
+}
+
+run {
+  args: ["test", "//lib/lazily", "--force"]
+  exit: 1
+  golden: "wrong.txt"
+}
