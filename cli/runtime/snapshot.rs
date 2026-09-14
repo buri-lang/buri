@@ -101,8 +101,12 @@ fn compare(name: &str, scene: &str, state: &str) {
     let variables = variables_lock().clone();
     let request =
         crate::paint::Request { scene, stylesheet: &sheet, state, variables: &variables };
-    let actual = match crate::paint::render(&request) {
-        Ok(bytes) => bytes,
+    // The raster, not the PNG: a snapshot that did not change is compared pixel
+    // for pixel against the golden's *decoded* rows, so the passing path never
+    // spends the encoder. The encoder runs only where a file is written — the
+    // two branches below that record or draw a diff.
+    let actual = match crate::paint::raster(&request) {
+        Ok(pixmap) => pixmap,
         Err(why) => crate::abort::die(&[
             b"cannot paint the snapshot \"",
             name.as_bytes(),
@@ -115,7 +119,7 @@ fn compare(name: &str, scene: &str, state: &str) {
 
     if std::env::var(UPDATE).is_ok_and(|v| v == "1") {
         let _ = std::fs::create_dir_all(&dir);
-        if let Err(e) = std::fs::write(&golden, &actual) {
+        if let Err(e) = std::fs::write(&golden, crate::paint::encode_png(&actual)) {
             crate::abort::die(&[
                 b"cannot write ",
                 golden.display().to_string().as_bytes(),
@@ -135,7 +139,7 @@ fn compare(name: &str, scene: &str, state: &str) {
             b"\": run buri test --update to record one",
         ])
     };
-    match crate::paint::diff(&recorded, &actual) {
+    match crate::paint::compare(&recorded, &actual) {
         // Equal, and any difference left over from a previous run goes with it,
         // so a fixed snapshot does not leave a diff behind.
         Ok(None) => {
