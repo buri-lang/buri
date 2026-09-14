@@ -3525,6 +3525,9 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
             let css = str.format(ctx, "blur(${lengthCss(ctx, length)})");
             [decl(ctx, "backdrop-filter", css)]
         },
+        // The caret on its own, so a field with transparent text still has a
+        // visible one. `Foreground` is otherwise the only thing that reaches it.
+        .CaretColor(color) => [decl(ctx, "caret-color", colorCss(ctx, color))],
         _ => [],
     }
 }
