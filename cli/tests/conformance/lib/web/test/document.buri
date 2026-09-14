@@ -36,10 +36,14 @@ struct Reading {
 
 /// The one tree these tests render, built where both renderers can reach it.
 fn tree<C>(): Node<C> {
-    ui.region(.Main, [], [
-        ui.heading(1, [], .Const("Titles")),
-        ui.text(.Const("and text")),
-    ])
+    ui.stack({
+        styles: [],
+        children: [
+            ui.text({ content: .Const("Titles"), headingLevel: .Some(1) }),
+            ui.text({ content: .Const("and text") }),
+        ],
+        role: .Some(.Main),
+    })
 }
 
 /// A document named `title`, which is all the tests below say about their head.
@@ -109,7 +113,7 @@ fn afterTheScriptTag(document: Str): Str {
 }
 
 test "a tree renders to HTML" {
-    assert.equal(web.render(tree()), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(web.render<()>(tree()), "<main><h1>Titles</h1>and text</main>");
 }
 
 test "what a worker renders is what the page would have built" {
@@ -120,17 +124,20 @@ test "what a worker renders is what the page would have built" {
     // test renderer writes the headerless scene. They agree on the tree — its
     // text and its shape — while each writes its own format.
     let page = render(ctx, tree());
-    assert.equal(web.render(tree()), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(web.render<()>(tree()), "<main><h1>Titles</h1>and text</main>");
     assert.equal(page.text(), "Titles and text");
     assert.equal(page.count("h1"), 1);
     assert.equal(page.count("main"), 1);
 }
 
 test "an empty tree renders to nothing at all" {
-    assert.equal(web.render(ui.nothing()), "");
+    assert.equal(web.render<()>(ui.empty()), "");
     // A region with no children is an element that holds nothing, which is not
     // the same as no element.
-    assert.equal(web.render(ui.column([], [])), "<div class=\"lay-col\"></div>");
+    assert.equal(
+        web.render<()>(ui.stack({ styles: [.Layout(.Column), .Group([])], children: [] })),
+        "<div class=\"lay-col\"></div>",
+    );
 }
 
 test "an element that holds nothing still writes its closing tag" {
@@ -138,27 +145,27 @@ test "an element that holds nothing still writes its closing tag" {
     // everything after it inside, so an empty region written that way swallows
     // the rest of the page — and a page resuming on it sees a tree it does not
     // match. Every element that is not one of HTML's own empty ones closes.
-    assert.equal(web.render(ui.region(.Main, [], [])), "<main></main>");
     assert.equal(
-        web.render(
-            ui.button(
-                .Const(""),
-                [],
-                [],
-                fn(_c, _e) => (),
-                .Const(false),
-                .Const(false),
-            ),
-        ),
+        web.render<()>(ui.stack({ styles: [], children: [], role: .Some(.Main) })),
+        "<main></main>",
+    );
+    assert.equal(
+        web.render<()>(ui.button({ label: .Const(""), styles: [] })),
         "<button type=\"button\" aria-label=\"\"></button>",
     );
-    assert.equal(web.render(ui.form(fn(_c, _e) => (), [], [])), "<form></form>");
-    assert.equal(web.render(ui.spacer()), "<div class=\"grow-1\"></div>");
+    assert.equal(
+        web.render<()>(ui.form({ onSubmit: fn(_c) => (), children: [], styles: [] })),
+        "<form></form>",
+    );
+    assert.equal(web.render<()>(ui.spacer({ size: .None })), "<div class=\"grow-1\"></div>");
     // And the ones HTML says hold nothing close themselves, because a closing
     // tag for one of those is markup a browser refuses to nest.
-    assert.equal(web.render(ui.region(.Separator, [], [])), "<hr />");
     assert.equal(
-        web.render(ui.image(.Const("/cat.png"), .Const(""), [])),
+        web.render<()>(ui.stack({ styles: [], children: [], role: .Some(.Separator) })),
+        "<hr />",
+    );
+    assert.equal(
+        web.render<()>(ui.image({ source: .Const("/cat.png"), alt: .AccessibilityText(""), styles: [] })),
         "<img src=\"/cat.png\" alt=\"\" />",
     );
 }
@@ -169,43 +176,30 @@ test "every kind of node renders" {
     };
     let typed = signal(ctx, "ada");
     let ticked = signal(ctx, true);
-    assert.equal(web.render(ui.text(.Const("plain"))), "plain");
-    assert.equal(web.render(ui.stack([], [ui.text(.Const("in"))])), "<div>in</div>");
-    assert.equal(web.render(ui.row([], [])), "<div class=\"lay-row\"></div>");
-    assert.equal(web.render(ui.heading(2, [], .Const("two"))), "<h2>two</h2>");
+    assert.equal(web.render<()>(ui.text({ content: .Const("plain") })), "plain");
     assert.equal(
-        web.render(ui.link(.Const("/there"), [], [ui.text(.Const("go"))])),
+        web.render<()>(ui.stack({ styles: [], children: [ui.text({ content: .Const("in") })] })),
+        "<div>in</div>",
+    );
+    assert.equal(
+        web.render<()>(ui.stack({ styles: [.Layout(.Row), .Group([])], children: [] })),
+        "<div class=\"lay-row\"></div>",
+    );
+    assert.equal(
+        web.render<()>(ui.text({ content: .Const("two"), headingLevel: .Some(2) })),
+        "<h2>two</h2>",
+    );
+    assert.equal(
+        web.render<()>(ui.link({ dest: .Const("/there"), children: [ui.text({ content: .Const("go") })], styles: [] })),
         "<a href=\"/there\">go</a>",
     );
     assert.equal(
-        web.render(
-            ui.field(
-                .Const("name"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                typed,
-                .Const(false),
-                .Const(false),
-            ),
-        ),
+        web.render<()>(ui.field({ label: .Const("name"), kind: .Text, value: typed, styles: [] })),
         "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     // What is typed into a `textarea` is its text rather than an attribute.
     assert.equal(
-        web.render(
-            ui.field(
-                .Const("story"),
-                .Multiline,
-                .Const(""),
-                [],
-                [],
-                typed,
-                .Const(false),
-                .Const(false),
-            ),
-        ),
+        web.render<()>(ui.field({ label: .Const("story"), kind: .Multiline, value: typed, styles: [] })),
         "<label><span>story</span><textarea>ada</textarea></label>",
     );
     // A range carries the three numbers a slider is, so the markup a worker
@@ -213,17 +207,15 @@ test "every kind of node renders" {
     // page: the browser has the thumb, the keys and the announcement from the
     // attributes alone.
     assert.equal(
-        web.render(
-            ui.field(
-                .Const("Volume"),
-                .Range(0.0, 100.0, 5.0),
-                .Const(""),
-                [],
-                [],
-                signal(ctx, "40"),
-                .Const(false),
-                .Const(false),
-            ),
+        web.render<()>(
+            ui.slider({
+                label: .Const("Volume"),
+                value: signal(ctx, 40.0),
+                min: 0.0,
+                max: 100.0,
+                styles: [],
+                step: .Some(5.0),
+            }),
         ),
         "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"5.0\" value=\"40\" /></label>",
     );
@@ -231,88 +223,62 @@ test "every kind of node renders" {
     // already says what goes in it before a byte of script has run — and the
     // label is still beside it, because a placeholder is not a name.
     assert.equal(
-        web.render(
-            ui.field(
-                .Const("Search"),
-                .Search,
-                .Const("Type a command"),
-                [],
-                [],
-                signal(ctx, ""),
-                .Const(false),
-                .Const(false),
-            ),
+        web.render<()>(
+            ui.field({
+                label: .Const("Search"),
+                kind: .Search,
+                value: signal(ctx, ""),
+                styles: [],
+                hint: .Some(.Const("Type a command")),
+            }),
         ),
         "<label><span>Search</span><input type=\"search\" placeholder=\"Type a command\" /></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
     assert.equal(
-        web.render(
-            ui.toggle(
-                .Const("done"),
-                .Checkbox,
-                [],
-                [],
-                ticked,
-                .Const(false),
-                .Const(false),
-            ),
-        ),
+        web.render<()>(ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: ticked, styles: [] })),
         "<label><input type=\"checkbox\" checked /><span>done</span></label>",
     );
     // `disabled` is the other boolean attribute this vocabulary writes, and it
     // has to cross: a page that resumes on markup without it hands the reader a
     // control the server said was unavailable.
     assert.equal(
-        web.render(
-            ui.toggle(
-                .Const("done"),
-                .Checkbox,
-                [],
-                [],
-                ticked,
-                .Const(false),
-                .Const(true),
-            ),
+        web.render<()>(
+            ui.toggle({
+                label: .Const("done"),
+                kind: .Checkbox,
+                isOn: ticked,
+                styles: [],
+                isDisabled: .Some(.Const(true)),
+            }),
         ),
         "<label><input type=\"checkbox\" checked disabled /><span>done</span></label>",
     );
     assert.equal(
-        web.render(
-            ui.field(
-                .Const("name"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                typed,
-                .Const(false),
-                .Const(true),
-            ),
+        web.render<()>(
+            ui.field({
+                label: .Const("name"),
+                kind: .Text,
+                value: typed,
+                styles: [],
+                isDisabled: .Some(.Const(true)),
+            }),
         ),
         "<label><span>name</span><input type=\"text\" value=\"ada\" disabled /></label>",
     );
     // A picture's styles are the picture's, so they cross as a class on the
     // `<img>` itself rather than on anything around it.
     assert.equal(
-        web.render(ui.image(.Const("/cat.png"), .Const("a cat"), [.Width(.Full)])),
+        web.render<()>(
+            ui.image({ source: .Const("/cat.png"), alt: .AccessibilityText("a cat"), styles: [.Width(.Full)] }),
+        ),
         "<img src=\"/cat.png\" alt=\"a cat\" class=\"w-full\" />",
     );
     // A switch is the same control announced differently, and the mark it draws
     // is the sheet's rather than a child's.
     assert.equal(
-        web.render(
-            ui.toggle(
-                .Const("email"),
-                .Switch,
-                [],
-                [],
-                ticked,
-                .Const(false),
-                .Const(false),
-            ),
-        ),
+        web.render<()>(ui.toggle({ label: .Const("email"), kind: .Switch, isOn: ticked, styles: [] })),
         "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
     );
     // A radio group is a working radio group before a byte of this program's
@@ -321,28 +287,28 @@ test "every kind of node renders" {
     // keys and `aria-checked` are the markup the worker sent. The checked one is
     // the input whose key is the signal.
     assert.equal(
-        web.render(
-            ui.radioGroup(
-                .Const("Plan"),
-                [("free", .Const("Free")), ("pro", .Const("Pro"))],
-                [],
-                signal(ctx, "pro"),
-            ),
+        web.render<()>(
+            ui.picker({
+                label: .Const("Plan"),
+                options: [
+                    ("free", ui.text({ content: .Const("Free") })),
+                    ("pro", ui.text({ content: .Const("Pro") })),
+                ],
+                value: signal(ctx, "pro"),
+                styles: [],
+            }),
         ),
-        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" />Free</label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked />Pro</label></div>",
     );
     // A button holding a mark and a word is one element, and the label the
     // markup carries is what a reader is announced rather than the glyphs.
     assert.equal(
-        web.render(
-            ui.button(
-                .Const("Overview"),
-                [],
-                [ui.text(.Const("* Overview"))],
-                fn(_c, _e) => (),
-                .Const(false),
-                .Const(false),
-            ),
+        web.render<()>(
+            ui.button({
+                label: .Const("Overview"),
+                styles: [],
+                children: .Some([ui.text({ content: .Const("* Overview") })]),
+            }),
         ),
         "<button type=\"button\" aria-label=\"Overview\">* Overview</button>",
     );
@@ -351,20 +317,15 @@ test "every kind of node renders" {
     // form the worker sent, before any of this program's code has run on the
     // page.
     assert.equal(
-        web.render(
-            ui.form(fn(_c, _e) => (), [], [
-                ui.field(
-                    .Const("Email"),
-                    .Email,
-                    .Const(""),
-                    [],
-                    [],
-                    typed,
-                    .Const(false),
-                    .Const(false),
-                ),
-                ui.submit(.Const("Send"), []),
-            ]),
+        web.render<()>(
+            ui.form({
+                onSubmit: fn(_c) => (),
+                children: [
+                    ui.field({ label: .Const("Email"), kind: .Email, value: typed, styles: [] }),
+                    ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+                ],
+                styles: [],
+            }),
         ),
         "<form><label><span>Email</span><input type=\"email\" value=\"ada\" /></label><button type=\"submit\" aria-label=\"Send\">Send</button></form>",
     );
@@ -372,25 +333,25 @@ test "every kind of node renders" {
     // condition is read once, a computation is run once, and a list renders the
     // rows it has.
     assert.equal(
-        web.render(
-            ui.choose(.Const(true), ui.text(.Const("yes")), ui.text(.Const("no"))),
+        web.render<()>(
+            ui.choose(.Const(true), ui.text({ content: .Const("yes") }), ui.text({ content: .Const("no") })),
         ),
         "yes",
     );
     assert.equal(
-        web.render(
-            ui.choose(.Const(false), ui.text(.Const("yes")), ui.text(.Const("no"))),
+        web.render<()>(
+            ui.choose(.Const(false), ui.text({ content: .Const("yes") }), ui.text({ content: .Const("no") })),
         ),
         "no",
     );
     assert.equal(
-        web.render(ui.computed(fn(_scope) => ui.text(.Const("built")))),
+        web.render<()>(ui.computed(fn(_scope) => ui.text({ content: .Const("built") }))),
         "built",
     );
     assert.equal(
-        web.render(
+        web.render<()>(
             ui.each(.Const(["a", "b"]), fn(item) => item, fn(_c, item, _i) => {
-                ui.text(.Const(item))
+                ui.text({ content: .Const(item) })
             }),
         ),
         "ab",
@@ -399,9 +360,9 @@ test "every kind of node renders" {
     // are the runtime's own bookkeeping rather than something a reader sees.
     let none: [Str] = [];
     assert.equal(
-        web.render(
+        web.render<()>(
             ui.each(.Const(none), fn(item) => item, fn(_c, item, _i) => {
-                ui.text(.Const(item))
+                ui.text({ content: .Const(item) })
             }),
         ),
         "",
@@ -412,10 +373,12 @@ test "every kind of node renders" {
     // page's own, registered when the tree resumes rather than written into the
     // markup — there is no attribute a server could send for it.
     assert.equal(
-        web.render(
-            ui.onPressOutside(fn(_c, _e) => (), [.Padding(.Px(8))], [
-                ui.text(.Const("panel")),
-            ]),
+        web.render<()>(
+            ui.stack({
+                styles: [.Padding(.Px(8))],
+                children: [ui.text({ content: .Const("panel") })],
+                onPressOutside: .Some(fn(_c) => ()),
+            }),
         ),
         "<div class=\"p-8\">panel</div>",
     );
@@ -438,7 +401,7 @@ test "a route link the worker sends is a real anchor" {
     assert.equal(
         render(
             ctx,
-            web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]),
+            web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]),
         ).markup(),
         "e 0 \nt 1 go",
     );
@@ -453,7 +416,7 @@ test "a plain click on a route link navigates in place, keeping the tree" {
     // A signal a full document load would throw away — the whole reason to
     // navigate rather than follow a link.
     let kept = signal(ctx, "before");
-    let page = render(ctx, web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]));
+    let page = render(ctx, web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]));
     // A plain left-click is the app's: the address changes, the signal is still
     // there, and the tree was left where it is.
     let _ = page.follow("go");
@@ -468,7 +431,7 @@ test "a modified click on a route link is left to the browser" {
         Watch: observer(),
         Location: address(headless(), "/"),
     };
-    let page = render(ctx, web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]));
+    let page = render(ctx, web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]));
     // A ⌘/Ctrl-click, or the middle button, is how a reader opens a link beside
     // the page they are on. A route leaves that to the browser as an ordinary
     // anchor, so the address bar does not move.
@@ -483,11 +446,14 @@ test "a worker writes an icon's artwork into the page it sends" {
     // is dropped — an `<svg>` in HTML is in that namespace already — and
     // `aria-hidden` says what an icon is, which is decoration.
     assert.equal(
-        web.render(
-            ui.icon(
-                [.Width(.Px(16))],
-                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor'><path d='M20 6 9 17l-5-5'/></svg>",
-            ),
+        web.render<()>(
+            ui.image({
+                source: .Const(
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor'><path d='M20 6 9 17l-5-5'/></svg>",
+                ),
+                alt: .Decorative,
+                styles: [.Width(.Px(16))],
+            }),
         ),
         "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" aria-hidden=\"true\" class=\"w-16\"><path d=\"M20 6 9 17l-5-5\"></path></svg>",
     );
@@ -504,33 +470,62 @@ test "a dialog crosses the worker open, and shut" {
     // JavaScript has not arrived is looking at the panel the program opened,
     // and the resume promotes it into the top layer rather than building it.
     assert.equal(
-        web.render(ui.dialog(open, .Const("Confirm"), [], [ui.text(.Const("sure?"))])),
+        web.render<()>(
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Confirm"),
+                children: [ui.text({ content: .Const("sure?") })],
+                styles: [],
+            }),
+        ),
         "<dialog aria-label=\"Confirm\" open>sure?</dialog>",
     );
     assert.equal(
-        web.render(ui.dialog(shut, .Const("Confirm"), [], [ui.text(.Const("sure?"))])),
+        web.render<()>(
+            ui.dialog({
+                isOpen: shut,
+                label: .Const("Confirm"),
+                children: [ui.text({ content: .Const("sure?") })],
+                styles: [],
+            }),
+        ),
         "<dialog aria-label=\"Confirm\">sure?</dialog>",
     );
     // The panel the worker writes carries its styles as classes — one answer,
     // rendered on the server the way the page would render it.
     assert.equal(
-        web.render(ui.dialog(open, .Const("Confirm"), [.Padding(.Px(8))], [])),
+        web.render<()>(
+            ui.dialog({ isOpen: open, label: .Const("Confirm"), children: [], styles: [.Padding(.Px(8))] }),
+        ),
         "<dialog aria-label=\"Confirm\" class=\"p-8\" open></dialog>",
     );
 }
 
 test "a heading's level clamps to the range a document has" {
-    assert.equal(web.render(ui.heading(0, [], .Const("low"))), "<h1>low</h1>");
-    assert.equal(web.render(ui.heading(-4, [], .Const("lower"))), "<h1>lower</h1>");
-    assert.equal(web.render(ui.heading(7, [], .Const("high"))), "<h6>high</h6>");
+    assert.equal(
+        web.render<()>(ui.text({ content: .Const("low"), headingLevel: .Some(0) })),
+        "<h1>low</h1>",
+    );
+    assert.equal(
+        web.render<()>(ui.text({ content: .Const("lower"), headingLevel: .Some(-4) })),
+        "<h1>lower</h1>",
+    );
+    assert.equal(
+        web.render<()>(ui.text({ content: .Const("high"), headingLevel: .Some(7) })),
+        "<h6>high</h6>",
+    );
 }
 
 test "a heading the worker sent carries the classes its styles chose" {
     // The level picks the element and the styles paint it, on the server as in
     // the browser. Without them the user agent's own sheet decides the type.
     assert.equal(
-        web.render(
-            ui.heading(2, [.FontSize(.Px(28)), .FontWeight(.Bold)], .Const("Prices")),
+        web.render<()>(
+            ui.text({
+                content: .Const("Prices"),
+                headingLevel: .Some(2),
+                styles: .Some([.FontSize(.Px(28)), .FontWeight(.Bold)]),
+            }),
         ),
         "<h2 class=\"fs-28 fw-bold\">Prices</h2>",
     );
@@ -542,15 +537,18 @@ test "a bleed crosses the worker as the class the compiler wrote" {
     };
     // The full-bleed separator inside a padded menu, rendered on the server and
     // in the browser. One renderer, so one answer.
-    let menu = ui.stack([.Padding(.Px(4))], [
-        ui.region(
-            .Separator,
-            [.Height(.Px(1)), .Bleed(.Start, .Px(4)), .Bleed(.End, .Px(4))],
-            [],
-        ),
-    ]);
+    let menu: Node<()> = ui.stack({
+        styles: [.Padding(.Px(4))],
+        children: [
+            ui.stack({
+                styles: [.Height(.Px(1)), .Bleed(.Start, .Px(4)), .Bleed(.End, .Px(4))],
+                children: [],
+                role: .Some(.Separator),
+            }),
+        ],
+    });
     assert.equal(
-        web.render(menu),
+        web.render<()>(menu),
         "<div class=\"p-4\"><hr class=\"h-1 bleed-start-4 bleed-end-4\" /></div>",
     );
 }
@@ -562,13 +560,19 @@ test "a clip and a pass-through cross the worker as the classes they are" {
     // The card with a full-bleed picture, and the dock that lets the page under
     // it answer a press. Rendered on the server and in the browser: one
     // renderer, so one answer.
-    let page = ui.stack([.Position(.PinViewport), .Passthrough(true)], [
-        ui.stack([.Radius(.Px(12)), .Clip(true), .Passthrough(false)], [
-            ui.image(.Const("/banner.png"), .Const(""), []),
-        ]),
-    ]);
+    let page: Node<()> = ui.stack({
+        styles: [.Position(.PinViewport), .Passthrough(true)],
+        children: [
+            ui.stack({
+                styles: [.Radius(.Px(12)), .Clip(true), .Passthrough(false)],
+                children: [
+                    ui.image({ source: .Const("/banner.png"), alt: .AccessibilityText(""), styles: [] }),
+                ],
+            }),
+        ],
+    });
     assert.equal(
-        web.render(page),
+        web.render<()>(page),
         "<div class=\"pos-viewport pass-none\"><div class=\"r-12 clip-clip pass-auto\"><img src=\"/banner.png\" alt=\"\" /></div></div>",
     );
 }
@@ -581,61 +585,50 @@ test "a failing control crosses the worker already saying so" {
     let ticked = signal(ctx, false);
     // The attribute is on the markup the server sent, so a reader is told the
     // field is failing before a single byte of script has run.
-    let failing = ui.field(
-        .Const("Email"),
-        .Email,
-        .Const(""),
-        [.On(.Invalid, [.BorderColor(.Rgb(220, 38, 38))])],
-        [],
-        typed,
-        .Const(true),
-        .Const(false),
-    );
+    let failing: Node<()> = ui.field({
+        label: .Const("Email"),
+        kind: .Email,
+        value: typed,
+        styles: [.On(.Invalid, [.BorderColor(.Rgb(220, 38, 38))])],
+        isInvalid: .Some(.Const(true)),
+    });
     assert.equal(
-        web.render(failing),
+        web.render<()>(failing),
         "<label><span>Email</span><input type=\"email\" aria-invalid=\"true\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
     );
     // A control that is not failing writes no attribute, so the markup is the
     // markup every other test here asserts.
     assert.equal(
-        web.render(
-            ui.toggle(
-                .Const("done"),
-                .Checkbox,
-                [],
-                [],
-                ticked,
-                .Const(false),
-                .Const(false),
-            ),
-        ),
+        web.render<()>(ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: ticked, styles: [] })),
         "<label><input type=\"checkbox\" /><span>done</span></label>",
     );
 }
 
 test "text is escaped, so a title cannot write markup" {
     assert.equal(
-        web.render(ui.text(.Const("<b>& later</b>"))),
+        web.render<()>(ui.text({ content: .Const("<b>& later</b>") })),
         "&lt;b&gt;&amp; later&lt;/b&gt;",
     );
     // The three that end a run of text, and the two that do not: a quote and an
     // apostrophe mean nothing between tags, so they are written as they were.
     assert.equal(
-        web.render(ui.text(.Const("a & b < c > d \" e ' f"))),
+        web.render<()>(ui.text({ content: .Const("a & b < c > d \" e ' f") })),
         "a &amp; b &lt; c &gt; d \" e ' f",
     );
     // An ampersand already spelled as an entity is escaped again, because what
     // a page shows is the characters the state holds.
-    assert.equal(web.render(ui.text(.Const("&amp;"))), "&amp;amp;");
+    assert.equal(web.render<()>(ui.text({ content: .Const("&amp;") })), "&amp;amp;");
 }
 
 test "an attribute is escaped too, quotes included" {
     assert.equal(
-        web.render(ui.image(.Const("/a&b.png"), .Const("\"q\" <x>"), [])),
+        web.render<()>(
+            ui.image({ source: .Const("/a&b.png"), alt: .AccessibilityText("\"q\" <x>"), styles: [] }),
+        ),
         "<img src=\"/a&amp;b.png\" alt=\"&quot;q&quot; &lt;x&gt;\" />",
     );
     assert.equal(
-        web.render(ui.link(.Const("/a?x=1&y=2"), [], [])),
+        web.render<()>(ui.link({ dest: .Const("/a?x=1&y=2"), children: [], styles: [] })),
         "<a href=\"/a?x=1&amp;y=2\"></a>",
     );
 }
@@ -649,7 +642,7 @@ test "the document carries the body and the state beside it" {
         ctx,
         "/",
         named("Titles"),
-        web.render(tree()),
+        web.render<()>(tree()),
         state.toJson(ctx),
     );
     assert.isTrue(document.startsWith("<!doctype html>"));
@@ -762,7 +755,7 @@ test "the document says which address it was rendered for" {
         ctx,
         "/guide/routing",
         named("Titles"),
-        web.render(tree()),
+        web.render<()>(tree()),
         state.toJson(ctx),
     );
     assert.equal(renderedAt(document), "/guide/routing");
@@ -801,16 +794,16 @@ test "a progress bar the worker sends announces its value" {
     // the two halves of one widget, each where it belongs. Nought is nought,
     // one is a hundred, and two thirds rounds to 67.
     assert.equal(
-        web.render(ui.progress(.Const("Loading"), .Const(0.0), [], [])),
-        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"0\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+        web.render<()>(ui.progress({ label: .Const("Loading"), value: .Some(.Const(0.0)), styles: [] })),
+        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"0\"></div>",
     );
     assert.equal(
-        web.render(ui.progress(.Const("Loading"), .Const(0.666), [], [])),
-        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"67\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+        web.render<()>(ui.progress({ label: .Const("Loading"), value: .Some(.Const(0.666)), styles: [] })),
+        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"67\"></div>",
     );
     assert.equal(
-        web.render(ui.progress(.Const("Loading"), .Const(1.0), [], [])),
-        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuenow=\"100\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div>",
+        web.render<()>(ui.progress({ label: .Const("Loading"), value: .Some(.Const(1.0)), styles: [] })),
+        "<div role=\"progressbar\" aria-label=\"Loading\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"100\"></div>",
     );
 }
 
@@ -820,11 +813,24 @@ test "two radio groups the worker sends number their names apart" {
     };
     // One shared `name` groups each set of radios, and two groups on one page
     // number apart — the HTML the scene does not carry and `ui/web` does.
-    let two = web.render(
-        ui.stack([], [
-            ui.radioGroup(.Const("A"), [("x", .Const("X"))], [], signal(ctx, "x")),
-            ui.radioGroup(.Const("B"), [("y", .Const("Y"))], [], signal(ctx, "y")),
-        ]),
+    let two = web.render<()>(
+        ui.stack({
+            styles: [],
+            children: [
+                ui.picker({
+                    label: .Const("A"),
+                    options: [("x", ui.text({ content: .Const("X") }))],
+                    value: signal(ctx, "x"),
+                    styles: [],
+                }),
+                ui.picker({
+                    label: .Const("B"),
+                    options: [("y", ui.text({ content: .Const("Y") }))],
+                    value: signal(ctx, "y"),
+                    styles: [],
+                }),
+            ],
+        }),
     );
     assert.isTrue(two.contains("name=\"buri-radio-0\""));
     assert.isTrue(two.contains("name=\"buri-radio-1\""));
