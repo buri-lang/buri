@@ -1,0 +1,11 @@
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/lazily" import { render };
+
+test "a lazily loaded builder answers what it always did" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(render(ctx, 12), "report over 12 rows");
+}
