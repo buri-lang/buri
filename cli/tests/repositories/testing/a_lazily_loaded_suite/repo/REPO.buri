@@ -1,0 +1,3 @@
+# No tags and no lint block: this repository is the smallest thing that can
+# hold a package with a suite, so that what the case shows is the suite and
+# nothing around it.

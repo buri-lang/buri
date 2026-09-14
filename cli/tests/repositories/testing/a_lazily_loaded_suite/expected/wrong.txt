@@ -1,0 +1,7 @@
+FAIL //lib/lazily  test/report.buri  "a lazily loaded builder answers what it always did"
+  assert.equal failed
+    actual:   "report on 12 rows"
+    expected: "report over 12 rows"
+  --> lib/lazily/test/report.buri:6:1
+
+0 passed, 1 failed, 0 skipped (0.0s)
