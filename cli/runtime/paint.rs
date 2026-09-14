@@ -275,6 +275,13 @@ const REGULAR: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
 const BOLD: &[u8] = include_bytes!("fonts/Roboto-Bold.ttf");
 const ITALIC: &[u8] = include_bytes!("fonts/Roboto-Italic.ttf");
 
+/// DejaVu Sans, under the DejaVu Fonts License (a permissive, Bitstream Vera
+/// derivative) — `fonts/DejaVu-LICENSE`. Broad Unicode coverage in one face:
+/// Latin, Greek, Cyrillic, the arrows, the Geometric Shapes, the Dingbats'
+/// check marks, and the mathematical operators, which is what a snapshot needs a
+/// fallback for.
+const FALLBACK: &[u8] = include_bytes!("fonts/DejaVuSans.ttf");
+
 /// One rem, always. A snapshot has no reader preference to follow.
 const REM: f32 = 16.0;
 
@@ -2049,17 +2056,29 @@ fn grid_track(len: Len) -> GridTemplateComponent<String> {
 // Text
 // ---------------------------------------------------------------------------
 
-/// A `FontSystem` with the three bundled faces in it and nothing else.
+/// A `FontSystem` with the bundled faces in it and nothing else: the three
+/// weights of the primary family, and the one fallback face.
+///
+/// **The fallback is what turns a missing glyph into a glyph rather than a
+/// `.notdef` box.** A run is shaped in [`FAMILY`] first; a scalar it does not
+/// carry — a chevron, a check mark, a bullet — is one `cosmic_text` then looks
+/// for in a fallback face. Its fallback search ends by trying **every face in
+/// the database** for the missing scalar, so putting the fallback face in the
+/// database is the whole of what makes it reachable: the primary family is
+/// tried first and the fallback only where the primary comes up short, which is
+/// the order a CSS `font-family: Roboto, "DejaVu Sans"` stack states.
 ///
 /// `new_with_locale_and_db` rather than `new_with_fonts`, for two reasons: the
 /// second reads the machine's locale, and neither calls `load_system_fonts`.
 /// What the platform still contributes is a list of fallback family *names* —
 /// "Noto Sans", "Apple Symbols" — and none of them is in this database, so they
-/// resolve to nothing on every host and the bundled family is the only face a
-/// glyph can come from.
+/// resolve to nothing on every host and the two bundled families are the only
+/// faces a glyph can come from. That is what keeps a golden the same on Linux
+/// and on macOS: the fallback a missing glyph reaches is the bundled face,
+/// whichever host paints it.
 fn font_system() -> FontSystem {
     let mut db = fontdb::Database::new();
-    for face in [REGULAR, BOLD, ITALIC] {
+    for face in [REGULAR, BOLD, ITALIC, FALLBACK] {
         db.load_font_source(fontdb::Source::Binary(Arc::new(face)));
     }
     db.set_sans_serif_family(FAMILY);
@@ -5014,6 +5033,30 @@ mod tests {
         let regular = inked_pixels(&render_ok(one, "", "rest"));
         let bold = inked_pixels(&render_ok(two, "", "rest"));
         assert!(regular > 0 && bold > regular, "regular {regular}, bold {bold}");
+    }
+
+    /// buri#93: a scalar the primary face does not carry is drawn from the
+    /// bundled fallback face rather than a `.notdef` tofu box — the check marks,
+    /// chevrons and bullets a `select` and a `checkbox` put in text.
+    #[test]
+    fn a_glyph_the_primary_face_lacks_comes_from_the_fallback() {
+        let run = |text: &str| {
+            let scene = format!("buri-scene 1\nviewport 60 40\ne 0 font-size:24px\nt 1 {text}\n");
+            render_ok(&scene, "", "rest")
+        };
+        // Each of these is outside Roboto's subset and inside DejaVu Sans, so
+        // each paints a glyph — ink on the page — rather than nothing.
+        for mark in ["\u{2713}", "\u{2714}", "\u{25BE}", "\u{25BC}", "\u{25CF}", "\u{221A}"] {
+            assert!(inked_pixels(&run(mark)) > 0, "{mark:?} painted nothing");
+        }
+        // And they are real, distinct glyphs, not one tofu box repeated: a
+        // chevron is not a check mark is not a bullet.
+        assert_ne!(run("\u{2713}").rgba, run("\u{25BE}").rgba);
+        assert_ne!(run("\u{25BE}").rgba, run("\u{25CF}").rgba);
+        // A scalar neither face carries — a CJK ideograph — is still a tofu box,
+        // which is what a real glyph is being told apart from: the fallback did
+        // not invent a glyph, it found one.
+        assert_ne!(run("\u{2713}").rgba, run("\u{6C34}").rgba);
     }
 
     /// A blur radius spreads the shadow past the shape it was cast from, and
