@@ -2560,14 +2560,31 @@ fn paint_with(
     };
     canvas.fill(base);
 
-    let mut painter =
-        Painter { scene, styles, pictures: &pictures, tree: &tree, ids: &ids, fonts, cache };
+    let mut painter = Painter {
+        scene,
+        styles,
+        pictures: &pictures,
+        tree: &tree,
+        ids: &ids,
+        fonts,
+        cache,
+        deferred: Vec::new(),
+    };
     for &index in &scene.roots {
         if painter.is_fixed(index) {
             continue;
         }
+        // A pinned root paints after the page's in-flow content, the same as a
+        // pinned box anywhere else.
+        if painter.is_deferred(index) {
+            painter.deferred.push((index, 0.0, 0.0, None));
+            continue;
+        }
         painter.draw(&mut canvas, index, 0.0, 0.0, None);
     }
+    // The page's positioned descendants, after all of its in-flow content: a
+    // pinned panel over the boxes written after it, not under them (#176).
+    painter.drain_deferred(&mut canvas);
     // Out of the flow and out of every ancestor's clip, at the origin the
     // viewport gave it.
     for &index in &fixed {
@@ -2820,12 +2837,42 @@ struct Painter<'a> {
     ids: &'a [Option<NodeId>],
     fonts: &'a mut FontSystem,
     cache: &'a mut SwashCache,
+    /// Positioned (pinned) boxes met during the in-flow walk, held back to be
+    /// painted after it. A browser paints a stacking context's positioned
+    /// descendants after all its in-flow content (CSS 2.1 Appendix E step 8),
+    /// so a pinned panel sits over the in-flow siblings written after its
+    /// anchor rather than under them (#176). Each entry is the box and the
+    /// origin and clip it would have been drawn at, so draining the queue
+    /// paints it exactly where the in-flow walk would have — only later.
+    deferred: Vec<(usize, f32, f32, Option<Mask>)>,
 }
 
 impl Painter<'_> {
     /// Whether a node was lifted out of the flow and onto the viewport.
     fn is_fixed(&self, index: usize) -> bool {
         self.styles.get(index).is_some_and(|style| style.fixed)
+    }
+
+    /// Whether a node is a positioned (pinned) box that paints after the
+    /// in-flow content of its stacking context rather than in tree order. A
+    /// `Pin` lowers to `position: absolute`; a `position: fixed` box is lifted
+    /// onto the viewport instead and drawn from its own list, so it is not one
+    /// of these.
+    fn is_deferred(&self, index: usize) -> bool {
+        self.styles.get(index).is_some_and(|style| style.absolute && !style.fixed)
+    }
+
+    /// Paints the positioned boxes the in-flow walk held back, in the tree
+    /// order they were met. A positioned box drawn here may itself hold
+    /// positioned descendants, which land in the queue as it paints; taking the
+    /// queue a batch at a time paints those after the boxes already waiting,
+    /// which keeps a box ahead of its own descendants.
+    fn drain_deferred(&mut self, canvas: &mut Pixmap) {
+        while !self.deferred.is_empty() {
+            for (index, x, y, clip) in std::mem::take(&mut self.deferred) {
+                self.draw(canvas, index, x, y, clip.as_ref());
+            }
+        }
     }
 
     /// Draws one node and its children, in document order, which is paint
@@ -2945,6 +2992,14 @@ impl Painter<'_> {
             // here nor clipped by anything here. It is drawn last, from the
             // top.
             if self.is_fixed(child) {
+                continue;
+            }
+            // A pinned child paints after the in-flow content of its stacking
+            // context, not here in tree order, so it is held back with the
+            // origin and clip it would have painted at (#176). It carries no
+            // list marker — a marker is for the in-flow items of a list.
+            if self.is_deferred(child) {
+                self.deferred.push((child, left, top, inner.cloned()));
                 continue;
             }
             if style.marker != Marker::None
@@ -5578,6 +5633,27 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 9 * S, 9 * S), [0, 128, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
+    }
+
+    /// buri#176: a pinned panel paints over the in-flow siblings written after
+    /// its anchor, not under them. A browser paints a stacking context's
+    /// positioned descendants after all its in-flow content (CSS 2.1 Appendix E
+    /// step 8), so the absolute red panel — written inside an earlier anchor —
+    /// covers the later in-flow blue box where the two overlap, whatever tree
+    /// order they were written in.
+    #[test]
+    fn a_pinned_panel_paints_over_the_in_flow_box_written_after_it() {
+        let scene = "buri-scene 1\nviewport 400 fit\n\
+                     e 0\n\
+                     e 1 position:relative\n\
+                     e 2 position:absolute;inset-block-start:0px;\
+                     background-color:rgb(255,0,0);width:200px;height:120px\n\
+                     e 1 background-color:rgb(0,0,255);width:300px;height:60px\n";
+        let image = render_ok(scene, "", "rest");
+        // Where the panel and the box overlap, the panel is on top.
+        assert_eq!(at(&image, 100 * S, 30 * S), [255, 0, 0, 255]);
+        // And the box still paints where the panel does not reach it.
+        assert_eq!(at(&image, 250 * S, 30 * S), [0, 0, 255, 255]);
     }
 
     /// It also leaves the flow where it was written: the box around it lays
