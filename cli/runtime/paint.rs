@@ -3745,10 +3745,10 @@ fn blur_passes(radius: f32) -> Option<[(usize, usize); 3]> {
 /// at the very rim.
 fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, clip: Option<&Mask>) {
     // The canvas is at device resolution, so the blur radius is too.
-    let Some(passes) = blur_passes(radius * DEVICE_SCALE) else { return };
+    let device = radius * DEVICE_SCALE;
+    let Some(passes) = blur_passes(device) else { return };
     let (w, h) = (canvas.width() as usize, canvas.height() as usize);
-    let n = w.saturating_mul(h);
-    if n == 0 {
+    if w == 0 || h == 0 {
         return;
     }
     // The mask the blur lands through: the box's rounded shape, met with the
@@ -3761,31 +3761,72 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
     if let Some(outer) = clip {
         narrow(&mut mask, outer);
     }
-    // Split the premultiplied canvas into four planes, blur each, and lerp the
-    // result back where the mask covers.
-    let mut planes: [Vec<u8>; 4] = [vec![0; n], vec![0; n], vec![0; n], vec![0; n]];
-    for (i, pixel) in canvas.data().chunks_exact(4).enumerate() {
-        for (c, plane) in planes.iter_mut().enumerate() {
-            plane[i] = pixel[c];
+
+    // **Blur only the box's own region, not the whole page.** The blur lands
+    // only where the mask covers — inside the box — and a pixel inside the box
+    // reads no page pixel further than the blur's reach away, so a box the size
+    // of the box's device bounding box grown by [`reach_of_blur`] holds every
+    // page pixel the composited result depends on. Within it a cropped blur is
+    // bit for bit a full-canvas one (the passes read off their ends as
+    // transparent, exactly as the whole-canvas version does at the page edge),
+    // so the softened page under a scrim is unchanged — it is just no longer
+    // found by blurring a page the scrim covers a corner of.
+    let scale = DEVICE_SCALE as i32;
+    let reach = reach_of_blur(device).ceil() as i32 + 2;
+    let (cw, cht) = (w as i32, h as i32);
+    let x0 = (box_.l * scale - reach).clamp(0, cw);
+    let y0 = (box_.t * scale - reach).clamp(0, cht);
+    let x1 = (box_.r * scale + reach).clamp(0, cw);
+    let y1 = (box_.b * scale + reach).clamp(0, cht);
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let (rw, rh) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    let rn = rw.saturating_mul(rh);
+
+    // Each of the four premultiplied channels, over the region, blurred.
+    let mut planes: [Vec<u8>; 4] = [vec![0; rn], vec![0; rn], vec![0; rn], vec![0; rn]];
+    let src = canvas.data();
+    for ry in 0..rh {
+        let canvas_row = (y0 as usize + ry).saturating_mul(w) + x0 as usize;
+        let region_row = ry.saturating_mul(rw);
+        for rx in 0..rw {
+            let pixel = canvas_row.saturating_add(rx).saturating_mul(4);
+            for (c, plane) in planes.iter_mut().enumerate() {
+                plane[region_row + rx] = src.get(pixel + c).copied().unwrap_or(0);
+            }
         }
     }
-    let mut scratch = vec![0u8; n];
+    let mut scratch = vec![0u8; rn];
     for plane in &mut planes {
         for (size, lead) in passes {
-            rows(plane, &mut scratch, w, h, size, lead);
+            rows(plane, &mut scratch, rw, rh, size, lead);
         }
         for (size, lead) in passes {
-            columns(plane, &mut scratch, w, h, size, lead);
+            columns(plane, &mut scratch, rw, rh, size, lead);
         }
     }
+
+    // Lerp the blurred region back where the mask covers. Coverage is nonzero
+    // only inside the box, which the region contains, so nothing the whole-page
+    // version touched is missed.
     let coverage = mask.data().to_vec();
-    for (i, pixel) in canvas.data_mut().chunks_exact_mut(4).enumerate() {
-        let cov = coverage[i];
-        if cov == 0 {
-            continue;
-        }
-        for (c, byte) in pixel.iter_mut().enumerate() {
-            *byte = mul255(*byte, 255 - cov).saturating_add(mul255(planes[c][i], cov));
+    let dst = canvas.data_mut();
+    for ry in 0..rh {
+        let canvas_row = (y0 as usize + ry).saturating_mul(w) + x0 as usize;
+        let region_row = ry.saturating_mul(rw);
+        for rx in 0..rw {
+            let i = canvas_row + rx;
+            let cov = coverage.get(i).copied().unwrap_or(0);
+            if cov == 0 {
+                continue;
+            }
+            for c in 0..4 {
+                if let Some(byte) = dst.get_mut(i * 4 + c) {
+                    *byte = mul255(*byte, 255 - cov)
+                        .saturating_add(mul255(planes[c][region_row + rx], cov));
+                }
+            }
         }
     }
 }
