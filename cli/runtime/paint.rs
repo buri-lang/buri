@@ -2673,11 +2673,20 @@ fn reach(
     };
 
     // An outer shadow paints outside the box that cast it, offset, spread and
-    // blurred, and every pixel of that is on the page too.
+    // blurred. A `fit` page grows downward to hold what a box casts below it,
+    // so the shadow's own extent counts there — but **a shadow never widens the
+    // page**. A browser clips a `box-shadow` at the viewport's edge and never
+    // lets it affect layout or scroll overflow, so a blur that runs past the
+    // page sideways is cut at the page's width rather than made into canvas no
+    // phone has (#169). The box that cast it still widens the canvas where its
+    // own geometry runs past the edge — a wide dock, a bleed, a translate — so
+    // only the shadow is held to the page's inline size.
     let mut painted = box_;
+    let edge = px(scene.width as f32);
     for shadow in &style.shadow {
-        let cast = box_.offset(shadow.x, shadow.y);
-        painted = painted.union(cast.grow(shadow.spread + reach_of_blur(shadow.blur)));
+        let cast =
+            box_.offset(shadow.x, shadow.y).grow(shadow.spread + reach_of_blur(shadow.blur));
+        painted = painted.union(Box2 { l: cast.l.max(0), r: cast.r.min(edge), ..cast });
     }
     out.absorb(painted.met_by(clip));
 
@@ -4658,6 +4667,26 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         assert_eq!((image.width, image.height), (800 * S, 48 * S));
         assert_eq!(at(&image, 0, 47 * S), [0, 0, 255, 255]);
+    }
+
+    /// A shadow's blur that runs past the page edge sideways is clipped there,
+    /// not made into canvas: the page is the stated width and a browser clips
+    /// a `box-shadow` at the viewport, so a full-width box with an elevated
+    /// panel's blur paints a picture exactly the page's width (#169).
+    #[test]
+    fn a_shadow_past_the_page_edge_does_not_widen_it() {
+        // A box as wide as the page, so its own geometry reaches the edge and
+        // no further, and a soft shadow whose blur would spill past both sides.
+        let scene = "buri-scene 1\nviewport 390 fit\n\
+                     e 0 width:390px;height:100px;background-color:rgb(255,255,255);\
+                     box-shadow:0px 10px 15px 0px rgba(0,0,0,0.1)\n";
+        let image = render_ok(scene, "", "rest");
+        // The picture is the page's width, not two pixels wider for a blur no
+        // one can see.
+        assert_eq!(image.width, 390 * S);
+        // And the shadow still reaches below the box, so the page grew to hold
+        // what it casts downward.
+        assert!(image.height > 100 * S);
     }
 
     /// **The two layouts a `fit` page runs land where one layout would.** It
