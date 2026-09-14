@@ -1086,6 +1086,34 @@ export fn each<C, T: Equal>(
     )
 }
 
+/// Rebuilds a subtree from the mount context whenever `on` changes.
+///
+/// The reactive constructor a router reaches for. `choose` hands its builder
+/// nothing and `computed` hands it a `Scope`, so neither can build a page that
+/// mints signals — `signal(ctx, …)` needs `Ui` — or routes, and a client
+/// site is left building every page at startup and using `computed` only to
+/// pick one already built. `rebuild` is `each` narrowed to one row, keyed by
+/// `on`, under a name that says so: it hands `build` the mount context, and
+/// when `on` changes the old subtree tears down with its computations and the
+/// new one is built with the real context. So the page a route matches is built
+/// when the route matches, and not before.
+///
+/// `build` runs only when `on` changes, and untracked — the signals the page it
+/// builds reads are the page's own, not this rebuild's, so a page's reactivity
+/// is not tied to its route. `K` carries `Show` because the region keys on how
+/// `on` renders: two values that render alike are the same subtree and it
+/// stays, and one that renders differently is a new subtree and the old one
+/// goes with its computations.
+export fn rebuild<C, K: Show>(on: Prop<K>, build: fn(C, K) => Node<C>): Node<C> {
+    Node(
+        .Each(
+            fn(_scope) => 1,
+            fn(scope, _index) => on.read(scope).show(scope),
+            fn(c, scope, _index) => build(c, on.read(scope)),
+        ),
+    )
+}
+
 /// Puts a tree on the screen, and leaves it there.
 ///
 /// The context is what the tree's handlers get, so it is the budget `main`
