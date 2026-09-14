@@ -1406,10 +1406,18 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     let _ = if (stylesReactive(styles)) {
                         let at = openElement(builder, "a", "");
                         reactive(fn(scope) => {
-                            patchBody(builder, at, widgetBodyUnder(scope, plain(state), [], styles))
+                            patchBody(
+                                builder,
+                                at,
+                                widgetBodyUnder(scope, plain(state), [], styles),
+                            )
                         })
                     } else {
-                        emitElement(builder, "a", widgetBody(mem, plain(state), [], styles))
+                        emitElement(
+                            builder,
+                            "a",
+                            widgetBody(mem, plain(state), [], styles),
+                        )
                     };
                     let _ = registerFollow(builder, dest.read(scope), handler);
                     let _ = registerEvents(builder, events);
@@ -1660,7 +1668,9 @@ fn emitButton<C>(
     // reactive arm of `emitNode`'s `Button` wraps a non-const one in a rebuild.)
     let _ = if (stylesReactive(styles)) {
         let at = openElement(builder, "button", "");
-        reactive(fn(scope) => patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles)))
+        reactive(fn(scope) => {
+            patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles))
+        })
     } else {
         emitElement(builder, "button", widgetBody(mem, painted, [], styles))
     };

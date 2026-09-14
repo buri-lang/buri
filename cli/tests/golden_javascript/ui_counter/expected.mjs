@@ -85,7 +85,7 @@ function __cmd_x_main_buri$main(){
     }
     $t3=[[5,config_17[0],$t8,$t5,$t9,$t11,$t13,$t15,events_18]];
   }
-  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k4,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_7],[1,count_8]),__cmd_x_main_buri$badge$u3rqgv($k6,[2,c_11=>ui_signal$Signal_get$cykgrm(count_8,c_11)*2n])],void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k4,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_7],[1,count_8]),__cmd_x_main_buri$badge$u3rqgv($k6,[2,c_11=>ui_signal$Signal_get$xiaice(count_8,c_11)*2n])],void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
   return ui_node$stack$u3rqgv([$k17,[ui_node$text$u3rqgv([title_0,void 0,void 0]),ui_node$text$u3rqgv([[2,c_2=>{
@@ -102,7 +102,7 @@ function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
     return String($t1);
   }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0]);
 }
-function ui_signal$Signal_get$cykgrm(self_0,ctx_1){
+function ui_signal$Signal_get$xiaice(self_0,ctx_1){
   return $ui_effect_Scope_read(ctx_1,self_0[0]);
 }
 function ui_node$stack$u3rqgv(config_0){
