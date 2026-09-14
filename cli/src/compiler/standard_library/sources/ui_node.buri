@@ -2486,11 +2486,15 @@ fn pickerOptionLines<C: Allocator>(
 }
 
 /// A radio's box: a circle one line square that does not shrink, centring the
-/// dot the widget draws in it.
+/// dot the widget draws in it, and a hairline ring around that dot.
 ///
-/// The sheet's reset says the same three sizes and the `border-radius` to a
-/// browser, because with the chrome cleared an unsized radio is a control nobody
-/// can see or hit — the same bargain a checkbox's box makes.
+/// The sheet's reset says the same sizes and the `border-radius` to a browser,
+/// because with the chrome cleared an unsized radio is a control nobody can see
+/// or hit — the same bargain a checkbox's box makes. The ring is the widget's
+/// own, in the group's `Foreground` the way the dot is: a checkbox's box comes
+/// from the caller's `Background` and border, but a radio has no per-option
+/// style list by design, so an unchecked option would otherwise draw nothing at
+/// all and only the chosen one would be visible.
 fn radioBox(): [Style] {
     [
         .Layout(.Row),
@@ -2500,6 +2504,7 @@ fn radioBox(): [Style] {
         .Height(.Rem(1.0)),
         .Shrink(0),
         .Radius(.Full),
+        .BorderWidth(.Px(1)),
     ]
 }
 
