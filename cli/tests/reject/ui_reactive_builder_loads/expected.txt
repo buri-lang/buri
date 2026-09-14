@@ -1,0 +1,31 @@
+error: a reactive builder may not `load` — `ui.computed`'s body must be synchronous [load-in-a-reactive-builder]
+  --> cmd/ui_reactive_builder_loads/main.buri:23:21
+   |
+23 |         let build = lazy.load(page);
+   |                     ^^^^^^^^^^^^^^^
+   |
+   = fix: move the `load` onto the press or the route that reaches this subtree, and hand the builder what it loaded
+
+     What to do
+     ──────────
+
+     Move the load onto the press or the route that reaches this subtree, and
+     hand the builder the value it loaded. A handler waits, so load belongs
+     there; a reactive builder does not, so it must be synchronous.
+
+     Why
+     ───
+
+     ui.computed, ui.each and ui.rebuild hand the renderer a closure that it
+     calls to make a subtree. core/lazy's load waits for a chunk to arrive, so a
+     builder that reaches it is an async function — it answers a promise, not a
+     node. The renderer has no node to render, so the page comes up blank and
+     the first failed render leaves the rest of it inert.
+
+     A handler is the opposite: fn(C, Event) => () may wait, because it runs to
+     completion and writes signals when the wait is over. So the split a chunk
+     needs is already there — load on the press or the route that decides a
+     subtree is wanted, and a plain, synchronous builder that reads what the
+     wait produced. On a website that route match is where the load goes, and
+     the builder reads the loaded page out of a signal the match wrote.
+
