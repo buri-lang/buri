@@ -883,6 +883,39 @@ fn a_derived_conformance_reaches_the_page_a_user_reads() {
     }
 }
 
+/// A `ui/node` builder takes one config struct, and that struct is private —
+/// so its fields have nowhere to be learned unless the builder's own page
+/// prints them. It does: the config struct's prose and its fields, with the
+/// `///` on each field, land on the builder's page the way `ui/style.Shadow`
+/// prints its own fields.
+///
+/// The fields checked here are the ones a reader gets wrong from a guess —
+/// `Toggle.isOn` not `value`, `Dialog.isOpen` not `open`, `Image.alt` a plain
+/// enum, `Picker.options` a list of pairs, and `spacer`'s `size` an `Option`.
+#[test]
+fn a_builder_page_prints_its_config_struct() {
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "ui/node.stack",
+            &["A container", "styles: [Style]", "children: [Node<C>]", "role: Option<Role>"],
+        ),
+        ("ui/node.spacer", &["size: Option<Length>", "grows to push its siblings apart"]),
+        ("ui/node.toggle", &["isOn: Signal<Bool>", "on while it holds true"]),
+        ("ui/node.dialog", &["isOpen: Signal<Bool>", "Open while it holds true"]),
+        ("ui/node.image", &["alt: Alt", "What the picture is to a reader"]),
+        ("ui/node.picker", &["options: [(Str, Node<C>)]", "one (key, content) pair per choice"]),
+        ("ui/node.field", &["value: Signal<Str>", "isDisabled: Option<Prop<Bool>>"]),
+    ];
+    for (topic, wants) in cases {
+        let out = ran(&std::env::temp_dir(), &["docs", topic, "--color=never"]);
+        assert!(out.status.success(), "`buri docs {topic}` failed");
+        let page = String::from_utf8_lossy(&out.stdout);
+        for want in *wants {
+            assert!(page.contains(want), "`buri docs {topic}` never prints `{want}`:\n{page}");
+        }
+    }
+}
+
 /// The prose map and the library it maps, in lockstep.
 ///
 /// A module's own page is *generated* — `buri docs core/list` and the site's
