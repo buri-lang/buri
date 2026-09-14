@@ -4307,9 +4307,13 @@ function $tree_declare(style, out) {
     out.set("overflow", value ? "clip" : "visible");
   } else if (tag === 58) {
     out.set("pointer-events", value ? "none" : "auto");
-  } else {
+  } else if (tag === 59) {
     // Only the page behind the box is blurred; the box paints over the blur.
     out.set("backdrop-filter", "blur(" + $tree_length(value) + ")");
+  } else {
+    // The caret on its own, so a field with transparent text still has a
+    // visible one. `Foreground` is otherwise the only thing that reaches it.
+    out.set("caret-color", $tree_color(value));
   }
 }
 

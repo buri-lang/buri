@@ -1610,6 +1610,14 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let (css, key) = length(first?)?;
             Some(("bdblur", key, one("backdrop-filter", &format!("blur({css})"))))
         }
+        // The caret on its own, so a field with transparent text — the mirror a
+        // syntax-highlighted `<input>` is drawn under — still has a visible one.
+        // A colour like `Foreground`'s, which is the property that otherwise
+        // reaches the caret.
+        60 => {
+            let (css, key) = colour(first?)?;
+            Some(("caret", key, one("caret-color", &css)))
+        }
         _ => None,
     }
 }

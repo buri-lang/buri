@@ -475,6 +475,27 @@ test "the rest of the vocabulary lowers to the declarations it names" {
     );
 }
 
+test "a caret colour paints the caret even where the text is transparent" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The syntax-highlight-mirror technique: an `<input>` whose own text is
+    // transparent, painted over by a copy drawn run by run. On its own the
+    // caret is whatever `Foreground` is — transparent — so the reader types
+    // into a box with no caret in it. Naming the caret keeps it visible while
+    // the text stays transparent, which is what makes the mirror shippable.
+    let styles: [Style] = [
+        .Foreground(.Transparent),
+        .CaretColor(.Rgb(20, 20, 20)),
+    ];
+    assert.equal(
+        render(ctx, ui.stack({ styles: styles, children: [] })).markup(),
+        "e 0 class:fg-none caret-141414",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".caret-141414{caret-color:rgb(20,20,20)}"));
+}
+
 test "pins naming different edges compose, and `Position` owns `position`" {
     let ctx = context {
         Ui: headless(),

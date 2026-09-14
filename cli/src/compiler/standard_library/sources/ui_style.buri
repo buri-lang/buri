@@ -341,6 +341,16 @@ export enum Style {
     /// follows the reader — `.Rem` or `.Em` — makes a radius that grows with
     /// the text; `.Percent`, `.Auto` and `.Full` name no radius a blur can use.
     BackdropBlur(Length),
+
+    /// What the text insertion caret is painted in.
+    ///
+    /// On its own the caret is whatever `Foreground` is, because the web's
+    /// `caret-color` defaults to the text colour — so a field whose text is
+    /// `.Transparent`, which is how a syntax-highlighted mirror is drawn under
+    /// an `<input>`, has a transparent, invisible caret. This names the caret
+    /// on its own, so the text can go transparent and the caret stay visible.
+    /// A `Token` like every other colour here.
+    CaretColor(Color),
 }
 
 /// How a container arranges its children.
