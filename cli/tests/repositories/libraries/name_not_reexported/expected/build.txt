@@ -6,15 +6,6 @@ error: "//lib/money" does not export `rawValue` [no-such-export]
   |
   = fix: check the spelling, or re-export `rawValue` from "//lib/money"'s `lib.buri`
 
-    What to do
-    ──────────
-
-    If the module declares the name but holds it back, add export to the
-    declaration there. If it declares no such name, the spelling is the mistake.
-    The diagnostic says which of the two it is, and where there is a near miss
-    the fix names it. A name the standard library renamed is answered outright:
-    Alloc was renamed to Allocator.
-
     Why
     ───
 
@@ -28,15 +19,6 @@ error: there is nothing named `rawValue` in scope [unresolved-name]
    |                          ^^^^^^^^
    |
    = fix: declare `rawValue`, or import it — a name is in scope only from this module's own declarations and its imports
-
-     What to do
-     ──────────
-
-     Correct the spelling, or declare it. Where there is a near miss the fix
-     names it: "if you meant double, use that; if not, a name is in scope only
-     from this module's own declarations and its imports". A name the standard
-     library renamed is not a guess and gets the answer instead — sqrt was
-     renamed to squareRoot.
 
      Why
      ───

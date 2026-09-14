@@ -32,15 +32,6 @@ error: "//lib/money/cents.buri" does not export `Ledgor` [no-such-export]
   = did you mean `Ledger`?
   = fix: if you meant `Ledger`, use that; if not, the `export` declarations in "//lib/money/cents.buri" are its whole surface
 
-    What to do
-    ──────────
-
-    If the module declares the name but holds it back, add export to the
-    declaration there. If it declares no such name, the spelling is the mistake.
-    The diagnostic says which of the two it is, and where there is a near miss
-    the fix names it. A name the standard library renamed is answered outright:
-    Alloc was renamed to Allocator.
-
     Why
     ───
 

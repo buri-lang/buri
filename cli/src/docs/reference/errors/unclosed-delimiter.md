@@ -9,13 +9,6 @@ fix: write {token} here
 error: this `match` is missing its closing `}` [unclosed-delimiter]
 ```
 
-## What to do
-
-Close the construct the second caret points at. The diagnostic carries two
-spans: the token that is not the closer, and the delimiter that opened and was
-never matched. There is deliberately no edit, because only the person who wrote
-the construct can say where the closer belongs.
-
 ## Why
 
 An abandoned construct takes the rest of the file with it: whatever closer comes

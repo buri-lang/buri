@@ -11,21 +11,6 @@ fix: give `{method}` the signature `{trait}` declares
 error: `size` does not have the signature `Measurable` declares [signature-mismatch]
 ```
 
-## What to do
-
-Write the method with the parameters, the type parameters and their bounds, and
-the return type the trait declared it with. Where the trait wrote `Self`, an
-`impl` may write either `Self` or the type it is implementing for — they are the
-same type inside the block.
-
-Bounds are compared as a set, so writing the same bounds in another order is not
-a disagreement. Asking for one the trait does not declare is: nobody told the
-caller to supply it.
-
-Only the method's own type parameters count. The ones on the `impl` head belong
-to the block rather than to the method, so `impl<T> Show for [T]` supplies
-`show<C>` with one type parameter, not two.
-
 ## Why
 
 A caller reaching the method through a bound is typechecked against the

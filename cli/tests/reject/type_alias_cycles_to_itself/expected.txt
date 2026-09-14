@@ -7,13 +7,6 @@ error: circular type alias: `Handle` -> `Handle` [circular-type-alias]
   = an alias is transparent, so expanding it has to end at a type; this chain comes back to where it started
   = fix: break the cycle: give one of these a body that is a struct, an enum or a newtype, or point it at a type that is not on the chain
 
-    What to do
-    ──────────
-
-    Decide which name on the chain is the real type and declare it as one. A
-    struct or an enum may refer to itself, because its fields give the compiler
-    a boundary to stop at; an alias has none.
-
     Why
     ───
 

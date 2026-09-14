@@ -7,12 +7,3 @@ error: expected a declaration, found `derive` [unexpected-token]
   = expected: a declaration
   = actual: `derive`
   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-
-    What to do
-    ──────────
-
-    Write what the message names. This is the parser's catch-all, so the useful
-    half of it is always the "expected" part. A mistake the parser can name — a
-    separator, a terminator, an arrow, a delimiter that never closed — carries
-    its own code instead.
-

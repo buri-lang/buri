@@ -7,18 +7,6 @@ error: `println` takes 1 arguments, but 2 were given [wrong-argument-count]
   = expected: 1
   = actual: 2
   = fix: pass `println` the following arguments: println(self, text: Template)
-
-    What to do
-    ──────────
-
-    Line the call up against the signature the fix prints, which is the
-    declaration: the name, the generics with their bounds, and every parameter
-    with its name and type. The context is one of those parameters, so a call
-    that forgot it is short by one. Where the types of the arguments say which
-    parameter was left out, the fix names it; where the call lines up two ways,
-    or more than one parameter has nothing to fill it, it names none of them
-    rather than sending you to the wrong end of the line.
-
 error: `Stdout` is an effect, so `println` is not called on a context [effect-method-call]
  --> cmd/effect_method_wrong_argument_count/main.buri:9:7
   |
