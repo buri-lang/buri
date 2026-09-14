@@ -1820,3 +1820,46 @@ fn removing_a_test_relinks_the_binary() {
         indent(&again.all())
     );
 }
+
+/// `--update` records goldens; a comparing run must never be served the verdict
+/// a recording run left, because a recording run compared nothing.
+///
+/// `--update` paints each snapshot and writes it as the golden instead of
+/// comparing, so it always "passes": the verdict proves a file was written, not
+/// that the golden on disk is what a comparing run would paint now. It shared a
+/// cache key with a comparing run, so the pass it wrote stood in for a
+/// comparison — a plain `buri test` after an `--update` was served that verdict
+/// and never looked at the goldens (buri-lang/buri#174). The action key now
+/// carries the flag, so a recording run and a comparing run are cached apart and
+/// neither is served the other's.
+///
+/// The proof is behaviour: record the goldens with nothing cached before them —
+/// so the only thing that could populate a comparing run's key is this recording
+/// run, if it shared one — then replace a golden on disk with bytes the suite
+/// does not paint. The next plain `buri test` must catch the mismatch rather
+/// than report the recording run's pass.
+#[test]
+fn a_comparing_run_is_not_served_an_update_runs_verdict() {
+    let source = tests_dir().join("repositories/ui/sweep_layout_box/repo");
+    let scratch = Scratch::copy_of("update-not-a-comparison", &source);
+
+    scratch.run(&["test", "//lib/scenes", "--update"]).ok();
+
+    // A golden that no longer matches what the suite paints: `box-width` is a
+    // different picture from `box-padding`.
+    let snapshots = "lib/scenes/test/__snapshots__";
+    std::fs::copy(
+        scratch.path(&format!("{snapshots}/box-width.png")),
+        scratch.path(&format!("{snapshots}/box-padding.png")),
+    )
+    .expect("overwriting a golden with a different one");
+
+    let compared = scratch.run(&["test", "//lib/scenes"]);
+    compared.exits(1);
+    assert!(
+        compared.tests_passed() < 7,
+        "a comparing run was served the recording run's verdict and never \
+         compared against the goldens on disk:\n{}",
+        indent(&compared.all())
+    );
+}

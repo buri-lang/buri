@@ -500,6 +500,18 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
             k.input(rel, &std::fs::read(&full).unwrap_or_default());
         }
     }
+    // A recording run and a comparing run are two kinds of result and must not
+    // share a cache entry. `--update` paints goldens and never compares, so its
+    // verdict is always "passed" — it proves a file was written, never that the
+    // golden on disk is what a comparing run would paint now. Folding the flag in
+    // gives the two runs separate keys, so a recording run neither is served a
+    // comparing run's verdict nor writes one a later comparing run is served in
+    // place of actually comparing. The `served` gate already keeps `--update`
+    // from *reading* the cache at all; this is what keeps what it *writes* from
+    // standing in for a comparison (buri-lang/buri#174).
+    if flags.update {
+        k.input("update", b"1");
+    }
     k.finish()
 }
 
