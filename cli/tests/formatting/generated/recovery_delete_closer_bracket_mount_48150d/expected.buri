@@ -16,9 +16,9 @@ from "ui/testing" import { headless };
 from "ui/theme" import { Theme };
 
 let badgeStyle: Style = .Group([
-    .PaddingX(.Rem(0.5)),
+    .PaddingX(.Rem(0.5),
     .Radius(.Px(6)),
-    .Background(.Rgb(240 240, 245)),
+    .Background(.Rgb(240, 240, 245)),
 ]);
 
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {

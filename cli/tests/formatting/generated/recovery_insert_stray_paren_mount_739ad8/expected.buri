@@ -18,7 +18,7 @@ from "ui/theme" import { Theme };
 let badgeStyle: Style = .Group([
     .PaddingX(.Rem(0.5)),
     .Radius(.Px(6)),
-    .Background(.Rgb(240 240, 245)),
+    .Background(.Rgb(240, 240, 245)),
 ]);
 
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
@@ -35,7 +35,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
     ui.stack({
-        styles: [.Layout(.Column), .Group([])],
+        styles: [.Layout(.Column), .Group([@ ])],
         children: [
             ui.button({
                 label: .Const(label),
