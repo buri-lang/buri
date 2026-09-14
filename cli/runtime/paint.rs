@@ -139,10 +139,12 @@
 //! number behind one. It paints a bar a quarter of the box's height across the
 //! middle, and a round thumb one line across whose centre runs between half a
 //! thumb inside either end — the same two shapes, at the same sizes, that the
-//! sheet's reset paints with a gradient and a `::-webkit-slider-thumb`. Both
-//! take the element's own colour. The value is sanitized the way HTML says a
-//! `value` attribute is: clamped into the bounds, and the middle when it is not
-//! a number at all.
+//! sheet's reset paints with a gradient and a `::-webkit-slider-thumb`. The
+//! track is two colours: the run up to the thumb is the element's `Foreground`
+//! and the remainder is its `Background`, so a slider shows how far along it is
+//! and not only where its knob sits; the thumb is the `Foreground`. The value
+//! is sanitized the way HTML says a `value` attribute is: clamped into the
+//! bounds, and the middle when it is not a number at all.
 //!
 //! An `e` line may also carry `placeholder:<hint>`, which is the sample value
 //! a field shows inside its own box. It is drawn by the run under the input
@@ -2856,9 +2858,11 @@ impl Painter<'_> {
     /// A slider: a bar across the middle of its box, and a round thumb on it
     /// at the value.
     ///
-    /// Both are the box's own colour, which is the sheet's `currentColor` — so
-    /// `Foreground` is the one property that paints a slider, and a
-    /// `Background` on it is the box behind the bar. The bar is a quarter of
+    /// The track is two colours, the way a browser and every design system
+    /// paint one: the run from the start to the thumb takes the element's
+    /// `Foreground` and the remainder after it takes the element's
+    /// `Background`, so a slider shows how far along it is beyond where the
+    /// knob sits. The thumb is the `Foreground` too. The bar is a quarter of
     /// the box's height and has no corners, because a browser paints it with a
     /// gradient and a gradient has none. The thumb is one line across, and its
     /// **centre** runs from half a thumb inside the near end to half a thumb
@@ -2887,17 +2891,34 @@ impl Painter<'_> {
         }
         let bar = height * TRACK_HEIGHT;
         let middle = top + height / 2.0;
+        let bar_top = px(middle - bar / 2.0);
+        let bar_bottom = px(middle + bar / 2.0);
+        let size = ROOT_FONT_SIZE.min(height).min(width);
+        let travel = (width - size).max(0.0);
+        let centre = left + size / 2.0 + travel * slider.fraction().clamp(0.0, 1.0);
+        // The unfilled remainder of the track, in the element's `Background`:
+        // the part after the thumb, which a browser and every design system
+        // paint a different colour from the run up to it. Drawn across the whole
+        // bar first, so the fill below covers the start of it.
         fill(
             canvas,
-            Box2 { l: box_.l, t: px(middle - bar / 2.0), r: box_.r, b: px(middle + bar / 2.0) },
+            Box2 { l: box_.l, t: bar_top, r: box_.r, b: bar_bottom },
+            circular(0.0),
+            style.background,
+            style.opacity,
+            clip,
+        );
+        // The filled part of the track, in the element's `Foreground`: the run
+        // from the start to the thumb, which is the "how far along" cue a slider
+        // with one colour cannot give beyond where its knob sits.
+        fill(
+            canvas,
+            Box2 { l: box_.l, t: bar_top, r: px(centre), b: bar_bottom },
             circular(0.0),
             style.colour,
             style.opacity,
             clip,
         );
-        let size = ROOT_FONT_SIZE.min(height).min(width);
-        let travel = (width - size).max(0.0);
-        let centre = left + size / 2.0 + travel * slider.fraction().clamp(0.0, 1.0);
         fill(
             canvas,
             Box2 {
@@ -5630,15 +5651,43 @@ mod tests {
             assert!(inked(image, near, 2 * S), "the thumb is not where the value is");
             assert!(!inked(image, at_all, 2 * S), "the thumb is where the value is not");
         }
-        // The track is there whatever the value: the middle row is inked end to
-        // end in all three, and the bar is a quarter of the sixteen pixels, so
-        // one either side of the middle is ink and four is not. Column forty is
-        // clear of the thumb in every one of them.
-        for image in [&low, &middle, &high] {
-            assert!(inked(image, 0, 8 * S) && inked(image, 191 * S, 8 * S));
-            assert!(inked(image, 40 * S, 6 * S) && inked(image, 40 * S, 9 * S));
-            assert!(!inked(image, 40 * S, 5 * S) && !inked(image, 40 * S, 10 * S));
-        }
+        // The bar is a quarter of the sixteen pixels: along the filled run, well
+        // clear of the thumb, one either side of the middle is ink and four is
+        // not. Column forty is filled and thumb-free on the slider at a hundred.
+        assert!(inked(&high, 40 * S, 6 * S) && inked(&high, 40 * S, 9 * S));
+        assert!(!inked(&high, 40 * S, 5 * S) && !inked(&high, 40 * S, 10 * S));
+    }
+
+    /// buri#157: the track is two colours — the run up to the thumb is filled
+    /// and the remainder is not — so a slider reads how far along it is beyond
+    /// where its knob sits. With no `Background` the unfilled remainder is the
+    /// page, so the filled length alone grows with the value.
+    #[test]
+    fn a_range_fills_the_track_up_to_the_thumb_and_no_further() {
+        let low = render_ok(&slider("0.0 100.0 10"), "", "rest");
+        let high = render_ok(&slider("0.0 100.0 90"), "", "rest");
+        // A point well past the low slider's thumb but under the high one's:
+        // filled for the slider at ninety, bare page for the one at ten. So the
+        // two differ beyond the knob, which is the whole of the fix.
+        assert!(!inked(&low, 150 * S, 8 * S), "the low slider's track is filled past its thumb");
+        assert!(inked(&high, 150 * S, 8 * S), "the high slider's track is not filled to its thumb");
+        // And both are filled at the very start, whatever the value.
+        assert!(inked(&low, 2 * S, 8 * S) && inked(&high, 2 * S, 8 * S));
+    }
+
+    /// buri#157: a `Background` names the unfilled remainder of the track, so
+    /// the part after the thumb is that colour rather than the fill's — the two
+    /// halves a browser and every design system paint differently.
+    #[test]
+    fn a_range_paints_its_unfilled_track_in_the_background() {
+        let scene = "buri-scene 1\nviewport 200 40\n\
+             e 0 field:range;range:0.0 100.0 50;width:192px;height:16px;\
+             color:rgb(0,0,0);background-color:rgb(200,30,30)\n";
+        let image = render_ok(scene, "", "rest");
+        // Before the thumb: the fill, in the foreground (near black).
+        assert_eq!(at(&image, 4 * S, 8 * S), [0, 0, 0, 255]);
+        // After the thumb: the unfilled track, in the background (red).
+        assert_eq!(at(&image, 180 * S, 8 * S), [200, 30, 30, 255]);
     }
 
     /// HTML's own sanitization of a `value` attribute, which is what a browser
