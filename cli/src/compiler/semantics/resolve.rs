@@ -364,6 +364,17 @@ impl<'a> Checker<'a> {
             self.diags,
             only.as_deref(),
         );
+        // A `load` reached synchronously from a reactive builder answers a
+        // promise the renderer cannot render (#152), so it is refused here where
+        // the builder's body is still a lambda in the typed tree.
+        crate::compiler::semantics::reactive::run(
+            self.loaded,
+            &self.tables,
+            &self.scopes,
+            &self.bodies,
+            self.diags,
+            only.as_deref(),
+        );
         let (styles, style_con) = crate::compiler::semantics::styles::run(
             self.loaded,
             &self.tables,

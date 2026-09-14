@@ -16,6 +16,7 @@ pub mod expressions;
 pub mod icons;
 pub mod inference;
 pub mod patterns;
+pub mod reactive;
 pub mod resolve;
 pub mod styles;
 pub mod typed;

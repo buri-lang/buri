@@ -161,6 +161,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("lambda-captures-generic", "A lambda may not capture a value that could be a context"),
     e!("lazy-not-a-function", "A lazily loaded chunk is built around a named function"),
     e!("literal-out-of-range", "A literal must fit the type it is pinned to"),
+    e!(
+        "load-in-a-reactive-builder",
+        "A reactive builder is synchronous, so it may not `load`",
+        &["guides/websites", "guides/compile-to-js"]
+    ),
     e!("main-signature", "An entry point has one shape", &["build/build-files"]),
     e!("match-not-exhaustive", "A `match` covers every case"),
     e!("method-declared-free", "A method is declared inside an `impl`"),

@@ -1,0 +1,26 @@
+// EXPECT: a reactive builder may not `load`
+//
+// `ui.computed` hands the renderer a closure it calls to make a subtree, so the
+// closure must answer a node. `core/lazy`'s `load` waits for a chunk, so a
+// builder that reaches it answers a promise instead — a blank page (#152). The
+// `load` belongs on the press or the route that reaches the subtree, not in the
+// builder.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "core/lazy" import * as lazy;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+fn page<C>(): Node<C> {
+    ui.text({ content: .Const("page") })
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+    ui.mount(ctx, ui.computed(fn(_scope) => {
+        let build = lazy.load(page);
+        build()
+    }), [])
+}
