@@ -952,17 +952,33 @@ pub extern "C" fn buri_rt_ui_node_mark_submit(handle: i64) {
 }
 
 impl Document {
-    /// The text runs **directly** under `node`, concatenated — a control's own
-    /// label. It does not descend into a nested control, so a field label's text
-    /// is not joined with the value run inside its input.
-    fn direct_text(&self, node: usize) -> String {
-        let mut out = String::new();
-        for &child in &self.records[node].children {
-            if self.records[child].kind == Kind::Text {
-                out.push_str(&self.records[child].text);
-            }
+    /// The accessible name a reader hears for `node`: every run of text in its
+    /// subtree, in document order, joined by a space — the same joining
+    /// [`text()`](buri_rt_ui_testing_rendered_text) does for a whole tree, and
+    /// what an anchor's name is, so a link wrapping many runs is addressed by
+    /// the words it shows and not by the runs run together. It does not descend
+    /// into a nested control, so a field label's name is its own text and not
+    /// the value run inside its input.
+    fn accessible_name(&self, node: usize) -> String {
+        let mut runs: Vec<&str> = Vec::new();
+        self.name_runs(node, true, &mut runs);
+        runs.join(" ")
+    }
+
+    /// Gathers the text runs of `node`'s subtree into `out`, skipping the subtree
+    /// of any nested control. `root` is the node the name is computed for, whose
+    /// own control-ness never stops the walk.
+    fn name_runs<'a>(&'a self, node: usize, root: bool, out: &mut Vec<&'a str>) {
+        let r = &self.records[node];
+        if !root && r.kind == Kind::Element && is_control(&r.name) {
+            return;
         }
-        out
+        if r.kind == Kind::Text {
+            out.push(r.text.as_str());
+        }
+        for &child in &r.children {
+            self.name_runs(child, false, out);
+        }
     }
 
     /// The first element of `name`, in document order, whose own label is
@@ -971,8 +987,9 @@ impl Document {
         self.ordered().into_iter().find_map(|(i, _)| {
             let r = &self.records[i];
             // A control's accessible name is its stored label where it has one —
-            // a button's glyphs are not its name — and its own text otherwise.
-            let named = if r.label.is_empty() { self.direct_text(i) } else { r.label.clone() };
+            // a button's glyphs are not its name — and the text of its
+            // descendants otherwise.
+            let named = if r.label.is_empty() { self.accessible_name(i) } else { r.label.clone() };
             (r.kind == Kind::Element && r.name == name && named == label).then_some(i)
         })
     }
@@ -1114,6 +1131,13 @@ fn classes_of(body: &str) -> Vec<String> {
         }
     }
     Vec::new()
+}
+
+/// Whether `name` is a form control whose own text an accessible-name walk does
+/// not fold into an ancestor's name — so a field label's name stays its own text
+/// and not the value run inside its input.
+fn is_control(name: &str) -> bool {
+    matches!(name, "input" | "textarea" | "select" | "button")
 }
 
 /// Whether a control's flag is set — the scene's `disabled:true`.
