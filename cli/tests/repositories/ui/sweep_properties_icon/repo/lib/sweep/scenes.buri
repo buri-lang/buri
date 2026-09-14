@@ -11,7 +11,6 @@
 //! gives a scene. A band clips, which is what keeps a value that grows from
 //! pushing the ones below it off the page.
 
-from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/style" import { Color, Shadow, Style, token };
@@ -253,9 +252,9 @@ export fn colourPage<C>(): Node<C> {
             cell("icon", subject([.Foreground(.Rgb(200, 30, 30))])),
             cell(
                 "image",
-                ui.stack(base([.Foreground(.Rgb(200, 30, 30))]), [
-                    ui.image(.Const(asAnImage), .Const(""), []),
-                ]),
+                ui.stack({ styles: base([.Foreground(.Rgb(200, 30, 30))]), children: [
+                    ui.image({ source: .Const(asAnImage), alt: .AccessibilityText(""), styles: [] }),
+                ] }),
             ),
         ]),
         band("inside a button", 105, [
@@ -292,23 +291,20 @@ export fn colourPage<C>(): Node<C> {
 /// half of the issue a data URI could not answer: the same artwork, two
 /// themes, two colours, one copy of the drawing.
 export fn themePage<C>(): Node<C> {
-    ui.column(
-        [
+    ui.stack({ styles: [.Layout(.Column), .Group([
             .Height(.Full),
             .Padding(.Px(24)),
             .Gap(.Px(12)),
             .Background(Token.Surface.color()),
             .Foreground(Token.Ink.color()),
             .FontSize(.Px(16)),
-        ],
-        [
-            ui.text(.Const("saved")),
-            ui.row([.Gap(.Px(8)), .AlignCross(.Center)], [
-                ui.icon([.Width(.Px(24)), .Height(.Px(24))], glyph),
-                ui.text(.Const("saved")),
-            ]),
-        ],
-    )
+        ])], children: [
+            ui.text({ content: .Const("saved") }),
+            ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Center)])], children: [
+                ui.image({ source: .Const(glyph), alt: .Decorative, styles: [.Width(.Px(24)), .Height(.Px(24))] }),
+                ui.text({ content: .Const("saved") }),
+            ] }),
+        ] })
 }
 
 /// This package's closed token vocabulary. What each one is worth is the app's
@@ -338,44 +334,38 @@ export fn themedBy(mapping: fn(Token) => Color): Theme {
 
 /// One picture: two columns of bands, one band per property.
 fn page<C>(bands: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Layout(.Grid([.Fraction(1), .Fraction(1)])),
             .Gap(.Px(2)),
             .Padding(.Px(4)),
             .Background(.Rgb(255, 255, 255)),
             .Foreground(.Rgb(20, 20, 20)),
             .FontSize(.Px(11)),
-        ],
-        bands,
-    )
+        ], children: bands })
 }
 
 /// One property's band: its name, then a cell per value, clipped to `height`
 /// so a value that grows stays inside its own row.
 fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Height(.Px(height)),
             .Scroll(.Both),
             .Padding(.Px(3)),
             .Background(.Rgb(243, 244, 247)),
-        ],
-        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
-    )
+        ], children: [ui.text({ content: .Const(name) }), ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])], children: cells })] })
 }
 
 /// One value: its label, and the primitive carrying it.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.column([.Width(.Px(88)), .Gap(.Px(1)), .AlignCross(.Start)], [
-        ui.text(.Const(label)),
+    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(88)), .Gap(.Px(1)), .AlignCross(.Start)])], children: [
+        ui.text({ content: .Const(label) }),
         inner,
-    ])
+    ] })
 }
 
 /// The subject every cell holds: the artwork itself, carrying the styles.
 fn subject<C>(styles: [Style]): Node<C> {
-    ui.icon(base(styles), glyph)
+    ui.image({ source: .Const(glyph), alt: .Decorative, styles: base(styles) })
 }
 
 /// What every subject carries before the cell's own styles, which come last so
@@ -395,20 +385,17 @@ fn base(styles: [Style]): [Style] {
 fn labelled<C>(name: Str, colour: Color): Node<C> {
     cell(
         name,
-        ui.row(
-            [
+        ui.stack({ styles: [.Layout(.Row), .Group([
                 .Gap(.Px(4)),
                 .AlignCross(.Center),
                 .Padding(.Px(4)),
                 .Background(.Rgb(30, 30, 36)),
                 .Foreground(colour),
                 .FontSize(.Px(14)),
-            ],
-            [
-                ui.icon([.Width(.Px(18)), .Height(.Px(18))], glyph),
-                ui.text(.Const("done")),
-            ],
-        ),
+            ])], children: [
+                ui.image({ source: .Const(glyph), alt: .Decorative, styles: [.Width(.Px(18)), .Height(.Px(18))] }),
+                ui.text({ content: .Const("done") }),
+            ] }),
     )
 }
 
@@ -416,9 +403,7 @@ fn labelled<C>(name: Str, colour: Color): Node<C> {
 /// wanted for: one `Foreground` on the button paints both, and one `On(.Hover)`
 /// moves both, because there is one element being hovered.
 fn pressable<C>(styles: [Style]): Node<C> {
-    ui.button(
-        .Const("save"),
-        [
+    ui.button({ label: .Const("save"), styles: [
             .Layout(.Row),
             .Gap(.Px(6)),
             .AlignCross(.Center),
@@ -428,23 +413,18 @@ fn pressable<C>(styles: [Style]): Node<C> {
             .Background(.Rgb(30, 30, 36)),
             .FontSize(.Px(14)),
             .Group(styles),
-        ],
-        [ui.icon([.Width(.Px(16)), .Height(.Px(16))], glyph), ui.text(.Const("save"))],
-        noop,
-        .Const(false),
-        .Const(false),
-    )
+        ], children: .Some([ui.image({ source: .Const(glyph), alt: .Decorative, styles: [.Width(.Px(16)), .Height(.Px(16))] }), ui.text({ content: .Const("save") })]), onPress: .Some(noop) })
 }
 
 /// A press a picture cannot make.
-fn noop<C>(_c: C, _event: Event): () {}
+fn noop<C>(_c: C): () {}
 
 /// Two boxes deep, so the colour reaching the glyph is one the cascade carried
 /// rather than one written on the element.
 fn nested<C>(inner: Color): Node<C> {
-    ui.stack([.Padding(.Px(4)), .Foreground(.Rgb(200, 30, 30))], [
-        ui.stack([.Padding(.Px(4)), .Foreground(inner)], [
-            ui.icon([.Width(.Px(24)), .Height(.Px(24))], glyph),
-        ]),
-    ])
+    ui.stack({ styles: [.Padding(.Px(4)), .Foreground(.Rgb(200, 30, 30))], children: [
+        ui.stack({ styles: [.Padding(.Px(4)), .Foreground(inner)], children: [
+            ui.image({ source: .Const(glyph), alt: .Decorative, styles: [.Width(.Px(24)), .Height(.Px(24))] }),
+        ] }),
+    ] })
 }

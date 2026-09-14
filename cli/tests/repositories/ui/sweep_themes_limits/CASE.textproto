@@ -39,8 +39,8 @@ path { path: "lib/limits/test/__snapshots__/limits-wide.diff.png"  exists: false
 # one rather than showing a difference against nothing.
 edit {
   file: "lib/limits/test/limits.buri"
-  replace: "snapshot(ctx, \"limits-nothing\", ui.nothing(), .Hover, []);"
-  with: "snapshot(ctx, \"never-recorded\", ui.nothing(), .Hover, []);"
+  replace: "snapshot(ctx, \"limits-nothing\", ui.empty(), .Hover, []);"
+  with: "snapshot(ctx, \"never-recorded\", ui.empty(), .Hover, []);"
 }
 
 run {

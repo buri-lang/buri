@@ -5,17 +5,17 @@ from "ui/node" import { Node };
 /// either side, so a boundary in a picture is a number off the viewport's own
 /// edge.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))], rows)
+    ui.stack({ styles: [.Layout(.Column), .Group([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))])], children: rows })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.column([.Gap(.Px(2))], [
-        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
-            ui.text(.Const(label)),
-        ]),
+    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(2))])], children: [
+        ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
+            ui.text({ content: .Const(label) }),
+        ] }),
         demo,
-    ])
+    ] })
 }
 
 /// Every `Track` there is, across the whole eight hundred: exactly this
@@ -24,55 +24,43 @@ export fn tracks<C>(): Node<C> {
     page([
         band(
             "Fixed(.Px(160)) three times",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(
                         .Grid([.Fixed(.Px(160)), .Fixed(.Px(160)), .Fixed(.Px(160))]),
                     ),
-                ],
-                [
-                    ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], []),
-                ],
-            ),
+                ], children: [
+                    ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], children: [] }),
+                ] }),
         ),
         band(
             "Fraction(1) three times",
-            ui.stack([.Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)]))], [
-                ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], []),
-            ]),
+            ui.stack({ styles: [.Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)]))], children: [
+                ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], children: [] }),
+            ] }),
         ),
         band(
             "Auto three times",
-            ui.stack([.Layout(.Grid([.Auto, .Auto, .Auto]))], [
-                ui.stack(
-                    [
+            ui.stack({ styles: [.Layout(.Grid([.Auto, .Auto, .Auto]))], children: [
+                ui.stack({ styles: [
                         .Background(.Rgb(200, 40, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("narrow"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("narrow") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 150, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("a middling cell"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("a middling cell") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 40, 200)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("the widest cell of the three"))],
-                ),
-            ]),
+                    ], children: [ui.text({ content: .Const("the widest cell of the three") })] }),
+            ] }),
         ),
     ])
 }
@@ -83,33 +71,33 @@ export fn fractions<C>(): Node<C> {
     page([
         band(
             "Fraction(1), Fraction(2)",
-            ui.stack([.Layout(.Grid([.Fraction(1), .Fraction(2)]))], [
-                ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-            ]),
+            ui.stack({ styles: [.Layout(.Grid([.Fraction(1), .Fraction(2)]))], children: [
+                ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+            ] }),
         ),
         band(
             "Fraction(2), Fraction(1)",
-            ui.stack([.Layout(.Grid([.Fraction(2), .Fraction(1)]))], [
-                ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-            ]),
+            ui.stack({ styles: [.Layout(.Grid([.Fraction(2), .Fraction(1)]))], children: [
+                ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+            ] }),
         ),
         band(
             "Fraction(1) three times",
-            ui.stack([.Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)]))], [
-                ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], []),
-            ]),
+            ui.stack({ styles: [.Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)]))], children: [
+                ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], children: [] }),
+            ] }),
         ),
         band(
             "Fixed(.Px(80)), Fraction(1), Fraction(2)",
-            ui.stack([.Layout(.Grid([.Fixed(.Px(80)), .Fraction(1), .Fraction(2)]))], [
-                ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-                ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], []),
-            ]),
+            ui.stack({ styles: [.Layout(.Grid([.Fixed(.Px(80)), .Fraction(1), .Fraction(2)]))], children: [
+                ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+                ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], children: [] }),
+            ] }),
         ),
     ])
 }
@@ -121,90 +109,63 @@ export fn mixedTracks<C>(): Node<C> {
     page([
         band(
             "Fixed(.Px(120)), Auto, Fraction(1)",
-            ui.stack([.Layout(.Grid([.Fixed(.Px(120)), .Auto, .Fraction(1)]))], [
-                ui.stack(
-                    [
+            ui.stack({ styles: [.Layout(.Grid([.Fixed(.Px(120)), .Auto, .Fraction(1)]))], children: [
+                ui.stack({ styles: [
                         .Background(.Rgb(200, 40, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("fixed"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("fixed") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 150, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("auto"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("auto") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 40, 200)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("fraction"))],
-                ),
-            ]),
+                    ], children: [ui.text({ content: .Const("fraction") })] }),
+            ] }),
         ),
         band(
             "Auto, Fraction(1), Fixed(.Px(100))",
-            ui.stack([.Layout(.Grid([.Auto, .Fraction(1), .Fixed(.Px(100))]))], [
-                ui.stack(
-                    [
+            ui.stack({ styles: [.Layout(.Grid([.Auto, .Fraction(1), .Fixed(.Px(100))]))], children: [
+                ui.stack({ styles: [
                         .Background(.Rgb(200, 40, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("fixed"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("fixed") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 150, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("auto"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("auto") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 40, 200)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("fraction"))],
-                ),
-            ]),
+                    ], children: [ui.text({ content: .Const("fraction") })] }),
+            ] }),
         ),
         band(
             "Fraction(1), Fixed(.Px(200)), Fraction(3)",
-            ui.stack([.Layout(.Grid([.Fraction(1), .Fixed(.Px(200)), .Fraction(3)]))], [
-                ui.stack(
-                    [
+            ui.stack({ styles: [.Layout(.Grid([.Fraction(1), .Fixed(.Px(200)), .Fraction(3)]))], children: [
+                ui.stack({ styles: [
                         .Background(.Rgb(200, 40, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("fixed"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("fixed") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 150, 40)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("auto"))],
-                ),
-                ui.stack(
-                    [
+                    ], children: [ui.text({ content: .Const("auto") })] }),
+                ui.stack({ styles: [
                         .Background(.Rgb(40, 40, 200)),
                         .Foreground(.Rgb(255, 255, 255)),
                         .Padding(.Px(4)),
-                    ],
-                    [ui.text(.Const("fraction"))],
-                ),
-            ]),
+                    ], children: [ui.text({ content: .Const("fraction") })] }),
+            ] }),
         ),
     ])
 }
@@ -215,60 +176,42 @@ export fn span<C>(): Node<C> {
     page([
         band(
             "Span(1) on the first cell",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(
                         .Grid([.Fraction(1), .Fraction(1), .Fraction(1), .Fraction(1)]),
                     ),
-                ],
-                [
-                    ui.stack(
-                        [.Background(.Rgb(200, 40, 40)), .Height(.Px(30)), .Span(1)],
-                        [],
-                    ),
-                    ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(30))], []),
-                    ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(30))], []),
-                    ui.stack([.Background(.Rgb(230, 160, 20)), .Height(.Px(30))], []),
-                ],
-            ),
+                ], children: [
+                    ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(30)), .Span(1)], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(30))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(30))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(230, 160, 20)), .Height(.Px(30))], children: [] }),
+                ] }),
         ),
         band(
             "Span(2) on the first cell",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(
                         .Grid([.Fraction(1), .Fraction(1), .Fraction(1), .Fraction(1)]),
                     ),
-                ],
-                [
-                    ui.stack(
-                        [.Background(.Rgb(200, 40, 40)), .Height(.Px(30)), .Span(2)],
-                        [],
-                    ),
-                    ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(30))], []),
-                    ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(30))], []),
-                    ui.stack([.Background(.Rgb(230, 160, 20)), .Height(.Px(30))], []),
-                ],
-            ),
+                ], children: [
+                    ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(30)), .Span(2)], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(30))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(30))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(230, 160, 20)), .Height(.Px(30))], children: [] }),
+                ] }),
         ),
         band(
             "Span(3) on the first cell",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(
                         .Grid([.Fraction(1), .Fraction(1), .Fraction(1), .Fraction(1)]),
                     ),
-                ],
-                [
-                    ui.stack(
-                        [.Background(.Rgb(200, 40, 40)), .Height(.Px(30)), .Span(3)],
-                        [],
-                    ),
-                    ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(30))], []),
-                    ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(30))], []),
-                    ui.stack([.Background(.Rgb(230, 160, 20)), .Height(.Px(30))], []),
-                ],
-            ),
+                ], children: [
+                    ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(30)), .Span(3)], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(30))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(30))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(230, 160, 20)), .Height(.Px(30))], children: [] }),
+                ] }),
         ),
     ])
 }
@@ -279,45 +222,36 @@ export fn gridGaps<C>(): Node<C> {
     page([
         band(
             "Fraction(1) three times, Gap(.Px(0))",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)])),
                     .Gap(.Px(0)),
-                ],
-                [
-                    ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], []),
-                ],
-            ),
+                ], children: [
+                    ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], children: [] }),
+                ] }),
         ),
         band(
             "Fraction(1) three times, Gap(.Px(12))",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)])),
                     .Gap(.Px(12)),
-                ],
-                [
-                    ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], []),
-                ],
-            ),
+                ], children: [
+                    ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], children: [] }),
+                ] }),
         ),
         band(
             "Fraction(1) three times, Gap(.Px(40))",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(.Grid([.Fraction(1), .Fraction(1), .Fraction(1)])),
                     .Gap(.Px(40)),
-                ],
-                [
-                    ui.stack([.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], []),
-                    ui.stack([.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], []),
-                ],
-            ),
+                ], children: [
+                    ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Height(.Px(36))], children: [] }),
+                    ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Height(.Px(36))], children: [] }),
+                ] }),
         ),
     ])
 }

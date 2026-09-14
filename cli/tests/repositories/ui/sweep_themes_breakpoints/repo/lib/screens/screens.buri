@@ -11,28 +11,25 @@ let green: Style = .Background(.Rgb(40, 160, 80));
 
 /// One labelled row: the label in a fixed track, the sample in the rest.
 fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
-    ui.stack([.Layout(.Grid([.Fixed(.Px(220)), .Fraction(1)])), .Gap(.Px(12))], [
-        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+    ui.stack({ styles: [.Layout(.Grid([.Fixed(.Px(220)), .Fraction(1)])), .Gap(.Px(12))], children: [
+        ui.stack({ styles: [.FontSize(.Px(12))], children: [ui.text({ content: .Const(label) })] }),
         sample,
-    ])
+    ] })
 }
 
 /// A block of colour with a word in it.
 fn block<C>(styles: [Style], words: Str): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Group(styles),
             .Padding(.Px(8)),
             .Foreground(.Rgb(255, 255, 255)),
             .FontSize(.Px(13)),
-        ],
-        [ui.text(.Const(words))],
-    )
+        ], children: [ui.text({ content: .Const(words) })] })
 }
 
 /// A page of labelled rows.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.Padding(.Px(16)), .Gap(.Px(10))], rows)
+    ui.stack({ styles: [.Layout(.Column), .Group([.Padding(.Px(16)), .Gap(.Px(10))])], children: rows })
 }
 
 /// One row per breakpoint: red below it, green from it upwards.
@@ -90,14 +87,11 @@ export fn layout<C>(): Node<C> {
     page([
         labelled(
             "a column, and a row from .Medium",
-            ui.stack(
-                [
+            ui.stack({ styles: [
                     .Layout(.Column),
                     .Gap(.Px(4)),
                     .At(.Medium, [.Layout(.Row), .Gap(.Px(24))]),
-                ],
-                cells,
-            ),
+                ], children: cells }),
         ),
         labelled(
             "160 wide, and 400 from .Large",

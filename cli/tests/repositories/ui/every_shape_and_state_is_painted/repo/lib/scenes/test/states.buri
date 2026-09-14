@@ -24,21 +24,11 @@ let states: [Style] = [
 /// thing beside it — a control's styles are the control's own, so the button
 /// paints them itself rather than sitting inside something else that does.
 fn badge<C>(): Node<C> {
-    ui.column([.Padding(.Px(24)), .Gap(.Px(8))], [
-        ui.stack(
-            [.Padding(.Px(20)), .Background(.Rgb(230, 230, 230)), .Group(states)],
-            [ui.text(.Const("badge"))],
-        ),
-        ui.button(
-            .Const("press"),
-            [.Padding(.Px(12)), .Background(.Rgb(200, 200, 245)), .Group(states)],
-            [],
-            fn(_c, _e) => (),
-            .Const(false),
-            .Const(false),
-        ),
-        ui.text(.Const("beside it")),
-    ])
+    ui.stack({ styles: [.Layout(.Column), .Group([.Padding(.Px(24)), .Gap(.Px(8))])], children: [
+        ui.stack({ styles: [.Padding(.Px(20)), .Background(.Rgb(230, 230, 230)), .Group(states)], children: [ui.text({ content: .Const("badge") })] }),
+        ui.button({ label: .Const("press"), styles: [.Padding(.Px(12)), .Background(.Rgb(200, 200, 245)), .Group(states)], onPress: .Some(fn(_c) => ()) }),
+        ui.text({ content: .Const("beside it") }),
+    ] })
 }
 
 test "hovered" {

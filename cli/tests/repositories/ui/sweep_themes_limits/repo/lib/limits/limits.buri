@@ -9,15 +9,15 @@ from "ui/style" import { Color, Style };
 
 /// One labelled row: the label in a fixed track, the sample in the rest.
 fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
-    ui.stack([.Layout(.Grid([.Fixed(.Px(210)), .Fraction(1)])), .Gap(.Px(12))], [
-        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+    ui.stack({ styles: [.Layout(.Grid([.Fixed(.Px(210)), .Fraction(1)])), .Gap(.Px(12))], children: [
+        ui.stack({ styles: [.FontSize(.Px(12))], children: [ui.text({ content: .Const(label) })] }),
         sample,
-    ])
+    ] })
 }
 
 /// A page of labelled rows.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.Padding(.Px(16)), .Gap(.Px(10))], rows)
+    ui.stack({ styles: [.Layout(.Column), .Group([.Padding(.Px(16)), .Gap(.Px(10))])], children: rows })
 }
 
 /// A visible box, so a container with nothing in it still has an edge.
@@ -30,28 +30,28 @@ let plate: [Style] = [
 
 /// A block of colour with a word in it.
 fn block<C>(shade: Color, words: Str): Node<C> {
-    ui.stack([.Background(shade), .Padding(.Px(6)), .Foreground(.Rgb(255, 255, 255))], [
-        ui.text(.Const(words)),
-    ])
+    ui.stack({ styles: [.Background(shade), .Padding(.Px(6)), .Foreground(.Rgb(255, 255, 255))], children: [
+        ui.text({ content: .Const(words) }),
+    ] })
 }
 
 /// Every container with nothing in it, and `nothing` among siblings that have
 /// something.
 export fn empties<C>(): Node<C> {
     page([
-        labelled("an empty stack", ui.stack(plate, [])),
-        labelled("an empty row", ui.row(plate, [])),
-        labelled("an empty column", ui.column(plate, [])),
-        labelled("an empty list", ui.region(.List, plate, [])),
-        labelled("an empty table", ui.region(.Table, plate, [])),
-        labelled("a stack of one `nothing`", ui.stack(plate, [ui.nothing()])),
+        labelled("an empty stack", ui.stack({ styles: plate, children: [] })),
+        labelled("an empty row", ui.stack({ styles: [.Layout(.Row), .Group(plate)], children: [] })),
+        labelled("an empty column", ui.stack({ styles: [.Layout(.Column), .Group(plate)], children: [] })),
+        labelled("an empty list", ui.stack({ styles: plate, children: [], role: .Some(.List) })),
+        labelled("an empty table", ui.stack({ styles: plate, children: [], role: .Some(.Table) })),
+        labelled("a stack of one `nothing`", ui.stack({ styles: plate, children: [ui.empty()] })),
         labelled(
             "`nothing` between two blocks",
-            ui.row([.Gap(.Px(8))], [
+            ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(8))])], children: [
                 block(.Rgb(200, 60, 60), "before"),
-                ui.nothing(),
+                ui.empty(),
                 block(.Rgb(40, 100, 200), "after"),
-            ]),
+            ] }),
         ),
     ])
 }
@@ -60,16 +60,16 @@ export fn empties<C>(): Node<C> {
 /// colours — so a hundred levels is a hundred rings and not one box.
 export fn deep<C>(levels: Int): Node<C> {
     if (levels <= 0) {
-        ui.stack([.Background(.Rgb(255, 255, 255)), .Padding(.Px(4))], [
-            ui.text(.Const("floor")),
-        ])
+        ui.stack({ styles: [.Background(.Rgb(255, 255, 255)), .Padding(.Px(4))], children: [
+            ui.text({ content: .Const("floor") }),
+        ] })
     } else {
         let shade: Color = if (levels % 2 == 0) {
             .Rgb(40, 90, 160)
         } else {
             .Rgb(210, 225, 240)
         };
-        ui.stack([.Padding(.Px(2)), .Background(shade)], [deep(levels - 1)])
+        ui.stack({ styles: [.Padding(.Px(2)), .Background(shade)], children: [deep(levels - 1)] })
     }
 }
 
@@ -77,15 +77,15 @@ export fn deep<C>(levels: Int): Node<C> {
 /// the one constructor whose children the walk asks for rather than being
 /// handed.
 export fn siblings<C: Allocator>(ctx: C, n: Int): Node<C> {
-    ui.row([.Wrap(true), .Gap(.Px(2)), .Padding(.Px(8))], [
+    ui.stack({ styles: [.Layout(.Row), .Group([.Wrap(true), .Gap(.Px(2)), .Padding(.Px(8))])], children: [
         ui.each(
             .Const(labels(ctx, n, 0, [])),
             fn(label) => label,
             fn(_c, _label, at) => {
-                ui.stack([.Width(.Px(20)), .Height(.Px(10)), .Background(tint(at))], [])
+                ui.stack({ styles: [.Width(.Px(20)), .Height(.Px(10)), .Background(tint(at))], children: [] })
             },
         ),
-    ])
+    ] })
 }
 
 /// `n` labels, "0" to "n - 1".

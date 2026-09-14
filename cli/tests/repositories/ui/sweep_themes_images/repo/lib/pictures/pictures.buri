@@ -23,23 +23,20 @@ let missing: Str = "https://example.com/logo.png";
 
 /// One labelled row: the label in a fixed track, the sample in the rest.
 fn labelled<C>(label: Str, sample: Node<C>): Node<C> {
-    ui.stack([.Layout(.Grid([.Fixed(.Px(230)), .Fraction(1)])), .Gap(.Px(12))], [
-        ui.stack([.FontSize(.Px(12))], [ui.text(.Const(label))]),
+    ui.stack({ styles: [.Layout(.Grid([.Fixed(.Px(230)), .Fraction(1)])), .Gap(.Px(12))], children: [
+        ui.stack({ styles: [.FontSize(.Px(12))], children: [ui.text({ content: .Const(label) })] }),
         sample,
-    ])
+    ] })
 }
 
 /// A page of labelled rows.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.Padding(.Px(16)), .Gap(.Px(10))], rows)
+    ui.stack({ styles: [.Layout(.Column), .Group([.Padding(.Px(16)), .Gap(.Px(10))])], children: rows })
 }
 
 /// An outlined box with a picture in it, so where the box ends is visible.
 fn framed<C>(styles: [Style], source: Str): Node<C> {
-    ui.stack(
-        [.Group(styles), .BorderWidth(.Px(2)), .BorderColor(.Rgb(120, 120, 130))],
-        [ui.image(.Const(source), .Const("a picture"), [])],
-    )
+    ui.stack({ styles: [.Group(styles), .BorderWidth(.Px(2)), .BorderColor(.Rgb(120, 120, 130))], children: [ui.image({ source: .Const(source), alt: .AccessibilityText("a picture"), styles: [] })] })
 }
 
 /// One row per kind of source: the two the painter reads, and four it cannot.
@@ -72,7 +69,7 @@ export fn sizes<C>(): Node<C> {
         ),
         labelled(
             "read, in no box at all",
-            ui.image(.Const(icon), .Const("a picture"), []),
+            ui.image({ source: .Const(icon), alt: .AccessibilityText("a picture"), styles: [] }),
         ),
         labelled(
             "a vector, in a 200x100 box",
@@ -80,7 +77,7 @@ export fn sizes<C>(): Node<C> {
         ),
         labelled(
             "a vector, in no box at all",
-            ui.image(.Const(vector), .Const("a picture"), []),
+            ui.image({ source: .Const(vector), alt: .AccessibilityText("a picture"), styles: [] }),
         ),
         labelled(
             "a placeholder, in a 200x100 box",
@@ -92,7 +89,7 @@ export fn sizes<C>(): Node<C> {
         ),
         labelled(
             "a placeholder, in no box at all",
-            ui.image(.Const(missing), .Const("a picture"), []),
+            ui.image({ source: .Const(missing), alt: .AccessibilityText("a picture"), styles: [] }),
         ),
     ])
 }

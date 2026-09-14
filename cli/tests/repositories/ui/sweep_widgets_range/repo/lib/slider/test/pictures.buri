@@ -22,16 +22,14 @@ test "where the thumb sits" {
     };
     let scene = ui.describe(
         ctx,
-        ui.field(
-            .Const("Volume"),
-            .Range(0.0, 100.0, 1.0),
-            .Const(""),
-            [],
-            [],
-            signal(ctx, "40"),
-            .Const(false),
-            .Const(false),
-        ),
+        ui.slider({
+            label: .Const("Volume"),
+            value: signal(ctx, 40.0),
+            min: 0.0,
+            max: 100.0,
+            styles: [],
+            step: .Some(1.0),
+        }),
         .Hover,
     );
     assert.containsText(scene, "field:range;range:0.0 100.0 40");
@@ -50,16 +48,14 @@ test "how big the track is" {
     // in a browser, and a `Width` beats it in both.
     let bare = ui.describe(
         ctx,
-        ui.field(
-            .Const("Gain"),
-            .Range(0.0, 10.0, 0.5),
-            .Const(""),
-            [],
-            [],
-            signal(ctx, "5"),
-            .Const(false),
-            .Const(false),
-        ),
+        ui.slider({
+            label: .Const("Gain"),
+            value: signal(ctx, 5.0),
+            min: 0.0,
+            max: 10.0,
+            styles: [],
+            step: .Some(0.5),
+        }),
         .Hover,
     );
     assert.containsText(bare, "class:w-r12 h-r1 shrink-0;field:range");
@@ -75,16 +71,14 @@ test "what paints a slider" {
     // and the box behind it with `Background`.
     let painted = ui.describe(
         ctx,
-        ui.field(
-            .Const("Gain"),
-            .Range(0.0, 10.0, 0.5),
-            .Const(""),
-            [.Foreground(.Rgb(200, 30, 30))],
-            [],
-            signal(ctx, "5"),
-            .Const(false),
-            .Const(false),
-        ),
+        ui.slider({
+            label: .Const("Gain"),
+            value: signal(ctx, 5.0),
+            min: 0.0,
+            max: 10.0,
+            styles: [.Foreground(.Rgb(200, 30, 30))],
+            step: .Some(0.5),
+        }),
         .Hover,
     );
     assert.containsText(painted, "fg-c81e1e");
