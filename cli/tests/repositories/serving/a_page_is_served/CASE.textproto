@@ -80,8 +80,8 @@ run {
 # particular port free is a case that reports the machine.
 edit {
   file: "cmd/site/main.buri"
-  replace: "ui.text(.Const(\"the front page\"))"
-  with: "ui.text(.Const(theFrontPage))"
+  replace: "ui.text({ content: .Const(\"the front page\") })"
+  with: "ui.text({ content: .Const(theFrontPage) })"
 }
 
 run {

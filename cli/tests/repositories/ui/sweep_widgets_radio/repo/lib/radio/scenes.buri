@@ -17,7 +17,7 @@ from "ui/style" import { Style };
 /// none.
 export fn selectionPage<C: Ui>(ctx: C): Node<C> {
     page([
-        ui.text(.Const("radio — the dot marks the checked option")),
+        ui.text({ content: .Const("radio — the dot marks the checked option") }),
         band("selection — the dot follows the signal", [
             group(ctx, "first", "a"),
             group(ctx, "second", "b"),
@@ -30,7 +30,7 @@ export fn selectionPage<C: Ui>(ctx: C): Node<C> {
 /// Colour: one option checked, and its dot painted in the group's foreground.
 export fn colourPage<C: Ui>(ctx: C): Node<C> {
     page([
-        ui.text(.Const("radio — the foreground draws the dot")),
+        ui.text({ content: .Const("radio — the foreground draws the dot") }),
         band("Foreground draws the dot", [
             coloured(ctx, "near black", []),
             coloured(ctx, "blue", [.Foreground(.Rgb(48, 64, 200))]),
@@ -42,48 +42,79 @@ export fn colourPage<C: Ui>(ctx: C): Node<C> {
 
 /// A three-option group under its name, `selected` the key the signal holds.
 fn group<C: Ui>(ctx: C, name: Str, selected: Str): Node<C> {
-    ui.column([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)], [
-        ui.text(.Const(name)),
-        ui.radioGroup(
-            .Const(name),
-            [("a", .Const("A")), ("b", .Const("B")), ("c", .Const("C"))],
-            [.Gap(.Px(4))],
-            signal(ctx, selected),
-        ),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.picker({
+                label: .Const(name),
+                options: [
+                    ("a", ui.text({ content: .Const("A") })),
+                    ("b", ui.text({ content: .Const("B") })),
+                    ("c", ui.text({ content: .Const("C") })),
+                ],
+                value: signal(ctx, selected),
+                styles: [.Gap(.Px(4))],
+            }),
+        ],
+    })
 }
 
 /// A two-option group under its name, its second option checked, in a
 /// foreground of its own.
 fn coloured<C: Ui>(ctx: C, name: Str, paint: [Style]): Node<C> {
-    ui.column([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)], [
-        ui.text(.Const(name)),
-        ui.radioGroup(
-            .Const(name),
-            [("a", .Const("A")), ("b", .Const("B"))],
-            [.Gap(.Px(4)), .Group(paint)],
-            signal(ctx, "b"),
-        ),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.picker({
+                label: .Const(name),
+                options: [
+                    ("a", ui.text({ content: .Const("A") })),
+                    ("b", ui.text({ content: .Const("B") })),
+                ],
+                value: signal(ctx, "b"),
+                styles: [.Gap(.Px(4)), .Group(paint)],
+            }),
+        ],
+    })
 }
 
 /// One band: its name, then a cell per value.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.column([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
-        ui.text(.Const(name)),
-        ui.row([.Gap(.Px(8)), .AlignCross(.Start)], cells),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page: a title and the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }

@@ -154,8 +154,8 @@ fn childAllStates(): [Style] {
 
 /// A box inside a box, each with the base under its own `extra`.
 fn styled<C>(parentExtra: [Style], childExtra: [Style]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Padding(.Px(10)),
             .Background(.Rgb(150, 170, 200)),
             .Foreground(.Rgb(24, 24, 24)),
@@ -165,35 +165,40 @@ fn styled<C>(parentExtra: [Style], childExtra: [Style]): Node<C> {
             .Width(.Full),
             .Group(parentExtra),
         ],
-        [
-            ui.stack(
-                [
+        children: [
+            ui.stack({
+                styles: [
                     .Padding(.Px(6)),
                     .Background(.Rgb(110, 135, 180)),
                     .Radius(.Px(3)),
                     .Width(.Full),
                     .Group(childExtra),
                 ],
-                [ui.text(.Const("in"))],
-            ),
+                children: [ui.text({ content: .Const("in") })],
+            }),
         ],
-    )
+    })
 }
 
 /// The same pair with nothing under the parent's `extra`.
 fn bare<C>(parentExtra: [Style]): Node<C> {
-    ui.stack([.Group(parentExtra)], [ui.stack([], [ui.text(.Const("in"))])])
+    ui.stack({
+        styles: [.Group(parentExtra)],
+        children: [
+            ui.stack({ styles: [], children: [ui.text({ content: .Const("in") })] }),
+        ],
+    })
 }
 
 /// One label cell.
 fn label<C>(text: Str): Node<C> {
-    ui.stack([], [ui.text(.Const(text))])
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(text) })] })
 }
 
 /// One row: a label track, then one cell per column.
 fn grid<C>(cells: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Layout(
                 .Grid([
                     .Fixed(.Px(74)),
@@ -209,8 +214,8 @@ fn grid<C>(cells: [Node<C>]): Node<C> {
             .Gap(.Px(8)),
             .AlignCross(.Start),
         ],
-        cells,
-    )
+        children: cells,
+    })
 }
 
 /// The column names.
@@ -229,15 +234,18 @@ fn headings<C>(): Node<C> {
 
 /// The page: a title and the rows under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }
 
 /// Only the parent answers.
@@ -327,7 +335,7 @@ fn bareRestingRow<C>(): Node<C> {
 /// Every element answering to every state, one property to a column.
 export fn responsive<C>(): Node<C> {
     page([
-        ui.text(.Const("a parent's state style against the child's own")),
+        ui.text({ content: .Const("a parent's state style against the child's own") }),
         headings(),
         parentRow(),
         childRow(),
@@ -340,7 +348,7 @@ export fn responsive<C>(): Node<C> {
 /// whatever state it is painted in.
 export fn resting<C>(): Node<C> {
     page([
-        ui.text(.Const("a parent's state style against the child's own")),
+        ui.text({ content: .Const("a parent's state style against the child's own") }),
         headings(),
         restingRow("parent"),
         restingRow("child"),

@@ -76,8 +76,8 @@ path { path: "lib/scenes/test/__snapshots__/empty.diff.png"  exists: false }
 # one rather than showing a difference against nothing.
 edit {
   file: "lib/scenes/test/shapes.buri"
-  replace: "snapshot(ctx, \"empty\", ui.nothing(), .Hover, []);"
-  with: "snapshot(ctx, \"never-recorded\", ui.nothing(), .Hover, []);"
+  replace: "snapshot(ctx, \"empty\", ui.empty(), .Hover, []);"
+  with: "snapshot(ctx, \"never-recorded\", ui.empty(), .Hover, []);"
 }
 
 run {
@@ -108,8 +108,8 @@ run {
 # it, and the diff images on disk beside their goldens.
 edit {
   file: "lib/scenes/test/states.buri"
-  replace: "ui.text(.Const(\"beside it\")),"
-  with: "ui.text(.Const(\"beside them\")),"
+  replace: "ui.text({ content: .Const(\"beside it\") }),"
+  with: "ui.text({ content: .Const(\"beside them\") }),"
 }
 
 run {

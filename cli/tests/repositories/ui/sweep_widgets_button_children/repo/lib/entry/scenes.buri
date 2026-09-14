@@ -9,7 +9,6 @@
 //! page on the button itself. Painted twice — resting and hovered — so the two
 //! pictures say the wash covers the mark and the text together.
 
-from "ui/effect" import { Event };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/style" import { Color, Style };
@@ -17,110 +16,106 @@ from "ui/style" import { Color, Style };
 /// The shapes a button's children take.
 export fn contentPage<C>(): Node<C> {
     page([
-        ui.text(.Const("what a button holds")),
+        ui.text({ content: .Const("what a button holds") }),
         band("no children — the label is what it shows", [
             cell(
                 "label only",
-                ui.button(
-                    .Const("Save"),
-                    chip([]),
-                    [],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: chip([]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
         band("one child", [
             cell(
                 "a word",
-                ui.button(
-                    .Const("Save"),
-                    chip([]),
-                    [ui.text(.Const("Save"))],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: chip([]),
+                    children: .Some([ui.text({ content: .Const("Save") })]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "a mark",
-                ui.button(
-                    .Const("Close"),
-                    chip([]),
-                    [mark(.Rgb(24, 24, 40))],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({
+                    label: .Const("Close"),
+                    styles: chip([]),
+                    children: .Some([mark(.Rgb(24, 24, 40))]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
         band("several children, laid out by the button's own styles", [
             cell(
                 "mark, word",
-                ui.button(
-                    .Const("Overview"),
-                    chip([]),
-                    [mark(.Rgb(24, 24, 40)), ui.text(.Const("Overview"))],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({
+                    label: .Const("Overview"),
+                    styles: chip([]),
+                    children: .Some([
+                        mark(.Rgb(24, 24, 40)),
+                        ui.text({ content: .Const("Overview") }),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "word, chevron",
-                ui.button(
-                    .Const("Details"),
-                    chip([]),
-                    [ui.text(.Const("Details")), mark(.Rgb(120, 120, 140))],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({
+                    label: .Const("Details"),
+                    styles: chip([]),
+                    children: .Some([
+                        ui.text({ content: .Const("Details") }),
+                        mark(.Rgb(120, 120, 140)),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "mark, word, chevron",
-                ui.button(
-                    .Const("Reports"),
-                    chip([]),
-                    [
+                ui.button({
+                    label: .Const("Reports"),
+                    styles: chip([]),
+                    children: .Some([
                         mark(.Rgb(24, 24, 40)),
-                        ui.text(.Const("Reports")),
+                        ui.text({ content: .Const("Reports") }),
                         mark(.Rgb(120, 120, 140)),
-                    ],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
         band("a subtree, and a spacer that pushes inside the button", [
             cell(
                 "two lines",
-                ui.button(
-                    .Const("Ada Byron"),
-                    chip([.Width(.Px(140)), .AlignCross(.Start)]),
-                    [
-                        ui.column([.AlignCross(.Start)], [
-                            ui.text(.Const("Ada Byron")),
-                            ui.text(.Const("countess")),
-                        ]),
-                    ],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({
+                    label: .Const("Ada Byron"),
+                    styles: chip([.Width(.Px(140)), .AlignCross(.Start)]),
+                    children: .Some([
+                        ui.stack({
+                            styles: [.Layout(.Column), .Group([.AlignCross(.Start)])],
+                            children: [
+                                ui.text({ content: .Const("Ada Byron") }),
+                                ui.text({ content: .Const("countess") }),
+                            ],
+                        }),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "pushed apart",
-                ui.button(
-                    .Const("Ada Byron"),
-                    chip([.Width(.Px(140))]),
-                    [ui.text(.Const("Ada")), ui.spacer(), mark(.Rgb(120, 120, 140))],
-                    press(),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({
+                    label: .Const("Ada Byron"),
+                    styles: chip([.Width(.Px(140))]),
+                    children: .Some([
+                        ui.text({ content: .Const("Ada") }),
+                        ui.spacer({ size: .None }),
+                        mark(.Rgb(120, 120, 140)),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
     ])
@@ -130,14 +125,22 @@ export fn contentPage<C>(): Node<C> {
 /// button rather than on a row around it.
 export fn railPage<C>(): Node<C> {
     page([
-        ui.text(.Const("a rail — the wash covers the mark and the word")),
-        ui.region(.Navigation, [.Width(.Px(220)), .Padding(.Px(6))], [
-            ui.region(.List, [.Gap(.Px(2)), .Layout(.Column)], [
-                item("Overview", false),
-                item("Reports", true),
-                item("Settings", false),
-            ]),
-        ]),
+        ui.text({ content: .Const("a rail — the wash covers the mark and the word") }),
+        ui.stack({
+            styles: [.Width(.Px(220)), .Padding(.Px(6))],
+            children: [
+                ui.stack({
+                    styles: [.Gap(.Px(2)), .Layout(.Column)],
+                    children: [
+                        item("Overview", false),
+                        item("Reports", true),
+                        item("Settings", false),
+                    ],
+                    role: .Some(.List),
+                }),
+            ],
+            role: .Some(.Navigation),
+        }),
     ])
 }
 
@@ -149,41 +152,46 @@ fn item<C>(name: Str, current: Bool): Node<C> {
     } else {
         []
     };
-    ui.region(.ListItem, [], [
-        ui.button(
-            .Const(name),
-            [
-                .Layout(.Row),
-                .AlignCross(.Center),
-                .Gap(.Px(8)),
-                .Width(.Full),
-                .PaddingX(.Px(8)),
-                .PaddingY(.Px(6)),
-                .Radius(.Px(6)),
-                .Group(wash),
-                .On(.Hover, [.Background(.Rgb(238, 240, 246))]),
-            ],
-            [mark(.Rgb(90, 100, 130)), ui.text(.Const(name))],
-            press(),
-            .Const(false),
-            .Const(false),
-        ),
-    ])
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const(name),
+                styles: [
+                    .Layout(.Row),
+                    .AlignCross(.Center),
+                    .Gap(.Px(8)),
+                    .Width(.Full),
+                    .PaddingX(.Px(8)),
+                    .PaddingY(.Px(6)),
+                    .Radius(.Px(6)),
+                    .Group(wash),
+                    .On(.Hover, [.Background(.Rgb(238, 240, 246))]),
+                ],
+                children: .Some([
+                    mark(.Rgb(90, 100, 130)),
+                    ui.text({ content: .Const(name) }),
+                ]),
+                onPress: .Some(press()),
+            }),
+        ],
+        role: .Some(.ListItem),
+    })
 }
 
 /// A mark: a small square standing in for an icon, since every image paints as
 /// a placeholder here.
 fn mark<C>(colour: Color): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Width(.Px(10)),
             .Height(.Px(10)),
             .Shrink(0),
             .Background(colour),
             .Radius(.Px(2)),
         ],
-        [],
-    )
+        children: [],
+    })
 }
 
 /// What every button carries before the cell's own styles.
@@ -202,35 +210,50 @@ fn chip(styles: [Style]): [Style] {
 }
 
 /// A handler that does nothing: a picture is never pressed.
-fn press<C>(): fn(C, Event) => () {
-    fn(_c, _e) => ()
+fn press<C>(): fn(C) => () {
+    fn(_c) => ()
 }
 
 /// One value: its name, and the button under it.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.column([.Width(.Px(180)), .Gap(.Px(4)), .AlignCross(.Start)], [
-        ui.text(.Const(label)),
-        inner,
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(180)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [ui.text({ content: .Const(label) }), inner],
+    })
 }
 
 /// One band: its name, then a cell per shape.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.column([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))], [
-        ui.text(.Const(name)),
-        ui.row([.Gap(.Px(8)), .AlignCross(.Start)], cells),
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page: a title and the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
         ],
-        rows,
-    )
+        children: rows,
+    })
 }

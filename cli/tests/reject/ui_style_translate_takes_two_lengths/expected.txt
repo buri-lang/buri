@@ -1,8 +1,8 @@
 error: expected `Length`, found `Int` [type-mismatch]
-  --> cmd/ui_style_translate_takes_two_lengths/main.buri:14:38
+  --> cmd/ui_style_translate_takes_two_lengths/main.buri:14:48
    |
-14 |   ui.mount(ctx, ui.stack([.Translate(0, 1)], []), [])
-   |                                      ^ the parameter type is `Length`
+14 |   ui.mount(ctx, ui.stack({ styles: [.Translate(0, 1)], children: [] }), [])
+   |                                                ^ the parameter type is `Length`
    |
    = expected: `Length`
    = actual: `Int`
@@ -36,10 +36,10 @@ error: expected `Length`, found `Int` [type-mismatch]
      payload would put a type in front of you that nothing in your program says.
 
 error: expected `Length`, found `Int` [type-mismatch]
-  --> cmd/ui_style_translate_takes_two_lengths/main.buri:14:41
+  --> cmd/ui_style_translate_takes_two_lengths/main.buri:14:51
    |
-14 |   ui.mount(ctx, ui.stack([.Translate(0, 1)], []), [])
-   |                                         ^ the parameter type is `Length`
+14 |   ui.mount(ctx, ui.stack({ styles: [.Translate(0, 1)], children: [] }), [])
+   |                                                   ^ the parameter type is `Length`
    |
    = expected: `Length`
    = actual: `Int`

@@ -22,22 +22,28 @@ test "a radio's dot follows the selection" {
     };
     let on = ui.describe(
         ctx,
-        ui.radioGroup(
-            .Const("x"),
-            [("a", .Const("A")), ("b", .Const("B"))],
-            [],
-            signal(ctx, "a"),
-        ),
+        ui.picker({
+            label: .Const("x"),
+            options: [
+                ("a", ui.text({ content: .Const("A") })),
+                ("b", ui.text({ content: .Const("B") })),
+            ],
+            value: signal(ctx, "a"),
+            styles: [],
+        }),
         .Hover,
     );
     let none = ui.describe(
         ctx,
-        ui.radioGroup(
-            .Const("x"),
-            [("a", .Const("A")), ("b", .Const("B"))],
-            [],
-            signal(ctx, "z"),
-        ),
+        ui.picker({
+            label: .Const("x"),
+            options: [
+                ("a", ui.text({ content: .Const("A") })),
+                ("b", ui.text({ content: .Const("B") })),
+            ],
+            value: signal(ctx, "z"),
+            styles: [],
+        }),
         .Hover,
     );
     assert.containsText(on, "mark:dot");

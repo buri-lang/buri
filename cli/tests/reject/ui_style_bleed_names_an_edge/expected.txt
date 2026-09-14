@@ -1,8 +1,8 @@
 error: `Edge` has no variant `Middle` [no-such-variant]
-  --> cmd/ui_style_bleed_names_an_edge/main.buri:14:34
+  --> cmd/ui_style_bleed_names_an_edge/main.buri:14:44
    |
-14 |   ui.mount(ctx, ui.stack([.Bleed(.Middle, .Px(8))], []), [])
-   |                                  ^^^^^^^
+14 |   ui.mount(ctx, ui.stack({ styles: [.Bleed(.Middle, .Px(8))], children: [] }), [])
+   |                                            ^^^^^^^
    |
    = its variants are `Top`, `Bottom`, `Start` and `End`
    = fix: name a variant the enum declares

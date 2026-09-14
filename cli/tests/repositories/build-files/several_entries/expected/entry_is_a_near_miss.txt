@@ -49,9 +49,9 @@ error: //cmd/site exports no `fetsh` [entry-not-found]
     differently once.
 
 error: a context may not be constructed here [context-not-allowed]
-  --> cmd/site/main.buri:26:15
+  --> cmd/site/main.buri:29:15
    |
-26 |     let ctx = context {
+29 |     let ctx = context {
    |               ^^^^^^^^^
    |
    = only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless

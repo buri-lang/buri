@@ -25,7 +25,7 @@ from "ui/testing" import { headless, observer, recorder, render };
 /// `value` changes is only whether the subtree was built again — `tree.buri`'s
 /// `headingFor`, so the crux below is the same tree on both sides.
 fn headingFor<C>(value: Int): Node<C> {
-    ui.heading(1, [], .Const("head"))
+    ui.text({ content: .Const("head"), headingLevel: .Some(1) })
 }
 
 test "a reactive leaf patches in place and follows its cell" {
@@ -33,7 +33,7 @@ test "a reactive leaf patches in place and follows its cell" {
         Ui: headless(),
     };
     let label = signal(ctx, "before");
-    let page = render(ctx, ui.text(.Cell(label)));
+    let page = render(ctx, ui.text({ content: .Cell(label) }));
     assert.equal(page.text(), "before");
     let _ = label.set(ctx, "after");
     assert.equal(page.text(), "after");
@@ -55,7 +55,11 @@ fn keyOf(item: Str): Str {
 
 /// A row whose text is the item, keyed by the item.
 fn eachRow<C>(ctx: C, item: Str, index: Int): Node<C> {
-    ui.region(.ListItem, [], [ui.text(.Const(item))])
+    ui.stack({
+        styles: [],
+        children: [ui.text({ content: .Const(item) })],
+        role: .Some(.ListItem),
+    })
 }
 
 test "inserting a row keeps the identities of the rows already there" {
@@ -65,7 +69,11 @@ test "inserting a row keeps the identities of the rows already there" {
     let items = signal(ctx, ["a", "c"]);
     let page = render(
         ctx,
-        ui.region(.List, [], [ui.each(.Cell(items), keyOf, eachRow)]),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), keyOf, eachRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let c = page.identity("li", 1);
@@ -86,7 +94,11 @@ test "removing a row keeps the identities of the others" {
     let items = signal(ctx, ["a", "b", "c"]);
     let page = render(
         ctx,
-        ui.region(.List, [], [ui.each(.Cell(items), keyOf, eachRow)]),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), keyOf, eachRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let c = page.identity("li", 2);
@@ -105,7 +117,11 @@ test "reordering moves the rows rather than rebuilding them" {
     let items = signal(ctx, ["a", "b", "c"]);
     let page = render(
         ctx,
-        ui.region(.List, [], [ui.each(.Cell(items), keyOf, eachRow)]),
+        ui.stack({
+            styles: [],
+            children: [ui.each(.Cell(items), keyOf, eachRow)],
+            role: .Some(.List),
+        }),
     );
     let a = page.identity("li", 0);
     let b = page.identity("li", 1);
@@ -129,13 +145,25 @@ test "a row that leaves takes what it created with it" {
     let items = signal(ctx, ["kept", "leaving"]);
     let page = render(
         ctx,
-        ui.region(.List, [], [
-            ui.each(.Cell(items), keyOf, fn(c, item, index) => {
-                ui.region(.ListItem, [], [
-                    ui.text(.Computed(fn(s) => "${item} ${log.note(n.get(s))}")),
-                ])
-            }),
-        ]),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Cell(items), keyOf, fn(c, item, index) => {
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.text({
+                                content: .Computed(fn(s) => {
+                                    "${item} ${log.note(n.get(s))}"
+                                }),
+                            }),
+                        ],
+                        role: .Some(.ListItem),
+                    })
+                }),
+            ],
+            role: .Some(.List),
+        }),
     );
     assert.equal(log.noted(), [1, 1]);
 
@@ -160,13 +188,23 @@ test "a row keeps its own reactive leaf across a reorder" {
     let items = signal(ctx, ["a", "b"]);
     let page = render(
         ctx,
-        ui.region(.List, [], [
-            ui.each(.Cell(items), keyOf, fn(c, item, index) => {
-                ui.region(.ListItem, [], [
-                    ui.text(.Computed(fn(s) => "${item}${suffix.get(s)}")),
-                ])
-            }),
-        ]),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Cell(items), keyOf, fn(c, item, index) => {
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.text({
+                                content: .Computed(fn(s) => "${item}${suffix.get(s)}"),
+                            }),
+                        ],
+                        role: .Some(.ListItem),
+                    })
+                }),
+            ],
+            role: .Some(.List),
+        }),
     );
     assert.equal(page.text(), "a! b!");
     let _ = items.set(ctx, ["b", "a"]);
@@ -182,14 +220,26 @@ test "a list nested in a list reconciles on its own" {
     let outer = signal(ctx, ["a", "b"]);
     let page = render(
         ctx,
-        ui.region(.List, [], [
-            ui.each(.Cell(outer), keyOf, fn(c, item, index) => {
-                ui.region(.ListItem, [], [
-                    ui.text(.Const(item)),
-                    ui.region(.List, [], [ui.each(.Cell(inner), keyOf, eachRow)]),
-                ])
-            }),
-        ]),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Cell(outer), keyOf, fn(c, item, index) => {
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.text({ content: .Const(item) }),
+                            ui.stack({
+                                styles: [],
+                                children: [ui.each(.Cell(inner), keyOf, eachRow)],
+                                role: .Some(.List),
+                            }),
+                        ],
+                        role: .Some(.ListItem),
+                    })
+                }),
+            ],
+            role: .Some(.List),
+        }),
     );
     assert.equal(page.count("li"), 4);
     let _ = inner.set(ctx, ["x", "y"]);
@@ -215,14 +265,11 @@ test "a press runs the button's handler" {
     let count = signal(ctx, 0);
     let page = render(
         ctx,
-        ui.button(
-            .Const("add"),
-            [],
-            [],
-            fn(c, e) => { count.update(c, fn(n) => n + 1) },
-            .Const(false),
-            .Const(false),
-        ),
+        ui.button({
+            label: .Const("add"),
+            styles: [],
+            onPress: .Some(fn(c) => { count.update(c, fn(n) => n + 1) }),
+        }),
     );
     let _ = page.press("add");
     let _ = page.press("add");
@@ -237,14 +284,12 @@ test "a disabled button refuses a press" {
     let count = signal(ctx, 0);
     let page = render(
         ctx,
-        ui.button(
-            .Const("save"),
-            [],
-            [],
-            fn(c, e) => { count.update(c, fn(n) => n + 1) },
-            .Const(true),
-            .Const(false),
-        ),
+        ui.button({
+            label: .Const("save"),
+            styles: [],
+            onPress: .Some(fn(c) => { count.update(c, fn(n) => n + 1) }),
+            isDisabled: .Some(.Const(true)),
+        }),
     );
     let _ = page.press("save");
     assert.equal(count.get(ctx), 0);
@@ -258,16 +303,7 @@ test "filling a field writes its bound signal" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(
-            .Const("name"),
-            .Text,
-            .Const(""),
-            [],
-            [],
-            name,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.field({ label: .Const("name"), kind: .Text, value: name, styles: [] }),
     );
     let _ = page.fill("name", "grace");
     assert.equal(name.get(ctx), "grace");
@@ -281,16 +317,13 @@ test "a disabled field is filled with nothing" {
     let name = signal(ctx, "ada");
     let page = render(
         ctx,
-        ui.field(
-            .Const("name"),
-            .Text,
-            .Const(""),
-            [],
-            [],
-            name,
-            .Const(false),
-            .Const(true),
-        ),
+        ui.field({
+            label: .Const("name"),
+            kind: .Text,
+            value: name,
+            styles: [],
+            isDisabled: .Some(.Const(true)),
+        }),
     );
     let _ = page.fill("name", "grace");
     assert.equal(name.get(ctx), "ada");
@@ -304,15 +337,7 @@ test "flipping a toggle flips its bound signal" {
     let done = signal(ctx, false);
     let page = render(
         ctx,
-        ui.toggle(
-            .Const("done"),
-            .Checkbox,
-            [],
-            [],
-            done,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.toggle({ label: .Const("done"), kind: .Checkbox, isOn: done, styles: [] }),
     );
     let _ = page.flip("done");
     assert.isTrue(done.get(ctx));
@@ -328,26 +353,28 @@ test "a press does not reach a button the pointer passes through" {
     let ignored = signal(ctx, 0);
     let page = render(
         ctx,
-        ui.stack([.Passthrough(true)], [
-            ui.button(
-                .Const("dead"),
-                [],
-                [],
-                fn(c, e) => { ignored.update(c, fn(n) => n + 1) },
-                .Const(false),
-                .Const(false),
-            ),
-            ui.stack([.Passthrough(false)], [
-                ui.button(
-                    .Const("live"),
-                    [],
-                    [],
-                    fn(c, e) => { ignored.update(c, fn(n) => n + 10) },
-                    .Const(false),
-                    .Const(false),
-                ),
-            ]),
-        ]),
+        ui.stack({
+            styles: [.Passthrough(true)],
+            children: [
+                ui.button({
+                    label: .Const("dead"),
+                    styles: [],
+                    onPress: .Some(fn(c) => { ignored.update(c, fn(n) => n + 1) }),
+                }),
+                ui.stack({
+                    styles: [.Passthrough(false)],
+                    children: [
+                        ui.button({
+                            label: .Const("live"),
+                            styles: [],
+                            onPress: .Some(fn(c) => {
+                                ignored.update(c, fn(n) => n + 10)
+                            }),
+                        }),
+                    ],
+                }),
+            ],
+        }),
     );
     // The dock passes the pointer through, so the button under it is never
     // pressed; a child that opts back in is.
@@ -366,26 +393,28 @@ test "an open dialog takes the rest of the page out of reach" {
     let pressed = signal(ctx, "");
     let page = render(
         ctx,
-        ui.stack([], [
-            ui.button(
-                .Const("behind"),
-                [],
-                [],
-                fn(c, e) => { pressed.set(c, "behind") },
-                .Const(false),
-                .Const(false),
-            ),
-            ui.dialog(open, .Const("Confirm"), [], [
-                ui.button(
-                    .Const("inside"),
-                    [],
-                    [],
-                    fn(c, e) => { pressed.set(c, "inside") },
-                    .Const(false),
-                    .Const(false),
-                ),
-            ]),
-        ]),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("behind"),
+                    styles: [],
+                    onPress: .Some(fn(c) => { pressed.set(c, "behind") }),
+                }),
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Confirm"),
+                    children: [
+                        ui.button({
+                            label: .Const("inside"),
+                            styles: [],
+                            onPress: .Some(fn(c) => { pressed.set(c, "inside") }),
+                        }),
+                    ],
+                    styles: [],
+                }),
+            ],
+        }),
     );
     // What is behind an open modal is inert, so the press reaches nothing; what
     // is inside it is reached.
@@ -404,18 +433,18 @@ test "a form is submitted through its one blocking field" {
     let what = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form(fn(c, e) => { submitted.update(c, fn(n) => n + 1) }, [], [
-            ui.field(
-                .Const("what"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                what,
-                .Const(false),
-                .Const(false),
-            ),
-        ]),
+        ui.form({
+            onSubmit: fn(c) => { submitted.update(c, fn(n) => n + 1) },
+            children: [
+                ui.field({
+                    label: .Const("what"),
+                    kind: .Text,
+                    value: what,
+                    styles: [],
+                }),
+            ],
+            styles: [],
+        }),
     );
     let _ = page.submit(0);
     assert.equal(submitted.get(ctx), 1);
@@ -430,19 +459,19 @@ test "a submit button pressed submits the form it is in" {
     let name = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form(fn(c, e) => { submitted.update(c, fn(n) => n + 1) }, [], [
-            ui.field(
-                .Const("Name"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                name,
-                .Const(false),
-                .Const(false),
-            ),
-            ui.submit(.Const("Send"), []),
-        ]),
+        ui.form({
+            onSubmit: fn(c) => { submitted.update(c, fn(n) => n + 1) },
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
     );
     let _ = page.press("Send");
     assert.equal(submitted.get(ctx), 1);
@@ -458,28 +487,14 @@ test "a form of two fields with no submit button is not submitted" {
     let two = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form(fn(c, e) => { submitted.update(c, fn(n) => n + 1) }, [], [
-            ui.field(
-                .Const("one"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                one,
-                .Const(false),
-                .Const(false),
-            ),
-            ui.field(
-                .Const("two"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                two,
-                .Const(false),
-                .Const(false),
-            ),
-        ]),
+        ui.form({
+            onSubmit: fn(c) => { submitted.update(c, fn(n) => n + 1) },
+            children: [
+                ui.field({ label: .Const("one"), kind: .Text, value: one, styles: [] }),
+                ui.field({ label: .Const("two"), kind: .Text, value: two, styles: [] }),
+            ],
+            styles: [],
+        }),
     );
     let _ = page.submit(0);
     assert.equal(submitted.get(ctx), 0);

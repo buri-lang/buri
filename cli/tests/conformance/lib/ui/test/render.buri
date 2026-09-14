@@ -22,7 +22,7 @@
 from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc as testAlloc };
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Event, Ui };
+from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
@@ -55,9 +55,8 @@ fn matchesDescribe<C: Allocator + Ui>(ctx: C, tree: Node<C>): () {
 
 /// A press handler that does nothing — dropped by the static walk, as `describe`
 /// drops it, so it does not reach the markup.
-fn noPress<C>(c: C, event: Event): () {
+fn noPress<C>(c: C): () {
     let _ = c;
-    let _ = event;
 }
 
 fn noFollow<C>(c: C, dest: Str): () {
@@ -70,14 +69,27 @@ test "text, headings and a nested stack, styled" {
         Allocator: testAlloc(),
         Ui: headless(),
     };
-    matchesDescribe(ctx, ui.text(.Const("bare")));
-    matchesDescribe(ctx, ui.heading(2, [.FontWeight(.Bold)], .Const("Prices")));
+    matchesDescribe(ctx, ui.text({ content: .Const("bare") }));
     matchesDescribe(
         ctx,
-        ui.stack([.Layout(.Row), .Padding(.Rem(1.0)), .Gap(.Rem(0.5))], [
-            ui.text(.Const("a")),
-            ui.stack([], [ui.text(.Const("b")), ui.nothing()]),
-        ]),
+        ui.text({
+            content: .Const("Prices"),
+            headingLevel: .Some(2),
+            styles: .Some([.FontWeight(.Bold)]),
+        }),
+    );
+    matchesDescribe(
+        ctx,
+        ui.stack({
+            styles: [.Layout(.Row), .Padding(.Rem(1.0)), .Gap(.Rem(0.5))],
+            children: [
+                ui.text({ content: .Const("a") }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("b") }), ui.empty()],
+                }),
+            ],
+        }),
     );
 }
 
@@ -86,26 +98,65 @@ test "every region role lowers to its own element" {
         Allocator: testAlloc(),
         Ui: headless(),
     };
-    matchesDescribe(ctx, ui.region(.Navigation, [], [ui.text(.Const("home"))]));
     matchesDescribe(
         ctx,
-        ui.region(.Main, [.Padding(.Rem(1.0))], [ui.region(.Banner, [], [])]),
+        ui.stack({
+            styles: [],
+            children: [ui.text({ content: .Const("home") })],
+            role: .Some(.Navigation),
+        }),
     );
     matchesDescribe(
         ctx,
-        ui.region(.List, [], [
-            ui.region(.ListItem, [], [ui.text(.Const("a"))]),
-            ui.region(.ListItem, [], [ui.text(.Const("b"))]),
-        ]),
+        ui.stack({
+            styles: [.Padding(.Rem(1.0))],
+            children: [ui.stack({ styles: [], children: [], role: .Some(.Banner) })],
+            role: .Some(.Main),
+        }),
     );
     matchesDescribe(
         ctx,
-        ui.region(.Table, [], [
-            ui.region(.TableRow, [], [
-                ui.region(.ColumnHeader, [], [ui.text(.Const("H"))]),
-                ui.region(.Cell, [], [ui.text(.Const("c"))]),
-            ]),
-        ]),
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("a") })],
+                    role: .Some(.ListItem),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("b") })],
+                    role: .Some(.ListItem),
+                }),
+            ],
+            role: .Some(.List),
+        }),
+    );
+    matchesDescribe(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("H") })],
+                            role: .Some(.ColumnHeader),
+                        }),
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("c") })],
+                            role: .Some(.Cell),
+                        }),
+                    ],
+                    role: .Some(.TableRow),
+                }),
+            ],
+            role: .Some(.Table),
+        }),
     );
 }
 
@@ -116,25 +167,21 @@ test "a button draws its label or its children" {
     };
     matchesDescribe(
         ctx,
-        ui.button(
-            .Const("ok"),
-            [.Padding(.Rem(0.5))],
-            [],
-            noPress,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.button({
+            label: .Const("ok"),
+            styles: [.Padding(.Rem(0.5))],
+            onPress: .Some(noPress),
+        }),
     );
     matchesDescribe(
         ctx,
-        ui.button(
-            .Const("ok"),
-            [],
-            [ui.text(.Const("glyph"))],
-            noPress,
-            .Const(true),
-            .Const(false),
-        ),
+        ui.button({
+            label: .Const("ok"),
+            styles: [],
+            children: .Some([ui.text({ content: .Const("glyph") })]),
+            onPress: .Some(noPress),
+            isDisabled: .Some(.Const(true)),
+        }),
     );
 }
 
@@ -143,16 +190,39 @@ test "links, a route link, a picture and an icon" {
         Allocator: testAlloc(),
         Ui: headless(),
     };
-    matchesDescribe(ctx, ui.link(.Const("/a"), [], [ui.text(.Const("go"))]));
     matchesDescribe(
         ctx,
-        ui.routeLink(.Const("/b"), [], [ui.text(.Const("route"))], noFollow),
+        ui.link({
+            dest: .Const("/a"),
+            children: [ui.text({ content: .Const("go") })],
+            styles: [],
+        }),
     );
     matchesDescribe(
         ctx,
-        ui.image(.Const("data:x"), .Const("alt"), [.Width(.Rem(4.0))]),
+        ui.link({
+            dest: .Const("/b"),
+            children: [ui.text({ content: .Const("route") })],
+            styles: [],
+            onFollow: .Some(noFollow),
+        }),
     );
-    matchesDescribe(ctx, ui.icon([.Width(.Rem(1.0))], "<svg><path d=\"M0 0\"/></svg>"));
+    matchesDescribe(
+        ctx,
+        ui.image({
+            source: .Const("data:x"),
+            alt: .AccessibilityText("alt"),
+            styles: [.Width(.Rem(4.0))],
+        }),
+    );
+    matchesDescribe(
+        ctx,
+        ui.image({
+            source: .Const("<svg><path d=\"M0 0\"/></svg>"),
+            alt: .Decorative,
+            styles: [.Width(.Rem(1.0))],
+        }),
+    );
 }
 
 test "fields of every kind, and the run of text they hold" {
@@ -163,58 +233,41 @@ test "fields of every kind, and the run of text they hold" {
     let text = signal(ctx, "typed");
     matchesDescribe(
         ctx,
-        ui.field(
-            .Const("Name"),
-            .Text,
-            .Const("hint"),
-            [],
-            [],
-            text,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.field({
+            label: .Const("Name"),
+            kind: .Text,
+            value: text,
+            styles: [],
+            hint: .Some(.Const("hint")),
+        }),
     );
     let secret = signal(ctx, "");
     matchesDescribe(
         ctx,
-        ui.field(
-            .Const("Password"),
-            .Password,
-            .Const(""),
-            [],
-            [],
-            secret,
-            .Const(false),
-            .Const(true),
-        ),
+        ui.field({
+            label: .Const("Password"),
+            kind: .Password,
+            value: secret,
+            styles: [],
+            isDisabled: .Some(.Const(true)),
+        }),
     );
     let note = signal(ctx, "lines");
     matchesDescribe(
         ctx,
-        ui.field(
-            .Const("Note"),
-            .Multiline,
-            .Const(""),
-            [],
-            [],
-            note,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.field({ label: .Const("Note"), kind: .Multiline, value: note, styles: [] }),
     );
-    let level = signal(ctx, "3");
+    let level = signal(ctx, 3.0);
     matchesDescribe(
         ctx,
-        ui.field(
-            .Const("Level"),
-            .Range(0.0, 10.0, 1.0),
-            .Const(""),
-            [],
-            [],
-            level,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.slider({
+            label: .Const("Level"),
+            value: level,
+            min: 0.0,
+            max: 10.0,
+            styles: [],
+            step: .Some(1.0),
+        }),
     );
 }
 
@@ -226,38 +279,33 @@ test "toggles, on and off, switch and checkbox" {
     let on = signal(ctx, true);
     matchesDescribe(
         ctx,
-        ui.toggle(.Const("Wifi"), .Switch, [], [], on, .Const(false), .Const(false)),
+        ui.toggle({ label: .Const("Wifi"), kind: .Switch, isOn: on, styles: [] }),
     );
     let off = signal(ctx, false);
     matchesDescribe(
         ctx,
-        ui.toggle(.Const("Wifi"), .Switch, [], [], off, .Const(false), .Const(false)),
+        ui.toggle({ label: .Const("Wifi"), kind: .Switch, isOn: off, styles: [] }),
     );
     let ticked = signal(ctx, true);
     matchesDescribe(
         ctx,
-        ui.toggle(
-            .Const("Agree"),
-            .Checkbox,
-            [],
-            [],
-            ticked,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.toggle({
+            label: .Const("Agree"),
+            kind: .Checkbox,
+            isOn: ticked,
+            styles: [],
+        }),
     );
     let clear = signal(ctx, false);
     matchesDescribe(
         ctx,
-        ui.toggle(
-            .Const("Agree"),
-            .Checkbox,
-            [],
-            [],
-            clear,
-            .Const(false),
-            .Const(true),
-        ),
+        ui.toggle({
+            label: .Const("Agree"),
+            kind: .Checkbox,
+            isOn: clear,
+            styles: [],
+            isDisabled: .Some(.Const(true)),
+        }),
     );
 }
 
@@ -269,29 +317,32 @@ test "a form with a submit, and a radio group" {
     let name = signal(ctx, "");
     matchesDescribe(
         ctx,
-        ui.form(noPress, [.Padding(.Rem(1.0))], [
-            ui.field(
-                .Const("Name"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                name,
-                .Const(false),
-                .Const(false),
-            ),
-            ui.submit(.Const("Send"), []),
-        ]),
+        ui.form({
+            onSubmit: noPress,
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [.Padding(.Rem(1.0))],
+        }),
     );
     let choice = signal(ctx, "b");
     matchesDescribe(
         ctx,
-        ui.radioGroup(
-            .Const("Pick"),
-            [("a", .Const("First")), ("b", .Const("Second"))],
-            [],
-            choice,
-        ),
+        ui.picker({
+            label: .Const("Pick"),
+            options: [
+                ("a", ui.text({ content: .Const("First") })),
+                ("b", ui.text({ content: .Const("Second") })),
+            ],
+            value: choice,
+            styles: [],
+        }),
     );
 }
 
@@ -302,20 +353,45 @@ test "choose, computed and each are built once" {
     };
     matchesDescribe(
         ctx,
-        ui.choose(.Const(true), ui.text(.Const("then")), ui.text(.Const("else"))),
+        ui.choose(
+            .Const(true),
+            ui.text({ content: .Const("then") }),
+            ui.text({ content: .Const("else") }),
+        ),
     );
     matchesDescribe(
         ctx,
-        ui.choose(.Const(false), ui.text(.Const("then")), ui.text(.Const("else"))),
+        ui.choose(
+            .Const(false),
+            ui.text({ content: .Const("then") }),
+            ui.text({ content: .Const("else") }),
+        ),
     );
-    matchesDescribe(ctx, ui.computed(fn(_scope) => ui.heading(1, [], .Const("built"))));
     matchesDescribe(
         ctx,
-        ui.region(.List, [], [
-            ui.each(.Const(["x", "y", "z"]), fn(item) => item, fn(_c, item, _index) => {
-                ui.region(.ListItem, [], [ui.text(.Const(item))])
-            }),
-        ]),
+        ui.computed(fn(_scope) => {
+            ui.text({ content: .Const("built"), headingLevel: .Some(1) })
+        }),
+    );
+    matchesDescribe(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(
+                    .Const(["x", "y", "z"]),
+                    fn(item) => item,
+                    fn(_c, item, _index) => {
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const(item) })],
+                            role: .Some(.ListItem),
+                        })
+                    },
+                ),
+            ],
+            role: .Some(.List),
+        }),
     );
 }
 
@@ -327,29 +403,59 @@ test "a dialog, an overlay, a progress bar and a disclosure" {
     let open = signal(ctx, true);
     matchesDescribe(
         ctx,
-        ui.dialog(open, .Const("Delete?"), [.Padding(.Rem(1.0))], [
-            ui.text(.Const("Sure?")),
-        ]),
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Delete?"),
+            children: [ui.text({ content: .Const("Sure?") })],
+            styles: [.Padding(.Rem(1.0))],
+        }),
     );
     let shut = signal(ctx, false);
     matchesDescribe(
         ctx,
-        ui.dialog(shut, .Const("Hidden"), [], [ui.text(.Const("nope"))]),
+        ui.dialog({
+            isOpen: shut,
+            label: .Const("Hidden"),
+            children: [ui.text({ content: .Const("nope") })],
+            styles: [],
+        }),
     );
-    matchesDescribe(ctx, ui.onPressOutside(noPress, [], [ui.text(.Const("panel"))]));
     matchesDescribe(
         ctx,
-        ui.progress(.Const("Loading"), .Const(0.5), [], [ui.text(.Const("half"))]),
+        ui.stack({
+            styles: [],
+            children: [ui.text({ content: .Const("panel") })],
+            onPressOutside: .Some(noPress),
+        }),
+    );
+    matchesDescribe(
+        ctx,
+        ui.progress({
+            label: .Const("Loading"),
+            value: .Some(.Const(0.5)),
+            styles: [],
+            children: .Some([ui.text({ content: .Const("half") })]),
+        }),
     );
     let expanded = signal(ctx, true);
     matchesDescribe(
         ctx,
-        ui.disclosure(.Const("More"), expanded, [], [ui.text(.Const("details"))]),
+        ui.disclosure({
+            summary: .Const("More"),
+            isOpen: expanded,
+            children: [ui.text({ content: .Const("details") })],
+            styles: [],
+        }),
     );
     let collapsed = signal(ctx, false);
     matchesDescribe(
         ctx,
-        ui.disclosure(.Const("More"), collapsed, [], [ui.text(.Const("hidden"))]),
+        ui.disclosure({
+            summary: .Const("More"),
+            isOpen: collapsed,
+            children: [ui.text({ content: .Const("hidden") })],
+            styles: [],
+        }),
     );
 }
 
@@ -358,12 +464,30 @@ test "text, count and identity over a resolved tree" {
         Allocator: testAlloc(),
         Ui: headless(),
     };
-    let tree = ui.region(.List, [], [
-        ui.region(.ListItem, [], [ui.text(.Const("a"))]),
-        ui.region(.ListItem, [], [ui.text(.Const("b"))]),
-        ui.region(.ListItem, [], [ui.text(.Const("c"))]),
-    ]);
-    let page = render(ctx, tree);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("a") })],
+                    role: .Some(.ListItem),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("b") })],
+                    role: .Some(.ListItem),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("c") })],
+                    role: .Some(.ListItem),
+                }),
+            ],
+            role: .Some(.List),
+        }),
+    );
     assert.equal(page.text(), "a b c");
     assert.equal(page.count("ul"), 1);
     assert.equal(page.count("li"), 3);
@@ -382,29 +506,25 @@ test "count reaches the widget elements a form builds" {
     let email = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form(noPress, [], [
-            ui.field(
-                .Const("Name"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                name,
-                .Const(false),
-                .Const(false),
-            ),
-            ui.field(
-                .Const("Email"),
-                .Email,
-                .Const(""),
-                [],
-                [],
-                email,
-                .Const(false),
-                .Const(false),
-            ),
-            ui.submit(.Const("Send"), []),
-        ]),
+        ui.form({
+            onSubmit: noPress,
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("Email"),
+                    kind: .Email,
+                    value: email,
+                    styles: [],
+                }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
     );
     assert.equal(page.count("form"), 1);
     assert.equal(page.count("input"), 2);

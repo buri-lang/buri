@@ -11,47 +11,57 @@ from "ui/style" import { Length, Style };
 
 /// The page every picture is drawn on.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.PaddingY(.Px(8)), .Gap(.Px(12)), .FontSize(.Px(13))], rows)
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.PaddingY(.Px(8)), .Gap(.Px(12)), .FontSize(.Px(13))]),
+        ],
+        children: rows,
+    })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.column([.Gap(.Px(2))], [
-        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
-            ui.text(.Const(label)),
-        ]),
-        demo,
-    ])
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Gap(.Px(2))])],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            demo,
+        ],
+    })
 }
 
 /// A dashed outline the size of the box inside it, so a shift reads against the
 /// room the layout actually gave it.
 fn slot<C>(inner: Node<C>): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Width(.Px(80)),
             .Height(.Px(40)),
             .BorderWidth(.Px(1)),
             .BorderStyle(.Dashed),
             .BorderColor(.Rgb(170, 170, 180)),
         ],
-        [inner],
-    )
+        children: [inner],
+    })
 }
 
 /// The box that moves: filled, filling its slot, at a 16px text size so an em
 /// is sixteen pixels.
 fn moved<C>(extra: [Style]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Width(.Full),
             .Height(.Full),
             .FontSize(.Px(16)),
             .Background(.Rgb(150, 170, 200)),
             .Group(extra),
         ],
-        [],
-    )
+        children: [],
+    })
 }
 
 /// One slot, with the box inside it shifted by `x` and `y`.
@@ -64,35 +74,41 @@ fn shifted<C>(x: Length, y: Length): Node<C> {
 /// and moves nothing, and `Full` is the box's own size along each axis.
 export fn units<C>(): Node<C> {
     page([
-        ui.text(
-            .Const(
+        ui.text({
+            content: .Const(
                 "Translate, one value to a slot; the dashes are where the layout put it",
             ),
-        ),
+        }),
         band(
             "none, Px(12) across, Px(12) down, Px(-12)/Px(-12)",
-            ui.stack([.Layout(.Row), .Gap(.Px(24)), .Padding(.Px(16))], [
-                slot(moved([])),
-                shifted(.Px(12), .Px(0)),
-                shifted(.Px(0), .Px(12)),
-                shifted(.Px(-12), .Px(-12)),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(24)), .Padding(.Px(16))],
+                children: [
+                    slot(moved([])),
+                    shifted(.Px(12), .Px(0)),
+                    shifted(.Px(0), .Px(12)),
+                    shifted(.Px(-12), .Px(-12)),
+                ],
+            }),
         ),
         band(
             "Rem(1) across, Em(1) across at 16px, Percent(50) across, Percent(-25) down",
-            ui.stack([.Layout(.Row), .Gap(.Px(24)), .Padding(.Px(16))], [
-                shifted(.Rem(1.0), .Px(0)),
-                shifted(.Em(1.0), .Px(0)),
-                shifted(.Percent(50.0), .Px(0)),
-                shifted(.Px(0), .Percent(-25.0)),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(24)), .Padding(.Px(16))],
+                children: [
+                    shifted(.Rem(1.0), .Px(0)),
+                    shifted(.Em(1.0), .Px(0)),
+                    shifted(.Percent(50.0), .Px(0)),
+                    shifted(.Px(0), .Percent(-25.0)),
+                ],
+            }),
         ),
         band(
             "Auto/Auto — not a distance, so nothing moves — then Full across",
-            ui.stack([.Layout(.Row), .Gap(.Px(24)), .Padding(.Px(16))], [
-                shifted(.Auto, .Auto),
-                shifted(.Full, .Px(0)),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(24)), .Padding(.Px(16))],
+                children: [shifted(.Auto, .Auto), shifted(.Full, .Px(0))],
+            }),
         ),
     ])
 }
@@ -101,44 +117,59 @@ export fn units<C>(): Node<C> {
 /// is the difference between a translate and a padding.
 export fn neighbours<C>(): Node<C> {
     page([
-        ui.text(.Const("one of four moved, and the other three where they were")),
+        ui.text({
+            content: .Const("one of four moved, and the other three where they were"),
+        }),
         band(
             "the second shifted eight down and eight across",
-            ui.stack([.Layout(.Row), .Gap(.Px(12)), .Padding(.Px(16))], [
-                slot(moved([])),
-                slot(moved([.Translate(.Px(8), .Px(8))])),
-                slot(moved([])),
-                slot(moved([])),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(12)), .Padding(.Px(16))],
+                children: [
+                    slot(moved([])),
+                    slot(moved([.Translate(.Px(8), .Px(8))])),
+                    slot(moved([])),
+                    slot(moved([])),
+                ],
+            }),
         ),
         band(
             "and the same row with the second padded instead — the row reflows",
-            ui.stack([.Layout(.Row), .Gap(.Px(12)), .Padding(.Px(16))], [
-                slot(moved([])),
-                ui.stack([.PaddingEdge(.Start, .Px(8)), .PaddingEdge(.Top, .Px(8))], [
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(12)), .Padding(.Px(16))],
+                children: [
                     slot(moved([])),
-                ]),
-                slot(moved([])),
-                slot(moved([])),
-            ]),
+                    ui.stack({
+                        styles: [
+                            .PaddingEdge(.Start, .Px(8)),
+                            .PaddingEdge(.Top, .Px(8)),
+                        ],
+                        children: [slot(moved([]))],
+                    }),
+                    slot(moved([])),
+                    slot(moved([])),
+                ],
+            }),
         ),
         band(
             "a shifted box carries its children with it",
-            ui.stack([.Layout(.Row), .Gap(.Px(12)), .Padding(.Px(16))], [
-                slot(
-                    ui.stack(
-                        [
-                            .Width(.Full),
-                            .Height(.Full),
-                            .Padding(.Px(6)),
-                            .Background(.Rgb(150, 170, 200)),
-                            .Foreground(.Rgb(255, 255, 255)),
-                            .Translate(.Px(16), .Px(10)),
-                        ],
-                        [ui.text(.Const("both"))],
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(12)), .Padding(.Px(16))],
+                children: [
+                    slot(
+                        ui.stack({
+                            styles: [
+                                .Width(.Full),
+                                .Height(.Full),
+                                .Padding(.Px(6)),
+                                .Background(.Rgb(150, 170, 200)),
+                                .Foreground(.Rgb(255, 255, 255)),
+                                .Translate(.Px(16), .Px(10)),
+                            ],
+                            children: [ui.text({ content: .Const("both") })],
+                        }),
                     ),
-                ),
-            ]),
+                ],
+            }),
         ),
     ])
 }
@@ -148,30 +179,37 @@ export fn neighbours<C>(): Node<C> {
 /// pair is the record.
 export fn press<C>(): Node<C> {
     page([
-        ui.text(.Const("active:translate-y-px, the press every design system writes")),
+        ui.text({
+            content: .Const(
+                "active:translate-y-px, the press every design system writes",
+            ),
+        }),
         band(
             "three buttons, all of them under one `On(.Active, ...)`",
-            ui.stack([.Layout(.Row), .Gap(.Px(10)), .Padding(.Px(16))], [
-                sinking("Save"),
-                sinking("Cancel"),
-                sinking("Delete"),
-            ]),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(10)), .Padding(.Px(16))],
+                children: [sinking("Save"), sinking("Cancel"), sinking("Delete")],
+            }),
         ),
         band(
             "a rule under them, so the shift is a pixel off something",
-            ui.stack(
-                [.Height(.Px(2)), .Width(.Px(300)), .Background(.Rgb(200, 200, 210))],
-                [],
-            ),
+            ui.stack({
+                styles: [
+                    .Height(.Px(2)),
+                    .Width(.Px(300)),
+                    .Background(.Rgb(200, 200, 210)),
+                ],
+                children: [],
+            }),
         ),
     ])
 }
 
 /// One button that sinks a pixel while it is held.
 fn sinking<C>(label: Str): Node<C> {
-    ui.button(
-        .Const(label),
-        [
+    ui.button({
+        label: .Const(label),
+        styles: [
             .PaddingX(.Px(14)),
             .PaddingY(.Px(8)),
             .Radius(.Px(8)),
@@ -179,9 +217,6 @@ fn sinking<C>(label: Str): Node<C> {
             .Foreground(.Rgb(255, 255, 255)),
             .On(.Active, [.Translate(.Px(0), .Px(1))]),
         ],
-        [],
-        fn(_c, _e) => (),
-        .Const(false),
-        .Const(false),
-    )
+        onPress: .Some(fn(_c) => ()),
+    })
 }

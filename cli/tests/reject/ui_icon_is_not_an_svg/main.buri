@@ -10,5 +10,5 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.icon([], "<div>a check</div>"), [])
+  ui.mount(ctx, ui.image({ source: .Const("<div>a check</div>"), alt: .Decorative, styles: [] }), [])
 }

@@ -1,8 +1,8 @@
 .buri/out/web/cmd/site/site.mjs (N bytes)
 error: `fetch` must return `Response` [main-signature]
-  --> cmd/site/main.buri:25:36
+  --> cmd/site/main.buri:28:36
    |
-25 | export fn fetch(request: Request): Str {
+28 | export fn fetch(request: Request): Str {
    |                                    ^^^
    |
    = the platform sends what it answers, so there is no exit code to report

@@ -14,7 +14,7 @@ from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 
 fn rows<C, T>(items: Prop<[T]>, name: fn(T) => Str): Node<C> {
-  ui.each(items, name, fn(c, item, index) => ui.text(.Const(name(item))))
+  ui.each(items, name, fn(c, item, index) => ui.text({ content: .Const(name(item)) }))
 }
 
 export fn main(): Result<(), Str> {

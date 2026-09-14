@@ -64,7 +64,10 @@ let badgeStyle: Style = .Group([
 ]);
 
 fn badge<C>(label: Str): Node<C> {
-    ui.row([badgeStyle], [ui.text(.Const(label))])
+    ui.stack({
+        styles: [.Layout(.Row), badgeStyle],
+        children: [ui.text({ content: .Const(label) })],
+    })
 }
 
 export fn main(): Result<(), Str> {
@@ -75,17 +78,28 @@ export fn main(): Result<(), Str> {
         Watch: host.watch,
     };
     let _ = io.println(ctx, "styled").ignore();
-    let page = ui.column(
-        [
-            .Padding(.Rem(1.0)),
-            .Gap(.Px(8)),
-            .At(.Medium, [.Padding(.Rem(2.0)), .Gap(.Px(16))]),
-            .At(.Large, [.MaxWidth(.Rem(64.0))]),
-            .At(.Small, [.On(.Hover, [.Radius(.Px(4))])]),
-        ],
-        [badge("one"), ui.row([.PaddingX(.Rem(0.5)), .Grow(1)], []), ui.spacer()],
-    );
     // The badge's padding again, and a `Grow` that `ui/node`'s `spacer` also
     // asks for: one class each, from two modules that never met.
-    ui.mount(ctx, page, [])
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [
+                .Layout(.Column),
+                .Padding(.Rem(1.0)),
+                .Gap(.Px(8)),
+                .At(.Medium, [.Padding(.Rem(2.0)), .Gap(.Px(16))]),
+                .At(.Large, [.MaxWidth(.Rem(64.0))]),
+                .At(.Small, [.On(.Hover, [.Radius(.Px(4))])]),
+            ],
+            children: [
+                badge("one"),
+                ui.stack({
+                    styles: [.Layout(.Row), .PaddingX(.Rem(0.5)), .Grow(1)],
+                    children: [],
+                }),
+                ui.spacer({ size: .None }),
+            ],
+        }),
+        [],
+    )
 }

@@ -12,5 +12,5 @@ from "ui/node" import * as ui;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.progress(.Const("Loading"), 0.5, [], []), [])
+  ui.mount(ctx, ui.progress({ label: .Const("Loading"), styles: [], value: .Some(0.5) }), [])
 }

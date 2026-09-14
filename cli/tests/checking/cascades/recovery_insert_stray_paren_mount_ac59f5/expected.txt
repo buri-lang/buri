@@ -1,0 +1,23 @@
+error: expected an identifier, found `<` [unexpected-token]
+  --> main.buri:24:26
+   |
+24 | fn badge<C>(title: Prop, <Str>, count: Prop<Int>): Node<C> {
+   |                          ^
+   |
+   = expected: an identifier
+   = actual: `<`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `badge` in scope [unresolved-name]
+  --> main.buri:45:13
+   |
+45 |             badge(.Const(label), .Cell(count)),
+   |             ^^^^^
+   |
+   = fix: declare `badge`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `badge` in scope [unresolved-name]
+  --> main.buri:46:13
+   |
+46 |             badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
+   |             ^^^^^
+   |
+   = fix: declare `badge`, or import it — a name is in scope only from this module's own declarations and its imports

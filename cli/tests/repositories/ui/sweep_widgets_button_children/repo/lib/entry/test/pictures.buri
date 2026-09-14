@@ -22,14 +22,12 @@ test "what a button holds" {
     // all once there are children to draw.
     let scene = ui.describe(
         ctx,
-        ui.button(
-            .Const("Overview"),
-            [],
-            [ui.text(.Const("*"))],
-            fn(_c, _e) => (),
-            .Const(false),
-            .Const(false),
-        ),
+        ui.button({
+            label: .Const("Overview"),
+            styles: [],
+            children: .Some([ui.text({ content: .Const("*") })]),
+            onPress: .Some(fn(_c) => ()),
+        }),
         .Hover,
     );
     assert.containsText(scene, "t 1 *");

@@ -24,7 +24,7 @@ export fn kindsPage<C: Ui>(ctx: C): Node<C> {
             cell("email", hinted(ctx, .Email, "")),
             cell("number", hinted(ctx, .Number, "")),
             cell("search", hinted(ctx, .Search, "")),
-            cell("range", hinted(ctx, .Range(0.0, 100.0, 1.0), "40")),
+            cell("range", slid(ctx, 40.0)),
         ]),
         band("the same seven, with a value", 150, [
             cell("text", hinted(ctx, .Text, "Ada")),
@@ -33,7 +33,7 @@ export fn kindsPage<C: Ui>(ctx: C): Node<C> {
             cell("email", hinted(ctx, .Email, "Ada")),
             cell("number", hinted(ctx, .Number, "12")),
             cell("search", hinted(ctx, .Search, "Ada")),
-            cell("range", hinted(ctx, .Range(0.0, 100.0, 1.0), "90")),
+            cell("range", slid(ctx, 90.0)),
         ]),
         band("no hint at all, empty and filled", 150, [
             cell("text", bare(ctx, .Text, "")),
@@ -118,45 +118,48 @@ export fn typePage<C: Ui>(ctx: C): Node<C> {
 
 /// One field of a kind, hinted, holding `value`.
 fn hinted<C: Ui>(ctx: C, kind: FieldKind, value: Str): Node<C> {
-    ui.field(
-        .Const("Search"),
-        kind,
-        .Const("Type a command"),
-        base([]),
-        [],
-        signal(ctx, value),
-        .Const(false),
-        .Const(false),
-    )
+    ui.field({
+        label: .Const("Search"),
+        kind: kind,
+        value: signal(ctx, value),
+        styles: base([]),
+        hint: .Some(.Const("Type a command")),
+    })
+}
+
+/// A slider, which takes no hint — the range cell of the kinds page, kept so
+/// the picture still shows a control that ignores the placeholder a field draws.
+fn slid<C: Ui>(ctx: C, value: Float): Node<C> {
+    ui.slider({
+        label: .Const("Search"),
+        value: signal(ctx, value),
+        min: 0.0,
+        max: 100.0,
+        styles: base([]),
+        step: .Some(1.0),
+    })
 }
 
 /// The same field with no hint at all, which is what the empty string means.
 fn bare<C: Ui>(ctx: C, kind: FieldKind, value: Str): Node<C> {
-    ui.field(
-        .Const("Search"),
-        kind,
-        .Const(""),
-        base([]),
-        [],
-        signal(ctx, value),
-        .Const(false),
-        .Const(false),
-    )
+    ui.field({
+        label: .Const("Search"),
+        kind: kind,
+        value: signal(ctx, value),
+        styles: base([]),
+    })
 }
 
 /// A hinted text field carrying one property under test, and whatever `value`
 /// is — the empty string is the hint showing, and anything else replaces it.
 fn painted<C: Ui>(ctx: C, styles: [Style], value: Str): Node<C> {
-    ui.field(
-        .Const("Search"),
-        .Text,
-        .Const("Search the docs"),
-        base(styles),
-        [],
-        signal(ctx, value),
-        .Const(false),
-        .Const(false),
-    )
+    ui.field({
+        label: .Const("Search"),
+        kind: .Text,
+        value: signal(ctx, value),
+        styles: base(styles),
+        hint: .Some(.Const("Search the docs")),
+    })
 }
 
 /// What every subject carries before the cell's own styles, which come last so
@@ -172,37 +175,49 @@ fn base(styles: [Style]): [Style] {
 
 /// One picture: a column of bands, one band per question.
 fn page<C>(bands: [Node<C>]): Node<C> {
-    ui.column(
-        [
-            .Gap(.Px(2)),
-            .Padding(.Px(4)),
-            .Background(.Rgb(255, 255, 255)),
-            .Foreground(.Rgb(20, 20, 20)),
-            .FontSize(.Px(11)),
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Gap(.Px(2)),
+                .Padding(.Px(4)),
+                .Background(.Rgb(255, 255, 255)),
+                .Foreground(.Rgb(20, 20, 20)),
+                .FontSize(.Px(11)),
+            ]),
         ],
-        bands,
-    )
+        children: bands,
+    })
 }
 
 /// One question's band: its name, then a cell per case, clipped to `height` so
 /// a cell that grows stays inside its own row.
 fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({
+        styles: [
             .Height(.Px(height)),
             .Scroll(.Both),
             .Padding(.Px(3)),
             .Background(.Rgb(243, 244, 247)),
         ],
-        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
-    )
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// One case: its label, and the field carrying it. The cell does not stretch
 /// its children, so a box is as wide as it asked to be.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.column([.Width(.Px(108)), .Gap(.Px(1)), .AlignCross(.Start)], [
-        ui.text(.Const(label)),
-        inner,
-    ])
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(108)), .Gap(.Px(1)), .AlignCross(.Start)]),
+        ],
+        children: [ui.text({ content: .Const(label) }), inner],
+    })
 }

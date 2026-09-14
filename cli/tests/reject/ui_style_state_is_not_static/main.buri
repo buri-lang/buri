@@ -20,5 +20,5 @@ fn highlighted(accent: Color): Style {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([highlighted(.Rgb(29, 78, 216))], []), [])
+  ui.mount(ctx, ui.stack({ styles: [highlighted(.Rgb(29, 78, 216))], children: [] }), [])
 }

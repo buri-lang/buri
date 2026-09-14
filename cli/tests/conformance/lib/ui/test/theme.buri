@@ -109,22 +109,29 @@ fn night(t: App): Color {
 /// A `cardlib` component, styled against `cardlib`'s tokens and nothing else.
 /// It cannot see a theme and does not import `ui/theme`.
 fn card<C>(label: Str): Node<C> {
-    ui.stack([.Background(Card.Surface.color()), .Foreground(Card.OnSurface.color())], [
-        ui.text(.Const(label)),
-    ])
+    ui.stack({
+        styles: [
+            .Background(Card.Surface.color()),
+            .Foreground(Card.OnSurface.color()),
+        ],
+        children: [ui.text({ content: .Const(label) })],
+    })
 }
 
 /// The app's own chrome, styled against the app's own tokens. Both packages
 /// reach the stylesheet, and neither one's classes mention the other.
 fn page<C>(inner: Node<C>): Node<C> {
-    ui.stack([.Background(App.Bg.color()), .Foreground(App.Fg.color())], [inner])
+    ui.stack({
+        styles: [.Background(App.Bg.color()), .Foreground(App.Fg.color())],
+        children: [inner],
+    })
 }
 
 /// A component whose background is whatever its caller asks for. The style is
 /// built out of a parameter, so the compiler cannot evaluate it and it degrades
 /// to the inline tier — which is where the other half of the token lowering is.
 fn tinted<C>(paint: Color): Node<C> {
-    ui.stack([.Background(paint)], [])
+    ui.stack({ styles: [.Background(paint)], children: [] })
 }
 
 // --- a token in the stylesheet -------------------------------------------------------

@@ -32,7 +32,7 @@ test "a card is a labelled group, not a landmark" {
     let ctx = context {
         Ui: headless(),
     };
-    let tree = card(.Const("Coffee"), [ui.text(.Const("4.50"))]);
+    let tree = card(.Const("Coffee"), [ui.text({ content: .Const("4.50") })]);
     let seen = render(ctx, tree);
     // `Group` lowers to a `divide` carrying the role, because HTML has no element
     // that means "a labelled cluster of related controls".
