@@ -20,10 +20,14 @@ fn itself(item: Str): Str {
 }
 
 fn rows<C>(items: Prop<[Str]>): Node<C> {
-  ui.region(.List, [], [
-    ui.each(items, itself, fn(c, item, index) =>
-      ui.region(.ListItem, [], [ui.text(.Const(item))])),
-  ])
+  ui.stack({
+    styles: [],
+    role: .Some(.List),
+    children: [
+      ui.each(items, itself, fn(c, item, index) =>
+        ui.stack({ styles: [], role: .Some(.ListItem), children: [ui.text({ content: .Const(item) })] })),
+    ],
+  })
 }
 
 export fn main(): Result<(), Str> {

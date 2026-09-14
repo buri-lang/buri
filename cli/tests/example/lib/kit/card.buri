@@ -79,10 +79,14 @@ let fillStyle: Style = .Group([
 /// claimed to be `Main` would tell a screen reader that the page's content
 /// starts here, and a page has one of those.
 export fn card<C>(title: Prop<Str>, children: [Node<C>]): Node<C> {
-    ui.region(.Group, [cardStyle], [
-        ui.row([titleStyle], [ui.text(title)]),
-        ui.column([.Gap(.Px(4))], children),
-    ])
+    ui.stack({
+        styles: [cardStyle],
+        role: .Some(.Group),
+        children: [
+            ui.stack({ styles: [.Layout(.Row), .Group([titleStyle])], children: [ui.text({ content: title })] }),
+            ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(4))])], children: children }),
+        ],
+    })
 }
 
 /// A small standing label — a count, a state, a category.
@@ -91,7 +95,7 @@ export fn card<C>(title: Prop<Str>, children: [Node<C>]): Node<C> {
 /// already in its text, and a role would be inventing a landmark out of a
 /// rounded rectangle.
 export fn pill<C>(label: Prop<Str>): Node<C> {
-    ui.row([pillStyle], [ui.text(label)])
+    ui.stack({ styles: [.Layout(.Row), .Group([pillStyle])], children: [ui.text({ content: label })] })
 }
 
 /// How full something is, from `0.0` to `1.0`.
@@ -106,17 +110,20 @@ export fn pill<C>(label: Prop<Str>): Node<C> {
 /// The track and the fill are two elements because a meter is a bar inside a
 /// bar. Only the fill's width varies, so only the fill pays for varying.
 export fn meter<C>(fraction: Prop<Float>): Node<C> {
-    ui.row([trackStyle], [
-        ui.stack(
-            [
-                fillStyle,
-                .Computed(fn(scope) => {
-                    [.Width(.Percent(percent(fraction.read(scope))))]
-                }),
-            ],
-            [],
-        ),
-    ])
+    ui.stack({
+        styles: [.Layout(.Row), .Group([trackStyle])],
+        children: [
+            ui.stack({
+                styles: [
+                    fillStyle,
+                    .Computed(fn(scope) => {
+                        [.Width(.Percent(percent(fraction.read(scope))))]
+                    }),
+                ],
+                children: [],
+            }),
+        ],
+    })
 }
 
 /// A fraction as a percentage, clamped.
