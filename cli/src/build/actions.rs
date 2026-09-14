@@ -1006,6 +1006,51 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
     )
 }
 
+/// The unit that carries a test binary's entry point, and a signature of the
+/// test set that entry enumerates.
+///
+/// A test binary has no `main`. The backend synthesises an entry — the program
+/// entry, the `test$N` carrier doors, and the calls between them — from the
+/// ordered set of test roots, and emits the whole of it into the unit that
+/// holds the *first* test's function (`backend::stencil`'s `Root::Tests` arm).
+/// None of that is an `ir::Func`, so [`unit_hashes`] — which renders a unit's
+/// functions — cannot see it: the entry unit's object depends on which tests
+/// exist, and its key did not. Adding or removing a test whose function lives
+/// in *another* unit left this unit's key unchanged, so the cache served its
+/// stale object — an entry still calling a `test$N` that no longer exists — and
+/// the link failed on the undefined symbol until `buri clean` cleared it, which
+/// `--force` did not (buri-lang/buri#175).
+///
+/// The remedy is to fold this signature into that one unit's `codegen` key: the
+/// ordered `(module, name)` of every test root — which is what the entry's
+/// calls are mangled from — and whether values cross tasks, which decides the
+/// entry shim's marking. Only the entry unit depends on the set, so only its
+/// key carries the term; every other unit keeps the membership-independent key
+/// that lets a batch reuse it (`native_test_batch`).
+///
+/// `None` for a `main` program, whose entry *is* a rendered function and moves
+/// with it, and for a test program the middle end rooted at nothing.
+fn test_entry_signature(
+    program: &monomorphize::Program,
+    lowered: &ir::Program,
+) -> Option<(usize, String)> {
+    let monomorphize::ProgramRoots::Tests(tests) = &program.roots else {
+        return None;
+    };
+    let unit = lowered.funcs.get(tests.first()?.func.index())?.unit as usize;
+    let mut sig = String::new();
+    for t in tests {
+        sig.push_str(&t.module);
+        sig.push('\0');
+        sig.push_str(&t.name);
+        sig.push('\n');
+    }
+    if lowered.crosses_tasks {
+        sig.push_str("crosses-tasks\n");
+    }
+    Some((unit, sig))
+}
+
 /// Every aggregate type one function names, as indices into `Program::types`.
 fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
     for t in func.sig.params.iter().chain(&func.sig.rets) {
@@ -1308,9 +1353,22 @@ fn objects_named(
 
     let name = backend.name().to_string();
     let identity = backend.identity();
+    // The one unit whose object depends on the set of tests rather than on the
+    // functions it renders — the entry point the backend synthesises. Folding
+    // the set into its `ir` term is what relinks a test binary from scratch when
+    // a test is added or removed, instead of serving a stale entry that names a
+    // `test$N` no longer defined ([`test_entry_signature`], buri-lang/buri#175).
+    let entry = test_entry_signature(program, &lowered);
     let keys: Vec<(String, ActionKey)> = unit_hashes(&lowered, tables)
         .into_iter()
-        .map(|(unit, ir_hash, layout_hash)| {
+        .enumerate()
+        .map(|(u, (unit, ir_hash, layout_hash))| {
+            let ir_hash = match &entry {
+                Some((entry_unit, sig)) if *entry_unit == u => {
+                    hash_bytes(format!("{ir_hash}\n{sig}").as_bytes())
+                }
+                _ => ir_hash,
+            };
             let key = codegen_key(output, flags, &name, &identity, prefix, &ir_hash, &layout_hash);
             (unit, key)
         })
