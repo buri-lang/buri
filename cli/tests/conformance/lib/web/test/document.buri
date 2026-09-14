@@ -509,8 +509,14 @@ test "a plain click follows a route link addressed by its joined text" {
             ui.stack({
                 styles: [],
                 children: [
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("One") })] }),
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const("Two") })] }),
+                    ui.stack({
+                        styles: [],
+                        children: [ui.text({ content: .Const("One") })],
+                    }),
+                    ui.stack({
+                        styles: [],
+                        children: [ui.text({ content: .Const("Two") })],
+                    }),
                 ],
             }),
             ui.stack({ styles: [], children: [ui.text({ content: .Const("Three") })] }),
@@ -530,7 +536,10 @@ test "a route link of a single run, nested in a box, still follows" {
     let page = render(
         ctx,
         web.routeLink(.Const("/nested"), [], [
-            ui.stack({ styles: [], children: [ui.text({ content: .Const("Nested") })] }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Nested") })],
+            }),
         ]),
     );
     let _ = page.follow("Nested");
