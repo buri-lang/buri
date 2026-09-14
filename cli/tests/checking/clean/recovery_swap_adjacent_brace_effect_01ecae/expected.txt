@@ -1,0 +1,9 @@
+error: expected an expression, found `_` [unexpected-token]
+  --> main.buri:71:5
+   |
+71 |     _ let = after(ctx, time.milliseconds(1000), fn(c) => {
+   |     ^
+   |
+   = expected: an expression
+   = actual: `_`
+   = fix: write a value here

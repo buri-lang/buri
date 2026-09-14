@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:18:64
+   |
+18 | from "ui/testing" import { elapse, headless, observer, render }
+   |                                                                ^
+   |
+   = fix: write `;` here

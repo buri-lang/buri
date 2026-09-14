@@ -3399,6 +3399,40 @@ function $host_HostUi_watch(self, run) {
   return 0;
 }
 
+// A page's timers, on a real clock. `after` schedules `run` for the graph's own
+// turn once the duration has passed, so the write it does lands in an update
+// transaction of its own — a `setTimeout` whose body is a `$ui_flush`, exactly
+// as a handler's is. The handle a `Timer` carries names the pending run in
+// `$ui_page_timers`, so `cancel` can clear the one that is still waiting; a
+// timer that has fired has already dropped itself from the map, so cancelling it
+// is the no-op the interface promises.
+const $ui_page_timers = new Map();
+let $ui_page_timer_next = 1;
+
+function $host_HostUi_schedule(self, millis, run) {
+  const handle = $ui_page_timer_next++;
+  const ms = Number(millis);
+  const id = setTimeout(
+    () => {
+      $ui_page_timers.delete(handle);
+      $ui_flush(() => run(self));
+    },
+    ms > 0 ? ms : 0,
+  );
+  $ui_page_timers.set(handle, () => clearTimeout(id));
+  return BigInt(handle);
+}
+
+function $host_HostUi_unschedule(self, id) {
+  const handle = Number(id);
+  const clear = $ui_page_timers.get(handle);
+  if (clear !== undefined) {
+    $ui_page_timers.delete(handle);
+    clear();
+  }
+  return 0;
+}
+
 function $host_HostWatch_read(self, id) {
   return $ui_read(id);
 }
@@ -5536,6 +5570,58 @@ const $ui_testing_Headless_memo = $host_HostUi_memo;
 const $ui_testing_Headless_watch = $host_HostUi_watch;
 const $ui_testing_Observer_read = $host_HostWatch_read;
 
+// The headless double's timers, on a virtual clock. A test has no wall clock to
+// wait on, so what `after` schedules is queued here against `$ui_fake_now`
+// rather than handed to `setTimeout`, and `elapse` is what moves the clock and
+// fires what has come due. Each fires on the graph's own turn (`$ui_flush`), so
+// the signals it writes settle before the next timer runs — the parity with a
+// page a test is asserting.
+const $ui_fake_timers = [];
+let $ui_fake_timer_next = 1;
+let $ui_fake_now = 0;
+
+function $ui_testing_Headless_schedule(self, millis, run) {
+  const handle = $ui_fake_timer_next++;
+  const ms = Number(millis);
+  $ui_fake_timers.push({
+    handle,
+    due: $ui_fake_now + (ms > 0 ? ms : 0),
+    run,
+    self,
+    done: false,
+  });
+  return BigInt(handle);
+}
+
+function $ui_testing_Headless_unschedule(self, id) {
+  const handle = Number(id);
+  for (const timer of $ui_fake_timers) {
+    if (timer.handle === handle) timer.done = true;
+  }
+  return 0;
+}
+
+function $ui_testing_elapse(millis) {
+  const target = $ui_fake_now + Number(millis);
+  // Fire due timers in due-time order — a timer scheduled by a timer that just
+  // fired joins this pass if it too is due by `target`, the way a page's clock
+  // would reach it. Ties go to the one scheduled first, which is the order the
+  // array already holds them in.
+  for (;;) {
+    let next;
+    for (const timer of $ui_fake_timers) {
+      if (timer.done || timer.due > target) continue;
+      if (next === undefined || timer.due < next.due) next = timer;
+    }
+    if (next === undefined) break;
+    next.done = true;
+    $ui_fake_now = next.due;
+    $ui_flush(() => next.run(next.self));
+  }
+  $ui_fake_now = target;
+  return 0;
+}
+
 function $ui_testing_headless() {
   return $handle(0);
 }
@@ -6011,14 +6097,31 @@ function $scene_blocksSubmission(body) {
   return $SCENE_BLOCKING[$scene_declValue(body, "field")] === true;
 }
 
-// The text runs directly under `node`, concatenated — a control's own label,
-// not descending into a nested control. The native `Document::direct_text`.
-function $scene_directText(doc, node) {
-  let out = "";
-  for (const child of doc.records[node].children) {
-    if (doc.records[child].kind === 1) out += doc.records[child].text;
-  }
-  return out;
+// The elements whose own text an accessible-name walk does not fold into an
+// ancestor's name, so a field label's name stays its own text and not the value
+// run inside its input. The native `is_control`.
+const $SCENE_CONTROL = { input: true, textarea: true, select: true, button: true };
+
+// The accessible name a reader hears for `node`: every run of text in its
+// subtree, in document order, joined by a space — the same joining `text()`
+// does for a whole tree, so a link wrapping many runs is addressed by the words
+// it shows and not by the runs run together. It does not descend into a nested
+// control, so a field label's name stays its own text. The native
+// `Document::accessible_name`.
+function $scene_accessibleName(doc, node) {
+  const runs = [];
+  $scene_nameRuns(doc, node, true, runs);
+  return runs.join(" ");
+}
+
+// Gathers the text runs of `node`'s subtree into `out`, skipping the subtree of
+// any nested control. `root` is the node the name is computed for, whose own
+// control-ness never stops the walk.
+function $scene_nameRuns(doc, node, root, out) {
+  const r = doc.records[node];
+  if (!root && r.kind === 0 && $SCENE_CONTROL[r.name] === true) return;
+  if (r.kind === 1) out.push(r.text);
+  for (const child of r.children) $scene_nameRuns(doc, child, false, out);
 }
 
 // The first element of `name`, in document order, whose own label is `label` —
@@ -6026,9 +6129,9 @@ function $scene_directText(doc, node) {
 function $scene_labelled(doc, name, label) {
   for (const [i] of $scene_ordered(doc)) {
     const r = doc.records[i];
-    // A control's accessible name is its stored label where it has one, its own
-    // text otherwise — a button's glyphs are not its name.
-    const named = r.label === "" ? $scene_directText(doc, i) : r.label;
+    // A control's accessible name is its stored label where it has one, the
+    // text of its descendants otherwise — a button's glyphs are not its name.
+    const named = r.label === "" ? $scene_accessibleName(doc, i) : r.label;
     if (r.kind === 0 && r.name === name && named === label) return i;
   }
   return -1;

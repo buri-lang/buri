@@ -873,7 +873,21 @@ fn native_gap(
     let backend =
         crate::compiler::backend::select(actions::target_of(&output), actions::profile_of(flags))
             .ok()?;
-    let missing = backend.missing_intrinsics(program, tables);
+    // This prepass asks the backend of the *monomorphized* program, before
+    // `middle::chunks` has run — where the real native build asks the same
+    // question a step later, of the program that pass has already lowered
+    // (`build::actions`). `core/lazy`'s `load` is the one intrinsic that
+    // difference matters for: `middle::chunks` replaces every call to it with
+    // its argument on a native build (`intrinsic_keys::LAZY_LOAD`), so no
+    // backend is ever asked to emit it, and a suite that reaches one compiles
+    // and runs natively exactly as three doc pages say it does. Counting it
+    // here — and here alone, because it is gone by the time the build checks —
+    // is what refused those suites onto JavaScript.
+    let missing: Vec<String> = backend
+        .missing_intrinsics(program, tables)
+        .into_iter()
+        .filter(|k| k != crate::compiler::backend::intrinsic_keys::LAZY_LOAD)
+        .collect();
     let (networking, rest) = crate::compiler::backend::split_networking(&missing);
     if !networking.is_empty() {
         return Some(Gap::Networking(networking));

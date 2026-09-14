@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:72:35
+   |
+72 |         let _ = hit.set(c, "fired";
+   |                                   ^
+   |
+  --> main.buri:72:24
+   |
+72 |         let _ = hit.set(c, "fired";
+   |                        ^ opened here
+   |
+   = fix: write `)` here

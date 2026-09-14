@@ -1086,6 +1086,34 @@ export fn each<C, T: Equal>(
     )
 }
 
+/// Rebuilds a subtree from the mount context whenever `on` changes.
+///
+/// The reactive constructor a router reaches for. `choose` hands its builder
+/// nothing and `computed` hands it a `Scope`, so neither can build a page that
+/// mints signals — `signal(ctx, …)` needs `Ui` — or routes, and a client
+/// site is left building every page at startup and using `computed` only to
+/// pick one already built. `rebuild` is `each` narrowed to one row, keyed by
+/// `on`, under a name that says so: it hands `build` the mount context, and
+/// when `on` changes the old subtree tears down with its computations and the
+/// new one is built with the real context. So the page a route matches is built
+/// when the route matches, and not before.
+///
+/// `build` runs only when `on` changes, and untracked — the signals the page it
+/// builds reads are the page's own, not this rebuild's, so a page's reactivity
+/// is not tied to its route. `K` carries `Show` because the region keys on how
+/// `on` renders: two values that render alike are the same subtree and it
+/// stays, and one that renders differently is a new subtree and the old one
+/// goes with its computations.
+export fn rebuild<C, K: Show>(on: Prop<K>, build: fn(C, K) => Node<C>): Node<C> {
+    Node(
+        .Each(
+            fn(_scope) => 1,
+            fn(scope, _index) => on.read(scope).show(scope),
+            fn(c, scope, _index) => build(c, on.read(scope)),
+        ),
+    )
+}
+
 /// Puts a tree on the screen, and leaves it there.
 ///
 /// The context is what the tree's handlers get, so it is the budget `main`
@@ -1371,11 +1399,26 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     )
                 },
                 .Some(handler) => {
-                    let _ = emitElement(
-                        builder,
-                        "a",
-                        widgetBody(mem, plain(state), [], styles),
-                    );
+                    // A routing anchor's styles are reactive the same way a
+                    // plain link's (`emitBox`) are: a `.When`/`.Computed` swap —
+                    // how a nav rail marks the current row — re-serialises in
+                    // place rather than being frozen at first render.
+                    let _ = if (stylesReactive(styles)) {
+                        let at = openElement(builder, "a", "");
+                        reactive(fn(scope) => {
+                            patchBody(
+                                builder,
+                                at,
+                                widgetBodyUnder(scope, plain(state), [], styles),
+                            )
+                        })
+                    } else {
+                        emitElement(
+                            builder,
+                            "a",
+                            widgetBody(mem, plain(state), [], styles),
+                        )
+                    };
                     let _ = registerFollow(builder, dest.read(scope), handler);
                     let _ = registerEvents(builder, events);
                     let _ = emitChildren(ctx, builder, children, state, 0);
@@ -1618,7 +1661,19 @@ fn emitButton<C>(
 ): () {
     let mem = alloc.generalPurpose();
     let painted = refusing(state, disabled.read(rootScope()));
-    let _ = emitElement(builder, "button", widgetBody(mem, painted, [], styles));
+    // A button whose styles hold a computation opens once and patches its body
+    // from a watcher, so a `.When`/`.Computed` class swap re-serialises in place
+    // — the same reactive-style bind `emitBox` gives a plain box. A button of
+    // constant styles registers nothing. (Its `disabled` is constant here: the
+    // reactive arm of `emitNode`'s `Button` wraps a non-const one in a rebuild.)
+    let _ = if (stylesReactive(styles)) {
+        let at = openElement(builder, "button", "");
+        reactive(fn(scope) => {
+            patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles))
+        })
+    } else {
+        emitElement(builder, "button", widgetBody(mem, painted, [], styles))
+    };
     let _ = registerPress(builder, onPress);
     let _ = registerLabel(builder, label.read(rootScope()));
     let _ = if (children.isEmpty()) {
@@ -2486,11 +2541,15 @@ fn pickerOptionLines<C: Allocator>(
 }
 
 /// A radio's box: a circle one line square that does not shrink, centring the
-/// dot the widget draws in it.
+/// dot the widget draws in it, and a hairline ring around that dot.
 ///
-/// The sheet's reset says the same three sizes and the `border-radius` to a
-/// browser, because with the chrome cleared an unsized radio is a control nobody
-/// can see or hit — the same bargain a checkbox's box makes.
+/// The sheet's reset says the same sizes and the `border-radius` to a browser,
+/// because with the chrome cleared an unsized radio is a control nobody can see
+/// or hit — the same bargain a checkbox's box makes. The ring is the widget's
+/// own, in the group's `Foreground` the way the dot is: a checkbox's box comes
+/// from the caller's `Background` and border, but a radio has no per-option
+/// style list by design, so an unchecked option would otherwise draw nothing at
+/// all and only the chosen one would be visible.
 fn radioBox(): [Style] {
     [
         .Layout(.Row),
@@ -2500,6 +2559,7 @@ fn radioBox(): [Style] {
         .Height(.Rem(1.0)),
         .Shrink(0),
         .Radius(.Full),
+        .BorderWidth(.Px(1)),
     ]
 }
 

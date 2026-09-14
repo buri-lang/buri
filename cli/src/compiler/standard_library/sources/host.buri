@@ -306,6 +306,10 @@ impl Ui for HostUi {
     fn memo<T>(self, compute: fn(Scope) => T): Int;
 
     fn watch(self, run: fn(Scope) => ()): ();
+
+    fn schedule(self, millis: Int, run: fn(Self) => ()): Int;
+
+    fn unschedule(self, id: Int): ();
 }
 
 /// Reading the reactive graph, without the authority to change it.

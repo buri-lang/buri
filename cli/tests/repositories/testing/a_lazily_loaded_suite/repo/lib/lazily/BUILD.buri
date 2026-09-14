@@ -1,0 +1,10 @@
+library {
+    sources: ["report.buri"]
+
+    # No `platforms`: the suite names none, so `buri test` runs it on the
+    # native backend of a host that has one — which is the whole point of the
+    # case (buri-lang/buri#153).
+    test {
+        sources: ["test/report.buri"]
+    }
+}

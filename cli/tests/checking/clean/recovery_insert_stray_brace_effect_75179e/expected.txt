@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:58:5
+   |
+58 |     @ let _ = page.press("Save");
+   |     ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

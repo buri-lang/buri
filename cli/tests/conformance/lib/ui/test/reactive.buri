@@ -39,6 +39,50 @@ test "a reactive leaf patches in place and follows its cell" {
     assert.equal(page.text(), "after");
 }
 
+// A button and a routing link register the reactive style bind a plain box
+// does, so a `.When` class swap over a cell moves them between two classes in
+// place — the mark a navigation rail draws on the current row. They used to
+// freeze at the class they were first rendered with, because their scene emit
+// resolved styles once instead of under a watcher (issue 164).
+test "a button's reactive styles swap in place" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let bold = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.button({
+            label: .Const("Go"),
+            styles: [.When(.Cell(bold), [.FontWeight(.Bold)], [])],
+            onPress: .Some(fn(_c) => {
+            }),
+        }),
+    );
+    assert.isFalse(page.markup().contains("fw-bold"));
+    let _ = bold.set(ctx, true);
+    assert.isTrue(page.markup().contains("fw-bold"));
+}
+
+test "a routing link's reactive styles swap in place" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let bold = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.link({
+            dest: .Const("/a"),
+            children: [ui.text({ content: .Const("Go") })],
+            styles: [.When(.Cell(bold), [.FontWeight(.Bold)], [])],
+            onFollow: .Some(fn(_c, _dest) => {
+            }),
+        }),
+    );
+    assert.isFalse(page.markup().contains("fw-bold"));
+    let _ = bold.set(ctx, true);
+    assert.isTrue(page.markup().contains("fw-bold"));
+}
+
 // --- keyed `each` reconciliation (#53, phase 4) -----------------------------
 //
 // The both-backends twin of the keyed-list blocks in `tree.buri`, whose own
@@ -498,4 +542,64 @@ test "a form of two fields with no submit button is not submitted" {
     );
     let _ = page.submit(0);
     assert.equal(submitted.get(ctx), 0);
+}
+
+// --- `rebuild` builds from the mount context on a key change (#154) ----------
+//
+// `each`'s row builder is the only reactive constructor handed the mount
+// context, so `rebuild` is `each` narrowed to one row: it hands `build` the
+// context, so a page that mints signals — which `computed`/`choose` cannot
+// build, having only a `Scope` — is built when its key matches and torn down
+// when the key moves on. The route is a `Prop<Str>`, the page mints a counter,
+// and the crux is the identity: a new key is a new subtree, not the old one
+// patched.
+
+/// A page that mints its own counter — it needs `Ui`, so `computed` could never
+/// build it. It carries its route as text so two routes read apart, and a
+/// button that bumps the counter proves the minted signal is live.
+fn routedPage<C: Ui>(ctx: C, route: Str): Node<C> {
+    let count = signal(ctx, 0);
+    ui.stack({
+        styles: [],
+        role: .Some(.ListItem),
+        children: [
+            ui.text({ content: .Const(route) }),
+            ui.button({
+                label: .Const("bump"),
+                styles: [],
+                onPress: .Some(fn(c) => count.update(c, fn(n) => n + 1)),
+            }),
+            ui.text({ content: .Computed(fn(s) => "${count.get(s)}") }),
+        ],
+    })
+}
+
+test "rebuild builds a page that mints a signal, and rebuilds on a new key" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let route = signal(ctx, "/a");
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            role: .Some(.List),
+            children: [ui.rebuild(.Cell(route), fn(c, r) => routedPage(c, r))],
+        }),
+    );
+    // The page for `/a` is built, showing its route and its counter at zero.
+    assert.equal(page.text(), "/a bump 0");
+    let first = page.identity("li", 0);
+
+    // The minted signal is live: a press bumps this page's counter.
+    let _ = page.press("bump");
+    assert.equal(page.text(), "/a bump 1");
+
+    // Navigating changes the key, so the old page tears down and a new one is
+    // built with the real context — a fresh counter at zero, not the old one.
+    let _ = route.set(ctx, "/b");
+    assert.equal(page.text(), "/b bump 0");
+
+    // And it is a genuinely new subtree, not the old one patched in place.
+    assert.notEqual(page.identity("li", 0), first);
 }
