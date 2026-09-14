@@ -63,7 +63,7 @@ edit {
 edit {
   file: "lib/graph/test/graph.buri"
   replace: "    let cell = signal(ctx, 1);"
-  with: "    assert.equal(ui.mount(ctx, ui.text(.Const(\"x\")), []), .Ok(()));\n    let cell = signal(ctx, 1);"
+  with: "    assert.equal(ui.mount(ctx, ui.text({ content: .Const(\"x\") }), []), .Ok(()));\n    let cell = signal(ctx, 1);"
 }
 
 run {

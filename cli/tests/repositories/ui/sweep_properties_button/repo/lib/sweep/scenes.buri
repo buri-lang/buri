@@ -476,53 +476,40 @@ export fn sizePage<C>(): Node<C> {
 
 /// One picture: two columns of bands, one band per property.
 fn page<C>(bands: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Layout(.Grid([.Fraction(1), .Fraction(1)])),
             .Gap(.Px(2)),
             .Padding(.Px(4)),
             .Background(.Rgb(255, 255, 255)),
             .Foreground(.Rgb(20, 20, 20)),
             .FontSize(.Px(11)),
-        ],
-        bands,
-    )
+        ], children: bands })
 }
 
 /// One property's band: its name, then a cell per value, clipped to
 /// `height` so a value that grows stays inside its own row.
 fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Height(.Px(height)),
             .Scroll(.Both),
             .Padding(.Px(3)),
             .Background(.Rgb(243, 244, 247)),
-        ],
-        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
-    )
+        ], children: [ui.text({ content: .Const(name) }), ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])], children: cells })] })
 }
 
 /// One value: its label, and the primitive carrying it. The cell does
 /// not stretch its children, so a box is as wide as it asked to be.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.column([.Width(.Px(72)), .Gap(.Px(1)), .AlignCross(.Start)], [
-        ui.text(.Const(label)),
+    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(72)), .Gap(.Px(1)), .AlignCross(.Start)])], children: [
+        ui.text({ content: .Const(label) }),
         inner,
-    ])
+    ] })
 }
 
 /// The subject every cell holds: a `button`, whose styles land on the button
 /// itself.
 fn subject<C>(styles: [Style], words: Str): Node<C> {
-    ui.button(
-        .Const(words),
-        base(styles),
-        [],
-        fn(_c, _e) => (),
-        .Const(false),
-        .Const(false),
-    )
+    ui.button({ label: .Const(words), styles: base(styles), onPress: .Some(fn(_c) => ()) })
 }
 
 /// What every subject carries before the cell's own styles, which come

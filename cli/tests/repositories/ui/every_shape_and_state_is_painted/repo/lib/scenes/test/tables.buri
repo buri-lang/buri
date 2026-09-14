@@ -18,40 +18,32 @@ from "ui/testing" import { headless, snapshot };
 /// Three columns and three rows, the second and third of which have to line up
 /// under the first.
 fn invoices<C>(): Node<C> {
-    ui.region(
-        .Table,
-        [.Width(.Px(480)), .BorderWidth(.Px(1)), .BorderColor(.Rgb(180, 180, 190))],
-        [
-            ui.region(
-                .TableRow,
-                [
+    ui.stack({ styles: [.Width(.Px(480)), .BorderWidth(.Px(1)), .BorderColor(.Rgb(180, 180, 190))], children: [
+            ui.stack({ styles: [
                     .Background(.Rgb(235, 235, 242)),
                     .On(.Hover, [.Background(.Rgb(250, 210, 120))]),
-                ],
-                [
-                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
-                        ui.text(.Const("Invoice")),
-                    ]),
-                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
-                        ui.text(.Const("Amount")),
-                    ]),
-                    ui.region(.ColumnHeader, [.Padding(.Px(8))], [
-                        ui.text(.Const("Status")),
-                    ]),
-                ],
-            ),
-            ui.region(.TableRow, [.On(.Hover, [.Background(.Rgb(250, 240, 205))])], [
-                ui.region(.RowHeader, [.Padding(.Px(8))], [ui.text(.Const("INV-001"))]),
-                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("$250.00"))]),
-                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("Paid"))]),
-            ]),
-            ui.region(.TableRow, [.On(.Hover, [.Background(.Rgb(250, 240, 205))])], [
-                ui.region(.RowHeader, [.Padding(.Px(8))], [ui.text(.Const("INV-002"))]),
-                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("$1,020.00"))]),
-                ui.region(.Cell, [.Padding(.Px(8))], [ui.text(.Const("Due"))]),
-            ]),
-        ],
-    )
+                ], children: [
+                    ui.stack({ styles: [.Padding(.Px(8))], children: [
+                        ui.text({ content: .Const("Invoice") }),
+                    ], role: .Some(.ColumnHeader) }),
+                    ui.stack({ styles: [.Padding(.Px(8))], children: [
+                        ui.text({ content: .Const("Amount") }),
+                    ], role: .Some(.ColumnHeader) }),
+                    ui.stack({ styles: [.Padding(.Px(8))], children: [
+                        ui.text({ content: .Const("Status") }),
+                    ], role: .Some(.ColumnHeader) }),
+                ], role: .Some(.TableRow) }),
+            ui.stack({ styles: [.On(.Hover, [.Background(.Rgb(250, 240, 205))])], children: [
+                ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: .Const("INV-001") })], role: .Some(.RowHeader) }),
+                ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: .Const("$250.00") })], role: .Some(.Cell) }),
+                ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: .Const("Paid") })], role: .Some(.Cell) }),
+            ], role: .Some(.TableRow) }),
+            ui.stack({ styles: [.On(.Hover, [.Background(.Rgb(250, 240, 205))])], children: [
+                ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: .Const("INV-002") })], role: .Some(.RowHeader) }),
+                ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: .Const("$1,020.00") })], role: .Some(.Cell) }),
+                ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: .Const("Due") })], role: .Some(.Cell) }),
+            ], role: .Some(.TableRow) }),
+        ], role: .Some(.Table) })
 }
 
 test "a table paints as a table" {

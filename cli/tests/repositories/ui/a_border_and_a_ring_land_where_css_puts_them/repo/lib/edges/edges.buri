@@ -7,15 +7,12 @@ from "ui/style" import { Length, Shadow };
 
 /// One box, sixty by thirty, outlined in the width it was given.
 fn bordered<C>(width: Length): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Width(.Px(60)),
             .Height(.Px(30)),
             .BorderWidth(width),
             .BorderColor(.Rgb(0, 0, 0)),
-        ],
-        [],
-    )
+        ], children: [] })
 }
 
 /// The ring a `Focus` style asks for: no blur, three pixels of spread.
@@ -33,69 +30,57 @@ fn ring3(): Shadow {
 /// y=49. A border sits inside the box it belongs to, so every width is that
 /// many solid rows starting at y=20 — an odd one included.
 export fn widths<C>(): Node<C> {
-    ui.row([.Gap(.Px(20)), .Padding(.Px(20))], [
+    ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(20)), .Padding(.Px(20))])], children: [
         bordered(.Px(1)),
         bordered(.Px(2)),
         bordered(.Px(3)),
         bordered(.Px(4)),
         bordered(.Px(5)),
-    ])
+    ] })
 }
 
 /// A border with no colour of its own draws in the foreground: the first box
 /// takes its own, the second is told a colour and uses that, and the third
 /// takes the foreground it inherited from the box around it.
 export fn currentColour<C>(): Node<C> {
-    ui.row([.Gap(.Px(20)), .Padding(.Px(20))], [
-        ui.stack(
-            [
+    ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(20)), .Padding(.Px(20))])], children: [
+        ui.stack({ styles: [
                 .Width(.Px(60)),
                 .Height(.Px(30)),
                 .Foreground(.Rgb(18, 18, 28)),
                 .BorderWidth(.Px(4)),
-            ],
-            [],
-        ),
-        ui.stack(
-            [
+            ], children: [] }),
+        ui.stack({ styles: [
                 .Width(.Px(60)),
                 .Height(.Px(30)),
                 .Foreground(.Rgb(18, 18, 28)),
                 .BorderWidth(.Px(4)),
                 .BorderColor(.Rgb(214, 44, 44)),
-            ],
-            [],
-        ),
-        ui.stack([.Foreground(.Rgb(20, 120, 90))], [
-            ui.stack([.Width(.Px(60)), .Height(.Px(30)), .BorderWidth(.Px(4))], []),
-        ]),
-    ])
+            ], children: [] }),
+        ui.stack({ styles: [.Foreground(.Rgb(20, 120, 90))], children: [
+            ui.stack({ styles: [.Width(.Px(60)), .Height(.Px(30)), .BorderWidth(.Px(4))], children: [] }),
+        ] }),
+    ] })
 }
 
 /// The same ring on a transparent box and on an opaque one. An outer shadow is
 /// painted outside the box only, so the transparent box keeps the page behind
 /// it and both rings are the same three pixels wide.
 export fn ring<C>(): Node<C> {
-    ui.row([.Gap(.Px(20)), .Padding(.Px(20)), .Background(.Rgb(232, 240, 250))], [
-        ui.stack(
-            [
+    ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(20)), .Padding(.Px(20)), .Background(.Rgb(232, 240, 250))])], children: [
+        ui.stack({ styles: [
                 .Width(.Px(60)),
                 .Height(.Px(30)),
                 .Background(.Transparent),
                 .Shadow(ring3()),
-            ],
-            [],
-        ),
-        ui.stack(
-            [
+            ], children: [] }),
+        ui.stack({ styles: [
                 .Width(.Px(60)),
                 .Height(.Px(30)),
                 .Background(.Rgb(255, 255, 255)),
                 .Shadow(ring3()),
-            ],
-            [],
-        ),
-    ])
+            ], children: [] }),
+    ] })
 }
 
 /// A lift with a blur and an offset: Tailwind's `shadow-xs` is a pixel down,
@@ -117,25 +102,19 @@ fn lift1(alpha: Float): Shadow {
 /// third is the same lift at half black, which is the picture a person can
 /// read. All three keep the page behind them.
 export fn lift<C>(): Node<C> {
-    ui.column([.Gap(.Px(12)), .Padding(.Px(20)), .Background(.Rgb(220, 60, 60))], [
-        ui.stack(
-            [
+    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(12)), .Padding(.Px(20)), .Background(.Rgb(220, 60, 60))])], children: [
+        ui.stack({ styles: [
                 .Width(.Px(200)),
                 .Height(.Px(32)),
                 .Background(.Transparent),
                 .Shadow(lift1(0.05)),
-            ],
-            [],
-        ),
-        ui.stack([.Width(.Px(200)), .Height(.Px(32)), .Background(.Transparent)], []),
-        ui.stack(
-            [
+            ], children: [] }),
+        ui.stack({ styles: [.Width(.Px(200)), .Height(.Px(32)), .Background(.Transparent)], children: [] }),
+        ui.stack({ styles: [
                 .Width(.Px(200)),
                 .Height(.Px(32)),
                 .Background(.Transparent),
                 .Shadow(lift1(0.5)),
-            ],
-            [],
-        ),
-    ])
+            ], children: [] }),
+    ] })
 }

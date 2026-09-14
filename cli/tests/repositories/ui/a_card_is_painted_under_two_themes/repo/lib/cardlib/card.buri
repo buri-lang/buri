@@ -34,13 +34,10 @@ export fn themedBy(mapping: fn(Token) => Color): Theme {
 /// A card painted in this package's tokens and nothing else, so every pixel of
 /// it is the theme's decision.
 export fn card<C>(): Node<C> {
-    ui.column(
-        [
+    ui.stack({ styles: [.Layout(.Column), .Group([
             .Padding(.Px(16)),
             .Background(Token.Surface.color()),
             .Foreground(Token.Ink.color()),
             .Radius(.Px(8)),
-        ],
-        [ui.heading(2, [], .Const("Ada"))],
-    )
+        ])], children: [ui.text({ content: .Const("Ada"), headingLevel: .Some(2), styles: .Some([]) })] })
 }

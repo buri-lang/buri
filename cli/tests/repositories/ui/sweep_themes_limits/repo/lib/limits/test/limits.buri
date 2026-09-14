@@ -12,7 +12,7 @@ test "an empty tree is a page with nothing on it" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "limits-nothing", ui.nothing(), .Hover, []);
+    snapshot(ctx, "limits-nothing", ui.empty(), .Hover, []);
 }
 
 test "a container with nothing in it is still a box" {

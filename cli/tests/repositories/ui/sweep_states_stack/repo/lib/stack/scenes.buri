@@ -87,8 +87,7 @@ fn allStates(): [Style] {
 
 /// The control, with the base under `extra`.
 fn styled<C>(extra: [Style]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Padding(.Px(8)),
             .Background(.Rgb(150, 170, 200)),
             .Foreground(.Rgb(24, 24, 24)),
@@ -97,25 +96,22 @@ fn styled<C>(extra: [Style]): Node<C> {
             .Radius(.Px(4)),
             .Width(.Full),
             .Group(extra),
-        ],
-        [ui.text(.Const("box"))],
-    )
+        ], children: [ui.text({ content: .Const("box") })] })
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C>(extra: [Style]): Node<C> {
-    ui.stack([.Group(extra)], [ui.text(.Const("box"))])
+    ui.stack({ styles: [.Group(extra)], children: [ui.text({ content: .Const("box") })] })
 }
 
 /// One label cell.
 fn label<C>(text: Str): Node<C> {
-    ui.stack([], [ui.text(.Const(text))])
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(text) })] })
 }
 
 /// One row: a label track, then one cell per column.
 fn grid<C>(cells: [Node<C>]): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Layout(
                 .Grid([
                     .Fixed(.Px(74)),
@@ -130,9 +126,7 @@ fn grid<C>(cells: [Node<C>]): Node<C> {
             ),
             .Gap(.Px(8)),
             .AlignCross(.Start),
-        ],
-        cells,
-    )
+        ], children: cells })
 }
 
 /// The column names.
@@ -151,15 +145,12 @@ fn headings<C>(): Node<C> {
 
 /// The page: a title and the rows under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column(
-        [
+    ui.stack({ styles: [.Layout(.Column), .Group([
             .Padding(.Px(12)),
             .Gap(.Px(8)),
             .FontSize(.Px(11)),
             .Background(.Rgb(255, 255, 255)),
-        ],
-        rows,
-    )
+        ])], children: rows })
 }
 
 /// The styled control, answering in one property per column.
@@ -220,14 +211,14 @@ fn bareRestingRow<C>(): Node<C> {
 
 /// Every element answering to every state, one property to a column.
 export fn responsive<C>(): Node<C> {
-    page([ui.text(.Const("stack, in every state")), headings(), styledRow(), bareRow()])
+    page([ui.text({ content: .Const("stack, in every state") }), headings(), styledRow(), bareRow()])
 }
 
 /// The same tree with no `On` group anywhere: what it looks like at rest,
 /// whatever state it is painted in.
 export fn resting<C>(): Node<C> {
     page([
-        ui.text(.Const("stack, in every state")),
+        ui.text({ content: .Const("stack, in every state") }),
         headings(),
         restingRow(),
         bareRestingRow(),

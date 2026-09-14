@@ -12,17 +12,17 @@ from "ui/style" import { Shadow, Style };
 
 /// The page every picture is drawn on.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.column([.PaddingY(.Px(8)), .Gap(.Px(12)), .FontSize(.Px(13))], rows)
+    ui.stack({ styles: [.Layout(.Column), .Group([.PaddingY(.Px(8)), .Gap(.Px(12)), .FontSize(.Px(13))])], children: rows })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.column([.Gap(.Px(2))], [
-        ui.stack([.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], [
-            ui.text(.Const(label)),
-        ]),
+    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(2))])], children: [
+        ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
+            ui.text({ content: .Const(label) }),
+        ] }),
         demo,
-    ])
+    ] })
 }
 
 /// The ring: a spread with no blur, which is a halo around the box rather than
@@ -57,25 +57,16 @@ fn wrapper(): [Style] {
 
 /// A fixed run of text, for a prefix and a suffix.
 fn affix<C>(text: Str): Node<C> {
-    ui.stack([.Shrink(0), .Foreground(.Rgb(120, 120, 132))], [ui.text(.Const(text))])
+    ui.stack({ styles: [.Shrink(0), .Foreground(.Rgb(120, 120, 132))], children: [ui.text({ content: .Const(text) })] })
 }
 
 /// The group: a prefix, a bare field and a suffix, reading as one control.
 fn group<C>(site: Signal<Str>): Node<C> {
-    ui.stack(wrapper(), [
+    ui.stack({ styles: wrapper(), children: [
         affix("https://"),
-        ui.field(
-            .Const("Site"),
-            .Text,
-            .Const(""),
-            [],
-            [.Grow(1)],
-            site,
-            .Const(false),
-            .Const(false),
-        ),
+        ui.field({ label: .Const("Site"), kind: .Text, value: site, styles: [], around: .Some([.Grow(1)]) }),
         affix(".com"),
-    ])
+    ] })
 }
 
 /// The same box with the ring written on `Focus` instead — the state an element
@@ -83,8 +74,7 @@ fn group<C>(site: Signal<Str>): Node<C> {
 /// this one on the wrapper; the painter puts a whole document into a state, so
 /// what this row says is which class the document carried.
 fn onFocus<C>(site: Signal<Str>): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Layout(.Row),
             .AlignCross(.Center),
             .Gap(.Px(6)),
@@ -96,29 +86,17 @@ fn onFocus<C>(site: Signal<Str>): Node<C> {
             .BorderColor(.Rgb(200, 200, 210)),
             .Background(.Rgb(255, 255, 255)),
             .On(.Focus, [.BorderColor(.Rgb(210, 80, 40)), .Shadow(ring())]),
-        ],
-        [
+        ], children: [
             affix("https://"),
-            ui.field(
-                .Const("Site"),
-                .Text,
-                .Const(""),
-                [],
-                [.Grow(1)],
-                site,
-                .Const(false),
-                .Const(false),
-            ),
+            ui.field({ label: .Const("Site"), kind: .Text, value: site, styles: [], around: .Some([.Grow(1)]) }),
             affix(".com"),
-        ],
-    )
+        ] })
 }
 
 /// A plain card that rings the same way, to say the state is not a control's:
 /// any container can be the thing the keyboard is inside.
 fn card<C>(site: Signal<Str>): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Padding(.Px(10)),
             .Gap(.Px(8)),
             .Width(.Px(340)),
@@ -126,28 +104,17 @@ fn card<C>(site: Signal<Str>): Node<C> {
             .Background(.Rgb(244, 244, 248)),
             .On(.Hover, [.Background(.Rgb(250, 242, 224))]),
             .On(.FocusWithin, [.Background(.Rgb(228, 236, 252)), .Shadow(ring())]),
-        ],
-        [
-            ui.stack([], [ui.text(.Const("Where does it live?"))]),
-            ui.field(
-                .Const("Site"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                site,
-                .Const(false),
-                .Const(false),
-            ),
-        ],
-    )
+        ], children: [
+            ui.stack({ styles: [], children: [ui.text({ content: .Const("Where does it live?") })] }),
+            ui.field({ label: .Const("Site"), kind: .Text, value: site, styles: [] }),
+        ] })
 }
 
 /// The three rows every picture holds, so the same tree is painted in each
 /// state and the difference between the pictures is the state alone.
 export fn rows<C>(site: Signal<Str>): Node<C> {
     page([
-        ui.text(.Const("an input group, a group ringed on Focus, and a card")),
+        ui.text({ content: .Const("an input group, a group ringed on Focus, and a card") }),
         band("On(.FocusWithin, ...) on the wrapper", group(site)),
         band("On(.Focus, ...) on the same wrapper", onFocus(site)),
         band("On(.FocusWithin, ...) on a card around a field", card(site)),
@@ -158,7 +125,7 @@ export fn rows<C>(site: Signal<Str>): Node<C> {
 /// is: `State` has no resting variant, so `snapshot` cannot ask for one.
 export fn resting<C>(site: Signal<Str>): Node<C> {
     page([
-        ui.text(.Const("an input group, a group ringed on Focus, and a card")),
+        ui.text({ content: .Const("an input group, a group ringed on Focus, and a card") }),
         band("On(.FocusWithin, ...) on the wrapper", bare(site)),
         band("On(.Focus, ...) on the same wrapper", bare(site)),
         band("On(.FocusWithin, ...) on a card around a field", bareCard(site)),
@@ -167,8 +134,7 @@ export fn resting<C>(site: Signal<Str>): Node<C> {
 
 /// The wrapper with nothing to answer with.
 fn bare<C>(site: Signal<Str>): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Layout(.Row),
             .AlignCross(.Center),
             .Gap(.Px(6)),
@@ -179,46 +145,23 @@ fn bare<C>(site: Signal<Str>): Node<C> {
             .BorderWidth(.Px(1)),
             .BorderColor(.Rgb(200, 200, 210)),
             .Background(.Rgb(255, 255, 255)),
-        ],
-        [
+        ], children: [
             affix("https://"),
-            ui.field(
-                .Const("Site"),
-                .Text,
-                .Const(""),
-                [],
-                [.Grow(1)],
-                site,
-                .Const(false),
-                .Const(false),
-            ),
+            ui.field({ label: .Const("Site"), kind: .Text, value: site, styles: [], around: .Some([.Grow(1)]) }),
             affix(".com"),
-        ],
-    )
+        ] })
 }
 
 /// The card with nothing to answer with.
 fn bareCard<C>(site: Signal<Str>): Node<C> {
-    ui.stack(
-        [
+    ui.stack({ styles: [
             .Padding(.Px(10)),
             .Gap(.Px(8)),
             .Width(.Px(340)),
             .Radius(.Px(8)),
             .Background(.Rgb(244, 244, 248)),
-        ],
-        [
-            ui.stack([], [ui.text(.Const("Where does it live?"))]),
-            ui.field(
-                .Const("Site"),
-                .Text,
-                .Const(""),
-                [],
-                [],
-                site,
-                .Const(false),
-                .Const(false),
-            ),
-        ],
-    )
+        ], children: [
+            ui.stack({ styles: [], children: [ui.text({ content: .Const("Where does it live?") })] }),
+            ui.field({ label: .Const("Site"), kind: .Text, value: site, styles: [] }),
+        ] })
 }

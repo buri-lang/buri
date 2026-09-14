@@ -239,104 +239,56 @@ export fn radiusPage<C>(): Node<C> {
 export fn primitivesPage<C: Ui>(ctx: C): Node<C> {
     page([
         band("BorderEdge(.Bottom, .Px(3)) and RadiusCorner(.TopEnd, .Px(12))", 86, [
-            cell("stack", ui.stack(chrome([]), [leaf("Ada")])),
-            cell("region", ui.region(.Group, chrome([]), [leaf("Ada")])),
+            cell("stack", ui.stack({ styles: chrome([]), children: [leaf("Ada")] })),
+            cell("region", ui.stack({ styles: chrome([]), children: [leaf("Ada")], role: .Some(.Group) })),
             cell(
                 "button",
-                ui.button(
-                    .Const("Ada"),
-                    chrome([]),
-                    [],
-                    fn(_c, _e) => (),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({ label: .Const("Ada"), styles: chrome([]), onPress: .Some(fn(_c) => ()) }),
             ),
-            cell("link", ui.link(.Const("/ada"), chrome([]), [leaf("Ada")])),
-            cell("heading", ui.heading(2, chrome([]), .Const("Ada"))),
+            cell("link", ui.link({ dest: .Const("/ada"), styles: chrome([]), children: [leaf("Ada")] })),
+            cell("heading", ui.text({ content: .Const("Ada"), headingLevel: .Some(2), styles: .Some(chrome([])) })),
         ]),
         band("...and the four whose element a browser draws itself", 104, [
             cell(
                 "field",
-                ui.field(
-                    .Const("Name"),
-                    .Text,
-                    .Const(""),
-                    chrome([]),
-                    [],
-                    signal(ctx, "Ada"),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.field({ label: .Const("Name"), kind: .Text, value: signal(ctx, "Ada"), styles: chrome([]) }),
             ),
             cell(
                 "toggle",
-                ui.toggle(
-                    .Const("on"),
-                    .Checkbox,
-                    chrome([]),
-                    [],
-                    signal(ctx, true),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.toggle({ label: .Const("on"), kind: .Checkbox, isOn: signal(ctx, true), styles: chrome([]) }),
             ),
             cell(
                 "image",
-                ui.stack(chrome([]), [ui.image(.Const("logo.png"), .Const("a"), [])]),
+                ui.stack({ styles: chrome([]), children: [ui.image({ source: .Const("logo.png"), alt: .AccessibilityText("a"), styles: [] })] }),
             ),
-            cell("text", ui.stack(chrome([]), [ui.text(.Const("Ada"))])),
+            cell("text", ui.stack({ styles: chrome([]), children: [ui.text({ content: .Const("Ada") })] })),
         ]),
         band("all four edges and all four corners named, each a different number", 86, [
-            cell("stack", ui.stack(chrome(framed()), [leaf("Ada")])),
-            cell("region", ui.region(.Group, chrome(framed()), [leaf("Ada")])),
+            cell("stack", ui.stack({ styles: chrome(framed()), children: [leaf("Ada")] })),
+            cell("region", ui.stack({ styles: chrome(framed()), children: [leaf("Ada")], role: .Some(.Group) })),
             cell(
                 "button",
-                ui.button(
-                    .Const("Ada"),
-                    chrome(framed()),
-                    [],
-                    fn(_c, _e) => (),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.button({ label: .Const("Ada"), styles: chrome(framed()), onPress: .Some(fn(_c) => ()) }),
             ),
-            cell("link", ui.link(.Const("/ada"), chrome(framed()), [leaf("Ada")])),
-            cell("heading", ui.heading(2, chrome(framed()), .Const("Ada"))),
+            cell("link", ui.link({ dest: .Const("/ada"), styles: chrome(framed()), children: [leaf("Ada")] })),
+            cell("heading", ui.text({ content: .Const("Ada"), headingLevel: .Some(2), styles: .Some(chrome(framed())) })),
         ]),
         band("...and the same four", 104, [
             cell(
                 "field",
-                ui.field(
-                    .Const("Name"),
-                    .Text,
-                    .Const(""),
-                    chrome(framed()),
-                    [],
-                    signal(ctx, "Ada"),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.field({ label: .Const("Name"), kind: .Text, value: signal(ctx, "Ada"), styles: chrome(framed()) }),
             ),
             cell(
                 "toggle",
-                ui.toggle(
-                    .Const("on"),
-                    .Checkbox,
-                    chrome(framed()),
-                    [],
-                    signal(ctx, true),
-                    .Const(false),
-                    .Const(false),
-                ),
+                ui.toggle({ label: .Const("on"), kind: .Checkbox, isOn: signal(ctx, true), styles: chrome(framed()) }),
             ),
             cell(
                 "image",
-                ui.stack(chrome(framed()), [
-                    ui.image(.Const("logo.png"), .Const("a"), []),
-                ]),
+                ui.stack({ styles: chrome(framed()), children: [
+                    ui.image({ source: .Const("logo.png"), alt: .AccessibilityText("a"), styles: [] }),
+                ] }),
             ),
-            cell("text", ui.stack(chrome(framed()), [ui.text(.Const("Ada"))])),
+            cell("text", ui.stack({ styles: chrome(framed()), children: [ui.text({ content: .Const("Ada") })] })),
         ]),
     ])
 }
@@ -383,56 +335,56 @@ export fn groupPage<C>(): Node<C> {
         band("a joined button group, along the text direction", 86, [
             wide(
                 "three welded",
-                ui.row([.AlignCross(.Stretch)], [
+                ui.stack({ styles: [.Layout(.Row), .Group([.AlignCross(.Stretch)])], children: [
                     joined("Day", true, false),
                     joined("Week", false, false),
                     joined("Month", false, true),
-                ]),
+                ] }),
             ),
             wide(
                 "two welded",
-                ui.row([.AlignCross(.Stretch)], [
+                ui.stack({ styles: [.Layout(.Row), .Group([.AlignCross(.Stretch)])], children: [
                     joined("On", true, false),
                     joined("Off", false, true),
-                ]),
+                ] }),
             ),
             wide(
                 "one, both round",
-                ui.row([.AlignCross(.Stretch)], [joined("Only", true, true)]),
+                ui.stack({ styles: [.Layout(.Row), .Group([.AlignCross(.Stretch)])], children: [joined("Only", true, true)] }),
             ),
             wide(
                 "a gap instead",
-                ui.row([.AlignCross(.Stretch), .Gap(.Px(6))], [
+                ui.stack({ styles: [.Layout(.Row), .Group([.AlignCross(.Stretch), .Gap(.Px(6))])], children: [
                     joined("Day", true, true),
                     joined("Week", true, true),
-                ]),
+                ] }),
             ),
         ]),
         band("the same group down the page", 122, [
             wide(
                 "three welded",
-                ui.column([.AlignCross(.Stretch)], [
+                ui.stack({ styles: [.Layout(.Column), .Group([.AlignCross(.Stretch)])], children: [
                     stacked("Day", true, false),
                     stacked("Week", false, false),
                     stacked("Month", false, true),
-                ]),
+                ] }),
             ),
             wide(
                 "two welded",
-                ui.column([.AlignCross(.Stretch)], [
+                ui.stack({ styles: [.Layout(.Column), .Group([.AlignCross(.Stretch)])], children: [
                     stacked("On", true, false),
                     stacked("Off", false, true),
-                ]),
+                ] }),
             ),
         ]),
         band("a rule under every row but the last", 122, [
             wide(
                 "three rows",
-                ui.column([.Width(.Px(140))], [
+                ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(140))])], children: [
                     ruled("Ada", true),
                     ruled("Bee", true),
                     ruled("Cy", false),
-                ]),
+                ] }),
             ),
         ]),
     ])
@@ -442,9 +394,7 @@ export fn groupPage<C>(): Node<C> {
 /// first squares its start corners and drops its start edge, so it and its
 /// neighbour share one hairline.
 fn joined<C>(label: Str, first: Bool, last: Bool): Node<C> {
-    ui.button(
-        .Const(label),
-        [
+    ui.button({ label: .Const(label), styles: [
             .Group(welded()),
             .Group(if (first) {
                 []
@@ -460,20 +410,13 @@ fn joined<C>(label: Str, first: Bool, last: Bool): Node<C> {
             } else {
                 [.RadiusCorner(.TopEnd, .Px(0)), .RadiusCorner(.BottomEnd, .Px(0))]
             }),
-        ],
-        [],
-        fn(_c, _e) => (),
-        .Const(false),
-        .Const(false),
-    )
+        ], onPress: .Some(fn(_c) => ()) })
 }
 
 /// The same control down the page: what meets a neighbour is the top edge and
 /// the two corners on it.
 fn stacked<C>(label: Str, first: Bool, last: Bool): Node<C> {
-    ui.button(
-        .Const(label),
-        [
+    ui.button({ label: .Const(label), styles: [
             .Group(welded()),
             .Group(if (first) {
                 []
@@ -489,12 +432,7 @@ fn stacked<C>(label: Str, first: Bool, last: Bool): Node<C> {
             } else {
                 [.RadiusCorner(.BottomStart, .Px(0)), .RadiusCorner(.BottomEnd, .Px(0))]
             }),
-        ],
-        [],
-        fn(_c, _e) => (),
-        .Const(false),
-        .Const(false),
-    )
+        ], onPress: .Some(fn(_c) => ()) })
 }
 
 /// What every button in a group carries before it says where it sits.
@@ -513,67 +451,58 @@ fn welded(): [Style] {
 /// One row of a table, with the rule under it that a box of its own could not
 /// draw: a row may hold only cells, so a divider has to be one edge of the row.
 fn ruled<C>(name: Str, rule: Bool): Node<C> {
-    ui.row(
-        [
+    ui.stack({ styles: [.Layout(.Row), .Group([
             .PaddingY(.Px(4)),
             .BorderColor(.Rgb(190, 40, 40)),
             .Group(if (rule) { [.BorderEdge(.Bottom, .Px(1))] } else { [] }),
-        ],
-        [ui.text(.Const(name))],
-    )
+        ])], children: [ui.text({ content: .Const(name) })] })
 }
 
 /// The page every picture is drawn on: eight hundred wide, white, small type.
 fn page<C>(bands: [Node<C>]): Node<C> {
-    ui.column(
-        [
+    ui.stack({ styles: [.Layout(.Column), .Group([
             .Padding(.Px(6)),
             .Gap(.Px(4)),
             .Background(.Rgb(255, 255, 255)),
             .Foreground(.Rgb(20, 20, 20)),
             .FontSize(.Px(11)),
-        ],
-        bands,
-    )
+        ])], children: bands })
 }
 
 /// One claim's band: what it says, then a cell per value. Its height is fixed
 /// and it clips, so a cell that grows stays inside its own row instead of
 /// squashing the bands under it.
 fn band<C>(name: Str, height: Int, cells: [Node<C>]): Node<C> {
-    ui.column(
-        [
+    ui.stack({ styles: [.Layout(.Column), .Group([
             .Height(.Px(height)),
             .Shrink(0),
             .Scroll(.Both),
             .Gap(.Px(2)),
             .Padding(.Px(3)),
             .Background(.Rgb(243, 244, 247)),
-        ],
-        [ui.text(.Const(name)), ui.row([.Gap(.Px(6)), .AlignCross(.Start)], cells)],
-    )
+        ])], children: [ui.text({ content: .Const(name) }), ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])], children: cells })] })
 }
 
 /// A cell wide enough for a control made of several boxes.
 fn wide<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.column([.Width(.Px(190)), .Shrink(0), .Gap(.Px(1)), .AlignCross(.Start)], [
-        ui.text(.Const(label)),
+    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(190)), .Shrink(0), .Gap(.Px(1)), .AlignCross(.Start)])], children: [
+        ui.text({ content: .Const(label) }),
         inner,
-    ])
+    ] })
 }
 
 /// One value: its label, and the box carrying it.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.column([.Width(.Px(100)), .Shrink(0), .Gap(.Px(1)), .AlignCross(.Start)], [
-        ui.text(.Const(label)),
+    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(100)), .Shrink(0), .Gap(.Px(1)), .AlignCross(.Start)])], children: [
+        ui.text({ content: .Const(label) }),
         inner,
-    ])
+    ] })
 }
 
 /// The box every cell holds. Wide enough that a 12px corner and a 4px edge are
 /// both a shape rather than a smudge.
 fn subject<C>(styles: [Style]): Node<C> {
-    ui.stack(base(styles), [])
+    ui.stack({ styles: base(styles), children: [] })
 }
 
 /// What every subject carries before the cell's own styles, which come last so
@@ -591,5 +520,5 @@ fn base(styles: [Style]): [Style] {
 
 /// One child of a primitive that takes children.
 fn leaf<C>(words: Str): Node<C> {
-    ui.stack([], [ui.text(.Const(words))])
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(words) })] })
 }
