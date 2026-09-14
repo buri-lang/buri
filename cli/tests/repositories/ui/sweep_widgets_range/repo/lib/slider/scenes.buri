@@ -66,12 +66,13 @@ export fn sizesPage<C: Ui>(ctx: C): Node<C> {
     ])
 }
 
-/// What paints a slider: one colour for both shapes, and the box behind them.
+/// What paints a slider: Foreground fills the track up to the thumb, Background
+/// is the unfilled remainder behind it, and the thumb is the Foreground too.
 export fn paintPage<C: Ui>(ctx: C): Node<C> {
     page([
         ui.text({
             content: .Const(
-                "range — Foreground paints the bar and the thumb, Background the box",
+                "range — Foreground fills to the thumb, Background the unfilled track",
             ),
         }),
         band("Foreground", [
@@ -92,7 +93,7 @@ export fn paintPage<C: Ui>(ctx: C): Node<C> {
                 .Foreground(.Transparent),
             ]),
         ]),
-        band("Background is behind the bar, never instead of it", [
+        band("Background is the unfilled track, behind the fill", [
             cell(ctx, "sand", 0.0, 100.0, 40.0, [
                 .Width(.Px(130)),
                 .Background(.Rgb(232, 214, 170)),
