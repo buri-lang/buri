@@ -65,11 +65,37 @@
 //!   *absolute* edge of a box. `taffy` computes in `f32` and its own rounding
 //!   is turned off, so no number is rounded twice and no box is ever a pixel
 //!   wider than the gap it was given.
-//! * The PNG is written here, by [`encode`] — row filters, a fixed-Huffman
-//!   deflate over a fixed-chain match finder, and a hand-rolled CRC-32 and
-//!   Adler-32. Two zlib versions cannot disagree about a byte that no zlib
-//!   produced.
+//! * The PNG is written here, by [`encode`] — one fixed row filter, a
+//!   fixed-Huffman deflate over a fixed-distance match finder, and a
+//!   hand-rolled CRC-32 and Adler-32. Two zlib versions cannot disagree about a
+//!   byte that no zlib produced.
 //! * Nothing in the output path iterates a hash map.
+//!
+//! # Why the encoder looks the way it does
+//!
+//! The determinism above is the *reason* the encoder is hand-rolled; **speed**
+//! is why it is shaped the way it is now. Encoding was four fifths of a paint —
+//! trialling five row filters a row and walking a hundred-deep hash chain a
+//! position — for compression a snapshot does not need, on a file no one waits
+//! to download. So two things changed, and both keep the byte-for-byte
+//! determinism a golden rests on:
+//!
+//! * **One row filter, `Up`, every row** ([`filter_rows`]) rather than the
+//!   cheapest of five. A flat UI on a white page filters to runs of zeroes
+//!   under `Up`, which is what the next stage wants; there is no per-row
+//!   heuristic to compute and no tie to break.
+//! * **A fixed-distance match finder** ([`longest_match`]) rather than a hash
+//!   chain: three distances — 1, one pixel (4 bytes), and the row stride — cover
+//!   the run-length, pixel-repeat and vertical-repeat that a filtered raster is
+//!   almost entirely made of, at a handful of comparisons a position and no
+//!   allocation. It is the shape `fdeflate` and `fpnge` use for the same reason.
+//!
+//! The cost is a slightly larger `IDAT` — a snapshot is a few kilobytes either
+//! way — and a snapshot *records* faster and, because [`raster`] lets the
+//! compare path skip the encoder entirely, *compares* without touching it at
+//! all. [`crc32`] is table-driven for the same reason: the encoder still runs
+//! when a golden is recorded or a diff is drawn, and a byte a step beats a bit
+//! a step over a whole `IDAT`.
 //!
 //! # What it paints, and what it does not
 //!
@@ -326,14 +352,74 @@ pub struct Request<'a> {
 /// Answers `Err` with one sentence for any scene, stylesheet or state it
 /// cannot read.
 pub fn render(request: &Request) -> Result<Vec<u8>, String> {
+    Ok(encode_png(&raster(request)?))
+}
+
+/// Lays out, shapes and paints one scene, and hands back the raster **without
+/// encoding it**.
+///
+/// [`render`] is this plus [`encode_png`], and the split is the point:
+/// `snapshot.rs` compares a fresh raster against the golden's *decoded* pixels,
+/// so the passing path — every snapshot that did not change — never spends the
+/// PNG encoder ([`encode`]), which is four fifths of what a paint used to cost.
+/// The encoder runs only where a file has to be written: recording a golden, or
+/// the `.diff.png` of a snapshot that changed.
+///
+/// # Errors
+/// Answers `Err` with one sentence for any scene, stylesheet or state it
+/// cannot read.
+pub fn raster(request: &Request) -> Result<Pixmap, String> {
     let scene = Scene::parse(request.scene)?;
     let state = State::parse(request.state)?;
     let sheet = parse_stylesheet(request.stylesheet);
     let variables = parse_variables(request.variables);
 
     let styles = resolve(&scene, &sheet, state, &variables);
-    let pixmap = paint(&scene, &styles)?;
-    Ok(encode(pixmap.width(), pixmap.height(), &straight(&pixmap)))
+    paint(&scene, &styles)
+}
+
+/// The PNG bytes of a raster [`raster`] handed back. The one place the encoder
+/// runs on a snapshot that is being recorded.
+pub fn encode_png(pixmap: &Pixmap) -> Vec<u8> {
+    encode(pixmap.width(), pixmap.height(), &straight(pixmap))
+}
+
+/// Compares a golden PNG against a fresh raster **by pixels**, and answers the
+/// diff image where they disagree.
+///
+/// `None` when the golden decodes to exactly the raster's pixels — the passing
+/// path, which decodes the golden (cheap) but never encodes the fresh one.
+/// `Some` is the PNG of the diff, the same picture [`diff`] paints, and it is
+/// the only path on a comparison that touches the encoder.
+///
+/// This compares *pixels* rather than the file bytes [`diff`] compares, which
+/// is a truer question and the same answer: [`encode`] is deterministic, so a
+/// golden this painter wrote is byte-equal to a re-encode of the same pixels.
+///
+/// A golden this painter can *write* but not *read* — a picture taller than the
+/// decoder's cap — is compared by the bytes it would write instead, because the
+/// pixels cannot be got back to compare directly. The encoder is deterministic,
+/// so byte-equal is pixel-equal; a changed one cannot be shown as a diff (neither
+/// side decodes) and reports the read failure.
+///
+/// # Errors
+/// Answers `Err` when the golden is not a PNG this painter can read *and* the
+/// bytes it would write for the fresh raster do not match it.
+pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String> {
+    let recorded = match decode(golden) {
+        Ok(image) => image,
+        // The one golden in the corpus taller than the decode cap
+        // (`a-thousand-siblings`, nineteen thousand device pixels) lands here.
+        // Compare the bytes, which is what a match on such a picture always was.
+        Err(why) => return if encode_png(pixmap) == golden { Ok(None) } else { Err(why) },
+    };
+    let fresh = straight(pixmap);
+    let (width, height) = (pixmap.width(), pixmap.height());
+    if recorded.width == width && recorded.height == height && recorded.rgba == fresh {
+        return Ok(None);
+    }
+    let actual = image::Image { width, height, rgba: fresh };
+    Ok(Some(diff_image(&recorded, &actual)?))
 }
 
 /// The custom properties a `:root` block declares, each name without its
@@ -442,6 +528,13 @@ pub fn diff(golden: &[u8], actual: &[u8]) -> Result<Option<Vec<u8>>, String> {
     }
     let a = decode(golden)?;
     let b = decode(actual)?;
+    Ok(Some(diff_image(&a, &b)?))
+}
+
+/// The diff picture of two decoded images: a pixel that matches is the golden's
+/// colour, greyed and lightened; a pixel that differs, or that only one image
+/// has, is magenta. As large as the larger input.
+fn diff_image(a: &image::Image, b: &image::Image) -> Result<Vec<u8>, String> {
     let width = a.width.max(b.width);
     let height = a.height.max(b.height);
     let mut out = Vec::with_capacity(pixel_bytes(width, height)?);
@@ -453,7 +546,7 @@ pub fn diff(golden: &[u8], actual: &[u8]) -> Result<Option<Vec<u8>>, String> {
             }
         }
     }
-    Ok(Some(encode(width, height, &out)))
+    Ok(encode(width, height, &out))
 }
 
 /// A matching pixel, greyed and lightened, so the magenta reads as the subject.
@@ -1918,6 +2011,47 @@ thread_local! {
         std::cell::RefCell::new((font_system(), SwashCache::new()));
 }
 
+/// What a blurred shadow's coverage bytes are a function of: the region it is
+/// computed in, where the shape sits inside it, the shape's size, its corner
+/// radii and the blur radius. Floats are held by their bits so the key is
+/// `Eq` and `Hash` and two shapes that are the same shape hit the same entry.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ShadowKey {
+    w: u32,
+    h: u32,
+    left: i32,
+    top: i32,
+    rw: i32,
+    rh: i32,
+    radii: [[u32; 2]; 4],
+    radius: u32,
+}
+
+thread_local! {
+    /// Blurred shadow coverage, cached for the life of a paint ([`paint_with`]
+    /// clears it). A design system draws the same button dozens of times, and
+    /// the blur is the same bytes each time, so it is worth computing once.
+    ///
+    /// The value is the region's coverage bytes, not a canvas-sized mask, so an
+    /// entry is the size of one shadow. The map is never iterated — it is a
+    /// keyed lookup — so it keeps the file's rule that nothing on the output
+    /// path depends on hash order.
+    static SHADOW_CACHE: std::cell::RefCell<std::collections::HashMap<ShadowKey, std::rc::Rc<[u8]>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+
+    /// A text run's laid-out extent, cached for the life of a paint.
+    ///
+    /// `taffy` asks the same run how large it is many times over — a flex or
+    /// grid track resolves a run's size several ways in one pass, and a `fit`
+    /// page runs the whole layout twice — so [`shape`] used to run hundreds of
+    /// times for a few dozen runs. The layout only ever reads the `(width,
+    /// height)` back, so that is what is cached, keyed by the node, the width
+    /// it was asked at and the wrap mode. The style and text a node carries do
+    /// not change inside a paint, so the node index names them.
+    static MEASURE_CACHE: std::cell::RefCell<std::collections::HashMap<(usize, u64, u8), (f32, f32)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// The characters a run is shaped from: the hint where there is nothing to
 /// show, the mask where it is a password's, and otherwise what `text-transform`
 /// made of it.
@@ -2015,6 +2149,40 @@ fn shape(
         }
     }
     buffer
+}
+
+/// A text run's laid-out `(width, height)` at a given width and wrap, shaping
+/// it at most once per distinct question through [`MEASURE_CACHE`].
+///
+/// This is what the layout's measure closure asks, and the layout reads nothing
+/// of a run but its extent — so the shaped [`Buffer`] never has to survive the
+/// call, and a repeated question is a map lookup rather than a re-shape. The
+/// key is the node (which fixes its text and style for the life of the paint),
+/// the width, and the wrap mode; the answer is a pure function of those, so the
+/// cache changes no layout it serves.
+fn measured(
+    fonts: &mut FontSystem,
+    index: usize,
+    text: &str,
+    style: &Computed,
+    width: Option<f32>,
+    wrap: Wrap,
+) -> (f32, f32) {
+    let key = (
+        index,
+        width.map_or(u64::MAX, |w| u64::from(w.to_bits())),
+        match wrap {
+            Wrap::Word => 0,
+            Wrap::WordOrGlyph => 1,
+            _ => 2,
+        },
+    );
+    if let Some(found) = MEASURE_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
+        return found;
+    }
+    let extent = extent(&shape(fonts, text, style, width, wrap));
+    MEASURE_CACHE.with(|cache| cache.borrow_mut().insert(key, extent));
+    extent
 }
 
 /// Puts a string in the buffer and shapes it.
@@ -2177,6 +2345,13 @@ fn paint_with(
     fonts: &mut FontSystem,
     cache: &mut SwashCache,
 ) -> Result<Pixmap, String> {
+    // The blurred-shadow and measured-extent caches live for one paint: a scene
+    // draws the same button many times and blurs it once, and asks a run its
+    // size many times and shapes it once; the next scene starts clean so
+    // neither map can grow without bound.
+    SHADOW_CACHE.with(|cache| cache.borrow_mut().clear());
+    MEASURE_CACHE.with(|cache| cache.borrow_mut().clear());
+
     let mut tree: TaffyTree<usize> = TaffyTree::new();
     tree.disable_rounding();
 
@@ -2323,7 +2498,7 @@ fn lay_out(
                     (None, AvailableSpace::MinContent) => (Some(0.0), Wrap::Word),
                     (None, AvailableSpace::MaxContent) => (None, Wrap::WordOrGlyph),
                 };
-                let (w, h) = extent(&shape(fonts, text, style, width, wrap));
+                let (w, h) = measured(fonts, index, text, style, width, wrap);
                 Size { width: known.width.unwrap_or(w), height: known.height.unwrap_or(h) }
             })
         },
@@ -3360,13 +3535,19 @@ fn cast_blurred(
     clip: Option<&Mask>,
 ) {
     let (width, height) = (canvas.width(), canvas.height());
-    let (Some(mut mask), Some(path)) = (Mask::new(width, height), cast.path(radii)) else {
+    let Some(mut mask) = Mask::new(width, height) else { return };
+    // **The blurred coverage is computed in a box the size of the cast shape
+    // grown by the blur's reach, not over the whole page.** A design system
+    // draws one small shadow on a huge canvas, and blurring the whole canvas to
+    // find it was most of what a shadowed paint cost. The regional coverage is
+    // written into the canvas-sized `mask` at its own offset and left zero
+    // everywhere else — which is provably the same mask the full-canvas blur
+    // produced, because the blur's support is exactly this region (see
+    // [`blurred_region`]) — so the clip and fill below are byte for byte what
+    // they were.
+    if !blurred_region(&mut mask, cast, radii, shadow.blur * DEVICE_SCALE) {
         return;
-    };
-    mask.fill_path(&path, FillRule::Winding, true, to_device());
-    // The mask is at device resolution, so the blur radius is too: a CSS blur
-    // of `n` softens `n` CSS pixels, which is `n * DEVICE_SCALE` device pixels.
-    blur(&mut mask, shadow.blur * DEVICE_SCALE);
+    }
     if let Some(outer) = clip {
         narrow(&mut mask, outer);
     }
@@ -3380,6 +3561,83 @@ fn cast_blurred(
     let paint =
         Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
     canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
+}
+
+/// Fills `mask` with the blurred coverage of a shape cast at `cast`, blurred by
+/// `radius` **device** pixels, doing the work only in the sub-rectangle the
+/// coverage can be nonzero in. Answers whether anything was written.
+///
+/// The rectangle is the shape's device bounding box grown by the blur's reach
+/// ([`reach_of_blur`]) plus a two-pixel guard for the fill's own anti-aliased
+/// edge, then clamped to the canvas. Within that box, a cropped blur is bit for
+/// bit a full-canvas blur: the box passes read off their ends as zero, and the
+/// only nonzero input — the filled shape — is wholly inside the box with a
+/// reach of margin around it, which is exactly the run of zeroes the full blur
+/// would have read there. Where the box meets the canvas edge the two agree for
+/// the same reason the full blur fades there. So the coverage placed into
+/// `mask` equals the coverage the old whole-canvas blur left, and no pixel of
+/// the shadow moves.
+///
+/// The blurred region is cached for the life of the paint, keyed by the shape's
+/// size, its corner radii and the blur radius — a placement inside the region
+/// that is always the same integer offset, so two identical shadows (the same
+/// button, drawn a dozen times) blur once.
+fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> bool {
+    let (cw, ch) = (mask.width() as i32, mask.height() as i32);
+    // The shape's device bounding box, and the reach of the blur around it.
+    let scale = DEVICE_SCALE as i32;
+    let reach = reach_of_blur(radius).ceil() as i32 + 2;
+    let x0 = (cast.l * scale - reach).clamp(0, cw);
+    let y0 = (cast.t * scale - reach).clamp(0, ch);
+    let x1 = (cast.r * scale + reach).clamp(0, cw);
+    let y1 = (cast.b * scale + reach).clamp(0, ch);
+    if x1 <= x0 || y1 <= y0 {
+        return false;
+    }
+    let (rw, rh) = ((x1 - x0) as u32, (y1 - y0) as u32);
+
+    // The shape is placed at a fixed integer offset inside the region, so its
+    // sub-pixel alignment — and therefore the blurred bytes — depend only on
+    // the region's size, the radii and the blur radius. That is the cache key.
+    let key = ShadowKey {
+        w: rw,
+        h: rh,
+        left: cast.l * scale - x0,
+        top: cast.t * scale - y0,
+        rw: cast.r - cast.l,
+        rh: cast.b - cast.t,
+        radii: radii.map(|c| c.map(f32::to_bits)),
+        radius: radius.to_bits(),
+    };
+    let region = SHADOW_CACHE.with(|cache| {
+        if let Some(found) = cache.borrow().get(&key) {
+            return Some(found.clone());
+        }
+        let mut region = Mask::new(rw, rh)?;
+        let path = cast.path(radii)?;
+        // Scale to device pixels and slide the region's origin to the mask's.
+        let into = Transform::from_scale(DEVICE_SCALE, DEVICE_SCALE)
+            .post_translate(-x0 as f32, -y0 as f32);
+        region.fill_path(&path, FillRule::Winding, true, into);
+        blur(&mut region, radius);
+        let bytes: std::rc::Rc<[u8]> = std::rc::Rc::from(region.data());
+        cache.borrow_mut().insert(key, bytes.clone());
+        Some(bytes)
+    });
+    let Some(region) = region else { return false };
+
+    // Scatter the region's rows into the canvas-sized mask at its offset.
+    let data = mask.data_mut();
+    for row in 0..rh as usize {
+        let from = row.saturating_mul(rw as usize);
+        let to = (y0 as usize + row).saturating_mul(cw as usize) + x0 as usize;
+        if let (Some(src), Some(dst)) =
+            (region.get(from..from + rw as usize), data.get_mut(to..to + rw as usize))
+        {
+            dst.copy_from_slice(src);
+        }
+    }
+    true
 }
 
 /// The clip an outer shadow paints under: what the caller was already clipped
@@ -3648,13 +3906,13 @@ const BPP: usize = 4;
 ///
 /// * **Fixed Huffman**, block type 01, the static trees of RFC 1951 §3.2.6.
 ///   Nothing is built from the data, so there is no tie to break.
-/// * **One hash-chain match finder**, with a fixed window, a fixed chain limit
-///   and a greedy choice. No randomness, no time budget, no hash-map walk.
+/// * **A fixed-distance match finder**, three distances tried greedily. No
+///   randomness, no time budget, no hash-map walk, no chain.
 /// * **No floating point anywhere**, so nothing turns on a rounding mode.
 ///
-/// The row filters in front of it are where most of the saving on flat colour
-/// comes from. They are picked by the standard minimum-sum-of-absolute-
-/// differences rule, in integers, with the lowest filter number winning a tie.
+/// The single `Up` row filter in front of it is where most of the saving on
+/// flat colour comes from — a repeated row filters to zeroes — and the header's
+/// "why the encoder looks the way it does" is the whole argument.
 fn encode(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&SIGNATURE);
@@ -3668,7 +3926,10 @@ fn encode(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     chunk(&mut out, b"IHDR", &header);
 
     let raw = filter_rows(width, height, rgba);
-    chunk(&mut out, b"IDAT", &deflate(&raw));
+    // The filtered stream's row stride: one filter byte plus the row, so the
+    // match finder can reach the same column one row above.
+    let stride = 1_usize.saturating_add((width as usize).saturating_mul(BPP));
+    chunk(&mut out, b"IDAT", &deflate(&raw, stride));
 
     chunk(&mut out, b"IEND", &[]);
     out
@@ -3703,6 +3964,13 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
 
 /// One row through one filter. `previous` is the row above in its unfiltered
 /// form, and is all zeroes for the first row.
+///
+/// [`filter_rows`] writes only filter `Up` now, so this is the round-trip
+/// partner of `image::unfilter` in a test rather than a step on the paint path:
+/// it proves every filter number this file can *read back* is the inverse of
+/// the one it once wrote, so a golden recorded under the old adaptive encoder
+/// still decodes.
+#[cfg(test)]
 fn apply_filter(kind: u8, line: &[u8], previous: &[u8], out: &mut [u8]) {
     for i in 0..line.len() {
         let left = |row: &[u8]| i.checked_sub(BPP).and_then(|j| row.get(j)).copied().unwrap_or(0);
@@ -3723,24 +3991,22 @@ fn apply_filter(kind: u8, line: &[u8], previous: &[u8], out: &mut [u8]) {
     }
 }
 
-/// The heuristic every PNG encoder uses: the filtered bytes summed as signed
-/// magnitudes, which is smallest when the row came out closest to flat.
-fn filter_cost(row: &[u8]) -> u32 {
-    let mut sum = 0_u32;
-    for &b in row {
-        sum = sum.saturating_add(if b < 128 { u32::from(b) } else { 256 - u32::from(b) });
-    }
-    sum
-}
-
 /// The image as filtered rows: a filter byte, then the row, for each row.
+///
+/// **One filter for every row — `Up`, filter 2 — rather than the cheapest of
+/// five.** The header argues why: trialling five filters and summing each is
+/// five passes over the image and was most of `filter_rows`' time, and `Up` is
+/// the one that suits a flat UI painted on a white page. A row identical to the
+/// one above it (a solid band, an unchanged strip between two rows of text)
+/// filters to all zeroes, which the deflate stage packs to almost nothing; the
+/// first appearance of a colour filters to a run of one repeating pixel, which
+/// the fixed distance-4 match then catches. There is no heuristic to compute
+/// and no tie to break, so the bytes are the bytes on every host.
 fn filter_rows(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     let stride = (width as usize).saturating_mul(BPP);
     let mut out = Vec::with_capacity(rgba.len().saturating_add(height as usize));
     let mut line = vec![0_u8; stride];
     let mut previous = vec![0_u8; stride];
-    let mut candidate = vec![0_u8; stride];
-    let mut best = vec![0_u8; stride];
     for row in 0..height as usize {
         line.fill(0);
         let start = row.saturating_mul(stride);
@@ -3749,21 +4015,14 @@ fn filter_rows(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
         if let (Some(into), Some(from)) = (line.get_mut(..taken), source.get(..taken)) {
             into.copy_from_slice(from);
         }
-
-        let mut chosen = 0_u8;
-        let mut cheapest = u32::MAX;
-        for kind in 0..5_u8 {
-            apply_filter(kind, &line, &previous, &mut candidate);
-            let cost = filter_cost(&candidate);
-            // Strictly cheaper, so the lowest filter number wins a tie.
-            if cost < cheapest {
-                cheapest = cost;
-                chosen = kind;
-                best.copy_from_slice(&candidate);
-            }
+        // Filter 2, `Up`: each byte less the byte above it, the row above
+        // reading as zeroes for the first row.
+        out.push(2);
+        for i in 0..stride {
+            let x = line.get(i).copied().unwrap_or(0);
+            let b = previous.get(i).copied().unwrap_or(0);
+            out.push(x.wrapping_sub(b));
         }
-        out.push(chosen);
-        out.extend_from_slice(&best);
         previous.copy_from_slice(&line);
     }
     out
@@ -3778,13 +4037,6 @@ fn filter_rows(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
 const WINDOW: usize = 32768;
 const MIN_MATCH: usize = 3;
 const MAX_MATCH: usize = 258;
-/// How many candidates one position tries before taking what it has. A count
-/// rather than a time budget: a deadline would make the output depend on how
-/// busy the machine was.
-const CHAIN: usize = 128;
-const HASH_SIZE: usize = 1 << 15;
-/// The empty slot in a hash chain.
-const NONE: u32 = u32::MAX;
 
 /// `(first length, extra bits)` for symbols 257..=285, RFC 1951 §3.2.5.
 const LENGTHS: [(u16, u8); 29] = [
@@ -3903,25 +4155,6 @@ fn fixed_code(symbol: u16) -> (u32, u32) {
     }
 }
 
-fn hash_at(data: &[u8], pos: usize) -> Option<usize> {
-    let a = u32::from(*data.get(pos)?);
-    let b = u32::from(*data.get(pos.checked_add(1)?)?);
-    let c = u32::from(*data.get(pos.checked_add(2)?)?);
-    Some((((a << 10) ^ (b << 5) ^ c) as usize) & (HASH_SIZE - 1))
-}
-
-fn remember(data: &[u8], pos: usize, head: &mut [u32], prev: &mut [u32]) {
-    let Some(h) = hash_at(data, pos) else { return };
-    let Ok(here) = u32::try_from(pos) else { return };
-    let earlier = head.get(h).copied().unwrap_or(NONE);
-    if let Some(slot) = prev.get_mut(pos & (WINDOW - 1)) {
-        *slot = earlier;
-    }
-    if let Some(slot) = head.get_mut(h) {
-        *slot = here;
-    }
-}
-
 fn common_prefix(data: &[u8], a: usize, b: usize, limit: usize) -> usize {
     let mut n = 0;
     while n < limit {
@@ -3937,42 +4170,44 @@ fn common_prefix(data: &[u8], a: usize, b: usize, limit: usize) -> usize {
     n
 }
 
-/// The longest match at `at`, or `(0, 0)` for none.
+/// The longest match at `at` among a **fixed, tiny set of distances**, or
+/// `(0, 0)` for none.
 ///
-/// Greedy, and the chain is walked newest first for at most [`CHAIN`] steps, so
-/// what it answers is a function of the bytes alone.
-fn longest_match(data: &[u8], at: usize, head: &[u32], prev: &[u32]) -> (usize, usize) {
+/// The header argues the shape: a general match finder — a hash of every
+/// three-byte prefix and a chain walked a hundred deep — was most of the
+/// encoder's time and bought little on a filtered UI raster, whose repetition
+/// is almost all of one of three kinds. So this tries exactly those three,
+/// after the `Up` filter has done its half of the work:
+///
+/// * **1** — a run of one byte. A solid band filters to a run of zeroes, and a
+///   row identical to the one above it filters to zeroes too, so distance 1 is
+///   the run-length coder for both.
+/// * **[`BPP`] (4)** — the pixel before this one. The first row of a solid
+///   colour filters to a run of one repeating pixel, which distance 4 catches.
+/// * **`stride`** — the same column one row up, for the gradients the `Up`
+///   filter leaves a constant delta in. `0` means the caller has no row stride
+///   to offer (a bare byte stream), and it is skipped.
+///
+/// Greedy, and the shortest distance wins a tie because a nearer copy is a
+/// cheaper distance code. No table, no chain, no allocation, so it is a handful
+/// of comparisons a position — and, like the old finder, a function of the
+/// bytes alone.
+fn longest_match(data: &[u8], at: usize, stride: usize) -> (usize, usize) {
     let limit = MAX_MATCH.min(data.len().saturating_sub(at));
     if limit < MIN_MATCH {
         return (0, 0);
     }
-    let Some(h) = hash_at(data, at) else { return (0, 0) };
-    let floor = at.saturating_sub(WINDOW);
     let mut best = 0_usize;
     let mut distance = 0_usize;
-    let mut candidate = head.get(h).copied().unwrap_or(NONE);
-    let mut steps = CHAIN;
-    while candidate != NONE && steps > 0 {
-        steps = steps.saturating_sub(1);
-        let pos = candidate as usize;
-        if pos < floor || pos >= at {
-            break;
+    for candidate in [1_usize, BPP, stride] {
+        if candidate == 0 || candidate > at || candidate > WINDOW {
+            continue;
         }
-        let length = common_prefix(data, pos, at, limit);
+        let length = common_prefix(data, at.saturating_sub(candidate), at, limit);
         if length > best {
             best = length;
-            distance = at.saturating_sub(pos);
-            if length == limit {
-                break;
-            }
+            distance = candidate;
         }
-        let next = prev.get(pos & (WINDOW - 1)).copied().unwrap_or(NONE);
-        // A chain always walks backwards. Anything else is a slot the window
-        // has wrapped over, and following it would not terminate.
-        if next != NONE && next as usize >= pos {
-            break;
-        }
-        candidate = next;
     }
     if best >= MIN_MATCH { (best, distance) } else { (0, 0) }
 }
@@ -3989,17 +4224,19 @@ fn code_for(table: &[(u16, u8)], value: usize) -> usize {
 }
 
 /// One zlib stream: the two-byte header, one fixed-Huffman block, the Adler-32.
-fn deflate(raw: &[u8]) -> Vec<u8> {
+///
+/// `stride` is the one data-shaped distance [`longest_match`] is allowed to try
+/// — the filtered row length, so a copy can reach the same column one row up.
+/// `0` when the caller has no rows (a bare byte stream in a test).
+fn deflate(raw: &[u8], stride: usize) -> Vec<u8> {
     let mut bits = BitWriter::new(raw.len() / 2);
     // The last block, and block type 01.
     bits.bits(1, 1);
     bits.bits(1, 2);
 
-    let mut head = vec![NONE; HASH_SIZE];
-    let mut prev = vec![NONE; WINDOW];
     let mut at = 0_usize;
     while at < raw.len() {
-        let (length, distance) = longest_match(raw, at, &head, &prev);
+        let (length, distance) = longest_match(raw, at, stride);
         if length >= MIN_MATCH {
             let index = code_for(&LENGTHS, length);
             let (base, extra) = LENGTHS.get(index).copied().unwrap_or((3, 0));
@@ -4014,17 +4251,11 @@ fn deflate(raw: &[u8]) -> Vec<u8> {
             if dextra > 0 {
                 bits.bits(distance.saturating_sub(usize::from(first)) as u32, u32::from(dextra));
             }
-            // Every position inside the match is remembered too, so a later
-            // match can start anywhere within it.
-            for step in 0..length {
-                remember(raw, at.saturating_add(step), &mut head, &mut prev);
-            }
             at = at.saturating_add(length);
         } else {
             let byte = raw.get(at).copied().unwrap_or(0);
             let (code, width) = fixed_code(u16::from(byte));
             bits.code(code, width);
-            remember(raw, at, &mut head, &mut prev);
             at = at.saturating_add(1);
         }
     }
@@ -4040,22 +4271,46 @@ fn deflate(raw: &[u8]) -> Vec<u8> {
     out
 }
 
-/// CRC-32, the reflected `0xEDB88320` polynomial PNG asks for, a bit at a time.
+/// The reflected `0xEDB88320` CRC-32 table PNG asks for, one entry per byte,
+/// built once at compile time.
+///
+/// A `const fn` rather than a value cached at run time, so the table is bytes
+/// in the archive and not a lazy `OnceLock` on the hot path — and computed by
+/// the same bit-at-a-time recurrence [`crc32`] used to run inline, so the
+/// values are provably the polynomial's own.
+const CRC_TABLE: [u32; 256] = {
+    let mut table = [0_u32; 256];
+    let mut n = 0;
+    while n < 256 {
+        let mut c = n as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 };
+            bit += 1;
+        }
+        table[n] = c;
+        n += 1;
+    }
+    table
+};
+
+/// CRC-32, the reflected `0xEDB88320` polynomial PNG asks for, a byte at a time
+/// through [`CRC_TABLE`].
 ///
 /// It takes the two halves a chunk's checksum covers — the type and the data —
 /// because that is the only shape anything here needs, and joining them into
 /// one buffer to hash would copy the whole image.
 ///
-/// A bit at a time rather than a table because a 1 KB table in this archive
-/// costs more than the microseconds it saves on an image nobody is waiting for.
+/// Table-driven rather than bit-at-a-time: the encoder is on the record and
+/// diff paths now, and a byte a step is eight times less work than a bit a step
+/// on the whole `IDAT`. The table is a kilobyte of `const` bytes, worth it for
+/// that.
 fn crc32(parts: [&[u8]; 2]) -> u32 {
     let mut c = 0xffff_ffff_u32;
     for part in parts {
         for &byte in part {
-            c ^= u32::from(byte);
-            for _ in 0..8 {
-                c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 };
-            }
+            let index = ((c ^ u32::from(byte)) & 0xff) as usize;
+            c = CRC_TABLE[index] ^ (c >> 8);
         }
     }
     c ^ 0xffff_ffff
@@ -5474,7 +5729,7 @@ mod tests {
     #[test]
     fn the_compressed_stream_is_one_final_fixed_huffman_block() {
         let raw = b"the same words the same words the same words".to_vec();
-        let stream = deflate(&raw);
+        let stream = deflate(&raw, 0);
         // RFC 1950's header check: the first two bytes, big-endian, divide by 31.
         assert_eq!(stream[0], 0x78);
         assert_eq!(u16::from_be_bytes([stream[0], stream[1]]) % 31, 0);
@@ -5489,7 +5744,7 @@ mod tests {
     #[test]
     fn a_repetitive_stream_comes_out_far_smaller_than_it_went_in() {
         let raw = vec![7_u8; 4096];
-        let stream = deflate(&raw);
+        let stream = deflate(&raw, 0);
         assert!(stream.len() < 64, "4096 identical bytes became {} bytes", stream.len());
         assert_eq!(image::inflate(&stream).unwrap(), raw);
     }
