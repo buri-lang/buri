@@ -375,9 +375,10 @@ pub fn raster(request: &Request) -> Result<Pixmap, String> {
     let state = State::parse(request.state)?;
     let sheet = parse_stylesheet(request.stylesheet);
     let variables = parse_variables(request.variables);
+    let page = parse_page(request.variables, &variables);
 
-    let styles = resolve(&scene, &sheet, state, &variables);
-    paint(&scene, &styles)
+    let styles = resolve(&scene, &sheet, state, &variables, page.ink);
+    paint(&scene, &styles, page.background)
 }
 
 /// The PNG bytes of a raster [`raster`] handed back. The one place the encoder
@@ -446,6 +447,61 @@ fn parse_variables(text: &str) -> Vec<(String, String)> {
         }
     }
     out
+}
+
+/// A page theme's own two colours: the ground the canvas takes and the ink the
+/// text starts at.
+///
+/// `ui/theme.page` renders to a `body{background-color:<ground>;color:<ink>}`
+/// block, which the snapshot installs beside the `:root{...}` token blocks — so
+/// it arrives in the same string [`parse_variables`] reads, and names the
+/// document's own ground rather than a token any element carries. Empty is a
+/// program with no page theme, which paints on white with black text the way it
+/// always did.
+#[derive(Clone, Copy, Default)]
+struct Page {
+    background: Option<Rgba>,
+    ink: Option<Rgba>,
+}
+
+/// The page theme's colours, out of the `body{...}` block `ui/theme.page`
+/// renders. A `var()` inside one is followed through the same tokens an
+/// element's declaration would, so a page whose ground is a token still lands.
+///
+/// A later block wins, the order the themes were passed in — the rule
+/// [`parse_variables`] follows for the token blocks beside it.
+fn parse_page(text: &str, variables: &[(String, String)]) -> Page {
+    let mut page = Page::default();
+    for block in text.split("body{").skip(1) {
+        let Some((body, _)) = block.split_once('}') else { continue };
+        for entry in body.split(';') {
+            let Some((name, value)) = entry.split_once(':') else { continue };
+            let resolved = substitute(value.trim(), variables);
+            let parsed = match colour(&resolved) {
+                Some(Spec::Value(c)) => Some(c),
+                Some(Spec::Transparent) => Some(Rgba::CLEAR),
+                // An unbound token or an unreadable value leaves the colour as
+                // it stood, which is white and black where nothing set it.
+                _ => None,
+            };
+            match name.trim() {
+                "background-color" if parsed.is_some() => page.background = parsed,
+                "color" if parsed.is_some() => page.ink = parsed,
+                _ => {}
+            }
+        }
+    }
+    page
+}
+
+/// A colour composited over opaque white, as a `tiny_skia` colour. A page whose
+/// ground is translucent lands on the white a canvas is before anything paints,
+/// which is what a browser shows for a translucent `body` background.
+fn over_white(colour: Rgba) -> tiny_skia::Color {
+    let a = colour.a.clamp(0.0, 1.0);
+    let blend = |channel: u8| (f32::from(channel) * a + 255.0 * (1.0 - a)) / 255.0;
+    tiny_skia::Color::from_rgba(blend(colour.r), blend(colour.g), blend(colour.b), 1.0)
+        .unwrap_or(tiny_skia::Color::WHITE)
 }
 
 /// A declaration's value with every `var(--name)` in it replaced by what the
@@ -1321,8 +1377,15 @@ fn resolve(
     sheet: &[Rule],
     state: State,
     variables: &[(String, String)],
+    ink: Option<Rgba>,
 ) -> Vec<Computed> {
-    let root = Computed::root();
+    // A page theme's `color` is the ink text starts at, so the canvas seeds the
+    // inheritance with it rather than black — the way a browser's `body{color:}`
+    // reaches every run under it that did not name its own colour.
+    let mut root = Computed::root();
+    if let Some(ink) = ink {
+        root.colour = ink;
+    }
     let mut styles = vec![root.clone(); scene.nodes.len()];
     let mut stack: Vec<(usize, Option<usize>, Computed)> =
         scene.roots.iter().rev().map(|&i| (i, None, root.clone())).collect();
@@ -2336,14 +2399,15 @@ fn extent(buffer: &Buffer) -> (f32, f32) {
 ///
 /// White rather than transparent because a snapshot is a picture of a page, and
 /// a page has a colour before anything is drawn on it.
-fn paint(scene: &Scene, styles: &[Computed]) -> Result<Pixmap, String> {
-    FACES.with_borrow_mut(|(fonts, cache)| paint_with(scene, styles, fonts, cache))
+fn paint(scene: &Scene, styles: &[Computed], ground: Option<Rgba>) -> Result<Pixmap, String> {
+    FACES.with_borrow_mut(|(fonts, cache)| paint_with(scene, styles, ground, fonts, cache))
 }
 
 /// [`paint`], with the shaper and the glyph cache handed in.
 fn paint_with(
     scene: &Scene,
     styles: &[Computed],
+    ground: Option<Rgba>,
     fonts: &mut FontSystem,
     cache: &mut SwashCache,
 ) -> Result<Pixmap, String> {
@@ -2433,7 +2497,15 @@ fn paint_with(
     let (dw, dh) = (device(wide), device(tall));
     let mut canvas = Pixmap::new(dw, dh)
         .ok_or_else(|| format!("the viewport {dw}x{dh} has no canvas"))?;
-    canvas.fill(tiny_skia::Color::WHITE);
+    // A page has a colour before anything is drawn on it: the page theme's own
+    // ground where one was installed, and white where none was — a translucent
+    // ground landing on that white, the way a browser paints a `body`
+    // background over the canvas.
+    let base = match ground {
+        Some(colour) if colour.visible() => over_white(colour),
+        _ => tiny_skia::Color::WHITE,
+    };
+    canvas.fill(base);
 
     let mut painter =
         Painter { scene, styles, pictures: &pictures, tree: &tree, ids: &ids, fonts, cache };
@@ -5982,9 +6054,70 @@ mod tests {
                      e 0 color:rgb(1,2,3)\n\
                      e 1 background-color:var(--x);color:var(--y);width:4px;height:2px\n";
         let scene = Scene::parse(scene).unwrap();
-        let styles = resolve(&scene, &[], State::Rest, &[]);
+        let styles = resolve(&scene, &[], State::Rest, &[], None);
         assert_eq!(styles.get(1).map(|s| s.background), Some(Rgba::CLEAR));
         assert_eq!(styles.get(1).map(|s| s.colour.r), Some(1));
+    }
+
+    /// A scene with a run of text on it, rendered under the theme string a
+    /// snapshot installs.
+    fn themed(scene: &str, variables: &str) -> Image {
+        let png = render(&Request { scene, stylesheet: "", state: "rest", variables }).unwrap();
+        decode(&png).unwrap()
+    }
+
+    /// The brightest and the darkest red channel anywhere in the image — enough
+    /// to tell a near-white ink on a near-black ground from the reverse.
+    fn brightness_span(image: &Image) -> (u8, u8) {
+        let reds = image.rgba.chunks_exact(4).map(|p| p[0]);
+        (reds.clone().max().unwrap_or(0), reds.min().unwrap_or(255))
+    }
+
+    /// buri#155: a `ui/theme.page` theme's `body{...}` block paints the canvas
+    /// and seeds the text colour, where the snapshot used to ignore it and paint
+    /// black text on a white canvas whatever the page theme said.
+    #[test]
+    fn a_page_theme_paints_its_ground_and_seeds_the_ink() {
+        let scene = "buri-scene 1\nviewport 40 20\n\
+                     e 0 font-size:12px\n\
+                     t 1 hi\n";
+        let plain = themed(scene, "");
+        let dark = themed(scene, "body{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n");
+        // The page theme changed the picture, where before it changed nothing.
+        assert_ne!(plain.rgba, dark.rgba);
+        // The canvas is the page's near-black ground, read at a corner the text
+        // does not reach.
+        assert_eq!(at(&dark, 0, 0), [10, 10, 10, 255]);
+        // And the text is the page's near-white ink: the brightest pixel is the
+        // ink and the darkest is the ground, which is the reverse of the plain
+        // snapshot — black ink on a white canvas.
+        let (brightest, darkest) = brightness_span(&dark);
+        assert!(brightest > 200 && darkest < 40, "dark page: {brightest} over {darkest}");
+        assert_eq!(at(&plain, 0, 0), [255, 255, 255, 255]);
+        let (plain_brightest, plain_darkest) = brightness_span(&plain);
+        assert!(plain_brightest > 200 && plain_darkest < 40, "plain: {plain_brightest} over {plain_darkest}");
+    }
+
+    /// An element that names its own `color` still wins over the page theme's
+    /// ink, and a `background-color` token the page's ground reads resolves.
+    #[test]
+    fn a_page_theme_is_the_default_and_a_token_ground_resolves() {
+        let scene = "buri-scene 1\nviewport 40 20\n\
+                     e 0 color:rgb(200,0,0);font-size:12px\n\
+                     t 1 hi\n";
+        // The page ground is a token the theme's `:root` block binds.
+        let variables = ":root{--page-bg:rgb(0,0,40)}\n\
+                         body{background-color:var(--page-bg);color:rgb(250,250,250)}\n";
+        let image = themed(scene, variables);
+        // The ground followed the token to near-black-blue.
+        assert_eq!(at(&image, 0, 0), [0, 0, 40, 255]);
+        // The run kept its own red, not the page ink: some pixel is strongly
+        // red and weakly blue.
+        let reddest = image
+            .rgba
+            .chunks_exact(4)
+            .any(|p| p[0] > 150 && p[1] < 80 && p[2] < 80);
+        assert!(reddest, "the element's own colour did not win over the page ink");
     }
 
     #[test]
