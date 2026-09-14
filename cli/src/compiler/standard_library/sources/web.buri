@@ -19,7 +19,11 @@
 //! /// The whole site, as one function of the path. The worker calls it with
 //! /// `.Const(request.path())`; the page calls it with `web.route(ctx)`.
 //! fn page<C>(path: Prop<Str>): Node<C> {
-//!     ui.region(.Main, [], [ui.heading(1, [], path)])
+//!     ui.stack({
+//!         styles: [],
+//!         children: [ui.text({ content: path, headingLevel: .Some(1) })],
+//!         role: .Some(.Main),
+//!     })
 //! }
 //!
 //! fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
@@ -343,5 +347,10 @@ export fn routeLink<C: Location + Ui>(
     styles: [Style],
     children: [Node<C>],
 ): Node<C> {
-    node.routeLink(dest, styles, children, fn(c, to) => navigate(c, to))
+    node.link({
+        dest: dest,
+        children: children,
+        styles: styles,
+        onFollow: .Some(fn(c, to) => navigate(c, to)),
+    })
 }
