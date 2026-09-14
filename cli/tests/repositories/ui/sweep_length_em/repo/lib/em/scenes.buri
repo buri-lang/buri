@@ -12,22 +12,39 @@ from "ui/style" import { Length };
 /// The page every picture is drawn on: eight hundred wide, at the root size,
 /// so a box's own `FontSize` is the only thing that moves an em.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.PaddingY(.Px(6)), .Gap(.Px(10)), .FontSize(.Px(16))])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.PaddingY(.Px(6)), .Gap(.Px(10)), .FontSize(.Px(16))]),
+        ],
+        children: rows,
+    })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(2))])], children: [
-        ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-            ui.text({ content: .Const(label) }),
-        ] }),
-        demo,
-    ] })
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Gap(.Px(2))])],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            demo,
+        ],
+    })
 }
 
 /// A filled box at its own text size, with `space` inside every edge.
 fn padded<C>(size: Int, space: Length): Node<C> {
-    ui.stack({ styles: [.FontSize(.Px(size)), .Padding(space), .Background(.Rgb(232, 232, 238))], children: [ui.text({ content: .Const("Aa") })] })
+    ui.stack({
+        styles: [
+            .FontSize(.Px(size)),
+            .Padding(space),
+            .Background(.Rgb(232, 232, 238)),
+        ],
+        children: [ui.text({ content: .Const("Aa") })],
+    })
 }
 
 /// Half an em of padding at four text sizes, against half a rem at the same
@@ -35,35 +52,46 @@ fn padded<C>(size: Int, space: Length): Node<C> {
 /// rem row's four are padded eight whatever the type is doing.
 export fn scaling<C>(): Node<C> {
     page([
-        ui.text({ content: .Const("padding: half an em, then half a rem, at 12/16/24/32px") }),
+        ui.text({
+            content: .Const("padding: half an em, then half a rem, at 12/16/24/32px"),
+        }),
         band(
             "Padding(.Em(0.5)) — 6, 8, 12, 16 pixels",
-            ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)], children: [
-                padded(12, .Em(0.5)),
-                padded(16, .Em(0.5)),
-                padded(24, .Em(0.5)),
-                padded(32, .Em(0.5)),
-            ] }),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)],
+                children: [
+                    padded(12, .Em(0.5)),
+                    padded(16, .Em(0.5)),
+                    padded(24, .Em(0.5)),
+                    padded(32, .Em(0.5)),
+                ],
+            }),
         ),
         band(
             "Padding(.Rem(0.5)) — 8 pixels, four times",
-            ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)], children: [
-                padded(12, .Rem(0.5)),
-                padded(16, .Rem(0.5)),
-                padded(24, .Rem(0.5)),
-                padded(32, .Rem(0.5)),
-            ] }),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)],
+                children: [
+                    padded(12, .Rem(0.5)),
+                    padded(16, .Rem(0.5)),
+                    padded(24, .Rem(0.5)),
+                    padded(32, .Rem(0.5)),
+                ],
+            }),
         ),
     ])
 }
 
 /// One line of text, tracked by `spacing` at `size`.
 fn tracked<C>(size: Int, spacing: Length): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .FontSize(.Px(size)),
             .LetterSpacing(spacing),
             .Background(.Rgb(240, 240, 246)),
-        ], children: [ui.text({ content: .Const("Handgloves") })] })
+        ],
+        children: [ui.text({ content: .Const("Handgloves") })],
+    })
 }
 
 /// The tracking values a design system actually names, at one size, then the
@@ -79,30 +107,39 @@ export fn tracking<C>(): Node<C> {
         band("0.1em — tracking-widest", tracked(28, .Em(0.1))),
         band(
             "0.1em at 12, 20 and 32 px — the gap grows with the type",
-            ui.stack({ styles: [.Layout(.Row), .Gap(.Px(12)), .AlignCross(.Start)], children: [
-                tracked(12, .Em(0.1)),
-                tracked(20, .Em(0.1)),
-                tracked(32, .Em(0.1)),
-            ] }),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(12)), .AlignCross(.Start)],
+                children: [
+                    tracked(12, .Em(0.1)),
+                    tracked(20, .Em(0.1)),
+                    tracked(32, .Em(0.1)),
+                ],
+            }),
         ),
         band(
             "0.1rem at the same three — one gap, three sizes",
-            ui.stack({ styles: [.Layout(.Row), .Gap(.Px(12)), .AlignCross(.Start)], children: [
-                tracked(12, .Rem(0.1)),
-                tracked(20, .Rem(0.1)),
-                tracked(32, .Rem(0.1)),
-            ] }),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(12)), .AlignCross(.Start)],
+                children: [
+                    tracked(12, .Rem(0.1)),
+                    tracked(20, .Rem(0.1)),
+                    tracked(32, .Rem(0.1)),
+                ],
+            }),
         ),
     ])
 }
 
 /// A box a quarter larger than whatever it is inside.
 fn larger<C>(children: [Node<C>]): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .FontSize(.Em(1.25)),
             .PaddingEdge(.Start, .Em(0.5)),
             .Background(.Rgb(242, 240, 232)),
-        ], children: children })
+        ],
+        children: children,
+    })
 }
 
 /// An em inside a `FontSize` is a multiple of the *parent's* size, which is
@@ -116,7 +153,10 @@ export fn nesting<C>(): Node<C> {
             ui.text({ content: .Const("one") }),
             larger([
                 ui.text({ content: .Const("two") }),
-                larger([ui.text({ content: .Const("three") }), larger([ui.text({ content: .Const("four") })])]),
+                larger([
+                    ui.text({ content: .Const("three") }),
+                    larger([ui.text({ content: .Const("four") })]),
+                ]),
             ]),
         ]),
     ])
@@ -124,7 +164,10 @@ export fn nesting<C>(): Node<C> {
 
 /// One filled square, for a gap to be visible between.
 fn swatch<C>(): Node<C> {
-    ui.stack({ styles: [.Width(.Px(40)), .Height(.Px(24)), .Background(.Rgb(150, 170, 200))], children: [] })
+    ui.stack({
+        styles: [.Width(.Px(40)), .Height(.Px(24)), .Background(.Rgb(150, 170, 200))],
+        children: [],
+    })
 }
 
 /// Every other property a length reaches, in em, at a text size of
@@ -134,24 +177,27 @@ export fn properties<C>(): Node<C> {
         ui.text({ content: .Const("one em of each, at a 24px text size") }),
         band(
             "Gap",
-            ui.stack({ styles: [.FontSize(.Px(24)), .Layout(.Row), .Gap(.Em(1.0))], children: [
-                swatch(),
-                swatch(),
-                swatch(),
-            ] }),
+            ui.stack({
+                styles: [.FontSize(.Px(24)), .Layout(.Row), .Gap(.Em(1.0))],
+                children: [swatch(), swatch(), swatch()],
+            }),
         ),
         band(
             "Width and Height",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .FontSize(.Px(24)),
                     .Width(.Em(6.0)),
                     .Height(.Em(2.0)),
                     .Background(.Rgb(150, 170, 200)),
-                ], children: [] }),
+                ],
+                children: [],
+            }),
         ),
         band(
             "Radius and BorderWidth",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .FontSize(.Px(24)),
                     .Width(.Em(6.0)),
                     .Height(.Em(2.0)),
@@ -159,25 +205,33 @@ export fn properties<C>(): Node<C> {
                     .BorderWidth(.Em(0.25)),
                     .BorderColor(.Rgb(40, 60, 90)),
                     .Background(.Rgb(210, 220, 235)),
-                ], children: [] }),
+                ],
+                children: [],
+            }),
         ),
         band(
             "Pin, an em in from the top and the start of the box around it",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .FontSize(.Px(24)),
                     .Position(.Flow),
                     .Width(.Px(200)),
                     .Height(.Px(80)),
                     .Background(.Rgb(240, 240, 246)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Pin(.Top, .Em(1.0)),
                             .Pin(.Start, .Em(1.0)),
                             .Width(.Px(24)),
                             .Height(.Px(24)),
                             .Background(.Rgb(200, 60, 60)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }

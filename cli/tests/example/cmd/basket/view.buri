@@ -165,7 +165,11 @@ fn banner<C>(state: State): Node<C> {
         styles: [barStyle],
         role: .Some(.Banner),
         children: [
-            ui.text({ content: .Const("Basket"), headingLevel: .Some(1), styles: .Some([titleStyle]) }),
+            ui.text({
+                content: .Const("Basket"),
+                headingLevel: .Some(1),
+                styles: .Some([titleStyle]),
+            }),
             ui.spacer({ size: .None }),
             ui.toggle({
                 label: .Const("Dark mode"),
@@ -208,7 +212,11 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
                 value: state.draftAmount,
                 styles: [fieldStyle],
             }),
-            ui.button({ label: .Const("Add"), styles: [buttonStyle], kind: .Some(.Submit) }),
+            ui.button({
+                label: .Const("Add"),
+                styles: [buttonStyle],
+                kind: .Some(.Submit),
+            }),
             ui.spacer({ size: .None }),
             ui.button({
                 label: .Const("Load the ledger"),
@@ -232,7 +240,11 @@ fn composer<C: Allocator + Network + Ui + Watch>(state: State): Node<C> {
 fn notice<C>(state: State): Node<C> {
     ui.choose(
         .Computed(fn(scope) => !state.notice.get(scope).isEmpty()),
-        ui.stack({ styles: [noticeStyle], role: .Some(.Alert), children: [ui.text({ content: .Cell(state.notice) })] }),
+        ui.stack({
+            styles: [noticeStyle],
+            role: .Some(.Alert),
+            children: [ui.text({ content: .Cell(state.notice) })],
+        }),
         ui.empty(),
     )
 }
@@ -307,7 +319,10 @@ fn line<C: Allocator + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
                 styles: [.Grow(1), .When(settled, settledStyle, [])],
                 children: [ui.text({ content: .Const(item.memo) })],
             }),
-            ui.stack({ styles: [amountStyle], children: [ui.text({ content: .Const(item.amount.format(ctx)) })] }),
+            ui.stack({
+                styles: [amountStyle],
+                children: [ui.text({ content: .Const(item.amount.format(ctx)) })],
+            }),
         ],
     })
     // The label names the line, because a screen reader announces a button by
@@ -348,7 +363,11 @@ fn summary<C: Ui>(ctx: C, state: State): Node<C> {
                         ],
                     }),
                     ui.spacer({ size: .None }),
-                    pill(.Computed(fn(scope) => "${state.ticked.get(scope).length()} settled")),
+                    pill(
+                        .Computed(fn(scope) => {
+                            "${state.ticked.get(scope).length()} settled"
+                        }),
+                    ),
                 ],
             }),
             meter(settled),
@@ -370,7 +389,11 @@ fn colophon<C>(): Node<C> {
                 styles: [.Layout(.Row), .Gap(.Px(4))],
                 children: [
                     ui.text({ content: .Const("Lines come from the server's") }),
-                    ui.link({ dest: .Const(LEDGER_URL), styles: [linkStyle], children: [ui.text({ content: .Const("ledger route") })] }),
+                    ui.link({
+                        dest: .Const(LEDGER_URL),
+                        styles: [linkStyle],
+                        children: [ui.text({ content: .Const("ledger route") })],
+                    }),
                 ],
             }),
         ],

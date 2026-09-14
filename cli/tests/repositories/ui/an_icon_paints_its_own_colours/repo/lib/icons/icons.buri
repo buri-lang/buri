@@ -24,18 +24,23 @@ let remote: Str = "https://example.com/logo.png";
 
 /// One icon in a box of its own, the way a component library ships one.
 fn framed<C>(source: Str): Node<C> {
-    ui.stack({ styles: [.Width(.Px(24)), .Height(.Px(24))], children: [
-        ui.image({ source: .Const(source), alt: .AccessibilityText(""), styles: [] }),
-    ] })
+    ui.stack({
+        styles: [.Width(.Px(24)), .Height(.Px(24))],
+        children: [
+            ui.image({
+                source: .Const(source),
+                alt: .AccessibilityText(""),
+                styles: [],
+            }),
+        ],
+    })
 }
 
 /// The row from the issue, with the percent-encoded glyph and an address
 /// beside it.
 export fn icons<C>(): Node<C> {
-    ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(12)), .Padding(.Px(16))])], children: [
-        framed(square),
-        framed(plus),
-        framed(plusAgain),
-        framed(remote),
-    ] })
+    ui.stack({
+        styles: [.Layout(.Row), .Group([.Gap(.Px(12)), .Padding(.Px(16))])],
+        children: [framed(square), framed(plus), framed(plusAgain), framed(remote)],
+    })
 }

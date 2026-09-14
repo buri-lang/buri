@@ -5,17 +5,27 @@ from "ui/node" import { Node };
 /// either side, so a boundary in a picture is a number off the viewport's own
 /// edge.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))]),
+        ],
+        children: rows,
+    })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(2))])], children: [
-        ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-            ui.text({ content: .Const(label) }),
-        ] }),
-        demo,
-    ] })
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Gap(.Px(2))])],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            demo,
+        ],
+    })
 }
 
 /// Every `Layout` a container can take, over one list of three blocks: down
@@ -24,78 +34,114 @@ export fn directions<C>(): Node<C> {
     page([
         band(
             "Layout(.Column)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Column),
                     .Width(.Px(320)),
                     .Height(.Px(100)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(120)),
                             .Height(.Px(44)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(30)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(40)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Layout(.Row)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Width(.Px(320)),
                     .Height(.Px(100)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(120)),
                             .Height(.Px(44)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(30)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(40)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Layout(.Layers)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Layers),
                     .Width(.Px(320)),
                     .Height(.Px(100)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(120)),
                             .Height(.Px(44)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(30)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(40)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -106,155 +152,230 @@ export fn gaps<C>(): Node<C> {
     page([
         band(
             "Gap(.Px(0))",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Gap(.Px(0)),
                     .Width(.Px(400)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Gap(.Px(8))",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Gap(.Px(8)),
                     .Width(.Px(400)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Gap(.Px(24))",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Gap(.Px(24)),
                     .Width(.Px(400)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "GapX(.Px(24)), and nothing between rows",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .GapX(.Px(24)),
                     .Width(.Px(400)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "GapX(.Px(8)), GapY(.Px(16)), wrapped onto two lines",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Wrap(true),
                     .GapX(.Px(8)),
                     .GapY(.Px(16)),
                     .Width(.Px(140)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -265,178 +386,262 @@ export fn alignMain<C>(): Node<C> {
     page([
         band(
             "AlignMain(.Start)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignMain(.Start),
                     .Height(.Px(24)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignMain(.Center)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignMain(.Center),
                     .Height(.Px(24)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignMain(.End)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignMain(.End),
                     .Height(.Px(24)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignMain(.Stretch)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignMain(.Stretch),
                     .Height(.Px(24)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignMain(.SpaceBetween)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignMain(.SpaceBetween),
                     .Height(.Px(24)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignMain(.SpaceAround)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignMain(.SpaceAround),
                     .Height(.Px(24)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignMain(.SpaceEvenly)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignMain(.SpaceEvenly),
                     .Height(.Px(24)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -447,192 +652,276 @@ export fn alignCross<C>(): Node<C> {
     page([
         band(
             "AlignCross(.Start)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(34)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Width(.Px(60)),
-                        ], children: [ui.text({ content: .Const("auto") })] }),
-                ] }),
+                        ],
+                        children: [ui.text({ content: .Const("auto") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignCross(.Center)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Center),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(34)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Width(.Px(60)),
-                        ], children: [ui.text({ content: .Const("auto") })] }),
-                ] }),
+                        ],
+                        children: [ui.text({ content: .Const("auto") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignCross(.End)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.End),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(34)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Width(.Px(60)),
-                        ], children: [ui.text({ content: .Const("auto") })] }),
-                ] }),
+                        ],
+                        children: [ui.text({ content: .Const("auto") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignCross(.Stretch)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Stretch),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(34)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Width(.Px(60)),
-                        ], children: [ui.text({ content: .Const("auto") })] }),
-                ] }),
+                        ],
+                        children: [ui.text({ content: .Const("auto") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignCross(.SpaceBetween)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.SpaceBetween),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(34)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Width(.Px(60)),
-                        ], children: [ui.text({ content: .Const("auto") })] }),
-                ] }),
+                        ],
+                        children: [ui.text({ content: .Const("auto") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignCross(.SpaceAround)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.SpaceAround),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(34)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Width(.Px(60)),
-                        ], children: [ui.text({ content: .Const("auto") })] }),
-                ] }),
+                        ],
+                        children: [ui.text({ content: .Const("auto") })],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignCross(.SpaceEvenly)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.SpaceEvenly),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(34)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Foreground(.Rgb(255, 255, 255)),
                             .Padding(.Px(4)),
                             .Width(.Px(60)),
-                        ], children: [ui.text({ content: .Const("auto") })] }),
-                ] }),
+                        ],
+                        children: [ui.text({ content: .Const("auto") })],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -643,192 +932,276 @@ export fn alignSelf<C>(): Node<C> {
     page([
         band(
             "AlignSelf(.Start)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
                             .AlignSelf(.Start),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignSelf(.Center)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
                             .AlignSelf(.Center),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignSelf(.End)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
                             .AlignSelf(.End),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignSelf(.Stretch)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
                             .AlignSelf(.Stretch),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignSelf(.SpaceBetween)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
                             .AlignSelf(.SpaceBetween),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignSelf(.SpaceAround)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
                             .AlignSelf(.SpaceAround),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "AlignSelf(.SpaceEvenly)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .AlignCross(.Start),
                     .Gap(.Px(8)),
                     .Height(.Px(48)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
                             .AlignSelf(.SpaceEvenly),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(60)),
                             .Height(.Px(16)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -839,110 +1212,164 @@ export fn wrapping<C>(): Node<C> {
     page([
         band(
             "no Wrap at all",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Gap(.Px(8)),
                     .Width(.Px(300)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Wrap(false)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Wrap(false),
                     .Gap(.Px(8)),
                     .Width(.Px(300)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Wrap(true)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Row),
                     .Wrap(true),
                     .Gap(.Px(8)),
                     .Width(.Px(300)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(230, 160, 20)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -953,88 +1380,180 @@ export fn growShrink<C>(): Node<C> {
     page([
         band(
             "Grow(0) on all three",
-            ui.stack({ styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))], children: [
-                ui.stack({ styles: [.Background(.Rgb(200, 40, 40)), .Width(.Px(80)), .Height(.Px(20))], children: [] }),
-                ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Width(.Px(80)), .Height(.Px(20))], children: [] }),
-                ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Width(.Px(80)), .Height(.Px(20))], children: [] }),
-            ] }),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(200, 40, 40)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 150, 40)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Grow(1) on the first",
-            ui.stack({ styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))], children: [
-                ui.stack({ styles: [
-                        .Background(.Rgb(200, 40, 40)),
-                        .Width(.Px(80)),
-                        .Height(.Px(20)),
-                        .Grow(1),
-                    ], children: [] }),
-                ui.stack({ styles: [.Background(.Rgb(40, 150, 40)), .Width(.Px(80)), .Height(.Px(20))], children: [] }),
-                ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Width(.Px(80)), .Height(.Px(20))], children: [] }),
-            ] }),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(200, 40, 40)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                            .Grow(1),
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 150, 40)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Grow(1) on the first and Grow(2) on the second",
-            ui.stack({ styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))], children: [
-                ui.stack({ styles: [
-                        .Background(.Rgb(200, 40, 40)),
-                        .Width(.Px(80)),
-                        .Height(.Px(20)),
-                        .Grow(1),
-                    ], children: [] }),
-                ui.stack({ styles: [
-                        .Background(.Rgb(40, 150, 40)),
-                        .Width(.Px(80)),
-                        .Height(.Px(20)),
-                        .Grow(2),
-                    ], children: [] }),
-                ui.stack({ styles: [.Background(.Rgb(40, 40, 200)), .Width(.Px(80)), .Height(.Px(20))], children: [] }),
-            ] }),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(200, 40, 40)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                            .Grow(1),
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 150, 40)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                            .Grow(2),
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
+                            .Background(.Rgb(40, 40, 200)),
+                            .Width(.Px(80)),
+                            .Height(.Px(20)),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Shrink(0) on the first, Shrink(1) on the other two",
-            ui.stack({ styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Width(.Px(300))], children: [
-                    ui.stack({ styles: [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Layout(.Row),
+                    .Width(.Px(300)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(200)),
                             .Height(.Px(20)),
                             .Shrink(0),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(200)),
                             .Height(.Px(20)),
                             .Shrink(1),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(200)),
                             .Height(.Px(20)),
                             .Shrink(1),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "Shrink(1) on all three",
-            ui.stack({ styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Width(.Px(300))], children: [
-                    ui.stack({ styles: [
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Layout(.Row),
+                    .Width(.Px(300)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(200)),
                             .Height(.Px(20)),
                             .Shrink(1),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(200)),
                             .Height(.Px(20)),
                             .Shrink(1),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(200)),
                             .Height(.Px(20)),
                             .Shrink(1),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -1046,53 +1565,77 @@ export fn layers<C>(): Node<C> {
     page([
         band(
             "largest written first",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Layers),
                     .Width(.Px(320)),
                     .Height(.Px(72)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(240)),
                             .Height(.Px(60)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(160)),
                             .Height(.Px(40)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
         band(
             "smallest written first",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(.Layers),
                     .Width(.Px(320)),
                     .Height(.Px(72)),
-                ], children: [
-                    ui.stack({ styles: [
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 40, 200)),
                             .Width(.Px(80)),
                             .Height(.Px(20)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(40, 150, 40)),
                             .Width(.Px(160)),
                             .Height(.Px(40)),
-                        ], children: [] }),
-                    ui.stack({ styles: [
+                        ],
+                        children: [],
+                    }),
+                    ui.stack({
+                        styles: [
                             .Background(.Rgb(200, 40, 40)),
                             .Width(.Px(240)),
                             .Height(.Px(60)),
-                        ], children: [] }),
-                ] }),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
         ),
     ])
 }

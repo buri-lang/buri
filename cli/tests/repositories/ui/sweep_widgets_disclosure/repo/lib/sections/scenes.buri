@@ -21,21 +21,42 @@ from "ui/style" import { Style };
 /// The page, with its disclosure bound to `open`.
 export fn page<C: Ui>(ctx: C, open: Bool): Node<C> {
     let shown = signal(ctx, open);
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Padding(.Px(16)),
-            .Gap(.Px(12)),
-            .Width(.Px(360)),
-            .FontSize(.Px(13)),
-            .Background(.Rgb(255, 255, 255)),
-        ])], children: [
-            ui.text({ content: .Const("Shipping & returns"), headingLevel: .Some(1), styles: .Some([.FontSize(.Px(18)), .FontWeight(.Bold)]) }),
-            ui.text({ content: .Const("Two questions, and the answer to one of them showing.") }),
-            ui.disclosure({ summary: .Const("When will my order arrive?"), isOpen: shown, children: [
-                ui.text({ content: .Const(
-                        "Three to five business days, tracked from the moment it leaves the warehouse.",
-                    ) }),
-            ], styles: card() }),
-        ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(16)),
+                .Gap(.Px(12)),
+                .Width(.Px(360)),
+                .FontSize(.Px(13)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: [
+            ui.text({
+                content: .Const("Shipping & returns"),
+                headingLevel: .Some(1),
+                styles: .Some([.FontSize(.Px(18)), .FontWeight(.Bold)]),
+            }),
+            ui.text({
+                content: .Const(
+                    "Two questions, and the answer to one of them showing.",
+                ),
+            }),
+            ui.disclosure({
+                summary: .Const("When will my order arrive?"),
+                isOpen: shown,
+                children: [
+                    ui.text({
+                        content: .Const(
+                            "Three to five business days, tracked from the moment it leaves the warehouse.",
+                        ),
+                    }),
+                ],
+                styles: card(),
+            }),
+        ],
+    })
 }
 
 /// The card the styles land on: a bordered, padded box, with a gap where a

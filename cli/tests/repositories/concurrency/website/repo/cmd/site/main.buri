@@ -49,7 +49,13 @@ fn page<C>(
         role: .Some(.Main),
         children: [
             ui.text({ content: .Const(title), headingLevel: .Some(1) }),
-            ui.image({ source: .Const("<svg viewBox='0 0 24 24'><path d='M20 6 9 17l-5-5'/></svg>"), alt: .Decorative, styles: [] }),
+            ui.image({
+                source: .Const(
+                    "<svg viewBox='0 0 24 24'><path d='M20 6 9 17l-5-5'/></svg>",
+                ),
+                alt: .Decorative,
+                styles: [],
+            }),
             ui.text({ content: .Const(visitors) }),
             ui.button({ label: label, styles: [], onPress: .Some(onPress) }),
             ui.button({ label: .Const("about"), styles: [], onPress: .Some(onGo) }),
@@ -63,9 +69,29 @@ fn page<C>(
 /// Routing: an ordinary match on the path.
 fn at<C>(path: Str): Node<C> {
     match (path) {
-        "/" => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("home") })] }),
-        "/about" => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("About"), headingLevel: .Some(2) })] }),
-        _other => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("no page here") })] }),
+        "/" => {
+            ui.stack({
+                styles: [],
+                role: .Some(.Article),
+                children: [ui.text({ content: .Const("home") })],
+            })
+        },
+        "/about" => {
+            ui.stack({
+                styles: [],
+                role: .Some(.Article),
+                children: [
+                    ui.text({ content: .Const("About"), headingLevel: .Some(2) }),
+                ],
+            })
+        },
+        _other => {
+            ui.stack({
+                styles: [],
+                role: .Some(.Article),
+                children: [ui.text({ content: .Const("no page here") })],
+            })
+        },
     }
 }
 

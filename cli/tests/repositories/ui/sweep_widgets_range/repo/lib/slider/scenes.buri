@@ -40,9 +40,11 @@ export fn valuesPage<C: Ui>(ctx: C): Node<C> {
 /// The size of the track, and what the bar and the thumb make of it.
 export fn sizesPage<C: Ui>(ctx: C): Node<C> {
     page([
-        ui.text({ content: .Const(
+        ui.text({
+            content: .Const(
                 "range — the track a browser gives one, and the sizes a program asks for",
-            ) }),
+            ),
+        }),
         band("width", [
             cell(ctx, "40px", 0.0, 100.0, 40.0, [.Width(.Px(40))]),
             cell(ctx, "80px", 0.0, 100.0, 40.0, [.Width(.Px(80))]),
@@ -67,9 +69,11 @@ export fn sizesPage<C: Ui>(ctx: C): Node<C> {
 /// What paints a slider: one colour for both shapes, and the box behind them.
 export fn paintPage<C: Ui>(ctx: C): Node<C> {
     page([
-        ui.text({ content: .Const(
+        ui.text({
+            content: .Const(
                 "range — Foreground paints the bar and the thumb, Background the box",
-            ) }),
+            ),
+        }),
         band("Foreground", [
             cell(ctx, "near black", 0.0, 100.0, 40.0, [
                 .Width(.Px(130)),
@@ -147,18 +151,33 @@ fn cell<C: Ui>(
 
 /// One band: its name, then a cell per value.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(6)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))])], children: [
-        ui.text({ content: .Const(name) }),
-        ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])], children: cells }),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(6)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(6)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page: a title and the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
-        ])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: rows,
+    })
 }

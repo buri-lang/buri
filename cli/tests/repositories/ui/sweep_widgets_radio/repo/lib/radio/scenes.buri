@@ -42,52 +42,79 @@ export fn colourPage<C: Ui>(ctx: C): Node<C> {
 
 /// A three-option group under its name, `selected` the key the signal holds.
 fn group<C: Ui>(ctx: C, name: Str, selected: Str): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)])], children: [
-        ui.text({ content: .Const(name) }),
-        ui.picker({
-            label: .Const(name),
-            options: [
-                ("a", ui.text({ content: .Const("A") })),
-                ("b", ui.text({ content: .Const("B") })),
-                ("c", ui.text({ content: .Const("C") })),
-            ],
-            value: signal(ctx, selected),
-            styles: [.Gap(.Px(4))],
-        }),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.picker({
+                label: .Const(name),
+                options: [
+                    ("a", ui.text({ content: .Const("A") })),
+                    ("b", ui.text({ content: .Const("B") })),
+                    ("c", ui.text({ content: .Const("C") })),
+                ],
+                value: signal(ctx, selected),
+                styles: [.Gap(.Px(4))],
+            }),
+        ],
+    })
 }
 
 /// A two-option group under its name, its second option checked, in a
 /// foreground of its own.
 fn coloured<C: Ui>(ctx: C, name: Str, paint: [Style]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)])], children: [
-        ui.text({ content: .Const(name) }),
-        ui.picker({
-            label: .Const(name),
-            options: [
-                ("a", ui.text({ content: .Const("A") })),
-                ("b", ui.text({ content: .Const("B") })),
-            ],
-            value: signal(ctx, "b"),
-            styles: [.Gap(.Px(4)), .Group(paint)],
-        }),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(120)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.picker({
+                label: .Const(name),
+                options: [
+                    ("a", ui.text({ content: .Const("A") })),
+                    ("b", ui.text({ content: .Const("B") })),
+                ],
+                value: signal(ctx, "b"),
+                styles: [.Gap(.Px(4)), .Group(paint)],
+            }),
+        ],
+    })
 }
 
 /// One band: its name, then a cell per value.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))])], children: [
-        ui.text({ content: .Const(name) }),
-        ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])], children: cells }),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page: a title and the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
-        ])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: rows,
+    })
 }

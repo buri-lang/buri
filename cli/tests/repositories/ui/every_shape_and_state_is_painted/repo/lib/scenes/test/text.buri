@@ -20,13 +20,19 @@ test "combining marks, emoji and a right-to-left run" {
     snapshot(
         ctx,
         "снимок",
-        ui.stack({ styles: [.Layout(.Column), .Group([.Padding(.Px(12)), .Gap(.Px(6)), .FontSize(.Px(20))])], children: [
-            ui.text({ content: .Const("é́́ äo̊u̧") }),
-            ui.text({ content: .Const("🙂 🇯🇵 👩‍💻 ❤️") }),
-            ui.text({ content: .Const("مرحبا بالعالم") }),
-            ui.text({ content: .Const("שלום ada עולם") }),
-            ui.text({ content: .Const("") }),
-        ] }),
+        ui.stack({
+            styles: [
+                .Layout(.Column),
+                .Group([.Padding(.Px(12)), .Gap(.Px(6)), .FontSize(.Px(20))]),
+            ],
+            children: [
+                ui.text({ content: .Const("é́́ äo̊u̧") }),
+                ui.text({ content: .Const("🙂 🇯🇵 👩‍💻 ❤️") }),
+                ui.text({ content: .Const("مرحبا بالعالم") }),
+                ui.text({ content: .Const("שלום ada עולם") }),
+                ui.text({ content: .Const("") }),
+            ],
+        }),
         .Hover,
         [],
     );
@@ -42,10 +48,16 @@ test "a line longer than the page, wrapped and unwrapped" {
     snapshot(
         ctx,
         "a-line-past-the-edge",
-        ui.stack({ styles: [.Layout(.Column), .Group([.Padding(.Px(8)), .Gap(.Px(8))])], children: [
-            tinted(40, ui.text({ content: .Const(line) })),
-            ui.stack({ styles: [.TextWrap(.NoWrap)], children: [ui.text({ content: .Const(line) })] }),
-        ] }),
+        ui.stack({
+            styles: [.Layout(.Column), .Group([.Padding(.Px(8)), .Gap(.Px(8))])],
+            children: [
+                tinted(40, ui.text({ content: .Const(line) })),
+                ui.stack({
+                    styles: [.TextWrap(.NoWrap)],
+                    children: [ui.text({ content: .Const(line) })],
+                }),
+            ],
+        }),
         .Hover,
         [],
     );

@@ -20,50 +20,102 @@ export fn contentPage<C>(): Node<C> {
         band("no children — the label is what it shows", [
             cell(
                 "label only",
-                ui.button({ label: .Const("Save"), styles: chip([]), onPress: .Some(press()) }),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: chip([]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
         band("one child", [
             cell(
                 "a word",
-                ui.button({ label: .Const("Save"), styles: chip([]), children: .Some([ui.text({ content: .Const("Save") })]), onPress: .Some(press()) }),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: chip([]),
+                    children: .Some([ui.text({ content: .Const("Save") })]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "a mark",
-                ui.button({ label: .Const("Close"), styles: chip([]), children: .Some([mark(.Rgb(24, 24, 40))]), onPress: .Some(press()) }),
+                ui.button({
+                    label: .Const("Close"),
+                    styles: chip([]),
+                    children: .Some([mark(.Rgb(24, 24, 40))]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
         band("several children, laid out by the button's own styles", [
             cell(
                 "mark, word",
-                ui.button({ label: .Const("Overview"), styles: chip([]), children: .Some([mark(.Rgb(24, 24, 40)), ui.text({ content: .Const("Overview") })]), onPress: .Some(press()) }),
+                ui.button({
+                    label: .Const("Overview"),
+                    styles: chip([]),
+                    children: .Some([
+                        mark(.Rgb(24, 24, 40)),
+                        ui.text({ content: .Const("Overview") }),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "word, chevron",
-                ui.button({ label: .Const("Details"), styles: chip([]), children: .Some([ui.text({ content: .Const("Details") }), mark(.Rgb(120, 120, 140))]), onPress: .Some(press()) }),
+                ui.button({
+                    label: .Const("Details"),
+                    styles: chip([]),
+                    children: .Some([
+                        ui.text({ content: .Const("Details") }),
+                        mark(.Rgb(120, 120, 140)),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "mark, word, chevron",
-                ui.button({ label: .Const("Reports"), styles: chip([]), children: .Some([
+                ui.button({
+                    label: .Const("Reports"),
+                    styles: chip([]),
+                    children: .Some([
                         mark(.Rgb(24, 24, 40)),
                         ui.text({ content: .Const("Reports") }),
                         mark(.Rgb(120, 120, 140)),
-                    ]), onPress: .Some(press()) }),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
         band("a subtree, and a spacer that pushes inside the button", [
             cell(
                 "two lines",
-                ui.button({ label: .Const("Ada Byron"), styles: chip([.Width(.Px(140)), .AlignCross(.Start)]), children: .Some([
-                        ui.stack({ styles: [.Layout(.Column), .Group([.AlignCross(.Start)])], children: [
-                            ui.text({ content: .Const("Ada Byron") }),
-                            ui.text({ content: .Const("countess") }),
-                        ] }),
-                    ]), onPress: .Some(press()) }),
+                ui.button({
+                    label: .Const("Ada Byron"),
+                    styles: chip([.Width(.Px(140)), .AlignCross(.Start)]),
+                    children: .Some([
+                        ui.stack({
+                            styles: [.Layout(.Column), .Group([.AlignCross(.Start)])],
+                            children: [
+                                ui.text({ content: .Const("Ada Byron") }),
+                                ui.text({ content: .Const("countess") }),
+                            ],
+                        }),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
             cell(
                 "pushed apart",
-                ui.button({ label: .Const("Ada Byron"), styles: chip([.Width(.Px(140))]), children: .Some([ui.text({ content: .Const("Ada") }), ui.spacer({ size: .None }), mark(.Rgb(120, 120, 140))]), onPress: .Some(press()) }),
+                ui.button({
+                    label: .Const("Ada Byron"),
+                    styles: chip([.Width(.Px(140))]),
+                    children: .Some([
+                        ui.text({ content: .Const("Ada") }),
+                        ui.spacer({ size: .None }),
+                        mark(.Rgb(120, 120, 140)),
+                    ]),
+                    onPress: .Some(press()),
+                }),
             ),
         ]),
     ])
@@ -74,13 +126,21 @@ export fn contentPage<C>(): Node<C> {
 export fn railPage<C>(): Node<C> {
     page([
         ui.text({ content: .Const("a rail — the wash covers the mark and the word") }),
-        ui.stack({ styles: [.Width(.Px(220)), .Padding(.Px(6))], children: [
-            ui.stack({ styles: [.Gap(.Px(2)), .Layout(.Column)], children: [
-                item("Overview", false),
-                item("Reports", true),
-                item("Settings", false),
-            ], role: .Some(.List) }),
-        ], role: .Some(.Navigation) }),
+        ui.stack({
+            styles: [.Width(.Px(220)), .Padding(.Px(6))],
+            children: [
+                ui.stack({
+                    styles: [.Gap(.Px(2)), .Layout(.Column)],
+                    children: [
+                        item("Overview", false),
+                        item("Reports", true),
+                        item("Settings", false),
+                    ],
+                    role: .Some(.List),
+                }),
+            ],
+            role: .Some(.Navigation),
+        }),
     ])
 }
 
@@ -92,31 +152,46 @@ fn item<C>(name: Str, current: Bool): Node<C> {
     } else {
         []
     };
-    ui.stack({ styles: [], children: [
-        ui.button({ label: .Const(name), styles: [
-                .Layout(.Row),
-                .AlignCross(.Center),
-                .Gap(.Px(8)),
-                .Width(.Full),
-                .PaddingX(.Px(8)),
-                .PaddingY(.Px(6)),
-                .Radius(.Px(6)),
-                .Group(wash),
-                .On(.Hover, [.Background(.Rgb(238, 240, 246))]),
-            ], children: .Some([mark(.Rgb(90, 100, 130)), ui.text({ content: .Const(name) })]), onPress: .Some(press()) }),
-    ], role: .Some(.ListItem) })
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const(name),
+                styles: [
+                    .Layout(.Row),
+                    .AlignCross(.Center),
+                    .Gap(.Px(8)),
+                    .Width(.Full),
+                    .PaddingX(.Px(8)),
+                    .PaddingY(.Px(6)),
+                    .Radius(.Px(6)),
+                    .Group(wash),
+                    .On(.Hover, [.Background(.Rgb(238, 240, 246))]),
+                ],
+                children: .Some([
+                    mark(.Rgb(90, 100, 130)),
+                    ui.text({ content: .Const(name) }),
+                ]),
+                onPress: .Some(press()),
+            }),
+        ],
+        role: .Some(.ListItem),
+    })
 }
 
 /// A mark: a small square standing in for an icon, since every image paints as
 /// a placeholder here.
 fn mark<C>(colour: Color): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Width(.Px(10)),
             .Height(.Px(10)),
             .Shrink(0),
             .Background(colour),
             .Radius(.Px(2)),
-        ], children: [] })
+        ],
+        children: [],
+    })
 }
 
 /// What every button carries before the cell's own styles.
@@ -141,26 +216,44 @@ fn press<C>(): fn(C) => () {
 
 /// One value: its name, and the button under it.
 fn cell<C>(label: Str, inner: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Width(.Px(180)), .Gap(.Px(4)), .AlignCross(.Start)])], children: [
-        ui.text({ content: .Const(label) }),
-        inner,
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Width(.Px(180)), .Gap(.Px(4)), .AlignCross(.Start)]),
+        ],
+        children: [ui.text({ content: .Const(label) }), inner],
+    })
 }
 
 /// One band: its name, then a cell per shape.
 fn band<C>(name: Str, cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))])], children: [
-        ui.text({ content: .Const(name) }),
-        ui.stack({ styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])], children: cells }),
-    ] })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.Gap(.Px(4)), .Padding(.Px(6)), .Background(.Rgb(243, 244, 247))]),
+        ],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([.Gap(.Px(8)), .AlignCross(.Start)])],
+                children: cells,
+            }),
+        ],
+    })
 }
 
 /// The page: a title and the bands under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
-        ])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: rows,
+    })
 }

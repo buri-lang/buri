@@ -83,8 +83,14 @@ export fn card<C>(title: Prop<Str>, children: [Node<C>]): Node<C> {
         styles: [cardStyle],
         role: .Some(.Group),
         children: [
-            ui.stack({ styles: [.Layout(.Row), .Group([titleStyle])], children: [ui.text({ content: title })] }),
-            ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(4))])], children: children }),
+            ui.stack({
+                styles: [.Layout(.Row), .Group([titleStyle])],
+                children: [ui.text({ content: title })],
+            }),
+            ui.stack({
+                styles: [.Layout(.Column), .Group([.Gap(.Px(4))])],
+                children: children,
+            }),
         ],
     })
 }
@@ -95,7 +101,10 @@ export fn card<C>(title: Prop<Str>, children: [Node<C>]): Node<C> {
 /// already in its text, and a role would be inventing a landmark out of a
 /// rounded rectangle.
 export fn pill<C>(label: Prop<Str>): Node<C> {
-    ui.stack({ styles: [.Layout(.Row), .Group([pillStyle])], children: [ui.text({ content: label })] })
+    ui.stack({
+        styles: [.Layout(.Row), .Group([pillStyle])],
+        children: [ui.text({ content: label })],
+    })
 }
 
 /// How full something is, from `0.0` to `1.0`.

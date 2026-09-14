@@ -11,42 +11,58 @@ from "ui/style" import { Align, Layout, Style };
 
 /// The page every picture is drawn on.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.PaddingY(.Px(6)), .Gap(.Px(10)), .FontSize(.Px(13))])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.PaddingY(.Px(6)), .Gap(.Px(10)), .FontSize(.Px(13))]),
+        ],
+        children: rows,
+    })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(2))])], children: [
-        ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-            ui.text({ content: .Const(label) }),
-        ] }),
-        demo,
-    ] })
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Gap(.Px(2))])],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            demo,
+        ],
+    })
 }
 
 /// One numbered child, wide enough to read.
 fn item<C>(n: Str): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Width(.Px(60)),
             .Height(.Px(28)),
             .AlignMain(.Center),
             .AlignCross(.Center),
             .Background(.Rgb(150, 170, 200)),
             .Foreground(.Rgb(255, 255, 255)),
-        ], children: [ui.text({ content: .Const(n) })] })
+        ],
+        children: [ui.text({ content: .Const(n) })],
+    })
 }
 
 /// A stack of four numbered children, arranged as `layout` says. Every stack on
 /// this page is handed them in this one order.
 fn stackOf<C>(layout: Layout): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Layout(layout),
             .Gap(.Px(6)),
             .Padding(.Px(6)),
             .Width(.Px(360)),
             .AlignCross(.Start),
             .Background(.Rgb(238, 238, 244)),
-        ], children: [item("one"), item("two"), item("three"), item("four")] })
+        ],
+        children: [item("one"), item("two"), item("three"), item("four")],
+    })
 }
 
 /// The four arrangements one after another, each holding the same four children
@@ -54,7 +70,11 @@ fn stackOf<C>(layout: Layout): Node<C> {
 /// the left; a reversed column reads them bottom to top.
 export fn direction<C>(): Node<C> {
     page([
-        ui.text({ content: .Const("the same four children, written one to four, in four layouts") }),
+        ui.text({
+            content: .Const(
+                "the same four children, written one to four, in four layouts",
+            ),
+        }),
         band("Layout(.Row)", stackOf(.Row)),
         band(
             "Layout(.RowReverse) — four at the left, one at the right",
@@ -70,7 +90,8 @@ export fn direction<C>(): Node<C> {
 
 /// Two children in a stack aligned along its main axis by `align`.
 fn aligned<C>(layout: Layout, align: Align): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Layout(layout),
             .AlignMain(align),
             .Gap(.Px(6)),
@@ -78,7 +99,9 @@ fn aligned<C>(layout: Layout, align: Align): Node<C> {
             .Width(.Px(360)),
             .AlignCross(.Start),
             .Background(.Rgb(238, 238, 244)),
-        ], children: [item("one"), item("two")] })
+        ],
+        children: [item("one"), item("two")],
+    })
 }
 
 /// **The main axis runs the other way, so the alignments do too.** `Start` in a
@@ -103,12 +126,15 @@ export fn alignment<C>(): Node<C> {
 
 /// One toast.
 fn toast<C>(text: Str): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Padding(.Px(8)),
             .Radius(.Px(6)),
             .Background(.Rgb(38, 38, 44)),
             .Foreground(.Rgb(245, 245, 250)),
-        ], children: [ui.text({ content: .Const(text) })] })
+        ],
+        children: [ui.text({ content: .Const(text) })],
+    })
 }
 
 /// What a footer's actions are styled like.
@@ -127,31 +153,47 @@ fn action(): [Style] {
 /// top. Both arrays are oldest-first, which is the order the caller has.
 export fn shapes<C>(): Node<C> {
     page([
-        ui.text({ content: .Const("a toaster and a dialog footer, both written oldest-first") }),
+        ui.text({
+            content: .Const("a toaster and a dialog footer, both written oldest-first"),
+        }),
         band(
             "ColumnReverse — \"third\" is written last and painted at the top",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Layout(.ColumnReverse),
                     .AlignCross(.Start),
                     .Gap(.Px(6)),
                     .Padding(.Px(8)),
                     .Width(.Px(240)),
                     .Background(.Rgb(238, 238, 244)),
-                ], children: [toast("first"), toast("second"), toast("third")] }),
+                ],
+                children: [toast("first"), toast("second"), toast("third")],
+            }),
         ),
         band(
             "a footer: Cancel then Save in the array, Save on top",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Layout(.ColumnReverse),
                     .AlignCross(.Stretch),
                     .Gap(.Px(6)),
                     .Padding(.Px(8)),
                     .Width(.Px(240)),
                     .Background(.Rgb(238, 238, 244)),
-                ], children: [
-                    ui.button({ label: .Const("Cancel"), styles: action(), onPress: .Some(fn(_c) => ()) }),
-                    ui.button({ label: .Const("Save"), styles: action(), onPress: .Some(fn(_c) => ()) }),
-                ] }),
+                ],
+                children: [
+                    ui.button({
+                        label: .Const("Cancel"),
+                        styles: action(),
+                        onPress: .Some(fn(_c) => ()),
+                    }),
+                    ui.button({
+                        label: .Const("Save"),
+                        styles: action(),
+                        onPress: .Some(fn(_c) => ()),
+                    }),
+                ],
+            }),
         ),
     ])
 }

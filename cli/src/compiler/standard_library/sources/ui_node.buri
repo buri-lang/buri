@@ -397,6 +397,7 @@ struct Stack<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn stack<C>(config: Stack<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -419,6 +420,7 @@ export fn stack<C>(config: Stack<C>): Node<C> {
 struct Spacer {
     export size: Option<Length>,
 }
+
 export fn spacer<C>(config: Spacer): Node<C> {
     match (config.size) {
         .Some(length) => {
@@ -442,9 +444,12 @@ struct Text {
     export headingLevel: Option<Int>,
     export styles: Option<[Style]>,
 }
+
 export fn text<C>(config: Text): Node<C> {
     match (config.headingLevel) {
-        .Some(level) => Node(.Heading(level, orNoStyles(config.styles), config.content)),
+        .Some(level) => {
+            Node(.Heading(level, orNoStyles(config.styles), config.content))
+        },
         .None => Node(.Text(config.content)),
     }
 }
@@ -486,6 +491,7 @@ struct Button<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn button<C>(config: Button<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -519,7 +525,9 @@ export fn button<C>(config: Button<C>): Node<C> {
 fn pressHandler<C>(onPress: Option<fn(C) => ()>): fn(C, Event) => () {
     match (onPress) {
         .Some(handler) => fn(c, _event) => handler(c),
-        .None => fn(_c, _event) => {
+        .None => {
+            fn(_c, _event) => {
+            }
         },
     }
 }
@@ -547,6 +555,7 @@ struct Link<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn link<C>(config: Link<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -590,6 +599,7 @@ struct Image<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn image<C>(config: Image<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -600,7 +610,9 @@ export fn image<C>(config: Image<C>): Node<C> {
     );
     match (config.alt) {
         .Decorative => Node(.Icon(config.styles, artworkOf(config.source), events)),
-        .AccessibilityText(name) => Node(.Image(config.source, name, config.styles, events)),
+        .AccessibilityText(name) => {
+            Node(.Image(config.source, name, config.styles, events))
+        },
     }
 }
 
@@ -651,6 +663,7 @@ struct Field<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn field<C>(config: Field<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -697,6 +710,7 @@ struct Slider<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn slider<C>(config: Slider<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -744,6 +758,7 @@ struct Toggle<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn toggle<C>(config: Toggle<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -786,6 +801,7 @@ struct Form<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn form<C>(config: Form<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -838,6 +854,7 @@ struct Dialog<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn dialog<C>(config: Dialog<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -890,6 +907,7 @@ struct Picker<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn picker<C>(config: Picker<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -944,6 +962,7 @@ struct Progress<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn progress<C>(config: Progress<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -952,7 +971,15 @@ export fn progress<C>(config: Progress<C>): Node<C> {
         config.onKey,
         config.onPressOutside,
     );
-    Node(.Progress(config.label, config.value, config.styles, orNoChildren(config.children), events))
+    Node(
+        .Progress(
+            config.label,
+            config.value,
+            config.styles,
+            orNoChildren(config.children),
+            events,
+        ),
+    )
 }
 
 /// A section that opens and shuts, and the summary that opens it.
@@ -977,6 +1004,7 @@ struct Disclosure<C> {
     export onKey: Option<fn(C, Key) => ()>,
     export onPressOutside: Option<fn(C) => ()>,
 }
+
 export fn disclosure<C>(config: Disclosure<C>): Node<C> {
     let events = listen(
         config.onHover,
@@ -985,7 +1013,15 @@ export fn disclosure<C>(config: Disclosure<C>): Node<C> {
         config.onKey,
         config.onPressOutside,
     );
-    Node(.Disclosure(config.summary, config.isOpen, config.styles, config.children, events))
+    Node(
+        .Disclosure(
+            config.summary,
+            config.isOpen,
+            config.styles,
+            config.children,
+            events,
+        ),
+    )
 }
 
 /// One subtree or the other, decided by a condition that may vary.
@@ -1322,7 +1358,18 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // keeps `emitBox`'s reactive-style path.
         .Link(dest, styles, children, onFollow, _current, events) => {
             match (onFollow) {
-                .None => emitBox(ctx, builder, "a", plain(state), styles, children, state, events),
+                .None => {
+                    emitBox(
+                        ctx,
+                        builder,
+                        "a",
+                        plain(state),
+                        styles,
+                        children,
+                        state,
+                        events,
+                    )
+                },
                 .Some(handler) => {
                     let _ = emitElement(
                         builder,
@@ -1338,13 +1385,21 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         },
         .Image(source, _alt, styles, events) => {
             let declaration = decl(mem, "image", escapeValue(mem, source.read(scope)));
-            let _ = emitElement(builder, "img", widgetBody(mem, plain(state), [declaration], styles));
+            let _ = emitElement(
+                builder,
+                "img",
+                widgetBody(mem, plain(state), [declaration], styles),
+            );
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },
         .Icon(styles, source, events) => {
             let artwork = decl(mem, "icon", escapeInline(mem, source));
-            let _ = emitElement(builder, "svg", widgetBody(mem, plain(state), [artwork], styles));
+            let _ = emitElement(
+                builder,
+                "svg",
+                widgetBody(mem, plain(state), [artwork], styles),
+            );
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },
@@ -1481,11 +1536,9 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             bindDynamic(builder, fn(scope) => {
                 if (open.get(scope)) {
                     Node(
-                        .Raw(
-                            "div",
-                            scrimWith(scrimStyles),
-                            [Node(.Raw("dialog", styles, children))],
-                        ),
+                        .Raw("div", scrimWith(scrimStyles), [
+                            Node(.Raw("dialog", styles, children)),
+                        ]),
                     )
                 } else {
                     Node(.Empty)
@@ -1515,11 +1568,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitReactiveText(builder, summary);
             let _ = exitElement(builder);
             let _ = bindDynamic(builder, fn(scope) => {
-                if (open.get(scope)) {
-                    Node(.Fragment(children))
-                } else {
-                    Node(.Empty)
-                }
+                if (open.get(scope)) { Node(.Fragment(children)) } else { Node(.Empty) }
             });
             exitElement(builder)
         },
@@ -1529,7 +1578,16 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             emitBox(ctx, builder, "div", plain(state), styles, children, state, events)
         },
         .Raw(name, styles, children) => {
-            emitBox(ctx, builder, name, plain(state), styles, children, state, noEvents())
+            emitBox(
+                ctx,
+                builder,
+                name,
+                plain(state),
+                styles,
+                children,
+                state,
+                noEvents(),
+            )
         },
         .Fragment(children) => { emitChildren(ctx, builder, children, state, 0) },
     }
@@ -1687,9 +1745,17 @@ fn emitPickerOptions<C>(
             let _ = reactive(fn(scope) => {
                 let inner = alloc.generalPurpose();
                 let on = key == value.get(scope);
-                let painted = Painted { state: state, checked: .Some(on), disabled: false };
+                let painted = Painted {
+                    state: state,
+                    checked: .Some(on),
+                    disabled: false,
+                };
                 let _ = beginRegion(builder, region);
-                let _ = emitElement(builder, "input", widgetBody(inner, painted, [], radioBox()));
+                let _ = emitElement(
+                    builder,
+                    "input",
+                    widgetBody(inner, painted, [], radioBox()),
+                );
                 let _ = emitDot(builder, on);
                 let _ = exitElement(builder);
                 endRegion(builder)
@@ -1747,8 +1813,15 @@ fn emitSliderControl(
     signal: Int,
 ): () {
     let mem = alloc.generalPurpose();
-    let leading = [decl(mem, "field", "range")].concat(mem, sliderBounds(mem, min, max, value));
-    let _ = emitElement(builder, "input", widgetBody(mem, painted, leading, sliderTrack(styles)));
+    let leading = [decl(mem, "field", "range")].concat(
+        mem,
+        sliderBounds(mem, min, max, value),
+    );
+    let _ = emitElement(
+        builder,
+        "input",
+        widgetBody(mem, painted, leading, sliderTrack(styles)),
+    );
     let _ = registerValue(builder, signal);
     exitElement(builder)
 }
@@ -1921,8 +1994,15 @@ fn emitFieldControl(
     signal: Int,
 ): () {
     let mem = alloc.generalPurpose();
-    let leading = [decl(mem, "field", kindName(kind))].concat(mem, placeholder(mem, hint));
-    let _ = emitElement(builder, fieldName(kind), widgetBody(mem, painted, leading, styles));
+    let leading = [decl(mem, "field", kindName(kind))].concat(
+        mem,
+        placeholder(mem, hint),
+    );
+    let _ = emitElement(
+        builder,
+        fieldName(kind),
+        widgetBody(mem, painted, leading, styles),
+    );
     let _ = registerValue(builder, signal);
     let _ = emitText(builder, value);
     exitElement(builder)
@@ -2172,7 +2252,9 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 textLine(ctx, depth + 1, content.read(scope)),
             ]
         },
-        .Stack(styles, children, _events) => container(ctx, state, styles, children, depth),
+        .Stack(styles, children, _events) => {
+            container(ctx, state, styles, children, depth)
+        },
         // A role paints nothing — it is what a reader is told, not what a
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
@@ -2246,8 +2328,10 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // and no run of text, because a browser draws a thumb and never a number.
         .Slider(label, value, min, max, _step, styles, disabled, _events) => {
             let painted = refusing(state, disabled.read(scope));
-            let leading = [decl(ctx, "field", "range")]
-                .concat(ctx, sliderBounds(ctx, min, max, value.get(scope)));
+            let leading = [decl(ctx, "field", "range")].concat(
+                ctx,
+                sliderBounds(ctx, min, max, value.get(scope)),
+            );
             [
                 styledLine(ctx, plain(state), wrapper([]), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -2319,7 +2403,15 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         .Picker(_label, options, styles, value, _style, _disabled, _events) => {
             [styledLine(ctx, plain(state), styles, depth)].concat(
                 ctx,
-                pickerOptionLines(ctx, state, options, value.get(scope), depth + 1, 0, []),
+                pickerOptionLines(
+                    ctx,
+                    state,
+                    options,
+                    value.get(scope),
+                    depth + 1,
+                    0,
+                    [],
+                ),
             )
         },
         // A bar and whatever fills it. The role and the `aria-value*` are what a

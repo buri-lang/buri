@@ -5,17 +5,27 @@ from "ui/node" import { Node };
 /// either side, so a boundary in a picture is a number off the viewport's own
 /// edge.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([.PaddingY(.Px(6)), .Gap(.Px(8)), .FontSize(.Px(13))]),
+        ],
+        children: rows,
+    })
 }
 
 /// One row of a picture: the value it shows, and the boxes that show it.
 fn band<C>(label: Str, demo: Node<C>): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([.Gap(.Px(2))])], children: [
-        ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-            ui.text({ content: .Const(label) }),
-        ] }),
-        demo,
-    ] })
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Gap(.Px(2))])],
+        children: [
+            ui.stack({
+                styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))],
+                children: [ui.text({ content: .Const(label) })],
+            }),
+            demo,
+        ],
+    })
 }
 
 /// Four keyed rows, built through `each` — the one constructor whose children
@@ -25,11 +35,14 @@ fn rows<C>(): Node<C> {
         .Const(["one", "two", "three", "four"]),
         fn(label) => label,
         fn(_c, label, _at) => {
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(40, 40, 200)),
                     .Foreground(.Rgb(255, 255, 255)),
                     .Padding(.Px(4)),
-                ], children: [ui.text({ content: .Const(label) })] })
+                ],
+                children: [ui.text({ content: .Const(label) })],
+            })
         },
     )
 }
@@ -41,7 +54,8 @@ export fn roles<C>(): Node<C> {
     page([
         band(
             "region(role, [.Layout(.Row), .Gap(.Px(4))], two blocks)",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Layout(
                         .Grid([
                             .Fraction(1),
@@ -53,422 +67,788 @@ export fn roles<C>(): Node<C> {
                         ]),
                     ),
                     .Gap(.Px(6)),
-                ], children: [
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Navigation") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Navigation) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Main") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Main) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Banner") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Banner) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("ContentInfo") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.ContentInfo) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Complementary") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                        ui.stack({ styles: [
-                                                .Background(.Rgb(200, 40, 40)),
-                                                .Width(.Px(40)),
-                                                .Height(.Px(14)),
-                                            ], children: [] }),
-                                        ui.stack({ styles: [
-                                                .Background(.Rgb(40, 40, 200)),
-                                                .Width(.Px(40)),
-                                                .Height(.Px(14)),
-                                            ], children: [] }),
-                                    ], role: .Some(.Complementary) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Article") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Article) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Search") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Search) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("List") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.List) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("ListItem") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.ListItem) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Group") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Group) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Separator") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Separator) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Status") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Status) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Alert") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Alert) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Table") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Table) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("TableRow") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.TableRow) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("RowHeader") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.RowHeader) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("ColumnHeader") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                        ui.stack({ styles: [
-                                                .Background(.Rgb(200, 40, 40)),
-                                                .Width(.Px(40)),
-                                                .Height(.Px(14)),
-                                            ], children: [] }),
-                                        ui.stack({ styles: [
-                                                .Background(.Rgb(40, 40, 200)),
-                                                .Width(.Px(40)),
-                                                .Height(.Px(14)),
-                                            ], children: [] }),
-                                    ], role: .Some(.ColumnHeader) }),
-                            ] }),
-                    ] }),
-                    ui.stack({ styles: [.Layout(.Column), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [.FontSize(.Px(10)), .Foreground(.Rgb(90, 90, 100))], children: [
-                            ui.text({ content: .Const("Cell") }),
-                        ] }),
-                        ui.stack({ styles: [
-                                .Background(.Rgb(232, 232, 238)),
-                                .Padding(.Px(4)),
-                                .Height(.Px(30)),
-                            ], children: [
-                                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(4))], children: [
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(200, 40, 40)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                    ui.stack({ styles: [
-                                            .Background(.Rgb(40, 40, 200)),
-                                            .Width(.Px(40)),
-                                            .Height(.Px(14)),
-                                        ], children: [] }),
-                                ], role: .Some(.Cell) }),
-                            ] }),
-                    ] }),
-                ] }),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Navigation") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Navigation),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Main") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Main),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Banner") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Banner),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("ContentInfo") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.ContentInfo),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [
+                                    ui.text({ content: .Const("Complementary") }),
+                                ],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Complementary),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Article") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Article),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Search") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Search),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("List") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.List),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("ListItem") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Group") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Group),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Separator") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Separator),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Status") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Status),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Alert") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Alert),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Table") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Table),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("TableRow") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.TableRow),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("RowHeader") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.RowHeader),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [
+                                    ui.text({ content: .Const("ColumnHeader") }),
+                                ],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.ColumnHeader),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(2))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(10)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [ui.text({ content: .Const("Cell") })],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .Background(.Rgb(232, 232, 238)),
+                                    .Padding(.Px(4)),
+                                    .Height(.Px(30)),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [.Layout(.Row), .Gap(.Px(4))],
+                                        children: [
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(200, 40, 40)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                            ui.stack({
+                                                styles: [
+                                                    .Background(.Rgb(40, 40, 200)),
+                                                    .Width(.Px(40)),
+                                                    .Height(.Px(14)),
+                                                ],
+                                                children: [],
+                                            }),
+                                        ],
+                                        role: .Some(.Cell),
+                                    }),
+                                ],
+                            }),
+                        ],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -479,60 +859,191 @@ export fn lists<C>(): Node<C> {
     page([
         band(
             "region(.List) holding three region(.ListItem)s",
-            ui.stack({ styles: [.Layout(.Row), .Gap(.Px(50))], children: [
-                ui.stack({ styles: [.Layout(.Column), .Gap(.Px(4))], children: [
-                    ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-                        ui.text({ content: .Const("no ListMarker at all") }),
-                    ] }),
-                    ui.stack({ styles: [.PaddingEdge(.Start, .Px(28)), .Gap(.Px(2))], children: [
-                        ui.stack({ styles: [], children: [ui.text({ content: .Const("Alpha") })], role: .Some(.ListItem) }),
-                        ui.stack({ styles: [], children: [ui.text({ content: .Const("Beta") })], role: .Some(.ListItem) }),
-                        ui.stack({ styles: [], children: [ui.text({ content: .Const("Gamma") })], role: .Some(.ListItem) }),
-                    ], role: .Some(.List) }),
-                ] }),
-                ui.stack({ styles: [.Layout(.Column), .Gap(.Px(4))], children: [
-                    ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-                        ui.text({ content: .Const("ListMarker(.None)") }),
-                    ] }),
-                    ui.stack({ styles: [
-                            .PaddingEdge(.Start, .Px(28)),
-                            .Gap(.Px(2)),
-                            .ListMarker(.None),
-                        ], children: [
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Alpha") })], role: .Some(.ListItem) }),
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Beta") })], role: .Some(.ListItem) }),
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Gamma") })], role: .Some(.ListItem) }),
-                        ], role: .Some(.List) }),
-                ] }),
-                ui.stack({ styles: [.Layout(.Column), .Gap(.Px(4))], children: [
-                    ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-                        ui.text({ content: .Const("ListMarker(.Disc)") }),
-                    ] }),
-                    ui.stack({ styles: [
-                            .PaddingEdge(.Start, .Px(28)),
-                            .Gap(.Px(2)),
-                            .ListMarker(.Disc),
-                        ], children: [
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Alpha") })], role: .Some(.ListItem) }),
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Beta") })], role: .Some(.ListItem) }),
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Gamma") })], role: .Some(.ListItem) }),
-                        ], role: .Some(.List) }),
-                ] }),
-                ui.stack({ styles: [.Layout(.Column), .Gap(.Px(4))], children: [
-                    ui.stack({ styles: [.FontSize(.Px(11)), .Foreground(.Rgb(90, 90, 100))], children: [
-                        ui.text({ content: .Const("ListMarker(.Decimal)") }),
-                    ] }),
-                    ui.stack({ styles: [
-                            .PaddingEdge(.Start, .Px(28)),
-                            .Gap(.Px(2)),
-                            .ListMarker(.Decimal),
-                        ], children: [
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Alpha") })], role: .Some(.ListItem) }),
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Beta") })], role: .Some(.ListItem) }),
-                            ui.stack({ styles: [], children: [ui.text({ content: .Const("Gamma") })], role: .Some(.ListItem) }),
-                        ], role: .Some(.List) }),
-                ] }),
-            ] }),
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(50))],
+                children: [
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(4))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(11)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [
+                                    ui.text({
+                                        content: .Const("no ListMarker at all"),
+                                    }),
+                                ],
+                            }),
+                            ui.stack({
+                                styles: [.PaddingEdge(.Start, .Px(28)), .Gap(.Px(2))],
+                                children: [
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Alpha") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Beta") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Gamma") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                ],
+                                role: .Some(.List),
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(4))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(11)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [
+                                    ui.text({ content: .Const("ListMarker(.None)") }),
+                                ],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .PaddingEdge(.Start, .Px(28)),
+                                    .Gap(.Px(2)),
+                                    .ListMarker(.None),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Alpha") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Beta") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Gamma") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                ],
+                                role: .Some(.List),
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(4))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(11)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [
+                                    ui.text({ content: .Const("ListMarker(.Disc)") }),
+                                ],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .PaddingEdge(.Start, .Px(28)),
+                                    .Gap(.Px(2)),
+                                    .ListMarker(.Disc),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Alpha") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Beta") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Gamma") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                ],
+                                role: .Some(.List),
+                            }),
+                        ],
+                    }),
+                    ui.stack({
+                        styles: [.Layout(.Column), .Gap(.Px(4))],
+                        children: [
+                            ui.stack({
+                                styles: [
+                                    .FontSize(.Px(11)),
+                                    .Foreground(.Rgb(90, 90, 100)),
+                                ],
+                                children: [
+                                    ui.text({
+                                        content: .Const("ListMarker(.Decimal)"),
+                                    }),
+                                ],
+                            }),
+                            ui.stack({
+                                styles: [
+                                    .PaddingEdge(.Start, .Px(28)),
+                                    .Gap(.Px(2)),
+                                    .ListMarker(.Decimal),
+                                ],
+                                children: [
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Alpha") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Beta") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                    ui.stack({
+                                        styles: [],
+                                        children: [
+                                            ui.text({ content: .Const("Gamma") }),
+                                        ],
+                                        role: .Some(.ListItem),
+                                    }),
+                                ],
+                                role: .Some(.List),
+                            }),
+                        ],
+                    }),
+                ],
+            }),
         ),
     ])
 }
@@ -543,56 +1054,130 @@ export fn tables<C>(): Node<C> {
     page([
         band(
             "a header row, then two rows of three",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Width(.Px(520)),
                     .BorderWidth(.Px(1)),
                     .BorderColor(.Rgb(150, 150, 160)),
-                ], children: [
-                    ui.stack({ styles: [.Background(.Rgb(232, 232, 238))], children: [
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [
-                            ui.text({ content: .Const("Invoice") }),
-                        ], role: .Some(.ColumnHeader) }),
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [
-                            ui.text({ content: .Const("Amount") }),
-                        ], role: .Some(.ColumnHeader) }),
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [
-                            ui.text({ content: .Const("Status") }),
-                        ], role: .Some(.ColumnHeader) }),
-                    ], role: .Some(.TableRow) }),
-                    ui.stack({ styles: [], children: [
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [
-                            ui.text({ content: .Const("INV-001") }),
-                        ], role: .Some(.RowHeader) }),
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [
-                            ui.text({ content: .Const("$250.00") }),
-                        ], role: .Some(.Cell) }),
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("Paid") })], role: .Some(.Cell) }),
-                    ], role: .Some(.TableRow) }),
-                    ui.stack({ styles: [], children: [
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [
-                            ui.text({ content: .Const("INV-002") }),
-                        ], role: .Some(.RowHeader) }),
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [
-                            ui.text({ content: .Const("$1,020.00") }),
-                        ], role: .Some(.Cell) }),
-                        ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("Due") })], role: .Some(.Cell) }),
-                    ], role: .Some(.TableRow) }),
-                ], role: .Some(.Table) }),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [.Background(.Rgb(232, 232, 238))],
+                        children: [
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("Invoice") })],
+                                role: .Some(.ColumnHeader),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("Amount") })],
+                                role: .Some(.ColumnHeader),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("Status") })],
+                                role: .Some(.ColumnHeader),
+                            }),
+                        ],
+                        role: .Some(.TableRow),
+                    }),
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("INV-001") })],
+                                role: .Some(.RowHeader),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("$250.00") })],
+                                role: .Some(.Cell),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("Paid") })],
+                                role: .Some(.Cell),
+                            }),
+                        ],
+                        role: .Some(.TableRow),
+                    }),
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("INV-002") })],
+                                role: .Some(.RowHeader),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("$1,020.00") })],
+                                role: .Some(.Cell),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("Due") })],
+                                role: .Some(.Cell),
+                            }),
+                        ],
+                        role: .Some(.TableRow),
+                    }),
+                ],
+                role: .Some(.Table),
+            }),
         ),
         band(
             "a row of two over a row of four",
-            ui.stack({ styles: [.Width(.Px(520))], children: [
-                ui.stack({ styles: [], children: [
-                    ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("one") })], role: .Some(.Cell) }),
-                    ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("two") })], role: .Some(.Cell) }),
-                ], role: .Some(.TableRow) }),
-                ui.stack({ styles: [], children: [
-                    ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("one") })], role: .Some(.Cell) }),
-                    ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("two") })], role: .Some(.Cell) }),
-                    ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("three") })], role: .Some(.Cell) }),
-                    ui.stack({ styles: [.Padding(.Px(6))], children: [ui.text({ content: .Const("four") })], role: .Some(.Cell) }),
-                ], role: .Some(.TableRow) }),
-            ], role: .Some(.Table) }),
+            ui.stack({
+                styles: [.Width(.Px(520))],
+                children: [
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("one") })],
+                                role: .Some(.Cell),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("two") })],
+                                role: .Some(.Cell),
+                            }),
+                        ],
+                        role: .Some(.TableRow),
+                    }),
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("one") })],
+                                role: .Some(.Cell),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("two") })],
+                                role: .Some(.Cell),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("three") })],
+                                role: .Some(.Cell),
+                            }),
+                            ui.stack({
+                                styles: [.Padding(.Px(6))],
+                                children: [ui.text({ content: .Const("four") })],
+                                role: .Some(.Cell),
+                            }),
+                        ],
+                        role: .Some(.TableRow),
+                    }),
+                ],
+                role: .Some(.Table),
+            }),
         ),
     ])
 }
@@ -604,23 +1189,34 @@ export fn eachRows<C>(): Node<C> {
     page([
         band(
             "each under Layout(.Column)",
-            ui.stack({ styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Column), .Gap(.Px(4))], children: [rows()] }),
+            ui.stack({
+                styles: [
+                    .Background(.Rgb(232, 232, 238)),
+                    .Layout(.Column),
+                    .Gap(.Px(4)),
+                ],
+                children: [rows()],
+            }),
         ),
         band(
             "each under Layout(.Row)",
-            ui.stack({ styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))], children: [
-                rows(),
-            ] }),
+            ui.stack({
+                styles: [.Background(.Rgb(232, 232, 238)), .Layout(.Row), .Gap(.Px(8))],
+                children: [rows()],
+            }),
         ),
         band(
             "each under a grid of four even tracks",
-            ui.stack({ styles: [
+            ui.stack({
+                styles: [
                     .Background(.Rgb(232, 232, 238)),
                     .Layout(
                         .Grid([.Fraction(1), .Fraction(1), .Fraction(1), .Fraction(1)]),
                     ),
                     .Gap(.Px(8)),
-                ], children: [rows()] }),
+                ],
+                children: [rows()],
+            }),
         ),
     ])
 }

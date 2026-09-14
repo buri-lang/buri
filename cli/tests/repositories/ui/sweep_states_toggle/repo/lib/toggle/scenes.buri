@@ -94,7 +94,11 @@ fn allStates(): [Style] {
 /// `.Checked`. So the four pointer states run with the box off, and the checked
 /// picture is the same tree with it on.
 fn styled<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
-    ui.toggle({ label: .Const("on"), kind: .Checkbox, isOn: signal.signal(ctx, on), styles: [
+    ui.toggle({
+        label: .Const("on"),
+        kind: .Checkbox,
+        isOn: signal.signal(ctx, on),
+        styles: [
             .Padding(.Px(8)),
             .Background(.Rgb(150, 170, 200)),
             .Foreground(.Rgb(24, 24, 24)),
@@ -103,7 +107,8 @@ fn styled<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
             .Radius(.Px(4)),
             .Width(.Full),
             .Group(extra),
-        ] })
+        ],
+    })
 }
 
 /// A box of its own size rather than the cell's — a checkbox row, which is the
@@ -111,7 +116,11 @@ fn styled<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
 /// one line, and the `<label>` the runtime wraps the pair in is what puts it
 /// there.
 fn boxed<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
-    ui.toggle({ label: .Const("on"), kind: .Checkbox, isOn: signal.signal(ctx, on), styles: [
+    ui.toggle({
+        label: .Const("on"),
+        kind: .Checkbox,
+        isOn: signal.signal(ctx, on),
+        styles: [
             .Width(.Px(16)),
             .Height(.Px(16)),
             .Background(.Rgb(150, 170, 200)),
@@ -119,12 +128,18 @@ fn boxed<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
             .BorderWidth(.Px(2)),
             .BorderColor(.Rgb(70, 90, 120)),
             .Group(extra),
-        ] })
+        ],
+    })
 }
 
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C: Ui>(ctx: C, on: Bool, extra: [Style]): Node<C> {
-    ui.toggle({ label: .Const("on"), kind: .Checkbox, isOn: signal.signal(ctx, on), styles: [.Group(extra)] })
+    ui.toggle({
+        label: .Const("on"),
+        kind: .Checkbox,
+        isOn: signal.signal(ctx, on),
+        styles: [.Group(extra)],
+    })
 }
 
 /// One label cell.
@@ -134,7 +149,8 @@ fn label<C>(text: Str): Node<C> {
 
 /// One row: a label track, then one cell per column.
 fn grid<C>(cells: [Node<C>]): Node<C> {
-    ui.stack({ styles: [
+    ui.stack({
+        styles: [
             .Layout(
                 .Grid([
                     .Fixed(.Px(74)),
@@ -149,7 +165,9 @@ fn grid<C>(cells: [Node<C>]): Node<C> {
             ),
             .Gap(.Px(8)),
             .AlignCross(.Start),
-        ], children: cells })
+        ],
+        children: cells,
+    })
 }
 
 /// The column names.
@@ -168,12 +186,18 @@ fn headings<C>(): Node<C> {
 
 /// The page: a title and the rows under it.
 fn page<C>(rows: [Node<C>]): Node<C> {
-    ui.stack({ styles: [.Layout(.Column), .Group([
-            .Padding(.Px(12)),
-            .Gap(.Px(8)),
-            .FontSize(.Px(11)),
-            .Background(.Rgb(255, 255, 255)),
-        ])], children: rows })
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(12)),
+                .Gap(.Px(8)),
+                .FontSize(.Px(11)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: rows,
+    })
 }
 
 /// The styled control, answering in one property per column.

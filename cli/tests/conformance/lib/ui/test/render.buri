@@ -72,7 +72,11 @@ test "text, headings and a nested stack, styled" {
     matchesDescribe(ctx, ui.text({ content: .Const("bare") }));
     matchesDescribe(
         ctx,
-        ui.text({ content: .Const("Prices"), headingLevel: .Some(2), styles: .Some([.FontWeight(.Bold)]) }),
+        ui.text({
+            content: .Const("Prices"),
+            headingLevel: .Some(2),
+            styles: .Some([.FontWeight(.Bold)]),
+        }),
     );
     matchesDescribe(
         ctx,
@@ -80,7 +84,10 @@ test "text, headings and a nested stack, styled" {
             styles: [.Layout(.Row), .Padding(.Rem(1.0)), .Gap(.Rem(0.5))],
             children: [
                 ui.text({ content: .Const("a") }),
-                ui.stack({ styles: [], children: [ui.text({ content: .Const("b") }), ui.empty()] }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("b") }), ui.empty()],
+                }),
             ],
         }),
     );
@@ -93,7 +100,11 @@ test "every region role lowers to its own element" {
     };
     matchesDescribe(
         ctx,
-        ui.stack({ styles: [], children: [ui.text({ content: .Const("home") })], role: .Some(.Navigation) }),
+        ui.stack({
+            styles: [],
+            children: [ui.text({ content: .Const("home") })],
+            role: .Some(.Navigation),
+        }),
     );
     matchesDescribe(
         ctx,
@@ -108,8 +119,16 @@ test "every region role lowers to its own element" {
         ui.stack({
             styles: [],
             children: [
-                ui.stack({ styles: [], children: [ui.text({ content: .Const("a") })], role: .Some(.ListItem) }),
-                ui.stack({ styles: [], children: [ui.text({ content: .Const("b") })], role: .Some(.ListItem) }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("a") })],
+                    role: .Some(.ListItem),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("b") })],
+                    role: .Some(.ListItem),
+                }),
             ],
             role: .Some(.List),
         }),
@@ -122,8 +141,16 @@ test "every region role lowers to its own element" {
                 ui.stack({
                     styles: [],
                     children: [
-                        ui.stack({ styles: [], children: [ui.text({ content: .Const("H") })], role: .Some(.ColumnHeader) }),
-                        ui.stack({ styles: [], children: [ui.text({ content: .Const("c") })], role: .Some(.Cell) }),
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("H") })],
+                            role: .Some(.ColumnHeader),
+                        }),
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("c") })],
+                            role: .Some(.Cell),
+                        }),
                     ],
                     role: .Some(.TableRow),
                 }),
@@ -140,7 +167,11 @@ test "a button draws its label or its children" {
     };
     matchesDescribe(
         ctx,
-        ui.button({ label: .Const("ok"), styles: [.Padding(.Rem(0.5))], onPress: .Some(noPress) }),
+        ui.button({
+            label: .Const("ok"),
+            styles: [.Padding(.Rem(0.5))],
+            onPress: .Some(noPress),
+        }),
     );
     matchesDescribe(
         ctx,
@@ -161,7 +192,11 @@ test "links, a route link, a picture and an icon" {
     };
     matchesDescribe(
         ctx,
-        ui.link({ dest: .Const("/a"), children: [ui.text({ content: .Const("go") })], styles: [] }),
+        ui.link({
+            dest: .Const("/a"),
+            children: [ui.text({ content: .Const("go") })],
+            styles: [],
+        }),
     );
     matchesDescribe(
         ctx,
@@ -174,11 +209,19 @@ test "links, a route link, a picture and an icon" {
     );
     matchesDescribe(
         ctx,
-        ui.image({ source: .Const("data:x"), alt: .AccessibilityText("alt"), styles: [.Width(.Rem(4.0))] }),
+        ui.image({
+            source: .Const("data:x"),
+            alt: .AccessibilityText("alt"),
+            styles: [.Width(.Rem(4.0))],
+        }),
     );
     matchesDescribe(
         ctx,
-        ui.image({ source: .Const("<svg><path d=\"M0 0\"/></svg>"), alt: .Decorative, styles: [.Width(.Rem(1.0))] }),
+        ui.image({
+            source: .Const("<svg><path d=\"M0 0\"/></svg>"),
+            alt: .Decorative,
+            styles: [.Width(.Rem(1.0))],
+        }),
     );
 }
 
@@ -212,12 +255,7 @@ test "fields of every kind, and the run of text they hold" {
     let note = signal(ctx, "lines");
     matchesDescribe(
         ctx,
-        ui.field({
-            label: .Const("Note"),
-            kind: .Multiline,
-            value: note,
-            styles: [],
-        }),
+        ui.field({ label: .Const("Note"), kind: .Multiline, value: note, styles: [] }),
     );
     let level = signal(ctx, 3.0);
     matchesDescribe(
@@ -251,7 +289,12 @@ test "toggles, on and off, switch and checkbox" {
     let ticked = signal(ctx, true);
     matchesDescribe(
         ctx,
-        ui.toggle({ label: .Const("Agree"), kind: .Checkbox, isOn: ticked, styles: [] }),
+        ui.toggle({
+            label: .Const("Agree"),
+            kind: .Checkbox,
+            isOn: ticked,
+            styles: [],
+        }),
     );
     let clear = signal(ctx, false);
     matchesDescribe(
@@ -277,7 +320,12 @@ test "a form with a submit, and a radio group" {
         ui.form({
             onSubmit: noPress,
             children: [
-                ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
                 ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
             ],
             styles: [.Padding(.Rem(1.0))],
@@ -305,24 +353,42 @@ test "choose, computed and each are built once" {
     };
     matchesDescribe(
         ctx,
-        ui.choose(.Const(true), ui.text({ content: .Const("then") }), ui.text({ content: .Const("else") })),
+        ui.choose(
+            .Const(true),
+            ui.text({ content: .Const("then") }),
+            ui.text({ content: .Const("else") }),
+        ),
     );
     matchesDescribe(
         ctx,
-        ui.choose(.Const(false), ui.text({ content: .Const("then") }), ui.text({ content: .Const("else") })),
+        ui.choose(
+            .Const(false),
+            ui.text({ content: .Const("then") }),
+            ui.text({ content: .Const("else") }),
+        ),
     );
     matchesDescribe(
         ctx,
-        ui.computed(fn(_scope) => ui.text({ content: .Const("built"), headingLevel: .Some(1) })),
+        ui.computed(fn(_scope) => {
+            ui.text({ content: .Const("built"), headingLevel: .Some(1) })
+        }),
     );
     matchesDescribe(
         ctx,
         ui.stack({
             styles: [],
             children: [
-                ui.each(.Const(["x", "y", "z"]), fn(item) => item, fn(_c, item, _index) => {
-                    ui.stack({ styles: [], children: [ui.text({ content: .Const(item) })], role: .Some(.ListItem) })
-                }),
+                ui.each(
+                    .Const(["x", "y", "z"]),
+                    fn(item) => item,
+                    fn(_c, item, _index) => {
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const(item) })],
+                            role: .Some(.ListItem),
+                        })
+                    },
+                ),
             ],
             role: .Some(.List),
         }),
@@ -401,9 +467,21 @@ test "text, count and identity over a resolved tree" {
     let tree = ui.stack({
         styles: [],
         children: [
-            ui.stack({ styles: [], children: [ui.text({ content: .Const("a") })], role: .Some(.ListItem) }),
-            ui.stack({ styles: [], children: [ui.text({ content: .Const("b") })], role: .Some(.ListItem) }),
-            ui.stack({ styles: [], children: [ui.text({ content: .Const("c") })], role: .Some(.ListItem) }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("a") })],
+                role: .Some(.ListItem),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("b") })],
+                role: .Some(.ListItem),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("c") })],
+                role: .Some(.ListItem),
+            }),
         ],
         role: .Some(.List),
     });
@@ -429,8 +507,18 @@ test "count reaches the widget elements a form builds" {
         ui.form({
             onSubmit: noPress,
             children: [
-                ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
-                ui.field({ label: .Const("Email"), kind: .Email, value: email, styles: [] }),
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("Email"),
+                    kind: .Email,
+                    value: email,
+                    styles: [],
+                }),
                 ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
             ],
             styles: [],

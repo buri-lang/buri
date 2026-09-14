@@ -24,7 +24,13 @@ test "what a row can do to a labelled control" {
     // reset gives it; the control's line carries its own and nothing else.
     let scene = ui.describe(
         ctx,
-        ui.field({ label: .Const("Site"), kind: .Text, value: signal(ctx, ""), styles: [.Radius(.Px(4))], around: .Some([.Grow(1)]) }),
+        ui.field({
+            label: .Const("Site"),
+            kind: .Text,
+            value: signal(ctx, ""),
+            styles: [.Radius(.Px(4))],
+            around: .Some([.Grow(1)]),
+        }),
         .Hover,
     );
     assert.containsText(scene, "e 0 class:lay-row wrap-wrap ac-center grow-1");
@@ -50,7 +56,13 @@ test "the label as a box of its own" {
     assert.containsText(
         ui.describe(
             ctx,
-            ui.toggle({ label: .Const("on"), kind: .Checkbox, isOn: signal(ctx, true), styles: [], around: .Some([.Layout(.Column)]) }),
+            ui.toggle({
+                label: .Const("on"),
+                kind: .Checkbox,
+                isOn: signal(ctx, true),
+                styles: [],
+                around: .Some([.Layout(.Column)]),
+            }),
             .Hover,
         ),
         "e 0 class:wrap-wrap ac-center lay-col",

@@ -51,11 +51,27 @@ fn marked<C>(marker: ListMarker): Node<C> {
         .Gap(.Px(4)),
         .ListMarker(marker),
     ];
-    ui.stack({ styles: styles, children: [
-        ui.stack({ styles: [], children: [ui.text({ content: .Const("Alpha") })], role: .Some(.ListItem) }),
-        ui.stack({ styles: [], children: [ui.text({ content: .Const("Beta") })], role: .Some(.ListItem) }),
-        ui.stack({ styles: [], children: [ui.text({ content: .Const("Gamma") })], role: .Some(.ListItem) }),
-    ], role: .Some(.List) })
+    ui.stack({
+        styles: styles,
+        children: [
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Alpha") })],
+                role: .Some(.ListItem),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Beta") })],
+                role: .Some(.ListItem),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Gamma") })],
+                role: .Some(.ListItem),
+            }),
+        ],
+        role: .Some(.List),
+    })
 }
 
 test "a list is marked only where it asked to be" {
@@ -66,9 +82,14 @@ test "a list is marked only where it asked to be" {
     // Three lists of the same rows: no marks at all, discs, and numbers. A
     // list region is a `ul`, and a browser marks and indents one by itself, so
     // the leftmost of the three is the assertion that nothing here does.
-    snapshot(ctx, "lists", ui.stack({ styles: [.Layout(.Row), .Group([.Padding(.Px(24)), .Gap(.Px(48))])], children: [
-        marked(.None),
-        marked(.Disc),
-        marked(.Decimal),
-    ] }), .Hover, []);
+    snapshot(
+        ctx,
+        "lists",
+        ui.stack({
+            styles: [.Layout(.Row), .Group([.Padding(.Px(24)), .Gap(.Px(48))])],
+            children: [marked(.None), marked(.Disc), marked(.Decimal)],
+        }),
+        .Hover,
+        [],
+    );
 }
