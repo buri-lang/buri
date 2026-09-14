@@ -1,0 +1,97 @@
+// `ui/effect`'s scheduler (#125): `after` runs a closure on the graph's own
+// turn once a duration has passed, so a handler — which runs to completion —
+// can make something happen *later*, and a toast can take itself away. `cancel`
+// stops one that has not fired.
+//
+// JS-only for the reason its sibling `mount.buri` is: a page's timers run on a
+// real clock, and the headless double queues them against a virtual one that
+// `ui/testing`'s `elapse` drives. `native::conformance` records this file as
+// excluded, with that reason.
+
+from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
+from "ui/effect" import { after, cancel, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { signal };
+from "ui/testing" import { elapse, headless, observer, render };
+
+/// A toast that shows its message and takes it away three seconds later — the
+/// shape #125 could not express. The press writes the message and schedules the
+/// dismissal with `after`; the `choose` reads the message and shows the toast
+/// only while there is one.
+fn toaster<C: Ui>(ctx: C): Node<C> {
+    let message = signal(ctx, "");
+
+    ui.stack({
+        styles: [.Layout(.Column), .Group([])],
+        children: [
+            ui.button({
+                label: .Const("Save"),
+                styles: [],
+                onPress: .Some(fn(c) => {
+                    let _ = message.set(c, "Saved");
+                    let _ = after(c, time.milliseconds(3000), fn(c2) => {
+                        let _ = message.set(c2 "");
+                    });
+                }),
+            }),
+            ui.choose(
+                .Computed(fn(scope) => message.get(scope) != ""),
+                ui.text({ content: .Cell(message) }),
+                ui.empty(),
+            ),
+        ],
+    })
+}
+
+test "a toast shows its message, then a timer takes it away" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, toaster(ctx));
+    // Only the button shows; there is no toast yet.
+    assert.equal(page.text(), "Save");
+    // The press writes the message and schedules its dismissal, so the toast is
+    // beside the button now.
+    let _ = page.press("Save");
+    assert.equal(page.text(), "Save Saved");
+    // The three seconds pass on the graph's own turn, and the toast is gone.
+    let _ = elapse(3000);
+    assert.equal(page.text(), "Save");
+}
+
+test "an uncancelled timer fires only once its whole delay has passed" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let hit = signal(ctx, "waiting");
+    let _ = after(ctx, time.milliseconds(1000), fn(c) => {
+        let _ = hit.set(c, "fired");
+    });
+    // The handler returned; the timer has not fired.
+    assert.equal(hit.get(ctx), "waiting");
+    // Half the delay is not enough.
+    let _ = elapse(500);
+    assert.equal(hit.get(ctx), "waiting");
+    // The rest of it is.
+    let _ = elapse(500);
+    assert.equal(hit.get(ctx), "fired");
+}
+
+test "a cancelled timer never fires" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let hit = signal(ctx, "waiting");
+    let timer = after(ctx, time.milliseconds(1000), fn(c) => {
+        let _ = hit.set(c, "fired");
+    });
+    let _ = cancel(ctx, timer);
+    // Well past the delay, and it stayed put.
+    let _ = elapse(5000);
+    assert.equal(hit.get(ctx), "waiting");
+}

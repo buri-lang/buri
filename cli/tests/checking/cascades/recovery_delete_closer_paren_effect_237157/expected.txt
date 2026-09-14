@@ -1,0 +1,64 @@
+error: `button` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:30:13
+   |
+30 |             ui.button({
+   |             ^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `button` the following arguments: button<C>(config: Button<C>)
+error: nothing here says what this literal builds [struct-literal-type]
+  --> main.buri:30:23
+   |
+30 |             ui.button({
+   |                       ^
+   |
+   = a `{ ... }` with no type in front of it is given one by what it is checked against, and that is the only place it looks
+   = fix: write the type before the `{`, as in `World { hi: "hi" }`
+error: expected an expression, found `)` [unexpected-token]
+  --> main.buri:38:17
+   |
+38 |                 ),
+   |                 ^
+   |
+   = expected: an expression
+   = actual: `)`
+   = fix: write a value here
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:40:15
+   |
+40 |             ui.choose(
+   |               ^
+   |
+  --> main.buri:30:23
+   |
+30 |             ui.button({
+   |                       ^ opened here
+   |
+   = fix: write `}` here
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:40:15
+   |
+40 |             ui.choose(
+   |               ^
+   |
+   = fix: write `,` here
+error: `.choose` needs a known expected type [unannotated-variant]
+  --> main.buri:40:15
+   |
+40 |             ui.choose(
+   |               ^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.choose(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:45:9
+   |
+45 |         ],
+   |         ^
+   |
+  --> main.buri:30:22
+   |
+30 |             ui.button({
+   |                      ^ opened here
+   |
+   = fix: write `)` here

@@ -825,6 +825,14 @@ const PACKAGES: &[Case] = &[
              run on both backends, and it keeps `platforms: [JS]`",
     ),
     excluded(
+        "ui_mount/effect.buri",
+        "`ui/effect`'s scheduler (#125): `after` runs a closure once a duration \
+             has passed, and a page's timers run on a real clock. The headless \
+             double queues them against a virtual one that `ui/testing`'s \
+             `elapse` drives, which this side has; the native runtime carries no \
+             such scheduler, so this stays `platforms: [JS]` beside its sibling",
+    ),
+    excluded(
         "web/document.buri",
         "`ui/web`'s `render` and `shell`, which are the same document one \
              level along: a tree rendered to HTML for a worker to send. A \

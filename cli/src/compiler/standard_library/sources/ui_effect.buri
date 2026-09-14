@@ -19,6 +19,7 @@
 //! here.
 
 from "core/effect" import { Allocator, Region };
+from "core/time" import { Duration };
 
 /// Reading signals, alone.
 ///
@@ -68,6 +69,50 @@ export effect Ui {
     ///
     /// Named `watch` rather than `effect` because `effect` is a keyword.
     fn watch(self, run: fn(Scope) => ()): ();
+    /// Registers `run` to fire on the graph's own turn once `millis`
+    /// milliseconds have passed, and answers a handle that names it.
+    ///
+    /// The runtime hands `run` a context of its own — the same one this method
+    /// was called on — so the callback may write signals, exactly as a handler
+    /// does. That is why `run` takes `Self` rather than a `Scope`, and why it
+    /// is the runtime that supplies it: a lambda captures no context (SPEC
+    /// 10.6), so the way a delayed body reaches one is to be handed it, the way
+    /// `each`'s row builder is.
+    fn schedule(self, millis: Int, run: fn(Self) => ()): Int;
+    /// Stops a pending scheduled run by its handle. One that has already fired
+    /// or already been stopped is a no-op.
+    fn unschedule(self, id: Int): ();
+}
+
+/// A pending scheduled run, returned by `after` and stopped by `cancel`.
+///
+/// Opaque on purpose: the field is a graph index and nothing more, so holding
+/// one carries no authority — the authority to schedule and to cancel travels
+/// through `ctx`, the way it does for a `Signal`. A lambda may capture one,
+/// which is what lets a hover-pause hold the timer it means to cancel.
+export struct Timer(Int);
+
+/// Runs `run` on the graph's own turn once `duration` has passed, and answers a
+/// `Timer` that names the pending run.
+///
+/// `Ui`-granted, so it is reachable from an event handler — which is the whole
+/// point: a handler runs to completion, so nothing it does can happen *after* a
+/// delay unless the delay is scheduled on the graph rather than waited on in
+/// place. `run` is handed a context of its own when it fires, so it may write
+/// signals: a toast's handler calls `after` on the write and the toast takes
+/// itself away when the timer fires.
+///
+/// The duration is read in whole milliseconds — a length finer than that
+/// schedules on the next turn.
+export fn after<C: Ui>(ctx: C, duration: Duration, run: fn(C) => ()): Timer {
+    Timer(ctx.schedule(duration.milliseconds(), run))
+}
+
+/// Stops a pending timer. A timer that has already fired, or already been
+/// cancelled, is a no-op — so the hover-pause that cancels on pointer-enter and
+/// schedules a fresh one on pointer-leave never has to ask which state it is in.
+export fn cancel<C: Ui>(ctx: C, timer: Timer): () {
+    ctx.unschedule(timer.0)
 }
 
 /// What a reactive closure is handed: reading the graph, and allocating.
