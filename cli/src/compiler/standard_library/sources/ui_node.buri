@@ -388,13 +388,23 @@ export fn empty<C>(): Node<C> {
 /// `row` and `region` are gone, and the direction, the stacking and the meaning
 /// are all data.
 struct Stack<C> {
+    /// Arrangement, size, spacing, colour and borders — `Layout(.Row)` for a
+    /// row, `Layout(.Column)` for a column, `Layout(.Layers)` to stack.
     export styles: [Style],
+    /// The nodes laid out inside, in order.
     export children: [Node<C>],
+    /// What the container *means* — a landmark, a list, a table row, a labelled
+    /// group. Left out, it is a plain box.
     export role: Option<Role>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -418,6 +428,9 @@ export fn stack<C>(config: Stack<C>): Node<C> {
 /// A grown or fixed empty box, so it is a child's share of the main axis rather
 /// than a margin — this vocabulary has no margins.
 struct Spacer {
+    /// A fixed gap when set; left out, the spacer grows to push its siblings
+    /// apart. `{}` is unit, not an empty struct, so an unsized spacer is
+    /// `spacer({ size: .None })`.
     export size: Option<Length>,
 }
 
@@ -440,8 +453,13 @@ export fn spacer<C>(config: Spacer): Node<C> {
 /// a heading by itself. Levels below one and above six clamp. This absorbs the
 /// old `heading` node.
 struct Text {
+    /// The characters to show.
     export content: Prop<Str>,
+    /// Set it and the text becomes a heading at this level (`1`–`6`, clamped)
+    /// in the document outline. Left out, it is ordinary text.
     export headingLevel: Option<Int>,
+    /// Applied only when this is a heading, to drop the size, weight and margins
+    /// a browser paints on one by itself.
     export styles: Option<[Style]>,
 }
 
@@ -477,18 +495,39 @@ export fn text<C>(config: Text): Node<C> {
 /// the current page. Each is announced, which is why it is a parameter and not
 /// a style, and each is written only when it is `true`.
 struct Button<C> {
+    /// The accessible name, required. Stays what a reader hears however the
+    /// children are drawn, and shows in place of them when there are none.
     export label: Prop<Str>,
+    /// Applied to the button itself, so `On(.Hover, ...)`, `On(.Focus, ...)`
+    /// and `On(.Disabled, ...)` fire.
     export styles: [Style],
+    /// Drawn inside the button. Left out, the button shows its `label`.
     export children: Option<[Node<C>]>,
+    /// Runs for a tap, for Enter and for Space, taking the context a lambda may
+    /// not capture. A `.Submit` button omits it — the form's `onSubmit` is its
+    /// handler.
     export onPress: Option<fn(C) => ()>,
+    /// `.Submit` submits the enclosing form; every other kind submits nothing.
+    /// Left out, an ordinary button.
     export kind: Option<ButtonKind>,
+    /// Written only when `true`: takes the button out of the tab order and
+    /// refuses the press before the handler is reached.
     export isDisabled: Option<Prop<Bool>>,
+    /// Written only when `true`: `aria-expanded` for a button that opens a menu
+    /// or popover.
     export isExpanded: Option<Prop<Bool>>,
+    /// Written only when `true`: `aria-current` for the one in a set that is the
+    /// current page.
     export isCurrent: Option<Prop<Bool>>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -544,15 +583,28 @@ fn pressHandler<C>(onPress: Option<fn(C) => ()>): fn(C, Event) => () {
 /// `navigate`. `isCurrent` carries `aria-current` for the link to the page you
 /// are on.
 struct Link<C> {
+    /// Where the link goes — the `href`.
     export dest: Prop<Str>,
+    /// Drawn inside the link.
     export children: [Node<C>],
+    /// Applied to the anchor itself.
     export styles: [Style],
+    /// Written only when `true`: `aria-current` for the link to the page you
+    /// are on.
     export isCurrent: Option<Prop<Bool>>,
+    /// Runs on a plain left-click in place of the browser's navigation, given
+    /// the destination; modified clicks are left to the browser. Left out, a
+    /// plain anchor.
     export onFollow: Option<fn(C, Str) => ()>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -590,13 +642,26 @@ export fn link<C>(config: Link<C>): Node<C> {
 /// sizing it, shaping it with `AspectRatio` and rounding it with `Radius` are
 /// things only the picture can be told.
 struct Image<C> {
+    /// Where the picture comes from — inline `<svg>` read at compile time for a
+    /// `.Decorative` picture, an address the browser fetches for
+    /// `.AccessibilityText`.
     export source: Prop<Str>,
+    /// What the picture is to a reader, required. `.Decorative` for artwork a
+    /// reader is told nothing about, `.AccessibilityText(name)` for a picture
+    /// that is the content and carries the name a reader hears in its place.
     export alt: Alt,
+    /// Applied to the picture — size it, shape it with `AspectRatio`, round it
+    /// with `Radius`.
     export styles: [Style],
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -649,18 +714,38 @@ fn artworkOf(source: Prop<Str>): Str {
 /// announced after the name, gone the moment there is a value — never a
 /// substitute for the required label.
 struct Field<C> {
+    /// The accessible name, required — an unlabelled input has no visual
+    /// fallback the way a missing `alt` does.
     export label: Prop<Str>,
+    /// What the field is for — a line, several lines, a secret, an address, a
+    /// number or a query — which picks the keyboard and the validation.
     export kind: FieldKind,
+    /// The two-way binding: what the reader types lands here, and whatever
+    /// writes this lands in the field. There is no change event.
     export value: Signal<Str>,
+    /// Applied to the input — the thing a reader focuses and a browser disables.
     export styles: [Style],
+    /// The sample value shown in the empty box, gone the moment there is a
+    /// value. Never a substitute for the label.
     export hint: Option<Prop<Str>>,
+    /// Applied to the label the input and its text are wrapped in — where
+    /// `Grow`, `Shrink`, `AlignSelf` and `Width` belong.
     export around: Option<[Style]>,
+    /// Written only when `true`: `aria-invalid`, and puts the input in
+    /// `State::Invalid`.
     export isInvalid: Option<Prop<Bool>>,
+    /// Written only when `true`: refuses what a reader types and puts the input
+    /// in `State::Disabled`.
     export isDisabled: Option<Prop<Bool>>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -697,17 +782,31 @@ export fn field<C>(config: Field<C>): Node<C> {
 /// and defaults to a continuous track when left out. The label is required for a
 /// `field`'s reason.
 struct Slider<C> {
+    /// The accessible name, required for a `field`'s reason.
     export label: Prop<Str>,
+    /// The two-way binding to the number picked off the track.
     export value: Signal<Float>,
+    /// The smallest value the track allows, required — a reader is told the
+    /// range being dragged inside.
     export min: Float,
+    /// The largest value the track allows, required.
     export max: Float,
+    /// Applied to the slider.
     export styles: [Style],
+    /// What an arrow key moves by. Left out, a continuous track.
     export step: Option<Float>,
+    /// Written only when `true`: takes the slider out of the tab order and
+    /// refuses input.
     export isDisabled: Option<Prop<Bool>>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -745,17 +844,32 @@ export fn slider<C>(config: Slider<C>): Node<C> {
 /// box and its text are wrapped in. The mark is drawn in the box's `Foreground`.
 /// `isInvalid` and `isDisabled` mean what a field's do.
 struct Toggle<C> {
+    /// The accessible name, required for a `field`'s reason.
     export label: Prop<Str>,
+    /// What the control looks like and which mark it draws — a tick for a
+    /// `.Checkbox`, a moving thumb for a `.Switch`.
     export kind: ToggleKind,
+    /// The two-way binding to the toggle's state: on while it holds `true`.
     export isOn: Signal<Bool>,
+    /// Applied to the box, so `On(.Checked, ...)` is the box being on.
     export styles: [Style],
+    /// Applied to the label the box and its text are wrapped in.
     export around: Option<[Style]>,
+    /// Written only when `true`: `aria-invalid`, and puts the box in
+    /// `State::Invalid`.
     export isInvalid: Option<Prop<Bool>>,
+    /// Written only when `true`: refuses the toggle and puts the box in
+    /// `State::Disabled`.
     export isDisabled: Option<Prop<Bool>>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -792,13 +906,22 @@ export fn toggle<C>(config: Toggle<C>): Node<C> {
 /// field. So a form of one field works either way, and a form of two that ends
 /// in an ordinary `button` discards the keypress.
 struct Form<C> {
+    /// Runs when the form is submitted — by a `.Submit` button or by Enter in a
+    /// field inside it.
     export onSubmit: fn(C) => (),
+    /// The controls in the form. Put a `.Submit` button among them.
     export children: [Node<C>],
+    /// Applied to the form.
     export styles: [Style],
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -843,15 +966,28 @@ fn submitHandler<C>(onSubmit: fn(C) => ()): fn(C, Event) => () {
 /// pinned to the viewport, so like every pin it never decides how tall a page
 /// is.
 struct Dialog<C> {
+    /// The two-way binding that opens and shuts it: Open while it holds `true`.
+    /// Writable because the platform writes it — the browser writes `false`
+    /// back when Escape shuts the dialog.
     export isOpen: Signal<Bool>,
+    /// The accessible name, the rule `button`'s label follows.
     export label: Prop<Str>,
+    /// What the panel holds.
     export children: [Node<C>],
+    /// Applied to the panel.
     export styles: [Style],
+    /// Applied to the scrim behind the panel — a `BackdropBlur` or a tint,
+    /// composed on top of the default half-strength black.
     export scrimStyles: Option<[Style]>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -895,16 +1031,33 @@ export fn dialog<C>(config: Dialog<C>): Node<C> {
 /// `styles` land on the group, the box a surrounding stack lays out. `style`
 /// picks the shape and defaults to `.Radio`.
 struct Picker<C> {
+    /// The group's accessible name, required for a widget's reason.
     export label: Prop<Str>,
+    /// The choices — one `(key, content)` pair per choice. The key is what the
+    /// signal holds when that option is picked; the content is any node drawn
+    /// beside it, not just a caption.
     export options: [(Str, Node<C>)],
+    /// The two-way binding holding the selected key: the option whose key
+    /// equals it is checked, and picking another writes its key back. A key no
+    /// option carries is an unset choice.
     export value: Signal<Str>,
+    /// Applied to the group.
     export styles: [Style],
+    /// The shape drawn — `.Radio`, a segmented control, a menu or a native
+    /// select. Defaults to `.Radio`.
     export style: Option<ChoiceStyle>,
+    /// Written only when `true`: takes the group out of the tab order and
+    /// refuses a pick.
     export isDisabled: Option<Prop<Bool>>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -952,14 +1105,25 @@ export fn picker<C>(config: Picker<C>): Node<C> {
 /// `styles` land on the bar itself; the widget adds the announcement and nothing
 /// to the picture.
 struct Progress<C> {
+    /// The accessible name: a reader is told what is loading, not only that
+    /// something is.
     export label: Prop<Str>,
+    /// Applied to the bar.
     export styles: [Style],
+    /// A fraction from `0.0` to `1.0` for a determinate bar. Left out, the bar
+    /// is indeterminate — a spinner.
     export value: Option<Prop<Float>>,
+    /// Drawn inside the bar — the fill is the caller's.
     export children: Option<[Node<C>]>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
@@ -994,14 +1158,25 @@ export fn progress<C>(config: Progress<C>): Node<C> {
 /// platform writes it** — a reader opens and shuts a `<details>` without asking
 /// the program — the rule `dialog`'s `isOpen` follows.
 struct Disclosure<C> {
+    /// The always-visible label that opens and shuts the section.
     export summary: Prop<Str>,
+    /// The two-way binding for the open state: open while it holds `true`.
+    /// Writable because the platform writes it — a reader opens and shuts a
+    /// `<details>` without asking the program.
     export isOpen: Signal<Bool>,
+    /// What the section hides and shows.
     export children: [Node<C>],
+    /// Applied to the `<details>`.
     export styles: [Style],
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
     export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
     export onKey: Option<fn(C, Key) => ()>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
 
