@@ -464,28 +464,30 @@ test "text, count and identity over a resolved tree" {
         Allocator: testAlloc(),
         Ui: headless(),
     };
-    let tree = ui.stack({
-        styles: [],
-        children: [
-            ui.stack({
-                styles: [],
-                children: [ui.text({ content: .Const("a") })],
-                role: .Some(.ListItem),
-            }),
-            ui.stack({
-                styles: [],
-                children: [ui.text({ content: .Const("b") })],
-                role: .Some(.ListItem),
-            }),
-            ui.stack({
-                styles: [],
-                children: [ui.text({ content: .Const("c") })],
-                role: .Some(.ListItem),
-            }),
-        ],
-        role: .Some(.List),
-    });
-    let page = render(ctx, tree);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("a") })],
+                    role: .Some(.ListItem),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("b") })],
+                    role: .Some(.ListItem),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("c") })],
+                    role: .Some(.ListItem),
+                }),
+            ],
+            role: .Some(.List),
+        }),
+    );
     assert.equal(page.text(), "a b c");
     assert.equal(page.count("ul"), 1);
     assert.equal(page.count("li"), 3);
