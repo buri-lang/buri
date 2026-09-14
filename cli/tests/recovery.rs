@@ -369,13 +369,15 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // once more over the exchanged-pair fixes merged beside them (issues
         // 113, 114 and 115), which take the row to 8 of 2184, or 0.4%.
         ("one mistake is one diagnostic", "insert-stray") => 1,
-        // `swap-adjacent` was one and is now nothing, so it is not a row here
-        // at all. Two adjacent tokens exchanged used to leave the parser
-        // reading the second of them as the start of something, and the cases
-        // over the bound were the ones where that reading ran on. The
-        // exchanges the grammar can name — a name in front of its `let`, a
-        // type inside its own brace, a keyword one token late — are now
-        // reported once and read as what they say, so 0 of 2109 violate.
+        // `swap-adjacent` fell to zero once the exchanges the grammar can name
+        // were read as what they say. It is a row again because `ui/node`'s
+        // config-struct syntax puts a `}` next to a `]` or a `)` — `children:
+        // [...] })` ends on `] })` and `})` — and exchanging two adjacent
+        // closers is a second reading the grammar accepts (`] }` for `} ]` is a
+        // list closed inside a struct or the other way about), which no
+        // recovery can be asked to prefer. 2 of 2133, or 0.1%, and two is that
+        // rounded up plus a point of margin.
+        ("one mistake is one diagnostic", "swap-adjacent") => 2,
 
         ("the caret is on the mistake", "delete-closer") => 30,
         ("the caret is on the mistake", "delete-separator ()") => 5,
