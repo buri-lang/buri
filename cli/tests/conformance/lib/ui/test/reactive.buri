@@ -39,6 +39,44 @@ test "a reactive leaf patches in place and follows its cell" {
     assert.equal(page.text(), "after");
 }
 
+// A button and a routing link register the reactive style bind a plain box
+// does, so a `.When` class swap over a cell moves them between two classes in
+// place — the mark a navigation rail draws on the current row. They used to
+// freeze at the class they were first rendered with, because their scene emit
+// resolved styles once instead of under a watcher (issue 164).
+test "a button's reactive styles swap in place" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let bold = signal(ctx, false);
+    let page = render(ctx, ui.button({
+        label: .Const("Go"),
+        styles: [.When(.Cell(bold), [.FontWeight(.Bold)], [])],
+        onPress: .Some(fn(_c) => {
+        }),
+    }));
+    assert.isFalse(page.markup().contains("fw-bold"));
+    let _ = bold.set(ctx, true);
+    assert.isTrue(page.markup().contains("fw-bold"));
+}
+
+test "a routing link's reactive styles swap in place" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let bold = signal(ctx, false);
+    let page = render(ctx, ui.link({
+        dest: .Const("/a"),
+        children: [ui.text({ content: .Const("Go") })],
+        styles: [.When(.Cell(bold), [.FontWeight(.Bold)], [])],
+        onFollow: .Some(fn(_c, _dest) => {
+        }),
+    }));
+    assert.isFalse(page.markup().contains("fw-bold"));
+    let _ = bold.set(ctx, true);
+    assert.isTrue(page.markup().contains("fw-bold"));
+}
+
 // --- keyed `each` reconciliation (#53, phase 4) -----------------------------
 //
 // The both-backends twin of the keyed-list blocks in `tree.buri`, whose own

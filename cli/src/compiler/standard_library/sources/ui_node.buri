@@ -1371,11 +1371,18 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     )
                 },
                 .Some(handler) => {
-                    let _ = emitElement(
-                        builder,
-                        "a",
-                        widgetBody(mem, plain(state), [], styles),
-                    );
+                    // A routing anchor's styles are reactive the same way a
+                    // plain link's (`emitBox`) are: a `.When`/`.Computed` swap —
+                    // how a nav rail marks the current row — re-serialises in
+                    // place rather than being frozen at first render.
+                    let _ = if (stylesReactive(styles)) {
+                        let at = openElement(builder, "a", "");
+                        reactive(fn(scope) => {
+                            patchBody(builder, at, widgetBodyUnder(scope, plain(state), [], styles))
+                        })
+                    } else {
+                        emitElement(builder, "a", widgetBody(mem, plain(state), [], styles))
+                    };
                     let _ = registerFollow(builder, dest.read(scope), handler);
                     let _ = registerEvents(builder, events);
                     let _ = emitChildren(ctx, builder, children, state, 0);
@@ -1618,7 +1625,17 @@ fn emitButton<C>(
 ): () {
     let mem = alloc.generalPurpose();
     let painted = refusing(state, disabled.read(rootScope()));
-    let _ = emitElement(builder, "button", widgetBody(mem, painted, [], styles));
+    // A button whose styles hold a computation opens once and patches its body
+    // from a watcher, so a `.When`/`.Computed` class swap re-serialises in place
+    // — the same reactive-style bind `emitBox` gives a plain box. A button of
+    // constant styles registers nothing. (Its `disabled` is constant here: the
+    // reactive arm of `emitNode`'s `Button` wraps a non-const one in a rebuild.)
+    let _ = if (stylesReactive(styles)) {
+        let at = openElement(builder, "button", "");
+        reactive(fn(scope) => patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles)))
+    } else {
+        emitElement(builder, "button", widgetBody(mem, painted, [], styles))
+    };
     let _ = registerPress(builder, onPress);
     let _ = registerLabel(builder, label.read(rootScope()));
     let _ = if (children.isEmpty()) {
