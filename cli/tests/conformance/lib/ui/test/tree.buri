@@ -1337,7 +1337,7 @@ test "a radio group is a radiogroup of real radios sharing one name" {
     // Space from there.
     assert.equal(
         page.markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Small\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Medium\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Large",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Small\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Medium\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Large",
     );
     // One input per option, and nothing shared with a second group: a page of
     // two groups numbers them apart, which is what makes the browser's model
@@ -1394,13 +1394,13 @@ test "picking a radio writes its key, and the checked one follows the signal" {
     page.flip("Banana");
     assert.equal(
         page.markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Banana",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
     );
     // Writing the signal from elsewhere checks the matching input too.
     let _ = choice.set(ctx, "a");
     assert.containsText(
         page.markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full;checked:false\nt 2 Banana",
+        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
     );
 }
 
