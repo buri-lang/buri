@@ -180,12 +180,32 @@ impl Api {
     }
 }
 
+/// A private struct a builder takes as its one config parameter.
+///
+/// The `ui/node` builders each take a single config struct — `stack(config:
+/// Stack<C>)` — and those structs are not exported, so they have no page of
+/// their own and a reader has nowhere to learn the field names. The names are
+/// not optional knowledge: `Toggle.isOn` is not `value`, `Dialog.isOpen` is
+/// not `open`, and `spacer` needs `{ size: .None }` because `{}` is unit. So
+/// the fields ride along on the builder's page, the way an exported struct
+/// prints its own — and the struct carries the prose too, because a builder's
+/// explanation is written on the struct rather than on the one-line function.
+#[derive(Clone)]
+pub struct Config {
+    pub name: String,
+    pub docs: Vec<String>,
+    pub fields: Vec<Member>,
+}
+
 #[derive(Clone)]
 pub struct ApiItem {
     pub api: Api,
     pub name: String,
     pub signature: String,
     pub docs: Vec<String>,
+    /// The private config struct this item takes as its sole configuration, if
+    /// any. Only a builder-shaped function has one; everything else is `None`.
+    pub config: Option<Config>,
 }
 
 impl ApiItem {
@@ -319,7 +339,11 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
     let mut out = Vec::new();
     for item in &module.items {
         match item {
-            Item::Fn(d) if d.exported => out.push(function(t, d, None)),
+            Item::Fn(d) if d.exported => {
+                let mut api_item = function(t, d, None);
+                api_item.config = config_of(module, d);
+                out.push(api_item);
+            }
             Item::Struct(d) if d.exported => out.push(structure(t, d)),
             Item::Enum(d) if d.exported => out.push(enumeration(t, d)),
             Item::Trait(d) if d.exported => out.push(trait_or_effect(t, d)),
@@ -328,18 +352,21 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
                 name: t.name(d.name).to_string(),
                 signature: format!("type {} = {}", t.name(d.name), formatting::type_text(t, d.ty)),
                 docs: d.docs.clone(),
+                config: None,
             }),
             Item::Let(d) if d.exported => out.push(ApiItem {
                 api: Api::Const,
                 name: t.name(d.name).to_string(),
                 signature: format!("let {}: {}", t.name(d.name), formatting::type_text(t, d.ty)),
                 docs: d.docs.clone(),
+                config: None,
             }),
             Item::Context(d) if d.exported => out.push(ApiItem {
                 api: Api::Context,
                 name: t.name(d.name).to_string(),
                 signature: format!("context {}", t.name(d.name)),
                 docs: d.docs.clone(),
+                config: None,
             }),
             Item::Impl(d) => {
                 let owner = formatting::type_text(t, d.self_ty);
@@ -443,6 +470,7 @@ fn function(
         name: t.name(d.name).to_string(),
         signature: formatting::signature(t, d),
         docs: d.docs.clone(),
+        config: None,
     }
 }
 
@@ -469,8 +497,12 @@ fn strip_export(sig: &str) -> String {
     sig.strip_prefix("export ").unwrap_or(sig).to_string()
 }
 
-fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
-    let fields = match &d.body {
+/// The fields of a struct, as a reference lists them: the exported ones, each
+/// with the type it was declared with and the `///` attached to it. Shared by
+/// the struct's own page and by a builder that takes the struct as its config,
+/// so the two cannot describe one field two ways.
+fn fields_of(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> Vec<Member> {
+    match &d.body {
         tree::StructBody::Record(fields) => fields
             .iter()
             .filter(|f| f.exported)
@@ -490,13 +522,47 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
                 docs: Vec::new(),
             })
             .collect(),
-    };
+    }
+}
+
+fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
     ApiItem {
-        api: Api::Struct { fields },
+        api: Api::Struct { fields: fields_of(t, d) },
         name: t.name(d.name).to_string(),
         signature: format!("struct {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
         docs: d.docs.clone(),
+        config: None,
     }
+}
+
+/// The private config struct a function takes as its one value parameter.
+///
+/// A builder is `fn stack<C>(config: Stack<C>): Node<C>`: a single value
+/// parameter whose type is a struct the module declares but does not export.
+/// That struct is where the field names and the builder's own prose live, and
+/// with no page of its own it is invisible — so it is pulled onto the builder's
+/// page. Only a *private* struct is followed: an exported one already has a
+/// page, and a reader can go to it rather than read it twice.
+fn config_of(module: &tree::Module, d: &tree::FnDecl) -> Option<Config> {
+    let t = &module.tree;
+    for p in d.params.iter().filter(|p| p.kind == ParamKind::Normal) {
+        let Some(ty) = p.written_type() else { continue };
+        let written = formatting::type_text(t, ty);
+        let head = written.split('<').next().unwrap_or(&written).trim();
+        let head = head.rsplit('.').next().unwrap_or(head);
+        for item in &module.items {
+            if let Item::Struct(s) = item {
+                if !s.exported && t.name(s.name) == head {
+                    return Some(Config {
+                        name: head.to_string(),
+                        docs: s.docs.clone(),
+                        fields: fields_of(t, s),
+                    });
+                }
+            }
+        }
+    }
+    None
 }
 
 fn enumeration(t: &crate::parsing::flat::Tree, d: &tree::EnumDecl) -> ApiItem {
@@ -517,6 +583,7 @@ fn enumeration(t: &crate::parsing::flat::Tree, d: &tree::EnumDecl) -> ApiItem {
         name: t.name(d.name).to_string(),
         signature: format!("enum {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
         docs: d.docs.clone(),
+        config: None,
     }
 }
 
@@ -540,6 +607,7 @@ fn trait_or_effect(t: &crate::parsing::flat::Tree, d: &tree::TraitDecl) -> ApiIt
             formatting::generics(t, &d.generics)
         ),
         docs: d.docs.clone(),
+        config: None,
     }
 }
 
@@ -618,6 +686,24 @@ fn write_item(out: &mut String, item: &ApiItem) {
             let _ = writeln!(out, "- `{}`{}", m.signature, member_doc(&m.docs));
         }
         out.push('\n');
+    }
+
+    // A builder's fields live on a private config struct with no page of its
+    // own, so they and the struct's prose are printed here — the way an
+    // exported struct prints its own fields, so the two read the same.
+    if let Some(config) = &item.config {
+        for line in &config.docs {
+            let _ = writeln!(out, "{line}");
+        }
+        if !config.docs.is_empty() {
+            out.push('\n');
+        }
+        for f in &config.fields {
+            let _ = writeln!(out, "- `{}`{}", f.signature, member_doc(&f.docs));
+        }
+        if !config.fields.is_empty() {
+            out.push('\n');
+        }
     }
 }
 
