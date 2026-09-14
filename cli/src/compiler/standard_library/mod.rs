@@ -848,6 +848,8 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Ui", "write", "ui/signal", "aSignal.set(ctx, value)"),
     w("Ui", "memo", "ui/prop", "prop.memo(ctx, compute)"),
     w("Ui", "watch", "ui/signal", "signal.watch(ctx, run)"),
+    w("Ui", "schedule", "ui/effect", "effect.after(ctx, duration, run)"),
+    w("Ui", "unschedule", "ui/effect", "effect.cancel(ctx, timer)"),
     // The address bar. Its reader answers a cell, and the door that turns that
     // into something a tree can hold is `route`; `web.path(ctx)` is the same
     // cell read once. Its two writers put an address in the bar, and each door
