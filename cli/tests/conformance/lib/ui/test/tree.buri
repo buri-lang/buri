@@ -484,10 +484,7 @@ test "a caret colour paints the caret even where the text is transparent" {
     // caret is whatever `Foreground` is — transparent — so the reader types
     // into a box with no caret in it. Naming the caret keeps it visible while
     // the text stays transparent, which is what makes the mirror shippable.
-    let styles: [Style] = [
-        .Foreground(.Transparent),
-        .CaretColor(.Rgb(20, 20, 20)),
-    ];
+    let styles: [Style] = [.Foreground(.Transparent), .CaretColor(.Rgb(20, 20, 20))];
     assert.equal(
         render(ctx, ui.stack({ styles: styles, children: [] })).markup(),
         "e 0 class:fg-none caret-141414",
