@@ -1,0 +1,9 @@
+error: expected `=>`, found `{` [unexpected-token]
+  --> main.buri:35:70
+   |
+35 |                     let _ = after(c, time.milliseconds(3000), fn(c2) { =>
+   |                                                                      ^
+   |
+   = expected: `=>`
+   = actual: `{`
+   = fix: write `=>` here
