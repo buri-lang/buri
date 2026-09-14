@@ -22,5 +22,5 @@ fn rewrap<C>(n: Node<C>): Node<C> {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, rewrap(ui.stack([], [])), [])
+  ui.mount(ctx, rewrap(ui.stack({ styles: [], children: [] })), [])
 }

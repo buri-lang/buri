@@ -1,8 +1,8 @@
 error: expected `Prop<Str>`, found `Str` [type-mismatch]
-  --> cmd/ui_node_field_hint_is_a_prop/main.buri:16:53
+  --> cmd/ui_node_field_hint_is_a_prop/main.buri:16:106
    |
-16 |   ui.mount(ctx, ui.field(.Const("Search"), .Search, "Type a command", [], [], query, .Const(false), .Const(false)), [])
-   |                                                     ^^^^^^^^^^^^^^^^ the parameter type is `Prop<Str>`
+16 |   ui.mount(ctx, ui.field({ label: .Const("Search"), kind: .Search, value: query, styles: [], hint: .Some("Type a command") }), [])
+   |                                                                                                          ^^^^^^^^^^^^^^^^ the parameter type is `Prop<Str>`
    |
    = expected: `Prop<Str>`
    = actual: `Str`

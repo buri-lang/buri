@@ -16,5 +16,5 @@ let hairline: Style = .BorderEdge(.TopStart, .Px(1));
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([hairline], []), [])
+  ui.mount(ctx, ui.stack({ styles: [hairline], children: [] }), [])
 }

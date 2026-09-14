@@ -1,8 +1,8 @@
 error: expected `Prop<Bool>`, found `Bool` [type-mismatch]
-  --> cmd/ui_node_button_expanded_is_a_prop/main.buri:16:84
+  --> cmd/ui_node_button_expanded_is_a_prop/main.buri:16:82
    |
-16 |   ui.mount(ctx, ui.button(.Const("Menu"), [], [], fn(_c, _e) => (), .Const(false), true), [])
-   |                                                                                    ^^^^ the parameter type is `Prop<Bool>`
+16 |   ui.mount(ctx, ui.button({ label: .Const("Menu"), styles: [], isExpanded: .Some(true) }), [])
+   |                                                                                  ^^^^ the parameter type is `Prop<Bool>`
    |
    = expected: `Prop<Bool>`
    = actual: `Bool`

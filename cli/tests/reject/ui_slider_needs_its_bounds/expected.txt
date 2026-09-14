@@ -1,0 +1,11 @@
+error: `Slider` is missing `min` and `max` [missing-field-value]
+  --> cmd/ui_slider_needs_its_bounds/main.buri:18:27
+   |
+18 |   ui.mount(ctx, ui.slider({ label: .Const("Volume"), value: volume, styles: [] }), [])
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: give `min` and `max` a value — only an `Option` field may be left out — or start from an existing one with `Slider { ..base, field: value }`
+
+     A field whose declared type is Option<...> is not required. Leaving it out
+     writes .None for it, so the message names only the other fields.
+

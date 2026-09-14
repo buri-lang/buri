@@ -1,8 +1,8 @@
 error: expected `Length`, found `Int` [type-mismatch]
-  --> cmd/ui_style_bleed_takes_a_length/main.buri:15:42
+  --> cmd/ui_style_bleed_takes_a_length/main.buri:15:52
    |
-15 |   ui.mount(ctx, ui.stack([.Bleed(.Start, 8)], []), [])
-   |                                          ^ the parameter type is `Length`
+15 |   ui.mount(ctx, ui.stack({ styles: [.Bleed(.Start, 8)], children: [] }), [])
+   |                                                    ^ the parameter type is `Length`
    |
    = expected: `Length`
    = actual: `Int`

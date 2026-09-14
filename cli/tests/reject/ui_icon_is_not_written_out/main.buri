@@ -1,4 +1,4 @@
-// EXPECT: an icon's artwork has to be written out at the call site
+// EXPECT: a decorative picture's artwork has to be written out at the call site
 //
 // The compiler reads the artwork, so it has to be there to read. One that
 // arrives as a parameter is not there until the program runs, and by then it is
@@ -11,7 +11,7 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 
 fn glyph<C>(source: Str): Node<C> {
-  ui.icon([], source)
+  ui.image({ source: .Const(source), alt: .Decorative, styles: [] })
 }
 
 export fn main(): Result<(), Str> {

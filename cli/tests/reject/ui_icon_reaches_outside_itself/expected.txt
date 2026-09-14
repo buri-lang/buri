@@ -1,8 +1,8 @@
 error: an icon may carry only the attributes that draw a shape, and this `<path>` carries `href` [icon-not-drawable]
-  --> cmd/ui_icon_reaches_outside_itself/main.buri:17:17
+  --> cmd/ui_icon_reaches_outside_itself/main.buri:17:24
    |
-17 |     ui.icon([], "<svg viewBox='0 0 24 24'><path d='M0 0' href='/logo.svg'/></svg>"),
-   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 |     ui.image({ source: .Const("<svg viewBox='0 0 24 24'><path d='M0 0' href='/logo.svg'/></svg>"), alt: .Decorative, styles: [] }),
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
 

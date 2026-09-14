@@ -13,5 +13,5 @@ from "ui/signal" import { signal };
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let query = signal(ctx, "");
-  ui.mount(ctx, ui.field(.Const("Search"), .Search, "Type a command", [], [], query, .Const(false), .Const(false)), [])
+  ui.mount(ctx, ui.field({ label: .Const("Search"), kind: .Search, value: query, styles: [], hint: .Some("Type a command") }), [])
 }

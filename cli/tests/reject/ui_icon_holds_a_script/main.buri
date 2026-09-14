@@ -15,7 +15,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(
     ctx,
-    ui.icon([], "<svg viewBox='0 0 24 24'><script>steal()</script></svg>"),
+    ui.image({ source: .Const("<svg viewBox='0 0 24 24'><script>steal()</script></svg>"), alt: .Decorative, styles: [] }),
     [],
   )
 }

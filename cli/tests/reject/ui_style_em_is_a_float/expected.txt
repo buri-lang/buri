@@ -1,8 +1,8 @@
 error: expected `F64`, found `Int` [type-mismatch]
-  --> cmd/ui_style_em_is_a_float/main.buri:15:46
+  --> cmd/ui_style_em_is_a_float/main.buri:15:56
    |
-15 |   ui.mount(ctx, ui.stack([.LetterSpacing(.Em(1))], []), [])
-   |                                              ^ the parameter type is `F64`
+15 |   ui.mount(ctx, ui.stack({ styles: [.LetterSpacing(.Em(1))], children: [] }), [])
+   |                                                        ^ the parameter type is `F64`
    |
    = expected: `F64`
    = actual: `Int`

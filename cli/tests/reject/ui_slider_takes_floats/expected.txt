@@ -1,8 +1,8 @@
 error: expected `F64`, found `Int` [type-mismatch]
-  --> cmd/ui_field_range_takes_floats/main.buri:18:51
+  --> cmd/ui_slider_takes_floats/main.buri:17:74
    |
-18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), .Const(""), [], [], volume, .Const(false), .Const(false)), [])
-   |                                                   ^ the parameter type is `F64`
+17 |   ui.mount(ctx, ui.slider({ label: .Const("Volume"), value: volume, min: 0, max: 100, styles: [] }), [])
+   |                                                                          ^ the field type is `F64`
    |
    = expected: `F64`
    = actual: `Int`
@@ -37,20 +37,10 @@ error: expected `F64`, found `Int` [type-mismatch]
      payload would put a type in front of you that nothing in your program says.
 
 error: expected `F64`, found `Int` [type-mismatch]
-  --> cmd/ui_field_range_takes_floats/main.buri:18:54
+  --> cmd/ui_slider_takes_floats/main.buri:17:82
    |
-18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), .Const(""), [], [], volume, .Const(false), .Const(false)), [])
-   |                                                      ^^^ the parameter type is `F64`
-   |
-   = expected: `F64`
-   = actual: `Int`
-   = there is no implicit promotion of any kind
-   = fix: annotate the literal, as in `let x: F64 = ...`
-error: expected `F64`, found `Int` [type-mismatch]
-  --> cmd/ui_field_range_takes_floats/main.buri:18:59
-   |
-18 |   ui.mount(ctx, ui.field(.Const("Volume"), .Range(0, 100, 1), .Const(""), [], [], volume, .Const(false), .Const(false)), [])
-   |                                                           ^ the parameter type is `F64`
+17 |   ui.mount(ctx, ui.slider({ label: .Const("Volume"), value: volume, min: 0, max: 100, styles: [] }), [])
+   |                                                                                  ^^^ the field type is `F64`
    |
    = expected: `F64`
    = actual: `Int`

@@ -15,5 +15,5 @@ let rounded: Style = .RadiusCorner(.Top, .Px(4));
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([rounded], []), [])
+  ui.mount(ctx, ui.stack({ styles: [rounded], children: [] }), [])
 }

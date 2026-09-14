@@ -1,8 +1,8 @@
-// EXPECT: expected `(Str, Prop<Str>)`, found `Str`
+// EXPECT: expected `(Str, Node<C>)`, found `Str`
 //
-// Each option a radio group takes is a `(key, caption)` pair: the key is what
-// the signal holds when it is picked and the caption is what the reader sees, so
-// a bare caption with no key is not one an option can be built from.
+// Each option a picker takes is a `(key, content)` pair: the key is what the
+// signal holds when it is picked and the content is the node drawn beside it, so
+// a bare string with no key is not one an option can be built from.
 from "core/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
@@ -12,7 +12,7 @@ from "ui/node" import { Node };
 from "ui/signal" import { Signal, signal };
 
 fn plan<C>(value: Signal<Str>): Node<C> {
-  ui.radioGroup(.Const("Size"), ["small", "medium"], [], value)
+  ui.picker({ label: .Const("Size"), options: ["small", "medium"], value: value, styles: [] })
 }
 
 export fn main(): Result<(), Str> {

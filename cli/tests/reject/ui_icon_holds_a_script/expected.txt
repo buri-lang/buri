@@ -1,8 +1,8 @@
 error: an icon may hold only an `<svg>` and the shapes inside it, and this one holds a `<script>` [icon-not-drawable]
-  --> cmd/ui_icon_holds_a_script/main.buri:18:17
+  --> cmd/ui_icon_holds_a_script/main.buri:18:24
    |
-18 |     ui.icon([], "<svg viewBox='0 0 24 24'><script>steal()</script></svg>"),
-   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |     ui.image({ source: .Const("<svg viewBox='0 0 24 24'><script>steal()</script></svg>"), alt: .Decorative, styles: [] }),
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
 

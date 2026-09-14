@@ -11,14 +11,14 @@ from "core/host" import * as host;
 from "ui/effect" import { Event, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
-from "ui/signal" import { Signal, signal };
+from "ui/signal" import { signal };
 
-fn pressTwice<C>(count: Signal<Int>, onPress: fn(C, Event) => ()): Node<C> {
-  ui.button(.Const("twice"), [], [], fn(c, e) => onPress(c, Event(0)), .Const(false), .Const(false))
+fn pressTwice<C>(again: fn(C, Event) => ()): Node<C> {
+  ui.button({ label: .Const("twice"), styles: [], onPress: .Some(fn(c) => again(c, Event(0))) })
 }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let count = signal(ctx, 0);
-  ui.mount(ctx, pressTwice(count, fn(c, e) => count.update(c, fn(n) => n + 1)), [])
+  ui.mount(ctx, pressTwice(fn(c, e) => count.update(c, fn(n) => n + 1)), [])
 }

@@ -14,5 +14,5 @@ from "ui/prop" import { Prop };
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let open: Prop<Bool> = .Const(true);
-  ui.mount(ctx, ui.disclosure(.Const("Details"), open, [], []), [])
+  ui.mount(ctx, ui.disclosure({ summary: .Const("Details"), isOpen: open, children: [], styles: [] }), [])
 }
